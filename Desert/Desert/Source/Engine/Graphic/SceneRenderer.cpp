@@ -828,7 +828,9 @@ namespace Desert::Graphic
 
         // GPU particles: snapshot the scene's emitters (CPU) here; the compute sim is dispatched in OnUpdate
         // before the render graph, and the billboard pass draws in AddFrameTranslucency.
-        UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
+        // A reflection capture's face view neither draws nor simulates them (AddFrameParticlesSimulate).
+        if ( !m_ViewProfile.SceneCapture )
+            UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
         // here: the material Time uniform and the eye adaptation step.
@@ -1193,7 +1195,11 @@ namespace Desert::Graphic
 
         AddFrameClearMainFramebuffer( graph, textures );
 
-        AddFrameParticlesSimulate( graph );
+        // A face view draws no particles (UE: a capture's ShowFlags.Particles = 0, "usually dynamic, and can't be
+        // captured well"), and simulates none: the face views render first in a frame, and the first view to
+        // prepare the tick is the one that simulates it.
+        if ( !m_ViewProfile.SceneCapture )
+            AddFrameParticlesSimulate( graph );
 
         AddFrameCloudShadowMap( graph, textures );
 
@@ -1208,7 +1214,9 @@ namespace Desert::Graphic
         if ( GlobalDistanceFieldRead() )
             AddFrameGlobalDistanceField( graph, textures, frame );
         AddFrameBasePass( graph, textures );
-        AddFrameSilhouette( graph, textures );
+        // The selection outline's mask, which a face view's missing post chain would never read.
+        if ( !m_ViewProfile.SceneCapture )
+            AddFrameSilhouette( graph, textures );
         // A forward view lights its pixels with the sky's cubes: its captures are measured with the same.
         if ( m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer )
             AddFrameReflectionCaptureUpdate( graph, textures, false );
@@ -1311,73 +1319,93 @@ namespace Desert::Graphic
         // fragment shaders do not write slot 1: colour write mask 0, VulkanPipeline::CreateColorBlendState).
         AddFrameGraphColorResolves( graph, textures );
 
-        // THE TEMPORAL RESOLVE (TAA1-B 5c). Everything after it reads its output and the overlays draw into
-        // it - never into the history, never into the pre-resolve scene colour. Overlays (debug lines, grid,
-        // gizmos, UI) are UNJITTERED: their shaders read ViewFrame::ViewProjection or the camera's matrices, never
-        // JitteredViewProjection (Camera.hpp WHICH MATRIX). Without a temporal method the post input is the scene
-        // colour, as before.
-        const RDG::TextureRef              exposurePrevious = PrepareFrameAutoExposure( textures );
-        const OverlayTargets               overlay = AddFrameTemporal( graph, textures, frame, exposurePrevious );
-        const std::vector<RDG::TextureRef> postInput =
-             overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
+        // WHAT THIS GRAPH HANDS OVER at its end, to a reader outside it.
+        std::shared_ptr<Image2D> handed;
+        std::string_view         handedName;
+        RDG::Access              handedAccess = RDG::Access::SampledGraphics;
+        if ( m_ViewProfile.SceneCapture )
+        {
+            // A REFLECTION CAPTURE'S FACE VIEW ENDS AT THE LIT HDR SCENE (UE CaptureSceneIntoScratchCubemap: the
+            // capture's view family has PostProcessing, MotionBlur, LightShafts, on-screen debug and the editor's
+            // primitives off). The capture resamples the scene colour, so the temporal resolve, the overlays, the
+            // outline, eye adaptation, bloom, shafts, flare, tonemap and AA were a face view's work for nothing
+            // (~1.8 ms of a 3.9 ms Bistro face, REFL-CAPTURE-NORM-2). The capture's Assemble samples the colour in
+            // the next graph's compute.
+            handed       = GetSceneColorImage();
+            handedName   = "scene colour";
+            handedAccess = RDG::Access::SampledCompute;
+        }
+        else
+        {
+            // THE TEMPORAL RESOLVE (TAA1-B 5c). Everything after it reads its output and the overlays draw into
+            // it - never into the history, never into the pre-resolve scene colour. Overlays (debug lines, grid,
+            // gizmos, UI) are UNJITTERED: their shaders read ViewFrame::ViewProjection or the camera's matrices,
+            // never JitteredViewProjection (Camera.hpp WHICH MATRIX). Without a temporal method the post input is
+            // the scene colour, as before.
+            const RDG::TextureRef exposurePrevious = PrepareFrameAutoExposure( textures );
+            const OverlayTargets  overlay          = AddFrameTemporal( graph, textures, frame, exposurePrevious );
+            const std::vector<RDG::TextureRef> postInput =
+                 overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
 #if DESERT_DEV_INSTRUMENTS
-        AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
-        AddFrameLightGridWorldView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front(),
-                                    frame );
-        AddFrameGlobalDistanceFieldView( graph, textures, frame,
-                                         postInput.empty() ? RDG::TextureRef{} : postInput.front() );
-        AddFrameSurfaceCacheView( graph, textures, frame,
-                                  postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+            AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+            AddFrameLightGridWorldView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front(),
+                                        frame );
+            AddFrameGlobalDistanceFieldView( graph, textures, frame,
+                                             postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+            AddFrameSurfaceCacheView( graph, textures, frame,
+                                      postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 #endif // DESERT_DEV_INSTRUMENTS
 
 #if DESERT_DEV_INSTRUMENTS
-        // The engine's debug lines (bounding boxes), the first overlay.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
-            AddSystemRaster( graph, textures, mesh->DebugLinesPass(), overlay );
+            // The engine's debug lines (bounding boxes), the first overlay.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+                AddSystemRaster( graph, textures, mesh->DebugLinesPass(), overlay );
 #endif // DESERT_DEV_INSTRUMENTS
        // The editor's authoring overlays (colliders, cubemap preview) over the engine's debug lines.
-        AddExtensionPoint( graph, textures, RDG::ExtensionPoint::Overlay, overlay );
+            AddExtensionPoint( graph, textures, RDG::ExtensionPoint::Overlay, overlay );
 
-        // The pyramid the UI samples. The UI pass that samples it declares that read itself (the editor's UI pass,
-        // through ExtensionPass::Declare), and the graph orders it after the blur.
-        if ( m_BackdropBlurNeeded )
-            AddFrameBackdropBlur( graph, textures, postInput );
+            // The pyramid the UI samples. The UI pass that samples it declares that read itself (the editor's UI
+            // pass, through ExtensionPass::Declare), and the graph orders it after the blur.
+            if ( m_BackdropBlurNeeded )
+                AddFrameBackdropBlur( graph, textures, postInput );
 
-        // The UI canvas, last before the post chain.
-        AddExtensionPoint( graph, textures, RDG::ExtensionPoint::UI, overlay );
+            // The UI canvas, last before the post chain.
+            AddExtensionPoint( graph, textures, RDG::ExtensionPoint::UI, overlay );
 
-        AddFrameJumpFlood( graph, textures );
-        AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
-        if ( m_BloomEnabled )
-        {
-            AddFrameBloom( graph, textures, postInput );
+            AddFrameJumpFlood( graph, textures );
+            AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
+            if ( m_BloomEnabled )
+            {
+                AddFrameBloom( graph, textures, postInput );
+            }
+            AddFrameLightShafts( graph, textures, postInput, values );
+            AddFrameLensFlare( graph, textures, postInput, values );
+            AddFrameTonemap( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+
+            if ( m_AAMode == Common::Scalability::AntiAliasingMethod::FXAA )
+            {
+                AddFrameFXAA( graph, textures );
+            }
+            else if ( m_AAMode == Common::Scalability::AntiAliasingMethod::SMAA )
+            {
+                AddFrameSMAA( graph, textures );
+            }
+            handed     = GetFinalImage();
+            handedName = "final image";
         }
-        AddFrameLightShafts( graph, textures, postInput, values );
-        AddFrameLensFlare( graph, textures, postInput, values );
-        AddFrameTonemap( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
-
-        if ( m_AAMode == Common::Scalability::AntiAliasingMethod::FXAA )
+        // The final image is sampled after the graph (editor viewport, runtime blit), a face view's scene colour
+        // by the capture that resamples it: the graph ends it there.
+        if ( const auto extracted = textures.ExtractImported( handed, handedName, handedAccess ); !extracted )
         {
-            AddFrameFXAA( graph, textures );
-        }
-        else if ( m_AAMode == Common::Scalability::AntiAliasingMethod::SMAA )
-        {
-            AddFrameSMAA( graph, textures );
-        }
-        // The final image is sampled after the graph (editor viewport, runtime blit): the graph ends it there.
-        if ( const auto extracted =
-                  textures.ExtractImported( GetFinalImage(), "final image", RDG::Access::SampledGraphics );
-             !extracted )
-        {
-            LOG_ERROR( "SceneRenderer: frame graph '{}' cannot hand over its final image: {}", graph.GetName(),
+            LOG_ERROR( "SceneRenderer: frame graph '{}' cannot hand over its {}: {}", graph.GetName(), handedName,
                        extracted.GetError() );
         }
         else
         {
-            // What the viewport / runtime blit shows: without its writer this frame has no picture (black).
-            graph.SetFaultPolicy( textures.Import( GetFinalImage(), "final image" ),
-                                  RDG::ExternalFaultPolicy::FrameFatal );
+            // What the viewport / runtime blit shows (or the capture reads): without its writer this frame has no
+            // picture (black).
+            graph.SetFaultPolicy( textures.Import( handed, handedName ), RDG::ExternalFaultPolicy::FrameFatal );
         }
 
         // Its faults are logged by the graph backend and its own failures by ExecuteGraph; a FrameFault leaves
@@ -1807,6 +1835,13 @@ namespace Desert::Graphic
         return UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )->GetEnvironment();
     }
 
+    void SceneRenderer::BorrowEnvironment( std::optional<Environment> environment )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
+             ->BorrowEnvironment( std::move( environment ) );
+    }
+
     std::shared_ptr<Image2D> SceneRenderer::GetShadowCascadeCacheImage( uint32_t cascade )
     {
         return UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
@@ -1984,10 +2019,7 @@ namespace Desert::Graphic
 
     uint64_t SceneRenderer::GetEnvironmentIdentity()
     {
-        if ( const auto env = GetEnvironment(); env.has_value() && env->PreFilteredMap.IsValid() )
-            return ( static_cast<uint64_t>( env->PreFilteredMap.Value.Index ) << 32u ) |
-                   env->PreFilteredMap.Value.Generation;
-        return 0;
+        return EnvironmentIdentity( GetEnvironment() );
     }
 
     std::shared_ptr<Image2D> SceneRenderer::GetSceneColorImage() const

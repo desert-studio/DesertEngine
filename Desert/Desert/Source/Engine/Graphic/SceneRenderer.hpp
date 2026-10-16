@@ -366,6 +366,10 @@ namespace Desert::Graphic
         // irradiance handle beside a zeroed prefiltered one and correctly reported a half-baked
         // environment. Found 2026-09-03 by the diagnostic that was supposed to catch a failed bake.
         std::optional<Environment> GetEnvironment();
+        // A reflection capture's face view (ViewProfile::SceneCapture) is lit by the scene's sky light and bakes
+        // none (SkyboxRenderer::BorrowEnvironment): @p environment is the reading view's, handed before each
+        // frame.
+        void BorrowEnvironment( std::optional<Environment> environment );
 
         // Procedural sky configuration (from the SkyAtmosphereComponent + the atmosphere sun, via the ECS).
         // sunDir is the direction TOWARD the sun, already normalized; bakeNow is the one-shot request from

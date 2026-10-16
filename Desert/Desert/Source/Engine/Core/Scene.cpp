@@ -742,8 +742,9 @@ namespace Desert::Core
         // the world is identical; only the camera each renderer was opened with differs.
         {
             // THE SCENE'S REFLECTION CAPTURES FIRST, ONCE: their face views are frames of their own, closed before
-            // any view opens, fed the same recorded draws. Only when a view reads them; the sky bake they are lit
-            // by is the one the first such view holds (every view bakes the one sky of this scene). A scope of
+            // any view opens, fed the same recorded draws. Only when a view reads them; the sky light they are lit
+            // by is the one the first such view holds, lent to the faces (every view bakes the one sky of this
+            // scene; a face bakes none). A scope of
             // their own, so "Scene: Views" stays the cost of the views alone.
             DESERT_PROFILE_SCOPE( "Scene: Reflection Captures" );
             for ( auto& view : m_Views.All() )
@@ -758,7 +759,7 @@ namespace Desert::Core
                              buffer->ExecuteAll( face );
                      },
                      sceneRendererInfo.Timestep, sceneRendererInfo.RealTimestep, sceneRendererInfo.DirLights,
-                     view.Renderer->GetEnvironmentIdentity() );
+                     view.Renderer->GetEnvironment() );
                 break;
             }
         }

@@ -684,7 +684,8 @@ namespace Desert::Graphic::System
 
     void SkyboxRenderer::EnsureProceduralEnvironment( float deltaSeconds )
     {
-        if ( !m_UseProceduralSky )
+        // A view lit by a lent environment (BorrowEnvironment) bakes none.
+        if ( !m_UseProceduralSky || m_BorrowsEnvironment )
             return;
 
         // How long the sun has held still. Compared by direction rather than by "did anything write it",

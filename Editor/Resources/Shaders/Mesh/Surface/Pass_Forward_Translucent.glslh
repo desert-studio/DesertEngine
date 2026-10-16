@@ -3,10 +3,11 @@
 // nowhere else: the renderer sends an object here because its material's TEMPLATE is translucent
 // (ShaderProgramMeta::Blend), never because of a parameter value. The surface is clear glass: the scene behind
 // it (u_SceneColor, bent by the normal and s.Refraction) tinted by s.BaseColor, mixed by Schlick Fresnel into
-// the sky's reflection, plus the sun's specular hotspot under the cloud shadow. Written opaque: the refracted
-// scene already carries the background; the highlight also loses the sun's contact shadow. It declares what it
-// reads and nothing else (no cascade maps, no irradiance, no BRDF LUT, no local lights); the slots keep the numbers
-// the rest of the mesh family uses.
+// the view's reflection environment (the captures over the sky, or over the radiance cache where the view traces
+// GI: Mesh/Surface/ViewIndirect.glslh), plus the sun's specular hotspot under the cloud shadow. Written opaque: the
+// refracted scene already carries the background; the highlight also loses the sun's contact shadow. It declares
+// what it reads and nothing else (no cascade maps, no local lights); the slots keep the numbers the rest of the mesh
+// family uses.
 DESERT_SURFACE_VARYINGS( in )
 
 layout( location = 0 ) out vec4 oColor;
@@ -29,8 +30,13 @@ layout( binding = 3 ) uniform DirectionLightsUB
 }
 directionLights;
 
-// The specular cube is the ONE environment binding glass reads: a mirror term at grazing angles, not an ambient.
+// The reflection at grazing angles is the forward passes' reflection environment (Mesh/AmbientIBL.glslh
+// DesertSampleViewAmbient): its sky remainder is the specular cube, and the captures over it are normalised by the
+// view's diffuse estimator - the irradiance cube where the view has no radiance cache. The BRDF LUT is read by the
+// same sampling call.
 layout( binding = 8 ) uniform samplerCube u_EnvSpecularTex;
+layout( binding = 9 ) uniform samplerCube u_EnvIrradianceTex;
+layout( binding = 10 ) uniform sampler2D u_BRDFLUTTexture;
 layout( binding = 22 ) uniform SkyLookUB
 {
     vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
@@ -73,6 +79,9 @@ layout( binding = 7 ) uniform ShadowUB
 #define CONTACT_SHADOW_SHADING_WORD u_SceneShadingWord
 #include <Common/ContactShadow.glslh>
 
+#include <Mesh/Surface/ViewIndirect.glslh>
+#include <Mesh/AmbientIBL.glslh>
+
 void main()
 {
     const SurfaceInput i =
@@ -103,10 +112,10 @@ void main()
     const vec2  refractUV = clamp( screenUV + N.xy * bendScale, vec2( 0.001 ), vec2( 0.999 ) );
     const vec3  refracted = texture( u_SceneColor, refractUV ).rgb * s.BaseColor;
 
-    // The sky's reflection at grazing edges; Fresnel mixes refraction (centre) into reflection (edge).
-    const vec3 R       = reflect( -V, N );
-    const vec3 envRefl = ApplySkyGain( texture( u_EnvSpecularTex, SkyLookDirection( R, skyLook.YawCosSin.xy ) ).rgb,
-                                       skyLook.Gain.rgb );
+    // The reflection at grazing edges, of clear glass (a mirror: roughness 0, which a capture never normalises);
+    // Fresnel mixes refraction (centre) into reflection (edge).
+    const DesertSurface surface = DesertMakeSurface( i.WorldPosition, N, V, s.BaseColor, 0.0, 0.0 );
+    const vec3          envRefl = DesertSampleViewAmbient( surface, 1.0, gl_FragCoord.xy ).Prefiltered;
 
     oColor = vec4( mix( refracted, envRefl, fresnel ) + vec3( spec ) + s.Emissive, 1.0 );
 #ifdef DESERT_SURFACE_RESPONSIVE_AA

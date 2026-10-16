@@ -69,7 +69,22 @@ namespace Desert::Graphic::System
         /// picture taken now would be lit by no sky, or by the previous one.
         [[nodiscard]] bool IsEnvironmentSettling() const
         {
+            if ( m_BorrowsEnvironment )
+                return !m_BorrowedEnvironment.has_value();
             return m_UseProceduralSky && ( m_PendingBake != nullptr || !m_ProceduralEnv );
+        }
+
+        /// THE VIEW LIGHTS WITH ANOTHER VIEW'S SKY LIGHT and bakes none of its own (UE: a reflection capture reads
+        /// the scene's sky light; it never captures a sky of its own for it). A capture's face view is handed the
+        /// scene's environment before each of its frames (ReflectionCaptureRenderer::RenderCaptureViews): six face
+        /// views of one capture point used to bake six copies of one sky, each landing seconds after its submit,
+        /// and the cube waited on all six. From the first call this view's EnsureProceduralEnvironment bakes
+        /// nothing and GetEnvironment answers @p environment (std::nullopt: the scene has no sky light yet). The
+        /// cubes stay the lending view's: they are read by this frame only, before that view can rebake.
+        void BorrowEnvironment( std::optional<Environment> environment )
+        {
+            m_BorrowsEnvironment  = true;
+            m_BorrowedEnvironment = std::move( environment );
         }
 
         // The physical atmosphere's LUTs (Hillaire 2020): the cached pair — transmittance 256x64 +
@@ -114,6 +129,8 @@ namespace Desert::Graphic::System
 
         const std::optional<Environment> GetEnvironment() const
         {
+            if ( m_BorrowsEnvironment )
+                return m_BorrowedEnvironment;
             // While the procedural sky is active, the baked atmosphere IBL drives ambient/reflections.
             if ( m_UseProceduralSky && m_ProceduralEnv )
                 return m_ProceduralEnv.Get();
@@ -320,6 +337,9 @@ namespace Desert::Graphic::System
         // OWNED, not a copy of handles: its cubes live in the process-wide ImageService, and this view is the
         // only one that can release them — when it rebakes, and when it dies (see OwnedEnvironment).
         OwnedEnvironment m_ProceduralEnv;
+        // BorrowEnvironment: this view lights with the environment it is handed and never bakes one.
+        bool                       m_BorrowsEnvironment = false;
+        std::optional<Environment> m_BorrowedEnvironment;
         glm::vec3   m_BakedSunDir = glm::vec3( 0.0f, 1.0f, 0.0f );
         bool        m_BakeRequested = false;
 

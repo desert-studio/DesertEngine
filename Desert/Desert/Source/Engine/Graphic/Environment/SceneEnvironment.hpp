@@ -8,7 +8,9 @@
 
 #include <glm/glm.hpp>
 
+#include <cstdint>
 #include <memory>
+#include <optional>
 
 namespace Desert::ShaderResources
 {
@@ -56,6 +58,17 @@ namespace Desert::Graphic
             return IrradianceMap.IsValid() && PreFilteredMap.IsValid();
         }
     };
+
+    /// WHICH BAKE an environment is: its prefiltered cube's handle (slot and generation, so a rebake into a reused
+    /// slot is another bake), 0 for none or a half-built one. The look is not part of it (a rotation or a gain is
+    /// applied at every sample and rebakes nothing).
+    [[nodiscard]] inline uint64_t EnvironmentIdentity( const std::optional<Environment>& environment )
+    {
+        if ( environment.has_value() && environment->PreFilteredMap.IsValid() )
+            return ( static_cast<uint64_t>( environment->PreFilteredMap.Value.Index ) << 32u ) |
+                   environment->PreFilteredMap.Value.Generation;
+        return 0;
+    }
 
     /// A PROCEDURAL SKY BAKE IN FLIGHT: the panorama, radiance, irradiance and prefiltered cubes recorded into
     /// one batch and submitted, not waited for. The owner polls `IsComplete()` and calls `Finish()` once —

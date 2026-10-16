@@ -41,9 +41,9 @@ namespace Desert::Graphic
                                                                    "u_FaceNegY", "u_FacePosZ", "u_FaceNegZ" };
 
         // A face view has settled once it held one sky environment for this many consecutive renders of its own.
-        // The face views bake their own sky (asynchronously, SkyboxRenderer) and their clouds reproject a history:
-        // the first frames of a freshly aimed face view are the unlit, cloudless picture, and a cube written from
-        // there would keep it.
+        // The sky is the scene's (lent, never baked by the face), but the face's clouds reproject a history and
+        // its sky-view LUT is a frame late: the first frames of a freshly aimed face view are the cloudless
+        // picture, and a cube written from there would keep it.
         constexpr uint32_t kCaptureSettleFrames = 8u;
         // ...and after this many renders whatever its sky does: a sky that re-bakes while the face renders (the
         // face views follow the scene's sky) would otherwise hold the one-face-per-frame budget on one capture
@@ -320,7 +320,7 @@ namespace Desert::Graphic
                                                         const std::function<void( SceneRenderer& )>& record,
                                                         Common::Timestep timestep, Common::Timestep realTimestep,
                                                         const ShaderProtocols::DirectionLight& dirLights,
-                                                        uint64_t                               environment )
+                                                        const std::optional<Environment>&      environment )
     {
         m_WriteCapture = false;
 
@@ -361,7 +361,7 @@ namespace Desert::Graphic
             HashBytes( signature, &id, sizeof( id ) );
             HashBytes( signature, &capture.Gpu, sizeof( capture.Gpu ) );
         }
-        const uint64_t lighting = LightingSignature( scene.GetRegistry(), environment );
+        const uint64_t lighting = LightingSignature( scene.GetRegistry(), EnvironmentIdentity( environment ) );
         if ( signature != m_Signature )
         {
             // UE recaptures every capture when any of them changes: a moved capture changes what its neighbours
@@ -455,6 +455,8 @@ namespace Desert::Graphic
         }
         FaceView& view = *m_Faces[face];
         view.View.Aim( capture.CapturePosition, kFaceForward[face], kFaceUp[face], faceSize );
+        // The scene's sky light lights the face (UE: a capture reads the scene's sky light and bakes none).
+        view.Renderer->BorrowEnvironment( environment );
         if ( const auto begun = view.Renderer->BeginScene( scene, &view.View ); !begun )
         {
             LOG_ERROR( "[ReflectionCaptures] capture {} face {}: the face view did not open: {}", m_Pending, face,
@@ -472,7 +474,7 @@ namespace Desert::Graphic
         m_LastFace = static_cast<uint32_t>( face );
         ++m_FaceRenders[face];
 
-        // Held while the face's own sky environment stays the one it had at its previous render.
+        // Held while the face's sky environment (the scene's) stays the one it had at its previous render.
         const uint64_t faceEnvironment = view.Renderer->GetEnvironmentIdentity();
         if ( faceEnvironment != 0 && faceEnvironment == m_FaceEnvironment[face] )
             ++m_FaceHeld[face];
@@ -662,11 +664,13 @@ namespace Desert::Graphic
 
     void ReflectionCaptureRenderer::AddDiffusePass( RDG::Builder& graph, FrameTextures& textures,
                                                     const RDG::TextureRef array, const uint32_t forcedCube,
+                                                    const bool                       forceAll,
                                                     const ReflectionCaptureLighting& lighting )
     {
         // The sky's irradiance answers everywhere and at once: a cube written under it is measured when written,
-        // and a re-measure would store the same value. Only the radiance cache can owe one.
-        if ( forcedCube == kNoCapture && !lighting.RadianceCache )
+        // and re-measured when the sky changes (forceAll); in between a re-measure would store the same value.
+        // Only the radiance cache can owe one.
+        if ( forcedCube == kNoCapture && !forceAll && !lighting.RadianceCache )
             return;
         // The written cubes (a cube nothing captured is black and never read: its diffuse means nothing).
         std::vector<DiffusePointGpu> points;
@@ -677,7 +681,7 @@ namespace Desert::Graphic
                 continue;
             DiffusePointGpu row;
             row.Point      = glm::vec4( capture.CapturePosition, 1.0f );
-            row.CubeForced = glm::uvec4( cube, cube == forcedCube ? 1u : 0u, 0u, 0u );
+            row.CubeForced = glm::uvec4( cube, forceAll || cube == forcedCube ? 1u : 0u, 0u, 0u );
             points.push_back( row );
         }
         if ( points.empty() )
@@ -693,22 +697,20 @@ namespace Desert::Graphic
         push.SkyYawCosSin = lighting.SkyYawCosSin;
         push.SkyGain      = lighting.SkyGain;
 
-        // The shader declares both estimators; the one it does not read is bound to a neutral resource (a cache
-        // with no clipmap, the black cube), as the traced reflections bind an absent cache.
+        // The shader declares both estimators; the one it does not read is bound to a neutral resource: the
+        // view's neutral cache (no clipmap: SceneViewInputs, the one the forward passes read without traced GI),
+        // the black cube.
         GlobalIllumination::RadianceCacheFrame cache;
         if ( lighting.RadianceCache )
             cache = *lighting.RadianceCache;
         else
         {
-            const std::array<std::byte, sizeof( RadianceCache::RadianceCacheParamsPayload )> zeros{};
-            const RDG::BufferRef                                                             none =
-                 graph.CreateBuffer( RDG::BufferDesc{ zeros.size() }, "ReflectionCapture.RadianceCacheNone" );
-            graph.QueueBufferUpload( none, std::span<const std::byte>( zeros ) );
-            cache = GlobalIllumination::RadianceCacheFrame{ .Params      = none,
-                                                            .Indirection = none,
-                                                            .Probes      = none,
-                                                            .Irradiance  = refs.System.Black,
-                                                            .Depth       = refs.System.Black,
+            const SceneViewInputs view = SceneViewInputsOf( refs );
+            cache = GlobalIllumination::RadianceCacheFrame{ .Params      = view.RadianceCacheParams,
+                                                            .Indirection = view.RadianceCacheIndirection,
+                                                            .Probes      = view.RadianceCacheProbes,
+                                                            .Irradiance  = view.RadianceCacheIrradiance,
+                                                            .Depth       = view.RadianceCacheDepth,
                                                             .Radiance    = refs.System.Black };
         }
         const RDG::TextureRef sky =
@@ -757,6 +759,20 @@ namespace Desert::Graphic
             return;
         m_MeasuredFrame = frame;
 
+        // The estimator of this frame (MeasureKey): a new one re-measures every written cube.
+        uint64_t       key       = 14695981039346656037ull;
+        const uint32_t estimator = lighting.RadianceCache ? 1u : 0u;
+        HashBytes( key, &estimator, sizeof( estimator ) );
+        if ( !lighting.RadianceCache )
+        {
+            // The sky's estimator is its bake read through its look.
+            HashBytes( key, &lighting.Environment, sizeof( lighting.Environment ) );
+            HashBytes( key, &lighting.SkyYawCosSin, sizeof( lighting.SkyYawCosSin ) );
+            HashBytes( key, &lighting.SkyGain, sizeof( lighting.SkyGain ) );
+        }
+        const bool remeasureAll = key != m_MeasuredKey;
+        m_MeasuredKey           = key;
+
         uint32_t written = kNoCapture;
         if ( m_WriteCapture && m_Pending < m_Captures.size() )
         {
@@ -768,7 +784,7 @@ namespace Desert::Graphic
             m_Pending           = kNoCapture;
             m_WriteCapture      = false;
         }
-        AddDiffusePass( graph, textures, array, written, lighting );
+        AddDiffusePass( graph, textures, array, written, remeasureAll, lighting );
     }
 
     std::vector<glm::vec3> ReflectionCaptureRenderer::CapturePoints() const

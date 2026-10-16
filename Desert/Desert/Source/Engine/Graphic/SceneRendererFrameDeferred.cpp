@@ -25,6 +25,8 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <functional>
 #include <initializer_list>
 #include <map>
@@ -109,6 +111,21 @@ namespace Desert::Graphic
                 view.SkyTransmittanceLut = textures.Import( sky->GetTransmittanceLut(), "Sky.TransmittanceLut" );
                 view.SkyViewLut          = textures.Import( sky->GetSkyViewLut(), "Sky.SkyViewLut" );
             }
+        // THE NEUTRAL RADIANCE CACHE (FrameTransients::RadianceCache*): a zeroed params block (no clipmap, so
+        // every read answers "past the coarsest clipmap" and touches neither the indirection nor the probes, which
+        // it also stands for) and the black system texture for both atlases. AddFrameTracedGI replaces it with the
+        // frame's update where the view traces GI; the forward passes that declare the cache read it either way.
+        {
+            const std::array<std::byte, sizeof( RadianceCache::RadianceCacheParamsPayload )> zeros{};
+            const RDG::BufferRef                                                             none =
+                 graph.CreateBuffer( RDG::BufferDesc{ zeros.size() }, "RadianceCache.None" );
+            graph.QueueBufferUpload( none, std::span<const std::byte>( zeros ) );
+            view.RadianceCacheParams      = none;
+            view.RadianceCacheIndirection = none;
+            view.RadianceCacheProbes      = none;
+            view.RadianceCacheIrradiance  = textures.GraphRefs().System.Black;
+            view.RadianceCacheDepth       = textures.GraphRefs().System.Black;
+        }
     }
 
     void SceneRenderer::AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures )
@@ -347,7 +364,9 @@ namespace Desert::Graphic
         if ( tracedGI )
             lighting.RadianceCache = m_TracedFrameShared.RadianceCache;
         lighting.EnvIrradiance = SceneViewInputsOf( textures.GraphRefs() ).EnvIrradiance;
-        if ( const auto& env = GetEnvironment(); env.has_value() )
+        const std::optional<Environment> env = GetEnvironment();
+        lighting.Environment                 = EnvironmentIdentity( env );
+        if ( env.has_value() )
         {
             const SkyLookGPU look = ToGPU( env->Look );
             lighting.SkyYawCosSin = look.YawCosSin;
@@ -443,6 +462,12 @@ namespace Desert::Graphic
             return;
         }
         m_TracedFrameShared.RadianceCache = cache.GetValue();
+        // Every lit pass after this one reads this frame's cache (the forward meshes and the glass).
+        textures.Transients.RadianceCacheParams      = cache.GetValue().Params;
+        textures.Transients.RadianceCacheIndirection = cache.GetValue().Indirection;
+        textures.Transients.RadianceCacheProbes      = cache.GetValue().Probes;
+        textures.Transients.RadianceCacheIrradiance  = cache.GetValue().Irradiance;
+        textures.Transients.RadianceCacheDepth       = cache.GetValue().Depth;
 
         // The cards' indirect light off this update (the radiosity slot): the frame's relit pages.
         if ( m_SurfaceCache && m_SurfaceCacheFrame )
