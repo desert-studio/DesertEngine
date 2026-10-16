@@ -31,15 +31,15 @@ namespace Desert::Graphic::API::Vulkan
         const std::vector<RayTracing::RayTracingGeometrySegment>& segments = input.Segments;
 
         const VkDevice             device = logical->GetVulkanLogicalDevice();
-        const VulkanBlasBuildInput input =
+        const VulkanBlasBuildInput buildInput =
              TranslateBlasGeometry( segments, functions.BufferAddress( device, vertexBuffer->GetVulkanBuffer() ),
                                     functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() ) );
-        VkAccelerationStructureBuildGeometryInfoKHR build = MakeBlasBuildInfo( input );
+        VkAccelerationStructureBuildGeometryInfoKHR build = MakeBlasBuildInfo( buildInput );
 
         VkAccelerationStructureBuildSizesInfoKHR sizes{
              VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
         functions.GetAccelerationStructureBuildSizes( device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
-                                                      &build, input.MaxPrimitiveCounts.data(), &sizes );
+                                                      &build, buildInput.MaxPrimitiveCounts.data(), &sizes );
 
         const auto& allocator =
              SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
@@ -92,7 +92,7 @@ namespace Desert::Graphic::API::Vulkan
             allocator->RT_DestroyBuffer( scratch, scratchMemory.GetValue() );
             return Common::MakeError<std::shared_ptr<VulkanRayTracingGeometry>>( command.GetError() );
         }
-        const VkAccelerationStructureBuildRangeInfoKHR* ranges = input.Ranges.data();
+        const VkAccelerationStructureBuildRangeInfoKHR* ranges = buildInput.Ranges.data();
         functions.CmdBuildAccelerationStructures( command.GetValue(), 1, &build, &ranges );
         const auto flushed =
              CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( command.GetValue() );
