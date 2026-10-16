@@ -720,6 +720,8 @@ namespace Desert::Graphic
         m_FrameExtensions = &scene.GetExtensionPasses();
         // The scene's reflection captures, published into this frame's graph (SceneViewInputs).
         m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
+        // The scene's local-light shadow cache, which this view's lights draw into and read (UpdateLocalShadows).
+        m_FrameLocalShadows = &scene.GetLocalShadows();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -1433,6 +1435,7 @@ namespace Desert::Graphic
         m_SpotLightShadows.clear();
         m_FrameExtensions         = nullptr;
         m_FrameReflectionCaptures = nullptr;
+        m_FrameLocalShadows       = nullptr;
 
         return BOOLSUCCESS;
     }
