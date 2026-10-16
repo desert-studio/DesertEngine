@@ -17,6 +17,7 @@
 
 #include <cstring>
 #include <format>
+#include <array>
 #include <optional>
 
 #include <Engine/ECS/Components.hpp>
@@ -449,14 +450,62 @@ namespace Desert::Core::Serialize
 
         // ScriptComponent has no reflected data block (reflection can't do std::string/variant lists), so it
         // gets a manual serializer via a reflect-cpp mirror: the .lua reference + the exposed-property values.
+        //
+        // A property holds the value of its kind only: Number/Bool/Str are always written (the v16 shape), the
+        // vector (Color, Vector), the reference (Asset handle, Entity UUID) and an Array's items only when the
+        // kind has them — a file without them is a file without such properties, not an older format.
+        struct ScriptValueSer
+        {
+            int                                  Type   = 0;
+            double                               Number = 0.0;
+            bool                                 Bool   = false;
+            std::string                          Str;
+            std::optional<std::array<double, 3>> Vec;
+            std::optional<std::uint64_t>         Ref;
+        };
         struct ScriptPropSer
         {
-            std::string Name;
-            int         Type   = 0;
-            double      Number = 0.0;
-            bool        Bool   = false;
-            std::string Str;
+            std::string                                Name;
+            int                                        Type   = 0;
+            double                                     Number = 0.0;
+            bool                                       Bool   = false;
+            std::string                                Str;
+            std::optional<std::array<double, 3>>       Vec;
+            std::optional<std::uint64_t>               Ref;
+            std::optional<int>                         ElementType;
+            std::optional<std::vector<ScriptValueSer>> Items;
         };
+
+        bool HasVec( Scripting::PropertyType type )
+        {
+            return type == Scripting::PropertyType::Color || type == Scripting::PropertyType::Vector;
+        }
+        bool HasRef( Scripting::PropertyType type )
+        {
+            return type == Scripting::PropertyType::Asset || type == Scripting::PropertyType::Entity;
+        }
+
+        ScriptValueSer SaveValue( const Scripting::ScriptValue& v )
+        {
+            ScriptValueSer out{ static_cast<int>( v.Type ), v.Number, v.Bool, v.Str, std::nullopt, std::nullopt };
+            if ( HasVec( v.Type ) )
+                out.Vec = v.Vec;
+            if ( HasRef( v.Type ) )
+                out.Ref = v.Ref;
+            return out;
+        }
+
+        Scripting::ScriptValue LoadValue( const ScriptValueSer& v )
+        {
+            Scripting::ScriptValue out;
+            out.Type   = static_cast<Scripting::PropertyType>( v.Type );
+            out.Number = v.Number;
+            out.Bool   = v.Bool;
+            out.Str    = v.Str;
+            out.Vec    = v.Vec.value_or( std::array<double, 3>{} );
+            out.Ref    = v.Ref.value_or( 0 );
+            return out;
+        }
         // `ScriptKey` and not `Path`, because the value stopped being a path at scene v16 (I9): it is the
         // root-tagged key ScriptSlot documents. Renaming the JSON field with the value is the point — a
         // key called `Path` reads as something you may hand to std::filesystem, which is exactly the
@@ -480,12 +529,14 @@ namespace Desert::Core::Serialize
             for ( const auto& p : src )
             {
                 Scripting::ScriptProperty prop;
-                prop.Name   = p.Name;
-                prop.Type   = static_cast<Scripting::PropertyType>( p.Type );
-                prop.Number = p.Number;
-                prop.Bool   = p.Bool;
-                prop.Str    = p.Str;
-                out.push_back( prop );
+                static_cast<Scripting::ScriptValue&>( prop ) =
+                     LoadValue( { p.Type, p.Number, p.Bool, p.Str, p.Vec, p.Ref } );
+                prop.Name        = p.Name;
+                prop.ElementType = static_cast<Scripting::PropertyType>( p.ElementType.value_or( 0 ) );
+                if ( p.Items )
+                    for ( const ScriptValueSer& item : *p.Items )
+                        prop.Items.push_back( LoadValue( item ) );
+                out.push_back( std::move( prop ) );
             }
             return out;
         };
@@ -506,7 +557,19 @@ namespace Desert::Core::Serialize
                     ScriptSlotSer ss;
                     ss.ScriptKey = slot.ScriptKey;
                     for ( const auto& p : slot.Properties )
-                        ss.Props.push_back( { p.Name, static_cast<int>( p.Type ), p.Number, p.Bool, p.Str } );
+                    {
+                        const ScriptValueSer value = SaveValue( p );
+                        ScriptPropSer        prop{ p.Name,    value.Type, value.Number, value.Bool,  value.Str,
+                                            value.Vec, value.Ref,  std::nullopt, std::nullopt };
+                        if ( p.Type == Scripting::PropertyType::Array )
+                        {
+                            prop.ElementType = static_cast<int>( p.ElementType );
+                            prop.Items.emplace();
+                            for ( const Scripting::ScriptValue& item : p.Items )
+                                prop.Items->push_back( SaveValue( item ) );
+                        }
+                        ss.Props.push_back( std::move( prop ) );
+                    }
                     slots.push_back( std::move( ss ) );
                 }
                 ser.Scripts = std::move( slots );
@@ -677,11 +740,6 @@ namespace Desert::Core::Serialize
                 if ( const auto a = mgr.FindByHandle<Assets::FoliageTypeAsset>( id ) )
                     loaded = a->Guid();
             }
-            else if ( type == "VFXSystemAsset" )
-            {
-                if ( const auto a = mgr.FindByHandle<Assets::VFXSystemAsset>( id ) )
-                    loaded = a->Guid();
-            }
             else if ( type == "MaterialAsset" )
             {
                 if ( const auto a = mgr.FindByHandle<Assets::SurfaceMaterialAsset>( id ) )
@@ -847,32 +905,6 @@ namespace Desert::Core::Serialize
                 }
                 return static_cast<uint64_t>( a->GetMetadata().Handle );
             }
-            if ( type == "VFXSystemAsset" )
-            {
-                // The system a VFXComponent plays - the locator half of its {Guid, Path}. LOADED HERE for the
-                // control rig's reason: VFXWorld plans from the system's data, and a system that is not ready
-                // is one the entity would silently not play while the scene names it.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
-
-                auto a = mgr.FindByPath<Assets::VFXSystemAsset>( full );
-                if ( !a )
-                    a = m.CreateAsset<Assets::VFXSystemAsset>( full, /*loadAfterCreate=*/false );
-                if ( !a )
-                    return 0;
-                if ( !a->IsReadyForUse() )
-                {
-                    if ( const auto loaded = Assets::LoadThroughLoader( m, a ); !loaded )
-                    {
-                        LOG_ERROR( "[VFX] VFX system '{}' named by the scene could not be loaded: {}",
-                                   full.string(), loaded.GetError() );
-                        return 0;
-                    }
-                }
-                return static_cast<uint64_t>( a->GetMetadata().Handle );
-            }
             if ( type == "RetargetAsset" )
             {
                 // Both forms accepted, for the reason the branches above give.
@@ -978,6 +1010,20 @@ namespace Desert::Core::Serialize
                     return 0;
                 }
                 return static_cast<uint64_t>( Common::Content::HandleForGuid( sound.GetValue().Guid ) );
+            }
+            if ( type == "VFXSystemAsset" )
+            {
+                // A VFX component's `.dfx` system. Announced, not read, as the wave set above: VFXSystemService
+                // requests the read from the registry row on the first tick that asks for it, and the asset's
+                // constructor adopts the handle its header GUID names, so the row and this shell agree.
+                const std::filesystem::path named( path );
+                const std::filesystem::path full =
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                auto a = mgr.FindByPath<Assets::VFXSystemAsset>( full );
+                if ( !a )
+                    a = m.CreateAsset<Assets::VFXSystemAsset>( full, /*loadAfterCreate=*/false );
+                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
             }
             if ( type == "PrefabAsset" )
             {
@@ -1172,22 +1218,6 @@ namespace Desert::Core::Serialize
                 // Loaded through the locator half above (FromPath's PrefabAsset branch), which owns the one
                 // mutable view of the manager: FromPath resolves a relative locator against the assets root,
                 // so the row's path is handed over relative to that root and round-trips to itself.
-                const std::filesystem::path full = Common::AssetHandle::PathForStableKey( key );
-                const std::filesystem::path relative =
-                     full.lexically_relative( Common::Constants::Path::ASSETS_PATH );
-                if ( relative.empty() )
-                    return 0;
-                return fromPath( relative.generic_string(), type ) == guid ? guid : 0;
-            }
-            if ( type == "VFXSystemAsset" )
-            {
-                // BY GUID through the content registry: a system's handle IS HandleForGuid of its header GUID
-                // (VFXSystemAsset's constructor), so the row under that handle is the system wherever it moved.
-                if ( const auto a = mgr.FindByHandle<Assets::VFXSystemAsset>( handle ); a && a->IsReadyForUse() )
-                    return guid;
-                const std::string key = Assets::ContentRegistry::KeyForHandle( guid );
-                if ( key.empty() )
-                    return 0;
                 const std::filesystem::path full = Common::AssetHandle::PathForStableKey( key );
                 const std::filesystem::path relative =
                      full.lexically_relative( Common::Constants::Path::ASSETS_PATH );
@@ -1402,6 +1432,8 @@ namespace Desert::Core::Serialize
                     meshSer.CastShadows = smc.CastShadows;
                 if ( !smc.ReceiveShadows )
                     meshSer.ReceiveShadows = smc.ReceiveShadows;
+                if ( !smc.CastContactShadow )
+                    meshSer.CastContactShadow = smc.CastContactShadow;
                 if ( smc.TranslucencySortPriority != 0 )
                     meshSer.TranslucencySortPriority = smc.TranslucencySortPriority;
                 if ( smc.MaxDrawDistance > 0.0f )
@@ -1451,6 +1483,7 @@ namespace Desert::Core::Serialize
                 smc.LODBias         = meshData.LODBias.value_or( smc.LODBias );
                 smc.CastShadows     = meshData.CastShadows.value_or( smc.CastShadows );
                 smc.ReceiveShadows  = meshData.ReceiveShadows.value_or( smc.ReceiveShadows );
+                smc.CastContactShadow = meshData.CastContactShadow.value_or( smc.CastContactShadow );
                 smc.TranslucencySortPriority =
                      meshData.TranslucencySortPriority.value_or( smc.TranslucencySortPriority );
                 smc.MaxDrawDistance = meshData.MaxDrawDistance.value_or( smc.MaxDrawDistance );
@@ -1520,6 +1553,8 @@ namespace Desert::Core::Serialize
                 ser.Primitive = ism.Primitive;
                 if ( !ism.CastShadows )
                     ser.CastShadows = ism.CastShadows;
+                if ( !ism.CastContactShadow )
+                    ser.CastContactShadow = ism.CastContactShadow;
                 if ( ism.MaxDrawDistance > 0.0f )
                     ser.MaxDrawDistance = ism.MaxDrawDistance;
                 if ( !ism.InstanceTransforms.empty() )
@@ -1576,6 +1611,7 @@ namespace Desert::Core::Serialize
                 }
                 ism.Primitive   = data.Primitive;
                 ism.CastShadows     = data.CastShadows.value_or( ism.CastShadows );
+                ism.CastContactShadow = data.CastContactShadow.value_or( ism.CastContactShadow );
                 ism.MaxDrawDistance = data.MaxDrawDistance.value_or( ism.MaxDrawDistance );
                 if ( data.InstanceTransforms.has_value() )
                 {

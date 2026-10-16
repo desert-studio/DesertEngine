@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "a8b98e82066b336a19f729bde6b25331",
         "Versions": {
-            "SCNE": 50,
+            "SCNE": 54,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["003085b663f8dac28c0a750a38cf6db8", "443da08f9e394860b5c2bd3bb619e9cd", "d4fbdf9b566d4035ab03ab0f9a35330e", "e06572ed86a043209146d11062e05b5c"]
     },
     "SceneName": "Animation Graph Script Witness",
     "Entities": [
@@ -134,22 +134,7 @@
                 "Scripts": [
                     {
                         "ScriptKey": "assets:Scripts/Examples/DriveAnimGraph.lua",
-                        "Props": [
-                            {
-                                "Name": "Param",
-                                "Type": 2,
-                                "Number": 0.0,
-                                "Bool": false,
-                                "Str": "Go"
-                            },
-                            {
-                                "Name": "Delay",
-                                "Type": 0,
-                                "Number": 0.5,
-                                "Bool": false,
-                                "Str": ""
-                            }
-                        ]
+                        "Props": []
                     }
                 ]
             },
@@ -185,13 +170,6 @@
                                 "Number": 0.0,
                                 "Bool": false,
                                 "Str": "Gone"
-                            },
-                            {
-                                "Name": "Delay",
-                                "Type": 0,
-                                "Number": 0.5,
-                                "Bool": false,
-                                "Str": ""
                             }
                         ]
                     }
@@ -233,11 +211,14 @@
                 "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": false,
-                    "GlobalIllumination": 1,
+                    "GlobalIlluminationMethod": 2,
                     "GIIntensity": 2.0,
-                    "EnableSSR": true,
+                    "ReflectionsMethod": 2,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
+                    "ShadowsMethod": 0,
+                    "ContactShadows": false,
+                    "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "Exposure": 1.0,
                     "Gamma": 2.200000047683716,

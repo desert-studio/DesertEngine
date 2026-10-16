@@ -60,8 +60,23 @@ namespace Desert::ECS
                      light.Radius    = pointlight.Data.Radius;
                      light.MinRadius = pointlight.Data.MinRadius;
                      light.Falloff   = static_cast<int32_t>( pointlight.Data.Falloff );
+                     // UE: contact shadows are part of the light's shadowing, so a light that casts none has none.
+                     light.ContactShadowLength =
+                          pointlight.Data.CastShadows ? pointlight.Data.ContactShadowLength : 0.0f;
+                     light.ContactShadowInWorld          = pointlight.Data.ContactShadowLengthInWorldSpace ? 1 : 0;
+                     light.ContactShadowCastingIntensity = pointlight.Data.ContactShadowCastingIntensity;
+                     light.ContactShadowNonCastingIntensity = pointlight.Data.ContactShadowNonCastingIntensity;
 
-                     renderCommandBuffer.Emplace<Graphic::Render::PointLightCommand>( light );
+                     // What the light asks of its shadow, and who it is (its tiles stay its own while it and
+                     // its casters stand still: MeshRenderer::UpdateLocalShadows).
+                     const Graphic::LocalLightShadowSettings shadow{
+                          .CastShadows     = pointlight.Data.CastShadows,
+                          .DepthBias       = pointlight.Data.ShadowBias,
+                          .SlopeBias       = pointlight.Data.ShadowSlopeBias,
+                          .ResolutionScale = pointlight.Data.ShadowResolutionScale,
+                          .SourceId        = static_cast<uint32_t>( entity ) + 1u };
+
+                     renderCommandBuffer.Emplace<Graphic::Render::PointLightCommand>( light, shadow );
                  } );
         }
     };

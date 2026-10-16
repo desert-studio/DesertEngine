@@ -202,18 +202,17 @@ namespace Desert::ECS
                 m_Sounds.push_back( action.Target );
                 return;
             case T::EventActionKind::ActivateParticles:
-                if ( !bound || !m_Registry.has<ParticleEmitterComponent>( entity ) )
+                if ( !bound || !m_Registry.has<VFXComponent>( entity ) )
                 {
-                    m_Refusals.push_back(
-                         std::format( "Event '{}': Activate Particles needs a bound entity with a "
-                                      "Particle Emitter component",
-                                      key->Name ) );
+                    m_Refusals.push_back( std::format(
+                         "Event '{}': Activate Particles needs a bound entity with a VFX component", key->Name ) );
                     return;
                 }
                 {
-                    auto& emitter          = m_Registry.get<ParticleEmitterComponent>( entity );
-                    emitter.Data.Enabled   = true;
-                    emitter.RequestRestart = true;
+                    // UE UNiagaraComponent::Activate(true): the placed system starts bearing, from the start.
+                    auto& vfx             = m_Registry.get<VFXComponent>( entity );
+                    vfx.Data.AutoActivate = true;
+                    vfx.RequestRestart    = true;
                 }
                 return;
             case T::EventActionKind::CallScript:

@@ -28,6 +28,8 @@ namespace Desert::Graphic
         class Builder;
         class IPhysicalTexture;
         class PassBindings;
+        class PassContext;
+        struct TextureRef;
         struct ExternalTexture;
         struct ExternalBuffer;
     } // namespace RDG
@@ -59,9 +61,12 @@ namespace Desert::Graphic
         static Common::BoolResultStr ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
                                                          RDG::ExternalBuffer&                 into );
         void                         EndDebugLabel();
-        // Vertexless line draw: the pipeline (Lines topology) pulls vertices from a storage buffer by index.
-        static void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
-                                 const MaterialExecutor* materialExecutor );
+        // Vertexless draw in the pipeline's own topology (Lines for the debug lines, Triangles for a tool's
+        // translucent preview mesh): the vertex stage pulls each vertex from a storage buffer by gl_VertexIndex.
+        // @p lineWidth is the dynamic line width (clamped to 1 without the wideLines feature); a triangle
+        // pipeline rasterises no lines and ignores it.
+        static void SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
+                                  const MaterialExecutor* materialExecutor );
 
         // RDG-A2 - the renderer-level consumers of a PassBindings (RDGPassBindings.hpp). Called only from inside
         // the exec lambda whose PassContext built @p bindings; they record on that pass's command buffer
@@ -144,9 +149,17 @@ namespace Desert::Graphic
         // Copy the depth aspect of @p src into @p dst (Deferred: G-buffer depth -> scene target depth so
         // depth-tested overlays occlude against static geometry). Call outside a render pass.
         static Common::BoolResultStr CopyDepthImage( Image2D* src, Image2D* dst );
+        // RendererAPI::CopyGraphDepthToLayer: a graph depth into one layer of a graph depth array.
+        static Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context,
+                                                            RDG::TextureRef source, RDG::TextureRef target,
+                                                            uint32_t targetLayer );
 
         // Set the scissor rect (framebuffer px, top-left origin). Used by the 2D batcher for UI clipping.
         void SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height );
+        // One rectangle of the open render pass's target: draw into it / clear it (RendererAPI says how).
+        void SetViewportRegion( int32_t x, int32_t y, uint32_t width, uint32_t height );
+        void ClearRegion( const Framebuffer& framebuffer, int32_t x, int32_t y, uint32_t width, uint32_t height,
+                          const glm::vec4& color, float depth );
 
         // Carries the backend's own result: a failed submit or present is what a lost device looks like
         // from here, and Application::Run ends the run on it. See Renderer.cpp for why it was void, and

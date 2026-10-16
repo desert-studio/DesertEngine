@@ -56,7 +56,6 @@
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Engine/ECS/System/ComponentEventSystem.hpp>
 #include <Engine/ECS/System/LevelSequenceSystem.hpp>
-#include <Engine/VFX/VFXSystemLookup.hpp>
 #include <Engine/ECS/System/LocomotionSystem.hpp>
 #include <Engine/ECS/System/AudioECSSystem.hpp>
 
@@ -572,8 +571,6 @@ namespace Desert::Player
         m_Scene->AddSystem<ECS::LocomotionSystem>( m_Scene.get() );
         m_Scene->AddSystem<ECS::AudioECSSystem>( m_Scene.get() );
         m_Scene->AddSystem<ECS::LevelSequenceSystem>( m_Scene.get(), m_AssetManager.get() );
-        // A VFXComponent names its system by handle; the scene has no asset manager, the host does.
-        m_Scene->GetVFXWorld().SetSystemLookup( Desert::VFX::MakeAssetSystemLookup( *m_AssetManager ) );
     }
 
     Common::BoolResultStr RuntimeLayer::OnDetach()
@@ -1414,6 +1411,37 @@ namespace Desert::Player
         // Every key goes to the UI as it happened — key, modifiers, repeat — in arrival order; what a key
         // means to a menu is the UI's decision (UIInput::Keys), not this host's.
         m_UIKeys.push_back( { key.GetKeyCode(), HeldUIMods(), key.GetRepeatCount() > 0 } );
+        if ( key.GetRepeatCount() == 0 )
+            InputPlayerKey( Input::InputKey::Of( key.GetKeyCode() ), true );
         return false;
+    }
+
+    bool RuntimeLayer::OnKeyReleased( Common::KeyReleasedEvent& key )
+    {
+        InputPlayerKey( Input::InputKey::Of( key.GetKeyCode() ), false );
+        return false;
+    }
+
+    bool RuntimeLayer::OnMouseButtonPressed( Common::MouseButtonPressedEvent& button )
+    {
+        if ( !StartupMoviesPlaying() )
+            InputPlayerKey( Input::InputKey::Of( button.GetMouseButton() ), true );
+        return false;
+    }
+
+    bool RuntimeLayer::OnMouseButtonReleased( Common::MouseButtonReleasedEvent& button )
+    {
+        InputPlayerKey( Input::InputKey::Of( button.GetMouseButton() ), false );
+        return false;
+    }
+
+    void RuntimeLayer::InputPlayerKey( const Input::InputKey& key, const bool pressed )
+    {
+        // The game's window is the game's viewport (UE UGameViewportClient::InputKey -> the PlayerController):
+        // the local player's key state is fed here and nowhere else.
+        if ( m_Scene == nullptr )
+            return;
+        if ( auto* scripts = m_Scene->FindSystem<ECS::ScriptSystem>() )
+            scripts->PlayerInput().InputKey( key, pressed );
     }
 } // namespace Desert::Player

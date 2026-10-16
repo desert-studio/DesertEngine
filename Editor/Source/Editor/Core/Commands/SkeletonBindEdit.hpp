@@ -4,6 +4,8 @@
 
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+
 #include <glm/glm.hpp>
 
 #include <cstdint>
@@ -80,14 +82,24 @@ namespace Desert::Editor
         glm::mat4                              m_Before{ 1.0f };
     };
 
-    /// RENAME BONE (UE Skeleton Editing): one bone's name, old -> new, on one skeleton. The rename lives in memory
-    /// until Save, which writes the `.skeleton` and carries it into the skeleton's clips
-    /// (Serialization::SaveSkeletonAsset -> Assets::RenameBonesInSkeletonAssets).
+    /// THE LOADED CLIPS A RENAME REACHES (UE Rename Bone renames the loaded animations' tracks in the same
+    /// transaction): the skeleton's GUID - a clip states its skeleton by GUID, the SkeletonAsset does not know its
+    /// own - and the manager whose resident clips of it are renamed with the bone. `Loaded` null = none resident.
+    struct ResidentSkeletonClips
+    {
+        Common::Content::AssetGuid Skeleton;
+        Assets::AssetManager*      Loaded = nullptr;
+    };
+
+    /// RENAME BONE (UE Skeleton Editing): one bone's name, old -> new, on one skeleton AND in the skeleton's
+    /// loaded clips (Assets::RenameBonesInResidentClips), one transaction: between the Rename and the Save a
+    /// scene's Animator, rebuilt on the new signature, still finds the renamed bone's channel. Save writes the
+    /// `.skeleton` and the clip files (Serialization::SaveSkeletonAsset -> Assets::RenameBonesInSkeletonAssets).
     class SkeletonRenameCommand final : public ICommand
     {
     public:
         SkeletonRenameCommand( std::shared_ptr<Assets::SkeletonAsset> skeleton, uint32_t bone, std::string before,
-                               std::string after );
+                               std::string after, ResidentSkeletonClips clips );
 
         bool Undo() override;
         bool Redo() override;
@@ -106,13 +118,14 @@ namespace Desert::Editor
         uint32_t                               m_Bone;
         std::string                            m_Before;
         std::string                            m_After;
+        ResidentSkeletonClips                  m_Clips;
     };
 
-    /// A committed rename (F2 / the tree's context menu / the Details Name row): renames @p bone and pushes ONE
-    /// record. The refusal says why (empty, another bone's name, rig not loaded); the same name is no record and
-    /// a success.
+    /// A committed rename (F2 / the tree's context menu / the Details Name row): renames @p bone and its channels
+    /// in @p clips, and pushes ONE record. The refusal says why (empty, another bone's name, rig not loaded); the
+    /// same name is no record and a success.
     Common::BoolResultStr CommitBoneRename( const std::shared_ptr<Assets::SkeletonAsset>& skeleton, uint32_t bone,
-                                            const std::string& name );
+                                            const std::string& name, const ResidentSkeletonClips& clips );
 
     /// Every bone's name and LocalBindTransform as the `.skeleton` file states them: what "Save*" compares against
     /// and what "Don't Save" puts back. Read from the file, never a snapshot of the shared asset (which may hold
@@ -128,8 +141,9 @@ namespace Desert::Editor
     /// True when the rig in memory has a rest pose or a bone name other than @p onDisk (or another bone count).
     [[nodiscard]] bool BindPoseDiffers( const Assets::SkeletonAsset& skeleton, const ReferencePoseOnDisk& onDisk );
 
-    /// "Don't Save": @p onDisk's names and binds back into the rig, and every record of this skeleton forgotten
-    /// (they would redo an edit the user threw away). False when the rig is not loaded or the counts differ.
+    /// "Don't Save": @p onDisk's names and binds back into the rig, a discarded rename back out of @p clips, and
+    /// every record of this skeleton forgotten (they would redo an edit the user threw away). False when the rig
+    /// is not loaded or the counts differ.
     bool RestoreBindPose( const std::shared_ptr<Assets::SkeletonAsset>& skeleton,
-                          const ReferencePoseOnDisk&                    onDisk );
+                          const ReferencePoseOnDisk& onDisk, const ResidentSkeletonClips& clips );
 } // namespace Desert::Editor

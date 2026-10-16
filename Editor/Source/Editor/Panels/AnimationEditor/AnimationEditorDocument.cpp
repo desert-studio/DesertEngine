@@ -144,7 +144,8 @@ namespace Desert::Editor
         // curves go back into it - otherwise the next opening would show the discarded edits as unsaved.
         // Skeleton mode: the file's Reference Pose goes back into the rig, for the same reason.
         if ( Mode() == Core::PersonaMode::Skeleton )
-            return m_BindOnDisk && RestoreBindPose( m_SkeletonAsset, *m_BindOnDisk );
+            return m_BindOnDisk && RestoreBindPose( m_SkeletonAsset, *m_BindOnDisk,
+                                                    ResidentSkeletonClips{ m_Skeleton, m_Assets } );
         if ( !m_ClipAsset || !m_OnDisk )
             return false;
         auto& clip    = m_ClipAsset->GetClipForAuthoring();
@@ -685,9 +686,9 @@ namespace Desert::Editor
     {
         if ( !m_SkeletonAsset )
             return Common::MakeError<bool>( "no skeleton is loaded in this window" );
-        // A RENAMED BONE IS CARRIED INTO THE SKELETON'S CLIPS AND RETARGETS (files by the registry, and the ones
-        // resident in this manager in memory) by the save itself - the one point
-        // (Assets::RenameBonesInSkeletonAssets).
+        // A RENAMED BONE IS WRITTEN INTO THE SKELETON'S CLIP, RETARGET, ANIM GRAPH AND CONTROL RIG FILES (by the
+        // registry) by the save itself - the one point (Assets::RenameBonesInSkeletonAssets). The resident clips
+        // were renamed by the Rename (CommitBoneRename), so the save only writes.
         const auto referrers = Assets::ReferrersOfSkeleton( m_Skeleton, m_Assets );
         if ( !referrers )
             return Common::MakeFormattedError<bool>( "not saved: {}", referrers.GetError() );
@@ -1076,7 +1077,9 @@ namespace Desert::Editor
     void AnimationEditorDocument::CommitRename( const uint32_t bone, const std::string& name )
     {
         m_RenamingBone.reset();
-        if ( const auto renamed = CommitBoneRename( m_SkeletonAsset, bone, name ); !renamed )
+        if ( const auto renamed =
+                  CommitBoneRename( m_SkeletonAsset, bone, name, ResidentSkeletonClips{ m_Skeleton, m_Assets } );
+             !renamed )
             m_RenameStatus = std::format( "Rename refused: {}", renamed.GetError() );
         else
             m_RenameStatus.clear();

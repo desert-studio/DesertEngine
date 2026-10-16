@@ -4,10 +4,9 @@
 -- the probes can state their own pace.
 
 Properties = {
-    Speed = 300.0, -- cm/s along world +X
+    Speed = Property.Float( 300.0 ), -- cm/s along world +X
 }
 
 function OnUpdate(dt)
-    local x, y, z = self:getPosition()
-    self:setPosition(x + Properties.Speed * dt, y, z)
+    self:translate(vector.create(Properties.Speed * dt, 0, 0))
 end

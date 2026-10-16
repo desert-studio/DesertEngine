@@ -2,16 +2,16 @@
 -- Attach to any mesh entity (Details -> Add Component -> Script) and press Play.
 --
 -- Showcases the scripting API:
---   self:setMaterialParam(name, x, y, z, w)  -- params by shader-schema name (Lit or custom)
---   self:getMaterialParam(name)              -- -> x, y, z, w
+--   self:setMaterialParam(name, {x=, y=, z=, w=}) -- params by shader-schema name (Lit or custom)
+--   self:getMaterialParam(name)              -- -> {x, y, z, w}
 --   self:setShader(name) / self:getShader()  -- assign a surface shader ("" = Lit slots)
 --   Log.info / Log.warn / Log.error          -- leveled output into the Logs panel
 --
 -- Edit this file while the scene is PLAYING — it hot-reloads on save.
 
 Properties = {
-    Speed = 2.0,   -- pulse frequency (radians/sec)
-    UseUnlit = false, -- true: switch the entity to the Unlit shader on start
+    Speed = Property.Float( 2.0 ),   -- pulse frequency (radians/sec)
+    UseUnlit = Property.Bool( false ), -- true: switch the entity to the Unlit shader on start
 }
 
 local t = 0.0
@@ -33,8 +33,8 @@ function OnUpdate(dt)
 
     -- Same param name drives the lit tint AND the Unlit shader's Color — one protocol.
     if self:getShader() == "Unlit" then
-        self:setMaterialParam("Color", r, g, b, 1.0)
+        self:setMaterialParam("Color", { x = r, y = g, z = b, w = 1.0 })
     else
-        self:setMaterialParam("AlbedoColor", r, g, b, 1.0)
+        self:setMaterialParam("AlbedoColor", { x = r, y = g, z = b, w = 1.0 })
     end
 end

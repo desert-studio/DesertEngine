@@ -440,6 +440,14 @@ namespace
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp",
                "\"ShadowPipelineSkinned\"", Verdict::Shipped, "" },
 
+             // ── reflection captures (REFL-CAPTURE) ──────────────────────────────────────────────────
+             { "Desert/Desert/Source/Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.cpp",
+               "std::string( name )", Verdict::Shipped,
+               "ReflectionCaptureAssemble, ReflectionCaptureDownsample and ReflectionCaptureFilter from one "
+               "helper "
+               "(MakeCompute): a scene with a ReflectionCaptureComponent captures and filters its cubes in a "
+               "player" },
+
              // ── the Jump Flood outline ──────────────────────────────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.cpp",
                "debugName", Verdict::Shipped,
@@ -490,15 +498,19 @@ namespace
                "\"GraphColorResolve\"", Verdict::Shipped, "the sample-0 resolve of the view's velocity at MSAA" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/GIResolveRenderer.hpp", "\"GIResolve\"",
                Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/GIResolveRenderer.hpp",
-               "\"GITemporalResolve\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SSAORenderer.hpp", "\"SSAO\"",
                Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp", "\"SSRTrace\"",
                Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp", "\"SSRResolveTiled\"",
-               Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp", "\"SSRComposite\"",
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp",
+               "\"SSDReconstructReflections\"", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp",
+               "\"SSDReconstructDiffuse\"", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp",
+               "\"SSDTemporalAccumulation\"", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp",
+               "\"SSDHistoryConvolution\"", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/HZBRenderer.hpp", "\"HZB\"",
                Verdict::Shipped, "" },
 
              // ── post processing ─────────────────────────────────────────────────────────────────────
@@ -525,6 +537,9 @@ namespace
                Verdict::Shipped, "the particle simulation/sort kernels, named by the kernel table" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp", "cellShader",
                Verdict::Shipped, "a material's ParticleSprite cell, named by its shader" },
+             // VFX-HOST: one simulation program per emitter stack, the stack's modules compiled into the host.
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp", "name",
+               Verdict::Shipped, "an emitter stack's simulation program, named by its stack" },
 
              // ── the view's temporal and lens chain (TAA1, DOF, motion blur, upscalers) ─────────────────
              { "Desert/Desert/Source/Engine/Graphic/View/DepthOfField.cpp", "name", Verdict::Shipped,

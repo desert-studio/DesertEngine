@@ -1423,16 +1423,17 @@ namespace Desert::Core::Preprocess
         std::string AssembleSurfaceCellStage( ShaderStage stage, std::string_view path, std::string_view pass,
                                               const RawBlock& surface, const RawBlock& include,
                                               const std::string& autoDecls, const SurfaceBlendMode blend,
-                                              const std::string_view shadingModelDefine )
+                                              const std::string_view shadingModelDefine, const bool responsiveAA )
         {
             const bool        masked   = blend == SurfaceBlendMode::Masked;
             const bool        particle = path == kSurfaceParticleSpritePath;
             const std::string defines  = std::format(
-                 "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}#define {} {}\n", pass,
+                 "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}#define {} {}\n", pass,
                  masked ? "#define DESERT_SURFACE_MASKED 1\n" : "",
                  Formats::IsTranslucentBlend( blend ) ? std::format( "#define {} 1\n", kSurfaceTranslucentDefine )
                                                        : std::string(),
                  particle ? std::format( "#define {} 1\n", kSurfaceParticleSpriteDefine ) : std::string(),
+                 responsiveAA ? std::format( "#define {} 1\n", kSurfaceResponsiveAADefine ) : std::string(),
                  kSurfaceShadingModelDefine, shadingModelDefine );
             // The sprite path has its own pass header whatever the blend: the mesh Forward / glass headers light a
             // mesh, the sprite header composites a particle.
@@ -1628,6 +1629,7 @@ namespace Desert::Core::Preprocess
         uint32_t                surfaceLine        = 0;
         uint32_t                particleLine       = 0;
         uint32_t                surfaceSettingLine = 0;
+        uint32_t                responsiveLine     = 0; // the `ResponsiveAA` line, refused on an opaque blend
         std::string             shadingModelName; // `ShadingModel <Name>`; empty = DefaultLit
         uint32_t                shadingModelLine = 0;
 
@@ -1846,6 +1848,12 @@ namespace Desert::Core::Preprocess
                 }
                 surfaceSettingLine = surfaceSettingLine != 0 ? surfaceSettingLine : line;
             }
+            else if ( lower == "responsiveaa" )
+            {
+                result.Surface.ResponsiveAA = true;
+                surfaceSettingLine          = surfaceSettingLine != 0 ? surfaceSettingLine : line;
+                responsiveLine              = line;
+            }
             else if ( lower == "usage" )
             {
                 // UE's material usage flags: which vertex factories the template is compiled for beyond the
@@ -1975,7 +1983,8 @@ namespace Desert::Core::Preprocess
         {
             err = {
                  surfaceSettingLine,
-                 "TwoSided, BlendMode, ShadingModel and Usage shape a Surface block, and this shader has none" };
+                 "TwoSided, BlendMode, ShadingModel, Usage and ResponsiveAA shape a Surface block, and this shader "
+                 "has none" };
             return fail();
         }
 
@@ -2089,6 +2098,13 @@ namespace Desert::Core::Preprocess
             result.Surface.ShadingModel          = model->Manifest.Guid;
             const std::string shadingModelDefine = ShadingModels::ShadingModelIndexDefine( model->Manifest.Name );
             result.Meta.Blend = result.Surface.Blend;
+            if ( result.Surface.ResponsiveAA && !Formats::IsTranslucentBlend( result.Surface.Blend ) )
+            {
+                err = { responsiveLine,
+                        "ResponsiveAA marks translucency that writes no velocity of its own (BlendMode Translucent "
+                        "or Additive); an opaque or masked surface writes the velocity TAA reprojects it with" };
+                return fail();
+            }
             if ( masked )
             {
                 const auto clip =
@@ -2121,7 +2137,8 @@ namespace Desert::Core::Preprocess
                     for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                         cell.Stages.emplace( stage, AssembleSurfaceCellStage(
                                                          stage, path, pass, *surfaceBlock, includeBlock, autoDecls,
-                                                         result.Surface.Blend, shadingModelDefine ) );
+                                                         result.Surface.Blend, shadingModelDefine,
+                                                         result.Surface.ResponsiveAA ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
@@ -2138,7 +2155,8 @@ namespace Desert::Core::Preprocess
                     cell.Stages.emplace(
                          stage, AssembleSurfaceCellStage( stage, kSurfaceParticleSpritePath,
                                                           kSurfaceParticleSpritePass, *surfaceBlock, includeBlock,
-                                                          autoDecls, result.Surface.Blend, shadingModelDefine ) );
+                                                          autoDecls, result.Surface.Blend, shadingModelDefine,
+                                                          result.Surface.ResponsiveAA ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );

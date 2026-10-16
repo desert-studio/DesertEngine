@@ -49,9 +49,12 @@ namespace Desert::Graphic
                                    float weight )
     {
         // Taken whole: a switch, a mode or a count has no value between its two ends.
-        target.EnableSSAO          = volume.EnableSSAO;
-        target.GlobalIllumination  = volume.GlobalIllumination;
-        target.EnableSSR           = volume.EnableSSR;
+        target.EnableSSAO               = volume.EnableSSAO;
+        target.GlobalIlluminationMethod = volume.GlobalIlluminationMethod;
+        target.ReflectionsMethod        = volume.ReflectionsMethod;
+        target.ShadowsMethod            = volume.ShadowsMethod;
+        target.ContactShadows           = volume.ContactShadows;
+        target.DistanceFieldShadows     = volume.DistanceFieldShadows;
         target.Tonemapper          = volume.Tonemapper;
         target.AutoExposure        = volume.AutoExposure;
         target.EnableBloom         = volume.EnableBloom;
@@ -147,6 +150,11 @@ namespace Desert::Graphic
                                                        .SlopeBiasCm  = light.ShadowSlopeBias,
                                                        .Distribution = light.ShadowCascadeBiasDistribution };
             result.Shadows.CascadeSplitLambda      = light.CascadeSplitLambda;
+            result.Shadows.SourceAngleDegrees               = light.SourceAngle;
+            result.Shadows.ContactShadowLength              = light.ContactShadowLength;
+            result.Shadows.ContactShadowLengthInWorldSpace  = light.ContactShadowLengthInWorldSpace;
+            result.Shadows.ContactShadowCastingIntensity    = light.ContactShadowCastingIntensity;
+            result.Shadows.ContactShadowNonCastingIntensity = light.ContactShadowNonCastingIntensity;
         }
 
         return result;

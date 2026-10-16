@@ -409,12 +409,13 @@ static int RunTool( int argc, char** argv )
         std::string point = "[0,0]";
         if ( rest.size() < 4 || ( rest[3] != "-" && !NumberArray( rest[3], point ) ) )
         {
-            std::fprintf( stderr, "desertctl: input <move|click|press|release|key|drop> <panel|-> <x,y|-> "
-                                  "[key | path...]\n" );
+            std::fprintf( stderr,
+                          "desertctl: input <move|click|press|release|key|keydown|keyup|drop> <panel|-> <x,y|-> "
+                          "[key | path...]\n" );
             return kNoEditor;
         }
         const std::string panel = rest[2] == "-" ? std::string() : rest[2];
-        const bool        isKey = rest[1] == "key";
+        const bool        isKey = rest[1] == "key" || rest[1] == "keydown" || rest[1] == "keyup";
         const std::string key   = isKey && rest.size() > 4 ? rest.back() : std::string();
         const std::string paths = isKey ? std::string() : QuotedList( rest, 4 );
         request =

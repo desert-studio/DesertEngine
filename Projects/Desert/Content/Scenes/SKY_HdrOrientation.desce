@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "1eb1324b5419511d0f1637213db41ffe",
         "Versions": {
-            "SCNE": 50,
+            "SCNE": 54,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["e0ee3c11f6a10cf2edd3474d72613488"]
     },
     "SceneName": "SKY HDR Orientation",
     "Entities": [
@@ -56,11 +56,14 @@
                 "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": false,
-                    "GlobalIllumination": 1,
+                    "GlobalIlluminationMethod": 2,
                     "GIIntensity": 2.0,
-                    "EnableSSR": true,
+                    "ReflectionsMethod": 2,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
+                    "ShadowsMethod": 0,
+                    "ContactShadows": false,
+                    "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "Exposure": 1.0,
                     "Gamma": 2.200000047683716,

@@ -14,12 +14,31 @@
 
 namespace Desert::Graphic
 {
+    // The bits of the push field PrimitiveFlags (Common/MaterialTransport.glslh, DESERT_PRIMITIVE_FLAG_*): what a
+    // G-buffer draw carries about its primitive into the shading word. A set bit is the NON-default, so a draw
+    // that pushes 0 is a default primitive.
+    namespace PrimitiveFlag
+    {
+        // UE !bCastContactShadow (StaticMeshComponent / InstancedStaticMeshComponent::CastContactShadow off).
+        inline constexpr uint32_t NoContactShadow = 1u << 0;
+    } // namespace PrimitiveFlag
+
+    [[nodiscard]] constexpr uint32_t PrimitiveFlagsOf( const bool castContactShadow )
+    {
+        return castContactShadow ? 0u : PrimitiveFlag::NoContactShadow;
+    }
+
     class Material : public IPropertyOwner
     {
     public:
         // @p parameterSchema: see MaterialExecutor — the program whose Properties are this material's own
         // textures; null means @p shaderName's own.
         explicit Material( std::string&& debugName, std::string&& shaderName,
+                           const Core::Formats::ShaderProgramMeta* parameterSchema = nullptr );
+        // Over @p shader itself rather than the program registered under a name: a permutation
+        // (ShaderService::AcquireVariant) is not registered, and its bindings are its own - a define may compile
+        // a binding out, and a material built from the base program would fill a slot the permutation lacks.
+        explicit Material( std::string&& debugName, const std::shared_ptr<Shader>& shader,
                            const Core::Formats::ShaderProgramMeta* parameterSchema = nullptr );
 
         virtual ~Material() = default;
@@ -89,9 +108,15 @@ namespace Desert::Graphic
         // Every instanced draw writes it, a still one with zeros (FO-7); a cell without them writes nothing.
         void SetInstancedWind( const InstanceWindPush& wind );
 
+        // A G-buffer draw's per-primitive bits (PrimitiveFlag below): the push field `PrimitiveFlags`, which
+        // Mesh/Surface/Pass_GBuffer.glslh moves into the shading word. Every G-buffer draw writes it, a default
+        // primitive with 0, since the push block keeps its bytes between draws; a cell without it writes nothing.
+        void SetPrimitiveFlags( uint32_t flags );
+
         // A light-view caster's slope depth bias (Graphic::CascadeCasterBias::SlopeBias / SlopeClamp): the push
         // field `ShadowSlope`, read by a caster whose one material serves every cascade and so cannot carry it
-        // in a uniform block (Programs/Terrain/TerrainShadow.shader). A cell without the field refuses.
+        // in a uniform block (the vertex stage of Programs/Terrain/TerrainShadow.shader). A cell without the
+        // field refuses.
         void SetShadowSlopeBias( float slopeBias, float slopeClamp );
 
         // The SKINNED vertex path's two inputs — the vertex factory's, not the surface's, so they live here

@@ -341,8 +341,25 @@ namespace Desert::Runtime
     {
         if ( const auto it = m_MaterialAssets.find( handle ); it != m_MaterialAssets.end() )
             return it;
-        if ( handle.IsNull() || m_ReportedMissing.contains( handle ) || m_Assets.expired() )
+        if ( handle.IsNull() || m_Assets.expired() )
             return m_MaterialAssets.end();
+        if ( m_ReportedMissing.contains( handle ) )
+        {
+            // A MISSING MATERIAL IS MISSING UNTIL ITS ROW IS WRITTEN, NOT FOR THE SESSION (UE: a soft reference
+            // resolves once the asset registry's OnAssetAdded names it). A mesh read before the import wrote its
+            // .demat — a re-import, a material saved later — otherwise drew the default surface until restart.
+            // One serial compare while nothing was written.
+            if ( Assets::ContentRegistry::WriteSerial() != m_MissingSerial )
+            {
+                const auto written = Assets::ContentRegistry::WrittenSince( Common::Content::ContentKind::Material,
+                                                                            m_MissingSerial );
+                m_MissingSerial    = written.Serial;
+                for ( const auto& row : written.Rows )
+                    m_ReportedMissing.erase( row.Handle );
+            }
+            if ( m_ReportedMissing.contains( handle ) )
+                return m_MaterialAssets.end();
+        }
 
         auto created = Assets::CreateFromRegistryRow<Assets::SurfaceMaterialAsset>(
              m_Assets, handle, Common::Content::ContentKind::Material );

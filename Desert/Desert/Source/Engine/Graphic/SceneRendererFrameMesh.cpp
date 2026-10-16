@@ -95,7 +95,7 @@ namespace Desert::Graphic
         for ( const SystemRasterPass& pass : passes )
         {
             // A system whose pipeline or target failed to build hands back a pass with no target (it logged why).
-            if ( !pass.TargetFramebuffer || !pass.ExecuteFunc )
+            if ( ( !pass.TargetFramebuffer && !pass.TargetDepthArray.IsValid() ) || !pass.ExecuteFunc )
                 continue;
             const std::shared_ptr<Framebuffer>& target = pass.TargetFramebuffer;
             const bool                          clears = clearFirst && target != previous;
@@ -120,12 +120,36 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameShadowDepths( RDG::Builder& graph, FrameTextures& textures )
     {
-        // One depth-only node per cascade, cascade 0 first, each clearing its own cascade target (to 1: standard
-        // Z). NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        // The sun's cascades (MeshRenderer::ShadowCascadePasses): the static layers that went stale, each clearing
+        // its cache (to 1: standard Z); each rebuilt map copied from its cache; the movable casters LOADING the
+        // map over the copy. A cascade with none of the three keeps last frame's map.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
         {
-            const std::vector<SystemRasterPass> cascades = mesh->ShadowCascadePasses();
-            AddSystemRasters( graph, textures, cascades, true );
+            // The cascade array ImportSceneViewTextures acquired (layer c = cascade c).
+            const RDG::TextureRef                          maps     = textures.Transients.ShadowCascades;
+            const System::MeshRenderer::ShadowCascadeFrame cascades = mesh->ShadowCascadePasses( maps );
+            AddSystemRasters( graph, textures, cascades.StaticPasses, true );
+            for ( const auto& copy : cascades.Copies )
+            {
+                const RDG::TextureRef from = textures.Import( copy.From, copy.Name + ".Cache" );
+                if ( !from.IsValid() )
+                    continue;
+                graph.AddPass(
+                     copy.Name, RDG::PassFlags::Copy,
+                     [&]( RDG::PassBuilder& pass )
+                     {
+                         pass.Read( from, RDG::Access::CopySrc );
+                         pass.Write( maps, RDG::Access::CopyDst, RDG::SubresourceRange::Layer( copy.Layer ) );
+                     },
+                     [from, maps, layer = copy.Layer]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     { return Renderer::CopyGraphDepthToLayer( context, from, maps, layer ); } );
+            }
+            AddSystemRasters( graph, textures, cascades.MovablePasses, false );
+            // The local lights' views LOAD the atlas: each clears and draws only its own tile, and a tile whose
+            // light and casters stood still keeps last frame's depth (it has no pass at all).
+            const std::vector<SystemRasterPass> local = mesh->LocalShadowPasses();
+            AddSystemRasters( graph, textures, local, false );
         }
     }
 
@@ -188,6 +212,10 @@ namespace Desert::Graphic
         // there is nothing for them to draw over.
         if ( !m_FrameExtensions || !m_TargetFramebuffer )
             return;
+        // A reflection capture's face view draws the game scene only: the editor's grid, gizmos and UI are not
+        // what a reflection shows.
+        if ( m_ViewProfile.SceneCapture )
+            return;
         m_FrameExtensions->ForEachAt(
              point,
              [&]( const ExtensionPass& extension )
@@ -229,24 +257,35 @@ namespace Desert::Graphic
                                      const RDG::LoadOp& color, const RDG::LoadOp& depth,
                                      const OverlayTargets& overlay )
     {
-        auto targets = TargetsOf( textures, target, debugName, pass.Name );
+        // A pass on one layer of a graph depth array declares that layer alone; one on a framebuffer, all of it.
+        const bool                   layered = pass.TargetDepthArray.IsValid();
+        std::optional<RasterTargets> targets;
+        if ( layered )
+        {
+            targets.emplace();
+            targets->Depth = pass.TargetDepthArray;
+        }
+        else
+            targets = TargetsOf( textures, target, debugName, pass.Name );
         if ( !targets )
             return;
         // After the temporal resolve the scene target is the RENDER-extent pre-resolve scene: the overlay
         // draws into the OUTPUT-extent overlay set instead - every attachment replaced, so the render pass has
         // one extent (colour 0 the resolved colour, the velocity slot the overlay velocity, the depth the one
-        // PopulateSceneDepth filled; one sample, so no resolves).
+        // PopulateSceneDepth filled, the responsive-AA slot the overlay mask - never read; one sample, so no
+        // resolves).
         if ( overlay.IsValid() && target == m_TargetFramebuffer )
         {
-            if ( targets->Colors.size() != kSceneTargetVelocitySlot + 1 )
+            if ( targets->Colors.size() != kSceneTargetResponsiveAASlot + 1 )
             {
                 LOG_ERROR( "[SceneRenderer] pass '{}' refused: the scene target has {} colours, the overlay set "
-                           "replaces exactly colour 0 and the velocity slot",
+                           "replaces exactly colour 0, the velocity slot and the responsive-AA slot",
                            pass.Name, targets->Colors.size() );
                 return;
             }
-            targets->Colors[0]                        = overlay.Color;
-            targets->Colors[kSceneTargetVelocitySlot] = overlay.Velocity;
+            targets->Colors[0]                            = overlay.Color;
+            targets->Colors[kSceneTargetVelocitySlot]     = overlay.Velocity;
+            targets->Colors[kSceneTargetResponsiveAASlot] = overlay.ResponsiveAA;
             targets->Depth                            = overlay.Depth;
             targets->Resolves                         = {};
         }
@@ -266,7 +305,8 @@ namespace Desert::Graphic
                  for ( uint32_t slot = 0; slot < targets->Colors.size(); ++slot )
                      node.ColorTarget( slot, targets->Colors[slot], colors[slot] );
                  if ( targets->Depth.IsValid() )
-                     node.DepthTarget( targets->Depth, depth, !pass.DepthReadOnly );
+                     node.DepthTarget( targets->Depth, depth, !pass.DepthReadOnly,
+                                       layered ? pass.TargetLayer : RDG::kAllRemaining );
                  DeclareResolves( node, targets->Resolves );
              },
              [execute = pass.ExecuteFunc, refs = textures.GraphRefs()](
@@ -281,7 +321,7 @@ namespace Desert::Graphic
             return;
         // ZERO, not the default 0.1 grey: empty texels need a zero normal, the lighting pass tells geometry from
         // sky by dot(normal, normal).
-        // The shading word target (slot 2, R32_UINT) takes the same clear: the bits of 0.0f are uint 0, which is
+        // The shading word target (slot 2, RG32_UINT) takes the same clear: the bits of 0.0f are uint 0, which is
         // the contract's clear value (Unlit, receives sun shadows).
         static_assert( Core::ShadingModels::kShadingWordClearValue == 0u,
                        "the G-buffer clear writes 0.0f bits into the uint shading word" );

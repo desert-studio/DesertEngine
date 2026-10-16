@@ -98,7 +98,7 @@ namespace Desert::Geometry
             if ( auto tangents = RecomputeTangentSpace( *mesh, name ); !tangents.IsSuccess() )
                 return Common::MakeError<KeptHalf>( tangents.GetError() );
             return Common::MakeSuccess(
-                 KeptHalf{ RegionOutcome{ std::move( mesh ), std::move( cap ) }, unfilledSpans } );
+                 KeptHalf{ RegionOutcome{ std::move( mesh ), std::move( cap ), {} }, unfilledSpans } );
         }
 
         Common::ResultStr<glm::dvec3> UnitNormal( const MeshPlane& plane, const char* name )
@@ -152,7 +152,7 @@ namespace Desert::Geometry
                  mirror.m_FailedTriangle, mirror.m_FailureCode );
         if ( auto tangents = RecomputeTangentSpace( *mesh, "Mirror" ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
-        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( selectionMode ) } );
+        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( selectionMode ), {} } );
     }
 
     Common::ResultStr<PlaneCutOutcome> PlaneCutMesh( const DynamicMesh3& before, const MeshPlane& plane,

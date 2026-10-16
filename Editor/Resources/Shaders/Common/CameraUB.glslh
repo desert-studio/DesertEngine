@@ -21,8 +21,8 @@ Uniform(0) CameraUB {
     vec3 PrevCameraPos;
     float PrevTime;
     float MaterialMipBias;
-    float ShadowSlopeBias;  // light views only: the caster's slope depth bias (Mesh/Surface/Pass_ShadowDepth.glslh)
-    float ShadowSlopeClamp; // light views only: the depth gradient where that slope term stops
+    float ShadowSlopeBias;  // light views only: the caster's slope depth bias per unit tan (Common/ShadowCasterBias.glslh)
+    float ShadowSlopeClamp; // light views only: the tangent where that slope term stops
     float CameraPad0;
 } cameraUB;
 

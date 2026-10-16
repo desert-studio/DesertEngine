@@ -39,7 +39,6 @@ using Desert::Assets::CloudProceduralColumnKept;
 using Desert::Assets::CloudProceduralFieldParams;
 using Desert::Assets::CloudProceduralLocalWeathers;
 using Desert::Assets::CloudProceduralLump;
-using Desert::Assets::CloudProceduralLumpSet;
 using Desert::Assets::CloudProceduralRegionOriginKm;
 using Desert::Assets::CloudProceduralSnapKm;
 using Desert::Assets::CloudProceduralSpecies;
@@ -215,7 +214,8 @@ TEST( CloudProceduralField, TheGeneratorIsAPureFunctionOfItsInputs )
 namespace
 {
     /// The lumps grouped by cluster (exact site), each group in the canonical order, keeping only the clusters
-    /// whose rank is under @p cover (2 keeps them all).
+    /// whose field can pass the Coverage threshold at @p cover — strength over 1 - cover, since a body's field
+    /// never exceeds its strength (2 keeps them all).
     std::vector<std::vector<CloudModellingBlob>> ClustersOf( const std::vector<CloudProceduralLump>& lumps,
                                                              float                                   cover )
     {
@@ -223,8 +223,8 @@ namespace
         std::vector<std::vector<CloudModellingBlob>> groups;
         for ( const CloudProceduralLump& lump : lumps )
         {
-            // A CLUSTER IS BAKED WHEN THE SLIDER IS OVER ITS RANK (CloudProceduralClusterReach > 0).
-            if ( cover <= 1.0f && !( lump.Rank < cover ) )
+            // A CLUSTER STANDS WHERE ITS FIELD PASSES 1 - Coverage (CloudProceduralCoverageRemap > 0).
+            if ( cover <= 1.0f && !( lump.Strength > 1.0f - cover ) )
                 continue;
             const auto found = std::find( sites.begin(), sites.end(), lump.ClusterKm );
             if ( found == sites.end() )
@@ -274,8 +274,8 @@ TEST( CloudProceduralField, ADeadNeighbourLeavesNoVoxelsAtALivingCluster )
     const auto                       baked  = BakeCloudProceduralVolume( params, origin, {} );
     ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
 
-    const float cover = params.Coverage;
-    const auto  lumps = GenerateCloudProceduralLumps( params, 0u, origin, CloudProceduralLumpSet::EveryCell );
+    const float                                        cover  = params.Coverage;
+    const auto                                         lumps  = GenerateCloudProceduralLumps( params, 0u, origin );
     const std::vector<std::vector<CloudModellingBlob>> living = ClustersOf( lumps, cover );
     ASSERT_FALSE( living.empty() );
 
@@ -347,15 +347,14 @@ TEST( CloudProceduralField, TheBakedVolumeAgreesWithAGatherOverEveryLumpInAnyOrd
     ASSERT_TRUE( baked ) << ( baked ? std::string{} : baked.GetError() );
     ASSERT_EQ( baked.GetValue().size(), CloudProceduralVoxelBytes( kCloudProceduralVolumeSide ) );
 
-    // THE KEPT CELLS' LUMPS, what the bake draws since CUT-AT-BAKE: the Coverage cut is the bake's, each
-    // cluster cut by its reach. The gather is the PREVIEW (EvaluateCloudProceduralProfile), which shares the
-    // bake's voxel — the join per cluster, the altitude density, the cut — and differs only in the SET: every
+    // EVERY LUMP, what the bake draws since COVERAGE-FIELD: the Coverage threshold is the bake's, on the
+    // field of the bodies and the fill. The gather is the PREVIEW (EvaluateCloudProceduralProfile), which shares
+    // the bake's voxel — the join per cluster, the altitude density, the cut — and differs only in the SET: every
     // lump at every wrap, where the bake asks the bin. The wraps are part of the field (the volume is
     // periodic), so each copy carries its cluster site with it and stays its own cluster.
     std::vector<CloudModellingBlob>        blobs;
     std::vector<CloudProceduralLump>       wrapped;
-    const std::vector<CloudProceduralLump> lumps =
-         GenerateCloudProceduralLumps( params, 0u, origin, CloudProceduralLumpSet::KeptCells );
+    const std::vector<CloudProceduralLump> lumps = GenerateCloudProceduralLumps( params, 0u, origin );
     for ( const CloudProceduralLump& lump : lumps )
     {
         blobs.push_back( lump.Blob );
@@ -1052,9 +1051,9 @@ namespace
 // 6. COVERAGE IS NUBIS' "HOW BUSY THE WEATHER IS" (WX-NUBIS): EMPTY AT ZERO, MONOTONE, THE ZEROS STAY CLEAR
 // ---------------------------------------------------------------------------------------------------
 //
-// Owner, 10-08: Coverage is no longer the fraction of sky. localCover = Coverage * W, W >= 0 the weather map
-// with true zeros, so 0 is empty, more Coverage is never less cloud, and a column whose W is zero is clear at
-// every Coverage — an overcast sky is a cloud type, not Coverage 1.
+// Owner, 10-12 (COVERAGE-FIELD): Coverage is the threshold of a continuous field of bodies and fill, under the
+// weather map W >= 0 with true zeros, so 0 is empty, more Coverage is never less cloud, and a column whose W is
+// zero is clear at every Coverage. The bodies are the type's at every Coverage: the slider never adds lumps.
 TEST( CloudProceduralField, CoverageIsEmptyAtZeroAndTheWeathersZerosStayClearAtOne )
 {
     CloudProceduralFieldParams params = MakeParams();
@@ -1062,8 +1061,7 @@ TEST( CloudProceduralField, CoverageIsEmptyAtZeroAndTheWeathersZerosStayClearAtO
     params.Coverage        = 0.0f;
     const glm::vec2 origin = CloudProceduralRegionOriginKm( params, 0.0f, 0.0f );
 
-    EXPECT_TRUE( GenerateCloudProceduralBlobs( params, 0u, origin ).empty() )
-         << "a coverage of zero put cloud in a sky the artist asked to be empty";
+    const std::vector<CloudModellingBlob> none = GenerateCloudProceduralBlobs( params, 0u, origin );
 
     const double emptyCover = KeptCover( params, 4 );
     ASSERT_GE( emptyCover, 0.0 ) << "the bake failed";
@@ -1113,13 +1111,13 @@ TEST( CloudProceduralField, CoverageIsEmptyAtZeroAndTheWeathersZerosStayClearAtO
     ASSERT_FALSE( full.empty() );
     ASSERT_FALSE( half.empty() );
 
-    // The lump COUNT is not proportional to the coverage — a shallow cell grows a shorter stack — so the
-    // property asserted is monotonicity plus the two exact ends, which is what the slider promises.
-    EXPECT_GT( full.size(), half.size() )
-         << "raising the coverage from a half to one did not add cloud to the sky";
+    // THE LUMPS ARE THE TYPE'S, NOT THE SLIDER'S (COVERAGE-FIELD): the same bodies at every Coverage, so the
+    // bake costs the same and the slider moves only the threshold.
+    EXPECT_EQ( none.size(), full.size() ) << "Coverage changed how many lumps the type places";
+    EXPECT_EQ( half.size(), full.size() ) << "Coverage changed how many lumps the type places";
 
     std::printf( "[CloudProceduralField] coverage 0 / 1 keeps %.4f / %.4f of the sky\n", emptyCover, fullCover );
-    std::printf( "[CloudProceduralField] coverage 0 / 0.5 / 1 gives %zu / %zu / %zu lumps\n", size_t{ 0 },
+    std::printf( "[CloudProceduralField] coverage 0 / 0.5 / 1 gives %zu / %zu / %zu lumps\n", none.size(),
                  half.size(), full.size() );
 }
 

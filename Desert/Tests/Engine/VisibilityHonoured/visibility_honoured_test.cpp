@@ -158,9 +158,8 @@ namespace
               "never drawn); a field is an event acting on bodies, and hiding it must not change what a "
               "Sequencer event or a script breaks." },
          Row{ "FracturePieceDraw.hpp", Verdict::Honours,
-              "DST-06: it records a fractured entity's pieces as static-mesh draws in place of its mesh; a hidden "
-              "crate's pieces are geometry like any mesh and go with it (its bodies stay simulated, "
-              "DestructibleLifetime's verdict)." },
+              "DST-06: it records a fractured entity's pieces as static-mesh draws in place of its mesh, so a "
+              "hidden destructible must draw no piece, exactly as MeshECSSystem draws no hidden static." },
          Row{ "HeightFogECSSystem.hpp", Verdict::Honours,
               "emits the frame's fog; the renderer keeps fog state across frames, so a hidden volume "
               "that is still collected stays on screen forever." },
@@ -257,6 +256,7 @@ namespace
     };
 
     constexpr std::array kHonourSites = {
+         Site{ "FracturePieceDraw.hpp", "fracture pieces", "std::unordered_set<entt::entity> drawn;" },
          Site{ "LandscapeECSSystem.hpp", "landscape tiles", "gpu.NeighbourMask = mask;" },
          Site{ "MeshECSSystem.hpp", "static meshes", "StaticMeshComponent& mesh," },
          Site{ "MeshECSSystem.hpp", "instanced static meshes (ISM)", "InstancedStaticMeshComponent& ism" },

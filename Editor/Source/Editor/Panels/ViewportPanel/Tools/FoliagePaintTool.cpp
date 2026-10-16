@@ -1067,6 +1067,7 @@ namespace Desert::Editor::Tools
                     ism.MeshHandle    = lead.MeshHandle;
                     ism.MaterialSlots = lead.MaterialSlots;
                     ism.CastShadows   = lead.CastShadows;
+                    ism.CastContactShadow = lead.CastContactShadow;
                     if ( !visible )
                         scene.SetVisibleRecursive( field, false );
                     const auto uuid = field.GetComponent<ECS::UUIDComponent>().UUID;

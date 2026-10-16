@@ -280,10 +280,23 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
             const auto&    m       = *it;
             const uint32_t binding = static_cast<uint32_t>( std::stoul( m[1].matched ? m[1].str() : m[3].str() ) );
             const std::string name = m[2].matched ? m[2].str() : m[4].str();
-            const bool        sceneReadHeader =
-                 entry.path().filename() == "ObjectMotion.glslh" ||
-                 ( entry.path().filename() == "SurfaceTypes.glslh" && name == "u_SceneDepth" );
-            if ( sceneReadHeader )
+            const bool        sceneReadHeader = entry.path().filename() == "ObjectMotion.glslh" ||
+                                         ( entry.path().filename() == "SurfaceTypes.glslh" &&
+                                           ( name == "u_SceneDepth" || name == "u_SceneShadingWord" ) );
+            // The view's light grid: the forward cell declares its two blocks at their two numbers of the range
+            // (the deferred composite at set-0 slots 22/23 and the build shader's compute layout from 0, both
+            // outside it).
+            if ( name == "LightGridParamsUB" || name == "LightGridCellsUB" )
+            {
+                if ( Desert::Core::IsSceneReadBinding( binding ) )
+                {
+                    EXPECT_EQ( binding, name == "LightGridParamsUB" ? Desert::Core::kLightGridParamsBinding
+                                                                    : Desert::Core::kLightGridCellsBinding )
+                         << entry.path().string() << " declares '" << name << "' at binding " << binding;
+                    sceneRead[name] = binding;
+                }
+            }
+            else if ( sceneReadHeader )
                 sceneRead[name] = binding;
             else
                 EXPECT_FALSE( Desert::Core::IsSceneReadBinding( binding ) )
@@ -293,10 +306,13 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
         }
     }
     EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
-    ASSERT_EQ( sceneRead.size(), 3u );
+    ASSERT_EQ( sceneRead.size(), 6u );
+    EXPECT_EQ( sceneRead["LightGridParamsUB"], Desert::Core::kLightGridParamsBinding );
+    EXPECT_EQ( sceneRead["LightGridCellsUB"], Desert::Core::kLightGridCellsBinding );
     EXPECT_EQ( sceneRead["ObjectMotions"], Desert::Core::kObjectMotionsBinding );
     EXPECT_EQ( sceneRead["ObjectBones"], Desert::Core::kObjectBonesBinding );
     EXPECT_EQ( sceneRead["u_SceneDepth"], Desert::Core::kSceneDepthBinding );
+    EXPECT_EQ( sceneRead["u_SceneShadingWord"], Desert::Core::kSceneShadingWordBinding );
 }
 
 TEST( VelocityTarget, GlslVelocityIsTheCpuTwinExpression )
@@ -761,7 +777,9 @@ TEST( VelocityTarget, OneVelocityTransientPerViewIsTheSlotOfBothTargets )
     RasterTargets gbuffer;
     for ( const char* slot : { "A", "B", "C", "Emissive" } )
         gbuffer.Colors.push_back( graph.CreateTexture( colour, slot ) );
-    const GraphColor onScene[]   = { VelocityColor( velocity, 1 ) };
+    // TAA-FINISH: the scene target's last colour slot is the responsive-AA mask, appended after the velocity.
+    const ViewVelocity responsive  = CreateViewResponsiveAA( graph, RDG::Extent3D{ 64, 32, 1 }, 1 );
+    const GraphColor   onScene[]   = { VelocityColor( velocity, 1 ), ResponsiveAAColor( responsive, 1 ) };
     const GraphColor onGBuffer[] = { VelocityColor( velocity, 1 ) };
     ASSERT_TRUE( AppendGraphColors( scene, onScene, false ) );
     ASSERT_TRUE( AppendGraphColors( gbuffer, onGBuffer, false ) );
@@ -769,6 +787,7 @@ TEST( VelocityTarget, OneVelocityTransientPerViewIsTheSlotOfBothTargets )
     ASSERT_EQ( gbuffer.Colors.size(), Desert::Graphic::GBufferLayout().ColorFormats.size() );
     EXPECT_EQ( scene.Colors[Desert::Graphic::kSceneTargetVelocitySlot], velocity.Resolved );
     EXPECT_EQ( gbuffer.Colors[Desert::Graphic::kGBufferVelocitySlot], velocity.Resolved );
+    EXPECT_EQ( scene.Colors[Desert::Graphic::kSceneTargetResponsiveAASlot], responsive.Resolved );
 
     // At MSAA the scene target draws the multisampled twin; velocity is SampleZero, so the slot has NO in-pass
     // resolve (the hardware average) — "Velocity: Resolve" writes sample 0 into the one transient
@@ -889,9 +908,11 @@ TEST( VelocityTarget, VelocityIsCreatedOncePerViewAndNeverOnALightView )
     ASSERT_NE( created, std::string::npos );
     ASSERT_NE( first, std::string::npos );
     EXPECT_LT( created, first ) << "the velocity must exist before the first node of the frame";
-    EXPECT_EQ( count( scene, "AddGraphColor( m_TargetFramebuffer" ), 1u );
-    EXPECT_EQ( count( scene, "AddGraphColor( m_GBuffer" ), 1u );
-    EXPECT_EQ( count( scene, "AddGraphColor(" ), 2u ) << "velocity on any other target (RSM, cascades, overdraw)";
+    // By name: the velocity on both view targets, and the scene target's responsive-AA mask (TAA-FINISH).
+    EXPECT_EQ( count( scene, "AddGraphColor( m_TargetFramebuffer, VelocityColor(" ), 1u );
+    EXPECT_EQ( count( scene, "AddGraphColor( m_GBuffer, VelocityColor(" ), 1u );
+    EXPECT_EQ( count( scene, "AddGraphColor( m_TargetFramebuffer, ResponsiveAAColor(" ), 1u );
+    EXPECT_EQ( count( scene, "AddGraphColor(" ), 3u ) << "velocity on any other target (RSM, cascades, overdraw)";
     EXPECT_EQ( count( scene, "AddGraphColor( m_RSMBuffer" ), 0u );
 }
 
@@ -1009,7 +1030,6 @@ TEST( VelocityTarget, PassesThatMustNotWriteVelocityLeaveItsSlotMasked )
          { "HeightFogApply", E / "Fog/HeightFogRenderer.cpp" },               // fullscreen fog composite
          { "CloudComposite", E / "Clouds/VolumetricCloudRenderer.cpp" },      // fullscreen cloud composite
          { "DeferredLighting", E / "Deferred/DeferredLightingRenderer.hpp" }, // deferred composite
-         { "SSRComposite", E / "Deferred/SSRRenderer.hpp" },                  // reflection composite
          { "DebugLine", E / "Mesh/MeshRendererDebug.cpp" },                   // debug lines
          { "OverdrawResolve", E / "Mesh/MeshRendererDebug.cpp" },             // debug view
          { "ParticleSpriteDefault", E / "Particles/ParticleRenderer.cpp" },   // translucent particles

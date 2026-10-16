@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "30c8bbe1dd7749a549426f8dcf1e0960",
         "Versions": {
-            "SCNE": 50,
+            "SCNE": 54,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "df51ca6ed9cb71779a9b5634db0863bc"]
     },
     "SceneName": "Physics Destroy Witness",
     "Entities": [
@@ -129,15 +129,7 @@
                 "Scripts": [
                     {
                         "ScriptKey": "assets:Scripts/Examples/DestroyAfter.lua",
-                        "Props": [
-                            {
-                                "Name": "Delay",
-                                "Type": 0,
-                                "Number": 0.25,
-                                "Bool": false,
-                                "Str": ""
-                            }
-                        ]
+                        "Props": []
                     }
                 ]
             },
@@ -218,11 +210,14 @@
                 "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": false,
-                    "GlobalIllumination": 1,
+                    "GlobalIlluminationMethod": 2,
                     "GIIntensity": 2.0,
-                    "EnableSSR": false,
+                    "ReflectionsMethod": 0,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
+                    "ShadowsMethod": 0,
+                    "ContactShadows": false,
+                    "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "Exposure": 1.0,
                     "Gamma": 2.200000047683716,

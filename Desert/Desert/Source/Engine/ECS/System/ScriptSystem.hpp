@@ -7,6 +7,8 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Input.hpp>
 #include <Engine/Reflection/Value.hpp>
+#include <Engine/Input/LocalPlayerInput.hpp>
+#include <Engine/Libraries/InputLibrary.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include <UI/UIDataStore.hpp>
 
@@ -44,6 +46,12 @@ namespace Desert::ECS
                 m_HookedRegistry->on_destroy<ScriptComponent>().disconnect( this );
         }
 
+        /// The local player of this world (UE ULocalPlayer): the viewport the world is played in feeds its keys.
+        [[nodiscard]] Input::LocalPlayerInput& PlayerInput()
+        {
+            return m_Engine.PlayerInput();
+        }
+
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer&,
                      const Common::Timestep& ts ) override
         {
@@ -76,14 +84,13 @@ namespace Desert::ECS
             // the material/shader watcher). Throttled; scripts keep running between polls.
             PollScriptFiles( registry, ts );
 
-            // Advance edge-detection state so Input.wasPressed() fires exactly on the press transition.
-            m_Engine.NewInputFrame();
-
             // ---- Per-frame input plumbing exposed to scripts (Input.mouseDelta()) ----
             // ESCAPE TOGGLES the cursor free/captured (edge-detected) — so you can always free it to click
             // Stop / the UI. (Left Alt is avoided: on Windows it grabs the window's system menu and is
             // unreliable in GLFW.) Captured = smooth unbounded look.
-            const bool toggleDown = Input::Keyboard::IsKeyPressed( Common::KeyCode::Escape );
+            // The player's key state, as every gameplay key: Escape typed into a text field is not this toggle.
+            const bool toggleDown =
+                 m_Engine.PlayerInput().IsKeyDown( Input::InputKey::Of( Common::KeyCode::Escape ) );
             if ( toggleDown && !m_AltPrev )
                 m_LookSuspended = !m_LookSuspended;
             m_AltPrev = toggleDown;
@@ -102,7 +109,8 @@ namespace Desert::ECS
             const glm::vec2 mouseNow( mp.first, mp.second );
             const glm::vec2 delta = ( wantLock && !toggled ) ? ( mouseNow - m_LastMouse ) : glm::vec2( 0.0f );
             m_LastMouse           = mouseNow;
-            m_Engine.SetFrameMouseDelta( delta.x, delta.y );
+            // The gameplay input frame (Input.wasPressed edges, Input.mouseDelta) — before any script runs.
+            Libraries::InputLibrary::NewFrame( delta );
 
             // The local player's Enhanced Input evaluates THIS frame before any script reads it (UE: the
             // player input is processed before the pawn ticks).
@@ -141,8 +149,10 @@ namespace Desert::ECS
                         {
                             LOG_ERROR( "[Script] failed to load '{}' (from '{}'): {}", file, script.ScriptKey,
                                        loaded.GetError() );
+                            script.RuntimeError = loaded.GetError();
                             continue;
                         }
+                        script.RuntimeError.clear();
                         // The SaveGame names come from the file the slot just loaded (a hot-reload re-reads them).
                         auto saveGame = Scripting::ReadScriptSaveGameProperties( file );
                         if ( !saveGame )
@@ -158,8 +168,16 @@ namespace Desert::ECS
                         ReadBackSaveGame( registry, entity, slot );
                     }
                     // Re-apply every frame so editing a property in Details updates the running script LIVE.
-                    m_Engine.ApplyProperties( id, slot, script.Properties );
+                    m_Engine.SyncProperties( id, slot, script.Properties );
                     m_Engine.CallUpdate( id, slot, ts.GetSeconds() );
+                    // Re-fetched: the script may have reshaped the component pool `script` points into.
+                    if ( registry.valid( entity ) && registry.has<ScriptComponent>( entity ) &&
+                         slot < registry.get<ScriptComponent>( entity ).Scripts.size() )
+                    {
+                        const std::string* error = m_Engine.SlotError( id, slot );
+                        registry.get<ScriptComponent>( entity ).Scripts[slot].RuntimeError =
+                             error != nullptr ? *error : std::string();
+                    }
 
                     // A script may destroy its OWN entity (`self:destroy()`), and then `sc` refers to storage
                     // EnTT has already given back. This loop used to carry on regardless: it read the next
@@ -205,6 +223,24 @@ namespace Desert::ECS
                                 m_Engine.CallSlotFunction( id, slot, call.Function.c_str(), call.EventName );
                     sc.PendingSequenceCalls.clear();
                 }
+
+                // CallInEditor buttons pressed in Details while this world plays: on the RUNNING slot, so the
+                // function sees the script's live state (UE calls a CallInEditor function on the PIE actor).
+                // Re-fetched per slot: a called function may reshape the pool or destroy the entity.
+                for ( uint32_t slot = 0; registry.valid( entity ) && registry.has<ScriptComponent>( entity ) &&
+                                         slot < registry.get<ScriptComponent>( entity ).Scripts.size();
+                      ++slot )
+                {
+                    std::vector<std::string>& pending =
+                         registry.get<ScriptComponent>( entity ).Scripts[slot].PendingEditorCalls;
+                    if ( pending.empty() )
+                        continue;
+                    std::vector<std::string> calls;
+                    calls.swap( pending );
+                    for ( const std::string& function : calls )
+                        if ( Common::BoolResultStr const r = m_Engine.CallFunction( id, slot, function ); !r )
+                            LOG_ERROR( "[Script] {} (CallInEditor): {}", function, r.GetError() );
+                }
             }
 
             DeliverContacts( registry );
@@ -222,7 +258,7 @@ namespace Desert::ECS
 
             // A script may have requested cursor lock/unlock (Input.lockCursor/showCursor). Apply it so it
             // cooperates with the Escape toggle (also keeps m_LookSuspended in sync for the next Escape press).
-            if ( auto req = m_Engine.ConsumeCursorLockRequest() )
+            if ( auto req = Libraries::InputLibrary::ConsumeCursorLockRequest() )
             {
                 m_LookSuspended = !*req;
                 if ( *req != m_CursorLocked )

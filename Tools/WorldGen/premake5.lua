@@ -27,6 +27,8 @@ project "WorldGen"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/ExternalEntities.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/EntityDescriptorIndex.cpp", -- every scene write refreshes the index (WP18)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/FieldValue.cpp", -- RefusalOf: the serializer's one admission rule for enum values
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/FunctionInfo.cpp", -- FieldTypeName, called by FieldValue
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
         -- MODULE-INFRA: the module list above calls each module's RegisterReflection_<Module>() (plan C11).
@@ -37,7 +39,11 @@ project "WorldGen"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
     }
 
-    dependson { "Desert" }
+    DesertModuleLibs.DependOnCodegen()
+
+    -- The engine's reflection table without its FUNCTION thunks: they call engine code this tool does not link
+    -- (Tools/DesertHeaderTool/Templates/ReflectionModule.gen.cpp.tpl).
+    defines { "DESERT_REFLECTION_DATA_ONLY" }
 
     includedirs {
         -- LandscapeData.cpp compiles Shaders/Common/LandscapeHeight.glslh as C++.

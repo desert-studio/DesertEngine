@@ -10,7 +10,7 @@
 #include <Mesh/BRDF.glslh> // LightFalloffFactor, the one distance model
 #include <ShadingModels/ShadingModelContract.glslh>
 
-// std430 layout — must match ShaderProtocols::PointLightPayload (48 bytes).
+// std430 layout — must match ShaderProtocols::PointLightPayload (64 bytes).
 struct PointLight {
     vec3  color;
     float intensity;
@@ -18,10 +18,15 @@ struct PointLight {
     float radius;
     float minRadius;
     int   falloff;     // LightFalloff: 0=Linear, 1=Quadratic, 2=InverseSquare
-    vec2  _pad;
+    int   shadowView;  // first row in LocalShadowViewsUB (a point light: +X -X +Y -Y +Z -Z), or -1
+    float contactShadowLength;  // UE ContactShadowLength: screen fraction, or cm when contactShadowInWorld; 0 = none
+    int   contactShadowInWorld; // 1 = contactShadowLength is in world centimetres
+    float contactShadowCastingIntensity;    // UE ContactShadowCastingIntensity (a hit on a caster)
+    float contactShadowNonCastingIntensity; // UE ContactShadowNonCastingIntensity (a hit on a non-caster)
+    float _pad2;
 };
 
-// std430 layout — must match ShaderProtocols::SpotLightPayload (64 bytes).
+// std430 layout — must match ShaderProtocols::SpotLightPayload (80 bytes).
 struct SpotLight {
     vec3  color;
     float intensity;
@@ -31,8 +36,27 @@ struct SpotLight {
     float cosInner;    // cos(inner half-angle) — full intensity inside this
     float cosOuter;    // cos(outer half-angle) — zero intensity outside this
     int   falloff;     // LightFalloff: 0=Linear, 1=Quadratic, 2=InverseSquare
-    vec2  _pad;
+    int   shadowView;  // first row in LocalShadowViewsUB (a point light: +X -X +Y -Y +Z -Z), or -1
+    float contactShadowLength;  // UE ContactShadowLength: screen fraction, or cm when contactShadowInWorld; 0 = none
+    int   contactShadowInWorld; // 1 = contactShadowLength is in world centimetres
+    float contactShadowCastingIntensity;    // UE ContactShadowCastingIntensity (a hit on a caster)
+    float contactShadowNonCastingIntensity; // UE ContactShadowNonCastingIntensity (a hit on a non-caster)
+    float _pad2;
 };
+
+// A local light's half of its contact shadow, as Common/ContactShadow.glslh takes it: (length, in world space,
+// casting intensity, non-casting intensity).
+vec4 LightContactShadow(PointLight source)
+{
+    return vec4(source.contactShadowLength, float(source.contactShadowInWorld), source.contactShadowCastingIntensity,
+                source.contactShadowNonCastingIntensity);
+}
+
+vec4 LightContactShadow(SpotLight source)
+{
+    return vec4(source.contactShadowLength, float(source.contactShadowInWorld), source.contactShadowCastingIntensity,
+                source.contactShadowNonCastingIntensity);
+}
 
 // Cone angular falloff: 1 inside the inner cone, smooth to 0 between inner and outer, 0 outside.
 float SpotConeFactor(SpotLight light, vec3 L)

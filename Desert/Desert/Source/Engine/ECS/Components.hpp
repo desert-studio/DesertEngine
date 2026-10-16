@@ -46,6 +46,7 @@
 #include <Engine/ECS/WaterZoneComponent.hpp>
 #include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
+#include <Engine/ECS/ReflectionCaptureComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
@@ -174,6 +175,11 @@ namespace Desert::ECS
         int  LODBias        = 0;    // shifts the AUTO-picked LOD (+coarser, -finer); ignored when ForcedLOD >= 0
         bool CastShadows    = true; // false = skipped by the shadow (depth) passes
         bool ReceiveShadows = true; // false = sun shadows are not applied to this mesh (forward path)
+        // UE's UPrimitiveComponent::bCastContactShadow: whether this mesh, seen by a light's contact-shadow ray
+        // (Common/ContactShadow.glslh), darkens what is behind it with the light's Contact Shadow Casting
+        // Intensity (on) or its Non Casting Intensity (off). The G-buffer carries it per pixel (the shading word's
+        // NO_CONTACT_SHADOW bit); a mesh drawn after the opaque pass is never in the depth the ray marches.
+        bool CastContactShadow = true;
         // UE's LDMaxDrawDistance: cm from the camera beyond which the mesh is not drawn, measured to its bounds'
         // centre and scaled by the view's lens (Graphic::DrawDistanceScale: a narrower FOV draws farther).
         // 0 = drawn at any distance. A culled mesh casts no shadow either.
@@ -190,10 +196,11 @@ namespace Desert::ECS
         uint32_t SeenMaterialsVersion = 0;
         // SCRIPT PARAMETER OVERRIDES ON MATERIAL SLOT 0 (UE: the MID UMeshComponent::Set*ParameterValueOnMaterials
         // creates on demand). Runtime, never serialized: written by entity:setMaterialParam / cleared by
-        // clearMaterialParams (Scripting/MaterialBindings.cpp). Held HERE, on the mesh that owns the slot, so a
-        // write made before the slot-0 instance exists (OnCreate runs before MeshECSSystem builds it) is not lost,
-        // and so a rebuild (material invalidation, slot change) does not drop it: MeshECSSystem applies the list
-        // to every slot-0 instance it builds. The authored slots stay the source of truth for everything else.
+        // clearMaterialParams (Libraries/EntityLibrary.cpp, MaterialLibrary). Held HERE, on the mesh that owns the
+        // slot, so a write made before the slot-0 instance exists (OnCreate runs before MeshECSSystem builds it)
+        // is not lost, and so a rebuild (material invalidation, slot change) does not drop it: MeshECSSystem
+        // applies the list to every slot-0 instance it builds. The authored slots stay the source of truth for
+        // everything else.
         std::vector<MaterialParamOverride> ScriptSlotParams;
     };
 
@@ -250,6 +257,9 @@ namespace Desert::ECS
         // appended every ISM unconditionally. A UE-style foliage field of grass is the first thing a
         // scene wants to take out of the cascades, and it was the only thing that could not be.
         bool CastShadows = true;
+
+        // UE's bCastContactShadow, as StaticMeshComponent::CastContactShadow (one flag for the whole field).
+        bool CastContactShadow = true;
 
         // UE's LDMaxDrawDistance, per INSTANCE here: cm from the camera beyond which an instance is not drawn,
         // scaled by the view's lens like the static twin's. Per instance and not by the component's bounds
@@ -944,6 +954,16 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Cast Shadows" ), Category( "Cascaded Shadow Maps" ) )
         bool CastShadows = true;
 
+        // THE SUN'S ANGULAR DIAMETER (UE: UDirectionalLightComponent::LightSourceAngle, the same default). It is
+        // what makes a shadow soft: the penumbra grows by tan(angle / 2) per centimetre between the occluder and
+        // the receiver, so a shadow is contact-sharp where the caster meets the ground and widens with distance
+        // (the cascades' PCSS, Mesh/CascadedShadow.glslh).
+        PROPERTY( DisplayName( "Source Angle" ), Category( "Cascaded Shadow Maps" ), Range( 0.0f, 10.0f ),
+                  Units( "deg" ),
+                  Tooltip( "Angular diameter of the sun in degrees. Larger = softer shadows away from their "
+                           "casters; 0 = hard shadows everywhere." ) )
+        float SourceAngle = 0.5357f;
+
         // THE CASTER'S DEPTH BIAS, IN WORLD CENTIMETRES (UE: ULightComponent::ShadowBias / ShadowSlopeBias,
         // UDirectionalLightComponent::ShadowCascadeBiasDistribution). Applied where the caster writes its
         // depth (MeshRenderer::FitShadowCascades -> the caster matrix and CameraUB.ShadowSlopeBias), never
@@ -972,6 +992,36 @@ namespace Desert::ECS
                   Tooltip( "0 = uniform cascade splits, 1 = logarithmic; UE's Distribution Exponent plays "
                            "the same part." ) )
         float CascadeSplitLambda = 0.6f;
+
+        // CONTACT SHADOWS (UE: ULightComponent::ContactShadowLength / bContactShadowLengthInWS, the same default 0
+        // = off). A short screen-space ray toward the light through the scene depth, marched by the deferred
+        // composite (Common/ContactShadow.glslh), that grounds the small and near-contact detail the shadow map is
+        // too coarse or too biased to hold. Needs Cast Shadows; its step count is Scalability
+        // Shadows.ContactShadowSteps.
+        PROPERTY( DisplayName( "Contact Shadow Length" ), Category( "Contact Shadows" ), Range( 0.0f, 100.0f ),
+                  Tooltip( "Length of the screen-space shadow ray toward the sun: a fraction of the screen "
+                           "height at the receiver (0.1 = a tenth), or centimetres when In World Space. "
+                           "0 = no contact shadows." ) )
+        float ContactShadowLength = 0.0f;
+
+        PROPERTY( DisplayName( "Contact Shadow Length In World Space" ), Category( "Contact Shadows" ),
+                  Tooltip( "Contact Shadow Length is in world centimetres instead of a fraction of the screen." ) )
+        bool ContactShadowLengthInWorldSpace = false;
+
+        // UE ULightComponent::ContactShadowCastingIntensity / ContactShadowNonCastingIntensity: how dark the
+        // contact shadow is where the ray hits a mesh that casts contact shadows (its Cast Contact Shadow flag),
+        // and where it hits one that does not. UE's defaults: 1 and 0.
+        PROPERTY( DisplayName( "Contact Shadow Casting Intensity" ), Category( "Contact Shadows" ),
+                  Range( 0.0f, 1.0f ),
+                  Tooltip( "Occlusion of a contact shadow cast by a mesh whose Cast Contact Shadow is on "
+                           "(1 = black, 0 = none)." ) )
+        float ContactShadowCastingIntensity = 1.0f;
+
+        PROPERTY( DisplayName( "Contact Shadow Non Casting Intensity" ), Category( "Contact Shadows" ),
+                  Range( 0.0f, 1.0f ),
+                  Tooltip( "Occlusion where the ray hits a mesh whose Cast Contact Shadow is off "
+                           "(0 = such a mesh casts none)." ) )
+        float ContactShadowNonCastingIntensity = 0.0f;
     };
 
     struct DirectionLightComponent
@@ -1014,6 +1064,62 @@ namespace Desert::ECS
 
         PROPERTY( DisplayName( "Show Radius" ), Category( "Light" ) )
         bool ShowRadius = false;
+
+        // THE POINT LIGHT'S SHADOW (UE: ULightComponent::CastShadows / ShadowBias / ShadowSlopeBias /
+        // ShadowResolutionScale). Drawn into the view's local-light shadow atlas (Graphic/LocalShadows.hpp) and
+        // read by the deferred composite. The two biases are in SHADOW-MAP TEXELS at the receiver, not
+        // centimetres: one texel of a perspective map grows with the distance from the light, so a fixed length
+        // would be too much next to the lamp and too little across the room.
+        PROPERTY( DisplayName( "Cast Shadows" ), Category( "Shadows" ) )
+        bool CastShadows = true;
+
+        PROPERTY(
+             DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
+             Tooltip( "How far a receiver is moved toward the light before its depth is compared, in "
+                      "shadow-map texels at that receiver. Larger hides acne and detaches contact shadows." ) )
+        float ShadowBias = 0.5f;
+
+        PROPERTY( DisplayName( "Shadow Slope Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ),
+                  Units( "texels" ),
+                  Tooltip( "Extra bias of a receiver the light grazes, in texels per unit of slope (clamped at "
+                           "a slope of 4)." ) )
+        float ShadowSlopeBias = 0.5f;
+
+        PROPERTY( DisplayName( "Shadow Resolution Scale" ), Category( "Shadows" ), Range( 0.125f, 4.0f ),
+                  Units( "x" ), Advanced,
+                  Tooltip( "Scales the atlas tile this light asks for (its screen size decides the base); "
+                           "the atlas still caps it." ) )
+        float ShadowResolutionScale = 1.0f;
+
+        // CONTACT SHADOWS (UE: ULightComponent::ContactShadowLength / bContactShadowLengthInWS, the same default 0
+        // = off). A short screen-space ray toward the light through the scene depth, marched by the deferred
+        // composite (Common/ContactShadow.glslh), that grounds the small and near-contact detail the shadow map is
+        // too coarse or too biased to hold. Needs Cast Shadows; its step count is Scalability
+        // Shadows.ContactShadowSteps.
+        PROPERTY( DisplayName( "Contact Shadow Length" ), Category( "Contact Shadows" ), Range( 0.0f, 100.0f ),
+                  Tooltip( "Length of the screen-space shadow ray toward the light: a fraction of the screen "
+                           "height at the receiver (0.1 = a tenth), or centimetres when In World Space. "
+                           "0 = no contact shadows." ) )
+        float ContactShadowLength = 0.0f;
+
+        PROPERTY( DisplayName( "Contact Shadow Length In World Space" ), Category( "Contact Shadows" ),
+                  Tooltip( "Contact Shadow Length is in world centimetres instead of a fraction of the screen." ) )
+        bool ContactShadowLengthInWorldSpace = false;
+
+        // UE ULightComponent::ContactShadowCastingIntensity / ContactShadowNonCastingIntensity: how dark the
+        // contact shadow is where the ray hits a mesh that casts contact shadows (its Cast Contact Shadow flag),
+        // and where it hits one that does not. UE's defaults: 1 and 0.
+        PROPERTY( DisplayName( "Contact Shadow Casting Intensity" ), Category( "Contact Shadows" ),
+                  Range( 0.0f, 1.0f ),
+                  Tooltip( "Occlusion of a contact shadow cast by a mesh whose Cast Contact Shadow is on "
+                           "(1 = black, 0 = none)." ) )
+        float ContactShadowCastingIntensity = 1.0f;
+
+        PROPERTY( DisplayName( "Contact Shadow Non Casting Intensity" ), Category( "Contact Shadows" ),
+                  Range( 0.0f, 1.0f ),
+                  Tooltip( "Occlusion where the ray hits a mesh whose Cast Contact Shadow is off "
+                           "(0 = such a mesh casts none)." ) )
+        float ContactShadowNonCastingIntensity = 0.0f;
     };
 
     struct PointLightComponent
@@ -1050,6 +1156,62 @@ namespace Desert::ECS
 
         PROPERTY( DisplayName( "Show Cone" ), Category( "Light" ) )
         bool ShowCone = false;
+
+        // THE SPOT LIGHT'S SHADOW (UE: ULightComponent::CastShadows / ShadowBias / ShadowSlopeBias /
+        // ShadowResolutionScale). Drawn into the view's local-light shadow atlas (Graphic/LocalShadows.hpp) and
+        // read by the deferred composite. The two biases are in SHADOW-MAP TEXELS at the receiver, not
+        // centimetres: one texel of a perspective map grows with the distance from the light, so a fixed length
+        // would be too much next to the lamp and too little across the room.
+        PROPERTY( DisplayName( "Cast Shadows" ), Category( "Shadows" ) )
+        bool CastShadows = true;
+
+        PROPERTY(
+             DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
+             Tooltip( "How far a receiver is moved toward the light before its depth is compared, in "
+                      "shadow-map texels at that receiver. Larger hides acne and detaches contact shadows." ) )
+        float ShadowBias = 0.5f;
+
+        PROPERTY( DisplayName( "Shadow Slope Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ),
+                  Units( "texels" ),
+                  Tooltip( "Extra bias of a receiver the light grazes, in texels per unit of slope (clamped at "
+                           "a slope of 4)." ) )
+        float ShadowSlopeBias = 0.5f;
+
+        PROPERTY( DisplayName( "Shadow Resolution Scale" ), Category( "Shadows" ), Range( 0.125f, 4.0f ),
+                  Units( "x" ), Advanced,
+                  Tooltip( "Scales the atlas tile this light asks for (its screen size decides the base); "
+                           "the atlas still caps it." ) )
+        float ShadowResolutionScale = 1.0f;
+
+        // CONTACT SHADOWS (UE: ULightComponent::ContactShadowLength / bContactShadowLengthInWS, the same default 0
+        // = off). A short screen-space ray toward the light through the scene depth, marched by the deferred
+        // composite (Common/ContactShadow.glslh), that grounds the small and near-contact detail the shadow map is
+        // too coarse or too biased to hold. Needs Cast Shadows; its step count is Scalability
+        // Shadows.ContactShadowSteps.
+        PROPERTY( DisplayName( "Contact Shadow Length" ), Category( "Contact Shadows" ), Range( 0.0f, 100.0f ),
+                  Tooltip( "Length of the screen-space shadow ray toward the light: a fraction of the screen "
+                           "height at the receiver (0.1 = a tenth), or centimetres when In World Space. "
+                           "0 = no contact shadows." ) )
+        float ContactShadowLength = 0.0f;
+
+        PROPERTY( DisplayName( "Contact Shadow Length In World Space" ), Category( "Contact Shadows" ),
+                  Tooltip( "Contact Shadow Length is in world centimetres instead of a fraction of the screen." ) )
+        bool ContactShadowLengthInWorldSpace = false;
+
+        // UE ULightComponent::ContactShadowCastingIntensity / ContactShadowNonCastingIntensity: how dark the
+        // contact shadow is where the ray hits a mesh that casts contact shadows (its Cast Contact Shadow flag),
+        // and where it hits one that does not. UE's defaults: 1 and 0.
+        PROPERTY( DisplayName( "Contact Shadow Casting Intensity" ), Category( "Contact Shadows" ),
+                  Range( 0.0f, 1.0f ),
+                  Tooltip( "Occlusion of a contact shadow cast by a mesh whose Cast Contact Shadow is on "
+                           "(1 = black, 0 = none)." ) )
+        float ContactShadowCastingIntensity = 1.0f;
+
+        PROPERTY( DisplayName( "Contact Shadow Non Casting Intensity" ), Category( "Contact Shadows" ),
+                  Range( 0.0f, 1.0f ),
+                  Tooltip( "Occlusion where the ray hits a mesh whose Cast Contact Shadow is off "
+                           "(0 = such a mesh casts none)." ) )
+        float ContactShadowNonCastingIntensity = 0.0f;
     };
 
     struct SpotLightComponent
@@ -1058,117 +1220,22 @@ namespace Desert::ECS
         SpotLightData Data;
     };
 
-    // GPU-simulated billboard particle emitter. The reflected fields below are the AUTHORING parameters
-    // (Details UI + scene serialization are generated from them); the actual simulation runs in a compute
-    // shader and the quads are drawn camera-facing in the Transparency phase (ParticleRenderer). Emits from
-    // the entity's transform. Runtime GPU buffers live on the render system, keyed by the entity — not here.
-    struct ParticleEmitterData
+    /**
+     * @brief THE EFFECT AN ENTITY PLAYS (UE UNiagaraComponent): a `.dfx` system and whether it starts by itself.
+     *
+     * Every emitter of the system simulates on the GPU through its compiled module stack (Engine/VFX
+     * VFXStackCompiler -> the ParticleSimulate host program), born by the emitter's spawn plan
+     * (CompileSpawnPlan), at the entity's transform. Empty System = the entity plays nothing.
+     */
+    struct VFXComponentData
     {
         REFLECT()
 
-        PROPERTY( DisplayName( "Enabled" ), Category( "Emitter" ) )
-        bool Enabled = true;
-
-        PROPERTY( DisplayName( "Max Particles" ), Category( "Emitter" ), Range( 1.0f, 100000.0f ) )
-        int MaxParticles = 2000;
-
-        PROPERTY( DisplayName( "Spawn Rate" ), Category( "Emitter" ), Range( 0.0f, 10000.0f ), Units( "/s" ),
-                  Summary )
-        float SpawnRate = 200.0f; // particles per second
-
-        PROPERTY( DisplayName( "Looping" ), Category( "Emitter" ) )
-        bool Looping = true;
-
-        PROPERTY( DisplayName( "Simulate In World" ), Category( "Emitter" ) )
-        bool WorldSpace = true; // world = particles trail behind a moving emitter; local = ride with it
-
-        PROPERTY( DisplayName( "Lifetime" ), Category( "Particle" ), Range( 0.01f, 60.0f ), Units( "s" ), Summary )
-        float Lifetime = 3.0f; // seconds
-
-        PROPERTY( DisplayName( "Lifetime Variance" ), Category( "Particle" ), Range( 0.0f, 1.0f ) )
-        float LifetimeVariance = 0.2f;
-
-        PROPERTY( DisplayName( "Start Speed" ), Category( "Motion" ), Range( 0.0f, 5000.0f ), Units( "cm/s" ) )
-        float StartSpeed = 200.0f;
-
-        PROPERTY( DisplayName( "Speed Variance" ), Category( "Motion" ), Range( 0.0f, 1.0f ) )
-        float SpeedVariance = 0.3f;
-
-        PROPERTY( DisplayName( "Emit Direction" ), Category( "Motion" ) )
-        glm::vec3 Direction = glm::vec3( 0.0f, 1.0f, 0.0f ); // normalized emit axis
-
-        PROPERTY( DisplayName( "Cone Angle" ), Category( "Motion" ), Range( 0.0f, 180.0f ), Units( "deg" ) )
-        float ConeAngle = 45.0f; // degrees of spread around Direction (wide enough to read from any angle)
-
-        // An acceleration, as Niagara's Gravity Force (whose default is Earth's -980 cm/s2 on the up axis).
-        PROPERTY( DisplayName( "Gravity" ), Category( "Motion" ), Range( -2000.0f, 2000.0f ), Units( "cm/s2" ) )
-        glm::vec3 Gravity = glm::vec3( 0.0f, -200.0f, 0.0f );
-
-        PROPERTY( DisplayName( "Start Size" ), Category( "Look" ), Range( 0.0f, 1000.0f ), Length )
-        float StartSize = 25.0f;
-
-        // Size-over-life ease: the compute shader raises the normalized age t to this power before lerping
-        // Start->End size. 1 = linear; <1 = fast then slow (puffs); >1 = slow then fast (shrinking sparks).
-        // Authored as a curve in the Particle Editor.
-        PROPERTY( DisplayName( "Size Curve Power" ), Category( "Look" ), Range( 0.1f, 8.0f ) )
-        float SizeCurvePower = 1.0f;
-
-        PROPERTY( DisplayName( "End Size" ), Category( "Look" ), Range( 0.0f, 1000.0f ), Length )
-        float EndSize = 6.0f; // keep a sliver of size so particles stay readable instead of vanishing mid-life
-
-        PROPERTY( DisplayName( "Start Color" ), Category( "Look" ), Color )
-        glm::vec3 StartColor = glm::vec3( 1.0f, 0.6f, 0.15f );
-
-        PROPERTY( DisplayName( "End Color" ), Category( "Look" ), Color )
-        glm::vec3 EndColor = glm::vec3( 0.6f, 0.1f, 0.0f );
-
-        PROPERTY( DisplayName( "Start Alpha" ), Category( "Look" ), Range( 0.0f, 1.0f ) )
-        float StartAlpha = 1.0f;
-
-        PROPERTY( DisplayName( "End Alpha" ), Category( "Look" ), Range( 0.0f, 1.0f ) )
-        float EndAlpha = 0.0f;
-
-        // The surface material each sprite is shaded with (UE: the sprite renderer's Material). Its template must
-        // declare `Usage ParticleSprites` (it draws through the template's ParticleSprite.Forward cell,
-        // MeshVertexPath::ParticleSprite), and its BLEND MODE is how the sprite composites: Translucent = laid
-        // over the scene (smoke, dust), Additive = added to it (fire, sparks;
-        // Engine/Materials/M_ParticleAdditive). Empty = the engine's translucent sprite template,
-        // ParticleSpriteDefault. A material that cannot draw sprites is named in the log and drawn as that
-        // default. Replaces the emitter's own Blend switch (scene v42, SceneMigration.hpp
-        // kSceneVersionParticleSpriteMaterial).
-        PROPERTY( DisplayName( "Material" ), Category( "Look" ), Asset<MaterialAsset> )
-        Assets::AssetHandle Material;
-    };
-
-    // The engine's additive sprite material (Editor/Resources/Engine/Materials/M_ParticleAdditive.demat) by its
-    // stable key - the one the scene migrator writes (SceneMigration.hpp kParticleAdditiveMaterialPath) and the
-    // Particle Editor's glowing presets pick; its handle is Assets::AssetHandle::FromKey of this key.
-    inline constexpr std::string_view kParticleAdditiveMaterialKey =
-         "engine:Engine/Materials/M_ParticleAdditive.demat";
-
-    struct ParticleEmitterComponent
-    {
-        COMPONENT( Key( "ParticleEmitter" ), Block( Data ), Run( ActorsAndUI ) )
-        ParticleEmitterData Data;
-
-        // One-shot "restart" from the editor's transport, consumed by ParticleRenderer::PrepareFrame:
-        // it zeroes the emitter's particle state (every particle dead -> respawned from scratch) without
-        // destroying the GPU buffer. Transient — not reflected, so it never reaches a scene file.
-        bool RequestRestart = false;
-    };
-
-    // A VFX system played by an entity (UE: UNiagaraComponent). The system asset (.devfx, VFXSystemAsset) holds
-    // the emitters and their module stacks; VFXWorld (VFX/VFXWorld.hpp) plans each enabled emitter's spawn steps
-    // per entity, keyed (entity uuid, emitter index). Stored as {Guid, Path} (ReflectionSerializer
-    // IsStoredByGuid).
-    struct VFXData
-    {
-        REFLECT()
-
-        PROPERTY( DisplayName( "System" ), Category( "VFX" ), Asset<VFXSystemAsset> )
+        PROPERTY( DisplayName( "System" ), Category( "VFX" ), Asset<VFXSystemAsset>,
+                  Tooltip( "The .dfx effect this entity plays" ) )
         Assets::AssetHandle System;
 
-        // false = the system is not played: VFXWorld plans no instance for this entity (UE: bAutoActivate).
+        // UE bAutoActivate: false = the system is placed but bears no particles until it is activated.
         PROPERTY( DisplayName( "Auto Activate" ), Category( "VFX" ) )
         bool AutoActivate = true;
     };
@@ -1176,10 +1243,9 @@ namespace Desert::ECS
     struct VFXComponent
     {
         COMPONENT( Key( "VFX" ), Block( Data ), Run( ActorsAndUI ) )
-        VFXData Data;
+        VFXComponentData Data;
 
-        // One-shot "restart" (editor transport): VFXWorld drops the entity's emitter instances so they replan from
-        // scratch. Transient - not reflected, so it never reaches a scene file.
+        // One-shot restart from the editor (every emitter of the system starts over). Transient - not reflected.
         bool RequestRestart = false;
     };
 
@@ -1888,14 +1954,22 @@ namespace Desert::ECS
             return Common::AssetHandle::PathForStableKey( ScriptKey );
         }
 
-        // Editor-exposed properties (from the script's `Properties` table): per-entity values, edited in
-        // Details and serialized. Written into the script env before it runs (so the script reads them).
+        // The values this entity OVERRIDES of the properties its script declares (Scripting::ScriptSchema): set in
+        // Details, serialized, written into the script env before it runs and every frame after. A property not
+        // listed runs on the script's own default — a new default in the script reaches every entity that never
+        // overrode it, the way a UE instance holds only its delta from the class default.
         std::vector<Scripting::ScriptProperty> Properties;
 
         bool Started = false; // transient: OnStart already called for this instance
         // Transient: the script's SaveGame property names (Scripting::ReadScriptSaveGameProperties), read
         // from the file each time the slot loads; ScriptSystem reads those properties back after the script ran.
         std::vector<std::string> SaveGameProperties;
+        // Transient: why this slot is not running as written in the play world — its load error, else its last
+        // OnUpdate error (ScriptEngine::SlotError); empty while it runs clean. Details shows it on the slot.
+        std::string RuntimeError;
+        // Transient: CallInEditor functions (Scripting::ScriptSchema::EditorFunctions) Details asked to run while
+        // this slot plays; ScriptSystem calls each once on the running script in its next update.
+        std::vector<std::string> PendingEditorCalls;
     };
 
     // One entity can run MANY scripts (EnTT allows only one component of a type per entity, so multiple

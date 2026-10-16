@@ -468,12 +468,13 @@ TEST( PipelineCacheKey, EveryFieldOfTheSpecificationIsAccountedFor )
     // 19 + 2 == 21 passes forever and checks nothing. Structured bindings must name every member of the
     // aggregate exactly, so adding or removing one in Pipeline.hpp fails to build right here.
     //
-    // Separating (20): the binding names them in declaration order.
+    // Separating (22): the binding names them in declaration order.
     // Deliberately inert (2): lineWidth is dynamic state, debugName is a label.
     GraphicsPipelineSpecification spec                                      = Baseline();
     auto& [shader, framebuffer, targetLayout, renderpass, layout, pullingConfig, depthTest, depthCompare,
            stencilTest, stencilFront, stencilBack, cullMode, depthWrite, blendEnable, srcBlend, dstBlend,
-           useLoadRenderPass, lineWidth, topology, polygonMode, patchControlPoints, debugName] = spec;
+           useLoadRenderPass, depthBiasConstant, depthBiasSlope, lineWidth, topology, polygonMode,
+           patchControlPoints, debugName]                                   = spec;
 
     // Touch the two inert ones so the census also states WHICH members were excused, rather than leaving a
     // reader to infer it from an unused-variable warning.
@@ -705,7 +706,7 @@ TEST( PipelineBlendState, PipelineCreationTakesEveryBlendSwitchFromTheRule )
     EXPECT_EQ( uses, 1u );
 }
 
-// G-buffer slot 2 is the R32_UINT shading word. A float sampler over it reinterprets the bits, so: no shader
+// G-buffer slot 2 is the RG32_UINT shading word. A float sampler over it reinterprets the bits, so: no shader
 // declares a float sampler for a *ShadingWord, none reads one through texture()/textureLod (texelFetch only), the
 // one C++ binding is DeferredLighting's u_GBufferShadingWord fed from gbuffer[2], and the editor's buffer views of
 // the word's three fields (Material Complexity = TEXTURES, Shading Model = INDEX, Sun Shadow Receive =
@@ -741,7 +742,7 @@ TEST( GBufferShadingWord, NoFloatSamplerBindsTheShadingWord )
             offenders.push_back( entry.path().filename().string() );
     }
     EXPECT_GT( shaders, 50u );
-    EXPECT_TRUE( offenders.empty() ) << "reads the R32_UINT shading word through a float sampler: "
+    EXPECT_TRUE( offenders.empty() ) << "reads the RG32_UINT shading word through a float sampler: "
                                      << ::testing::PrintToString( offenders );
 
     const std::string lighting =
@@ -749,7 +750,7 @@ TEST( GBufferShadingWord, NoFloatSamplerBindsTheShadingWord )
     ASSERT_FALSE( lighting.empty() );
     EXPECT_NE( lighting.find( "Uniform(1)usampler2Du_GBufferShadingWord;" ), std::string::npos );
     const auto fetch =
-         lighting.find( "constuintword=texelFetch(u_GBufferShadingWord,ivec2(gl_FragCoord.xy),0).r;" );
+         lighting.find( "constuvec2word=texelFetch(u_GBufferShadingWord,ivec2(gl_FragCoord.xy),0).rg;" );
     ASSERT_NE( fetch, std::string::npos );
     for ( const char* branch : { "if(dbg==9){oColor=vec4(HeatColor(DesertSampledTextureCount(word)",
                                  "if(dbg==10){constfloathue=fract(float(shadingModel)",

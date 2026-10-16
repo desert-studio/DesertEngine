@@ -29,8 +29,14 @@
 #include "Tools/ActiveToolBar.hpp"
 #include "Tools/ElementSelectTool.hpp"
 #include "Tools/PolyEditTool.hpp"
+#include "Tools/ToolCursor.hpp"
 #include "Tools/GizmoController.hpp"
 #include "Tools/PickingController.hpp"
+
+namespace Desert::Input
+{
+    class LocalPlayerInput;
+}
 
 namespace Desert::Editor
 {
@@ -87,6 +93,10 @@ namespace Desert::Editor
         Common::BoolResultStr StrokeFoliageAtCentre();
         // The same on the viewport the user is working in (ActiveViewport); an error when there is none.
         static Common::BoolResultStr StrokeFoliageInActiveViewport();
+        // Create Shape's click at the viewport centre (the palette's placement): the active tool's shape where
+        // the centre ray meets the scene or the ground, or the refusal saying why nothing was placed.
+        static Common::BoolResultStr PlaceShapeInActiveViewport();
+        Common::BoolResultStr        PlaceShapeAtCentre();
         // FO-UI1: the brush footprint preview aimed at the viewport centre (where a hand would hover), so the
         // preview is reachable without a cursor. An error when the centre ray meets no surface.
         static Common::BoolResultStr PreviewFoliageInActiveViewport();
@@ -203,7 +213,9 @@ namespace Desert::Editor
                                                                  const ActorDrop::Target& target );
 
         bool OnMouseButtonPressed( Common::MouseButtonPressedEvent& e );
+        bool OnMouseButtonReleased( Common::MouseButtonReleasedEvent& e );
         bool OnKeyPressed( Common::KeyPressedEvent& e );
+        bool OnKeyReleased( Common::KeyReleasedEvent& e );
 
     private:
         // THE VIEWPORT THE USER IS WORKING IN: the most recently FOCUSED one, else the first live one.
@@ -272,6 +284,8 @@ namespace Desert::Editor
         // Corner XYZ orientation gizmo (a small triad tracking the camera's rotation) so you always know
         // which way world X/Y/Z point in the current view. Overlay only — pure ImGui, no scene interaction.
         void DrawViewAxisGizmo( const glm::vec2& viewportPos, const glm::vec2& viewportSize );
+        // The cursor the running Modeling tool reports (ToolCursor::None with no tool running).
+        [[nodiscard]] Tools::ToolCursor ActiveModelingToolCursor() const;
 
         // "Piloting: <name>" + Eject, top-left of the image, while m_Pilot is active.
         void DrawPilotOverlay();
@@ -302,6 +316,19 @@ namespace Desert::Editor
         // button must not also pick the object behind it).
         CameraPilot m_Pilot;
         bool        m_PilotOverlayHovered = false;
+
+        // THE PLAYED WORLD'S INPUT (UE: the PIE viewport hands its key events to the PlayerController). While
+        // this viewport's scene is played, the keys and buttons it receives — only the focused viewport
+        // receives keys — go to that world's local player and not to the editing shortcuts. nullptr when the
+        // scene is not being played.
+        [[nodiscard]] Input::LocalPlayerInput* PlayedPlayerInput() const;
+        // A key or button went down into the player through this viewport: when the viewport loses focus,
+        // its releases will go elsewhere, so the player's held keys are flushed (UE FlushPressedKeys).
+        bool m_PlayerHoldsKeys = false;
+        // UE's PIE viewport takes the keyboard the moment Play starts: the toolbar's Play click left the focus
+        // on the toolbar, so the player's Escape (release the locked cursor) went nowhere until the user
+        // clicked into the picture. The Edit -> played transition of THIS viewport's scene focuses it once.
+        bool m_WasPlaying = false;
 
         // WHAT THIS ONE VIEWPORT IS DOING — not what the user has chosen to see. 2D UI-editing mode
         // (toolbar "2D") hides the grid and the orientation triad so a screen-space canvas reads like a UI

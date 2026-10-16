@@ -360,7 +360,7 @@ namespace Desert::Editor
                                   Commands::NotifyCreated( { uuid } );
                                   return PaletteCommandDone();
                               } } );
-        // UE's Convert to Static Mesh: the selected EditMesh entity's geometry becomes a new .stmesh asset,
+        // UE's Convert to Static Mesh: the selected editable-mesh entity's geometry becomes a new .stmesh asset,
         // written where the modeling tools' Output settings say (Modeling panel, "Output Type").
         commands.push_back(
              { "Entity", "Convert to Static Mesh", []

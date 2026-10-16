@@ -94,12 +94,23 @@ SurfaceSubUV DesertParticleSubUV( SurfaceParticleInput p, vec2 uv, float columns
 
 // Depth Fade (UE's DepthFade expression, "soft particles"): @p opacity scaled by how far the scene behind the pixel
 // is, over @p fadeDistance CENTIMETRES — 0 where the pixel touches the scene, @p opacity at fadeDistance or more.
-// Only the ParticleSprite cell reads the scene depth (the parser defines DESERT_SURFACE_PARTICLE_SPRITE in both stages
-// of that cell, and its fragment stage declares the depth here); a mesh cell has no scene depth behind it to read
-// and returns the opacity unchanged, as UE's DepthFade does outside translucency.
-#if defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
+// Only the ParticleSprite cell fades by the scene depth (the parser defines DESERT_SURFACE_PARTICLE_SPRITE in both
+// stages of that cell); a mesh cell returns the opacity unchanged, as UE's DepthFade does outside translucency.
+//
+// THE SCENE DEPTH, declared here once for every fragment stage that reads it: the particle sprites (Depth Fade) and
+// the Forward cells (opaque and translucent), whose contact shadows march it (Common/ContactShadow.glslh; bound as
+// SceneViewInputs::SceneDepth, the opaque G-buffer depth, or a black texture where the view has none).
+#if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) && \
+     ( defined( DESERT_SURFACE_PARTICLE_SPRITE ) || defined( DESERT_SURFACE_PASS_Forward ) )
 layout( binding = 27 ) uniform sampler2D u_SceneDepth; // 27 = Core::kSceneDepthBinding, the scene-read range's third slot (ShaderGraphBindings.hpp)
+#endif
+// THE SCENE SHADING WORD beside it, for the Forward cells only: the contact-shadow ray's hit texel's NO_CONTACT_SHADOW
+// bit (UE CastContactShadow( GBuffer ); SceneViewInputs::SceneShadingWord, the G-buffer's, or an integer zero).
+#if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) && defined( DESERT_SURFACE_PASS_Forward )
+layout( binding = 28 ) uniform usampler2D u_SceneShadingWord; // 28 = Core::kSceneShadingWordBinding, the range's fourth slot
+#endif
 
+#if defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
 float DesertDepthFade( vec3 worldPosition, float opacity, float fadeDistance )
 {
     const vec2  uv     = gl_FragCoord.xy / vec2( textureSize( u_SceneDepth, 0 ) );
@@ -132,11 +143,13 @@ struct SurfaceOutput
     // The material-complexity proxy the deferred debug view heat-maps (G-buffer C.w): real textures sampled.
     float SampledTextureCount;
     float Refraction; // index of refraction (UE's Refraction pin), read only by the translucency pass
-    // The shading model's payload (UE's CustomData0/1 pins), in [0, 1]: the floats a model's `Payload` block names
+    // The shading model's payload (UE's GBufferD CustomData.rgba), in [0, 1]: the floats a model's `Payload` block names
     // (ShadingModels/ShadingModelContract.glslh). They reach the model as DesertPayload, through the G-buffer shading word's
     // 8-bit fields in the deferred path and quantized the same way in the forward one.
     float CustomData0;
     float CustomData1;
+    float CustomData2;
+    float CustomData3;
 };
 
 // What an author starts from, so a surface that sets only BaseColor still returns a defined value.
@@ -155,6 +168,8 @@ SurfaceOutput DefaultSurfaceOutput()
     s.Refraction          = 1.0;
     s.CustomData0         = 0.0;
     s.CustomData1         = 0.0;
+    s.CustomData2         = 0.0;
+    s.CustomData3         = 0.0;
     return s;
 }
 
@@ -196,13 +211,23 @@ SurfaceOutput DefaultSurfaceOutput()
     } v_Surface;
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS
-SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn, vec2 uv1, vec4 vertexColor )
+SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn, vec2 uv1, vec4 vertexColor,
+                                 bool frontFacing )
 {
+    // THE BACK FACE OF A TWO-SIDED MATERIAL faces the viewer through the surface's other side, so its normal is
+    // the interpolated one negated (UE MaterialTemplate.ush: `WorldNormal *= TwoSidedSign`, the sign being the
+    // facing of a TWO_SIDED draw). Two-sidedness here is the draw's cull state (MeshRenderer::CullPermutation),
+    // not a shader permutation, but a one-sided draw culls every back face, so a back-facing fragment can only
+    // come from a two-sided one: the fragment's gl_FrontFacing alone is UE's sign. It is passed in because this
+    // header is compiled into the vertex stage too, where the built-in does not exist. Without the flip a leaf
+    // card seen from behind was lit as the side facing away (no sun, the far hemisphere's ambient, a grazing sky
+    // reflection). The whole TBN turns, so a tangent-space normal map lands on the visible side as well.
+    const float facing = frontFacing ? 1.0 : -1.0;
     SurfaceInput i;
     i.WorldPosition = worldPosition;
-    i.Normal        = normalize( normal );
+    i.Normal        = facing * normalize( normal );
     i.UV0           = uv0;
-    i.TBN           = tbn;
+    i.TBN           = facing * tbn;
     i.UV1           = uv1;
     i.VertexColor   = vertexColor;
     i.CameraPosition = cameraUB.CameraPos;

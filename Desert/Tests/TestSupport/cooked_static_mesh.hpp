@@ -5,6 +5,7 @@
 // editor -- so a fixture that wants StaticMeshAsset to load chosen render data stores both halves itself, which
 // is exactly what the cook leaves behind for a game.
 
+#include <Engine/Assets/MeshDistanceField.hpp>
 #include "derived_data_sandbox.hpp"
 
 #include <optional>
@@ -36,7 +37,7 @@ namespace Desert::TestSupport
         asset.Guid              = Common::Content::AssetGuid::Generate();
         asset.Name              = name;
         asset.Import.Provenance = Assets::MeshSourceProvenance::Recovered;
-        Geometry::EditMeshSer mesh;
+        Geometry::MeshSavedForm mesh;
         mesh.Positions             = { 0.0f, 0.0f, 0.0f, width, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
         mesh.Triangles             = { 0, 1, 2 };
         mesh.PolyGroups            = { 0 };
@@ -61,6 +62,9 @@ namespace Desert::TestSupport
             return {};
         }
         const uint64_t key = Assets::MeshAssetDerivedDataKey( asset );
+        // The mesh's distance field is derived from the render data on load (MeshDistanceField.hpp); the suite
+        // plays the editor here and registers the builder, as it plays the cook for the render data above.
+        Assets::SetMeshDistanceFieldBuilder( &Assets::BuildMeshDistanceFieldBytes );
         if ( const auto put = Common::DDC::Put( Assets::kMeshDeriver, key, renderBytes ); !put.IsSuccess() )
         {
             ADD_FAILURE() << put.GetError();

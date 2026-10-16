@@ -78,12 +78,15 @@ namespace Common
         }
     };
 
-    // class MouseButtonReleasedEvent : public MouseButtonEvent
-    //{
-    // public:
-    //	MouseButtonReleasedEvent(int button)
-    //		: MouseButtonEvent(button) {}
+    // The button went up (GLFW_RELEASE): the other half of MouseButtonPressedEvent, routed the same way.
+    class MouseButtonReleasedEvent : public MouseButtonEvent
+    {
+    public:
+        DESERT_ROUTED_EVENT( MouseButtonReleasedEvent, MouseButtonReleased, Pointer )
 
-    //};
+        explicit MouseButtonReleasedEvent( MouseButton button ) : MouseButtonEvent( button )
+        {
+        }
+    };
 
 } // namespace Common

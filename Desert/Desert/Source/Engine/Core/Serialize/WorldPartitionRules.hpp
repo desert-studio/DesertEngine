@@ -553,14 +553,14 @@ namespace Desert::Core::Rules
          { "Lock", ComponentLoading::Spatial },
          { "Material", ComponentLoading::Spatial },
          { "Morph", ComponentLoading::Spatial },
-         { "ParticleEmitter", ComponentLoading::Spatial },
-         // UE: a UNiagaraComponent is placed with its actor and spatially loaded with it; its effect plays where
-         // the entity stands, as ParticleEmitter's does.
-         { "VFX", ComponentLoading::Spatial },
          { "PointLight", ComponentLoading::Spatial }, // has a radius; the sun is the global light
          { "Projectile", ComponentLoading::Spatial },
+         // Its influence radius is where it lights; outside it no surface reads the capture (UE: reflection
+         // captures are spatially loaded actors of their cell, like the local lights).
+         { "ReflectionCapture", ComponentLoading::Spatial },
          { "Retarget", ComponentLoading::Spatial },
          { "RigidBody", ComponentLoading::Spatial },
+         { "VFX", ComponentLoading::Spatial },
          // A script's reach is whatever it does, which no file states. Spatial, and a game-manager script
          // is exactly what the author's AlwaysLoaded marker is for.
          { "Script", ComponentLoading::Spatial },

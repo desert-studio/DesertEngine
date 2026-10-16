@@ -12,8 +12,6 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include "ParticleGpuLayout.hpp"
-#include "ParticleSimGraph.hpp"
-#include "ParticleSpriteBindings.hpp"
 #include "ParticleWorldGpu.hpp"
 
 #include <cstdint>
@@ -149,16 +147,10 @@ namespace Desert::Graphic::System
         // This view's imports of the scene's pool.
         struct ViewPool
         {
-            RDG::ExternalBuffer ParticlesImport;
             RDG::ExternalBuffer SlotsImport;
             RDG::ExternalBuffer FreeImport;
             RDG::ExternalBuffer AliveImport;
-            RDG::BufferRef      ParticlesRef;
             RDG::BufferRef      SlotsRef;
-            RDG::ExternalBuffer FloatsImport; // the compiled stacks' SoA components (absent while none plays)
-            RDG::ExternalBuffer IntsImport;
-            RDG::BufferRef      FloatsRef;
-            RDG::BufferRef      IntsRef;
             RDG::BufferRef      FreeRef;
             RDG::BufferRef      AliveRef;
             bool                Declared = false;
@@ -166,14 +158,6 @@ namespace Desert::Graphic::System
 
         // One emitter of the scene's tick as this view sees it (built by PrepareFrame, consumed by the nodes and
         // the draw pass).
-        // A compiled stack's simulation program (ShaderService::AcquireSimulationProgram), one per stack key.
-        struct StackProgram
-        {
-            std::shared_ptr<ComputePipeline> Pipeline;
-            mutable ShaderBindingLayoutCache Layout;
-            ParticleSpriteBindings           Sprite; // the sprite's Position / Color / SpriteSize in its layout
-        };
-
         struct ViewEmitter
         {
             const ParticleFrameEmitter* Frame    = nullptr;
@@ -185,14 +169,20 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer         ArgsImport;
             RDG::ExternalBuffer         ChannelImport; // Spawn from Channel particles, read by Spawn+Update
             RDG::BufferRef              ChannelRef;
-            RDG::BufferRef              StepsRef;
-            RDG::BufferRef              CountersRef;       // read by ParticlePass as IndirectArgs
-            RDG::BufferRef              ArgsRef;           // written by Dispatch Args, read as IndirectArgs
-            const StackProgram*         Program = nullptr; // a compiled stack's program (null = ParticleSimulate)
-            RDG::ExternalBuffer         ParamsImport;      // a compiled stack's parameter rows and curve atlas
+            // The emitter's stack: attribute columns (also read by the sort and the draw), parameters, curves.
+            RDG::ExternalBuffer         FloatsImport;
+            RDG::ExternalBuffer         IntsImport;
+            RDG::ExternalBuffer         ParamsImport;
             RDG::ExternalBuffer         CurvesImport;
+            RDG::ExternalBuffer         DrawLayoutImport; // where the sort and the draw read the drawn attributes
+            RDG::BufferRef              DrawLayoutRef;
+            RDG::BufferRef              FloatsRef;
+            RDG::BufferRef              IntsRef;
             RDG::BufferRef              ParamsRef;
             RDG::BufferRef              CurvesRef;
+            RDG::BufferRef              StepsRef;
+            RDG::BufferRef              CountersRef; // read by ParticlePass as IndirectArgs
+            RDG::BufferRef              ArgsRef;     // written by Dispatch Args, read as IndirectArgs
             bool                        Declared = false;
             bool                        Sorted   = false; // the draw reads m_SortedRef, not AliveList
         };
@@ -206,26 +196,23 @@ namespace Desert::Graphic::System
         // Whether compact @p compact's node dispatches @p ve (compacts 0..StepCount of a declared emitter).
         bool RunsCompact( const ViewEmitter& ve, uint32_t compact ) const;
         // The sprite draw of @p cellShader in this view, built on first use (null = refused, said once by name).
-        SpriteDraw*            SpriteDrawFor( const std::string& cellShader );
-        const StackProgram*    StackProgramFor( const VFX::VFXCompiledEmitter& stack );
-        ParticlePoolRefs       PoolRefs() const;
-        ParticleSimEmitterRefs SimulateRefs( const ViewEmitter& ve ) const;
+        SpriteDraw* SpriteDrawFor( const std::string& cellShader );
         // The sprite draw emitter @p entityId draws with this frame (its material @p handle's ParticleSprite cell,
         // or the default cell with the refusal logged once), its runtime instance kept in @p material.
         SpriteDraw* ResolveSprite( uint32_t entityId, const Common::AssetHandle& handle,
                                    EmitterMaterial& material );
 
-        std::shared_ptr<ComputePipeline>  m_SimPipeline;
-        std::shared_ptr<ComputePipeline>  m_CompactPipeline;
-        std::shared_ptr<ComputePipeline>  m_ArgsPipeline;
-        std::shared_ptr<ComputePipeline>  m_SortPipeline;
-        mutable ShaderBindingLayoutCache  m_SortLayout;
-        RDG::BufferRef                    m_SortKeysRef;
-        RDG::BufferRef                    m_SortedRef; // this view's SortedAlive, valid while any ve.Sorted
+        std::shared_ptr<ComputePipeline> m_CompactPipeline;
+        std::shared_ptr<ComputePipeline> m_ArgsPipeline;
+        std::shared_ptr<ComputePipeline> m_SortPipeline;
+        mutable ShaderBindingLayoutCache m_SortLayout;
+        RDG::BufferRef                   m_SortKeysRef;
+        RDG::BufferRef                   m_SortedRef; // this view's SortedAlive, valid while any ve.Sorted
         // The shaders' binding layouts, kept between frames (re-derived on a swapped or reloaded shader).
-        mutable ShaderBindingLayoutCache m_SimLayout;
-        mutable ShaderBindingLayoutCache m_CompactLayout;
-        mutable ShaderBindingLayoutCache m_ArgsLayout;
+        // Per stack host program (ParticleWorldGpu's, alive with the scene's GPU state).
+        mutable std::unordered_map<const ComputePipeline*, ShaderBindingLayoutCache> m_SimLayouts;
+        mutable ShaderBindingLayoutCache                                             m_CompactLayout;
+        mutable ShaderBindingLayoutCache                                             m_ArgsLayout;
 
         // The ParticleSpriteDefault template's ParticleSprite.Forward cell (Initialize refuses without it).
         std::string m_DefaultCell;
@@ -233,12 +220,9 @@ namespace Desert::Graphic::System
         std::unordered_map<std::string, std::unique_ptr<SpriteDraw>> m_Sprites;
         // Per emitter (raw entt entity value), per view.
         std::unordered_map<uint32_t, EmitterMaterial> m_Materials;
-        // VFXComponent emitters (a compiled stack) this view does not run yet, each said once by key.
-        // By stack key; null = its program did not compose or build (said once, its emitters sit out).
-        std::unordered_map<uint64_t, std::unique_ptr<StackProgram>> m_StackPrograms;
-        const ParticleWorldGpu*                                     m_World     = nullptr;
-        bool                                                        m_Simulates = false;
-        std::vector<ViewEmitter>                                    m_ViewEmitters;
-        ViewPool                                                    m_Pool;
+        const ParticleWorldGpu*                       m_World     = nullptr;
+        bool                                          m_Simulates = false;
+        std::vector<ViewEmitter>                      m_ViewEmitters;
+        ViewPool                                      m_Pool;
     };
 } // namespace Desert::Graphic::System

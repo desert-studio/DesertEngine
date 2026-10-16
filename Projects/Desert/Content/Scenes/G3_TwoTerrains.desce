@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "d911e1788ca30dfafe332f0910cc045d",
         "Versions": {
-            "SCNE": 50,
+            "SCNE": 54,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["239102b0b0735153c9b59f5e6558ca50", "80a31d6cbbb94e2680f8d4fa2d3cc8a9", "c2407e5571ff7898af741eafd1abdfeb"]
     },
     "SceneName": "G3_TwoTerrains",
     "Entities": [
@@ -743,11 +743,14 @@
                 "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": true,
-                    "GlobalIllumination": 1,
+                    "GlobalIlluminationMethod": 2,
                     "GIIntensity": 2.0,
-                    "EnableSSR": true,
+                    "ReflectionsMethod": 2,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
+                    "ShadowsMethod": 0,
+                    "ContactShadows": false,
+                    "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "Exposure": 1.0,
                     "Gamma": 2.200000047683716,

@@ -5,7 +5,7 @@
 -- file — and the UI keeps working in the editor (an unset key falls back to the authored value).
 --
 -- Showcases the bridge:
---   ui.set( key, value )      -- number / string / bool, or ( key, r, g, b ) for a colour
+--   ui.set( key, value )      -- number / string / bool, or a vector r, g, b for a colour
 --   ui.get( key ) / ui.has()  -- read it back
 --   ui.send( msg )            -- raise a UI message yourself
 --   OnUIMessage( msg )        -- hear every button action, pointer event and drop the canvas produced
@@ -19,11 +19,11 @@
 -- the profile name, the server load bar and its caption start moving.
 
 Properties = {
-    PlayerName = "Nico_Bellic", -- written into player.name on start
-    Latency    = 32.0,          -- ms, shown in the server caption
-    Friends    = 12,            -- how many are online; drives the PLURAL form of the status line
-    Level      = 34,            -- shown in the profile summary
-    Balance    = 1248500.0,     -- shown as money, formatted for the current language
+    PlayerName = Property.String( "Nico_Bellic" ), -- written into player.name on start
+    Latency    = Property.Float( 32.0 ),          -- ms, shown in the server caption
+    Friends    = Property.Int( 12 ),            -- how many are online; drives the PLURAL form of the status line
+    Level      = Property.Int( 34 ),            -- shown in the profile summary
+    Balance    = Property.Float( 1248500.0 ),     -- shown as money, formatted for the current language
 }
 
 local t = 0.0

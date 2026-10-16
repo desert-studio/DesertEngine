@@ -3,24 +3,11 @@
 #include <glm/glm.hpp>
 
 #include <Common/Core/Units.hpp>
+#include <Common/Settings/RenderMethods.hpp>
 #include <CoreReflection/ReflectionMacros.hpp>
 
 namespace Desert::Core
 {
-    // Source of the one-bounce indirect light (Deferred path only).
-    //  ScreenSpace — gathers from sun-lit G-buffer neighbours right inside the lighting pass. Cheap and
-    //                self-contained, but ONLY geometry currently on screen can bounce, and there is no
-    //                denoiser, so a wide radius reads as noise.
-    //  RSM         — bounces light off everything the SUN sees (off-screen geometry included) via a
-    //                reflective shadow map, resolved into its own buffer and temporally accumulated.
-    //                Better and stabler; costs one sun-view raster pass plus two fullscreen passes.
-    enum class GIMode : int
-    {
-        Off         = 0,
-        ScreenSpace = 1,
-        RSM         = 2,
-    };
-
     // The curve that maps HDR scene luminance onto the 0..1 the display can show. Both branches are
     // authored features, and which one a view is graded through is part of its grade.
     //
@@ -50,22 +37,49 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Enable SSAO" ), Category( "Rendering Features" ) )
         bool EnableSSAO = true;
 
-        PROPERTY( DisplayName( "Global Illumination" ), Category( "Global Illumination" ) )
-        GIMode GlobalIllumination = GIMode::ScreenSpace;
-        // ONE knob for both GI modes, but they are not on the same scale: the screen-space gather is bright
+        // THE THREE RENDER METHODS this view ASKS for (Common/Settings/RenderMethods.hpp). What it gets is
+        // Graphic::ResolveRenderMethods' minimum of this, the machine's Scalability ceiling and the device, walked
+        // down to an implemented method; a downgrade is one log line and an overlay row. A declared method whose
+        // renderer has not landed is refused where it is set (Refuse) — the loader, Details and scripts alike.
+        // Taken whole when volumes blend (a method has no value between two).
+        //
+        //  ScreenSpace          — gathers from sun-lit G-buffer neighbours inside the lighting pass: only geometry
+        //                         on screen bounces, no denoiser.
+        //  ReflectiveShadowMaps — bounces the sun off everything it sees (off screen too) through a reflective
+        //                         shadow map, resolved into its own buffer and temporally accumulated.
+        PROPERTY( DisplayName( "Method" ), Category( "Global Illumination" ),
+                  Refuse( "Common::Scalability::RefuseGIMethod" ),
+                  Tooltip( "Requested method; the viewport overlay shows the effective one." ) )
+        Common::Scalability::GIMethod GlobalIlluminationMethod = Common::Scalability::GIMethod::ScreenSpace;
+        // ONE knob for both GI methods, but they are not on the same scale: the screen-space gather is bright
         // at ~2, while the RSM gather is deliberately dim (32 taps, 1/d^2 with a distance floor) and wants ~6.
         PROPERTY( DisplayName( "GI Intensity" ), Category( "Global Illumination" ), Range( 0.0f, 20.0f ) )
         float GIIntensity = 2.0f;
 
-        // On by default (SSR1B, scene v48): the trace + resolve cost 0.25-0.29 ms after SSR1, so a view no volume
-        // touches reflects, as UE's ScreenSpaceReflectionIntensity default does. v47 files stated the old default
-        // false on every volume; MigrateSSRDefaultOnV47ToV48 (Tools/SceneMigrator) states true in its place.
-        PROPERTY( DisplayName( "Enable SSR" ), Category( "Reflections" ) )
-        bool EnableSSR = true;
+        // Screen space by default (SSR1B, scene v48; the method since v52): the trace + resolve cost 0.25-0.29 ms
+        // after SSR1, so a view no volume touches reflects, as UE's ScreenSpaceReflectionIntensity default does.
+        // Off = the sky's prefiltered environment only.
+        PROPERTY( DisplayName( "Method" ), Category( "Reflections" ),
+                  Refuse( "Common::Scalability::RefuseReflectionMethod" ),
+                  Tooltip( "Requested method; the viewport overlay shows the effective one." ) )
+        Common::Scalability::ReflectionMethod ReflectionsMethod = Common::Scalability::ReflectionMethod::ScreenSpace;
         PROPERTY( DisplayName( "SSR Intensity" ), Category( "Reflections" ), Range( 0.0f, 1.0f ) )
         float SSRIntensity = 1.0f;
         PROPERTY( DisplayName( "SSR Max Distance" ), Category( "Reflections" ), Length, Range( 100.0f, 20000.0f ) )
         float SSRMaxDistance = Common::Units::Metres( 40.0f );
+
+        PROPERTY( DisplayName( "Method" ), Category( "Shadows" ),
+                  Refuse( "Common::Scalability::RefuseShadowMethod" ),
+                  Tooltip( "Requested method; the viewport overlay shows the effective one." ) )
+        Common::Scalability::ShadowMethod ShadowsMethod = Common::Scalability::ShadowMethod::CascadedMaps;
+        // The two supplements every shadow method takes: screen-space contact shadows for the detail a map
+        // misses, distance-field shadows for the sun beyond the maps' reach. Declared; refused until they land.
+        PROPERTY( DisplayName( "Contact Shadows" ), Category( "Shadows" ),
+                  Refuse( "Common::Scalability::RefuseContactShadows" ) )
+        bool ContactShadows = false;
+        PROPERTY( DisplayName( "Distance Field Shadows" ), Category( "Shadows" ),
+                  Refuse( "Common::Scalability::RefuseDistanceFieldShadows" ) )
+        bool DistanceFieldShadows = false;
 
         PROPERTY( DisplayName( "Tonemapper" ), Category( "Film" ) )
         TonemapOperator Tonemapper = TonemapOperator::ACES;

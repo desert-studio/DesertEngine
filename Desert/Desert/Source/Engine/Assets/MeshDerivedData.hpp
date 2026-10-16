@@ -59,8 +59,17 @@ namespace Desert::Assets
     // system's reason: a cache that silently stays cold rebuilds on every load and nobody learns why.
     Common::ResultStr<std::string> LoadMeshPlatformData( const std::filesystem::path& asset );
 
+    // The same, with the key the bytes were found under - what the mesh's distance field (MeshDistanceField.hpp)
+    // derives its own key from, so the field follows exactly the render data it was built from.
+    struct MeshPlatformDataBytes
+    {
+        std::string Bytes;
+        uint64_t    Key = 0;
+    };
+    Common::ResultStr<MeshPlatformDataBytes> LoadMeshPlatformDataKeyed( const std::filesystem::path& asset );
+
     // AF4h: THE IMPORTED SOURCE ENVELOPE IS ALSO DERIVED. Everything an import writes into a static mesh's
-    // MeshSourceAsset - the source's EditMesh models, its material slot table - is a pure function of the
+    // MeshSourceAsset - the source's mesh models, its material slot table - is a pure function of the
     // raw file's own bytes (AF4g already made unit/axis resolution pure too, reading them out of the file
     // instead of asking the user). It belongs in the DDC beside the render-data bucket above, keyed by the
     // SOURCE FILE'S bytes rather than by the (not-yet-built) envelope's - not as a multi-megabyte file left

@@ -952,13 +952,15 @@ namespace Desert::Graphic::System
             for ( auto& [mesh, bucket] : byMesh )
             {
                 // Per-object state a shared batch entry can't carry: hidden submeshes, the
-                // shadow-receive opt-out, and INSTANCE OVERRIDES — a batch shares one material
+                // shadow-receive opt-out, the contact-shadow cast opt-out (a batch pushes one
+                // PrimitiveFlags, the default) and INSTANCE OVERRIDES — a batch shares one material
                 // entry, so an overridden instance in it would silently render with someone
                 // else's values. All of those take the per-object path.
                 std::vector<ObjDraw> batchable;
                 for ( auto& od : bucket )
                 {
-                    if ( od.Obj->HiddenSubmeshes != 0 || !od.Obj->ReceiveShadows || od.HasOverrides )
+                    if ( od.Obj->HiddenSubmeshes != 0 || !od.Obj->ReceiveShadows || !od.Obj->CastContactShadow ||
+                         od.HasOverrides )
                         singles.push_back( od );
                     else
                         batchable.push_back( od );
@@ -1151,12 +1153,14 @@ namespace Desert::Graphic::System
                             .Material          = drawMat->GetMaterialExecutor(),
                             .HiddenSubmeshMask = obj->HiddenSubmeshes,
                             .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                            .BindState = [drawMat, inst, motionRow = obj->MotionRow, i]
+                            .BindState = [drawMat, inst, motionRow = obj->MotionRow, i,
+                                          flags = PrimitiveFlagsOf( obj->CastContactShadow )]
                             {
                                 DESERT_PROFILE_SCOPE( "Mesh: PerObject Setup" );
                                 drawMat->SetPushMatrix( glm::mat4( 1.0f ) );
                                 drawMat->SetPrimitiveIndex( motionRow );
                                 drawMat->SetMaterialIndex( i );
+                                drawMat->SetPrimitiveFlags( flags );
                                 drawMat->Bind( inst );
                             } } );
             }
@@ -1249,6 +1253,7 @@ namespace Desert::Graphic::System
                     d.LodLevel      = level;
                     // A view pass: the wind at the view's previous frame too (B.z), for the instances' velocity.
                     d.Wind = PackViewInstanceWind( ism.Wind, m_PrevWorldTimeSeconds );
+                    d.PrimitiveFlags = PrimitiveFlagsOf( ism.CastContactShadow );
                     for ( std::size_t i = 0; i < visible.size(); ++i )
                         if ( levels[i] == level )
                             ismSet->Transforms.push_back( visible[i] );
@@ -1305,11 +1310,12 @@ namespace Desert::Graphic::System
                                 .InstanceCount = d.InstanceCount,
                                 .FirstInstance = d.FirstInstance,
                                 .LodLevel      = d.LodLevel,
-                                .BindState =
-                                     [mat = &*set.Mat, inst = &*set.Inst, index = d.MaterialIndex, wind = d.Wind]
+                                .BindState     = [mat = &*set.Mat, inst = &*set.Inst, index = d.MaterialIndex,
+                                              wind = d.Wind, flags = d.PrimitiveFlags]
                                 {
                                     mat->SetMaterialIndex( index );
                                     mat->SetInstancedWind( wind );
+                                    mat->SetPrimitiveFlags( flags );
                                     mat->Bind( inst );
                                 } } );
                 }

@@ -28,9 +28,18 @@ namespace Desert::Graphic::RDG
 
     enum class TextureDim : uint8_t
     {
-        Tex2D, // Layers >= 1 makes it an array (shadow cascades are layers of one 2D texture)
+        Tex2D, // Layers >= 1 makes it an array; its sampled view follows the count (one layer = a 2D view)
         Tex3D, // a volume: Layers must be 1, the mip chain spans all three extents
         Cube,  // Layers is a multiple of six
+        // Layers is a multiple of six, and every sampled or storage view of it is a CUBE ARRAY - also at six
+        // layers, where a Cube's view is a plain cube. The shader declares samplerCubeArray / imageCubeArray
+        // whatever the count, so the view type cannot follow the count (the reflection captures' array holds
+        // one cube when the scene has one capture).
+        CubeArray,
+        // A 2D array whose every sampled or storage view is a 2D ARRAY - also at one layer, where a Tex2D's view
+        // is a plain 2D. The shader declares sampler2DArray whatever the count (the sun's shadow cascades: one
+        // layer per cascade, and Scalability may ask for one cascade). An attachment view is one layer, 2D.
+        Tex2DArray,
     };
 
     struct TextureDesc

@@ -77,25 +77,25 @@ namespace
       "Cinematic": { "Textures.MipBias": 0,   "Textures.StreamingPoolMiB": 8192 }
     },
     "Shadows": {
-      "Low":       { "Shadows.Cascades": 2, "Shadows.MapSize": 1024, "Shadows.Distance": 8000,  "Shadows.RayTracing": "None" },
-      "Medium":    { "Shadows.Cascades": 3, "Shadows.MapSize": 1024, "Shadows.Distance": 10000, "Shadows.RayTracing": "None" },
-      "High":      { "Shadows.Cascades": 4, "Shadows.MapSize": 2048, "Shadows.Distance": 15000, "Shadows.RayTracing": "None" },
-      "Epic":      { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 20000, "Shadows.RayTracing": "None" },
-      "Cinematic": { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 30000, "Shadows.RayTracing": "None" }
+      "Low":       { "Shadows.Cascades": 2, "Shadows.MapSize": 1024, "Shadows.Distance": 8000,  "Shadows.ContactShadowSteps": 0, "Shadows.Method": "CascadedMaps", "Shadows.LightGridPixelSize": 64, "Shadows.LightGridSlices": 16, "Shadows.LightGridMaxLightsPerCell": 32 },
+      "Medium":    { "Shadows.Cascades": 3, "Shadows.MapSize": 1024, "Shadows.Distance": 10000, "Shadows.ContactShadowSteps": 8, "Shadows.Method": "CascadedMaps", "Shadows.LightGridPixelSize": 64, "Shadows.LightGridSlices": 24, "Shadows.LightGridMaxLightsPerCell": 32 },
+      "High":      { "Shadows.Cascades": 4, "Shadows.MapSize": 2048, "Shadows.Distance": 15000, "Shadows.ContactShadowSteps": 12, "Shadows.Method": "VirtualMaps", "Shadows.LightGridPixelSize": 64, "Shadows.LightGridSlices": 32, "Shadows.LightGridMaxLightsPerCell": 32 },
+      "Epic":      { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 20000, "Shadows.ContactShadowSteps": 16, "Shadows.Method": "HardwareTraced", "Shadows.LightGridPixelSize": 32, "Shadows.LightGridSlices": 32, "Shadows.LightGridMaxLightsPerCell": 64 },
+      "Cinematic": { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 30000, "Shadows.ContactShadowSteps": 24, "Shadows.Method": "Stochastic", "Shadows.LightGridPixelSize": 32, "Shadows.LightGridSlices": 64, "Shadows.LightGridMaxLightsPerCell": 64 }
     },
     "GlobalIllumination": {
-      "Low":       { "GlobalIllumination.Samples": 8,  "GlobalIllumination.RayTracing": "None" },
-      "Medium":    { "GlobalIllumination.Samples": 16, "GlobalIllumination.RayTracing": "None" },
-      "High":      { "GlobalIllumination.Samples": 32, "GlobalIllumination.RayTracing": "None" },
-      "Epic":      { "GlobalIllumination.Samples": 48, "GlobalIllumination.RayTracing": "None" },
-      "Cinematic": { "GlobalIllumination.Samples": 64, "GlobalIllumination.RayTracing": "None" }
+      "Low":       { "GlobalIllumination.Samples": 8,  "GlobalIllumination.DistanceFieldPoolMiB": 64, "GlobalIllumination.Method": "ScreenSpace" },
+      "Medium":    { "GlobalIllumination.Samples": 16, "GlobalIllumination.DistanceFieldPoolMiB": 128, "GlobalIllumination.Method": "ReflectiveShadowMaps" },
+      "High":      { "GlobalIllumination.Samples": 32, "GlobalIllumination.DistanceFieldPoolMiB": 384, "GlobalIllumination.Method": "HardwareTraced" },
+      "Epic":      { "GlobalIllumination.Samples": 48, "GlobalIllumination.DistanceFieldPoolMiB": 384, "GlobalIllumination.Method": "HardwareTraced" },
+      "Cinematic": { "GlobalIllumination.Samples": 64, "GlobalIllumination.DistanceFieldPoolMiB": 512, "GlobalIllumination.Method": "PathTraced" }
     },
     "Reflections": {
-      "Low":       { "Reflections.MaxSteps": 12, "Reflections.RayTracing": "None" },
-      "Medium":    { "Reflections.MaxSteps": 20, "Reflections.RayTracing": "None" },
-      "High":      { "Reflections.MaxSteps": 32, "Reflections.RayTracing": "None" },
-      "Epic":      { "Reflections.MaxSteps": 48, "Reflections.RayTracing": "None" },
-      "Cinematic": { "Reflections.MaxSteps": 64, "Reflections.RayTracing": "None" }
+      "Low":       { "Reflections.MaxSteps": 24, "Reflections.CaptureSize": 64, "Reflections.RaysPerPixel": 1, "Reflections.Method": "ScreenSpace" },
+      "Medium":    { "Reflections.MaxSteps": 32, "Reflections.CaptureSize": 128, "Reflections.RaysPerPixel": 1, "Reflections.Method": "ScreenSpace" },
+      "High":      { "Reflections.MaxSteps": 48, "Reflections.CaptureSize": 128, "Reflections.RaysPerPixel": 2, "Reflections.Method": "HardwareTraced" },
+      "Epic":      { "Reflections.MaxSteps": 64, "Reflections.CaptureSize": 128, "Reflections.RaysPerPixel": 4, "Reflections.Method": "HardwareTraced" },
+      "Cinematic": { "Reflections.MaxSteps": 96, "Reflections.CaptureSize": 256, "Reflections.RaysPerPixel": 8, "Reflections.Method": "PathTraced" }
     },
     "PostProcess": {
       "Low":       { "PostProcess.AmbientOcclusionSamples": 4,  "PostProcess.BloomMips": 3, "PostProcess.MotionBlurQuality": 0, "PostProcess.DepthOfFieldQuality": 0 },
@@ -365,7 +365,7 @@ TEST( ScalabilityContract, SetOverrideRefusesAPlaceholderAndSavesNothing )
 {
     InitializeQualityState();
     const QualitySelection before = QualityState::Selection();
-    const auto             report = QualityState::SetOverride( Parameter::ShadowRayTracing, 1 );
+    const auto             report = QualityState::SetOverride( Parameter::TextureMipBias, 100 );
     EXPECT_FALSE( report.Refused.empty() );
     EXPECT_FALSE( report.Saved );
     EXPECT_EQ( g_SaveCalls, 0 );
@@ -693,7 +693,7 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     constexpr ParameterValue kOldShadowDistance = 15000; // cm
     // SceneRendererFrameDeferred.cpp before S2: RecordTrace( ..., /*maxSteps*/ 32, ...), SSAO Record( ...,
     // /*samples*/ 16 ); GIResolve.shader `const int SAMPLES = 32`; BloomRenderer::kMaxBloomMips = 6.
-    constexpr ParameterValue kOldSSRSteps  = 32;
+    constexpr ParameterValue kOldSSRSteps  = 48; // HZB traversal iterations since SSR2 (was 32 linear march steps)
     constexpr ParameterValue kOldSSAOTaps  = 16;
     constexpr ParameterValue kOldGITaps    = 32;
     constexpr ParameterValue kOldBloomMips = 6;
@@ -710,7 +710,10 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     const ScalabilityTable& table = parsed.GetValue();
     const auto              high  = [&]( Parameter p ) { return table.ValueAt( p, Level::High ); };
 
-    EXPECT_EQ( high( Parameter::AntiAliasingMethod ), kOldAntiAliasing );
+    // The one deliberate move off the old frame: TAA-FINISH made the temporal resolve High's anti-aliasing
+    // (High/Epic/Cinematic, UE's r.AntiAliasingMethod default), so High is TAA, no longer the old FXAA.
+    EXPECT_NE( high( Parameter::AntiAliasingMethod ), kOldAntiAliasing );
+    EXPECT_EQ( high( Parameter::AntiAliasingMethod ), static_cast<ParameterValue>( AntiAliasingMethod::TAA ) );
     EXPECT_EQ( high( Parameter::AntiAliasingSamples ), kOldSamples );
     EXPECT_EQ( high( Parameter::RenderScalePercent ), kOldScale );
     EXPECT_EQ( high( Parameter::Upscaler ), static_cast<ParameterValue>( Upscaler::None ) );

@@ -251,6 +251,13 @@ namespace Desert::Graphic
         // incompatibility. Used by the deferred lighting pass to composite over the forward-rendered scene.
         bool           UseLoadRenderPass = false;
 
+        // Rasterizer depth bias (UE FRasterizerStateInitializerRHI DepthBias / SlopeScaleDepthBias): a constant in
+        // the depth format's smallest steps plus a factor of the primitive's depth slope. The engine's depth is
+        // reversed (DepthCompare::Closer is Greater), so a POSITIVE bias pulls the primitive toward the viewer -
+        // what an overlay lying on a surface needs to win against it. Both zero: no bias.
+        float DepthBiasConstant = 0.0F;
+        float DepthBiasSlope    = 0.0F;
+
         float                LineWidth   = 1.0F;
         PrimitiveTopology    Topology    = PrimitiveTopology::Triangles;
         PrimitivePolygonMode PolygonMode = PrimitivePolygonMode::Solid;

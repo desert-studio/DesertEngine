@@ -568,7 +568,7 @@ TEST( DocumentNaming, TheVisibleHalfOfTheTitleIsWhatTheUserSees )
 // =================================================================================================
 //
 // The seam used to be keyed on an Assets::AssetHandle, so a document could only ever be a file. An anim
-// graph, a particle emitter and a UI canvas are authored data held by a COMPONENT ON AN ENTITY; the button
+// graph and a UI canvas are authored data held by a COMPONENT ON AN ENTITY; the button
 // the owner asked for in Details — "edit the thing this component holds" — had nowhere to send its request,
 // because the request carried a handle and a component is not one.
 //
@@ -577,31 +577,31 @@ TEST( DocumentNaming, TheVisibleHalfOfTheTitleIsWhatTheUserSees )
 TEST( SubjectIdentity, TwoDocumentsOverOneNumberAreTwoDocuments )
 {
     // THE FAILURE THIS PREVENTS IS SILENT AND TOTAL. An entity's UUID and an asset's handle are drawn from
-    // one 64-bit space (AssetHandle derives from UUID), and one entity's anim graph and its particle
-    // emitter share an owner outright. Key the well on the number and all three are ONE document; key the
+    // one 64-bit space (AssetHandle derives from UUID), and one entity's anim graph and its UI
+    // canvas share an owner outright. Key the well on the number and all three are ONE document; key the
     // WINDOW on the number — DocumentTitle appends it after "###" — and ImGui merges all three into one
     // window, drawing the second and third into the first.
     const SubjectId asset     = Asset( 42 );
     const SubjectId anim      = Component( 42, "AnimationComponent" );
-    const SubjectId particles = Component( 42, "ParticleEmitterComponent" );
+    const SubjectId canvas    = Component( 42, "UICanvasComponent" );
 
     EXPECT_FALSE( asset == anim );
-    EXPECT_FALSE( anim == particles );
-    EXPECT_FALSE( asset == particles );
+    EXPECT_FALSE( anim == canvas );
+    EXPECT_FALSE( asset == canvas );
 
     // ...and the three window ids differ, which is the half ImGui reads.
     EXPECT_NE( DocumentTitle( "Hero", asset ), DocumentTitle( "Hero", anim ) );
-    EXPECT_NE( DocumentTitle( "Hero", anim ), DocumentTitle( "Hero", particles ) );
+    EXPECT_NE( DocumentTitle( "Hero", anim ), DocumentTitle( "Hero", canvas ) );
 
     EditorDocuments well;
     well.Add( MakeDocument( DocumentTitle( "Hero", asset ), asset ) );
     well.Add( MakeDocument( DocumentTitle( "Hero", anim ), anim ) );
-    well.Add( MakeDocument( DocumentTitle( "Hero", particles ), particles ) );
+    well.Add( MakeDocument( DocumentTitle( "Hero", canvas ), canvas ) );
 
     EXPECT_EQ( well.Count(), 3u );
     ASSERT_NE( well.Find( anim ), nullptr );
     EXPECT_EQ( well.Find( anim )->Subject(), anim );
-    EXPECT_EQ( well.Find( particles )->Subject(), particles );
+    EXPECT_EQ( well.Find( canvas )->Subject(), canvas );
 }
 
 TEST( SubjectIdentity, TheSameSubjectIsTheSameDocument )
@@ -645,7 +645,7 @@ TEST( SubjectIdentity, TheTextFormCarriesAllThreeParts )
     EXPECT_EQ( Asset( 333, AssetTypeID::Material ).ToString(),
                std::string( "asset:" ) + std::to_string( static_cast<uint32_t>( AssetTypeID::Material ) ) +
                     ":333" );
-    EXPECT_NE( anim.ToString(), Component( 88, "ParticleEmitterComponent" ).ToString() );
+    EXPECT_NE( anim.ToString(), Component( 88, "UICanvasComponent" ).ToString() );
 }
 
 // =================================================================================================

@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "392fabaf6010f7ce91c2532a2043ebbd",
         "Versions": {
-            "SCNE": 50,
+            "SCNE": 54,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "8d8f039e11a60108670d6a4ae05f9629", "91bde2ac45c15dd230d961a447b6fba7"]
     },
     "SceneName": "Batch Stress (1024 cubes, one material)",
     "Entities": [
@@ -13504,11 +13504,14 @@
                 "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": false,
-                    "GlobalIllumination": 1,
+                    "GlobalIlluminationMethod": 2,
                     "GIIntensity": 2.0,
-                    "EnableSSR": true,
+                    "ReflectionsMethod": 2,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
+                    "ShadowsMethod": 0,
+                    "ContactShadows": false,
+                    "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "Exposure": 0.25999999046325684,
                     "Gamma": 2.200000047683716,

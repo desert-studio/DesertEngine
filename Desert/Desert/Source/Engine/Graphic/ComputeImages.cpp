@@ -346,18 +346,23 @@ namespace Desert::Graphic
         }
         const auto& pipeline = built.GetValue();
 
-        // One dispatch per mip, each convolved with the matching GGX roughness.
+        // One dispatch per mip, each convolved with the matching GGX roughness: the shader derives it from the
+        // mip (Common/ReflectionCaptureMip.glslh, the engine's one ramp, which the lighting reads back).
+        struct PrefilterPush
+        {
+            uint32_t Mip    = 0u;
+            uint32_t MaxMip = 0u;
+        };
         for ( uint32_t mip = 0; mip < mips; ++mip )
         {
-            const float    roughness = ( mips > 1 ) ? static_cast<float>( mip ) / static_cast<float>( mips - 1 )
-                                                     : 0.0f;
+            const PrefilterPush push{ mip, mips - 1u };
             // Dispatch over the FACE size at this mip (the shader writes per-face and clamps to imageSize).
             const uint32_t mipSize   = std::max( 1u, faceSize >> mip );
             const uint32_t groups    = DispatchGroupCount( mipSize, kComputeImagesWorkGroupSize );
 
             pipeline->SetInput( 0, radiance, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             pipeline->SetOutput( 1, output.get(), mip );
-            pipeline->SetPushConstants( &roughness, sizeof( float ) );
+            pipeline->SetPushConstants( &push, sizeof( push ) );
             pipeline->Record( batch, groups, groups, 6u );
         }
         batch.Retain( pipeline );

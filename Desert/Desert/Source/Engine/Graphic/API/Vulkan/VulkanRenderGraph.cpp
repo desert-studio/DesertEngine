@@ -47,7 +47,9 @@ namespace Desert::Graphic::API::Vulkan
             const VkFormat    format = RdgFormat( device, desc.Format );
             VkImageCreateInfo info{};
             info.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-            info.flags         = desc.Dim == RDG::TextureDim::Cube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0u;
+            info.flags         = desc.Dim == RDG::TextureDim::Cube || desc.Dim == RDG::TextureDim::CubeArray
+                                      ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT
+                                      : 0u;
             info.imageType     = desc.Dim == RDG::TextureDim::Tex3D ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
             info.format        = format;
             info.extent        = { desc.Size.Width, desc.Size.Height,
@@ -451,6 +453,10 @@ namespace Desert::Graphic::API::Vulkan
             type = VK_IMAGE_VIEW_TYPE_3D;
         else if ( !forAttachment && m_Desc.Dim == RDG::TextureDim::Cube && range.LayerCount % 6 == 0 )
             type = range.LayerCount == 6 ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+        else if ( !forAttachment && m_Desc.Dim == RDG::TextureDim::CubeArray && range.LayerCount % 6 == 0 )
+            type = VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+        else if ( !forAttachment && m_Desc.Dim == RDG::TextureDim::Tex2DArray )
+            type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
 
         VkImageViewCreateInfo info{};
         info.sType            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;

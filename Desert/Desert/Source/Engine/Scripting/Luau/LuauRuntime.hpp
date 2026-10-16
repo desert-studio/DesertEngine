@@ -2,6 +2,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Reflection/Value.hpp>
+#include <Engine/Scripting/ScriptSchema.hpp>
 
 #include <entt/entt.hpp>
 
@@ -80,6 +81,13 @@ namespace Desert::Scripting
 
     using LuauSlot = std::uint32_t;
 
+    /// What a property value needs from the world it is written into: the entity a UUID names (Property.Entity).
+    struct LuauPropertyWorld
+    {
+        entt::registry*                              Registry = nullptr;
+        std::function<entt::entity( std::uint64_t )> FindEntity;
+    };
+
     /// Installs the engine's NATIVE modules (Log, Input, Timer, World, the entity's methods) on the main state,
     /// before luaL_sandbox freezes it — so what it adds is read-only to every script, like the libraries.
     using LuauInstall = std::function<void( lua_State* )>;
@@ -147,15 +155,29 @@ namespace Desert::Scripting
         [[nodiscard]] Common::BoolResultStr CallFrom( LuauSlot slot, const char* function, lua_State* from,
                                                       int first, int count );
 
-        /// Calls the function a native pinned with lua_ref (Timer.after's callback) on the slot's thread, under
-        /// the watchdog and the slot's memory category. The reference stays; Unref drops it.
-        [[nodiscard]] Common::BoolResultStr CallRef( LuauSlot slot, int function );
+        /// Calls the function a native pinned with lua_ref (a Callable's, Timer.after's callback) with `args` on
+        /// the slot's thread, under the watchdog and the slot's memory category. The reference stays; Unref drops
+        /// it.
+        [[nodiscard]] Common::BoolResultStr CallRef( LuauSlot slot, int function,
+                                                     std::span<const Reflection::Value> args = {} );
         void                                Unref( int reference );
 
         /// Sets `table[key] = value` in the slot's globals, creating the table when the slot has none
         /// (the editor's property overrides land in `Properties` this way).
         void SetTableField( LuauSlot slot, const char* table, const std::string& key,
                             const Reflection::Value& value );
+
+        /// What the slot's `Properties` table declared when its top level ran (Property.Float(...), plain
+        /// literals), in declaration order; nullptr when there is no such slot. ScriptSchema.hpp.
+        [[nodiscard]] const std::vector<ScriptPropertyDecl>* Declarations( LuauSlot slot ) const;
+
+        /// `Properties[property.Name] = <its value as the script reads it>` (an entity resolved in `world`).
+        void SetProperty( LuauSlot slot, const ScriptProperty& property, const LuauPropertyWorld& world );
+
+        /// `Properties[name]` as a scalar of kind `type` (Number, Int, Bool, String, Enum): false when the slot,
+        /// the table or a value of that kind is not there.
+        [[nodiscard]] bool ReadProperty( LuauSlot slot, const std::string& name, PropertyType type,
+                                         ScriptValue& out ) const;
 
         /// The string-keyed boolean / number / string entries of the slot's global `table`; empty when absent.
         [[nodiscard]] std::vector<LuauTableEntry> ReadTable( LuauSlot slot, const char* table ) const;

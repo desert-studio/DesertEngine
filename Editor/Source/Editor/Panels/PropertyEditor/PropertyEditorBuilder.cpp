@@ -5,6 +5,7 @@
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/MultiEdit.hpp>
 
+#include <Engine/Reflection/FieldValue.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Graphic/ColorTemperature.hpp>
 #include <Engine/Assets/AssetManager.hpp>
@@ -571,15 +572,25 @@ namespace Desert::Editor
         switch ( field.Type )
         {
             case FieldType::Bool:
-                changed = ImGui::Checkbox( "##v", static_cast<bool*>( p ) );
+            {
+                // A refused value (PROPERTY( Refuse ), Reflection::RefusalOf) is not offered: the box is drawn
+                // disabled with the reason, the same rule the loader and scripts apply.
+                bool* const       flag    = static_cast<bool*>( p );
+                const std::string refusal = Reflection::RefusalOf( field, *flag ? 0 : 1 );
+                ImGui::BeginDisabled( !refusal.empty() );
+                changed = ImGui::Checkbox( "##v", flag );
+                ImGui::EndDisabled();
+                if ( !refusal.empty() && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+                    ImGui::SetTooltip( "%s", refusal.c_str() );
                 break;
+            }
 
             case FieldType::Int:
             {
                 int* v = static_cast<int*>( p );
-                changed = field.Meta.HasRange
-                              ? ImGui::SliderInt( "##v", v, (int)field.Meta.RangeMin, (int)field.Meta.RangeMax )
-                              : ImGui::DragInt( "##v", v );
+                changed = field.Meta.HasRange ? Utils::ImGuiUtilities::PropertySliderInt(
+                                                     "##v", v, (int)field.Meta.RangeMin, (int)field.Meta.RangeMax )
+                                              : ImGui::DragInt( "##v", v );
                 break;
             }
             case FieldType::UInt:
@@ -1464,11 +1475,18 @@ namespace Desert::Editor
                     for ( size_t k = 0; k < values.size(); ++k )
                     {
                         const bool selected = ( static_cast<int>( k ) == idx );
-                        if ( ImGui::Selectable( values[k].Name.c_str(), selected ) )
+                        // A refused enumerator (Reflection::RefusalOf — a declared method this build does not
+                        // implement) is listed, disabled, with the reason: the loader refuses it too.
+                        const std::string refusal = Reflection::RefusalOf( field, values[k].Value );
+                        if ( ImGui::Selectable( values[k].Name.c_str(), selected,
+                                                refusal.empty() ? ImGuiSelectableFlags_None
+                                                                : ImGuiSelectableFlags_Disabled ) )
                         {
                             WriteEnum( p, field.Size, values[k].Value );
                             changed = true;
                         }
+                        if ( !refusal.empty() && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+                            ImGui::SetTooltip( "%s", refusal.c_str() );
                         if ( selected )
                             ImGui::SetItemDefaultFocus();
                     }

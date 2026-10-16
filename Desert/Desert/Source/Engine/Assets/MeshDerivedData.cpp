@@ -61,9 +61,17 @@ namespace Desert::Assets
 
     Common::ResultStr<std::string> LoadMeshPlatformData( const std::filesystem::path& asset )
     {
+        auto keyed = LoadMeshPlatformDataKeyed( asset );
+        if ( !keyed.IsSuccess() )
+            return Common::MakeError<std::string>( keyed.GetError() );
+        return Common::MakeSuccess( std::move( keyed.ExtractValue().Bytes ) );
+    }
+
+    Common::ResultStr<MeshPlatformDataBytes> LoadMeshPlatformDataKeyed( const std::filesystem::path& asset )
+    {
         auto source = LoadMeshSourceAsset( asset );
         if ( !source.IsSuccess() )
-            return Common::MakeError<std::string>( source.GetError() );
+            return Common::MakeError<MeshPlatformDataBytes>( source.GetError() );
         const uint64_t key = MeshAssetDerivedDataKey( source.GetValue() );
 
         MeshPlatformDataBuilder builder;
@@ -74,8 +82,8 @@ namespace Desert::Assets
         if ( !builder )
         {
             if ( auto hit = Common::DDC::Get( kMeshDeriver, key ); hit.has_value() )
-                return Common::MakeSuccess( std::move( *hit ) );
-            return Common::MakeFormattedError<std::string>(
+                return Common::MakeSuccess( MeshPlatformDataBytes{ std::move( *hit ), key } );
+            return Common::MakeFormattedError<MeshPlatformDataBytes>(
                  "mesh asset '{}' has no render data under DDC key {:016x} ({}), and this build cannot derive "
                  "it: the package was cooked without it",
                  asset.string(), key, Common::DDC::RelativePath( kMeshDeriver, key ).generic_string() );
@@ -85,9 +93,9 @@ namespace Desert::Assets
         auto derived = Common::DDC::GetOrBuild( kMeshDeriver, key,
                                                 [&builder, &source] { return builder( source.GetValue() ); } );
         if ( !derived.IsSuccess() )
-            return Common::MakeFormattedError<std::string>( "mesh asset '{}': render data: {}", asset.string(),
-                                                            derived.GetError() );
-        return derived;
+            return Common::MakeFormattedError<MeshPlatformDataBytes>( "mesh asset '{}': render data: {}",
+                                                                      asset.string(), derived.GetError() );
+        return Common::MakeSuccess( MeshPlatformDataBytes{ derived.ExtractValue(), key } );
     }
 
     Common::ResultStr<uint64_t> HashMeshSourceFile( const std::filesystem::path& file )

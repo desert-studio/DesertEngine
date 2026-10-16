@@ -21,10 +21,10 @@
 // this file, then every model body, then the dispatch:
 //   vec3  DesertEvaluateShadingModel( int index, DesertLight L, DesertSurface S, DesertPayload P );
 //   vec3  DesertEvaluateShadingModelAmbient( int index, DesertAmbient A, DesertSurface S, DesertPayload P );
-//   uint  DesertPackShadingWord( int index, float sampledTextureCount, DesertPayload P );
-//   int   DesertShadingModelIndex( uint shadingWord );
-//   float DesertSampledTextureCount( uint shadingWord );
-//   DesertPayload DesertUnpackPayload( uint shadingWord );
+//   uvec2 DesertPackShadingWord( int index, float sampledTextureCount, DesertPayload P );
+//   int   DesertShadingModelIndex( uvec2 shadingWord );
+//   float DesertSampledTextureCount( uvec2 shadingWord );
+//   DesertPayload DesertUnpackPayload( uvec2 shadingWord );
 //   DesertPayload DesertQuantizePayload( DesertPayload P );
 //   #define SHADING_MODEL_INDEX_<NAME> <index>   (one per model; SHADING_MODEL_INDEX_UNLIT is 0)
 // The deferred composite (Programs/Deferred/DeferredLighting.shader) AND the forward passes
@@ -38,26 +38,40 @@
 //   vec3 DesertAmbientIrradiance( vec3 worldDirection );
 //   vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 
+// Declared here as well, so a model body that calls them compiles in every pass that includes the generated file:
+// a G-buffer pass binds no cube and never calls the dispatch, so the call is unreachable there and glslang's
+// linker asks no body for it; a lighting pass defines both (Mesh/AmbientIBL.glslh).
+vec3 DesertAmbientIrradiance( vec3 worldDirection );
+vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
+
 // ----------------------------------------------------------------------------------------------------------------
-// The payload: at most two floats per model, carried by the G-buffer's shading word.
+// The payload: at most four floats per model (UE's CustomData.rgba), carried by the G-buffer's shading word.
 //
 // The G-buffer (Mesh/Surface/Pass_GBuffer.glslh, read at Programs/Deferred/DeferredLighting.shader):
 //   GBufferA           RGBA8    BaseColor.rgb, Metallic.a                       — full
 //   GBufferB           RGBA16F  world Normal.rgb, Roughness.a                   — full
-//   GBufferShadingWord R32_UINT the shading word below
+//   GBufferShadingWord RG32_UINT the shading word below
 //   GBufferEmissive    RGBA16F  Emissive.rgb, AmbientOcclusion.a                — full
 // World position is not stored: every reader reconstructs it from the scene depth (Common/ReconstructPosition.glslh).
-// The word is a 32-bit unsigned integer, written and read with integer operations only (an integer target is
-// never filtered: readers texelFetch it). Its bit fields, like UE's GBufferB.a (ShadingModelID |
-// SelectiveOutputMask << 4) with the payload in the place of UE's CustomData GBufferD (RGBA8 — the same 8-bit
-// precision per float):
+// The word is a pair of 32-bit unsigned integers (uvec2), written and read with integer operations only (an
+// integer target is never filtered: readers texelFetch it). Its bit fields, numbered across the pair (0..31 = .x,
+// 32..63 = .y; no field straddles the two), like UE's GBufferB.a (ShadingModelID | SelectiveOutputMask << 4)
+// with the payload in the place of UE's CustomData GBufferD (RGBA8 — the same four floats, the same 8-bit
+// precision each):
 //   bits  0.. 3  shading-model index (0..15; 0 = Unlit)
 //   bits  4.. 7  sampled-texture count (the Material Complexity proxy, clamped to 15)
 //   bits  8..15  payload 0, unorm8
 //   bits 16..23  payload 1, unorm8
 //   bit  24      NO_SUN_SHADOWS: set = the sun's cascaded shadows do not darken this surface
 //                (SurfaceOutput.ReceiveSunShadows < 0.5, the material half of UE's receive-CSM-shadows flag)
-//   bits 25..31  free
+//   bit  25      NO_CONTACT_SHADOW: set = the primitive does not cast contact shadows (UE !bCastContactShadow,
+//                the G-buffer's PerObjectGBufferData bit): a light's contact-shadow ray that hits this texel
+//                darkens with the light's Non Casting Intensity instead of its Casting Intensity
+//                (Common/ContactShadow.glslh)
+//   bits 26..31  free
+//   bits 32..39  payload 2, unorm8   (.y bits 0..7)
+//   bits 40..47  payload 3, unorm8   (.y bits 8..15)
+//   bits 48..63  free
 // The target clears to 0: an untouched texel reads Unlit, no payload, receives sun shadows.
 // ShadingModelManifest.hpp (kShadingWordFields) is the C++ half of this table; the ShadingModelContract suite
 // holds the two equal and the fields disjoint.
@@ -67,29 +81,48 @@
 #define DESERT_SHADING_WORD_TEXTURES_BITS      4
 #define DESERT_SHADING_WORD_PAYLOAD0_FIRST_BIT 8
 #define DESERT_SHADING_WORD_PAYLOAD1_FIRST_BIT 16
+#define DESERT_SHADING_WORD_PAYLOAD2_FIRST_BIT 32
+#define DESERT_SHADING_WORD_PAYLOAD3_FIRST_BIT 40
 #define DESERT_SHADING_WORD_PAYLOAD_BITS       8
 #define DESERT_SHADING_WORD_NO_SUN_SHADOWS_BIT 24
+#define DESERT_SHADING_WORD_NO_CONTACT_SHADOW_BIT 25
 
 // The G-buffer writer marks the flag after DesertPackShadingWord, so the deferred composite applies the toggle
 // exactly as the forward pass does, and a writer that forgets the mark gets the default, receives.
-uint DesertMarkSunShadowReceive( uint shadingWord, float receiveSunShadows )
+uvec2 DesertMarkSunShadowReceive( uvec2 shadingWord, float receiveSunShadows )
 {
     const uint noReceive = receiveSunShadows < 0.5 ? 1u : 0u;
-    return shadingWord | ( noReceive << uint( DESERT_SHADING_WORD_NO_SUN_SHADOWS_BIT ) );
+    return uvec2( shadingWord.x | ( noReceive << uint( DESERT_SHADING_WORD_NO_SUN_SHADOWS_BIT ) ), shadingWord.y );
 }
 
-bool DesertReceivesSunShadows( uint shadingWord )
+bool DesertReceivesSunShadows( uvec2 shadingWord )
 {
-    return ( ( shadingWord >> uint( DESERT_SHADING_WORD_NO_SUN_SHADOWS_BIT ) ) & 1u ) == 0u;
+    return ( ( shadingWord.x >> uint( DESERT_SHADING_WORD_NO_SUN_SHADOWS_BIT ) ) & 1u ) == 0u;
 }
 
-// A model's two payload floats, in [0, 1] (the pass clamps; 1/255 resolution). The manifest's `Payload` block
-// names them for the material author; the body reads them as CustomData0 / CustomData1, UE's pin names, which are
-// the SurfaceOutput fields the material writes. A model with no payload never reads P.
+// The primitive's contact-shadow cast flag, from the draw (UE bCastContactShadow, the push PrimitiveFlags): marked
+// like the sun-shadow receive, so a cleared texel and a writer that forgets the mark both read "casts".
+uvec2 DesertMarkContactShadowCast( uvec2 shadingWord, bool castContactShadow )
+{
+    const uint noCast = castContactShadow ? 0u : 1u;
+    return uvec2( shadingWord.x | ( noCast << uint( DESERT_SHADING_WORD_NO_CONTACT_SHADOW_BIT ) ), shadingWord.y );
+}
+
+// UE CastContactShadow( GBuffer ): whether a contact-shadow ray that hit this texel is stopped by a caster.
+bool DesertCastsContactShadow( uvec2 shadingWord )
+{
+    return ( ( shadingWord.x >> uint( DESERT_SHADING_WORD_NO_CONTACT_SHADOW_BIT ) ) & 1u ) == 0u;
+}
+
+// A model's four payload floats, in [0, 1] (the pass clamps; 1/255 resolution). The manifest's `Payload` block
+// names them for the material author; the body reads them as CustomData0..3 (UE's GBufferD CustomData.rgba),
+// which are the SurfaceOutput fields the material writes. A model with no payload never reads P.
 struct DesertPayload
 {
     float CustomData0;
     float CustomData1;
+    float CustomData2;
+    float CustomData3;
 };
 
 // ----------------------------------------------------------------------------------------------------------------

@@ -79,6 +79,14 @@ Shader "GIResolve"
         	// averages a fresh estimate every frame, which is what actually converges the close-up VPL noise.
         	float ang = giHash(v_TexCoord * 4096.0 + vec2(u_Params.w)) * 6.2831853;
 
+        	// The world area the gather disk covers, perpendicular to the sun (the RSM is an orthographic light
+        	// view: a UV distance is a world distance at any depth). Each tap stands for area / SAMPLES of lit
+        	// surface, and its flux is albedo * sun irradiance * that area (Dachsbacher & Stamminger, RSM) - without
+        	// the area the estimate is in units of 1/length^2 and, in centimetres, ~10^4 too dark (it was black).
+        	const float rsmRadius = distance(ReconstructWorldPosition(baseUV, 0.5, u_InvRSMViewProj),
+        	                                 ReconstructWorldPosition(baseUV + vec2(RADIUS, 0.0), 0.5, u_InvRSMViewProj));
+        	const float tapArea   = 3.14159265 * rsmRadius * rsmRadius / float(SAMPLES);
+
         	vec3 indirect = vec3(0.0);
         	for (int i = 0; i < SAMPLES; i++)
         	{
@@ -97,14 +105,16 @@ Shader "GIResolve"
         		vec3  dir = worldPos - vplPos;
         		// Distance FLOOR (not just an epsilon): a VPL almost coincident with the receiver (wall-floor
         		// corners) otherwise contributes ~1/eps — the single-sample fireflies that read as grain.
-        		float d2  = max(dot(dir, dir), 0.25);
+        		// The floor is the tap's own footprint: a patch cannot be nearer than its size.
+        		float d2  = max(dot(dir, dir), tapArea);
         		vec3  dn  = normalize(dir);
         		float recv = max(0.0, dot(N, -dn));   // this surface faces the VPL
         		float emit = max(0.0, dot(vplN, dn)); // the VPL faces this surface
-        		indirect += vplFlux * recv * emit / d2;
+        		// Irradiance from a diffuse patch of flux F: F cos(emit) cos(recv) / (pi d^2).
+        		indirect += vplFlux * tapArea * recv * emit / (3.14159265 * d2);
         	}
 
-        	oColor = vec4(indirect / float(SAMPLES) * u_Params.x, 1.0);
+        	oColor = vec4(indirect * u_Params.x, 1.0);
         }
     }
 }

@@ -14,7 +14,7 @@
 --   * Optional swimming: World.set("waterLevel", <cm>) in a level script.
 
 Properties = {
-    LookSens = 0.0025, -- radians per mouse-pixel
+    LookSens = Property.Float( 0.0025 ), -- radians per mouse-pixel
 }
 
 function OnStart()
@@ -26,17 +26,17 @@ end
 
 function OnUpdate(dt)
     -- IA_Look (Mouse2D, Y negated in IMC_Default): yaw the body, pitch the arm / camera.
-    local lx, ly = Input.actionValue("IA_Look")
-    self:addYaw(-lx * Properties.LookSens)
-    self:addCameraPitch(ly * Properties.LookSens)
+    local look = Input.actionValue("IA_Look")
+    self:addYaw(-look.x * Properties.LookSens)
+    self:addCameraPitch(look.y * Properties.LookSens)
 
     -- IA_Move: x = right, y = forward.
-    local mx, my = Input.actionValue("IA_Move")
-    self:move(my, mx)
+    local move = Input.actionValue("IA_Move")
+    self:move(move.y, move.x)
 
     local swimming = false
     if World.has("waterLevel") then
-        local _, y = self:getPosition()
+        local y = self:getPosition().y
         swimming = y < World.get("waterLevel")
     end
     self:setSwimming(swimming)

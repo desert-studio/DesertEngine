@@ -721,8 +721,10 @@ namespace
     //   * +56 with int/b12 (2401 / 2424, SCNE 49): UI-WAVE-LIVE's UI_ListPlusProbe (14 records) and
     //     UI_RichTextProbe (16) and the twenty elements it adds to MainMenu, and WATER-W6's Water_Ocean (6: sky,
     //     sun, camera, PostProcessVolume, WaterBody, WaterZone; its three primitive meshes carry their extent).
-    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2401;
-    constexpr std::size_t kCorpusPointOnlyBlind        = 2424;
+    //   * +11 with int/b16 (2412 / 2435, SCNE 53): the two scenes the merge adds, SHADOW-LOCAL's LocalShadows_Room
+    //     and SCR-PORT's PlayerController_Demo (25 entities between them; 11 records with no extent of their own).
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2412;
+    constexpr std::size_t kCorpusPointOnlyBlind        = 2435;
 
     // A committed project (TestSupport/committed_projects.hpp), opened the way the editor opens it: the engine
     // directory is the checkout's Editor/ and the project root is the .deproj's directory, its assets root read

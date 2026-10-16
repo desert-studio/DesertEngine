@@ -72,8 +72,23 @@ namespace Desert::ECS
                      light.CosInner  = glm::cos( inner );
                      light.CosOuter  = glm::cos( outer );
                      light.Falloff   = static_cast<int32_t>( spotlight.Data.Falloff );
+                     // UE: contact shadows are part of the light's shadowing, so a light that casts none has none.
+                     light.ContactShadowLength =
+                          spotlight.Data.CastShadows ? spotlight.Data.ContactShadowLength : 0.0f;
+                     light.ContactShadowInWorld          = spotlight.Data.ContactShadowLengthInWorldSpace ? 1 : 0;
+                     light.ContactShadowCastingIntensity = spotlight.Data.ContactShadowCastingIntensity;
+                     light.ContactShadowNonCastingIntensity = spotlight.Data.ContactShadowNonCastingIntensity;
 
-                     renderCommandBuffer.Emplace<Graphic::Render::SpotLightCommand>( light );
+                     // What the light asks of its shadow, and who it is (its tiles stay its own while it and
+                     // its casters stand still: MeshRenderer::UpdateLocalShadows).
+                     const Graphic::LocalLightShadowSettings shadow{
+                          .CastShadows     = spotlight.Data.CastShadows,
+                          .DepthBias       = spotlight.Data.ShadowBias,
+                          .SlopeBias       = spotlight.Data.ShadowSlopeBias,
+                          .ResolutionScale = spotlight.Data.ShadowResolutionScale,
+                          .SourceId        = static_cast<uint32_t>( entity ) + 1u };
+
+                     renderCommandBuffer.Emplace<Graphic::Render::SpotLightCommand>( light, shadow );
                  } );
         }
     };

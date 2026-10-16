@@ -189,4 +189,31 @@ namespace Desert::Graphic
         return GraphColor{ velocity.Resolved, targetSamples > 1 ? velocity.Multisample : RDG::TextureRef{},
                            RDG::ClearValue{}, GraphColorResolve::SampleZero };
     }
+
+    // The view's responsive-AA mask of this graph (FrameTransients::ResponsiveAA, ViewTargetFormats::kResponsiveAA):
+    // one transient at the render extent, a colour slot of the scene target only (kSceneTargetResponsiveAASlot),
+    // cleared to 0 (no responsive pixel) by the scene target's first writer and written by the translucent cells
+    // of a `ResponsiveAA` surface template. At MSAA a multisampled twin AVERAGED into it: a coverage is a colour,
+    // not vector data, so the box filter is right for it.
+    inline ViewVelocity CreateViewResponsiveAA( RDG::Builder& graph, const RDG::Extent3D extent,
+                                                const uint32_t samples )
+    {
+        RDG::TextureDesc desc;
+        desc.Size   = extent;
+        desc.Format = ViewTargetFormats::kResponsiveAA;
+        ViewVelocity mask;
+        mask.Resolved = graph.CreateTexture( desc, "ResponsiveAA" );
+        if ( samples > 1 )
+        {
+            desc.Samples     = samples;
+            mask.Multisample = graph.CreateTexture( desc, "ResponsiveAA.Multisample" );
+        }
+        return mask;
+    }
+
+    inline GraphColor ResponsiveAAColor( const ViewVelocity& mask, const uint32_t targetSamples )
+    {
+        return GraphColor{ mask.Resolved, targetSamples > 1 ? mask.Multisample : RDG::TextureRef{},
+                           RDG::ClearValue{}, GraphColorResolve::Average };
+    }
 } // namespace Desert::Graphic

@@ -267,8 +267,7 @@ namespace
     {
         std::vector<float> map( static_cast<size_t>( kMapSide ) * kMapSide, 0.0f );
         const float        perVoxelKm = params.RegionSizeKm / static_cast<float>( kMapSide );
-        for ( const CloudProceduralLump& lump :
-              GenerateCloudProceduralLumps( params, 0u, originKm, CloudProceduralLumpSet::EveryCell ) )
+        for ( const CloudProceduralLump& lump : GenerateCloudProceduralLumps( params, 0u, originKm ) )
         {
             int x = static_cast<int>( std::floor( ( lump.ClusterKm.x - originKm.x ) / perVoxelKm ) );
             int z = static_cast<int>( std::floor( ( lump.ClusterKm.y - originKm.y ) / perVoxelKm ) );
@@ -680,8 +679,8 @@ TEST( CloudPlacementSpectrum, TheSizeVarietyDoesNotMoveTheSkysCover )
 // COVERAGE IS MONOTONE AT THE PLACEMENT THAT SHIPS, AND ONE IS NOT AN OVERCAST (WX-NUBIS). Owner, 10-08:
 // Coverage is "how busy the weather is where there is weather" (Nubis' localCover = Coverage * W), not the
 // fraction of sky. So on the REAL bake at the shipped 3 km cell the sky's cover must rise with it, and at one
-// the weather map's true zeros must still leave the sky well short of full: an overcast is a stratus deck,
-// its own cloud type, never Coverage 1.
+// the weather map's true zeros must still leave the sky well short of full: Coverage 1 is a solid deck only
+// where W = 1 (COVERAGE-FIELD), and the weather's zeros stay clear.
 TEST( CloudPlacementSpectrum, TheCoverageSliderIsMonotoneAndOneLeavesTheWeathersGapsAtTheShippedPlacement )
 {
     double previous = -1.0;

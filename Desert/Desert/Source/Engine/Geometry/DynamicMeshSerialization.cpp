@@ -49,10 +49,10 @@ namespace Desert::Geometry
 
         // Writes an overlay; @p value writes one element's floats (the tangent layer appends its sign).
         template <typename OverlayT, typename ValueFn>
-        EditMeshOverlaySer WriteOverlay( const DynamicMesh3& mesh, const OverlayT& overlay, ValueFn&& value )
+        MeshOverlaySavedForm WriteOverlay( const DynamicMesh3& mesh, const OverlayT& overlay, ValueFn&& value )
         {
             const std::vector<int> dense = DenseElements( mesh, overlay );
-            EditMeshOverlaySer     out;
+            MeshOverlaySavedForm   out;
             for ( int e = 0; e < static_cast<int>( dense.size() ); ++e )
                 if ( dense[e] >= 0 )
                     value( e, out.Values );
@@ -72,7 +72,7 @@ namespace Desert::Geometry
         }
 
         template <int N, typename OverlayT>
-        EditMeshOverlaySer WritePlain( const DynamicMesh3& mesh, const OverlayT& overlay )
+        MeshOverlaySavedForm WritePlain( const DynamicMesh3& mesh, const OverlayT& overlay )
         {
             return WriteOverlay( mesh, overlay,
                                  [&]( int e, std::vector<float>& values )
@@ -128,7 +128,7 @@ namespace Desert::Geometry
 
         struct Reader
         {
-            const EditMeshSer&    Saved;
+            const MeshSavedForm&  Saved;
             std::string_view      Owner;
             DynamicMesh3&         Mesh;
             std::vector<Index3i>  SavedTriangles; // saved (counter-clockwise) vertex order per row
@@ -144,7 +144,7 @@ namespace Desert::Geometry
             // Appends the elements (@p stride floats each) and sets every triangle, refusing what an overlay
             // could not have written. @p elementsOut receives the saved element index -> overlay element ID map.
             template <typename OverlayT>
-            Common::BoolResultStr Read( OverlayT& overlay, const EditMeshOverlaySer& in, const std::string& name,
+            Common::BoolResultStr Read( OverlayT& overlay, const MeshOverlaySavedForm& in, const std::string& name,
                                         int stride, std::vector<int>& elementsOut ) const
             {
                 if ( in.Values.size() % static_cast<size_t>( stride ) != 0 )
@@ -198,7 +198,7 @@ namespace Desert::Geometry
             Common::BoolResultStr ReadTangents( DynamicMeshAttributeSet& attributes,
                                                 const std::vector<int>&  normalIds )
             {
-                const EditMeshOverlaySer& in = *Saved.Tangents;
+                const MeshOverlaySavedForm& in = *Saved.Tangents;
                 std::vector<int>          tangentIds;
                 if ( auto r = Read( *attributes.PrimaryTangents(), ToXyz( in ), "tangents", 3, tangentIds );
                      !r.IsSuccess() )
@@ -254,9 +254,10 @@ namespace Desert::Geometry
                 return Common::MakeSuccess( true );
             }
 
-            static EditMeshOverlaySer ToXyz( const EditMeshOverlaySer& in )
+            static MeshOverlaySavedForm ToXyz( const MeshOverlaySavedForm& in )
             {
-                EditMeshOverlaySer out; // the caller has checked the length is a whole number of 4-float elements
+                MeshOverlaySavedForm
+                     out; // the caller has checked the length is a whole number of 4-float elements
                 out.Triangles = in.Triangles;
                 for ( size_t i = 0; i < in.Values.size(); i += 4 )
                     out.Values.insert( out.Values.end(), { in.Values[i], in.Values[i + 1], in.Values[i + 2] } );
@@ -265,9 +266,9 @@ namespace Desert::Geometry
         };
     } // namespace
 
-    EditMeshSer ToSerialized( const DynamicMesh3& mesh )
+    MeshSavedForm ToSerialized( const DynamicMesh3& mesh )
     {
-        EditMeshSer out;
+        MeshSavedForm out;
 
         std::vector<int> denseVertex( static_cast<size_t>( mesh.MaxVertexID() ), -1 );
         int              next = 0;
@@ -318,7 +319,7 @@ namespace Desert::Geometry
         return out;
     }
 
-    Common::ResultStr<DynamicMesh3> DynamicMeshFromSerialized( const EditMeshSer& saved, std::string_view owner )
+    Common::ResultStr<DynamicMesh3> DynamicMeshFromSerialized( const MeshSavedForm& saved, std::string_view owner )
     {
         const auto fail = [&]( const std::string& message ) { return Common::MakeError<DynamicMesh3>( message ); };
         const std::string prefix = "mesh of '" + std::string( owner ) + "': ";
@@ -416,8 +417,27 @@ namespace Desert::Geometry
                                           "UV layer " + std::to_string( layer ), 2, scratch ) ) )
                 return fail( *e );
 
-        if ( !mesh.CheckValidity( {}, ValidityCheckFailMode::ReturnOnly ) )
-            return fail( prefix + "the rebuilt mesh fails DynamicMesh3::CheckValidity" );
+        // Permissive, as UE checks a mesh it is about to process: bowtie vertices and neighbours wound against
+        // each other are legal DynamicMesh3 topology that art meshes carry (Bistro's street lights, Vespa) and the
+        // writer stores as they are; what this check refuses is a structure the rebuild got inconsistent.
+        if ( !mesh.CheckValidity( DynamicMesh3::ValidityOptions::Permissive(),
+                                  ValidityCheckFailMode::ReturnOnly ) )
+        {
+            // Name the part that fails: a layer when one does, the triangles and vertices otherwise.
+            constexpr auto kQuiet = ValidityCheckFailMode::ReturnOnly;
+            std::string    part   = "the topology";
+            for ( int i = 0; i < attributes.NumNormalLayers(); ++i )
+                if ( !attributes.GetNormalLayer( i )->CheckValidity( true, kQuiet ) )
+                    part = "normal layer " + std::to_string( i );
+            for ( int i = 0; i < attributes.NumUVLayers(); ++i )
+                if ( !attributes.GetUVLayer( i )->CheckValidity( true, kQuiet ) )
+                    part = "UV layer " + std::to_string( i );
+            if ( attributes.PrimaryColors() && !attributes.PrimaryColors()->CheckValidity( true, kQuiet ) )
+                part = "the colour layer";
+            if ( attributes.GetMaterialID() && !attributes.GetMaterialID()->CheckValidity( true, kQuiet ) )
+                part = "the MaterialID attribute";
+            return fail( prefix + "the rebuilt mesh fails DynamicMesh3::CheckValidity in " + part );
+        }
         return Common::MakeSuccess( std::move( mesh ) );
     }
 } // namespace Desert::Geometry

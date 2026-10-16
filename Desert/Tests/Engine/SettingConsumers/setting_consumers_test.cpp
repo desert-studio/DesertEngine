@@ -505,12 +505,7 @@ namespace
     constexpr const char* kPointLight = "Desert/Desert/Source/Engine/ECS/System/PointLightSystem.hpp";
     constexpr const char* kSpotLight  = "Desert/Desert/Source/Engine/ECS/System/SpotLightSystem.hpp";
     constexpr const char* kLightGizmo = "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp";
-    // VFX-07b: the scene's GPU particle state snapshots every emitter's settings into its sim push once per
-    // VFXWorld tick (ParticleWorldGpu::PrepareTick); the renderer only draws the pool.
-    constexpr const char* kParticles =
-         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp";
-    // VFX-06: the simulation moved out of the renderer into the VFXWorld, which turns the component's
-    // spawn settings into the emitter's spawn plan; the renderer only draws what the steps produced.
+    // VFX-HOST: a placed system is planned by the VFXWorld; the renderer only draws what the steps produced.
     constexpr const char* kVFXWorld    = "Desert/Desert/Source/Engine/VFX/VFXWorld.cpp";
     constexpr const char* kAudioSystem = "Desert/Desert/Source/Engine/ECS/System/AudioECSSystem.hpp";
 
@@ -532,6 +527,8 @@ namespace
     };
 
     constexpr const char* kViewSettings = "Desert/Desert/Source/Engine/Graphic/ViewSettings.cpp";
+    // The render methods are read where they are resolved (request x Scalability ceiling x device).
+    constexpr const char* kRenderMethods = "Desert/Desert/Source/Engine/Graphic/RenderMethods.cpp";
 
     // The volume's own fields are read where volumes are blended; the grade it carries is read by the
     // renderer from the ONE resolved copy (FinalViewSettings::Post), never from a volume.
@@ -542,11 +539,14 @@ namespace
 
     constexpr Row kPostProcessSettingsRows[] = {
          { "EnableSSAO", kSceneRenderer },
-         { "GlobalIllumination", kSceneRenderer },
+         { "GlobalIlluminationMethod", kRenderMethods },
          { "GIIntensity", kSceneRenderer },
-         { "EnableSSR", kSceneRenderer },
+         { "ReflectionsMethod", kRenderMethods },
          { "SSRIntensity", kSceneRenderer },
          { "SSRMaxDistance", kSceneRenderer },
+         { "ShadowsMethod", kRenderMethods },
+         { "ContactShadows", kRenderMethods },
+         { "DistanceFieldShadows", kRenderMethods },
          { "Tonemapper", kSceneRenderer },
          { "Exposure", kSceneRenderer },
          { "Gamma", kSceneRenderer },
@@ -601,6 +601,11 @@ namespace
          { "ShadowSlopeBias", kViewSettings },
          { "ShadowCascadeBiasDistribution", kViewSettings },
          { "CascadeSplitLambda", kViewSettings },
+         { "SourceAngle", kViewSettings },
+         { "ContactShadowLength", kViewSettings },
+         { "ContactShadowLengthInWorldSpace", kViewSettings },
+         { "ContactShadowCastingIntensity", kViewSettings },
+         { "ContactShadowNonCastingIntensity", kViewSettings },
     };
 
     constexpr Row kPointLightRows[] = {
@@ -612,44 +617,46 @@ namespace
          // An EDITOR-ONLY visualisation flag, deliberately: it draws the radius gizmo and reaches no
          // shader at all, so the gizmo renderer is the honest consumer to name.
          { "ShowRadius", kLightGizmo },
+         // What the light asks of its shadow (Graphic::LocalLightShadowSettings), built in the light system.
+         { "CastShadows", kPointLight },
+         { "ShadowBias", kPointLight },
+         { "ShadowSlopeBias", kPointLight },
+         { "ShadowResolutionScale", kPointLight },
+         { "ContactShadowLength", kPointLight },
+         { "ContactShadowLengthInWorldSpace", kPointLight },
+         { "ContactShadowCastingIntensity", kPointLight },
+         { "ContactShadowNonCastingIntensity", kPointLight },
     };
 
     constexpr Row kSpotLightRows[] = {
-         { "Color", kSpotLight },          { "Intensity", kSpotLight },      { "Range", kSpotLight },
-         { "InnerConeAngle", kSpotLight }, { "OuterConeAngle", kSpotLight }, { "Falloff", kSpotLight },
+         { "Color", kSpotLight },
+         { "Intensity", kSpotLight },
+         { "Range", kSpotLight },
+         { "InnerConeAngle", kSpotLight },
+         { "OuterConeAngle", kSpotLight },
+         { "Falloff", kSpotLight },
          { "ShowCone", kLightGizmo }, // editor-only, same as ShowRadius above
+         // What the light asks of its shadow (Graphic::LocalLightShadowSettings), built in the light system.
+         { "CastShadows", kSpotLight },
+         { "ShadowBias", kSpotLight },
+         { "ShadowSlopeBias", kSpotLight },
+         { "ShadowResolutionScale", kSpotLight },
+         { "ContactShadowLength", kSpotLight },
+         { "ContactShadowLengthInWorldSpace", kSpotLight },
+         { "ContactShadowCastingIntensity", kSpotLight },
+         { "ContactShadowNonCastingIntensity", kSpotLight },
     };
 
-    constexpr Row kParticleRows[] = {
-         { "Enabled", kParticles },
-         { "MaxParticles", kParticles },
-         { "SpawnRate", kVFXWorld },
-         { "Looping", kVFXWorld },
-         // WIRED BY Д26, after a lifetime as a dead row: the renderer folds it into the sim push
-         // (Counts.w), and the compute pass keeps a local-mode particle's offset from the emitter and
-         // rebases it on the current emitter position — so "Simulate In World" off makes the system RIDE
-         // a moving emitter instead of trailing behind it, which is what the tooltip promised all along.
-         { "WorldSpace", kParticles },
-         { "Lifetime", kParticles },
-         { "LifetimeVariance", kParticles },
-         { "StartSpeed", kParticles },
-         { "SpeedVariance", kParticles },
-         { "Direction", kParticles },
-         { "ConeAngle", kParticles },
-         { "Gravity", kParticles },
-         { "StartSize", kParticles },
-         { "SizeCurvePower", kParticles },
-         { "EndSize", kParticles },
-         { "StartColor", kParticles },
-         { "EndColor", kParticles },
-         { "StartAlpha", kParticles },
-         { "EndAlpha", kParticles },
-         // VFX-08: the blend left with the billboard; the material's ParticleSprite cell states it, and the
-         // emitter names that material (the drawing view resolves it, ParticleRenderer::ResolveSprite).
-         { "Material", kParticles },
+    // REFL-CAPTURE: every field is packed by ReflectionCaptureRenderer's gather into the capture's GPU row.
+    constexpr const char* kReflectionCaptures =
+         "Desert/Desert/Source/Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.cpp";
+    constexpr Row kReflectionCaptureRows[] = {
+         { "Shape", kReflectionCaptures },         { "InfluenceRadius", kReflectionCaptures },
+         { "BoxExtent", kReflectionCaptures },     { "BoxTransitionDistance", kReflectionCaptures },
+         { "CaptureOffset", kReflectionCaptures }, { "Brightness", kReflectionCaptures },
     };
 
-    // VFX-03b: the VFXWorld plans the played system's emitters (System) and plans none when not activated.
+    // The placed system and its activation are read where its emitters are planned (VFXWorld::Tick).
     constexpr Row kVFXRows[] = {
          { "System", kVFXWorld },
          { "AutoActivate", kVFXWorld },
@@ -1202,8 +1209,8 @@ namespace
          { "DirectionalLightData", "DirectionLightComponent", nullptr, CENSUS_ROWS( kDirLightRows ) },
          { "PointLightData", "PointLightComponent", nullptr, CENSUS_ROWS( kPointLightRows ) },
          { "SpotLightData", "SpotLightComponent", nullptr, CENSUS_ROWS( kSpotLightRows ) },
-         { "ParticleEmitterData", "ParticleEmitterComponent", nullptr, CENSUS_ROWS( kParticleRows ) },
-         { "VFXData", "VFXComponent", nullptr, CENSUS_ROWS( kVFXRows ) },
+         { "VFXComponentData", "VFXComponent", nullptr, CENSUS_ROWS( kVFXRows ) },
+         { "ReflectionCaptureData", "ReflectionCaptureComponent", nullptr, CENSUS_ROWS( kReflectionCaptureRows ) },
          // The one component whose reflected type IS the component: there is no `Data` member to hop
          // through, so it anchors on its own name.
          { "SkyboxComponent", nullptr, nullptr, CENSUS_ROWS( kSkyboxRows ) },
@@ -1267,6 +1274,18 @@ namespace
     };
 
 #undef CENSUS_ROWS
+
+    // SCRIPT VALUE TYPES (SCR-PORT): structs a script library function returns, reflected so a language can
+    // read them (ReflectedStruct<T>). No component holds one and no Details panel shows one, so they have no
+    // setting to consume; the language binder reads every field generically.
+    constexpr std::string_view kScriptValueTypes[] = { "HitResult", "WorldRay", "LanguageInfo" };
+
+    // A SCRIPT LIBRARY (SCR-PORT: Engine/Libraries) is reflected for its FUNCTIONS and exposes no field, so
+    // there is nothing for a consumer table to name.
+    bool IsFunctionLibrary( const TypeInfo& type )
+    {
+        return type.Fields.empty() && !type.Functions.empty();
+    }
 
     // ------------------------------------------------------------------------------------------------
     // KNOWN DEBT. Every setting that is exposed and read by NOTHING, one line each, by name.
@@ -1380,8 +1399,15 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
 {
     const auto& all = ReflectionRegistry::Get().All();
 
+    std::size_t outside = 0;
     for ( const auto& [name, info] : all )
     {
+        if ( IsFunctionLibrary( info ) ||
+             std::ranges::find( kScriptValueTypes, std::string_view( name ) ) != std::end( kScriptValueTypes ) )
+        {
+            ++outside;
+            continue;
+        }
         const bool covered = std::any_of( std::begin( kCensus ), std::end( kCensus ),
                                           [&name]( const Census& c ) { return name == c.Type; } );
         EXPECT_TRUE( covered ) << name
@@ -1395,7 +1421,10 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
 
     // The count is pinned as well as the membership, because the two fail differently: a type that loses
     // its REFLECT() drops out of `all` silently, and only the number says so.
-    EXPECT_EQ( all.size(), std::size( kCensus ) );
+    for ( const std::string_view name : kScriptValueTypes )
+        EXPECT_NE( ReflectionRegistry::Get().Find( std::string( name ) ), nullptr )
+             << name << " is listed as a script value type but is no longer reflected";
+    EXPECT_EQ( all.size(), std::size( kCensus ) + outside );
     // 37 -> 38 with Ю13's UIStyleData, -> 39 with Ю12's UIOverlayData and UIOverlayTriggerData. Each row
     // is in kCensus above and every field of each is WIRED, so the number moved because the register did,
     // which is the only reason this literal may ever be edited. NEITHER BRANCH'S NUMBER IS RIGHT ALONE:
@@ -1464,8 +1493,9 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // -> 66 with WATER-W6's WaterZoneData (kWaterZoneRows: every field read by WaterZoneECSSystem.hpp).
     // -> 67 with UI-SWITCHER's UITabsData (kTabsRows: PushHistory read by RequestScreen in UIWalkCtx.cpp).
     // -> 69 with UI-LIST+'s UITileViewData and UITreeViewData (kTileViewRows, kTreeViewRows).
-    // -> 70 with VFX-03b's VFXData (kVFXRows: both fields read by VFXWorld.cpp).
-    EXPECT_EQ( all.size(), 70u );
+    // -> 90 on int/b16: REFL-CAPTURE's ReflectionCaptureData (kReflectionCaptureRows) and SCR-PORT's 17 function
+    // libraries and 3 script value types (outside the census, above). Read off the run.
+    EXPECT_EQ( all.size(), 90u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

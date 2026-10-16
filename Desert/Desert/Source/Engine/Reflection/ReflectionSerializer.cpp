@@ -3,9 +3,11 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Engine/Reflection/FieldValue.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <string>
 #include <vector>
 
@@ -17,12 +19,11 @@ namespace Desert::Reflection
     {
         // The asset types a reflected field stores as {"Guid", "Path"}: skyboxes since SCNE 29, textures
         // (the UI sprites and the splash) since SCNE 30, the level's Default Pawn prefab since SCNE 40, the Audio
-        // Source's sound since SCNE 42, the played
-        // VFX system since VFX-03b. Every other type still stores its key alone.
+        // Source's sound since SCNE 42. Every other type still stores its key alone.
         bool IsStoredByGuid( const std::string& assetType )
         {
             return assetType == "SkyboxAsset" || assetType == "TextureAsset" || assetType == "PrefabAsset" ||
-                   assetType == "FoliageTypeAsset" || assetType == "SoundAsset" || assetType == "VFXSystemAsset";
+                   assetType == "FoliageTypeAsset" || assetType == "SoundAsset";
         }
 
         void WriteVec( Common::Json::Object& out, const std::string& name, const float* v, int count )
@@ -289,8 +290,20 @@ namespace Desert::Reflection
             switch ( field.Type )
             {
                 case FieldType::Bool:
-                    g.ReadValue( *static_cast<bool*>( p ), issues );
+                {
+                    // Read beside the field, admitted (FieldValue's RefusalOf: PROPERTY( Refuse ) ), then
+                    // stored: a refused value is an error here and the field keeps what it held.
+                    bool              read   = *static_cast<bool*>( p );
+                    const std::size_t before = issues.size();
+                    g.ReadValue( read, issues );
+                    if ( issues.size() != before )
+                        break;
+                    if ( const std::string refusal = RefusalOf( field, read ? 1 : 0 ); !refusal.empty() )
+                        g.Report( issues, std::format( "an admitted value ({})", refusal ) );
+                    else
+                        *static_cast<bool*>( p ) = read;
                     break;
+                }
                 case FieldType::Int:
                     g.ReadValue( *static_cast<int32_t*>( p ), issues );
                     break;
@@ -320,7 +333,14 @@ namespace Desert::Reflection
                     // Stored as the enumerator's integer, at the width of the field (SerializeReflected).
                     const auto v = g.AsInteger();
                     if ( v && FitsIntBySize( field.Size, v.GetValue() ) )
-                        WriteIntBySize( p, field.Size, v.GetValue() );
+                    {
+                        // An enumerator the enum does not have, or one the field refuses (RefusalOf), is an
+                        // error and leaves the field as it was.
+                        if ( const std::string refusal = RefusalOf( field, v.GetValue() ); !refusal.empty() )
+                            g.Report( issues, std::format( "an admitted enumerator ({})", refusal ) );
+                        else
+                            WriteIntBySize( p, field.Size, v.GetValue() );
+                    }
                     else
                         g.Report( issues,
                                   "integer enumerator of a " + std::to_string( field.Size ) + "-byte enum" );

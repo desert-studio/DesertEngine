@@ -83,7 +83,17 @@ namespace Desert::Core
     // v50 (WP-FAR-7): a partitioned world states its HLOD layers and the one its cells use (WorldPartition's
     // HLODLayers / DefaultHLODLayer); every partitioned world states the Instancing layer it had implicitly
     // (Tools/SceneMigrator, MigrateHLODLayersV49ToV50).
-    inline constexpr int kSceneVersion = 50;
+    // v51 (VFX-HOST): ParticleEmitter is gone; each block became a `.dfx` system played by a VFX block
+    // (Tools/SceneMigrator, MigrateParticleEmittersToVFX).
+    // v52 (SCENE-DEPS): Header.Dependencies lists every asset the scene references, unique and sorted, gathered
+    // by the one rule the save applies too (Core::GatherSceneDependencies; Tools/SceneMigrator,
+    // MigrateSceneDependenciesV51ToV52).
+    // v53 (RMODE-IFACE): a volume states its render methods — GlobalIllumination (GIMode) is
+    // GlobalIlluminationMethod and EnableSSR is ReflectionsMethod, on the method ladders of
+    // Common/Settings/RenderMethods.hpp (Tools/SceneMigrator, MigrateRenderMethodsV52ToV53). v54 (SCR-DETAILS): a
+    // script slot's Props are only the values that differ from the script's declared defaults
+    // (Tools/SceneMigrator, MigrateScriptDefaultsV53ToV54).
+    inline constexpr int kSceneVersion = 54;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

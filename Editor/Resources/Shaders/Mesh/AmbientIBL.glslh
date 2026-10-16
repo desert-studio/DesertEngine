@@ -65,9 +65,21 @@ vec3 ComposeAmbient(vec3 ibl, vec3 albedo, float ao, vec3 indirect)
 	return ibl * ao + albedo * ao * (SURFACE_AMBIENT_FLOOR + indirect);
 }
 
+// THE CHAIN OF REFLECTION SOURCES, for one specular lobe: a traced source (screen-space reflections today; the
+// hardware ray continued into the TLAS where the screen trace ran out, later) answers a share of the lobe -
+// traced.a, its coverage, with traced.rgb the radiance of what it hit - and the reflection environment (the captures,
+// then the sky: Common/ReflectionEnvironment.glslh) answers the remainder. A traced source never darkens a lobe it
+// could not answer, and every source after it only fills what is left.
+vec3 DesertComposeTracedReflection(vec4 traced, vec3 environment)
+{
+	// = traced.rgb * traced.a + environment * (1 - traced.a); written so it also compiles as C++ (the algebra half).
+	return mix(environment, vec3(traced), traced.w);
+}
+
 #ifndef AMBIENT_IBL_NO_SAMPLERS
 
 #include <Common/SkyLook.glslh>
+#include <Common/ReflectionCaptureMip.glslh>
 
 // The sampling half. `view` points from the surface toward the eye; `N` is the world-space shading
 // normal; `roughness` must already be clamped away from 0 by the caller (the GGX mip selection is linear
@@ -86,9 +98,11 @@ vec3 DesertAmbientIrradiance(vec3 worldDirection)
 
 vec3 DesertAmbientSpecular(vec3 worldDirection, float roughness)
 {
-	const int levels = textureQueryLevels(u_EnvSpecularTex);
+	// The engine's one roughness -> mip ramp (Common/ReflectionCaptureMip.glslh), the inverse of PrefilterEnvMap's.
+	const float lod =
+	     ComputeReflectionCaptureMipFromRoughness(roughness, float(textureQueryLevels(u_EnvSpecularTex) - 1));
 	return ApplySkyGain(
-	     textureLod(u_EnvSpecularTex, SkyLookDirection(worldDirection, skyLook.YawCosSin.xy), roughness * levels).rgb,
+	     textureLod(u_EnvSpecularTex, SkyLookDirection(worldDirection, skyLook.YawCosSin.xy), lod).rgb,
 	     skyLook.Gain.rgb);
 }
 
@@ -109,11 +123,25 @@ vec3 AmbientIBL(vec3 view, vec3 N, vec3 F0, float metalness, float roughness, ve
 // AmbientIBL takes, plus the pass's indirect bounce and occlusion. Both lighting passes build it here.
 #include <ShadingModels/ShadingModelContract.glslh>
 
+// THE REFLECTION CAPTURES (Common/ReflectionEnvironment.glslh): a pass that declares their two bindings defines
+// DESERT_REFLECTION_CAPTURES, and its ambient specular is the captures around the point, parallax-corrected and
+// normalised to the local diffuse ambient, over the sky's prefiltered radiance. A pass without them reads the sky.
+#ifdef DESERT_REFLECTION_CAPTURES
+#include <Common/ReflectionEnvironment.glslh>
+#endif
+
 DesertAmbient DesertSampleAmbient(DesertSurface S, vec3 indirect, float occlusion)
 {
 	DesertAmbient A;
 	A.Irradiance   = DesertAmbientIrradiance(S.N);
 	A.Prefiltered  = DesertAmbientSpecular(reflect(-S.V, S.N), S.Roughness);
+#ifdef DESERT_REFLECTION_CAPTURES
+	// UE's IndirectIrradiance for the normalisation: the local diffuse ambient (the sky's irradiance under the
+	// occlusion, plus the bounce), as luminance.
+	const float indirectIrradiance = dot(A.Irradiance * occlusion + indirect, vec3(0.2126, 0.7152, 0.0722));
+	A.Prefiltered = DesertReflectionEnvironment(S.WorldPosition, reflect(-S.V, S.N), S.Roughness, A.Prefiltered,
+	                                            indirectIrradiance);
+#endif
 	A.SpecularBRDF = texture(u_BRDFLUTTexture, vec2(max(0.0, dot(S.N, S.V)), S.Roughness)).rg;
 	A.Indirect     = indirect;
 	A.Occlusion    = occlusion;

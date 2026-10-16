@@ -7,8 +7,8 @@
 --   ui.list_insert / ui.list_remove / ui.list_clear / ui.list_count
 
 Properties = {
-    InventorySize = 10000,
-    ChatEvery     = 0.25, -- seconds between chat lines while playing
+    InventorySize = Property.Int( 10000 ),
+    ChatEvery     = Property.Float( 0.25 ), -- seconds between chat lines while playing
 }
 
 local names  = { "Iron Ore", "Healing Draught", "Arrow", "Copper Coin", "Rope", "Lantern Oil", "Bread", "Map Scrap" }
@@ -25,7 +25,7 @@ function OnStart()
         ui.list_add( "probe.inventory", {
             name  = string.format( "%s #%d", names[( i - 1 ) % #names + 1], i ),
             count = ( i * 13 ) % 250,
-            tint  = { shade, shade * 0.95, 0.8 },
+            tint  = vector.create( shade, shade * 0.95, 0.8 ),
         } )
     end
     ui.set( "probe.inventory.caption", string.format( "%d records", ui.list_count( "probe.inventory" ) ) )

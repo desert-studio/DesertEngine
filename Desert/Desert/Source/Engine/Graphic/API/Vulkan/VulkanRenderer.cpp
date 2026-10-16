@@ -359,8 +359,8 @@ namespace Desert::Graphic::API::Vulkan
         return m_DefaultVertexStreams;
     }
 
-    void VulkanRendererAPI::SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
-                                         const MaterialExecutor* materialExecutor )
+    void VulkanRendererAPI::SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
+                                          const MaterialExecutor* materialExecutor )
     {
         if ( !IsRecording() || vertexCount == 0 )
             return;
@@ -374,7 +374,7 @@ namespace Desert::Graphic::API::Vulkan
             auto vkBackend = static_cast<VulkanMaterialBackend*>( materialExecutor->GetMaterialBackend().get() );
             if ( !vkBackend->HasDescriptorSets() )
             {
-                LOG_WARN( "VulkanRendererAPI::SubmitLines: MaterialExecutor has no valid descriptor sets!" );
+                LOG_WARN( "VulkanRendererAPI::SubmitPulled: MaterialExecutor has no valid descriptor sets!" );
                 return;
             }
             uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
@@ -389,8 +389,8 @@ namespace Desert::Graphic::API::Vulkan
         const float safeWidth = Graphic::RenderConfig::WideLines ? std::clamp( lineWidth, 1.0f, 10.0f ) : 1.0f;
         vkCmdSetLineWidth( m_CurrentCommandBuffer, safeWidth );
 
-        // Vertexless: the DebugLine vertex shader pulls each endpoint from the Lines storage buffer by
-        // gl_VertexIndex. Lines topology -> every 2 vertices form one segment.
+        // Vertexless: the DebugLine vertex shader pulls each vertex from the Lines storage buffer by
+        // gl_VertexIndex. The pipeline's topology groups them: 2 per segment (Lines), 3 per triangle.
         DrawCounted( vertexCount, 1, 0, 0 );
     }
 
@@ -1133,6 +1133,9 @@ namespace Desert::Graphic::API::Vulkan
              { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, m_CurrentCommandBuffer, {}, {}, {} } );
         // Ended: from here until the graph backend arms its first buffer nothing may record into it.
         m_CurrentCommandBuffer                    = nullptr;
+#if DESERT_DEV_INSTRUMENTS
+        m_GpuProfiler.SetCommandBuffer( VK_NULL_HANDLE );
+#endif
         Common::BoolResultStr            executed = graph.Execute( *m_RdgBackend );
         std::vector<VulkanRdgSubmission> segments = m_RdgBackend->TakeSubmissions();
         m_FrameSubmissions.insert( m_FrameSubmissions.end(), std::make_move_iterator( segments.begin() ),
@@ -1153,6 +1156,9 @@ namespace Desert::Graphic::API::Vulkan
             return fail( next.GetError() );
         }
         m_CurrentCommandBuffer = next.GetValue();
+#if DESERT_DEV_INSTRUMENTS
+        m_GpuProfiler.SetCommandBuffer( m_CurrentCommandBuffer );
+#endif
         // A FrameFault: the graph's output has no picture, so its frame-fatal externals are cleared to black on
         // the re-armed buffer and the frame presents that.
         if ( const std::optional<RDG::FrameFault>& frame = graph.GetExecuteReport().Frame )
@@ -1170,9 +1176,17 @@ namespace Desert::Graphic::API::Vulkan
         if ( commandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
         {
             m_CurrentCommandBuffer = nullptr;
+#if DESERT_DEV_INSTRUMENTS
+            m_GpuProfiler.SetCommandBuffer( VK_NULL_HANDLE );
+#endif
             return;
         }
         m_CurrentCommandBuffer = commandBuffer;
+#if DESERT_DEV_INSTRUMENTS
+        // The graph's passes are timed by the backend through the profiler sink: their scopes go into the
+        // segment buffer the pass records into, not the frame buffer ended before the graph.
+        m_GpuProfiler.SetCommandBuffer( commandBuffer );
+#endif
     }
 
     Common::BoolResultStr VulkanRendererAPI::BeginRdgFrame()
@@ -1432,12 +1446,103 @@ namespace Desert::Graphic::API::Vulkan
         return BOOLSUCCESS;
     }
 
+    Common::BoolResultStr VulkanRendererAPI::CopyGraphDepthToLayer( const RDG::PassContext& context,
+                                                                    const RDG::TextureRef   source,
+                                                                    const RDG::TextureRef   target,
+                                                                    const uint32_t          targetLayer )
+    {
+        const auto commands = VulkanRdgBackend::CommandBufferOf( context );
+        if ( !commands )
+            return Common::MakeError( commands.GetError() );
+        const auto from = context.GetTexture( source, RDG::Access::CopySrc );
+        if ( !from )
+            return Common::MakeError( from.GetError() );
+        const auto to =
+             context.GetTexture( target, RDG::Access::CopyDst, RDG::SubresourceRange::Layer( targetLayer ) );
+        if ( !to )
+            return Common::MakeError( to.GetError() );
+        const auto fromImage = VulkanRdgBackend::TextureOf( from.GetValue() );
+        if ( !fromImage )
+            return Common::MakeError( fromImage.GetError() );
+        const auto toImage = VulkanRdgBackend::TextureOf( to.GetValue() );
+        if ( !toImage )
+            return Common::MakeError( toImage.GetError() );
+
+        const RDG::TextureDesc& src = *from.GetValue().Desc;
+        const RDG::TextureDesc& dst = *to.GetValue().Desc;
+        if ( src.Size.Width != dst.Size.Width || src.Size.Height != dst.Size.Height ||
+             src.Samples != dst.Samples || targetLayer >= dst.Layers )
+            return Common::MakeError( std::format(
+                 "CopyGraphDepthToLayer: '{}' is {}x{} with {} sample(s), layer {} of '{}' ({}x{}, {} sample(s), "
+                 "{} layer(s)); a copy needs the same size and sample count and an existing layer",
+                 from.GetValue().Name, src.Size.Width, src.Size.Height, src.Samples, targetLayer,
+                 to.GetValue().Name, dst.Size.Width, dst.Size.Height, dst.Samples, dst.Layers ) );
+
+        // The graph's Copy node put the source in TRANSFER_SRC and the target layer in TRANSFER_DST.
+        VkImageCopy region{};
+        region.srcSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
+        region.dstSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, targetLayer, 1 };
+        region.extent         = { src.Size.Width, src.Size.Height, 1 };
+        vkCmdCopyImage( commands.GetValue(), fromImage.GetValue()->GetImage(),
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, toImage.GetValue()->GetImage(),
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
+        return BOOLSUCCESS;
+    }
+
     void VulkanRendererAPI::SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height )
     {
         if ( !IsRecording() )
             return;
         VkRect2D scissor = { .offset = { x, y }, .extent = { width, height } };
         vkCmdSetScissor( m_CurrentCommandBuffer, 0, 1, &scissor );
+    }
+
+    void VulkanRendererAPI::SetViewportRegion( int32_t x, int32_t y, uint32_t width, uint32_t height )
+    {
+        if ( !IsRecording() || width == 0 || height == 0 )
+            return;
+        // The engine's convention (SetViewportAndScissor): negative height, origin at the rectangle's bottom.
+        const VkViewport viewport{ static_cast<float>( x ),
+                                   static_cast<float>( y ) + static_cast<float>( height ),
+                                   static_cast<float>( width ),
+                                   -static_cast<float>( height ),
+                                   0.0f,
+                                   1.0f };
+        const VkRect2D   scissor{ { x, y }, { width, height } };
+        vkCmdSetViewport( m_CurrentCommandBuffer, 0, 1, &viewport );
+        vkCmdSetScissor( m_CurrentCommandBuffer, 0, 1, &scissor );
+    }
+
+    void VulkanRendererAPI::ClearRegion( const Framebuffer& framebuffer, int32_t x, int32_t y, uint32_t width,
+                                         uint32_t height, const glm::vec4& color, float depth )
+    {
+        if ( !IsRecording() || width == 0 || height == 0 )
+            return;
+        const auto&                    formats = framebuffer.GetSpecification().Attachments.Attachments;
+        std::vector<VkClearAttachment> attachments;
+        attachments.reserve( formats.size() );
+        uint32_t colorIndex = 0;
+        for ( const auto& attachment : formats )
+        {
+            if ( Graphic::Utils::IsDepthFormat( attachment.Format ) )
+            {
+                VkClearAttachment clear{};
+                // Asked of the format, as ClearAttachments does: a stencil aspect only where the format has one.
+                clear.aspectMask              = GetImageVulkanAspect( attachment.Format );
+                clear.clearValue.depthStencil = { depth, 0 };
+                attachments.push_back( clear );
+                continue;
+            }
+            VkClearAttachment clear{};
+            clear.aspectMask       = VK_IMAGE_ASPECT_COLOR_BIT;
+            clear.colorAttachment  = colorIndex++;
+            clear.clearValue.color = { { color.r, color.g, color.b, color.a } };
+            attachments.push_back( clear );
+        }
+        const VkClearRect rect{
+             .rect = { .offset = { x, y }, .extent = { width, height } }, .baseArrayLayer = 0, .layerCount = 1 };
+        vkCmdClearAttachments( m_CurrentCommandBuffer, static_cast<uint32_t>( attachments.size() ),
+                               attachments.data(), 1, &rect );
     }
 
     // Same shape as VulkanContext::OnResize: the RendererAPI interface requires it and the Vulkan backend

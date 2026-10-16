@@ -50,6 +50,10 @@ namespace Desert::Graphic::API::Vulkan
                 // attachment are mandatory for R32_UINT in the core format tables; it is never blended.
                 case Core::Formats::ImageFormat::R32_UINT:
                     return VK_FORMAT_R32_UINT;
+                // The shading word since it carries four CustomData floats: R32G32_UINT, like R32_UINT, is a
+                // mandatory sampled + colour-attachment format in the core tables; never blended.
+                case Core::Formats::ImageFormat::RG32_UINT:
+                    return VK_FORMAT_R32G32_UINT;
                 case Core::Formats::ImageFormat::DEPTH24STENCIL8:
                     return deviceDepthFormat;
                 // The four block formats. `textureCompressionBC` is read off the physical device and

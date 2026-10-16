@@ -39,13 +39,14 @@ namespace Desert::Assets
         std::optional<Geometry::PrimitiveType>      Primitive;
         // The editor-built mesh, the SOURCE the render mesh is derived from. Schema v22 replaced the v21
         // CustomVertices/CustomIndices render arrays with it (Tools/SceneMigrator, MigrateEditMeshV21ToV22).
-        std::optional<Geometry::EditMeshSer> EditMesh;
+        std::optional<Geometry::MeshSavedForm> EditMesh;
         // Rendering controls (absent = component default, so pre-existing scenes stay loadable).
         std::optional<bool>                         OutlineDraw;
         std::optional<int>                          ForcedLOD;
         std::optional<int>                          LODBias;
         std::optional<bool>                         CastShadows;
         std::optional<bool>                         ReceiveShadows;
+        std::optional<bool>                         CastContactShadow; // written only when false
         std::optional<int>                          TranslucencySortPriority;
         std::optional<uint64_t>                     HiddenSubmeshes;
         std::optional<float>                        MaxDrawDistance; // cm; written only when set (> 0)
@@ -80,6 +81,7 @@ namespace Desert::Assets
         // Absent = component default (true), and written only when false — the same shape the static
         // and skinned mirrors use, so no existing `.desce` changes a byte and no schema version moves.
         std::optional<bool> CastShadows;
+        std::optional<bool> CastContactShadow; // the same shape as CastShadows
         // cm; absent = 0 (no limit), written only when set, the same shape as CastShadows.
         std::optional<float> MaxDrawDistance;
     };

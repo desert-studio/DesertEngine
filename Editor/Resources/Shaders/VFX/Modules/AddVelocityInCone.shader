@@ -3,7 +3,8 @@
 // 104-121, cone velocity): a direction at an angle uniform in [0, Angle] (degrees) from Axis, at a uniform
 // rotation around it, times Speed (cm/s); Falloff in [0, 1] slows the directions far from the axis
 // (UE: Speed * lerp(1, cos(angle)^(Falloff * 10), Falloff)). Speed and Angle are ordinary inputs — a Random-source
-// range is UE's RandomScaleBiasFloat on them. Adds to the velocity, so it stacks. Spawn group.
+// range is UE's RandomScaleBiasFloat on them. A Spawn from Channel direction, when the emitter binds one, is the axis
+// in place of Axis (Angle 0 = exactly the entry's direction). Adds to the velocity, so it stacks. Spawn group.
 Shader "AddVelocityInCone"
 {
     Domain Particle
@@ -26,7 +27,8 @@ Shader "AddVelocityInCone"
             float speed = i.Speed;
             if ( i.Falloff > 0.0 )
                 speed *= mix( 1.0, pow( clamp( scAngle.y, 0.0, 1.0 ), i.Falloff * 10.0 ), i.Falloff );
-            p.Velocity += VFX_RotateZTo( i.Axis, direction ) * speed;
+            const vec3 axis = sim.ChannelDirection.w > 0.5 ? sim.ChannelDirection.xyz : i.Axis;
+            p.Velocity += VFX_RotateZTo( axis, direction ) * speed;
         }
     }
 }

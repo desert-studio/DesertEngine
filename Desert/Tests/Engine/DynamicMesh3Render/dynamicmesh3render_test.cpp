@@ -1,13 +1,11 @@
 // MeshNormals (ported from UE) and DynamicMesh3 <-> render-mesh conversion.
 //
-// The render side is the one EditMesh already converts to, so the load-bearing assertion is the RELATION between
-// the two cores: for the same render input, ToRenderMesh(DynamicMesh3) is byte-identical to
-// ToRenderMesh(EditMesh). Round trips are asserted on the canonical form (the output of one conversion), because
-// the weld is allowed to move a seam vertex onto the position of the first vertex it welds to.
+// Round trips are asserted on the canonical form (the output of one conversion), because the weld is allowed to
+// move a seam vertex onto the position of the first vertex it welds to.
 #include <gtest/gtest.h>
 
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
-#include <Engine/Geometry/EditMeshConversion.hpp>
+#include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/MeshNormals.hpp>
 
@@ -37,7 +35,7 @@ namespace
         v.Position  = p;
         v.Normal    = n;
         v.Tangent   = t;
-        v.Bitangent = glm::cross( n, t ); // exactly what the EditMesh layer rebuilds from handedness +1
+        v.Bitangent = glm::cross( n, t ); // the bitangent of handedness +1
         v.TexCoord  = uv;
         return v;
     }
@@ -330,35 +328,6 @@ TEST( DynamicMesh3Render, WeldSharesCornersAcrossSubmeshesAndTheSphereSeam )
     // 10 rings of 20: two poles plus 9 inner rings of 20 unique positions once the seam column welds.
     EXPECT_EQ( Import( UVSphere( 100.0f, 10, 20 ) ).VertexCount(), 2 + 9 * 20 );
     EXPECT_EQ( Import( Grid( 6 ) ).VertexCount(), 7 * 7 );
-}
-
-TEST( DynamicMesh3Render, NewCoreMatchesEditMeshToRenderMesh )
-{
-    for ( const RenderMeshData& input : { HardCube( 50.0f ), UVSphere( 100.0f, 10, 20 ), Grid( 6 ) } )
-    {
-        auto oldMesh = FromRenderMesh( input );
-        ASSERT_TRUE( oldMesh.IsSuccess() );
-        auto oldRender = ToRenderMesh( oldMesh.GetValue().Mesh );
-        ASSERT_TRUE( oldRender.IsSuccess() );
-        RenderMeshData expected = oldRender.GetValue();
-        RenderMeshData actual   = Export( Import( input ) );
-        ASSERT_EQ( expected.Vertices.size(), actual.Vertices.size() );
-        // The one field the cores store differently: EditMesh keeps a handedness sign and rebuilds the bitangent
-        // as cross(N, T) from the welded normal and tangent elements, DynamicMesh3 keeps the bitangent overlay
-        // itself. Where the first-seen normal and tangent at a welded vertex came from different render vertices
-        // the two differ by float rounding; everything else must match bit for bit.
-        int bitangentDiffers = 0;
-        for ( size_t i = 0; i < expected.Vertices.size(); ++i )
-        {
-            const glm::vec3 a = expected.Vertices[i].Bitangent;
-            const glm::vec3 b = actual.Vertices[i].Bitangent;
-            bitangentDiffers += static_cast<int>( a.x != b.x || a.y != b.y || a.z != b.z );
-            EXPECT_LT( glm::length( a - b ), 1e-6f );
-            expected.Vertices[i].Bitangent = actual.Vertices[i].Bitangent = glm::vec3( 0.0f );
-        }
-        std::printf( "bitangents differing by rounding: %d of %zu\n", bitangentDiffers, expected.Vertices.size() );
-        ExpectSameRender( expected, actual );
-    }
 }
 
 TEST( DynamicMesh3Render, CorruptedOverlayIsCaughtByCheckValidity )

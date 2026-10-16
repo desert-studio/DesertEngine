@@ -1,10 +1,13 @@
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <array>
 #include "ViewportPanel.hpp"
+#include "RenderMethodsOverlay.hpp"
+#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/SceneOpenRequest.hpp>
 #include <Editor/Core/EditorPreferences.hpp>
 
+#include <Editor/Core/EntityPickRequest.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Engine/Assets/Prefab/PrefabPlacement.hpp>
 #include <Editor/Core/Selection/UIPreview.hpp>
@@ -43,6 +46,8 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityLock.hpp>
+#include <Engine/ECS/System/ScriptSystem.hpp>
+#include <Engine/Input/LocalPlayerInput.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
 #include <UI/UILayout.hpp>
 #include <Editor/Panels/ViewportPanel/ActiveViewportRule.hpp>
@@ -204,6 +209,29 @@ namespace Desert::Editor
         if ( !viewport )
             return Common::MakeError( "foliage stroke: no viewport is open" );
         return viewport->StrokeFoliageAtCentre();
+    }
+
+    Common::BoolResultStr ViewportPanel::PlaceShapeInActiveViewport()
+    {
+        auto* viewport = ActiveViewport();
+        if ( !viewport )
+            return Common::MakeError( "create shape: no viewport is open" );
+        return viewport->PlaceShapeAtCentre();
+    }
+
+    Common::BoolResultStr ViewportPanel::PlaceShapeAtCentre()
+    {
+        const auto camera = ViewCamera();
+        if ( !m_Scene || !camera || m_ViewportData.Size.x < 1.0f || m_ViewportData.Size.y < 1.0f )
+            return Common::MakeError( "create shape: the viewport has no scene, camera or size yet" );
+        const auto ray = Common::Math::Ray::FromScreenPosition(
+             { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
+             camera->GetViewMatrix(), camera->GetPosition(), static_cast<uint32_t>( m_ViewportData.Size.x ),
+             static_cast<uint32_t>( m_ViewportData.Size.y ) );
+        auto placed = Tools::CreateShapeTool::PlaceAlong( *m_Scene, ray );
+        if ( !placed.IsSuccess() )
+            return Common::MakeError( placed.GetError() );
+        return BOOLSUCCESS;
     }
 
     Common::BoolResultStr ViewportPanel::PreviewFoliageInActiveViewport()
@@ -1207,6 +1235,7 @@ namespace Desert::Editor
                 VM_ShadingModel,
                 VM_SunShadowReceive,
                 VM_Velocity,
+                VM_GlobalDistanceField,
                 VM_ShadowCascades,
                 VM_ShadowFactor,
                 VM_Count
@@ -1226,6 +1255,7 @@ namespace Desert::Editor
                                          ICON_MDI_PALETTE_SWATCH "  Shading Model",
                                          ICON_MDI_WEATHER_SUNNY "  Sun Shadow Receive",
                                          ICON_MDI_ARROW_ALL "  Velocity",
+                                         ICON_MDI_CUBE_OUTLINE "  Global Distance Field",
                                          ICON_MDI_LAYERS "  Shadow Cascades",
                                          ICON_MDI_BRIGHTNESS_6 "  Shadow Factor" };
             static_assert( IM_ARRAYSIZE( kViewModes ) == VM_Count,
@@ -1265,6 +1295,8 @@ namespace Desert::Editor
                 vm = VM_SunShadowReceive;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::Velocity )
                 vm = VM_Velocity;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::GlobalDistanceField )
+                vm = VM_GlobalDistanceField;
             else if ( view.ShowNormals )
                 vm = VM_Normals;
 
@@ -1448,6 +1480,9 @@ namespace Desert::Editor
                     case VM_Velocity:
                         view.DeferredDebug = Graphic::DeferredDebugMode::Velocity;
                         break;
+                    case VM_GlobalDistanceField:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::GlobalDistanceField;
+                        break;
                     case VM_ShadowCascades:
                         view.ShadowDebug = Graphic::ShadowDebugMode::Cascades;
                         break;
@@ -1614,7 +1649,23 @@ namespace Desert::Editor
         }
 
         m_ViewportData.IsHovered = ImGui::IsWindowHovered();
+
+        // Play gives this viewport the keyboard (UE PIE): the played world's keys reach the player at once.
+        const bool playingNow = m_Scene->GetState() != ::Desert::Core::Scene::SceneState::Edit;
+        if ( playingNow && !m_WasPlaying )
+            ImGui::SetWindowFocus();
+        m_WasPlaying = playingNow;
+
         m_ViewportData.IsFocused = ImGui::IsWindowFocused();
+
+        // Focus moved away (a Details field, another panel): the releases of the keys the player holds will
+        // be routed there, so they are released now — a held W must not walk the pawn on forever.
+        if ( m_PlayerHoldsKeys && !ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows ) )
+        {
+            if ( Input::LocalPlayerInput* player = PlayedPlayerInput() )
+                player->FlushPressedKeys();
+            m_PlayerHoldsKeys = false;
+        }
 
         // Multi-scene: focusing this viewport makes ITS scene the active one (Outliner/Details/gizmo
         // follow). Idempotent on the editor side, so calling it every focused frame is fine.
@@ -1924,8 +1975,11 @@ namespace Desert::Editor
                                        m_ViewportData.IsHovered );
                 m_ElementSelectTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos,
                                             m_ViewportData.Size, m_ViewportData.IsHovered );
-                m_CreateShapeTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
-                                          m_ViewportData.IsHovered );
+                m_CreateShapeTool.Update( *m_Scene, ray, centreRay, m_ViewportData.ViewportPos,
+                                          m_ViewportData.Size, m_ViewportData.IsHovered );
+                // The active tool says what its next click does; the viewport turns that into the cursor.
+                Tools::ApplyToolCursor( ActiveModelingToolCursor(), m_ViewportData.ViewportPos,
+                                        m_ViewportData.Size, m_ViewportData.IsHovered );
                 Tools::DrawActiveToolBar( m_ViewportData.ViewportPos, m_ViewportData.Size );
             }
         }
@@ -1972,6 +2026,14 @@ namespace Desert::Editor
         // stores the decision nowhere, so no save can find it and no call site can forget to fence it.
         if ( !m_Modes.UI2D )
             DrawViewAxisGizmo( m_ViewportData.ViewportPos, m_ViewportData.Size );
+
+        // What this view renders for GI / reflections / shadows, and why a method came out lower than asked.
+        if ( !m_Modes.UI2D && m_Scene )
+            if ( const Graphic::SceneRenderer* renderer = m_Scene->GetViewRenderer( ViewIndex() ) )
+                DrawRenderMethodsOverlay( renderer->GetRenderMethods(),
+                                          ImVec2( m_ViewportData.ViewportPos.x, m_ViewportData.ViewportPos.y ),
+                                          ImVec2( m_ViewportData.ViewportPos.x + m_ViewportData.Size.x,
+                                                  m_ViewportData.ViewportPos.y + m_ViewportData.Size.y ) );
 
         // Perf HUD (View -> Perf HUD): FPS + frame graph + top CPU scopes, useful in Play too.
         if ( EditorPreferences::Get().ShowPerfHud )
@@ -2393,6 +2455,25 @@ namespace Desert::Editor
         }
     }
 
+    Tools::ToolCursor ViewportPanel::ActiveModelingToolCursor() const
+    {
+        using T = Core::ModelingState::Tool;
+        switch ( Core::ModelingState::Get().ActiveTool )
+        {
+            case T::None:
+                return Tools::ToolCursor::None;
+            case T::CubeGrid:
+                return m_CubeGridTool.Cursor();
+            case T::PolyEdit:
+                return m_PolyEditTool.Cursor();
+            case T::ElementSelect:
+                return m_ElementSelectTool.Cursor();
+            case T::CreateShape:
+                return m_CreateShapeTool.Cursor();
+        }
+        return Tools::ToolCursor::None;
+    }
+
     void ViewportPanel::DrawViewAxisGizmo( const glm::vec2& viewportPos, const glm::vec2& viewportSize )
     {
         const auto camera = ViewCamera();
@@ -2494,6 +2575,28 @@ namespace Desert::Editor
             ApplyViewAxisTip( *editorCam, tips2[hotTip].WorldDir );
     }
 
+    Input::LocalPlayerInput* ViewportPanel::PlayedPlayerInput() const
+    {
+        if ( m_Scene == nullptr || m_Scene->GetState() == ::Desert::Core::Scene::SceneState::Edit )
+            return nullptr;
+        auto* scripts = m_Scene->FindSystem<ECS::ScriptSystem>();
+        return scripts != nullptr ? &scripts->PlayerInput() : nullptr;
+    }
+
+    bool ViewportPanel::OnMouseButtonReleased( Common::MouseButtonReleasedEvent& e )
+    {
+        if ( Input::LocalPlayerInput* player = PlayedPlayerInput() )
+            player->InputKey( Input::InputKey::Of( e.GetMouseButton() ), false );
+        return false;
+    }
+
+    bool ViewportPanel::OnKeyReleased( Common::KeyReleasedEvent& e )
+    {
+        if ( Input::LocalPlayerInput* player = PlayedPlayerInput() )
+            player->InputKey( Input::InputKey::Of( e.GetKeyCode() ), false );
+        return false;
+    }
+
     bool ViewportPanel::OnMouseButtonPressed( Common::MouseButtonPressedEvent& e )
     {
         // LMB picks/selects ONLY in Select mode and when no brush is active (terrain brush / Foliage paint
@@ -2502,6 +2605,31 @@ namespace Desert::Editor
         // pick the object behind it.
         if ( m_ViewAxisGizmoHovered || m_PilotOverlayHovered )
             return false;
+
+        // THE EYEDROPPER (EntityPickRequest): a Details reference field is waiting for an entity, so this click
+        // answers it instead of selecting — in a played world too, before the player takes the button. A click
+        // off the scene image leaves the request armed; one on the image that hits nothing ends it unanswered.
+        if ( EntityPickRequest::IsArmed() && e.GetMouseButton() == Common::MouseButton::Left &&
+             m_ViewportData.IsHovered )
+        {
+            const ImVec2 at = ::ImGui::GetMousePos();
+            const auto&  v  = m_ViewportData;
+            if ( at.x >= v.ViewportPos.x && at.y >= v.ViewportPos.y && at.x < v.ViewportPos.x + v.Size.x &&
+                 at.y < v.ViewportPos.y + v.Size.y )
+            {
+                const std::optional<::Desert::Core::RaycastHit> hit = SurfaceAtCursor();
+                EntityPickRequest::Deliver( hit ? std::optional<Common::UUID>( hit->Entity ) : std::nullopt );
+                return false;
+            }
+        }
+
+        // A played world's button, over its image: the player's, not a pick.
+        if ( Input::LocalPlayerInput* player = PlayedPlayerInput(); player != nullptr && m_ViewportData.IsHovered )
+        {
+            player->InputKey( Input::InputKey::Of( e.GetMouseButton() ), true );
+            m_PlayerHoldsKeys = true;
+            return false;
+        }
 
         // The pick must fire ONLY over the rendered scene image — not the toolbar/overlay widgets that sit
         // in the same viewport window. IsHovered (IsWindowHovered) is true for the whole window, so a click
@@ -2620,6 +2748,14 @@ namespace Desert::Editor
 
     bool ViewportPanel::OnKeyPressed( Common::KeyPressedEvent& e )
     {
+        // A played world's key: the player's (its key state ignores the OS repeats), not an editing shortcut.
+        if ( Input::LocalPlayerInput* player = PlayedPlayerInput() )
+        {
+            if ( e.GetRepeatCount() == 0 )
+                player->InputKey( Input::InputKey::Of( e.GetKeyCode() ), true );
+            m_PlayerHoldsKeys = true;
+            return false;
+        }
         if ( const std::optional<ViewportCommand> command = ViewportCommandForKey( e.GetKeyCode() ) )
         {
             if ( *command == ViewportCommand::SelectNone &&

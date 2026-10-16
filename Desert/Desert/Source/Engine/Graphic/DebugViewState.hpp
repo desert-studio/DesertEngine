@@ -27,7 +27,7 @@ namespace Desert::Graphic
         Metallic        = 3,
         Roughness       = 4,
         AO              = 5,
-        GI              = 6, // indirect light only (whichever GIMode is active) — for judging GI in isolation
+        GI              = 6, // indirect light only (whichever GI method is effective) — for judging GI in isolation
         LightComplexity = 7, // per-pixel count of point/spot light volumes, heat-mapped (UE-style)
         Overdraw        = 8, // additive re-raster of all meshes -> heat-mapped overdraw count (both paths)
         MaterialComplexity =
@@ -42,6 +42,12 @@ namespace Desert::Graphic
         // (hue = direction, brightness = speed), black where the pixel is still. Deferred only, like the G-buffer
         // modes; drawn by "Debug: Velocity" (System::VelocityViewRenderer) after the temporal resolve.
         Velocity = 12,
+        // The global distance field (Graphic/DistanceField/GlobalDistanceField): UE's "Global DistanceField"
+        // visualization - every pixel sphere-traces the four clipmaps; the hit lit by the field's gradient, tinted
+        // by the clipmap that answered, the march's step count heat-mapped. Deferred only; drawn by
+        // "Debug: Global Distance Field" after the temporal resolve. Today the only reader of the field, so the
+        // field is built only while this mode is on.
+        GlobalDistanceField = 13,
     };
 
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a

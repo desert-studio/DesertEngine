@@ -221,11 +221,14 @@ TEST( SceneSettingsHomesMigration, EveryGradeFieldIsMovedAndResolvesToTheValueTh
 
     auto scene        = Parse( kSceneV32 );
     const auto all          = Reflection::SerializeReflected( *type, &stated );
-    // The grade fields born after SCNE 36 (Depth of Field, Motion Blur): no Settings block ever stated them, so
-    // the step has no key for them. A field added to the grade must be added to the step or named here.
-    constexpr std::array<std::string_view, 7> kBornAfterTheStep = {
+    // The grade fields born after SCNE 36 (Depth of Field, Motion Blur, the SCNE 53 render methods): no Settings
+    // block ever stated them, so the step has no key for them (the methods replace GlobalIllumination/EnableSSR,
+    // which the step moves and SCNE 53 converts). A field added to the grade must be added to the step or named
+    // here.
+    constexpr std::array<std::string_view, 12> kBornAfterTheStep = {
          "DepthOfFieldFocalDistance", "DepthOfFieldFstop", "DepthOfFieldSensorWidth", "DepthOfFieldMaxBokehSize",
-         "MotionBlurAmount",          "MotionBlurMax",     "MotionBlurTargetFPS" };
+         "MotionBlurAmount",          "MotionBlurMax",     "MotionBlurTargetFPS",     "GlobalIlluminationMethod",
+         "ReflectionsMethod",         "ShadowsMethod",     "ContactShadows",          "DistanceFieldShadows" };
     for ( const std::string_view key : kBornAfterTheStep )
         ASSERT_TRUE( all.get( std::string( key ) ).has_value() ) << key << " is no longer a grade field";
     rfl::Generic::Object block;
@@ -261,7 +264,9 @@ TEST( SceneSettingsHomesMigration, TheMigratedSceneResolvesToThePreviousValues )
     EXPECT_EQ( v.Post.BloomIntensity, 1.3f );
     EXPECT_EQ( v.Post.SSRMaxDistance, 2500.0f );
     EXPECT_EQ( v.Post.LensFlareTint, glm::vec3( 0.5f, 0.25f, 1.0f ) );
-    EXPECT_EQ( v.Post.GlobalIllumination, Core::GIMode::RSM );
+    // GIMode 2 (RSM) lifted at v36 and re-stated as the method at v52; EnableSSR true as the screen-space method.
+    EXPECT_EQ( v.Post.GlobalIlluminationMethod, Common::Scalability::GIMethod::ReflectiveShadowMaps );
+    EXPECT_EQ( v.Post.ReflectionsMethod, Common::Scalability::ReflectionMethod::ScreenSpace );
     EXPECT_TRUE( v.Post.EnableBloom );
     EXPECT_TRUE( v.Post.AutoExposure );
     EXPECT_EQ( v.Post.BloomThreshold, Core::PostProcessSettings{}.BloomThreshold ) << "unstated = old default";
