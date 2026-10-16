@@ -310,7 +310,8 @@ namespace Desert::Graphic::System
         // The previous capture's intermediate: no graph built from here on imports it.
         m_RetiredRadianceImage.reset();
 
-        // A sky light's products are the environment's, not an asset's: the recipe that rebuilds them is a capture.
+        // A sky light's products are the environment's, not an asset's: the recipe that rebuilds them is a
+        // capture.
         const ResourceAttributionScope owned( ResourceOwner::Environment );
 
         const auto cube = []( const char* tag, uint32_t face, uint32_t mips )
@@ -366,11 +367,11 @@ namespace Desert::Graphic::System
             return false;
         if ( !source.Panorama || !m_Downsample.Pipeline || !m_Irradiance.Pipeline || !m_Prefilter.Pipeline )
         {
-            LOG_ERROR( "[SkyCapture] the specified cubemap '{}' is not converted: panorama {}, programs {} (see the "
-                       "errors above).",
-                       source.Source.string(), source.Panorama ? "present" : "MISSING",
-                       m_Downsample.Pipeline && m_Irradiance.Pipeline && m_Prefilter.Pipeline ? "present"
-                                                                                              : "MISSING" );
+            LOG_ERROR(
+                 "[SkyCapture] the specified cubemap '{}' is not converted: panorama {}, programs {} (see the "
+                 "errors above).",
+                 source.Source.string(), source.Panorama ? "present" : "MISSING",
+                 m_Downsample.Pipeline && m_Irradiance.Pipeline && m_Prefilter.Pipeline ? "present" : "MISSING" );
             return false;
         }
         if ( !AllocateCubes( kSkyEnvCubeFaceSize, kSkyEnvPrefilterFaceSize, true ) )
@@ -500,9 +501,9 @@ namespace Desert::Graphic::System
         if ( m_Next != SkyCaptureStep::Done )
             return std::nullopt;
 
-        // COMPLETE: the cubes go to the caller -- a captured sky's two, a specified cubemap's radiance cube as well
-        // (the backdrop draws it); the intermediate reference stays until the next capture begins, because this
-        // frame's graph has imported it and is still being built.
+        // COMPLETE: the cubes go to the caller -- a captured sky's two, a specified cubemap's radiance cube as
+        // well (the backdrop draws it); the intermediate reference stays until the next capture begins, because
+        // this frame's graph has imported it and is still being built.
         Environment captured{ m_Source, m_RadianceHandle, m_IrradianceHandle, m_PrefilteredHandle };
         m_IrradianceHandle     = {};
         m_PrefilteredHandle    = {};
@@ -581,9 +582,11 @@ namespace Desert::Graphic::System
              "Sky Capture: Panorama to cube", RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( m_PanoramaToCube.Layout.Get( m_PanoramaToCube.Pipeline->GetSpecification().Shader ),
-                                Renderer::GetPipelineRouteFill( *m_PanoramaToCube.Pipeline ) )
-                      .Texture( "inputTexture", panorama, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 pass.Bindings(
+                          m_PanoramaToCube.Layout.Get( m_PanoramaToCube.Pipeline->GetSpecification().Shader ),
+                          Renderer::GetPipelineRouteFill( *m_PanoramaToCube.Pipeline ) )
+                      .Texture( "inputTexture", panorama, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
                       .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
                       .Storage( "outputTexture", radiance, RDG::Access::StorageWrite, 0 );
              },
@@ -663,7 +666,8 @@ namespace Desert::Graphic::System
         // A specified cubemap's chain is written to its cache file, and a display setting must not change what is
         // cached: it reads through trilinear REPEAT (kComputeImagesSamplerBinding's state), a captured sky through
         // the global texture filter as every other view-time read.
-        const RDG::SamplerDesc ownSampler = m_Panorama ? RDG::SamplerDesc::LinearRepeat() : GlobalTextureFilterSampler();
+        const RDG::SamplerDesc ownSampler =
+             m_Panorama ? RDG::SamplerDesc::LinearRepeat() : GlobalTextureFilterSampler();
 
         // One dispatch per mip, each convolved with the matching GGX roughness: the shader derives it from the mip
         // (Common/ReflectionCaptureMip.glslh, the engine's one ramp, which the lighting reads back).

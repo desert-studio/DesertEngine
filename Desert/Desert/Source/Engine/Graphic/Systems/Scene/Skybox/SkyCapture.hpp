@@ -121,8 +121,8 @@ namespace Desert::Graphic::System
     };
 
     /// A SPECIFIED CUBEMAP's source (UE: USkyLightComponent::SourceType = SLS_SpecifiedCubemap): an authored
-    /// equirect panorama, converted to the radiance cube by one pass and then filtered exactly like a captured sky.
-    /// The capture keeps its radiance cube -- the backdrop draws it -- and filters at the cached file's sizes
+    /// equirect panorama, converted to the radiance cube by one pass and then filtered exactly like a captured
+    /// sky. The capture keeps its radiance cube -- the backdrop draws it -- and filters at the cached file's sizes
     /// (Assets::kSkyEnv*) with the reference prefilter sample count, because the result is written to that file.
     struct SkyCapturePanorama
     {
@@ -168,8 +168,8 @@ namespace Desert::Graphic::System
         [[nodiscard]] bool Begin( const SkyEnvironmentSize& size, SkyCapturePace pace,
                                   const SkyCaptureSource& source );
 
-        /// Allocates a capture of a specified cubemap (SkyCapturePanorama): always Whole, so the frame that records
-        /// it is lit by it. Makes the panorama program on first use. Refused, logged, as Begin is.
+        /// Allocates a capture of a specified cubemap (SkyCapturePanorama): always Whole, so the frame that
+        /// records it is lit by it. Makes the panorama program on first use. Refused, logged, as Begin is.
         [[nodiscard]] bool BeginPanorama( const SkyCapturePanorama& source );
 
         [[nodiscard]] bool IsCapturing() const

@@ -556,7 +556,8 @@ namespace
              // ── environment baking (IBL) ────────────────────────────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyCapture.cpp", "shaderName",
                Verdict::Shipped,
-               "the sky light's programs (downsample, irradiance, prefilter, panorama-to-cube), named by MakeProgram's "
+               "the sky light's programs (downsample, irradiance, prefilter, panorama-to-cube), named by "
+               "MakeProgram's "
                "callers" },
 
              // ── 2D, UI and present ──────────────────────────────────────────────────────────────────

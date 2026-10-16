@@ -127,7 +127,7 @@ namespace Desert::Graphic
         // records it whole at the head of its graph, ahead of every pass that samples the cubes, so no view ever
         // waits on a fence for it and none draws its first frame without the sky's light.
         const std::string sourceKey = Common::AssetHandle::StableKeyForPath( meta.Filepath );
-        const auto entry = [&]( const std::filesystem::path& path, uint64_t bake, std::string_view tag )
+        const auto        entry     = [&]( const std::filesystem::path& path, uint64_t bake, std::string_view tag )
         {
             return EnvironmentCacheEntry{ .Path            = path,
                                           .SourceKey       = sourceKey,
@@ -140,12 +140,13 @@ namespace Desert::Graphic
              .Cache    = { entry( radiancePath, radianceBake, Assets::kEnvRadianceTag ),
                            entry( irradiancePath, irradianceBake, Assets::kEnvIrradianceTag ),
                            entry( prefilterPath, prefilterBake, Assets::kEnvPrefilterTag ) } };
-        LOG_INFO( "[SceneEnvironment] '{}' uploaded its panorama in {:.1f} ms; the first view that draws it converts "
-                  "it in its frame graph (radiance {}^2 x{}, irradiance {}^2, prefilter {}^2 x{}).",
-                  meta.Filepath.string(),
-                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt ).count(),
-                  kSkyEnvCubeFaceSize, kSkyEnvRadianceMips, kSkyEnvIrradianceFaceSize, kSkyEnvPrefilterFaceSize,
-                  kSkyEnvPrefilterMips );
+        LOG_INFO(
+             "[SceneEnvironment] '{}' uploaded its panorama in {:.1f} ms; the first view that draws it converts "
+             "it in its frame graph (radiance {}^2 x{}, irradiance {}^2, prefilter {}^2 x{}).",
+             meta.Filepath.string(),
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt ).count(),
+             kSkyEnvCubeFaceSize, kSkyEnvRadianceMips, kSkyEnvIrradianceFaceSize, kSkyEnvPrefilterFaceSize,
+             kSkyEnvPrefilterMips );
         return { meta.Filepath, {}, {}, {} };
     }
 
@@ -159,18 +160,19 @@ namespace Desert::Graphic
         // (ENV-FIRST1: BC6H clamps above 65504 and quantises; RGBA32F does not). `EnvironmentCacheWriter` submits
         // the copies, polls their fence once a tick and encodes BC6H + writes the file on a worker (AL1-3). A
         // failure costs the cache and nothing else, and is logged with the file.
-        const std::array<Runtime::ImageHandle, 3> live = { converted.RadianceMap, converted.IrradianceMap,
-                                                           converted.PreFilteredMap };
-        auto* imageService = Runtime::ResourceRegistry::GetImageService();
+        const std::array<Runtime::ImageHandle, 3> live         = { converted.RadianceMap, converted.IrradianceMap,
+                                                                   converted.PreFilteredMap };
+        auto*                                     imageService = Runtime::ResourceRegistry::GetImageService();
         for ( size_t i = 0; i < live.size(); ++i )
         {
             EnvironmentCacheEntry& entry = convolution.Cache[i];
             auto*                  cube  = dynamic_cast<ImageCube*>( imageService->Resolve( live[i] ) );
             if ( cube == nullptr )
             {
-                LOG_ERROR( "[SceneEnvironment] '{}' was converted but its {} cube does not resolve, so '{}' is not "
-                           "cached.",
-                           converted.Filepath.string(), entry.Tag, entry.Path.string() );
+                LOG_ERROR(
+                     "[SceneEnvironment] '{}' was converted but its {} cube does not resolve, so '{}' is not "
+                     "cached.",
+                     converted.Filepath.string(), entry.Tag, entry.Path.string() );
                 continue;
             }
             entry.Live = live[i];

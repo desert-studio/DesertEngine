@@ -44,7 +44,8 @@ namespace Desert::Graphic
             m_Capture = std::make_unique<System::SkyCapture>();
             if ( const Common::BoolResultStr made = m_Capture->Initialize(); !made )
             {
-                LOG_ERROR( "[Skybox] '{}' gets NO environment: {}", m_Environment.Filepath.string(), made.GetError() );
+                LOG_ERROR( "[Skybox] '{}' gets NO environment: {}", m_Environment.Filepath.string(),
+                           made.GetError() );
                 m_Convolution.reset();
                 m_Capture.reset();
                 return;
@@ -73,9 +74,10 @@ namespace Desert::Graphic
         }
         m_Environment    = std::move( *converted );
         m_ConvertedFrame = frame;
-        LOG_INFO( "[Skybox] '{}' was converted in this frame's graph (Sky Capture: Panorama to cube, radiance mips, "
-                  "irradiance, prefilter); its cache is written next frame.",
-                  m_Environment.Filepath.string() );
+        LOG_INFO(
+             "[Skybox] '{}' was converted in this frame's graph (Sky Capture: Panorama to cube, radiance mips, "
+             "irradiance, prefilter); its cache is written next frame.",
+             m_Environment.Filepath.string() );
     }
 
     void MaterialSkybox::BindInputs( const UpdateMaterialSkyboxInfo& data )

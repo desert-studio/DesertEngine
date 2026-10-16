@@ -73,8 +73,8 @@ namespace Desert::Graphic
     {
     public:
         // The three IBL cubes of an HDR skybox asset -- the panorama as authored, at unit gain. The scene's look
-        // (rotation, tint, intensity) is NOT in them: it is applied where they are sampled (Environment/SkyLook.hpp),
-        // which is what keeps a slider drag from being a bake per value.
+        // (rotation, tint, intensity) is NOT in them: it is applied where they are sampled
+        // (Environment/SkyLook.hpp), which is what keeps a slider drag from being a bake per value.
         //
         // A HIT uploads the cached cubes and returns them. A MISS returns an environment with no cubes and hands
         // the panorama back through @p convolution: the conversion is frame-graph work (SkyCapture), recorded by
@@ -89,6 +89,7 @@ namespace Desert::Graphic
         static void WriteCache( EnvironmentConvolution& convolution, const Environment& converted );
 
         // THE PROCEDURAL SKY IS NOT BUILT HERE either. Its light is captured in the frame graph of the view that
-        // needs it (Systems/Scene/Skybox/SkyCapture), with the same programs a specified cubemap is converted with.
+        // needs it (Systems/Scene/Skybox/SkyCapture), with the same programs a specified cubemap is converted
+        // with.
     };
 } // namespace Desert::Graphic

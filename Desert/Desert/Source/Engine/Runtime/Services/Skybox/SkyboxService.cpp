@@ -6,7 +6,6 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
-
 namespace Desert::Runtime
 {
     void SkyboxService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
