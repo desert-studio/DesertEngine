@@ -88,7 +88,7 @@ namespace Common::Scalability
     [[nodiscard]] constexpr bool IsImplemented( GIMethod method )
     {
         return method == GIMethod::Off || method == GIMethod::ScreenSpace || method == GIMethod::ProbeVolume ||
-               method == GIMethod::SoftwareTraced;
+               method == GIMethod::SoftwareTraced || method == GIMethod::HardwareTraced;
     }
     [[nodiscard]] constexpr bool IsImplemented( ReflectionMethod method )
     {
