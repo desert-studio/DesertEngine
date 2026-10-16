@@ -289,6 +289,10 @@ namespace Desert::Graphic
         Streamline::DlssEvaluation evaluation;
         evaluation.Viewport       = feature.Viewport();
         evaluation.Mode           = mode.GetValue();
+        evaluation.RenderWidth    = frame.Split.Render.Width;
+        evaluation.RenderHeight   = frame.Split.Render.Height;
+        evaluation.OutputWidth    = frame.Split.Output.Width;
+        evaluation.OutputHeight   = frame.Split.Output.Height;
         evaluation.ViewToClip     = frame.Projection;
         evaluation.ClipToView     = frame.InvProjection;
         evaluation.ClipToPrevClip = frame.PrevViewProjection * frame.InvViewProjection;
@@ -323,7 +327,9 @@ namespace Desert::Graphic
                  pass.Read( depth, RDG::Access::SampledCompute );
                  pass.Read( velocity, RDG::Access::SampledCompute );
                  pass.Read( exposureRef, RDG::Access::SampledCompute );
-                 pass.Write( output, RDG::Access::StorageWrite );
+                 // ExternalWrite, not StorageWrite: NGX also clears the output (vkCmdClearColorImage on a
+                 // reset), which needs TRANSFER_DST usage and the transfer stage in the barrier into this pass.
+                 pass.Write( output, RDG::Access::ExternalWrite );
              },
              [evaluation, color, depth, velocity, exposureRef,
               output]( RDG::PassContext& context ) mutable -> Common::BoolResultStr
@@ -336,7 +342,7 @@ namespace Desert::Graphic
                                 { &evaluation.Depth, { depth, RDG::Access::SampledCompute } },
                                 { &evaluation.MotionVectors, { velocity, RDG::Access::SampledCompute } },
                                 { &evaluation.Exposure, { exposureRef, RDG::Access::SampledCompute } },
-                                { &evaluation.Output, { output, RDG::Access::StorageWrite } } } };
+                                { &evaluation.Output, { output, RDG::Access::ExternalWrite } } } };
                  for ( const auto& [target, source] : images )
                  {
                      auto image = ImageOf( context, source.first, source.second );

@@ -76,10 +76,18 @@ namespace Desert::Graphic::Streamline
         uint32_t Viewport = 0;              // Runtime::AcquireViewport, options set by SetOptions
         DlssMode Mode     = DlssMode::DLAA; // the mode SetOptions last set (named in errors)
 
+        // THE VIEW'S SPLIT (ViewFrame::Split): what DLSS upscales from and to. The tags' extents are these, never
+        // the images' sizes - an image may be larger than the view it holds (a pooled or not-yet-shrunk target),
+        // and DLSS then reads past the view (UE tags the view rect, FDLSSPassParameters::InputViewRect).
+        uint32_t RenderWidth  = 0;
+        uint32_t RenderHeight = 0;
+        uint32_t OutputWidth  = 0;
+        uint32_t OutputHeight = 0;
+
         DlssImage Color;         // linear HDR, render extent, jittered
         DlssImage Depth;         // reversed-Z hardware depth, render extent
         DlssImage MotionVectors; // render extent
-        DlssImage Output;        // output extent, storage
+        DlssImage Output;        // output extent, RDG::Access::ExternalWrite (NGX writes and clears it)
         DlssImage Exposure;      // 1x1 R32F, the exposure multiplier (UpscalerExposure)
 
         glm::mat4 ViewToClip{ 1.0f }; // unjittered projection

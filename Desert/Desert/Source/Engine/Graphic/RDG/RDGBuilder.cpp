@@ -47,7 +47,7 @@ namespace Desert::Graphic::RDG
             }
             return access != Access::SampledCompute && access != Access::AccelStructBuildInput &&
                    access != Access::AccelStructBuildWrite && access != Access::CopySrc &&
-                   access != Access::CopyDst;
+                   access != Access::CopyDst && access != Access::ExternalWrite;
         }
     } // namespace
 

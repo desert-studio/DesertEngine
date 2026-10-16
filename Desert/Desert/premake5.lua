@@ -69,13 +69,15 @@ local function EngineModuleLibrary(module, legacyFiles)
     end
 
     -- Platform/Windows and Platform/MacOS (and any .mm) compile on their own system only. So do the vendor
-    -- upscalers (Engine/Graphic/Upscalers/) and every Streamline/ directory (the NVIDIA Streamline device
-    -- integration DLSS runs on): their SDKs are built or shipped for Windows only (BuildScripts/ThirdParty/
-    -- FidelityFX.lua, ThirdParty/Streamline).
+    -- upscalers (Engine/Graphic/Upscalers/), every Streamline/ directory (the NVIDIA Streamline device
+    -- integration DLSS runs on) and every FidelityFX/ directory (the device the FSR Vulkan backend assumes):
+    -- their SDKs are built or shipped for Windows only (BuildScripts/ThirdParty/FidelityFX.lua,
+    -- ThirdParty/Streamline).
     local commonFiles, windowsFiles, macFiles = { "Source/pch.cpp", "Source/pch.hpp" }, {}, {}
     for _, file in ipairs(legacyFiles) do
         local target = commonFiles
-        if file:find("^Platform/Windows/") or file:find("^Engine/Graphic/Upscalers/") or file:find("/Streamline/") then
+        if file:find("^Platform/Windows/") or file:find("^Engine/Graphic/Upscalers/") or file:find("/Streamline/")
+            or file:find("/FidelityFX/") then
             target = windowsFiles
         elseif file:find("^Platform/MacOS/") or file:find("%.mm$") then
             target = macFiles

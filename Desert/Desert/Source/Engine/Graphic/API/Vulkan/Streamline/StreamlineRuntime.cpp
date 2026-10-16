@@ -1,5 +1,6 @@
 #include <Engine/Graphic/API/Vulkan/Streamline/StreamlineRuntime.hpp>
 
+#include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
 
 #include <vk-bootstrap/VkBootstrap.h>
@@ -24,6 +25,7 @@
 #include <filesystem>
 #include <format>
 #include <string_view>
+#include <vector>
 
 namespace Desert::Graphic::Streamline
 {
@@ -180,7 +182,53 @@ namespace Desert::Graphic::Streamline
                            &VkPhysicalDeviceVulkan13Features::shaderDemoteToHelperInvocation },
              FeatureBit13{ "subgroupSizeControl", &VkPhysicalDeviceVulkan13Features::subgroupSizeControl },
              FeatureBit13{ "computeFullSubgroups", &VkPhysicalDeviceVulkan13Features::computeFullSubgroups },
+             FeatureBit13{ "privateData", &VkPhysicalDeviceVulkan13Features::privateData },
         };
+
+        // A device extension Streamline lists whose whole use is a feature the device's core version carries:
+        // on such a device the feature bit goes into the engine's one 1.2/1.3 chain and the extension name is not
+        // enabled (UE's Vulkan RHI does the same with its promoted-extension table). VK_EXT_buffer_device_address
+        // is the one that MUST be dropped: it is the superseded form of the KHR extension 1.2 promoted, and
+        // naming it beside Vulkan12Features::bufferDeviceAddress (or beside VK_KHR_buffer_device_address) is
+        // VUID-VkDeviceCreateInfo-pNext-04748 / -ppEnabledExtensionNames-03328 - what sl.dlss's list did on an
+        // RTX 3070 Ti.
+        struct CoreExtension
+        {
+            std::string_view Name;
+            uint32_t         CoreVersion;
+            VkBool32 VkPhysicalDeviceVulkan12Features::*Feature12 = nullptr;
+            VkBool32 VkPhysicalDeviceVulkan13Features::*Feature13 = nullptr;
+        };
+        constexpr std::array kCoreExtensions{
+             CoreExtension{ VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME, VK_API_VERSION_1_2,
+                            &VkPhysicalDeviceVulkan12Features::bufferDeviceAddress },
+             CoreExtension{ VK_EXT_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME, VK_API_VERSION_1_2,
+                            &VkPhysicalDeviceVulkan12Features::bufferDeviceAddress },
+             CoreExtension{ VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME, VK_API_VERSION_1_2,
+                            &VkPhysicalDeviceVulkan12Features::timelineSemaphore },
+             CoreExtension{ VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, VK_API_VERSION_1_2,
+                            &VkPhysicalDeviceVulkan12Features::descriptorIndexing },
+             CoreExtension{ VK_EXT_PRIVATE_DATA_EXTENSION_NAME, VK_API_VERSION_1_3, nullptr,
+                            &VkPhysicalDeviceVulkan13Features::privateData },
+             CoreExtension{ VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME, VK_API_VERSION_1_3, nullptr,
+                            &VkPhysicalDeviceVulkan13Features::synchronization2 },
+             CoreExtension{ VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME, VK_API_VERSION_1_3, nullptr,
+                            &VkPhysicalDeviceVulkan13Features::dynamicRendering },
+             CoreExtension{ VK_KHR_MAINTENANCE_4_EXTENSION_NAME, VK_API_VERSION_1_3, nullptr,
+                            &VkPhysicalDeviceVulkan13Features::maintenance4 },
+             CoreExtension{ VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME, VK_API_VERSION_1_3, nullptr,
+                            &VkPhysicalDeviceVulkan13Features::subgroupSizeControl },
+        };
+
+        // The row that turns @p extension into a core feature on a device of version @p api; null when the
+        // extension is enabled by name.
+        const CoreExtension* CoreFormOf( const std::string_view extension, const uint32_t api )
+        {
+            for ( const CoreExtension& row : kCoreExtensions )
+                if ( row.Name == extension && api >= row.CoreVersion )
+                    return &row;
+            return nullptr;
+        }
 
         template <typename Table, typename Struct>
         Common::BoolResultStr SetFeatures( const Table& table, const char* const* names, const uint32_t count,
@@ -477,17 +525,42 @@ namespace Desert::Graphic::Streamline
 
         // Everything is checked before anything is enabled: a refusal leaves the device exactly as the engine
         // asked for it.
-        for ( uint32_t i = 0; i < requirements.vkNumDeviceExtensions; ++i )
-            if ( !device.is_extension_present( requirements.vkDeviceExtensions[i] ) )
-            {
-                Refuse( std::format( "'{}' lacks the device extension {} DLSS needs", device.properties.deviceName,
-                                     requirements.vkDeviceExtensions[i] ) );
-                return;
-            }
+        const uint32_t api = API::Vulkan::UsedApiVersion( device.properties.apiVersion );
+        // Streamline's own Vulkan layer keeps per-object state in private data slots (vkCreatePrivateDataSlot,
+        // the 1.3 entry point) and slGetFeatureRequirements does not list the feature: on an RTX 3070 Ti it
+        // reported 0 Vulkan 1.3 features and sl.common then failed VUID-vkCreatePrivateDataSlot-privateData-04564.
+        if ( api < VK_API_VERSION_1_3 )
+        {
+            Refuse( std::format( "'{}' is a Vulkan {} device; Streamline creates private data slots through the "
+                                 "Vulkan 1.3 entry point",
+                                 device.properties.deviceName, API::Vulkan::FormatApiVersion( api ) ) );
+            return;
+        }
         VkPhysicalDeviceVulkan12Features features12{ .sType =
                                                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
         VkPhysicalDeviceVulkan13Features features13{ .sType =
                                                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+        features13.privateData = VK_TRUE;
+        std::vector<const char*> extensionsByName;
+        for ( uint32_t i = 0; i < requirements.vkNumDeviceExtensions; ++i )
+        {
+            const char* name = requirements.vkDeviceExtensions[i];
+            if ( const CoreExtension* core = CoreFormOf( name, api ) )
+            {
+                if ( core->Feature12 != nullptr )
+                    features12.*( core->Feature12 ) = VK_TRUE;
+                if ( core->Feature13 != nullptr )
+                    features13.*( core->Feature13 ) = VK_TRUE;
+                continue;
+            }
+            if ( !device.is_extension_present( name ) )
+            {
+                Refuse( std::format( "'{}' lacks the device extension {} DLSS needs", device.properties.deviceName,
+                                     name ) );
+                return;
+            }
+            extensionsByName.push_back( name );
+        }
         if ( const auto set = SetFeatures( kFeatures12, requirements.vkFeatures12, requirements.vkNumFeatures12,
                                            features12, "1.2" );
              !set )
@@ -526,15 +599,16 @@ namespace Desert::Graphic::Streamline
             return;
         }
 
-        for ( uint32_t i = 0; i < requirements.vkNumDeviceExtensions; ++i )
-            device.enable_extension_if_present( requirements.vkDeviceExtensions[i] );
-        if ( requirements.vkNumFeatures12 != 0 )
-            device.enable_extension_features_if_present( features12 );
-        if ( requirements.vkNumFeatures13 != 0 )
-            device.enable_extension_features_if_present( features13 );
-        LOG_INFO( "[Streamline] DLSS requirements enabled on '{}' ({} device extensions, {} + {} features)",
-                  device.properties.deviceName, requirements.vkNumDeviceExtensions, requirements.vkNumFeatures12,
-                  requirements.vkNumFeatures13 );
+        for ( const char* name : extensionsByName )
+            device.enable_extension_if_present( name );
+        // Merged by vkb into the engine's own VkPhysicalDeviceVulkan12/13Features (DeviceCapsProbe.cpp enables
+        // its bits into the same two structs): one chain, no per-extension feature struct beside it.
+        device.enable_extension_features_if_present( features12 );
+        device.enable_extension_features_if_present( features13 );
+        LOG_INFO( "[Streamline] DLSS requirements enabled on '{}': {} of {} device extensions by name (the rest "
+                  "as Vulkan {} core features), {} + {} features asked, privateData for Streamline's layer",
+                  device.properties.deviceName, extensionsByName.size(), requirements.vkNumDeviceExtensions,
+                  API::Vulkan::FormatApiVersion( api ), requirements.vkNumFeatures12, requirements.vkNumFeatures13 );
     }
 
     void Runtime::AmendCatalogProbe( API::Vulkan::CatalogProbe& probe ) const
@@ -699,6 +773,21 @@ namespace Desert::Graphic::Streamline
             return Common::MakeFormattedError( "DLSS evaluate: DLSS is not ready: {}", m_Refusal );
         if ( !m_Viewports.contains( input.Viewport ) )
             return Common::MakeFormattedError( "DLSS evaluate: viewport {} was not acquired", input.Viewport );
+        // Every tagged image holds the extent it is tagged with: a smaller one is a view the graph did not size
+        // for this split, and DLSS would read or write outside it.
+        const auto holds = []( const DlssImage& image, const uint32_t width, const uint32_t height )
+        { return image.Width >= width && image.Height >= height; };
+        if ( input.RenderWidth == 0 || input.RenderHeight == 0 || input.OutputWidth == 0 || input.OutputHeight == 0 ||
+             !holds( input.Color, input.RenderWidth, input.RenderHeight ) ||
+             !holds( input.Depth, input.RenderWidth, input.RenderHeight ) ||
+             !holds( input.MotionVectors, input.RenderWidth, input.RenderHeight ) ||
+             !holds( input.Output, input.OutputWidth, input.OutputHeight ) )
+            return Common::MakeFormattedError(
+                 "DLSS evaluate (viewport {}): the view's split {}x{} -> {}x{} does not fit its images (color {}x{}, "
+                 "depth {}x{}, motion {}x{}, output {}x{})",
+                 input.Viewport, input.RenderWidth, input.RenderHeight, input.OutputWidth, input.OutputHeight,
+                 input.Color.Width, input.Color.Height, input.Depth.Width, input.Depth.Height,
+                 input.MotionVectors.Width, input.MotionVectors.Height, input.Output.Width, input.Output.Height );
 
         if ( m_TokenFrame != input.EngineFrame )
         {
@@ -750,8 +839,8 @@ namespace Desert::Graphic::Streamline
         sl::Resource                   motion   = ToSl( input.MotionVectors );
         sl::Resource                   output   = ToSl( input.Output );
         sl::Resource                   exposure = ToSl( input.Exposure );
-        const sl::Extent               render{ 0, 0, input.Color.Width, input.Color.Height };
-        const sl::Extent               full{ 0, 0, input.Output.Width, input.Output.Height };
+        const sl::Extent               render{ 0, 0, input.RenderWidth, input.RenderHeight };
+        const sl::Extent               full{ 0, 0, input.OutputWidth, input.OutputHeight };
         const sl::Extent               texel{ 0, 0, 1, 1 };
         std::array<sl::ResourceTag, 5> tags{
              sl::ResourceTag( &color, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilPresent,
@@ -771,8 +860,8 @@ namespace Desert::Graphic::Streamline
                   static_cast<uint32_t>( inputs.size() ), commandBuffer );
              result != sl::Result::eOk )
             return Common::MakeFormattedError( "slEvaluateFeature(DLSS, viewport {}, {} {}x{} -> {}x{}): {}",
-                                               input.Viewport, DlssModeName( input.Mode ), input.Color.Width,
-                                               input.Color.Height, input.Output.Width, input.Output.Height,
+                                               input.Viewport, DlssModeName( input.Mode ), input.RenderWidth,
+                                               input.RenderHeight, input.OutputWidth, input.OutputHeight,
                                                ResultName( result ) );
         return Common::MakeSuccess( true );
     }
