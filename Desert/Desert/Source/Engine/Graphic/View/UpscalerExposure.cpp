@@ -95,6 +95,6 @@ namespace Desert::Graphic
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, 1, 1, 1 );
              } );
-        return exposure;
+        return Common::MakeSuccess( exposure );
     }
 } // namespace Desert::Graphic
