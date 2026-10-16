@@ -159,9 +159,10 @@ namespace Desert::Graphic::System
             {
                 // Bit 63 set: never an entity key (entity << 24 stays below it).
                 const uint64_t key = 0x8000000000000000ull | ( HashCombine( field, i ) >> 1u );
-                addSection( key, ism.Mesh, cards, ( *ism.Transforms )[i], MeshVertexPath::Instanced,
-                            { .Instance = shading.Instance, .Surface = shading.Surface, .Hidden = ism.HiddenSubmeshes },
-                            std::nullopt );
+                addSection(
+                     key, ism.Mesh, cards, ( *ism.Transforms )[i], MeshVertexPath::Instanced,
+                     { .Instance = shading.Instance, .Surface = shading.Surface, .Hidden = ism.HiddenSubmeshes },
+                     std::nullopt );
             }
         }
         // GENERIC DRAWS (UE: every primitive is in the Lumen scene): a slot material that is not the standard
@@ -239,7 +240,8 @@ namespace Desert::Graphic::System
             for ( const SkinnedSection& skinned : data.Sections )
             {
                 const SectionShading shading = ShadingOf( skinned );
-                if ( shading.Surface == nullptr || shading.Instance == nullptr || IsTranslucent( shading.Surface ) )
+                if ( shading.Surface == nullptr || shading.Instance == nullptr ||
+                     IsTranslucent( shading.Surface ) )
                     continue;
                 if ( cards == nullptr )
                 {
@@ -253,9 +255,10 @@ namespace Desert::Graphic::System
                         built->BoundsMin = box.Min;
                         built->BoundsMax = box.Max;
                         for ( uint32_t direction = 0; direction < Assets::kCardDirections; ++direction )
-                            built->Cards.push_back( { .Center    = 0.5f * ( box.Min + box.Max ),
-                                                      .Extent    = 0.5f * ( box.Max - box.Min ),
-                                                      .Direction = static_cast<Assets::CardDirection>( direction ) } );
+                            built->Cards.push_back(
+                                 { .Center    = 0.5f * ( box.Min + box.Max ),
+                                   .Extent    = 0.5f * ( box.Max - box.Min ),
+                                   .Direction = static_cast<Assets::CardDirection>( direction ) } );
                         *cards = std::move( built );
                     }
                 }
@@ -310,7 +313,8 @@ namespace Desert::Graphic::System
                 std::vector<glm::vec4> rows;
                 if ( section.Generic != nullptr )
                 {
-                    auto& pool = m_CardCaptureOverrides[section.OverrideCell + GenericTextureKey( *section.Generic )];
+                    auto& pool =
+                         m_CardCaptureOverrides[section.OverrideCell + GenericTextureKey( *section.Generic )];
                     const uint32_t k = overridesTaken[&pool]++;
                     while ( pool.size() <= k )
                         pool.push_back( std::make_shared<DataDrivenMaterial>( section.OverrideCell ) );
@@ -369,7 +373,8 @@ namespace Desert::Graphic::System
                 CaptureFrameState( &cardView ).ApplyTo( static_cast<Material*>( material ) );
 
                 const bool twoSided = instance != nullptr ? instance->IsTwoSided() : material->IsTwoSided();
-                GraphicsPipeline* const pipeline = CullPermutation( CellPipeline( passState, *material ), twoSided );
+                GraphicsPipeline* const pipeline =
+                     CullPermutation( CellPipeline( passState, *material ), twoSided );
                 // The view-pass cells place the mesh themselves (static, generic, skinned: the ObjectMotions row;
                 // instanced: the instance transform): the push transform is the submesh's alone, as in the
                 // scene's G-buffer draw. The section's mask leaves the other sections' submeshes to their draws.
