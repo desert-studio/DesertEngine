@@ -376,10 +376,11 @@ namespace Desert::Graphic::System
         static constexpr uint32_t kMaxShadowViews         = kCascadeMovableViewBase + kMaxShadowCascades;
 
         // THE POINT AND SPOT LIGHTS' SHADOWS FOR THIS FRAME, before the graph records (SceneRenderer, after
-        // UpdateCascades): gives each light that casts a tile per view in the atlas (allocating the atlas on the
-        // first one), writes its ShadowView into its payload, fills the view table GetLocalShadowRows hands the
-        // composite, and marks the views whose cached depth is stale — a view is redrawn only when its light,
-        // its tile or a caster in its reach changed (UE: cached shadow maps of a stationary light).
+        // UpdateCascades): finds or gives each light that casts a tile per view in the SCENE's atlas
+        // (Graphic/LocalShadowCache.hpp), writes its ShadowView into its payload, fills the view table
+        // GetLocalShadowRows hands the composite, and marks the views whose cached depth is stale — a view is
+        // redrawn only when its light, its tile or a caster in its reach changed, whichever view of the scene
+        // drew it last (UE: cached shadow maps of a stationary light, on FScene).
         void UpdateLocalShadows( std::vector<ShaderProtocols::PointLightPayload>& points,
                                  const std::vector<LocalLightShadowSettings>&     pointShadows,
                                  std::vector<ShaderProtocols::SpotLightPayload>&  spots,
@@ -388,11 +389,9 @@ namespace Desert::Graphic::System
         {
             return m_LocalShadowRows;
         }
-        // The atlas's depth image (R32F), or null while no light of this view has cast a shadow.
-        [[nodiscard]] std::shared_ptr<Image2D> GetLocalShadowAtlasImage() const
-        {
-            return m_LocalAtlasFB ? m_LocalAtlasFB->GetDepthAttachmentImage() : nullptr;
-        }
+        // The scene's atlas depth image (D32F, Graphic/LocalShadowCache.hpp), or null while no light of the scene
+        // has cast a shadow or outside a BeginScene/EndScene bracket.
+        [[nodiscard]] std::shared_ptr<Image2D> GetLocalShadowAtlasImage() const;
 #if DESERT_DEV_INSTRUMENTS
         // The bounding-box lines over the lit scene, depth-tested.
         [[nodiscard]] SystemRasterPass DebugLinesPass();
@@ -1008,23 +1007,10 @@ namespace Desert::Graphic::System
             return views;
         }
 
-        // THE LOCAL LIGHTS' SHADOW STATE. The atlas (D32F depth only, the cascades' format so the caster
-        // pipelines serve it) is created on the first light that casts and lives as long as the renderer; its
-        // tiles are handed out by m_LocalAtlas and kept by a light across frames.
-        struct LocalShadowLight
-        {
-            uint32_t                                 TileSize  = 0;
-            uint32_t                                 ViewCount = 0; // 6 for a point light, 1 for a spot
-            std::array<AtlasTile, kPointShadowFaces> Tiles{};
-            // What the tiles hold: the light's views and its casters when they were drawn. nullopt = never
-            // drawn, or drawn with a caster that moves by itself (redrawn every frame).
-            std::optional<uint64_t> Signature;
-            uint64_t                LastFrame = 0;
-        };
-        std::unordered_map<uint64_t, LocalShadowLight> m_LocalLights; // key: SourceId * 2 + (spot ? 1 : 0)
-        ShadowAtlasAllocator                           m_LocalAtlas;
-        std::shared_ptr<Framebuffer>                   m_LocalAtlasFB;
-        uint64_t                                       m_LocalFrame = 0;
+        // THE LOCAL LIGHTS' SHADOW STATE OF THIS VIEW. The atlas, its tiles and what each light's tiles hold are
+        // the SCENE's (Graphic/LocalShadowCache.hpp, through SceneRenderer::GetFrameLocalShadows): every view of a
+        // scene - the reflection captures' faces too - reads one cached map per light. What stays per view is its
+        // table of rows over those tiles and the passes that redraw the stale ones.
         // This frame's table (one row per view, in view order) and the views it redraws.
         std::vector<LocalShadowViewPayload> m_LocalShadowRows;
         struct LocalShadowRedraw

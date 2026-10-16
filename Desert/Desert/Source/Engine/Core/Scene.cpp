@@ -4,6 +4,7 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Skybox/SceneSkyLight.hpp>
+#include <Engine/Graphic/LocalShadowCache.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Math/Ray.hpp>
@@ -376,7 +377,8 @@ namespace Desert::Core
 
     Scene::Scene()
          : m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>() ),
-           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>() )
+           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>() ),
+           m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>() )
     {
         LiveSceneList().push_back( this );
         m_Subsystems.Begin();
@@ -385,7 +387,8 @@ namespace Desert::Core
     Scene::Scene( std::string&& sceneName, Graphic::SceneRenderer* sceneRenderer )
          : m_SceneName( std::move( sceneName ) ),
            m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>() ),
-           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>() )
+           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>() ),
+           m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>() )
     {
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();

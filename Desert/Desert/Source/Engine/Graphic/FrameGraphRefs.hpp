@@ -86,8 +86,8 @@ namespace Desert::Graphic
         // two cubes (invalid when the scene has no baked sky) and the renderer's split-sum BRDF LUT. Never read
         // directly: a pass takes SceneViewInputsOf, which states the neutral texture for each one that is absent.
         RDG::TextureRef ShadowCascades;
-        // The view's local-light shadow atlas (MeshRenderer::GetLocalShadowAtlasImage, imported: the renderer owns
-        // it and keeps cached tiles in it across frames). Invalid while no light of the view has cast a shadow.
+        // The scene's local-light shadow atlas (MeshRenderer::GetLocalShadowAtlasImage, imported: Core::Scene owns
+        // it and keeps cached tiles in it across frames). Invalid while no light of the scene has cast a shadow.
         RDG::TextureRef                                       LocalShadowAtlas;
         RDG::TextureRef                                       EnvIrradiance;
         RDG::TextureRef                                       EnvSpecular;

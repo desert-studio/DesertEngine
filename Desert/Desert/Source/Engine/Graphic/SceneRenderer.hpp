@@ -96,6 +96,7 @@ namespace Desert::Graphic
     class FrameTextures;
     struct FrameValues;
     class ReflectionCaptureRenderer;
+    class LocalShadowCache;
 
     class SceneRenderer final
     {
@@ -157,6 +158,17 @@ namespace Desert::Graphic
         [[nodiscard]] const ShadowQuality& GetShadowQuality() const
         {
             return m_ViewProfile.Shadows;
+        }
+        // The view is a reflection capture's face (ViewProfile::SceneCapture), not a level's viewport.
+        [[nodiscard]] bool IsSceneCapture() const
+        {
+            return m_ViewProfile.SceneCapture;
+        }
+        // The cached point/spot-light shadow depth of the scene BeginScene was handed (Core::Scene owns it, one
+        // for all its views); null outside a BeginScene/EndScene bracket.
+        [[nodiscard]] LocalShadowCache* GetFrameLocalShadows() const
+        {
+            return m_FrameLocalShadows;
         }
 
         // A SCENE HAS JUST BEEN (RE)INITIALISED ON THIS RENDERER. Called from Scene::Init(), which runs on
@@ -990,6 +1002,8 @@ namespace Desert::Graphic
         // The reflection captures of the scene BeginScene was handed (Core::Scene owns them, one set for all its
         // views): published into this view's graph by OnUpdate, cleared by EndScene.
         ReflectionCaptureRenderer* m_FrameReflectionCaptures = nullptr;
+        // The scene's local-light shadow cache, the same bracket (GetFrameLocalShadows).
+        LocalShadowCache* m_FrameLocalShadows = nullptr;
 
     public:
         // --- UI glass (backdrop blur) -----------------------------------------------------------

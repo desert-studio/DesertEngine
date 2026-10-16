@@ -43,6 +43,7 @@ namespace Desert::Graphic
     class SceneRenderer;
     class ReflectionCaptureRenderer;
     class SceneSkyLight;
+    class LocalShadowCache;
     // `struct` and not `class`: the definition in Graphic/Environment/SceneEnvironment.hpp uses struct, and the
     // Microsoft C++ ABI encodes the class-key into the decorated name, so the mismatch is a Windows-only link
     // error waiting for the day this forward declaration is the one a caller sees first.
@@ -558,6 +559,14 @@ namespace Desert::Core
             return m_SkyLight;
         }
 
+        // THE SCENE'S CACHED POINT/SPOT-LIGHT SHADOW DEPTH (UE: FScene's FCachedShadowMapData per light): one
+        // atlas for every view of this scene, the reflection captures' face views included
+        // (Graphic/LocalShadowCache.hpp). Renderer state cached on the scene, like the captures.
+        [[nodiscard]] Graphic::LocalShadowCache& GetLocalShadows() const
+        {
+            return *m_LocalShadows;
+        }
+
         // VIEW 0's CAMERA. Returned BY VALUE, not by reference: the camera lives in the view list now, and
         // a reference into a vector that AddView/RemoveView reallocate is a dangling reference waiting
         // for the second viewport. Every existing `GetMainCamera().lock()` reads the same.
@@ -676,6 +685,8 @@ namespace Desert::Core
         std::unique_ptr<Graphic::ReflectionCaptureRenderer> m_ReflectionCaptures;
         // See GetSkyLight. Never null: made by both constructors. Shared so a view can hold it weakly.
         std::shared_ptr<Graphic::SceneSkyLight> m_SkyLight;
+        // See GetLocalShadows. Never null: made by both constructors.
+        std::unique_ptr<Graphic::LocalShadowCache> m_LocalShadows;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)
