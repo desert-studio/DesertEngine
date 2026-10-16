@@ -559,11 +559,25 @@ namespace Desert::Assets
         out.BoundsMin              = glm::vec3( boundsMin );
         out.BoundsMax              = glm::vec3( boundsMax );
 
-        // UE InitSurfelScene: halve the lattice while the surfels exceed the budget.
+        // UE InitSurfelScene: halve the lattice while the surfels exceed the budget. NOT UE: the cap and the
+        // budget grow with the mesh (MeshCardsBuildSettings::MaxVoxelsLarge) - UE's fixed 64 makes a 64 m mesh's
+        // voxel 1 m, and its 15-voxel cluster floor 15 m2 of surface.
         const std::vector<glm::dvec3>                    hemisphere = HemisphereDirections( 32 );
         ClusteringParams                                 params;
         std::array<std::vector<Surfel>, kCardDirections> surfels;
-        uint32_t                                         maxVoxels = std::max( 1u, settings.MaxVoxels );
+        const double                                     longest =
+             std::max( { boundsMax.x - boundsMin.x, boundsMax.y - boundsMin.y, boundsMax.z - boundsMin.z } );
+        const uint32_t floorCap = std::max( 1u, settings.MaxVoxels );
+        // A mostly two-sided mesh keeps UE's cap and budget: dense foliage is what the budget is for, and its
+        // surfels cost a hemisphere of rays each.
+        const uint32_t cap       = out.MostlyTwoSided
+                                        ? floorCap
+                                        : std::clamp( static_cast<uint32_t>( std::ceil(
+                                                     longest / std::max( settings.TargetVoxelSize, 0.01f ) ) ),
+                                                      floorCap, std::max( floorCap, settings.MaxVoxelsLarge ) );
+        const double   growth    = static_cast<double>( cap ) / floorCap;
+        const size_t   budget    = static_cast<size_t>( settings.TargetSurfels * growth * growth );
+        uint32_t       maxVoxels = cap;
         for ( ;; )
         {
             InitClusteringParams( params, boundsMin, boundsMax, maxVoxels, settings );
@@ -576,7 +590,7 @@ namespace Desert::Assets
                 total += surfels[d].size();
             }
             maxVoxels /= 2;
-            if ( total <= settings.TargetSurfels || maxVoxels <= 1 )
+            if ( total <= budget || maxVoxels <= 1 )
                 break;
         }
 
