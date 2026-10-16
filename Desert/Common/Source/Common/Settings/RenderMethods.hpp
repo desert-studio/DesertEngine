@@ -41,15 +41,17 @@ namespace Common::Scalability
         ProbeVolume,
         SoftwareTraced, // global SDF + world radiance cache + screen probes (GLOBAL-SDF, GI-RADIANCE-CACHE,
                         // GI-FINAL-GATHER)
-        HardwareTraced, // ray query: screen probes + radiance cache (GI-HWRT); RT device — not implemented
+        HardwareTraced, // ray query: screen probes + radiance cache (GI-HWRT); RT device — not connected yet:
+                        // the frame's tracer record carries no TLAS / instance MeshCards table (RefuseGIMethod)
         PathTraced,     // reference / Cinematic (PATHTRACER); RT device                  — not implemented
     };
 
     enum class ReflectionMethod : int
     {
         Off = 0,        // the sky's prefiltered environment only
-        Captures,       // sky + reflection captures, parallax-corrected (REFL-CAPTURE)   — not implemented
-        ScreenSpace,    // screen-space trace; a miss shows the sky environment
+        Captures,       // sky + reflection captures, parallax-corrected (REFL-CAPTURE: ReflectionCaptureRenderer,
+                        // composited by DeferredLighting under DESERT_REFLECTION_CAPTURES)
+        ScreenSpace,    // screen-space trace over the captures; a miss shows the captures and the sky
         SoftwareTraced, // global SDF + radiance cache (GI/REFL-SW)                       — not implemented
         HardwareTraced, // screen ray continued into the TLAS (RT-REFL); RT device        — not implemented
         PathTraced,     // reference (PATHTRACER); RT device                              — not implemented
@@ -59,7 +61,7 @@ namespace Common::Scalability
     {
         CascadedMaps = 0, // the sun's cascaded shadow maps
         VirtualMaps,      // virtual shadow maps (SHADOW-VSM)                            — not implemented
-        HardwareTraced,   // ray-query visibility (RT-SHADOWS); RT device                — not implemented
+        HardwareTraced,   // ray-query visibility (RT-SHADOWS: RayTracedSunShadow); RT device
         Stochastic,       // many-light ReSTIR DI + ray-query visibility (MEGALIGHTS)    — not implemented
     };
 
@@ -75,6 +77,9 @@ namespace Common::Scalability
     static_assert( static_cast<std::size_t>( ShadowMethod::Stochastic ) + 1 == kShadowMethodNames.size() );
 
     // ---- What this build renders. The ONE table per enum; a method's task flips its row. ----------------------
+    // GI HardwareTraced is NOT here: GITracing's ray-query tracer and its shader permutation exist, but the frame's
+    // tracer record (SceneRenderer::MakeTracerFrame) fills no TLAS, ray-tracing records or the surface cache's
+    // instance -> MeshCards table, so TracerFrameMissing would refuse every tracing pass (RefuseGIMethod says so).
     [[nodiscard]] constexpr bool IsImplemented( GIMethod method )
     {
         return method == GIMethod::Off || method == GIMethod::ScreenSpace || method == GIMethod::ProbeVolume ||
@@ -82,7 +87,8 @@ namespace Common::Scalability
     }
     [[nodiscard]] constexpr bool IsImplemented( ReflectionMethod method )
     {
-        return method == ReflectionMethod::Off || method == ReflectionMethod::ScreenSpace;
+        return method == ReflectionMethod::Off || method == ReflectionMethod::Captures ||
+               method == ReflectionMethod::ScreenSpace;
     }
     [[nodiscard]] constexpr bool IsImplemented( ShadowMethod method )
     {
@@ -120,7 +126,9 @@ namespace Common::Scalability
     }
     [[nodiscard]] constexpr bool NeedsGBuffer( ReflectionMethod method )
     {
-        return method == ReflectionMethod::ScreenSpace || method == ReflectionMethod::SoftwareTraced ||
+        // Captures too: the captures are composited by the deferred lighting only (the forward pass reads the sky).
+        return method == ReflectionMethod::Captures || method == ReflectionMethod::ScreenSpace ||
+               method == ReflectionMethod::SoftwareTraced ||
                method == ReflectionMethod::HardwareTraced || method == ReflectionMethod::PathTraced;
     }
     [[nodiscard]] constexpr bool NeedsGBuffer( ShadowMethod method )

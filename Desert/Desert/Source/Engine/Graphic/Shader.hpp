@@ -89,6 +89,14 @@ namespace Desert::Graphic
         // presented. That is an artist's typo in a shader graph, so the engine has to survive it: callers
         // ask this and skip, and the pipeline builder refuses as the last line of defence.
         [[nodiscard]] virtual bool IsCompiled() const = 0;
+        // Why THIS DEVICE cannot run the program, or empty. A program that needs a device feature the device
+        // lacks (inline ray tracing on a device without ray query, MoltenVK) is not built there at all: no module
+        // and no set layout is created, IsCompiled() is false, and this names the feature and the device. It is a
+        // refusal for the device, not a compile error: the same source builds on a device that has the feature.
+        [[nodiscard]] virtual std::string_view GetDeviceRefusal() const
+        {
+            return {};
+        }
 
         // Inline ON PURPOSE: ShaderCompiler (a device-free TU that offline cooks and tests link)
         // needs only this name mapping — defined in Shader.cpp it dragged Shader::Create and with it

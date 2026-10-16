@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <optional>
 #include <span>
 #include <string>
@@ -209,7 +210,11 @@ namespace Desert::Graphic::RDG
         // later executes in: the extractor is who holds it. For an external resource
         // @p into must be the object it was registered from, and the call only sets the final access
         // (e.g. Present for a swapchain image).
-        void Extract( TextureRef texture, ExternalTexture& into, Access final );
+        // @p later: the accesses the holder will declare on it in LATER graphs that this graph may not make
+        // (UE: the TexCreate flags of a pooled render target). The image is created for this graph's uses, its
+        // final access and these; a later graph declaring anything else faults that pass (CreatedAccessMask).
+        void Extract( TextureRef texture, ExternalTexture& into, Access final,
+                      std::initializer_list<Access> later = {} );
         void Extract( BufferRef buffer, ExternalBuffer& into, Access final );
 
         // RDG-FAULT1 C3b (UE: FRDGBuilder::QueueBufferUpload). CPU data for a buffer of this graph, the only way
@@ -394,6 +399,8 @@ namespace Desert::Graphic::RDG
             ResourceAttribution ExtractOwner;
             bool             HasFinalAccess = false;
             Access           FinalAccess    = Access::None;
+            // Extracted textures: the accesses later graphs will make (Extract's @p later), as an access mask.
+            uint32_t LaterAccessMask = 0;
             FaultDefault        Default        = FaultDefault::None; // SetFaultDefault (transients)
             ExternalFaultPolicy Policy         = ExternalFaultPolicy::KeepsContents; // SetFaultPolicy (externals)
 

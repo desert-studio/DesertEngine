@@ -162,6 +162,12 @@ namespace Desert::Graphic::RDG
         // The image itself. Set by whoever owns the texture before registering it; for an extraction
         // target, Execute sets it to the transient's image.
         std::shared_ptr<IPhysicalTexture> Physical;
+        // The accesses the image was created for (bit i = 1 << Access i), set when a graph extracts a transient
+        // into this texture (Builder::Extract): a later graph that registers it back and declares an access
+        // outside the mask faults that pass, naming it, instead of recording a command the image cannot take
+        // (UE: a pooled render target used without its TexCreate flag is an RDG validation error). 0 = an image
+        // the graph did not create (an engine framebuffer, a swapchain image); its owner states its usage.
+        uint32_t CreatedAccessMask = 0;
         // Set when the texture is imported from an engine image that records its own layout. The record never
         // disagrees with the GPU: Execute calls it after EVERY barrier batch that touches the texture (with
         // @p graphEnded false, SubresourceStates already updated to each barrier's After state), so code that

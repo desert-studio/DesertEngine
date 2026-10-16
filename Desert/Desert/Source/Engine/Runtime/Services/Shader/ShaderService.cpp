@@ -115,7 +115,10 @@ namespace Desert::Runtime
         //   * ComputePipeline::Create              refuses to build, and its caller sees the reason;
         //   * VulkanPipeline::Invalidate           refuses to build, leaving the handle null;
         //   * VulkanRendererAPI::BindGraphicsPipeline  skips every draw through that null handle.
-        if ( !shader->IsCompiled() )
+        if ( !shader->IsCompiled() && !shader->GetDeviceRefusal().empty() )
+            LOG_WARN( "[ShaderService] '{}' is not built for this device: {} ({}).", shader->GetName(),
+                         shader->GetDeviceRefusal(), shaderAsset->GetMetadata().Filepath.string() );
+        else if ( !shader->IsCompiled() )
             LOG_ERROR( "[ShaderService] '{}' registered but has no compiled stages — every material using "
                        "it will not draw until it compiles ({}).",
                        shader->GetName(), shaderAsset->GetMetadata().Filepath.string() );
