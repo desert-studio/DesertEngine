@@ -34,9 +34,6 @@ Shader "StandardSurface"
         "gltf.emissiveFactor"           -> EmissiveColor
         "gltf.emissiveTexture"          -> u_EmissiveTexture
         "gltf.emissiveStrength"         -> EmissiveIntensity
-        "gltf.alphaCutoff"              -> AlphaCutoff
-        "gltf.alphaMask"                -> u_OpacityTexture
-        "gltf.alphaMask"                -> OpacityChannel
         "gltf.uvOffset"                 -> UVOffset
         "gltf.uvScale"                  -> UVTiling
         "gltf.uvRotation"               -> UVRotation
@@ -45,7 +42,6 @@ Shader "StandardSurface"
         "fbx.NormalMap"                 -> u_NormalTexture
         "fbx.EmissiveColor"             -> EmissiveColor
         "fbx.EmissiveColor"             -> u_EmissiveTexture
-        "fbx.TransparentColor"          -> u_OpacityTexture
         "fbx.OcclusionRoughnessMetallic" -> MetallicFactor
         "fbx.RoughnessMetallic"         -> MetallicFactor
         "fbx.Metalness"                 -> MetallicFactor

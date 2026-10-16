@@ -84,9 +84,9 @@ void main()
     vec3                  skinnedBitangent;
     if ( row.SkinCacheVertexCount != 0u )
     {
-        const SkinCacheStreams streams = DesertSkinCacheStreams( row.SkinCacheAddressLo, row.SkinCacheAddressHi );
-        const uint             count   = row.SkinCacheVertexCount;
-        const uint             vertex  = uint( gl_VertexIndex );
+        SkinCacheStreams streams = DesertSkinCacheStreams( row.SkinCacheAddressLo, row.SkinCacheAddressHi );
+        const uint       count   = row.SkinCacheVertexCount;
+        const uint       vertex  = uint( gl_VertexIndex );
         posed                          = DesertSkinCachePosition( streams, vertex );
         prevPosed                      = DesertSkinCachePrevPosition( streams, count, vertex );
         skinnedNormal                  = DesertSkinCacheFrame( streams, count, vertex, 0u );
@@ -117,8 +117,11 @@ void main()
     // Light view (shadow depth, RSM): the cached pose when the push block names streams, else the pass's palette.
     const mat4 model = m_PushConstants.Transform;
     vec3       posed;
-#ifdef DESERT_SURFACE_HAS_VARYINGS
+#if defined( DESERT_SURFACE_HAS_VARYINGS ) || defined( DESERT_SURFACE_PASS_ShadowDepth )
+    // The depth pass's slope bias reads it too, so it is posed in both branches below.
     vec3 skinnedNormal;
+#endif
+#ifdef DESERT_SURFACE_HAS_VARYINGS
     vec3 skinnedTangent;
     vec3 skinnedBitangent;
 #endif
@@ -136,11 +139,13 @@ void main()
 #endif
     if ( cacheCount != 0u )
     {
-        const SkinCacheStreams streams = DesertSkinCacheStreams( cacheAddrLo, cacheAddrHi );
-        const uint             vertex  = uint( gl_VertexIndex );
+        SkinCacheStreams streams = DesertSkinCacheStreams( cacheAddrLo, cacheAddrHi );
+        const uint       vertex  = uint( gl_VertexIndex );
         posed                          = DesertSkinCachePosition( streams, vertex );
+#if defined( DESERT_SURFACE_HAS_VARYINGS ) || defined( DESERT_SURFACE_PASS_ShadowDepth )
+        skinnedNormal = DesertSkinCacheFrame( streams, cacheCount, vertex, 0u );
+#endif
 #ifdef DESERT_SURFACE_HAS_VARYINGS
-        skinnedNormal    = DesertSkinCacheFrame( streams, cacheCount, vertex, 0u );
         skinnedTangent   = DesertSkinCacheFrame( streams, cacheCount, vertex, 1u );
         skinnedBitangent = DesertSkinCacheFrame( streams, cacheCount, vertex, 2u );
 #endif
@@ -153,9 +158,11 @@ void main()
                           DESERT_SKIN_MATRIX( b, a_BoneIndices.z ) * a_BoneWeights.z +
                           DESERT_SKIN_MATRIX( b, a_BoneIndices.w ) * a_BoneWeights.w;
         posed           = ( skin * vec4( a_Position, 1.0 ) ).xyz;
+#if defined( DESERT_SURFACE_HAS_VARYINGS ) || defined( DESERT_SURFACE_PASS_ShadowDepth )
+        skinnedNormal = mat3( skin ) * a_Normal;
+#endif
 #ifdef DESERT_SURFACE_HAS_VARYINGS
         const mat3 skin3 = mat3( skin );
-        skinnedNormal    = skin3 * a_Normal;
         skinnedTangent   = skin3 * a_Tangent;
         skinnedBitangent = skin3 * a_Bitangent;
 #endif
@@ -187,7 +194,7 @@ void main()
 #ifdef DESERT_SURFACE_PASS_ShadowDepth
     // The caster's slope depth bias, from the skinned vertex normal (UE: ShadowDepthVertexShader.usf).
     gl_Position = ShadowCasterSlopeBias( gl_Position, cameraUB.JitteredViewProjection,
-                                         transpose( inverse( mat3( model ) ) ) * ( mat3( skin ) * a_Normal ),
+                                         transpose( inverse( mat3( model ) ) ) * skinnedNormal,
                                          cameraUB.ShadowSlopeBias, cameraUB.ShadowSlopeClamp );
 #endif
 }
