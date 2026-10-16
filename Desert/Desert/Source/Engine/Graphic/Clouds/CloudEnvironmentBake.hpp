@@ -226,6 +226,14 @@ namespace Desert::Graphic
      *   * THE MODELLING REGION'S ORIGIN, for the same reason and one more: it follows the CAMERA, snapped
      *     to the lump lattice, so a fingerprint that included it would idle the device every time a player
      *     walked three kilometres.
+     *   * THE FAR PATH'S STATISTICS (FarPresence / FarProfile), for the origin's reason: they are measured
+     *     over the coarsest clip level's WINDOW, which follows the camera, and recomputed every time that
+     *     level scrolls -- the same field over a shifted window, equal to the last bits of a float sum or
+     *     to the lattice's sampling noise. In the key they started a whole time-sliced recapture of the sky
+     *     light at every scroll (measured on Clouds_Protocol: the camera placed at the shot's start moved
+     *     the window by 47 m, FarProfile changed in its last bit, and 54 frames of capture followed for a
+     *     ground that moved 0.06 grey levels). What decides the field they describe -- the procedural
+     *     parameters -- reaches the key as @p shapeGeneration.
      *
      * What IS in it is everything else the march reads — density, extinction, albedo, the phase, the
      * multiple-scattering series, the fades, the four species' materials, the layer's envelope and the
@@ -286,6 +294,10 @@ namespace Desert::Graphic
             level.x = 0.0f;
             level.y = 0.0f;
         }
+        for ( glm::vec4& band : key.FarPresence )
+            band = glm::vec4( 0.0f );
+        for ( glm::vec4& band : key.FarProfile )
+            band = glm::vec4( 0.0f );
 
         // FNV-1a over the block's bytes. The block is packed to exactly 268 bytes with no padding (the
         // static_asserts in CloudPayload.hpp pin every offset), so there are no uninitialised holes for
