@@ -11,7 +11,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <optional>
 
 namespace Desert::Graphic::System
 {
@@ -22,8 +21,8 @@ namespace Desert::Graphic::System
     //   Init   : silhouette mask        -> seed[0]
     //   Step xN: seed[i%2]              -> seed[(i+1)%2]   (ping-pong, halving step length)
     //   Final  : seed[N%2]              -> blended over the DISPLAY image (the outline band only)
-    // The two seeds are transients of that graph (Builder::CreateTexture with GetSeedDesc); the renderer keeps
-    // no image at all.
+    // The mask is the silhouette pass's target and the two seeds are transients of that graph
+    // (Builder::CreateTexture with GetSeedDesc, sized from the mask's desc); the renderer keeps no image at all.
     //
     // AN EDITOR OVERLAY AFTER THE TONEMAP (UE EPass::SelectionOutline, composited after the tonemap and FXAA and
     // before EPass::EditorPrimitive). The selection depth is the scene's own: the silhouette mask MeshRenderer
@@ -39,28 +38,26 @@ namespace Desert::Graphic::System
 
         // JFA is added to the frame graph by SceneRenderer (AddFrameJumpFlood), not through the phase graph.
 
-        // False: nothing can be recorded this frame (the scene framebuffer is gone); the error is logged.
+        // False: nothing can be recorded this frame (a pipeline or the composite material is missing); logged.
         [[nodiscard]] bool Prepare() const;
-        // The chain (Init, the ~log2(width) steps, Final) runs when the outline is enabled, the silhouette mask
-        // exists and something is outlined this frame; otherwise the frame graph gets no outline node at all.
+        // The chain (Init, the ~log2(width) steps, Final) runs when the outline is enabled and something is
+        // outlined this frame; otherwise the frame graph gets no outline node at all.
         [[nodiscard]] bool Runs() const;
-        // ~log2 of this frame's scene size (the seeds are sized from it).
-        [[nodiscard]] uint32_t GetStepCount() const;
+        // ~log2 of the seeds' size (@p seed: GetSeedDesc's result).
+        [[nodiscard]] static uint32_t GetStepCount( const RDG::TextureDesc& seed );
         // Step @p step samples seed[GetStepSource(step)] and writes the other seed.
         static uint32_t GetStepSource( uint32_t step )
         {
             return step % 2;
         }
-        // The seed the composite samples: the last step's target.
-        [[nodiscard]] uint32_t GetFinalSeedIndex() const
+        // The seed the composite samples: the last of @p stepCount steps' target.
+        [[nodiscard]] static uint32_t GetFinalSeedIndex( uint32_t stepCount )
         {
-            return GetStepCount() % 2;
+            return stepCount % 2;
         }
-        // The seed transients of this frame: the scene's size, ViewTargetFormats::kJFASeed. Nullopt: the scene
-        // framebuffer is gone (logged).
-        [[nodiscard]] std::optional<RDG::TextureDesc> GetSeedDesc() const;
-
-        [[nodiscard]] std::shared_ptr<Image2D> GetMaskImage() const;
+        // The seed transients of this frame: @p mask's size (the silhouette mask, drawn at the scene's extent),
+        // ViewTargetFormats::kJFASeed.
+        [[nodiscard]] static RDG::TextureDesc GetSeedDesc( const RDG::TextureDesc& mask );
 
         // Each records one fullscreen triangle inside the render pass the frame graph opens on its target:
         // Init on seed[0], Step on the seed GetStepSource does not name, Final on the display image (the tonemap's
@@ -69,22 +66,17 @@ namespace Desert::Graphic::System
         // Init: the silhouette @p mask -> seed[0].
         void DeclareInitBindings( RDG::PassBuilder& pass, RDG::TextureRef mask ) const;
         [[nodiscard]] Common::BoolResultStr RecordInit( const RDG::PassContext& context );
-        // Step @p step: @p source (seed[GetStepSource(step)]) -> the other seed, sampling 2^(N-1-step) texels
-        // away.
+        // Step @p step of @p stepCount: @p source (seed[GetStepSource(step)]) -> the other seed, sampling
+        // 2^(stepCount-1-step) texels away.
         void DeclareStepBindings( RDG::PassBuilder& pass, RDG::TextureRef source ) const;
-        [[nodiscard]] Common::BoolResultStr RecordStep( const RDG::PassContext& context, uint32_t step );
+        [[nodiscard]] Common::BoolResultStr RecordStep( const RDG::PassContext& context, uint32_t step,
+                                                        uint32_t stepCount );
         // Final: the band around @p seed (the last step's seed) blended over the display image. The composite's
         // uniform block is filled by FillFinalMaterial (@p displayGamma: the view's Film Gamma, the output device
         // the tonemap encoded for), called in the setup before the declaration.
         void FillFinalMaterial( float displayGamma );
         void DeclareFinalBindings( RDG::PassBuilder& pass, RDG::TextureRef seed ) const;
         [[nodiscard]] Common::BoolResultStr RecordFinal( const RDG::PassContext& context );
-
-        // The silhouette mask is produced by MeshRenderer; wired once after both systems init.
-        void SetMaskFramebuffer( const std::weak_ptr<Framebuffer>& maskFramebuffer )
-        {
-            m_MaskFramebuffer = maskFramebuffer;
-        }
 
         void SetOutlineColor( const glm::vec3& color )
         {
@@ -124,8 +116,6 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache      m_InitLayout; // the three shaders' layouts, kept between frames
         mutable ShaderBindingLayoutCache      m_StepLayout;
         mutable ShaderBindingLayoutCache      m_FinalLayout;
-
-        std::weak_ptr<Framebuffer> m_MaskFramebuffer;
 
         glm::vec3 m_OutlineColor = glm::vec3( 1.0f, 0.5f, 0.0f );
         float     m_OutlineWidth = 4.0f;

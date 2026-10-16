@@ -158,6 +158,101 @@ namespace Desert::Graphic
         return bytes;
     }
 
+    // ---- EyeAdaptationHistory -------------------------------------------------------------------------------
+
+    RDG::TextureDesc EyeAdaptationHistory::Desc()
+    {
+        return RDG::TextureDesc{ .Size = { .Width = 1, .Height = 1 }, .Format = Core::Formats::ImageFormat::RGBA32F };
+    }
+
+    RDG::TextureRef EyeAdaptationHistory::RegisterPrevious( RDG::Builder& graph )
+    {
+        m_Created    = false;
+        m_WriterPass = UINT32_MAX;
+        if ( !m_HasPrevious || !m_Slots[m_PreviousSlot].Physical )
+            return {};
+        return graph.RegisterExternal( m_Slots[m_PreviousSlot], "AutoExposure.Previous" );
+    }
+
+    RDG::TextureRef EyeAdaptationHistory::CreateCurrent( RDG::Builder& graph )
+    {
+        // The other slot: what it held is two frames old and nothing registers it any more. Emptied first, so
+        // a frame whose extraction does not happen leaves no stale image in it.
+        RDG::ExternalTexture& next = m_Slots[m_PreviousSlot ^ 1u];
+        next                       = RDG::ExternalTexture{};
+        const RDG::TextureRef current = graph.CreateTexture( Desc(), "AutoExposure.Adapted" );
+        graph.SetFaultDefault( current, RDG::FaultDefault::White );
+        graph.Extract( current, next, RDG::Access::SampledCompute );
+        m_Created    = true;
+        m_WriterPass = UINT32_MAX;
+        return current;
+    }
+
+    void EyeAdaptationHistory::SetWriterPass( const uint32_t writerPass )
+    {
+        m_WriterPass = writerPass;
+    }
+
+    void EyeAdaptationHistory::EndFrame( const RDG::ExecuteReport& report )
+    {
+        if ( !m_Created )
+            return; // no auto-exposure this frame: the previous luminance stays what the next one adapts from
+        m_Created = false;
+        const bool lost = m_WriterPass == UINT32_MAX ||
+                          std::ranges::find( report.FaultCulled, m_WriterPass ) != report.FaultCulled.end();
+        const uint32_t next = m_PreviousSlot ^ 1u;
+        if ( lost || !m_Slots[next].Physical )
+        {
+            // Nothing trustworthy was written: the next frame has no previous and snaps to its own measurement.
+            m_HasPrevious = false;
+            return;
+        }
+        m_PreviousSlot = next;
+        m_HasPrevious  = true;
+    }
+
+    void EyeAdaptationHistory::Reset()
+    {
+        m_Slots        = {};
+        m_PreviousSlot = 0;
+        m_HasPrevious  = false;
+        m_Created      = false;
+        m_WriterPass   = UINT32_MAX;
+    }
+
+    uint64_t EyeAdaptationHistory::HeldBytes() const
+    {
+        uint64_t bytes = 0;
+        for ( const RDG::ExternalTexture& slot : m_Slots )
+            if ( slot.Physical )
+                bytes += TextureBytes( Desc() );
+        return bytes;
+    }
+
+    // ---- ViewOutputTexture ----------------------------------------------------------------------------------
+
+    void ViewOutputTexture::Prepare( const ViewExtent extent )
+    {
+        if ( extent == m_Extent )
+            return;
+        m_Extent = extent;
+        m_Image.reset();
+    }
+
+    const std::shared_ptr<Image2D>& ViewOutputTexture::GetImage() const
+    {
+        return m_Image;
+    }
+
+    uint64_t ViewOutputTexture::HeldBytes() const
+    {
+        if ( !m_Image )
+            return 0;
+        return TextureBytes(
+             RDG::TextureDesc{ .Size   = { .Width = m_Extent.Width, .Height = m_Extent.Height },
+                               .Format = ViewTargetFormats::kTonemap } );
+    }
+
     // ---- SceneViewState -------------------------------------------------------------------------------------
 
     Common::ResultStr<ViewFrame> SceneViewState::BeginFrame( const ViewInputs&        inputs,
@@ -321,6 +416,16 @@ namespace Desert::Graphic
         return m_Motion;
     }
 
+    EyeAdaptationHistory& SceneViewState::EyeAdaptation()
+    {
+        return m_EyeAdaptation;
+    }
+
+    ViewOutputTexture& SceneViewState::Output()
+    {
+        return m_Output;
+    }
+
     void SceneViewState::EndFrame( const RDG::ExecuteReport& report )
     {
         m_Committed               = m_Pending;
@@ -333,12 +438,16 @@ namespace Desert::Graphic
         m_PendingFaultReset       = m_History.LostToFault( report );
         m_History.Swap();
         m_Motion.EndFrame();
+        m_EyeAdaptation.EndFrame( report );
     }
 
     void SceneViewState::Reset()
     {
         m_History.Release();
         m_Motion.Clear();
+        // The adapted luminance is a history like the others; the output is not (the view keeps showing its
+        // last picture until the next frame writes it).
+        m_EyeAdaptation.Reset();
         m_HasCommitted            = false;
         m_Pending                 = ViewFrame{};
         m_Committed               = ViewFrame{};
@@ -351,6 +460,6 @@ namespace Desert::Graphic
 
     uint64_t SceneViewState::HeldBytes() const
     {
-        return m_History.HeldBytes();
+        return m_History.HeldBytes() + m_EyeAdaptation.HeldBytes() + m_Output.HeldBytes();
     }
 } // namespace Desert::Graphic

@@ -9,30 +9,17 @@ namespace Desert::Graphic::System
 {
     Common::BoolResultStr TonemapRenderer::Initialize()
     {
-        const auto& targetFramebuffer = m_TargetFramebuffer.lock();
-        if ( !targetFramebuffer )
-        {
-            DESERT_VERIFY( false );
-        }
-
         constexpr std::string_view debugName = "SceneToneMap";
 
-        // Framebuffer
-        FramebufferSpecification fbSpec;
-        fbSpec.DebugName = debugName;
-        fbSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kTonemap );
-
-        m_Framebuffer = Graphic::Framebuffer::Create( fbSpec );
-        m_Framebuffer->Resize( targetFramebuffer->GetFramebufferWidth(),
-                               targetFramebuffer->GetFramebufferHeight() );
-
-        // Pipeline
         const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SceneComposite" );
 
+        // No framebuffer: the target is a graph texture (the view's output or a transient of the same format),
+        // and the pipeline is built against the graph's render pass for that one colour target.
         Graphic::GraphicsPipelineSpecification pipeSpec;
-        pipeSpec.DebugName   = debugName;
-        pipeSpec.Framebuffer = m_Framebuffer;
-        pipeSpec.Shader      = shader;
+        pipeSpec.DebugName = debugName;
+        pipeSpec.TargetLayout =
+             RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kTonemap }, .DepthFormat = std::nullopt };
+        pipeSpec.Shader = shader;
 
         // shader is whatever GetByName returned, INCLUDING nullptr — this site never checked, and a
         // null shader used to be dereferenced inside the backend. Create's rule names it now.
@@ -44,12 +31,6 @@ namespace Desert::Graphic::System
         m_MaterialTonemap = std::make_unique<MaterialTonemap>();
 
         return BOOLSUCCESS;
-    }
-
-    void TonemapRenderer::Resize( uint32_t width, uint32_t height )
-    {
-        if ( m_Framebuffer )
-            m_Framebuffer->Resize( width, height );
     }
 
     void TonemapRenderer::DeclareBindings( RDG::PassBuilder& pass, const GraphInputs& inputs ) const
@@ -102,10 +83,6 @@ namespace Desert::Graphic::System
     {
         if ( !m_Pipeline || !m_MaterialTonemap )
             return Common::MakeError( "PostFX: Tonemap: the tonemap pipeline is not initialised" );
-        const auto& framebuffer =
-             m_TargetFramebuffer.lock(); // We call lock internally to avoid cyclic dependencies.
-        if ( !framebuffer )
-            return Common::MakeError( "TonemapRenderer: the source framebuffer was destroyed or wasn't set up" );
 
         const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,

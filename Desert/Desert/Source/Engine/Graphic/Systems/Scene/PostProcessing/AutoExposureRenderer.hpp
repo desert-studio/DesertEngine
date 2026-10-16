@@ -8,7 +8,6 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
-#include <array>
 #include <memory>
 
 namespace Desert::Graphic::System
@@ -16,8 +15,10 @@ namespace Desert::Graphic::System
     // Eye-adaptation via a COMPUTE log-luminance histogram (UE/Frostbite-style): each frame clears a
     // 256-bin histogram, builds it from the full HDR scene (atomic adds), then resolves it to an average
     // luminance with percentile clipping (rejects bright/dark outliers) and temporally adapts a 1x1
-    // luminance image that tonemap turns into exposure. Replaces the old 8x8-grid fragment pass. Runs in
-    // the explicit post-process chain (before tonemap), outside any render pass.
+    // luminance that tonemap turns into exposure. Runs in the explicit post-process chain (before tonemap),
+    // outside any render pass. It keeps no image: the luminance it adapts from and the one it writes are the
+    // VIEW's (SceneViewState::EyeAdaptation, UE FSceneViewState::EyeAdaptation) - last frame's registered into
+    // the graph, this frame's a transient of the graph extracted into the view.
     class AutoExposureRenderer final : public RenderSystem
     {
     public:
@@ -36,10 +37,8 @@ namespace Desert::Graphic::System
         }
 
         // Three compute nodes of the frame graph (SceneRendererFramePostFX.cpp "PostFX: AutoExposure*"). Prepare
-        // runs when the graph is built: it advances the 1x1 ping-pong, so GetAdaptedLuminanceImage() is the image
-        // this frame's RecordAverage writes and GetPreviousLuminanceImage() the one it adapts from. False:
-        // nothing to record (no scene colour or pipelines), and the ping-pong does not move.
-        bool Prepare();
+        // runs when the graph is built. False: nothing to record (no scene colour or pipelines).
+        [[nodiscard]] bool Prepare() const;
         // Each node's SETUP declares its one block (block 0; the pipeline is the only other route, no material)
         // and its EXEC dispatches from that block plus this frame's push constants.
         // 1) Zero @p histogram ("Histogram", StorageWrite).
@@ -60,8 +59,8 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr RecordHistogram( const RDG::PassContext& context, uint32_t width,
                                                              uint32_t height );
         // 3) Percentile-clipped average + temporal adaptation: reads @p histogram, samples @p previous (the
-        //    imported GetPreviousLuminanceImage(), PointClamp at its one texel), writes @p adapted (the imported
-        //    GetAdaptedLuminanceImage()).
+        //    view's last adapted luminance, PointClamp at its one texel), writes @p adapted (this frame's
+        //    transient, EyeAdaptationHistory::CreateCurrent).
         void DeclareAverageBindings( RDG::PassBuilder& pass, RDG::BufferRef histogram, RDG::TextureRef previous,
                                      RDG::TextureRef adapted ) const;
         [[nodiscard]] Common::BoolResultStr RecordAverage( const RDG::PassContext& context );
@@ -70,10 +69,6 @@ namespace Desert::Graphic::System
         {
             const auto scene = m_TargetFramebuffer.lock();
             return scene ? scene->GetColorAttachmentImage() : nullptr;
-        }
-        [[nodiscard]] const std::shared_ptr<Image2D>& GetPreviousLuminanceImage() const
-        {
-            return m_LumImage[1 - m_ReadIndex];
         }
         void Resize( uint32_t, uint32_t )
         {
@@ -111,18 +106,8 @@ namespace Desert::Graphic::System
             m_Settings = settings;
         }
 
-        // The 1x1 image holding the latest adapted luminance (sampled by tonemap); after Prepare, the one this
-        // frame writes.
-        const std::shared_ptr<Image2D>& GetAdaptedLuminanceImage() const
-        {
-            return m_LumImage[m_ReadIndex];
-        }
-
     private:
         bool CreateResources();
-
-        // History (read by the next frame's Average and by the tonemap): stays external, imported every frame.
-        std::array<std::shared_ptr<Image2D>, 2> m_LumImage; // ping-pong 1x1
 
         std::shared_ptr<ComputePipeline> m_ClearPipeline;
         std::shared_ptr<ComputePipeline> m_HistogramPipeline;
@@ -131,7 +116,6 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache m_HistogramLayout;
         mutable ShaderBindingLayoutCache m_AverageLayout;
 
-        int m_ReadIndex = 0; // holds the latest adapted luminance; Prepare points it at this frame's write
         // Set by OnSceneReplaced, consumed and cleared by the next RecordAverage — see that override.
         bool                      m_SnapNextAdaptation = false;
         float                     m_DeltaSeconds       = 0.0f;

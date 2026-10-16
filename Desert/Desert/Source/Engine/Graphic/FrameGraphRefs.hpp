@@ -52,6 +52,12 @@ namespace Desert::Graphic
         RDG::TextureRef Bloom;          // BloomRenderer chain (mip 0 read)   -> Tonemap
         RDG::TextureRef LightShafts;    // LightShaftRenderer result          -> Tonemap
         RDG::TextureRef LensFlare;      // LensFlareRenderer result           -> Tonemap
+        // This frame's adapted luminance (1x1, SceneViewState::EyeAdaptation::CreateCurrent), extracted into the
+        // view for the next frame; invalid when no auto-exposure runs   -> bloom, lens flare, tonemap
+        RDG::TextureRef AdaptedLuminance;
+        // The outlined meshes' mask (MeshRenderer's silhouette pass target), set by AddFrameSilhouette; invalid
+        // when the pass was not added                                      -> Jump Flood outline
+        RDG::TextureRef SilhouetteMask;
         RDG::TextureRef SSAO;           // SSAO factor                        -> deferred lighting
         RDG::TextureRef SceneColorCopy; // scene snapshot                     -> glass refraction
         // The opaque scene's device depth (the G-buffer depth, reversed-Z), set by the deferred composite; invalid

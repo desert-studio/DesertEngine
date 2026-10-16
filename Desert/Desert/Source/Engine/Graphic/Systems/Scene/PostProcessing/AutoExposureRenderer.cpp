@@ -79,22 +79,6 @@ namespace Desert::Graphic::System
 
     bool AutoExposureRenderer::CreateResources()
     {
-        const auto makeLum = [&]( const std::string& tag )
-        {
-            Core::Formats::Image2DSpecification spec = {
-                 .Tag        = tag,
-                 .Width      = 1,
-                 .Height     = 1,
-                 .Format     = Core::Formats::ImageFormat::RGBA32F,
-                 .Mips       = 1u,
-                 .Usage      = Core::Formats::Image2DUsage::Image2D,
-                 .Properties = Core::Formats::Storage | Core::Formats::Sample,
-            };
-            return Image2D::Create( spec );
-        };
-        m_LumImage[0] = makeLum( "AEAdaptedLum0" );
-        m_LumImage[1] = makeLum( "AEAdaptedLum1" );
-
         const auto shaderService = Runtime::ResourceRegistry::GetShaderService();
         const auto make          = [&]( const std::string& name ) -> std::shared_ptr<ComputePipeline>
         {
@@ -116,15 +100,12 @@ namespace Desert::Graphic::System
         m_HistogramPipeline = make( "AEHistogram" );
         m_AveragePipeline   = make( "AEAverage" );
 
-        return m_LumImage[0] && m_LumImage[1] && m_ClearPipeline && m_HistogramPipeline && m_AveragePipeline;
+        return m_ClearPipeline && m_HistogramPipeline && m_AveragePipeline;
     }
 
-    bool AutoExposureRenderer::Prepare()
+    bool AutoExposureRenderer::Prepare() const
     {
-        if ( !GetSceneColorImage() || !m_ClearPipeline || !m_HistogramPipeline || !m_AveragePipeline )
-            return false;
-        m_ReadIndex = 1 - m_ReadIndex; // this frame writes the other image and adapts from the last one
-        return true;
+        return GetSceneColorImage() && m_ClearPipeline && m_HistogramPipeline && m_AveragePipeline;
     }
 
     void AutoExposureRenderer::DeclareClearBindings( RDG::PassBuilder& pass, RDG::BufferRef histogram ) const

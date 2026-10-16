@@ -2519,7 +2519,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     declares( "OnUpdate",
               { "overlay.IsValid()?std::vector<RDG::TextureRef>{overlay.Color}:sceneColor()",
                 "AddExtensionPoint(graph,textures,RDG::ExtensionPoint::Overlay,overlay);",
-                "AddFrameEditorPrimitives(graph,textures,overlay);",
+                "AddFrameEditorPrimitives(graph,textures,overlay,display);",
                 "AddExtensionPoint(graph,textures,RDG::ExtensionPoint::UI,overlay);",
                 // The one resolution function, the render set resized to the frame's split, the velocity at it.
                 "ResolveViewResolution(m_ViewExtent,m_Quality.As<int>(Parameter::RenderScalePercent),m_DebugView."
@@ -2532,19 +2532,21 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
               { "targets->Colors[0]=overlay.Color;", "targets->Colors[kSceneTargetVelocitySlot]=overlay.Velocity;",
                 "targets->Depth=overlay.Depth;", "targets->Resolves={};" } );
     // TWO EXTENT SETS: ResizeRenderTargets sizes the Render set (scene target, G-buffer, depth resolve, mask,
-    // overdraw); Resize sizes the Output set (tonemap, FXAA, SMAA) and hands the render set its split. The outline
-    // keeps no image (its seeds are graph transients).
+    // overdraw); Resize hands the render set its split. The Output set keeps no renderer image: the tonemap, FXAA
+    // and SMAA write graph transients and the view's output (SceneViewState::Output, made at the frame's output
+    // extent by OnUpdate); the outline's seeds are graph transients too.
     declares( "ResizeRenderTargets", { "m_TargetFramebuffer->Resize(width,height);",
                                        "m_GBuffer->Resize(width,height);", "resolve->Resize(width,height);",
                                        "maskFb->Resize(width,height);", "overdrawFb->Resize(width,height);" } );
-    declares( "Resize", { "m_RenderSystems[\"TonemapSystem\"])->Resize(width,height);",
-                          "m_RenderSystems[\"FXAASystem\"])->Resize(width,height);",
-                          "m_RenderSystems[\"SMAASystem\"])->Resize(width,height);",
-                          "ResizeRenderTargets(split.GetValue().Render);" } );
+    declares( "Resize", { "ResizeRenderTargets(split.GetValue().Render);" } );
+    declares( "OnUpdate", { "m_ViewState.Output().Prepare(frame.Split.Output);" } );
     {
         const std::string resize = squeeze( bodyOf( "Resize" ) );
         EXPECT_EQ( resize.find( "m_TargetFramebuffer->Resize(" ), std::string::npos )
              << "Resize sizes the scene target itself: the render set is ResizeRenderTargets'";
+        for ( const char* system : { "TonemapSystem", "FXAASystem", "SMAASystem" } )
+            EXPECT_EQ( resize.find( system ), std::string::npos )
+                 << "Resize sizes an image of " << system << ": the post chain keeps none";
         const std::string render = squeeze( bodyOf( "ResizeRenderTargets" ) );
         EXPECT_EQ( render.find( "TonemapSystem" ), std::string::npos )
              << "ResizeRenderTargets sizes the tonemap target: it is in the output set";

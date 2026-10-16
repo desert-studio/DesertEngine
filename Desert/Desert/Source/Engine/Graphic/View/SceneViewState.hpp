@@ -273,6 +273,75 @@ namespace Desert::Graphic
         std::vector<uint32_t>                                m_RegisteredCurrent; // RDG indices of this frame
     };
 
+    // ---- THE VIEW'S EYE ADAPTATION (UE: FSceneViewState::EyeAdaptation) -------------------------------------
+    // The adapted luminance the auto-exposure resolves each frame and the next frame adapts from: a view history,
+    // owned by the view, never by the renderer that writes it (two views adapt independently). UE's protocol:
+    // the previous frame's texture is REGISTERED into the graph at the start of the frame, this frame's value is
+    // a TRANSIENT of the graph (every reader - bloom, tonemap, lens flare - takes its ref) and is EXTRACTED at the
+    // end of the frame into the view, where the next frame registers it.
+    //
+    // Two extraction targets alternate: the one registered this frame (Previous) cannot also receive this
+    // frame's transient (Builder::Extract refuses a second ExternalTexture for a registered resource), and the
+    // object a graph points at must outlive Execute. EndFrame commits the new one only when its writer survived;
+    // otherwise the next frame has no previous and the auto-exposure snaps to its own measurement (UE's
+    // EyeAdaptation_ForceTarget), as on the first frame.
+    class EyeAdaptationHistory
+    {
+    public:
+        // The texture of one adapted luminance: 1x1 RGBA32F, written by storage (AEAverage) and sampled.
+        [[nodiscard]] static RDG::TextureDesc Desc();
+
+        // Last frame's adapted luminance, registered into @p graph as "AutoExposure.Previous"; invalid when there
+        // is none (first frame, Reset, a lost writer). At most one call per graph.
+        [[nodiscard]] RDG::TextureRef RegisterPrevious( RDG::Builder& graph );
+        // This frame's adapted luminance: a transient of @p graph ("AutoExposure.Adapted", fault default White -
+        // a reader whose writer faulted reads luminance 1 and the next frame snaps) extracted into the view for
+        // the next frame. @p writerPass: the AddPass index of the pass that writes it (Builder::GetPassCount()
+        // before that AddPass), whose loss EndFrame checks. At most one call per graph.
+        [[nodiscard]] RDG::TextureRef CreateCurrent( RDG::Builder& graph );
+        void                          SetWriterPass( uint32_t writerPass );
+
+        // After Execute succeeded: the extracted luminance becomes the previous one, unless its writer was culled
+        // by a fault (@p report) or this frame created none. A frame that never executed (FrameFault) never
+        // reaches it: the previous slot is untouched and the next frame registers it again.
+        void EndFrame( const RDG::ExecuteReport& report );
+        void Reset();
+
+        [[nodiscard]] uint64_t HeldBytes() const;
+
+    private:
+        std::array<RDG::ExternalTexture, 2> m_Slots;
+        uint32_t                            m_PreviousSlot = 0;
+        bool                                m_HasPrevious  = false;
+        bool                                m_Created      = false; // CreateCurrent ran for the open frame
+        uint32_t                            m_WriterPass   = UINT32_MAX;
+    };
+
+    // ---- THE VIEW'S OUTPUT (UE: the view family's render target) --------------------------------------------
+    // The one image of the view that outlives its graph: what the editor viewport, a preview, a capture and the
+    // runtime blit sample after the frame (SceneRenderer::GetFinalImage). Each frame the graph imports it and the
+    // LAST pass of the post chain writes it (the tonemap, or the spatial AA after it; UE's OverrideOutput), the
+    // editor overlays draw over it, and the graph extracts it in the state its readers sample it in. Every image
+    // the post chain makes before that last pass is a transient of the graph; no renderer keeps an output.
+    class ViewOutputTexture
+    {
+    public:
+        // Display extent and format (ViewTargetFormats::kTonemap). Same as held -> kept; otherwise the image is
+        // dropped and AllocatePhysical makes the new one.
+        void Prepare( ViewExtent extent );
+        // THE DEVICE STEP (TemporalHistoryPhysical.cpp): the image of the prepared extent, a sampled colour
+        // attachment, made through @p images when there is none. Nothing prepared or already made -> success.
+        [[nodiscard]] Common::BoolResultStr AllocatePhysical( const IImageFactory& images );
+        // Null until the first AllocatePhysical.
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetImage() const;
+
+        [[nodiscard]] uint64_t HeldBytes() const;
+
+    private:
+        ViewExtent               m_Extent{};
+        std::shared_ptr<Image2D> m_Image;
+    };
+
     class ITemporalUpscaler;
 
     // ---- THE VIEW STATE ------------------------------------------------------------------------------------
@@ -295,7 +364,9 @@ namespace Desert::Graphic
                                                                const ITemporalUpscaler* upscaler );
 
         [[nodiscard]] TemporalHistory& History();
-        [[nodiscard]] MotionHistory&   Motion();
+        [[nodiscard]] MotionHistory&        Motion();
+        [[nodiscard]] EyeAdaptationHistory& EyeAdaptation();
+        [[nodiscard]] ViewOutputTexture&    Output();
 
         // After Builder::Execute succeeded. Commits the frame BeginFrame returned as the previous one, advances
         // the jitter index modulo its length, swaps the history pairs, ends the motion frame. If @p report lists a
@@ -321,5 +392,7 @@ namespace Desert::Graphic
         uint32_t        m_JitterIndex             = 0;
         TemporalHistory m_History;
         MotionHistory   m_Motion;
+        EyeAdaptationHistory m_EyeAdaptation;
+        ViewOutputTexture    m_Output;
     };
 } // namespace Desert::Graphic

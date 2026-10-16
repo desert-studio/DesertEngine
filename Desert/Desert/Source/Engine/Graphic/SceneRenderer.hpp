@@ -232,8 +232,9 @@ namespace Desert::Graphic
 
         void Resize( const uint32_t width, const uint32_t height );
         // The Render set (ViewTargetSet::Render) to @p render: the scene target, G-buffer, scene depth resolve,
-        // silhouette mask, overdraw target and outline. Resize() sizes the Output set (tonemap, FXAA, SMAA) and
-        // calls this with the split of the new extent; OnUpdate calls it with the frame's split. Equal: nothing.
+        // silhouette mask, overdraw target and outline. Resize() (the Output set keeps no image of its own: the
+        // view's output follows OnUpdate's frame) calls this with the split of the new extent; OnUpdate calls it
+        // with the frame's split. Equal: nothing.
         void ResizeRenderTargets( ViewExtent render );
 
         // CAMERA CUT: the next frame this view renders starts a new temporal sequence in the SAME world.
@@ -455,6 +456,8 @@ namespace Desert::Graphic
         std::shared_ptr<Image2D> GetShadowCascadeCacheImage( uint32_t cascade );
         uint32_t                 GetShadowCascadeCount();
 
+        // The view's output (SceneViewState::Output, UE: the view family target): what the last post pass of the
+        // latest frame wrote and the editor overlays drew over. Null before the first frame of the view.
         const std::shared_ptr<Image2D>      GetFinalImage();
         // The single-sample scene depth compute passes sample (height fog, volumetric clouds): the scene depth
         // itself at MSAA 1, SceneDepthResolved at MSAA > 1 ("Scene: DepthResolve"); null when that failed to
@@ -760,8 +763,9 @@ namespace Desert::Graphic
         // the scene target's - resolved at MSAA - without one) and clears the editor colour, the primitives draw
         // there, and "Editor: CompositeEditorPrimitives" lays them over the display image. Nothing else when there
         // are none.
-        void AddFrameEditorPrimitives( RDG::Builder& graph, FrameTextures& textures,
-                                       const OverlayTargets& overlay );
+        // @p display: the view's output, already written by the post chain this frame.
+        void AddFrameEditorPrimitives( RDG::Builder& graph, FrameTextures& textures, const OverlayTargets& overlay,
+                                       RDG::TextureRef display );
         // Makes m_TemporalUpscaler the implementation of @p method (kept when it already is; null for None).
         void EnsureTemporalUpscaler( TemporalMethod method );
         // The frame's temporal resolve, after the translucency: registers the view's histories and adds
@@ -778,10 +782,12 @@ namespace Desert::Graphic
         // scene target and post-processes the scene colour.
         OverlayTargets AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
                                          RDG::TextureRef exposure );
-        // AutoExposure's build-time step (Prepare advances its ping-pong), taken before the temporal node so that
-        // node and the exposure nodes agree on which image is last frame's: returns the imported previous
-        // adapted luminance ("AutoExposure.Previous"); invalid when no exposure runs this frame.
-        RDG::TextureRef PrepareFrameAutoExposure( FrameTextures& textures );
+        // AutoExposure's build-time step, taken before the temporal node so that node and the exposure nodes read
+        // the same last-frame luminance: registers the view's previous adapted luminance
+        // (SceneViewState::EyeAdaptation, "AutoExposure.Previous") - System.White, with the next adaptation
+        // snapped to its target, when the view has none yet. Invalid when no exposure runs this frame. This
+        // frame's luminance is AddFrameAutoExposure's (FrameTransients::AdaptedLuminance).
+        RDG::TextureRef PrepareFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures );
         // Exponential height fog: the closed-form COMPUTE evaluation. Called between the deferred block
         // and the translucency (AddFrameTranslucency) — the one point in the frame where the scene depth is
         // finished in BOTH paths and no render pass is open (an in-frame dispatch inside one is illegal). Its
@@ -911,12 +917,14 @@ namespace Desert::Graphic
         void AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
-        void AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures );
+        // The selection outline over @p display (the view's output), from FrameTransients::SilhouetteMask.
+        void AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef display );
         // @p previous: PrepareFrameAutoExposure's result (nothing is added when it is invalid).
         void AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
                                    const std::vector<RDG::TextureRef>& sceneColor, RDG::TextureRef previous );
         // The 1x1 adapted luminance every pass on the exposed image reads its exposure from (ViewExposure.glslh):
-        // AutoExposure.Adapted, or System.White when no eye-adaptation image exists (the exposure is manual then).
+        // FrameTransients::AdaptedLuminance, or System.White when no auto-exposure runs (the exposure is manual
+        // then).
         RDG::TextureRef FrameAdaptedLuminance( FrameTextures& textures );
         void            AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
                                        const std::vector<RDG::TextureRef>& sceneColor );
@@ -929,10 +937,17 @@ namespace Desert::Graphic
         void AddFrameLensFlare( RDG::Builder& graph, FrameTextures& textures,
                                 const std::vector<RDG::TextureRef>& sceneColor,
                                 const std::shared_ptr<FrameValues>& values );
-        // @p source: the colour the post chain reads (the temporal output, or the scene colour without one).
-        void AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef source );
-        void AddFrameFXAA( RDG::Builder& graph, FrameTextures& textures );
-        void AddFrameSMAA( RDG::Builder& graph, FrameTextures& textures );
+        // THE POST CHAIN'S TAIL (UE AddPostProcessingPasses: each pass takes the previous one's FScreenPassTexture,
+        // the last one writes the view family target). @p source: the colour the post chain reads (the temporal
+        // output, or the scene colour without one). @p display: the view's output. The tonemap writes @p display
+        // itself when @p last, otherwise a transient "Tonemap" of the display's extent; returns what it wrote
+        // (invalid when it was not recorded).
+        RDG::TextureRef AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef source,
+                                         RDG::TextureRef display, bool last );
+        // The spatial AA: @p input (the tonemap's transient) -> @p output (the view's output).
+        void AddFrameFXAA( RDG::Builder& graph, RDG::TextureRef input, RDG::TextureRef output );
+        void AddFrameSMAA( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef input,
+                           RDG::TextureRef output );
         // The backdrop pyramid the UI samples (invalid when the blur is not recorded this frame).
         RDG::TextureRef AddFrameBackdropBlur( RDG::Builder& graph, FrameTextures& textures,
                                               const std::vector<RDG::TextureRef>& sceneColor );

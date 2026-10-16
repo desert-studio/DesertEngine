@@ -41,7 +41,8 @@
 
 namespace Desert::Graphic
 {
-    void SceneRenderer::AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRenderer::AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures,
+                                           const RDG::TextureRef display )
     {
         // An editor overlay: a reflection capture's face view shows the game scene only (as the editor
         // primitives, AddFrameEditorPrimitives).
@@ -59,25 +60,31 @@ namespace Desert::Graphic
              UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->HasOutline() );
         if ( !jfa->Runs() || !jfa->Prepare() )
             return;
-        const RDG::TextureRef display = textures.Import( GetFinalImage(), "final image" );
-        if ( !display.IsValid() )
+        // The input is the silhouette pass's target (AddFrameSilhouette), the output the view's: refs of this
+        // graph, never an image the outline renderer asks another renderer for.
+        const RDG::TextureRef mask = textures.Transients.SilhouetteMask;
+        if ( !display.IsValid() || !mask.IsValid() )
         {
-            LOG_ERROR(
-                 "[SceneRenderer] {}: no selection outline this frame: the display image is not in the graph",
-                 m_ViewResources.GetName() );
+            LOG_ERROR( "[SceneRenderer] {}: no selection outline this frame: the {} is not in the graph",
+                       m_ViewResources.GetName(), display.IsValid() ? "silhouette mask" : "view's output" );
             return;
         }
-        // The seeds live within this graph: transients of the scene's size, created only when a pass writes them.
-        // Init writes seed[0]; the steps ping-pong between seed[0] and seed[1].
-        const std::optional<RDG::TextureDesc> desc = jfa->GetSeedDesc();
-        if ( !desc )
+        const Common::ResultStr<RDG::TextureDesc> maskDesc = graph.GetTextureDesc( mask );
+        if ( !maskDesc )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: no selection outline this frame: {}", m_ViewResources.GetName(),
+                       maskDesc.GetError() );
             return;
-        const RDG::TextureRef seeds[2] = { graph.CreateTexture( *desc, "JumpFlood.Seed0" ),
-                                           graph.CreateTexture( *desc, "JumpFlood.Seed1" ) };
+        }
+        // The seeds live within this graph: transients of the mask's size, created only when a pass writes them.
+        // Init writes seed[0]; the steps ping-pong between seed[0] and seed[1].
+        const RDG::TextureDesc desc      = System::JumpFloodOutlineRenderer::GetSeedDesc( maskDesc.GetValue() );
+        const uint32_t         stepCount = System::JumpFloodOutlineRenderer::GetStepCount( desc );
+        const RDG::TextureRef  seeds[2]  = { graph.CreateTexture( desc, "JumpFlood.Seed0" ),
+                                             graph.CreateTexture( desc, "JumpFlood.Seed1" ) };
         // Every seed texel is written by each pass (a fullscreen triangle); the clear is the old passes' default.
         const RDG::LoadOp clear = RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
 
-        const RDG::TextureRef mask = textures.Import( jfa->GetMaskImage(), "JumpFlood.Mask" );
         graph.AddPass(
              "PostFX: JumpFloodInit", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -87,7 +94,7 @@ namespace Desert::Graphic
              },
              [jfa]( RDG::PassContext& context ) -> Common::BoolResultStr { return jfa->RecordInit( context ); } );
         // Ping-pong propagation: one node per step, each sampling the seed the previous one wrote.
-        for ( uint32_t step = 0; step < jfa->GetStepCount(); ++step )
+        for ( uint32_t step = 0; step < stepCount; ++step )
         {
             const RDG::TextureRef source = seeds[System::JumpFloodOutlineRenderer::GetStepSource( step )];
             const RDG::TextureRef target = seeds[1 - System::JumpFloodOutlineRenderer::GetStepSource( step )];
@@ -98,11 +105,11 @@ namespace Desert::Graphic
                      jfa->DeclareStepBindings( pass, source );
                      pass.ColorTarget( 0, target, clear );
                  },
-                 [jfa, step]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return jfa->RecordStep( context, step ); } );
+                 [jfa, step, stepCount]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return jfa->RecordStep( context, step, stepCount ); } );
         }
         // The band over the display image (UE EPass::SelectionOutline): blended, so the old contents are loaded.
-        const RDG::TextureRef seed  = seeds[jfa->GetFinalSeedIndex()];
+        const RDG::TextureRef seed  = seeds[System::JumpFloodOutlineRenderer::GetFinalSeedIndex( stepCount )];
         const float           gamma = m_DisplayGamma;
         graph.AddPass(
              "PostFX: JumpFloodFinal", RDG::PassFlags::Raster,
@@ -116,22 +123,25 @@ namespace Desert::Graphic
              [jfa]( RDG::PassContext& context ) -> Common::BoolResultStr { return jfa->RecordFinal( context ); } );
     }
 
-    RDG::TextureRef SceneRenderer::PrepareFrameAutoExposure( FrameTextures& textures )
+    RDG::TextureRef SceneRenderer::PrepareFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
-        if ( autoExp == nullptr )
+        if ( autoExp == nullptr || !autoExp->Prepare() )
             return {};
-        // Prepare picks which 1x1 image this frame writes, which the graph must know to import it and the tonemap
-        // to sample it: a build-time decision. After it, GetPreviousLuminanceImage() is last frame's adapted
-        // luminance - what the temporal node weights its samples with and what this frame adapts from.
-        if ( !autoExp->Prepare() )
-            return {};
-        // The tonemap samples the luminance this frame writes; that image is known when the graph is built.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetAutoExposureImage( autoExp->GetAdaptedLuminanceImage() );
-        return textures.Import( autoExp->GetPreviousLuminanceImage(), "AutoExposure.Previous" );
+        // THE VIEW'S EYE ADAPTATION (UE FSceneViewState::EyeAdaptation): last frame's luminance is registered
+        // into this graph - what the temporal node weights its samples with and what this frame adapts from.
+        // This frame's is created by AddFrameAutoExposure, with the node that writes it.
+        RDG::TextureRef previous = m_ViewState.EyeAdaptation().RegisterPrevious( graph );
+        if ( !previous.IsValid() )
+        {
+            // No luminance yet (the view's first frame, a reset, a writer lost to a fault): the adaptation lands
+            // on this frame's own measurement (UE EyeAdaptation_ForceTarget), so what it is blended with never
+            // shows; the temporal node reads luminance 1 for this one frame.
+            autoExp->OnTemporalHistoryReset();
+            previous = textures.System.White;
+        }
+        return previous;
     }
 
     void SceneRenderer::AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
@@ -142,11 +152,6 @@ namespace Desert::Graphic
         auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
         if ( autoExp == nullptr || sceneColor.empty() || !previous.IsValid() )
             return;
-        const RDG::TextureRef adapted =
-             textures.Import( autoExp->GetAdaptedLuminanceImage(), "AutoExposure.Adapted" );
-        // Next frame adapts from this luminance: if a fault removes its writer, the next adaptation snaps.
-        if ( adapted.IsValid() )
-            textures.MarkHistory( adapted, [autoExp]() { autoExp->OnTemporalHistoryReset(); } );
         // The histogram lives within this frame: a transient buffer of this graph, cleared, filled and resolved by
         // the three nodes below. Nothing reads it the next frame.
         const RDG::BufferRef histogram =
@@ -163,6 +168,12 @@ namespace Desert::Graphic
         }
         const uint32_t width  = sceneDesc.GetValue().Size.Width;
         const uint32_t height = sceneDesc.GetValue().Size.Height;
+        // This frame's adapted luminance: a transient every exposed pass after this one reads by ref
+        // (FrameTransients::AdaptedLuminance; FrameAdaptedLuminance), extracted into the view for the next frame.
+        // Created only together with its writer: a frame without these nodes leaves the ref invalid and its
+        // readers take System.White.
+        const RDG::TextureRef adapted        = m_ViewState.EyeAdaptation().CreateCurrent( graph );
+        textures.Transients.AdaptedLuminance = adapted;
 
         // Clear and Histogram write the histogram, Average reads it: the graph orders the three and places their
         // barriers, and Average's write of the adapted image keeps all three alive.
@@ -180,6 +191,9 @@ namespace Desert::Graphic
              { autoExp->DeclareHistogramBindings( pass, scene, histogram, meterMask ); },
              [autoExp, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return autoExp->RecordHistogram( context, width, height ); } );
+        // Next frame adapts from what this node writes: the view checks after Execute that it survived, and
+        // otherwise the next adaptation snaps (EyeAdaptationHistory::EndFrame).
+        m_ViewState.EyeAdaptation().SetWriterPass( graph.GetPassCount() );
         graph.AddPass(
              "PostFX: AutoExposureAverage", RDG::PassFlags::Compute, [&]( RDG::PassBuilder& pass )
              { autoExp->DeclareAverageBindings( pass, histogram, previous, adapted ); },
@@ -189,14 +203,9 @@ namespace Desert::Graphic
 
     RDG::TextureRef SceneRenderer::FrameAdaptedLuminance( FrameTextures& textures )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
-        if ( tonemap == nullptr )
-            return textures.System.White;
         // Without an auto-exposure node the shaders read System.White; the manual exposure is used then (the auto
         // flag of ViewExposureOf is off), so the value is never read as a measurement.
-        const RDG::TextureRef adapted =
-             textures.Import( tonemap->GetInputs().AutoExposure, "AutoExposure.Adapted" );
+        const RDG::TextureRef adapted = textures.Transients.AdaptedLuminance;
         return adapted.IsValid() ? adapted : textures.System.White;
     }
 
@@ -385,13 +394,14 @@ namespace Desert::Graphic
         textures.Transients.LensFlare = image;
     }
 
-    void SceneRenderer::AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures,
-                                         const RDG::TextureRef source )
+    RDG::TextureRef SceneRenderer::AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures,
+                                                    const RDG::TextureRef source, const RDG::TextureRef display,
+                                                    const bool last )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
         if ( tonemap == nullptr )
-            return;
+            return {};
         const RDG::TextureRef avgLuminance = FrameAdaptedLuminance( textures );
         const RDG::TextureRef colorGrading = AddFrameColorGrading( graph, textures );
         // Bloom is this graph's transient when the chain ran; otherwise the graph's system black texture with
@@ -417,9 +427,24 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] the tonemap is missing a graph input (no scene colour, no colour-grading "
                        "table, or System.Black / System.White is not in this graph); the tonemap pass is not "
                        "recorded this frame" );
-            return;
+            return {};
         }
-        const RDG::TextureRef output = textures.Import( tonemap->GetOutputImage(), "Tonemap" );
+        const Common::ResultStr<RDG::TextureDesc> displayDesc = graph.GetTextureDesc( display );
+        if ( !displayDesc )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: the tonemap pass is not recorded this frame: {}",
+                       m_ViewResources.GetName(), displayDesc.GetError() );
+            return {};
+        }
+        // The last pass of the chain writes the view's output; otherwise the tonemapped image lives within this
+        // graph, at the display extent, for the spatial AA to read.
+        const RDG::TextureRef output =
+             last ? display
+                  : graph.CreateTexture(
+                         RDG::TextureDesc{ .Size   = { .Width  = displayDesc.GetValue().Size.Width,
+                                                       .Height = displayDesc.GetValue().Size.Height },
+                                           .Format = ViewTargetFormats::kTonemap },
+                         "Tonemap" );
         graph.AddPass(
              "PostFX: Tonemap", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -431,16 +456,16 @@ namespace Desert::Graphic
              },
              [tonemap]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return tonemap->Record( context ); } );
+        return output;
     }
 
-    void SceneRenderer::AddFrameFXAA( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRenderer::AddFrameFXAA( RDG::Builder& graph, const RDG::TextureRef input,
+                                      const RDG::TextureRef output )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* fxaa = UNIQUE_GET_AS( System::FXAARenderer, m_RenderSystems["FXAASystem"] );
-        if ( fxaa == nullptr )
+        if ( fxaa == nullptr || !input.IsValid() || !output.IsValid() )
             return;
-        const RDG::TextureRef input  = textures.Import( fxaa->GetInputImage(), "Tonemap" );
-        const RDG::TextureRef output = textures.Import( fxaa->GetOutputImage(), "FXAA" );
         graph.AddPass(
              "PostFX: FXAA", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -451,22 +476,28 @@ namespace Desert::Graphic
              [fxaa]( RDG::PassContext& context ) -> Common::BoolResultStr { return fxaa->Record( context ); } );
     }
 
-    void SceneRenderer::AddFrameSMAA( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRenderer::AddFrameSMAA( RDG::Builder& graph, FrameTextures& textures, const RDG::TextureRef input,
+                                      const RDG::TextureRef output )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* smaa = UNIQUE_GET_AS( System::SMAARenderer, m_RenderSystems["SMAASystem"] );
-        if ( smaa == nullptr )
+        if ( smaa == nullptr || !input.IsValid() || !output.IsValid() )
             return;
-        const std::optional<RDG::TextureDesc> desc = smaa->GetIntermediateDesc();
+        const Common::ResultStr<RDG::TextureDesc> inputDesc = graph.GetTextureDesc( input );
+        if ( !inputDesc )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: SMAA is not recorded this frame: {}", m_ViewResources.GetName(),
+                       inputDesc.GetError() );
+            return;
+        }
+        const std::optional<RDG::TextureDesc> desc = smaa->GetIntermediateDesc( inputDesc.GetValue() );
         if ( !desc )
             return;
-        const RDG::TextureRef input = textures.Import( smaa->GetInputImage(), "Tonemap" );
         // Edges and weights live within this graph: transients sized from this frame's input.
         const RDG::TextureRef edges   = graph.CreateTexture( *desc, "SMAA.Edges" );
         const RDG::TextureRef weights = graph.CreateTexture( *desc, "SMAA.Weights" );
         const RDG::TextureRef area    = textures.Import( smaa->GetAreaTex(), "SMAA.AreaTex" );
         const RDG::TextureRef search  = textures.Import( smaa->GetSearchTex(), "SMAA.SearchTex" );
-        const RDG::TextureRef output  = textures.Import( smaa->GetOutputImage(), "SMAA" );
         // The edge shader discards pixels without an edge, so edges and weights are cleared (black) first.
         graph.AddPass(
              "PostFX: SMAAEdges", RDG::PassFlags::Raster,
@@ -525,7 +556,7 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddFrameEditorPrimitives( RDG::Builder& graph, FrameTextures& textures,
-                                                  const OverlayTargets& overlay )
+                                                  const OverlayTargets& overlay, const RDG::TextureRef display )
     {
         // Outside a BeginScene/EndScene bracket there is no scene and no target to take the depth of. A reflection
         // capture's face view shows the game scene only, never an editor primitive.
@@ -571,11 +602,10 @@ namespace Desert::Graphic
         }
         else
             sceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" );
-        const RDG::TextureRef display = textures.Import( GetFinalImage(), "final image" );
         if ( !sceneDepth.IsValid() || !display.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] {}: no editor primitives this frame: the {} is not in the graph",
-                       m_ViewResources.GetName(), sceneDepth.IsValid() ? "display image" : "scene depth" );
+                       m_ViewResources.GetName(), sceneDepth.IsValid() ? "view's output" : "scene depth" );
             return;
         }
         const Common::ResultStr<RDG::TextureDesc> displayDesc = graph.GetTextureDesc( display );

@@ -22,11 +22,6 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr JumpFloodOutlineRenderer::Initialize()
     {
-        if ( !m_TargetFramebuffer.lock() )
-        {
-            return Common::MakeError( "JumpFloodOutlineRenderer: target framebuffer is not available" );
-        }
-
         if ( !CreatePipelines() )
         {
             return Common::MakeError( "JumpFloodOutlineRenderer: failed to create pipelines" );
@@ -90,44 +85,28 @@ namespace Desert::Graphic::System
 
     bool JumpFloodOutlineRenderer::Prepare() const
     {
-        if ( !m_TargetFramebuffer.lock() || !m_InitPipeline || !m_StepPipeline || !m_FinalPipeline ||
-             !m_MaterialComposite )
+        if ( !m_InitPipeline || !m_StepPipeline || !m_FinalPipeline || !m_MaterialComposite )
         {
-            LOG_ERROR( "JumpFloodOutlineRenderer::Prepare: the scene framebuffer, a pipeline or the composite "
-                       "material is unavailable" );
+            LOG_ERROR( "JumpFloodOutlineRenderer::Prepare: a pipeline or the composite material is unavailable" );
             return false;
         }
         return true;
     }
 
-    uint32_t JumpFloodOutlineRenderer::GetStepCount() const
+    uint32_t JumpFloodOutlineRenderer::GetStepCount( const RDG::TextureDesc& seed )
     {
-        const auto scene = m_TargetFramebuffer.lock();
-        return scene ? ComputeStepCount( scene->GetFramebufferWidth(), scene->GetFramebufferHeight() ) : 1u;
+        return ComputeStepCount( seed.Size.Width, seed.Size.Height );
     }
 
-    std::optional<RDG::TextureDesc> JumpFloodOutlineRenderer::GetSeedDesc() const
+    RDG::TextureDesc JumpFloodOutlineRenderer::GetSeedDesc( const RDG::TextureDesc& mask )
     {
-        const auto scene = m_TargetFramebuffer.lock();
-        if ( !scene )
-        {
-            LOG_ERROR( "JumpFloodOutlineRenderer: the scene framebuffer is gone; no seed is created" );
-            return std::nullopt;
-        }
-        return RDG::TextureDesc{
-             .Size   = { .Width = scene->GetFramebufferWidth(), .Height = scene->GetFramebufferHeight() },
-             .Format = kSeedFormat };
+        return RDG::TextureDesc{ .Size = { .Width = mask.Size.Width, .Height = mask.Size.Height },
+                                 .Format = kSeedFormat };
     }
 
     bool JumpFloodOutlineRenderer::Runs() const
     {
-        return m_Enabled && m_OutlineActive && m_MaskFramebuffer.lock() != nullptr;
-    }
-
-    std::shared_ptr<Image2D> JumpFloodOutlineRenderer::GetMaskImage() const
-    {
-        const auto maskFramebuffer = m_MaskFramebuffer.lock();
-        return maskFramebuffer ? maskFramebuffer->GetColorAttachmentImage() : nullptr;
+        return m_Enabled && m_OutlineActive;
     }
 
     // The mask and the seeds hold per-texel data (coverage, a seed coordinate) that must not be blended between
@@ -160,12 +139,13 @@ namespace Desert::Graphic::System
              .PushConstantBytes( static_cast<uint32_t>( sizeof( int32_t ) ) );
     }
 
-    Common::BoolResultStr JumpFloodOutlineRenderer::RecordStep( const RDG::PassContext& context, uint32_t step )
+    Common::BoolResultStr JumpFloodOutlineRenderer::RecordStep( const RDG::PassContext& context, uint32_t step,
+                                                                const uint32_t stepCount )
     {
         if ( !m_StepPipeline )
             return Common::MakeError( "JumpFloodOutlineRenderer: the step pipeline is not initialised" );
         // Ping-pong propagation with halving sample distance.
-        const int32_t stepLength = 1 << ( GetStepCount() - 1 - step );
+        const int32_t stepLength = 1 << ( stepCount - 1 - step );
 
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &stepLength, sizeof( stepLength ) );

@@ -333,15 +333,13 @@ namespace Desert::Graphic
             }
             case 4:
             {
-                const auto& meshSystem = SP_CAST( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+                // The outline's input is the silhouette pass's target, handed by the frame graph
+                // (FrameTransients::SilhouetteMask), never wired between the two renderers.
                 const auto& jumpFloodSystem =
                      SP_CAST( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
                 if ( !jumpFloodSystem->Initialize() )
                     LOG_ERROR(
                          "[SceneRenderer] the outline system did not initialise; selection outlines are off." );
-
-                // Feed the silhouette mask (produced by the mesh system) into the Jump Flood outline.
-                jumpFloodSystem->SetMaskFramebuffer( meshSystem->GetSilhouetteMaskFramebuffer() );
                 return "JumpFlood";
             }
             case 5:
@@ -537,32 +535,29 @@ namespace Desert::Graphic
             }
             case 20:
             {
-                const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
-                // Auto-exposure measures the HDR scene luminance into a 1x1 buffer that tonemap reads.
+                // Auto-exposure measures the HDR scene luminance into the view's 1x1 eye adaptation, which the
+                // tonemap reads by ref (FrameTransients::AdaptedLuminance).
                 RegisterSystem<System::AutoExposureRenderer>( "AutoExposureSystem", this, m_TargetFramebuffer );
                 const auto& autoExposureSystem =
                      SP_CAST( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
                 if ( !autoExposureSystem->Initialize() )
                     LOG_ERROR(
                          "[SceneRenderer] auto-exposure did not initialise; exposure stays at its default." );
-                tonemapSystem->SetAutoExposureImage( autoExposureSystem->GetAdaptedLuminanceImage() );
                 return "AutoExposure";
             }
             case 21:
             {
-                const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
-                // FXAA consumes the tonemapped image (LDR). It only runs when the machine's post AA is FXAA
-                // (Common::Settings::MachineSettings::AA — it left SceneSettings with К3).
-                RegisterSystem<System::FXAARenderer>( "FXAASystem", this, tonemapSystem->GetSystemFramebuffer() );
+                // FXAA consumes the tonemapped image (LDR, a transient of the frame graph). It only runs when the
+                // machine's post AA is FXAA (Common::Settings::MachineSettings::AA — it left SceneSettings with К3).
+                RegisterSystem<System::FXAARenderer>( "FXAASystem", this, m_TargetFramebuffer );
                 if ( !SP_CAST( System::FXAARenderer, m_RenderSystems["FXAASystem"] )->Initialize() )
                     LOG_ERROR( "[SceneRenderer] FXAA did not initialise; the image is drawn without post AA." );
                 return "FXAA";
             }
             case 22:
             {
-                const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
                 // SMAA consumes the same tonemapped image. Runs only when the machine's post AA is SMAA.
-                RegisterSystem<System::SMAARenderer>( "SMAASystem", this, tonemapSystem->GetSystemFramebuffer() );
+                RegisterSystem<System::SMAARenderer>( "SMAASystem", this, m_TargetFramebuffer );
                 if ( !SP_CAST( System::SMAARenderer, m_RenderSystems["SMAASystem"] )->Initialize() )
                     LOG_ERROR( "[SceneRenderer] SMAA did not initialise; the image is drawn without post AA." );
 
@@ -1124,6 +1119,16 @@ namespace Desert::Graphic
                        m_ViewResources.GetName(), physical.GetError() );
             return;
         }
+        // The view's output at THIS frame's output extent: made on the view's first frame and again whenever that
+        // extent changes (a resize); until then the viewport keeps showing the last picture.
+        m_ViewState.Output().Prepare( frame.Split.Output );
+        if ( const Common::BoolResultStr output = m_ViewState.Output().AllocatePhysical( DeviceImageFactory{} );
+             !output )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: the view has no output image, frame not drawn: {}",
+                       m_ViewResources.GetName(), output.GetError() );
+            return;
+        }
         FrameTextures textures( graph );
         ImportSceneViewTextures( graph, textures );
         // The reflection captures, before any lit node reads them (SceneViewInputs).
@@ -1288,7 +1293,7 @@ namespace Desert::Graphic
         // gizmos, UI) are UNJITTERED: their shaders read ViewFrame::ViewProjection or the camera's matrices, never
         // JitteredViewProjection (Camera.hpp WHICH MATRIX). Without a temporal method the post input is the scene
         // colour, as before.
-        const RDG::TextureRef              exposurePrevious = PrepareFrameAutoExposure( textures );
+        const RDG::TextureRef              exposurePrevious = PrepareFrameAutoExposure( graph, textures );
         const OverlayTargets               overlay = AddFrameTemporal( graph, textures, frame, exposurePrevious );
         const std::vector<RDG::TextureRef> postInput =
              overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
@@ -1330,22 +1335,30 @@ namespace Desert::Graphic
         }
         AddFrameLightShafts( graph, textures, postInput, values );
         AddFrameLensFlare( graph, textures, postInput, values );
-        AddFrameTonemap( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
-
-        if ( m_AAMode == Common::Scalability::AntiAliasingMethod::FXAA )
+        // THE VIEW'S OUTPUT (UE: the view family target): the one image of the chain that outlives the graph.
+        // Every image before it is a transient the next pass takes by ref; the last pass writes this one.
+        const RDG::TextureRef display = textures.Import( GetFinalImage(), "final image" );
+        const bool            fxaa    = m_AAMode == Common::Scalability::AntiAliasingMethod::FXAA;
+        const bool            smaa    = m_AAMode == Common::Scalability::AntiAliasingMethod::SMAA;
+        if ( display.IsValid() )
         {
-            AddFrameFXAA( graph, textures );
+            const RDG::TextureRef tonemapped =
+                 AddFrameTonemap( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front(),
+                                  display, !fxaa && !smaa );
+            if ( fxaa )
+                AddFrameFXAA( graph, tonemapped, display );
+            else if ( smaa )
+                AddFrameSMAA( graph, textures, tonemapped, display );
+            // The editor overlays over the view's output, last, in UE's order: the selection outline
+            // (EPass::SelectionOutline), then the editor primitives (EPass::EditorPrimitive), both after the
+            // tonemap and the spatial AA. Neither writes an image the tonemap or any HDR pass reads.
+            AddFrameJumpFlood( graph, textures, display );
+            AddFrameEditorPrimitives( graph, textures, overlay, display );
         }
-        else if ( m_AAMode == Common::Scalability::AntiAliasingMethod::SMAA )
-        {
-            AddFrameSMAA( graph, textures );
-        }
-        // The editor overlays over the display image, last, in UE's order: the selection outline
-        // (EPass::SelectionOutline), then the editor primitives (EPass::EditorPrimitive), both after the tonemap
-        // and FXAA. Neither writes an image the tonemap or any HDR pass reads.
-        AddFrameJumpFlood( graph, textures );
-        AddFrameEditorPrimitives( graph, textures, overlay );
-        // The final image is sampled after the graph (editor viewport, runtime blit): the graph ends it there.
+        else
+            LOG_ERROR( "SceneRenderer: {}: the view has no output image; the post chain is not recorded this frame",
+                       m_ViewResources.GetName() );
+        // The view's output is sampled after the graph (editor viewport, runtime blit): the graph ends it there.
         if ( const auto extracted =
                   textures.ExtractImported( GetFinalImage(), "final image", RDG::Access::SampledGraphics );
              !extracted )
@@ -1506,10 +1519,9 @@ namespace Desert::Graphic
         // buffer is still recording or submitted frames are executing.
         renderer.WaitDeviceIdle();
         renderer.ResizeWindowEvent( width, height );
-        // THE OUTPUT SET (ViewTargetSet::Output): the post-process chain after the temporal resolve.
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->Resize( width, height );
-        UNIQUE_GET_AS( System::FXAARenderer, m_RenderSystems["FXAASystem"] )->Resize( width, height );
-        UNIQUE_GET_AS( System::SMAARenderer, m_RenderSystems["SMAASystem"] )->Resize( width, height );
+        // THE OUTPUT SET (ViewTargetSet::Output): the post-process chain after the temporal resolve keeps no
+        // image; its one persistent image, the view's output, follows the next frame's output extent (OnUpdate,
+        // SceneViewState::Output), and every other image of the chain is a transient of that frame's graph.
         // THE RENDER SET at the last accepted frame's scale; the next frame's own split corrects it if the
         // scale changed (OnUpdate -> ResizeRenderTargets( frame.Split.Render )).
         if ( const auto split = MakeResolutionSplit( m_ViewExtent, m_LastRenderScalePercent ) )
@@ -1942,20 +1954,8 @@ namespace Desert::Graphic
 
     const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()
     {
-        // FXAA/SMAA write their own framebuffer downstream of tonemap; otherwise tonemap output IS final.
-        const char* finalSystem = "TonemapSystem";
-        if ( m_AAMode == Common::Scalability::AntiAliasingMethod::FXAA )
-        {
-            finalSystem = "FXAASystem";
-        }
-        else if ( m_AAMode == Common::Scalability::AntiAliasingMethod::SMAA )
-        {
-            finalSystem = "SMAASystem";
-        }
-
-        return std::static_pointer_cast<System::RenderSystem>( m_RenderSystems[finalSystem] )
-             ->GetSystemFramebuffer()
-             ->GetColorAttachmentImage();
+        // Whichever pass ends the post chain (the tonemap, or the spatial AA after it) writes the view's output.
+        return m_ViewState.Output().GetImage();
     }
 
     void SceneRenderer::AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,

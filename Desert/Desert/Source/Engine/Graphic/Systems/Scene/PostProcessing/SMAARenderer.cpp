@@ -10,50 +10,23 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        std::shared_ptr<Framebuffer> MakeColorFB( std::string_view name, Core::Formats::ImageFormat format,
-                                                  uint32_t w, uint32_t h )
-        {
-            FramebufferSpecification fbSpec;
-            fbSpec.DebugName = std::string( name );
-            fbSpec.Attachments.Attachments.push_back( format );
-            auto fb = Graphic::Framebuffer::Create( fbSpec );
-            fb->Resize( w, h );
-            return fb;
-        }
-
-        // @p fb: the output framebuffer (pass 3); null: a graph transient of @p transientFormat (passes 1 and 2),
-        // built against the graph's canonical render pass for that one colour target.
+        // Every pass draws into one graph texture of @p format (the edges / weights transients, or the frame's
+        // output): built against the graph's canonical render pass for that one colour target.
         NO_DISCARD Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
-                   MakePipeline( std::string_view name, const std::shared_ptr<Framebuffer>& fb,
-                                 const std::shared_ptr<Shader>& shader, Core::Formats::ImageFormat transientFormat )
+                   MakePipeline( std::string_view name, const std::shared_ptr<Shader>& shader,
+                                 Core::Formats::ImageFormat format )
         {
             Graphic::GraphicsPipelineSpecification spec;
-            spec.DebugName = std::string( name );
-            if ( fb )
-                spec.Framebuffer = fb;
-            else
-                spec.TargetLayout =
-                     RenderTargetLayout{ .ColorFormats = { transientFormat }, .DepthFormat = std::nullopt };
-            spec.Shader = shader;
+            spec.DebugName    = std::string( name );
+            spec.TargetLayout = RenderTargetLayout{ .ColorFormats = { format }, .DepthFormat = std::nullopt };
+            spec.Shader       = shader;
             return Graphic::GraphicsPipeline::Create( spec );
         }
     } // namespace
 
     Common::BoolResultStr SMAARenderer::Initialize()
     {
-        const auto& targetFramebuffer = m_TargetFramebuffer.lock();
-        if ( !targetFramebuffer )
-        {
-            // `DESERT_VERIFY( false )` stood here — it takes the process down, and then FALLS THROUGH
-            // to dereference the null it was asserting about. This function returns a Result; say so.
-            return Common::MakeError( "SMAARenderer: the target framebuffer is gone." );
-        }
-
-        const uint32_t w = targetFramebuffer->GetFramebufferWidth();
-        const uint32_t h = targetFramebuffer->GetFramebufferHeight();
-
-        // Edges + weights are LDR (RGBA8) graph transients; the final output matches the FXAA output (RGBA32F).
-        m_Framebuffer = MakeColorFB( "SMAABlend", ViewTargetFormats::kSMAABlend, w, h );
+        // Edges + weights are LDR (RGBA8) graph transients; the output matches the FXAA output (kSMAABlend).
 
         // The shaders are held by the pipelines alone: each node's layout is keyed on the shader its pipeline
         // records with (GetSpecification().Shader), so no second handle can go stale under a reload.
@@ -65,17 +38,17 @@ namespace Desert::Graphic::System
         // The three shaders above were taken from GetByName WITHOUT a check until Г22, and a missing one
         // is a null shared_ptr that reached VulkanPipeline::CreatePipelineLayout and was dereferenced.
         // The rule inside Create refuses it by name now, and the refusal arrives here.
-        const auto edges = MakePipeline( "SMAAEdges", nullptr, edgesShader, ViewTargetFormats::kSMAAEdges );
+        const auto edges = MakePipeline( "SMAAEdges", edgesShader, ViewTargetFormats::kSMAAEdges );
         if ( !edges )
             return Common::MakeError( edges.GetError() );
         m_EdgesPipeline = edges.GetValue();
 
-        const auto weights = MakePipeline( "SMAAWeights", nullptr, weightsShader, ViewTargetFormats::kSMAAEdges );
+        const auto weights = MakePipeline( "SMAAWeights", weightsShader, ViewTargetFormats::kSMAAEdges );
         if ( !weights )
             return Common::MakeError( weights.GetError() );
         m_WeightsPipeline = weights.GetValue();
 
-        const auto blend = MakePipeline( "SMAABlend", m_Framebuffer, blendShader, ViewTargetFormats::kSMAABlend );
+        const auto blend = MakePipeline( "SMAABlend", blendShader, ViewTargetFormats::kSMAABlend );
         if ( !blend )
             return Common::MakeError( blend.GetError() );
         m_BlendPipeline = blend.GetValue();
@@ -137,19 +110,15 @@ namespace Desert::Graphic::System
         }
     }
 
-    std::optional<RDG::TextureDesc> SMAARenderer::GetIntermediateDesc() const
+    std::optional<RDG::TextureDesc> SMAARenderer::GetIntermediateDesc( const RDG::TextureDesc& input ) const
     {
-        const auto input = m_TargetFramebuffer.lock();
-        if ( !input || !input->GetColorAttachmentImage() || !m_AreaTex || !m_SearchTex || !m_EdgesPipeline ||
-             !m_WeightsPipeline || !m_BlendPipeline )
+        if ( !m_AreaTex || !m_SearchTex || !m_EdgesPipeline || !m_WeightsPipeline || !m_BlendPipeline )
         {
-            LOG_ERROR(
-                 "SMAARenderer: the input framebuffer, a LUT or a pipeline is missing; SMAA is not recorded" );
+            LOG_ERROR( "SMAARenderer: a LUT or a pipeline is missing; SMAA is not recorded" );
             return std::nullopt;
         }
-        return RDG::TextureDesc{
-             .Size   = { .Width = input->GetFramebufferWidth(), .Height = input->GetFramebufferHeight() },
-             .Format = ViewTargetFormats::kSMAAEdges };
+        return RDG::TextureDesc{ .Size   = { .Width = input.Size.Width, .Height = input.Size.Height },
+                                 .Format = ViewTargetFormats::kSMAAEdges };
     }
 
     // SMAA samples every input bilinearly with clamped addressing (the reference LinearSampler); the bilinear
@@ -217,12 +186,5 @@ namespace Desert::Graphic::System
             return Common::MakeError( "SMAARenderer: the blend pipeline is not initialised" );
         const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_BlendPipeline, nullptr );
-    }
-
-    void SMAARenderer::Resize( uint32_t width, uint32_t height )
-    {
-        // Only the output is a member; the edges and weights are created per frame from the input's size.
-        if ( m_Framebuffer )
-            m_Framebuffer->Resize( width, height );
     }
 } // namespace Desert::Graphic::System

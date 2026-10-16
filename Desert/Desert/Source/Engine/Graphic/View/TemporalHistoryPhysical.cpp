@@ -1,4 +1,5 @@
-// TemporalHistory's device step (SceneViewState.hpp: AllocatePhysical). Kept out of SceneViewState.cpp so that
+// The view state's device steps (SceneViewState.hpp: TemporalHistory::AllocatePhysical and
+// ViewOutputTexture::AllocatePhysical). Kept out of SceneViewState.cpp so that
 // Prepare / Register / Swap stay device-free; this file reaches the device only through the two seams
 // (IImageFactory, IGraphImageImporter), so the TemporalViewContract suite runs it against mocks.
 #include <Engine/Graphic/View/SceneViewState.hpp>
@@ -85,6 +86,29 @@ namespace Desert::Graphic
         // the import happens once per image, not once per frame.
         m_Pairs  = std::move( pairs );
         m_Images = std::move( made );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr ViewOutputTexture::AllocatePhysical( const IImageFactory& images )
+    {
+        if ( m_Image || m_Extent.Width == 0 || m_Extent.Height == 0 )
+            return Common::MakeSuccess( true );
+        // A colour attachment the last post pass renders into, sampled by whoever shows the view after the frame.
+        const Core::Formats::Image2DSpecification spec = {
+             .Tag        = "ViewOutput",
+             .Width      = m_Extent.Width,
+             .Height     = m_Extent.Height,
+             .Format     = ViewTargetFormats::kTonemap,
+             .Mips       = 1u,
+             .Usage      = Core::Formats::Image2DUsage::Attachment,
+             .Properties = Core::Formats::Sample,
+             .MipLevels  = {},
+        };
+        m_Image = images.CreateImage2D( spec );
+        if ( !m_Image )
+            return Common::MakeFormattedError<bool>(
+                 "ViewOutputTexture::AllocatePhysical: the image factory made no {}x{} view output", m_Extent.Width,
+                 m_Extent.Height );
         return Common::MakeSuccess( true );
     }
 } // namespace Desert::Graphic

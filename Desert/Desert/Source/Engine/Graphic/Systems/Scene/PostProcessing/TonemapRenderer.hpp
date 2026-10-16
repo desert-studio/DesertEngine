@@ -19,26 +19,11 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override;
 
-        // Tonemap is a raster node of the frame graph (SceneRendererFramePostFX.cpp "PostFX: Tonemap"), after
-        // the Jump Flood outline.
-
-        // Every image the tonemap samples, as bound this frame: the frame graph declares each one as a read of
-        // the tonemap node. A null image is one no pass has handed over (yet).
-        // The source is the frame's post input (SceneRenderer::AddFrameTonemap's ref: the temporal output, or
-        // the scene colour), never read from a framebuffer here.
-        struct Inputs
-        {
-            std::shared_ptr<Image2D> AutoExposure;
-        };
-        [[nodiscard]] Inputs GetInputs() const
-        {
-            return { m_AutoExposureImage.lock() };
-        }
-        // The tonemapped image, colour 0 of GetSystemFramebuffer(): the node's ColorTarget.
-        [[nodiscard]] std::shared_ptr<Image2D> GetOutputImage() const
-        {
-            return m_Framebuffer ? m_Framebuffer->GetColorAttachmentImage( 0 ) : nullptr;
-        }
+        // Tonemap is a raster node of the frame graph (SceneRendererFramePostFX.cpp "PostFX: Tonemap"). It keeps
+        // no image: every input is a ref of the frame graph (GraphInputs), and its target is the ref the frame
+        // hands it - the view's output when it is the last pass of the post chain, otherwise a transient the
+        // spatial AA reads (UE: FScreenPassTexture in, FScreenPassRenderTarget out). The pipeline is built against
+        // the graph's render pass for one ViewTargetFormats::kTonemap colour target.
 
         // The graph resources one tonemap exec binds by shader name. Bloom is FrameTextures::Transients.Bloom,
         // or the graph's FrameTextures::System.Black when the bloom chain did not run this frame; then
@@ -63,11 +48,9 @@ namespace Desert::Graphic::System
         void FillMaterial( const GraphInputs& inputs );
         // SETUP of "PostFX: Tonemap": the node's one block (block 0) - every input as a SampledGraphics entry.
         void DeclareBindings( RDG::PassBuilder& pass, const GraphInputs& inputs ) const;
-        // Records the fullscreen tonemap inside the render pass the frame graph opens on GetOutputImage(), from
+        // Records the fullscreen tonemap inside the render pass the frame graph opens on the node's target, from
         // block 0 that DeclareBindings declared and the material FillMaterial filled.
         [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context );
-
-        void Resize( uint32_t width, uint32_t height );
 
         // The view's grade (Graphic::ResolveViewSettings), refreshed each frame by SceneRenderer::BeginScene. The
         // tonemap reads only its exposure (Graphic::ViewExposureOf); the rest of the grade reaches the pixel
@@ -86,14 +69,6 @@ namespace Desert::Graphic::System
         void SetChromaticBloom( float strength )
         {
             m_ChromaticBloom = strength;
-        }
-
-        // Auto-exposure (eye adaptation): the 1x1 adapted-luminance image. Whether it is read, and the
-        // compensation it is read with, are the grade's (SetGrade); with auto-exposure off the manual Exposure is
-        // used instead.
-        void SetAutoExposureImage( const std::shared_ptr<Image2D>& image )
-        {
-            m_AutoExposureImage = image;
         }
 
         // The sun light's radial streaks (LightShaftRenderer) and their strength — the intensity is
@@ -123,8 +98,6 @@ namespace Desert::Graphic::System
 
         float                  m_BloomIntensity = 0.0f;
         float                  m_ChromaticBloom = 0.0f;
-
-        std::weak_ptr<Image2D> m_AutoExposureImage;
 
         float                  m_LightShaftIntensity = 0.0f;
         glm::vec3              m_LightShaftTint      = glm::vec3( 1.0f );

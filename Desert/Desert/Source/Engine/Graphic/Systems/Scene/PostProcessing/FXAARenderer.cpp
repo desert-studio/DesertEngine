@@ -8,28 +8,15 @@ namespace Desert::Graphic::System
 {
     Common::BoolResultStr FXAARenderer::Initialize()
     {
-        const auto& targetFramebuffer = m_TargetFramebuffer.lock();
-        if ( !targetFramebuffer )
-        {
-            DESERT_VERIFY( false );
-        }
-
         constexpr std::string_view debugName = "SceneFXAA";
-
-        FramebufferSpecification fbSpec;
-        fbSpec.DebugName = debugName;
-        fbSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kFXAA );
-
-        m_Framebuffer = Graphic::Framebuffer::Create( fbSpec );
-        m_Framebuffer->Resize( targetFramebuffer->GetFramebufferWidth(),
-                               targetFramebuffer->GetFramebufferHeight() );
 
         const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "FXAA" );
 
         Graphic::GraphicsPipelineSpecification pipeSpec;
-        pipeSpec.DebugName   = debugName;
-        pipeSpec.Framebuffer = m_Framebuffer;
-        pipeSpec.Shader      = shader;
+        pipeSpec.DebugName = debugName;
+        pipeSpec.TargetLayout =
+             RenderTargetLayout{ .ColorFormats = { ViewTargetFormats::kFXAA }, .DepthFormat = std::nullopt };
+        pipeSpec.Shader = shader;
 
         // Same unchecked GetByName as TonemapRenderer: a missing 'FXAA' shader was a null dereference.
         const auto pipeline = Graphic::GraphicsPipeline::Create( pipeSpec );
@@ -40,12 +27,6 @@ namespace Desert::Graphic::System
         m_MaterialFXAA = std::make_unique<MaterialFXAA>();
 
         return BOOLSUCCESS;
-    }
-
-    void FXAARenderer::Resize( uint32_t width, uint32_t height )
-    {
-        if ( m_Framebuffer )
-            m_Framebuffer->Resize( width, height );
     }
 
     void FXAARenderer::DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef input ) const
