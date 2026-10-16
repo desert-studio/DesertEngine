@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cstdio>
+#include <format>
 #include <string>
 
 namespace Desert::UI
@@ -102,8 +103,8 @@ namespace Desert::UI
     Common::BoolResultStr UICollection::Insert( int index, UIDataStore record )
     {
         if ( index < 0 || index > Size() )
-            return Common::MakeError( "UI collection insert at " + std::to_string( index ) + " is outside [0, " +
-                                      std::to_string( Size() ) + "]" );
+            return Common::MakeError(
+                 std::format( "UI collection insert at {} is outside [0, {}]", index, Size() ) );
         m_Records.insert( m_Records.begin() + index, Entry{ std::move( record ), m_NextId++, ++m_Revision } );
         Log( Change::Kind::Insert, index, 1 );
         return Common::MakeSuccess( true );
@@ -112,8 +113,8 @@ namespace Desert::UI
     Common::BoolResultStr UICollection::Remove( int index )
     {
         if ( index < 0 || index >= Size() )
-            return Common::MakeError( "UI collection remove at " + std::to_string( index ) + " is outside [0, " +
-                                      std::to_string( Size() ) + ")" );
+            return Common::MakeError(
+                 std::format( "UI collection remove at {} is outside [0, {})", index, Size() ) );
         m_Records.erase( m_Records.begin() + index );
         Log( Change::Kind::Remove, index, 1 );
         return Common::MakeSuccess( true );
@@ -122,11 +123,10 @@ namespace Desert::UI
     Common::BoolResultStr UICollection::SetField( int index, const std::string& field, UIDataStore::Value value )
     {
         if ( index < 0 || index >= Size() )
-            return Common::MakeError( "UI collection field '" + field + "' at " + std::to_string( index ) +
-                                      " is outside [0, " + std::to_string( Size() ) + ")" );
+            return Common::MakeError(
+                 std::format( "UI collection field '{}' at {} is outside [0, {})", field, index, Size() ) );
         if ( field.empty() )
-            return Common::MakeError( "UI collection field name is empty (record " + std::to_string( index ) +
-                                      ")" );
+            return Common::MakeError( std::format( "UI collection field name is empty (record {})", index ) );
         Entry& e = m_Records[static_cast<std::size_t>( index )];
         e.Fields.Set( field, std::move( value ) );
         e.Revision = ++m_Revision;

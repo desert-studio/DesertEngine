@@ -2,8 +2,11 @@
 
 #include <Engine/Assets/MaterialData.hpp>
 
+#include <format>
 #include <string>
 #include <vector>
+
+#include <Common/Json/Template.hpp>
 
 namespace Desert::Assets
 {
@@ -77,25 +80,18 @@ namespace Desert::Assets
     // disagreed would still leave the reader launching a debugger to learn by how much.
     [[nodiscard]] inline std::string DescribeDivergences( const std::vector<MaterialParamDivergence>& divergences )
     {
-        std::string text;
-        for ( const auto& d : divergences )
+        // Fixed six decimals, as the numbers have always been printed.
+        const auto clause = []( const MaterialParamDivergence& d )
         {
-            if ( !text.empty() )
-                text += "; ";
-            text += d.Name;
+            const auto& r = d.Requested;
             if ( d.Absent )
-            {
-                text += " asked for (" + std::to_string( d.Requested.x ) + ", " + std::to_string( d.Requested.y ) +
-                        ", " + std::to_string( d.Requested.z ) + ", " + std::to_string( d.Requested.w ) +
-                        ") but the material does not state it";
-                continue;
-            }
-            text += " asked for (" + std::to_string( d.Requested.x ) + ", " + std::to_string( d.Requested.y ) +
-                    ", " + std::to_string( d.Requested.z ) + ", " + std::to_string( d.Requested.w ) +
-                    ") but the material says (" + std::to_string( d.Found.x ) + ", " +
-                    std::to_string( d.Found.y ) + ", " + std::to_string( d.Found.z ) + ", " +
-                    std::to_string( d.Found.w ) + ")";
-        }
-        return text;
+                return std::format( "{} asked for ({:f}, {:f}, {:f}, {:f}) but the material does not state it",
+                                    d.Name, r.x, r.y, r.z, r.w );
+            const auto& f = d.Found;
+            return std::format( "{} asked for ({:f}, {:f}, {:f}, {:f}) but the material says ({:f}, {:f}, {:f}, "
+                                "{:f})",
+                                d.Name, r.x, r.y, r.z, r.w, f.x, f.y, f.z, f.w );
+        };
+        return Common::Text::Join( divergences, "; ", clause );
     }
 } // namespace Desert::Assets

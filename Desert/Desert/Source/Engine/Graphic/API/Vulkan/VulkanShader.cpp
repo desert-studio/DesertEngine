@@ -2,6 +2,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
 
 #include <algorithm>
+#include <format>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
@@ -35,7 +36,7 @@ namespace Desert::Graphic::API::Vulkan
         m_ShaderPath = asset->GetMetadata().Filepath;
         m_ShaderName = m_ShaderPath.stem().string();
         if ( !m_PassName.empty() )
-            m_ShaderName += "/" + m_PassName;
+            m_ShaderName = std::format( "{}/{}", m_ShaderName, m_PassName );
 
         Reload();
     }

@@ -1,12 +1,15 @@
 #pragma once
 
 #include <Common/Core/AssetHandle.hpp>
+
+#include <Engine/Core/TextTemplate.hpp>
 #include <Common/Core/Core.hpp>
 
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -604,49 +607,62 @@ namespace Desert::Graphic
         return census;
     }
 
+    namespace ResourceLedgerDetail
+    {
+        // Bytes and the rows they are true over, always both: "12 MiB" over 400 rows of which 9 reported a
+        // size is a different fact from "12 MiB" over 400 rows that all did. They are on the owner line and on
+        // every kind under it: the count alone said "AssetService holds one Image2D", which is the same
+        // sentence whether that image is a 64x64 icon or a 2048x2048 albedo with its chain.
+        constexpr std::string_view kReportText =
+             "live={{ live }} unclaimed={{ unclaimed }} without-asset={{ withoutAsset }} bytes={{ bytes }} "
+             "(known for {{ knownFor }} of {{ live }})"
+             "{% for o in owners %}\n  {{ o.name }} = {{ o.count }} bytes={{ o.bytes }} known={{ o.known }}:"
+             "{% for k in o.kinds %} {{ k.name }}={{ k.count }} bytes={{ k.bytes }} known={{ k.known }}{% endfor "
+             "%}"
+             "{% endfor %}";
+    } // namespace ResourceLedgerDetail
+
     inline std::string ResourceLedger::Report()
     {
+        static const Desert::Core::TextTemplate kReport( "ResourceLedger", ResourceLedgerDetail::kReportText );
         const ResourceCensus census = Take();
 
-        std::string text;
-        text += "live=" + std::to_string( census.Live );
-        text += " unclaimed=" + std::to_string( census.Unclaimed );
-        text += " without-asset=" + std::to_string( census.WithoutAsset );
-        // Both numbers, always. "12 MiB" over 400 rows of which 9 reported a size is a different fact from
-        // "12 MiB" over 400 rows that all did, and a reader who is not told cannot separate them.
-        text += " bytes=" + std::to_string( census.Bytes ) + " (known for " +
-                std::to_string( census.BytesKnownFor ) + " of " + std::to_string( census.Live ) + ")";
-
+        Common::Json::Value::Array owners;
         for ( std::size_t owner = 0; owner < static_cast<std::size_t>( ResourceOwner::Count ); ++owner )
         {
             if ( census.PerOwner[owner] == 0 )
                 continue;
-
             const auto asOwner = static_cast<ResourceOwner>( owner );
 
-            text += "\n  ";
-            text += ResourceOwnerName( asOwner );
-            text += " = " + std::to_string( census.PerOwner[owner] );
-            // BYTES AND THE ROWS THEY ARE TRUE OVER, on the owner line and on every kind under it. The
-            // count alone said "AssetService holds one Image2D", which is the same sentence whether that
-            // image is a 64x64 icon or a 2048x2048 albedo with its chain — a factor of a thousand the
-            // reader could not see.
-            text += " bytes=" + std::to_string( census.BytesForOwner( asOwner ) ) +
-                    " known=" + std::to_string( census.BytesKnownForOwner( asOwner ) ) + ":";
-
+            Common::Json::Value::Array kinds;
             for ( std::size_t kind = 0; kind < static_cast<std::size_t>( ResourceKind::Count ); ++kind )
             {
                 if ( census.PerOwnerKind[owner][kind] == 0 )
                     continue;
-                text += ' ';
-                text += ResourceKindName( static_cast<ResourceKind>( kind ) );
-                text += '=' + std::to_string( census.PerOwnerKind[owner][kind] );
-                text += " bytes=" + std::to_string( census.BytesPerOwnerKind[owner][kind] );
-                text += " known=" + std::to_string( census.BytesKnownPerOwnerKind[owner][kind] );
+                Common::Json::ObjectBuilder row;
+                row.Set( "name", ResourceKindName( static_cast<ResourceKind>( kind ) ) )
+                     .Set( "count", census.PerOwnerKind[owner][kind] )
+                     .Set( "bytes", census.BytesPerOwnerKind[owner][kind] )
+                     .Set( "known", census.BytesKnownPerOwnerKind[owner][kind] );
+                kinds.emplace_back( row.Build() );
             }
+            Common::Json::ObjectBuilder row;
+            row.Set( "name", ResourceOwnerName( asOwner ) )
+                 .Set( "count", census.PerOwner[owner] )
+                 .Set( "bytes", census.BytesForOwner( asOwner ) )
+                 .Set( "known", census.BytesKnownForOwner( asOwner ) )
+                 .Set( "kinds", Common::Json::Value( std::move( kinds ) ) );
+            owners.emplace_back( row.Build() );
         }
 
-        return text;
+        Common::Json::ObjectBuilder model;
+        model.Set( "live", census.Live )
+             .Set( "unclaimed", census.Unclaimed )
+             .Set( "withoutAsset", census.WithoutAsset )
+             .Set( "bytes", census.Bytes )
+             .Set( "knownFor", census.BytesKnownFor )
+             .Set( "owners", Common::Json::Value( std::move( owners ) ) );
+        return kReport.RenderOrLog( Common::Json::Value( model.Build() ) );
     }
 
 } // namespace Desert::Graphic

@@ -3,8 +3,10 @@
 #include <Engine/Animation/Skeleton.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Json/Template.hpp>
 
 #include <algorithm>
+#include <format>
 
 namespace Desert::Animation
 {
@@ -150,13 +152,9 @@ namespace Desert::Animation
             }
         }
 
-        std::string written;
-        for ( const uint32_t control : graph.WrittenControls() )
-        {
-            written += written.empty() ? "'" : "', '";
-            written += m_Hierarchy.Get( control ).Name;
-        }
-        written += "'";
+        const auto controlName = [this]( const uint32_t control ) { return m_Hierarchy.Get( control ).Name; };
+        const std::string written =
+             std::format( "'{}'", Common::Text::Join( graph.WrittenControls(), "', '", controlName ) );
 
         return Common::MakeFormattedError<bool>(
              "this graph writes {} and none of them, nor anything parented to them, drives a bone. It would "

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Common/Core/DevInstruments.hpp>
+
+#include <Engine/Core/TextTemplate.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
@@ -463,6 +465,27 @@ namespace Desert::Assets
         }
     }
 
+    namespace SyncLoadDetail
+    {
+        // The report. BOTH HALVES ARE NAMED SEPARATELY, and zero in-frame loads is a RESULT worth printing
+        // rather than a silence: a report that went quiet when it was true would make the good case
+        // indistinguishable from a detector that was not running. The unnamed in-frame remainder is BOUNDED
+        // rather than merely counted: every one of them took no longer than the last named load, which is what
+        // decides whether they are worth chasing. The async line is NAMED WHETHER OR NOT IT IS ZERO, for the
+        // reason the in-frame line is.
+        constexpr std::string_view kReportText =
+             "loads={{ loads }} in {{ totalMs }} (outermost scopes only; nested loads are counted, not re-timed)"
+             "\n  in-frame: {{ inFrame }} load(s) in {{ inFrameMs }}"
+             "{% if inFrame == 0 %}{% if loads == 0 %} — nothing loaded at all yet"
+             "{% else %} — every load so far happened at boot{% endif %}{% endif %}"
+             "{% if rankedCount > 0 %}\n  slowest in-frame load(s) by their OWN time ({{ rankedCount }} of "
+             "{{ inFrame }}):{% for r in ranked %}\n    {{ r.ms }} — '{{ r.path }}'{% endfor %}"
+             "{% if others > 0 %}\n    the other {{ others }} took at most {{ lastMs }} each{% endif %}{% endif %}"
+             "\n  async (on a JobSystem worker, blocking no frame): {{ asyncLoads }} load(s) in {{ asyncMs }}"
+             "{% if loads > 0 %}\n  slowest single load by its OWN time: {{ slowestMs }} — "
+             "'{{ slowestPath }}'{% endif %}";
+    } // namespace SyncLoadDetail
+
     inline std::string SyncLoadLedger::Report()
     {
         const std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
@@ -471,44 +494,30 @@ namespace Desert::Assets
         const uint64_t inFrame = SyncLoadDetail::InFrameCount().load( std::memory_order_relaxed );
         const uint64_t async   = SyncLoadDetail::AsyncCount().load( std::memory_order_relaxed );
 
-        std::string text = "loads=" + std::to_string( loads ) + " in " +
-                           SyncLoadDetail::Ms( SyncLoadDetail::Sums().TotalMs ) +
-                           " (outermost scopes only; nested loads are counted, not re-timed)";
-        // BOTH HALVES NAMED SEPARATELY, and zero in-frame loads is a RESULT worth printing rather than a
-        // line to omit: "the preload caught everything" is the claim every later tier rests on, and a
-        // report that went quiet when it was true would make the good case indistinguishable from a
-        // detector that was not running.
-        text += "\n  in-frame: " + std::to_string( inFrame ) + " load(s) in " +
-                SyncLoadDetail::Ms( SyncLoadDetail::Sums().InFrameMs );
-        if ( inFrame == 0 )
+        static const Desert::Core::TextTemplate kReport( "SyncLoadReport", SyncLoadDetail::kReportText );
+        const auto&                             sums   = SyncLoadDetail::Sums();
+        const auto&                             ranked = sums.SlowestInFrame;
+        Common::Json::Value::Array              rankedRows;
+        for ( const auto& [ms, rankedPath] : ranked )
         {
-            text += loads == 0 ? " — nothing loaded at all yet" : " — every load so far happened at boot";
+            Common::Json::ObjectBuilder row;
+            row.Set( "ms", SyncLoadDetail::Ms( ms ) ).Set( "path", rankedPath );
+            rankedRows.emplace_back( row.Build() );
         }
-        const auto& ranked = SyncLoadDetail::Sums().SlowestInFrame;
-        if ( !ranked.empty() )
-        {
-            text += "\n  slowest in-frame load(s) by their OWN time (" + std::to_string( ranked.size() ) + " of " +
-                    std::to_string( inFrame ) + "):";
-            for ( const auto& [ms, rankedPath] : ranked )
-                text += "\n    " + SyncLoadDetail::Ms( ms ) + " — '" + rankedPath + "'";
-            // The unnamed remainder is BOUNDED rather than merely counted: every one of them took no
-            // longer than the last named load, which is what decides whether they are worth chasing.
-            if ( inFrame > ranked.size() )
-                text += "\n    the other " + std::to_string( inFrame - ranked.size() ) + " took at most " +
-                        SyncLoadDetail::Ms( ranked.back().first ) + " each";
-        }
-        // NAMED WHETHER OR NOT IT IS ZERO, for the reason the in-frame line is: "none of this boot's
-        // reading was asynchronous" is a fact about the model, and a line that appeared only once the
-        // number was interesting would make the eager case look like a missing detector.
-        text += "\n  async (on a JobSystem worker, blocking no frame): " + std::to_string( async ) +
-                " load(s) in " + SyncLoadDetail::Ms( SyncLoadDetail::Sums().AsyncMs );
-        if ( loads > 0 )
-        {
-            text += "\n  slowest single load by its OWN time: " +
-                    SyncLoadDetail::Ms( SyncLoadDetail::Sums().SlowestMs ) + " — '" +
-                    SyncLoadDetail::Sums().SlowestPath + "'";
-        }
-        return text;
+        Common::Json::ObjectBuilder model;
+        model.Set( "loads", loads )
+             .Set( "totalMs", SyncLoadDetail::Ms( sums.TotalMs ) )
+             .Set( "inFrame", inFrame )
+             .Set( "inFrameMs", SyncLoadDetail::Ms( sums.InFrameMs ) )
+             .Set( "rankedCount", ranked.size() )
+             .Set( "ranked", Common::Json::Value( std::move( rankedRows ) ) )
+             .Set( "others", inFrame > ranked.size() ? inFrame - ranked.size() : 0 )
+             .Set( "lastMs", ranked.empty() ? std::string() : SyncLoadDetail::Ms( ranked.back().first ) )
+             .Set( "asyncLoads", async )
+             .Set( "asyncMs", SyncLoadDetail::Ms( sums.AsyncMs ) )
+             .Set( "slowestMs", SyncLoadDetail::Ms( sums.SlowestMs ) )
+             .Set( "slowestPath", sums.SlowestPath );
+        return kReport.RenderOrLog( Common::Json::Value( model.Build() ) );
     }
 
     inline void SyncLoadLedger::ResetForTest()

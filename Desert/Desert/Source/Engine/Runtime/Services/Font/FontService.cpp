@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <format>
 
 namespace Desert::Runtime
 {
@@ -21,7 +22,7 @@ namespace Desert::Runtime
 
     Font* FontService::Get( const std::string& ttfPath, float pixelHeight )
     {
-        const std::string key = ttfPath + '|' + std::to_string( static_cast<int>( pixelHeight ) );
+        const std::string key = std::format( "{}|{}", ttfPath, static_cast<int>( pixelHeight ) );
         if ( auto it = m_Fonts.find( key ); it != m_Fonts.end() )
             return it->second.get();
 
