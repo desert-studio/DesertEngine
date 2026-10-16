@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <format>
 
 namespace Desert::Editor::Foliage
 {
@@ -81,7 +82,7 @@ namespace Desert::Editor::Foliage
         const std::string           stem = source.stem().string() + "_Copy";
         std::filesystem::path       file = dir / ( stem + Assets::Serialization::kFoliageTypeExtension );
         for ( int n = 1; std::filesystem::exists( file, ec ); ++n )
-            file = dir / ( stem + "_" + std::to_string( n ) + Assets::Serialization::kFoliageTypeExtension );
+            file = dir / std::format( "{}_{}{}", stem, n, Assets::Serialization::kFoliageTypeExtension );
         Assets::Serialization::FoliageTypeData copy = data;
         copy.Header.reset(); // the writer mints the copy's own GUID
         if ( auto saved = Assets::Serialization::SaveFoliageTypeFile( file, copy ); !saved )

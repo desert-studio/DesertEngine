@@ -20,6 +20,7 @@
 // same flight visit the same positions on the same frame numbers. Frame times are WALL milliseconds.
 
 #include <Common/Core/ResultStr.hpp>
+#include <Editor/Core/TextTemplate.hpp>
 
 #include <glm/glm.hpp>
 
@@ -30,6 +31,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <format>
 #include <limits>
 #include <numbers>
 #include <span>
@@ -107,12 +109,12 @@ namespace Desert::Editor::Flight
         inline Common::BoolResultStr CheckPoints( const Route& route )
         {
             if ( route.Points.size() < 2 )
-                return Common::MakeError( "flight route '" + route.Spec + "' has " +
-                                          std::to_string( route.Points.size() ) + " point(s); it needs two" );
+                return Common::MakeError( std::format( "flight route '{}' has {} point(s); it needs two",
+                                                       route.Spec, route.Points.size() ) );
             for ( std::size_t i = 1; i < route.Points.size(); ++i )
                 if ( route.Points[i] == route.Points[i - 1] )
-                    return Common::MakeError( "flight route '" + route.Spec + "': points " + std::to_string( i ) +
-                                              " and " + std::to_string( i + 1 ) + " are the same place" );
+                    return Common::MakeError( std::format(
+                         "flight route '{}': points {} and {} are the same place", route.Spec, i, i + 1 ) );
             return Common::MakeSuccess( true );
         }
     } // namespace Detail
@@ -196,8 +198,8 @@ namespace Desert::Editor::Flight
                 continue;
             glm::vec3 point{};
             if ( !Detail::ParsePoint( row, point ) )
-                return Common::MakeError<Route>( "flight route file '" + route.FilePath + "', line " +
-                                                 std::to_string( line ) + ": '" + row + "' is not x,y,z" );
+                return Common::MakeError<Route>( std::format( "flight route file '{}', line {}: '{}' is not x,y,z",
+                                                              route.FilePath, line, row ) );
             route.Points.push_back( point );
         }
         if ( route.Points.size() > 2 && route.Points.back() == route.Points.front() )
@@ -445,8 +447,8 @@ namespace Desert::Editor::Flight
             }
         }
         if ( cpu.empty() )
-            return Common::MakeError<Summary>( "flight summary: none of the " + std::to_string( rows.size() ) +
-                                               " row(s) is a timed frame past the warm-up" );
+            return Common::MakeError<Summary>( std::format(
+                 "flight summary: none of the {} row(s) is a timed frame past the warm-up", rows.size() ) );
         std::sort( cpu.begin(), cpu.end() );
         summary.Frames = cpu.size();
         summary.P50    = Percentile( cpu, 50.0 );
@@ -494,22 +496,22 @@ namespace Desert::Editor::Flight
     [[nodiscard]] inline std::string CsvRow( const FrameRow& row )
     {
         using Detail::Number;
-        return std::to_string( row.Frame ) + "," + PhaseName( row.Kind ) + "," + Number( row.Distance, 1 ) + "," +
-               Number( row.Position.x, 1 ) + "," + Number( row.Position.y, 1 ) + "," +
-               Number( row.Position.z, 1 ) + "," + Number( row.CpuMs, 3 ) + "," + Number( row.GpuMs, 3 ) + "," +
-               Number( row.StreamMs, 3 ) + "," + std::to_string( row.Entities ) + "," +
-               std::to_string( row.ResidentRecords ) + "," + std::to_string( row.UnitsActivated ) + "," +
-               std::to_string( row.UnitsDeactivated ) + "," + std::to_string( row.RecordsActivated ) + "," +
-               std::to_string( row.RecordsDestroyed ) + "," + Number( row.ActivationMs, 3 ) + "," +
-               std::to_string( row.AssetGpuBytes ) + ",\"" + row.ActivatedUnits + "\"\n";
+        return std::format( "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},\"{}\"\n", row.Frame,
+                            PhaseName( row.Kind ), Number( row.Distance, 1 ), Number( row.Position.x, 1 ),
+                            Number( row.Position.y, 1 ), Number( row.Position.z, 1 ), Number( row.CpuMs, 3 ),
+                            Number( row.GpuMs, 3 ), Number( row.StreamMs, 3 ), row.Entities, row.ResidentRecords,
+                            row.UnitsActivated, row.UnitsDeactivated, row.RecordsActivated, row.RecordsDestroyed,
+                            Number( row.ActivationMs, 3 ), row.AssetGpuBytes, row.ActivatedUnits );
     }
 
     [[nodiscard]] inline std::string Csv( std::span<const FrameRow> rows )
     {
-        std::string text = CsvHeader();
+        std::vector<std::string> lines;
+        lines.reserve( rows.size() + 1 );
+        lines.push_back( CsvHeader() );
         for ( const FrameRow& row : rows )
-            text += CsvRow( row );
-        return text;
+            lines.push_back( CsvRow( row ) );
+        return TextTemplates::JoinList( lines, "" );
     }
 
     // The log's account of a flight: the distribution, and the worst frame WITH its cause, because a
@@ -517,36 +519,76 @@ namespace Desert::Editor::Flight
     [[nodiscard]] inline std::string Describe( const Summary& s, std::span<const FrameRow> rows )
     {
         using Detail::Number;
+        // One paragraph; the GPU numbers, the worst frame's activation and the costliest activation frame are
+        // there only when the flight had them. Times arrive already formatted (Number) so the digits are the
+        // ones the CSV carries.
+        static const TextTemplates::CompiledTemplate kDescribe(
+             "{{ frames }} timed frame(s) ({{ settling }} settling, {{ untimed }} untimed left out): CPU frame "
+             "p50 "
+             "{{ p50 }} / p95 {{ p95 }} / p99 {{ p99 }} / max {{ max }} ms, mean {{ mean }} ms"
+             "{% if gpu %}; GPU p50 {{ gpu.p50 }} / p95 {{ gpu.p95 }} / max {{ gpu.max }} ms{% endif %}"
+             ". Worst frame {{ worst.frame }} ({{ worst.phase }}, {{ worst.along }} m along): "
+             "{% if worst.activation %}{{ worst.activation.units }} unit(s) activated [{{ worst.activation.names "
+             "}}], "
+             "{{ worst.activation.records }} record(s) in {{ worst.activation.ms }} ms{% else %}no activation{% "
+             "endif %}"
+             ", streamer tick {{ worst.streamMs }} ms. Streaming: {{ activations }} activation(s) and "
+             "{{ deactivations }} deactivation(s) on {{ activationFrames }} frame(s); median frame with an "
+             "activation "
+             "{{ p50With }} ms, without {{ p50Without }} ms"
+             "{% if costly %}; costliest activation frame {{ costly.frame }}: [{{ costly.names }}] {{ costly.ms "
+             "}} ms "
+             "in a {{ costly.cpuMs }} ms frame{% endif %}"
+             ". Peak {{ maxEntities }} entities, {{ maxResident }} streamed record(s) resident.",
+             "FlightSummary" );
+
         const FrameRow& worst = rows[s.Worst];
-        std::string text = std::to_string( s.Frames ) + " timed frame(s) (" + std::to_string( s.SettlingFrames ) +
-                           " settling, " + std::to_string( s.UntimedFrames ) +
-                           " untimed left out): CPU frame p50 " + Number( s.P50, 2 ) + " / p95 " +
-                           Number( s.P95, 2 ) + " / p99 " + Number( s.P99, 2 ) + " / max " + Number( s.Max, 2 ) +
-                           " ms, mean " + Number( s.Mean, 2 ) + " ms";
+        Common::Json::ObjectBuilder worstModel;
+        worstModel.Set( "frame", worst.Frame )
+             .Set( "phase", PhaseName( worst.Kind ) )
+             .Set( "along", Number( worst.Distance / 100.0, 1 ) )
+             .Set( "streamMs", Number( worst.StreamMs, 2 ) );
+        if ( worst.UnitsActivated > 0 )
+            worstModel.Set( "activation", Common::Json::ObjectBuilder()
+                                               .Set( "units", worst.UnitsActivated )
+                                               .Set( "names", worst.ActivatedUnits )
+                                               .Set( "records", worst.RecordsActivated )
+                                               .Set( "ms", Number( worst.ActivationMs, 2 ) )
+                                               .Build() );
+
+        Common::Json::ObjectBuilder model;
+        model.Set( "frames", s.Frames )
+             .Set( "settling", s.SettlingFrames )
+             .Set( "untimed", s.UntimedFrames )
+             .Set( "p50", Number( s.P50, 2 ) )
+             .Set( "p95", Number( s.P95, 2 ) )
+             .Set( "p99", Number( s.P99, 2 ) )
+             .Set( "max", Number( s.Max, 2 ) )
+             .Set( "mean", Number( s.Mean, 2 ) )
+             .Set( "worst", worstModel.Build() )
+             .Set( "activations", s.UnitsActivated )
+             .Set( "deactivations", s.UnitsDeactivated )
+             .Set( "activationFrames", s.FramesWithActivation )
+             .Set( "p50With", Number( s.P50WithActivation, 2 ) )
+             .Set( "p50Without", Number( s.P50WithoutActivation, 2 ) )
+             .Set( "maxEntities", s.MaxEntities )
+             .Set( "maxResident", s.MaxResidentRecords );
         if ( s.HasGpu )
-            text += "; GPU p50 " + Number( s.GpuP50, 2 ) + " / p95 " + Number( s.GpuP95, 2 ) + " / max " +
-                    Number( s.GpuMax, 2 ) + " ms";
-        text += ". Worst frame " + std::to_string( worst.Frame ) + " (" + PhaseName( worst.Kind ) + ", " +
-                Number( worst.Distance / 100.0, 1 ) + " m along): ";
-        text += worst.UnitsActivated > 0
-                     ? std::to_string( worst.UnitsActivated ) + " unit(s) activated [" + worst.ActivatedUnits +
-                            "], " + std::to_string( worst.RecordsActivated ) + " record(s) in " +
-                            Number( worst.ActivationMs, 2 ) + " ms"
-                     : std::string( "no activation" );
-        text += ", streamer tick " + Number( worst.StreamMs, 2 ) +
-                " ms. Streaming: " + std::to_string( s.UnitsActivated ) + " activation(s) and " +
-                std::to_string( s.UnitsDeactivated ) + " deactivation(s) on " +
-                std::to_string( s.FramesWithActivation ) + " frame(s); median frame with an activation " +
-                Number( s.P50WithActivation, 2 ) + " ms, without " + Number( s.P50WithoutActivation, 2 ) + " ms";
+            model.Set( "gpu", Common::Json::ObjectBuilder()
+                                   .Set( "p50", Number( s.GpuP50, 2 ) )
+                                   .Set( "p95", Number( s.GpuP95, 2 ) )
+                                   .Set( "max", Number( s.GpuMax, 2 ) )
+                                   .Build() );
         if ( s.FramesWithActivation > 0 )
         {
             const FrameRow& costly = rows[s.MaxActivationFrame];
-            text += "; costliest activation frame " + std::to_string( costly.Frame ) + ": [" +
-                    costly.ActivatedUnits + "] " + Number( costly.ActivationMs, 2 ) + " ms in a " +
-                    Number( costly.CpuMs, 2 ) + " ms frame";
+            model.Set( "costly", Common::Json::ObjectBuilder()
+                                      .Set( "frame", costly.Frame )
+                                      .Set( "names", costly.ActivatedUnits )
+                                      .Set( "ms", Number( costly.ActivationMs, 2 ) )
+                                      .Set( "cpuMs", Number( costly.CpuMs, 2 ) )
+                                      .Build() );
         }
-        text += ". Peak " + std::to_string( s.MaxEntities ) + " entities, " +
-                std::to_string( s.MaxResidentRecords ) + " streamed record(s) resident.";
-        return text;
+        return TextTemplates::RenderOrError( kDescribe, Common::Json::Value( model.Build() ) );
     }
 } // namespace Desert::Editor::Flight

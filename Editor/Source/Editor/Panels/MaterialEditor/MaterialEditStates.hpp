@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Editor/Core/EditableProperty.hpp>
+#include <Editor/Core/TextTemplate.hpp>
 #include <Editor/Import/TextureSourceFormats.hpp>
 
 #include <Engine/Assets/MaterialData.hpp>
@@ -12,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <format>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -486,19 +488,16 @@ namespace Desert::Editor::MaterialEdit
 
         if ( !found )
         {
-            std::string known;
+            std::vector<std::string_view> offered;
             for ( const auto& p : schema.Params )
-            {
-                if ( p.IsTexture || p.IsAssetRef() )
-                    continue;
-                if ( !known.empty() )
-                    known += ", ";
-                known += p.Name;
-            }
+                if ( !p.IsTexture && !p.IsAssetRef() )
+                    offered.emplace_back( p.Name );
             // The offer is built from the schema that was just walked, so a shader whose properties
             // changed cannot leave a stale suggestion behind.
-            outRefusal = "'" + name + "' is not a property this document's shader declares. It offers: " +
-                         ( known.empty() ? std::string( "nothing that carries a value." ) : known );
+            outRefusal =
+                 std::format( "'{}' is not a property this document's shader declares. It offers: {}", name,
+                              offered.empty() ? std::string( "nothing that carries a value." )
+                                              : TextTemplates::JoinList( offered, ", " ) );
             return nullptr;
         }
 

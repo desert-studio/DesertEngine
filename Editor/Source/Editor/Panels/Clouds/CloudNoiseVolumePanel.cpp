@@ -29,6 +29,7 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <format>
 
 namespace Desert::Editor
 {
@@ -499,10 +500,10 @@ namespace Desert::Editor
         m_SourceName = path.filename().string() + " (imported, unsaved)";
         m_SliceIndex = static_cast<int>( m_Volume.Params.Resolution ) / 2;
         m_SliceDirty = true;
-        m_Status     = "Imported " + std::to_string( width ) + "x" + std::to_string( height ) + " as a " +
-                   std::to_string( m_Volume.Params.Resolution ) +
-                   "^3 volume. It has NO recipe - a picture cannot carry one - so Bake would replace it "
-                   "with something else entirely. Save it to keep it.";
+        m_Status     = std::format( "Imported {}x{} as a {}^3 volume. It has NO recipe - a picture cannot carry "
+                                        "one - so Bake would replace it with something else entirely. "
+                                        "Save it to keep it.",
+                                    width, height, m_Volume.Params.Resolution );
         m_StatusIsError = false;
 
         LOG_INFO( "[Clouds] Noise sheet '{}' imported: {}x{} -> {}^3 RGBA8.", path.string(), width, height,
@@ -571,12 +572,10 @@ namespace Desert::Editor
                     }
                     else
                     {
-                        m_Status = "Exported " + std::to_string( image.Layout.Width ) + "x" +
-                                   std::to_string( image.Layout.Height ) + " (" +
-                                   std::to_string( image.Layout.TilesX ) + "x" +
-                                   std::to_string( image.Layout.TilesY ) + " tiles of " +
-                                   std::to_string( image.Layout.Resolution ) + ") to " + target.string() +
-                                   ". The voxels survive a return trip exactly; the recipe does not.";
+                        m_Status = std::format( "Exported {}x{} ({}x{} tiles of {}) to {}. The voxels survive a "
+                                                "return trip exactly; the recipe does not.",
+                                                image.Layout.Width, image.Layout.Height, image.Layout.TilesX,
+                                                image.Layout.TilesY, image.Layout.Resolution, target.string() );
                         m_StatusIsError = false;
                         LOG_INFO( "[Clouds] Noise sheet written: '{}', {}x{}.", target.string(),
                                   image.Layout.Width, image.Layout.Height );

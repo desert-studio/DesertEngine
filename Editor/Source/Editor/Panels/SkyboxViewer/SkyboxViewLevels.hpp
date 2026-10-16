@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <format>
 #include <functional>
 #include <optional>
 #include <string>
@@ -77,7 +78,7 @@ namespace Desert::Editor::SkyboxView
     {
         const auto level = ResolveLevel( index, prefilteredMips );
         if ( !level )
-            return "Level " + std::to_string( index ) + " (outside the list)";
+            return std::format( "Level {} (outside the list)", index );
         switch ( level->Source )
         {
             case Cube::Radiance:
@@ -132,7 +133,7 @@ namespace Desert::Editor::SkyboxView
     {
         if ( index == DiffuseLevel( prefilteredMips ) )
             return "Level: Diffuse";
-        return "Level: Mip " + std::to_string( index );
+        return std::format( "Level: Mip {}", index );
     }
 
     [[nodiscard]] inline float WrapDegrees( float degrees )

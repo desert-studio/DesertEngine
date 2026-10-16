@@ -17,6 +17,7 @@
 #include <entt/entt.hpp>
 
 #include <cstddef>
+#include <format>
 #include <string>
 
 // The one implementation of "make a UI element". There used to be two — UIEditorPanel.cpp and
@@ -335,9 +336,8 @@ namespace Desert::Editor
                 // it.
                 for ( int i = 0; i < od.ToastSlots; ++i )
                 {
-                    const entt::entity slot =
-                         panel( stack, ( "Slot " + std::to_string( i ) ).c_str(), { 0.0f, 0.0f }, { 0.0f, 0.0f },
-                                { 0.0f, 0.0f }, { 300.0f, 52.0f } );
+                    const entt::entity slot  = panel( stack, std::format( "Slot {}", i ).c_str(), { 0.0f, 0.0f },
+                                                      { 0.0f, 0.0f }, { 0.0f, 0.0f }, { 300.0f, 52.0f } );
                     auto& sl    = reg.get<ECS::UILayoutComponent>( slot ).Data;
                     sl.HitTest  = ::Desert::UI::UIHitTest::None;
                     auto& bind  = reg.emplace<ECS::UIBindingComponent>( slot ).Data;

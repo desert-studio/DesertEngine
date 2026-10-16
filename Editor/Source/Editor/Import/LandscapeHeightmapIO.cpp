@@ -16,6 +16,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <format>
 #include <string>
 #include <system_error>
 
@@ -67,7 +68,7 @@ namespace Desert::World::Landscape
 
         std::string SizeText( uint32_t width, uint32_t height )
         {
-            return std::to_string( width ) + " x " + std::to_string( height );
+            return std::format( "{} x {}", width, height );
         }
 
         /// The two sizes along one side that @p quads allows around @p samples: k · quads + 1 below and above.
@@ -76,8 +77,7 @@ namespace Desert::World::Landscape
             const uint32_t below = samples <= 1u ? 1u : ( samples - 1u ) / quads;
             const uint32_t lo    = std::max( below, 1u ) * quads + 1u;
             const uint32_t hi    = ( below + 1u ) * quads + 1u;
-            return lo == hi || lo > samples ? std::to_string( hi )
-                                            : std::to_string( lo ) + " or " + std::to_string( hi );
+            return lo == hi || lo > samples ? std::to_string( hi ) : std::format( "{} or {}", lo, hi );
         }
     } // namespace
 

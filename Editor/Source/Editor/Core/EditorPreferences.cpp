@@ -10,6 +10,7 @@
 
 // glm::vec3 <-> JSON reflector (OutlineColor). Must be visible before the rfl::json read/write below.
 #include <Common/Core/Serialization/GlmReflection.hpp>
+#include <Editor/Core/TextTemplate.hpp>
 
 #include <algorithm>
 #include <array>
@@ -183,10 +184,7 @@ namespace Desert::Editor
             return "reserialized";
         }
 
-        std::string list = changed.front();
-        for ( std::size_t i = 1; i < changed.size(); ++i )
-            list += ", " + changed[i];
-        return list;
+        return TextTemplates::JoinList( changed, ", " );
     }
 
     // EVERY LEVEL OF editor.json THAT CARRIES ANOTHER BUILD'S KEYS. Json::Read refuses an undeclared key

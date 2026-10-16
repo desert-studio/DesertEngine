@@ -5,6 +5,7 @@
 
 #include <Editor/Core/Control/ControlPipeline.hpp>
 #include <Editor/Core/EditableProperty.hpp>
+#include <Editor/Core/TextTemplate.hpp>
 
 #include <cstdint>
 #include <string>
@@ -139,14 +140,7 @@ namespace Desert::Editor::Control
 
     [[nodiscard]] inline std::string KnownSectionList()
     {
-        std::string list;
-        for ( const char* section : kStateSections )
-        {
-            if ( !list.empty() )
-                list += ", ";
-            list += section;
-        }
-        return list;
+        return TextTemplates::JoinList( kStateSections, ", " );
     }
 
     /// Refuse a section nobody serves, naming the ones served. A section quietly missing from the answer

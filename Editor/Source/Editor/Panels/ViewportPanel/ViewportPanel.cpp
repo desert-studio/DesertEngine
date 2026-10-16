@@ -1146,8 +1146,7 @@ namespace Desert::Editor
                         {
                             if ( c > 0 )
                                 ImGui::SameLine();
-                            const std::string lbl =
-                                 std::string( rl[r] ) + cl[c] + "##a" + std::to_string( r * 4 + c );
+                            const std::string lbl = std::format( "{}{}##a{}", rl[r], cl[c], r * 4 + c );
                             if ( ImGui::Button( lbl.c_str(), ImVec2( 40.0f, 28.0f ) ) )
                             {
                                 ApplyAnchorPreset( reg, selUI, viewRect, modes[c], modes[r] );

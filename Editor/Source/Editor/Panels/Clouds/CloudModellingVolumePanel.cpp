@@ -23,6 +23,7 @@
 #include <ImGui/imgui.h>
 
 #include <chrono>
+#include <format>
 #include <fstream>
 
 namespace Desert::Editor
@@ -977,8 +978,8 @@ namespace Desert::Editor
 
         for ( std::size_t i = 0; i < m_Recipe.Blobs.size(); ++i )
         {
-            const std::string prefix = "Lump" + std::to_string( i );
-            const std::string group  = "Lump " + std::to_string( i );
+            const std::string prefix = std::format( "Lump{}", i );
+            const std::string group  = std::format( "Lump {}", i );
             const auto&       blob   = m_Recipe.Blobs[i];
 
             for ( const LumpVector& field : kLumpVectors )

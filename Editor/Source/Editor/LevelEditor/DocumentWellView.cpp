@@ -91,7 +91,7 @@ namespace Desert::Editor
         // every material shares one, a mesh viewer another. The owner is left out on purpose.
         std::string DocumentKindKey( const SubjectId& subject )
         {
-            return std::string( SubjectDomainName( subject.Domain ) ) + ':' + std::to_string( subject.Facet );
+            return std::format( "{}:{}", SubjectDomainName( subject.Domain ), subject.Facet );
         }
     } // namespace
 

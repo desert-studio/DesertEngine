@@ -1,9 +1,11 @@
 #pragma once
 
 #include <Editor/Core/FuzzyMatch.hpp>
+#include <Editor/Core/TextTemplate.hpp>
 
 #include <algorithm>
 #include <cstddef>
+#include <format>
 #include <string>
 #include <vector>
 
@@ -136,25 +138,37 @@ namespace Desert::Editor::Control
     [[nodiscard]] inline std::string DescribeUnknownCommand( const CommandAddress& wanted,
                                                              const Resolution&     resolution )
     {
-        std::string message = "no command '" + wanted.Group + "' / '" + wanted.Label + "' is offered right now (" +
-                              std::to_string( resolution.Candidates ) + " available)";
+        const std::string message = std::format( "no command '{}' / '{}' is offered right now ({} available)",
+                                                 wanted.Group, wanted.Label, resolution.Candidates );
 
         if ( resolution.Candidates == 0 )
         {
-            return message +
-                   ". The dictionary is EMPTY, which is not the same as your command being misspelled: the "
-                   "editor is still loading, or no project is open. Ask 'state' before retrying.";
+            return std::format(
+                 "{}. The dictionary is EMPTY, which is not the same as your command being "
+                 "misspelled: the editor is still loading, or no project is open. Ask 'state' before "
+                 "retrying.",
+                 message );
         }
 
         if ( resolution.Suggestions.empty() )
-            return message + ". Nothing resembles it either; ask 'commands' for the full list.";
+            return std::format( "{}. Nothing resembles it either; ask 'commands' for the full list.", message );
 
-        message += ". Did you mean";
-        for ( std::size_t i = 0; i < resolution.Suggestions.size(); ++i )
-        {
-            message += ( i == 0 ? " " : ", " );
-            message += "'" + resolution.Suggestions[i].Group + "' / '" + resolution.Suggestions[i].Label + "'";
-        }
-        return message + "?";
+        static const TextTemplates::CompiledTemplate kDidYouMean(
+             "{{ message }}. Did you mean {% for s in suggestions %}{% if not loop.first %}, {% endif %}"
+             "'{{ s.group }}' / '{{ s.label }}'{% endfor %}?",
+             "UnknownCommandSuggestions" );
+        Common::Json::Value::Array suggestions;
+        suggestions.reserve( resolution.Suggestions.size() );
+        for ( const CommandAddress& suggestion : resolution.Suggestions )
+            suggestions.emplace_back( Common::Json::ObjectBuilder()
+                                           .Set( "group", suggestion.Group )
+                                           .Set( "label", suggestion.Label )
+                                           .Build() );
+        return TextTemplates::RenderOrError(
+             kDidYouMean,
+             Common::Json::Value( Common::Json::ObjectBuilder()
+                                       .Set( "message", message )
+                                       .Set( "suggestions", Common::Json::Value( std::move( suggestions ) ) )
+                                       .Build() ) );
     }
 } // namespace Desert::Editor::Control

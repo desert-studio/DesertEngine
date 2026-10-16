@@ -450,7 +450,7 @@ namespace Desert::Editor
             ImportedMaterial out;
             aiString         name;
             mat->Get( AI_MATKEY_NAME, name );
-            out.Name = name.length > 0 ? std::string( name.C_Str() ) : ( "Material_" + std::to_string( i ) );
+            out.Name = name.length > 0 ? std::string( name.C_Str() ) : std::format( "Material_{}", i );
 
             // Keyed on the mesh's place in the project, NOT on its file stem — see CookPaths::MaterialKey
             // for what the stem-only key merged and why the repository is one same-named file away from it.
@@ -849,8 +849,8 @@ namespace Desert::Editor
                     continue;
 
                 MorphContribution mc;
-                mc.Name = anim->mName.length > 0 ? std::string( anim->mName.C_Str() )
-                                                 : ( "Morph_" + std::to_string( a ) );
+                mc.Name =
+                     anim->mName.length > 0 ? std::string( anim->mName.C_Str() ) : std::format( "Morph_{}", a );
                 mc.VertexOffset    = submesh.VertexOffset;
                 const bool hasNorm = anim->mNormals != nullptr && mesh->HasNormals();
                 mc.DeltaPos.resize( mesh->mNumVertices );
@@ -1298,9 +1298,9 @@ namespace Desert::Editor
 
         if ( !ImportUnits::IsUsableScale( assimpMetresPerUnit ) )
         {
-            throw std::runtime_error( "Refusing to import " + path.string() + ": the reader reports " +
-                                      std::to_string( assimpMetresPerUnit ) +
-                                      " metres per file unit, which is not a usable scale." );
+            throw std::runtime_error( std::format( "Refusing to import {}: the reader reports {:f} metres per "
+                                                   "file unit, which is not a usable scale.",
+                                                   path.string(), assimpMetresPerUnit ) );
         }
 
         importer.SetPropertyFloat(

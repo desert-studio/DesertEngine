@@ -243,7 +243,7 @@ namespace Desert::Editor
 
         std::filesystem::path path = dir / ( base + ext );
         for ( int n = 1; std::filesystem::exists( path, ec ); ++n )
-            path = dir / ( base + "_" + std::to_string( n ) + ext );
+            path = dir / std::format( "{}_{}{}", base, n, ext );
 
         // Write the file FIRST (Terrain shader + a freshly minted header GUID), then create-with-load: the
         // asset adopts its in-file GUID as the internal handle during Load, so the handle registered here is
@@ -700,7 +700,7 @@ namespace Desert::Editor
 
         std::filesystem::path path = dir / ( base + ext );
         for ( int n = 1; std::filesystem::exists( path, ec ); ++n )
-            path = dir / ( base + "_" + std::to_string( n ) + ext );
+            path = dir / std::format( "{}_{}{}", base, n, ext );
 
         // Write the file FIRST (cloud shader + a freshly minted header GUID), then create-with-load — the
         // same order CreateLandscapeMaterial documents, and for the same handle-adoption reason.
@@ -1513,7 +1513,7 @@ namespace Desert::Editor
                         glm::vec3 scale   = decomposed.Scale;
 
                         bool              moved = false;
-                        const std::string label = "[" + std::to_string( i ) + "]";
+                        const std::string label = std::format( "[{}]", i );
 
                         U::ImGuiUtilities::BeginPropertyRow( label.c_str(), "World position, in centimetres" );
                         moved |= U::ImGuiUtilities::VectorField( "pos", &translation.x, 3, 1.0f, "%.1f" );
