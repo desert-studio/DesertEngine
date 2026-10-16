@@ -10,6 +10,7 @@
 #include <Render2DCore/Text/BakedFont.hpp>
 #include <Render2DCore/Text/Utf8.hpp>
 
+#include <algorithm>
 #include <format>
 #include <vector>
 
@@ -20,6 +21,71 @@ namespace Desert::Graphic
         // The debug font's height in screen pixels at Scale 1 - UE's DrawDebugString uses the engine's small
         // font, about this size on a 1080p viewport.
         constexpr float kStringPixelHeight = 18.0f;
+        // The screen panel's background reaches this many pixels past its text on every side.
+        constexpr float kPanelPadding = 6.0f;
+
+        // Lays the engine font's glyphs out along a pen: what a world string and a panel's runs share.
+        struct TextPen
+        {
+            Render2D::DrawList2D& List;
+            const Runtime::Font&  Font;
+            float                 PixelHeight; // the text's height in screen pixels at scale 1
+
+            [[nodiscard]] float ScaleOf( const float scale ) const
+            {
+                return PixelHeight * scale / Font.Baked.PixelHeight;
+            }
+
+            [[nodiscard]] float LineHeight( const float scale ) const
+            {
+                return Font.Baked.LineHeight() * ScaleOf( scale );
+            }
+
+            [[nodiscard]] float Measure( const std::string& text, const float scale ) const
+            {
+                const float k     = ScaleOf( scale );
+                float       width = 0.0f;
+                for ( size_t i = 0; i < text.size(); )
+                    if ( const auto it = Font.Baked.Glyphs.find( Text::Utf8Next( text, i ) );
+                         it != Font.Baked.Glyphs.end() )
+                        width += it->second.Advance * k;
+                return width;
+            }
+
+            // @p topLeft is the top of the line; a one-pixel shadow first (UE bDrawShadow), then the text over it.
+            // Returns the pen's advance.
+            float Draw( const glm::vec2& topLeft, const std::string& text, const glm::vec4& color,
+                        const float scale ) const
+            {
+                const Text::BakedFont& baked    = Font.Baked;
+                const float            k        = ScaleOf( scale );
+                const float            baseline = topLeft.y + baked.Ascent * k;
+                float                  advance  = 0.0f;
+                for ( int pass = 0; pass < 2; ++pass )
+                {
+                    const glm::vec2 offset = pass == 0 ? glm::vec2( 1.0f, 1.0f ) : glm::vec2( 0.0f );
+                    const glm::vec4 tint   = pass == 0 ? glm::vec4( 0.0f, 0.0f, 0.0f, color.a ) : color;
+                    float           pen    = topLeft.x;
+                    for ( size_t i = 0; i < text.size(); )
+                    {
+                        const auto it = baked.Glyphs.find( Text::Utf8Next( text, i ) );
+                        if ( it == baked.Glyphs.end() )
+                            continue;
+                        const Text::Glyph& g = it->second;
+                        if ( g.Width > 0.0f && g.Height > 0.0f )
+                        {
+                            const glm::vec2 min( pen + g.OffsetX * k, baseline + g.OffsetY * k );
+                            List.AddText( Font.Atlas.get(), min + offset,
+                                          min + glm::vec2( g.Width, g.Height ) * k + offset, { g.U0, g.V0 },
+                                          { g.U1, g.V1 }, tint );
+                        }
+                        pen += g.Advance * k;
+                    }
+                    advance = pen - topLeft.x;
+                }
+                return advance;
+            }
+        };
 
         size_t BatchOf( const Core::DebugDrawLine& line )
         {
@@ -54,7 +120,7 @@ namespace Desert::Graphic
 
     bool DebugDrawRenderer::HasStrings() const
     {
-        return m_World != nullptr && !m_World->GetStrings().empty();
+        return m_World != nullptr && ( !m_World->GetStrings().empty() || !m_World->GetScreenPanels().empty() );
     }
 
     bool DebugDrawRenderer::EnsureLinePipelines()
@@ -167,12 +233,16 @@ namespace Desert::Graphic
         // or the frame would draw against the atlas the re-bake retires.
         for ( const Core::DebugDrawString& s : m_World->GetStrings() )
             (void)fonts.RequestGlyphs( fontHandle, Text::Utf8Decode( s.Text ) );
+        for ( const Core::DebugDrawScreenPanel& panel : m_World->GetScreenPanels() )
+            for ( const Core::DebugDrawCanvasLine& line : panel.Lines )
+                for ( const Core::DebugDrawTextRun& run : line.Runs )
+                    (void)fonts.RequestGlyphs( fontHandle, Text::Utf8Decode( run.Text ) );
         const Runtime::Font* font = fonts.Get( fontHandle );
         if ( font == nullptr || !font->Atlas || !font->Baked.Valid() || font->Baked.PixelHeight <= 0.0f )
             return Common::MakeError( "the debug strings have no font: the engine's default font did not bake" );
-        const Text::BakedFont& baked = font->Baked;
 
         Render2D::DrawList2D& list = m_Text.GetDrawList();
+        const TextPen         pen{ list, *font, kStringPixelHeight };
         for ( const Core::DebugDrawString& s : m_World->GetStrings() )
         {
             const glm::vec4 clip = view->ViewProjection * glm::vec4( s.Position, 1.0f );
@@ -180,29 +250,36 @@ namespace Desert::Graphic
                 continue; // behind the eye
             const glm::vec2 ndc( clip.x / clip.w, clip.y / clip.w );
             const glm::vec2 anchor( ( ndc.x * 0.5f + 0.5f ) * width, ( ndc.y * 0.5f + 0.5f ) * height );
-            const float     k        = kStringPixelHeight * s.Scale / baked.PixelHeight;
-            const float     baseline = anchor.y + baked.Ascent * k;
-            // Shadow first, then the text over it.
-            for ( int pass = 0; pass < 2; ++pass )
+            pen.Draw( anchor, s.Text, s.Color, s.Scale );
+        }
+
+        // The screen panels (UE's debug canvas): a background as wide as the widest line, the lines below each
+        // other from the panel's origin.
+        for ( const Core::DebugDrawScreenPanel& panel : m_World->GetScreenPanels() )
+        {
+            const float lineHeight = pen.LineHeight( panel.Scale );
+            float       widest     = 0.0f;
+            for ( const Core::DebugDrawCanvasLine& line : panel.Lines )
             {
-                const glm::vec2 offset = pass == 0 ? glm::vec2( 1.0f, 1.0f ) : glm::vec2( 0.0f );
-                const glm::vec4 color  = pass == 0 ? glm::vec4( 0.0f, 0.0f, 0.0f, s.Color.a ) : s.Color;
-                float           pen    = anchor.x;
-                for ( size_t i = 0; i < s.Text.size(); )
-                {
-                    const auto it = baked.Glyphs.find( Text::Utf8Next( s.Text, i ) );
-                    if ( it == baked.Glyphs.end() )
-                        continue;
-                    const Text::Glyph& g = it->second;
-                    if ( g.Width > 0.0f && g.Height > 0.0f )
-                    {
-                        const glm::vec2 min( pen + g.OffsetX * k, baseline + g.OffsetY * k );
-                        list.AddText( font->Atlas.get(), min + offset,
-                                      min + glm::vec2( g.Width, g.Height ) * k + offset, { g.U0, g.V0 },
-                                      { g.U1, g.V1 }, color );
-                    }
-                    pen += g.Advance * k;
-                }
+                float lineWidth = 0.0f;
+                for ( const Core::DebugDrawTextRun& run : line.Runs )
+                    lineWidth += pen.Measure( run.Text, panel.Scale );
+                widest = std::max( widest, lineWidth );
+            }
+            if ( panel.Background.a > 0.0f && !panel.Lines.empty() )
+            {
+                const glm::vec2 padding( kPanelPadding );
+                list.AddRectFilled( panel.Origin - padding,
+                                    panel.Origin + glm::vec2( widest, lineHeight * panel.Lines.size() ) + padding,
+                                    panel.Background );
+            }
+            glm::vec2 at = panel.Origin;
+            for ( const Core::DebugDrawCanvasLine& line : panel.Lines )
+            {
+                glm::vec2 runAt = at;
+                for ( const Core::DebugDrawTextRun& run : line.Runs )
+                    runAt.x += pen.Draw( runAt, run.Text, run.Color, panel.Scale );
+                at.y += lineHeight;
             }
         }
         return BOOLSUCCESS;

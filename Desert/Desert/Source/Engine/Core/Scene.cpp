@@ -13,6 +13,9 @@
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
+#if DESERT_DEV_INSTRUMENTS
+#include <Engine/ECS/System/ScriptSystem.hpp>
+#endif
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
@@ -647,6 +650,22 @@ namespace Desert::Core
             DESERT_PROFILE_SCOPE( "ECS Systems" );
             ExecuteSystems( gameplayTs );
         }
+
+#if DESERT_DEV_INSTRUMENTS
+        // THE GAMEPLAY DEBUGGER after the systems: the scripts' switches and the player's keys of this frame (the
+        // script system ticked the local player's input) are in, and what it draws is one-frame DebugDraw, aged
+        // with the rest at the top of the next update. Keys only while played: in Edit the player has no input.
+        {
+            DESERT_PROFILE_SCOPE( "Gameplay Debugger" );
+            const Input::LocalPlayerInput* playerInput = nullptr;
+            if ( m_State != SceneState::Edit )
+                if ( auto* scripts = FindSystem<ECS::ScriptSystem>() )
+                    playerInput = &scripts->PlayerInput();
+            m_GameplayDebugger.Tick( *this, playerInput,
+                                     m_State == SceneState::Edit ? ts.GetSeconds() : gameplayTs.GetSeconds(),
+                                     m_State != SceneState::Paused || TicksGameplay() );
+        }
+#endif
 
         // THE EFFECTS CLOCK, once per scene update and never per view: every SceneRenderer of this scene
         // reads the plan made here. Its time is the scene's — the editor's delta in Edit (effects preview

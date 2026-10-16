@@ -19,6 +19,7 @@
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Libraries/AnimatorLibrary.hpp>
 #include <Engine/Libraries/EntityLibrary.hpp>
+#include <Engine/Libraries/GameplayDebuggerLibrary.hpp>
 #include <Engine/Libraries/LocalizationLibrary.hpp>
 #include <Engine/Libraries/UILibrary.hpp>
 #include <Engine/Libraries/GameLibrary.hpp>
@@ -248,6 +249,18 @@ void RegisterReflection_Engine()
                     .Function( ::Desert::Reflection::MakeFunction<&T::SpawnMarker>( "SpawnMarker", "WorldLibrary", "ECS::Entity", std::array<::Desert::Reflection::ParamSpelling, 3>{ ::Desert::Reflection::ParamSpelling{ "position", "const glm::vec3&" }, ::Desert::Reflection::ParamSpelling{ "scale", "float" }, ::Desert::Reflection::ParamSpelling{ "color", "const glm::vec3&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "A debug sphere drawn with the DebugColor template.", .ScriptName = "spawnMarker", .ScriptMethod = false } ) )
                     .Function( ::Desert::Reflection::MakeFunction<&T::Raycast>( "Raycast", "WorldLibrary", "HitResult", std::array<::Desert::Reflection::ParamSpelling, 3>{ ::Desert::Reflection::ParamSpelling{ "origin", "const glm::vec3&" }, ::Desert::Reflection::ParamSpelling{ "direction", "const glm::vec3&" }, ::Desert::Reflection::ParamSpelling{ "maxDistance", "float", +[]() -> ::Desert::Reflection::Value { using P = ::Desert::Reflection::ParamType<&T::Raycast, 2>; return ::Desert::Reflection::ValueTraits<P>::To( P{ std::numeric_limits<float>::max() } ); } }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "The nearest static-mesh or landscape hit along a ray, within maxDistance (unbounded by default).", .ScriptName = "raycast", .ScriptMethod = false } ) )
                     .Function( ::Desert::Reflection::MakeFunction<&T::CameraRay>( "CameraRay", "WorldLibrary", "WorldRay", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "The active camera's eye ray (looking down -Z from the origin when there is no camera).", .ScriptName = "cameraRay", .ScriptMethod = false } ) )
+#endif
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::Libraries::GameplayDebuggerLibrary;
+        TypeBuilder( "GameplayDebuggerLibrary", sizeof( T ) )
+            .ScriptName( "GameplayDebugger" )
+#ifndef DESERT_REFLECTION_DATA_ONLY
+                    .Function( ::Desert::Reflection::MakeFunction<&T::SetActive>( "SetActive", "GameplayDebuggerLibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "active", "bool" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Shows or hides the gameplay debugger.", .ScriptName = "setActive", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::IsActive>( "IsActive", "GameplayDebuggerLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 0>{ }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "True while the gameplay debugger shows.", .ScriptName = "isActive", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::SetCategory>( "SetCategory", "GameplayDebuggerLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "name", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "enabled", "bool" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Turns the category of that name on or off; false when there is none.", .ScriptName = "setCategory", .ScriptMethod = false } ) )
 #endif
             .WithDefault<T>()
             .Register();

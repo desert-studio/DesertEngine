@@ -82,6 +82,42 @@ namespace Desert::Core
         bool        Persistent;
     };
 
+    /// One coloured piece of a canvas line (UE's {color} markup in FGameplayDebuggerCanvasContext::Print, as
+    /// data).
+    struct DebugDrawTextRun
+    {
+        std::string Text;
+        glm::vec4   Color = glm::vec4( 1.0f );
+    };
+
+    /// One line of a screen panel: its runs side by side.
+    struct DebugDrawCanvasLine
+    {
+        std::vector<DebugDrawTextRun> Runs;
+    };
+
+    /// How a screen panel is drawn and how long it lives (the lifetime rule of DebugDrawStyle).
+    struct DebugDrawPanelStyle
+    {
+        glm::vec4 Background = glm::vec4( 0.0f, 0.0f, 0.0f, 0.5f ); // alpha 0 = no background
+        float     Scale      = 1.0f;
+        float     Duration   = 0.0f; // seconds of scene time; 0 = one frame
+        bool      Persistent = false;
+    };
+
+    /// Text anchored to the VIEW, not the world (UE's debug canvas / HUD text): lines from @p Origin pixels below
+    /// and right of the view's top-left corner, over a background as wide as the widest line.
+    struct DebugDrawScreenPanel
+    {
+        glm::vec2                        Origin;
+        std::vector<DebugDrawCanvasLine> Lines;
+        glm::vec4                        Background;
+        float                            Scale;
+        float                            RemainingSeconds;
+        bool                             OneFrame;
+        bool                             Persistent;
+    };
+
     /// The scene's debug items. Written on the game thread (scripts, systems), read by the scene's views
     /// while they build their frames.
     class DebugDrawWorld
@@ -89,6 +125,8 @@ namespace Desert::Core
     public:
         void AddLine( const glm::vec3& start, const glm::vec3& end, const DebugDrawStyle& style );
         void AddString( const glm::vec3& position, std::string text, float scale, const DebugDrawStyle& style );
+        void AddScreenPanel( const glm::vec2& origin, std::vector<DebugDrawCanvasLine> lines,
+                             const DebugDrawPanelStyle& style );
 
         /// The start of a scene update. @p advancesFrame false (a pause) keeps the one-frame items of the last
         /// frame; @p deltaSeconds ages the timed ones and drops those whose time ran out.
@@ -96,7 +134,7 @@ namespace Desert::Core
 
         /// UE FlushPersistentDebugLines: every persistent and timed line goes; one-frame lines stay.
         void FlushPersistentLines();
-        /// UE FlushDebugStrings: every string goes.
+        /// UE FlushDebugStrings: every string goes, the screen panels with them.
         void FlushStrings();
 
         [[nodiscard]] const std::vector<DebugDrawLine>& GetLines() const
@@ -107,14 +145,19 @@ namespace Desert::Core
         {
             return m_Strings;
         }
+        [[nodiscard]] const std::vector<DebugDrawScreenPanel>& GetScreenPanels() const
+        {
+            return m_Panels;
+        }
         [[nodiscard]] bool IsEmpty() const
         {
-            return m_Lines.empty() && m_Strings.empty();
+            return m_Lines.empty() && m_Strings.empty() && m_Panels.empty();
         }
 
     private:
-        std::vector<DebugDrawLine>   m_Lines;
-        std::vector<DebugDrawString> m_Strings;
+        std::vector<DebugDrawLine>        m_Lines;
+        std::vector<DebugDrawString>      m_Strings;
+        std::vector<DebugDrawScreenPanel> m_Panels;
     };
 
     /// The calls. Each turns its shape into line segments in @p scene's DebugDrawWorld. Rotations are world
@@ -140,6 +183,9 @@ namespace Desert::Core
         /// Text at a world point, drawn over the picture where the point projects (UE DrawDebugString).
         void String( Scene& scene, const glm::vec3& position, std::string_view text, float scale = 1.0f,
                      const DebugDrawStyle& style = {} );
+        /// Lines of text at a fixed place of every view of @p scene (UE's debug canvas).
+        void ScreenPanel( Scene& scene, const glm::vec2& origin, std::vector<DebugDrawCanvasLine> lines,
+                          const DebugDrawPanelStyle& style = {} );
         void FlushPersistent( Scene& scene );
         void FlushStrings( Scene& scene );
 #else
@@ -164,6 +210,10 @@ namespace Desert::Core
         {
         }
         inline void String( Scene&, const glm::vec3&, std::string_view, float = 1.0f, const DebugDrawStyle& = {} )
+        {
+        }
+        inline void ScreenPanel( Scene&, const glm::vec2&, std::vector<DebugDrawCanvasLine>,
+                                 const DebugDrawPanelStyle& = {} )
         {
         }
         inline void FlushPersistent( Scene& )

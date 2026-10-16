@@ -1696,6 +1696,13 @@ namespace Desert::Editor
             m_PlayerHoldsKeys = false;
         }
 
+#if DESERT_DEV_INSTRUMENTS
+        // The gameplay debugger targets the editor's selection when there is one (UE follows the selected actor);
+        // the engine cannot see the editor, so the selection is pushed. One of another scene finds no entity
+        // there and the debugger falls back to the view's centre.
+        m_Scene->GetGameplayDebugger().SetSelectedEntity( Core::SelectionManager::GetSelected() );
+#endif
+
         // Multi-scene: focusing this viewport makes ITS scene the active one (Outliner/Details/gizmo
         // follow). Idempotent on the editor side, so calling it every focused frame is fine.
         if ( m_OnActivate && ImGui::IsWindowFocused() )

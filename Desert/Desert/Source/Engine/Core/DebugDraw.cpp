@@ -59,10 +59,24 @@ namespace Desert::Core
                                               .Persistent       = style.Persistent } );
     }
 
+    void DebugDrawWorld::AddScreenPanel( const glm::vec2& origin, std::vector<DebugDrawCanvasLine> lines,
+                                         const DebugDrawPanelStyle& style )
+    {
+        const bool oneFrame = !style.Persistent && style.Duration <= 0.0f;
+        m_Panels.push_back( DebugDrawScreenPanel{ .Origin           = origin,
+                                                  .Lines            = std::move( lines ),
+                                                  .Background       = style.Background,
+                                                  .Scale            = style.Scale > 0.0f ? style.Scale : 1.0f,
+                                                  .RemainingSeconds = style.Duration,
+                                                  .OneFrame         = oneFrame,
+                                                  .Persistent       = style.Persistent } );
+    }
+
     void DebugDrawWorld::Tick( const float deltaSeconds, const bool advancesFrame )
     {
         AgeItems( m_Lines, deltaSeconds, advancesFrame );
         AgeItems( m_Strings, deltaSeconds, advancesFrame );
+        AgeItems( m_Panels, deltaSeconds, advancesFrame );
     }
 
     void DebugDrawWorld::FlushPersistentLines()
@@ -73,6 +87,7 @@ namespace Desert::Core
     void DebugDrawWorld::FlushStrings()
     {
         m_Strings.clear();
+        m_Panels.clear();
     }
 
 #if DESERT_DEV_INSTRUMENTS
@@ -223,6 +238,12 @@ namespace Desert::Core
                      const DebugDrawStyle& style )
         {
             scene.GetDebugDraw().AddString( position, std::string( text ), scale, style );
+        }
+
+        void ScreenPanel( Scene& scene, const glm::vec2& origin, std::vector<DebugDrawCanvasLine> lines,
+                          const DebugDrawPanelStyle& style )
+        {
+            scene.GetDebugDraw().AddScreenPanel( origin, std::move( lines ), style );
         }
 
         void FlushPersistent( Scene& scene )
