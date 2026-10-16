@@ -153,7 +153,11 @@
                 "Shadows.RayTracedTranslucencyMapSize": 512,
                 "Shadows.FilterTaps": 12,
                 "Shadows.BlockerSearchTaps": 8,
-                "Shadows.RayTracedDenoiserRadius": 1
+                "Shadows.RayTracedDenoiserRadius": 1,
+                "Shadows.VirtualMaxPhysicalPages": 1024,
+                "Shadows.VirtualResolutionLodBias": 10,
+                "Shadows.VirtualSMRTRayCount": 0,
+                "Shadows.VirtualSMRTSamplesPerRay": 2
             },
             "Medium": {
                 "Shadows.Cascades": 3,
@@ -169,7 +173,11 @@
                 "Shadows.RayTracedTranslucencyMapSize": 512,
                 "Shadows.FilterTaps": 16,
                 "Shadows.BlockerSearchTaps": 12,
-                "Shadows.RayTracedDenoiserRadius": 1
+                "Shadows.RayTracedDenoiserRadius": 1,
+                "Shadows.VirtualMaxPhysicalPages": 2048,
+                "Shadows.VirtualResolutionLodBias": 5,
+                "Shadows.VirtualSMRTRayCount": 4,
+                "Shadows.VirtualSMRTSamplesPerRay": 2
             },
             "High": {
                 "Shadows.Cascades": 4,
@@ -185,7 +193,11 @@
                 "Shadows.RayTracedTranslucencyMapSize": 1024,
                 "Shadows.FilterTaps": 32,
                 "Shadows.BlockerSearchTaps": 16,
-                "Shadows.RayTracedDenoiserRadius": 2
+                "Shadows.RayTracedDenoiserRadius": 2,
+                "Shadows.VirtualMaxPhysicalPages": 2048,
+                "Shadows.VirtualResolutionLodBias": 0,
+                "Shadows.VirtualSMRTRayCount": 8,
+                "Shadows.VirtualSMRTSamplesPerRay": 4
             },
             "Epic": {
                 "Shadows.Cascades": 4,
@@ -201,7 +213,11 @@
                 "Shadows.RayTracedTranslucencyMapSize": 1024,
                 "Shadows.FilterTaps": 32,
                 "Shadows.BlockerSearchTaps": 16,
-                "Shadows.RayTracedDenoiserRadius": 2
+                "Shadows.RayTracedDenoiserRadius": 2,
+                "Shadows.VirtualMaxPhysicalPages": 4096,
+                "Shadows.VirtualResolutionLodBias": -15,
+                "Shadows.VirtualSMRTRayCount": 8,
+                "Shadows.VirtualSMRTSamplesPerRay": 4
             },
             "Cinematic": {
                 "Shadows.Cascades": 4,
@@ -217,7 +233,11 @@
                 "Shadows.RayTracedTranslucencyMapSize": 1024,
                 "Shadows.FilterTaps": 64,
                 "Shadows.BlockerSearchTaps": 32,
-                "Shadows.RayTracedDenoiserRadius": 3
+                "Shadows.RayTracedDenoiserRadius": 3,
+                "Shadows.VirtualMaxPhysicalPages": 8192,
+                "Shadows.VirtualResolutionLodBias": -20,
+                "Shadows.VirtualSMRTRayCount": 16,
+                "Shadows.VirtualSMRTSamplesPerRay": 8
             }
         },
         "GlobalIllumination": {

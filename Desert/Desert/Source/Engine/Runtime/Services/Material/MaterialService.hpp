@@ -166,7 +166,7 @@ namespace Desert::Runtime
 
         // The same cell as GetVariant, in a PERMUTATION of its program: the third axis of a sibling, keyed by
         // (path, pass, defines). A renderer picks the permutation per frame (the ray-traced sun shadow reads a
-        // screen mask in place of the cascades, Pass_Forward DESERT_SUN_SHADOW_RAY_QUERY), and a permutation
+        // screen mask in place of the cascades, Pass_Forward DESERT_SUN_SHADOW_SCREEN_MASK), and a permutation
         // declares different resources, so it needs descriptor sets of its own — built on miss from the asset
         // exactly as GetVariant's sibling is, owned beside it, edited and retired with it. A permutation with no
         // defines IS GetVariant. Null on GetVariant's terms, or when the permutation does not compile (logged).

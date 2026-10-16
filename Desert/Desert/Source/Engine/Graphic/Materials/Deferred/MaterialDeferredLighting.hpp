@@ -39,7 +39,7 @@ namespace Desert::Graphic
     };
 
     // "Shadows: Ray Traced Sun" (UE FScreenShadowMaskTexture): the denoised screen visibility mask, read by the
-    // composite's DESERT_SUN_SHADOW_RAY_QUERY program in place of the cascades.
+    // composite's DESERT_SUN_SHADOW_SCREEN_MASK program in place of the cascades.
     struct DeferredScreenShadowMask
     {
         RDG::TextureRef Mask; // r = visibility, 1 = lit
@@ -140,7 +140,7 @@ namespace Desert::Graphic
     class MaterialDeferredLighting final : public Material
     {
     public:
-        // Over one program of DeferredLighting (the base one, or its DESERT_SUN_SHADOW_RAY_QUERY permutation): a
+        // Over one program of DeferredLighting (the base one, or its DESERT_SUN_SHADOW_SCREEN_MASK permutation): a
         // permutation's bindings are its own (Material's shader constructor).
         explicit MaterialDeferredLighting( const std::shared_ptr<Shader>& shader )
             : Material( "MaterialDeferredLighting", shader )

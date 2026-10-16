@@ -1,0 +1,97 @@
+#ifndef DESERT_VIRTUAL_SHADOW_MAP_GLSLH
+#define DESERT_VIRTUAL_SHADOW_MAP_GLSLH
+
+// THE SUN'S VIRTUAL SHADOW MAP (ShadowMethod::VirtualMaps; UE VirtualShadowMapArray / VirtualShadowMapPageAccessCommon.ush,
+// VirtualShadowMapPageManagement.usf, VirtualShadowMapProjection.usf). The C++ side is
+// Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp; every constant here has its twin there.
+//
+// A CLIPMAP of square levels around the camera, level l (absolute 2^(FirstLevel + l) cm radius) a virtual 16k x 16k
+// depth map cut into 128 x 128 pages of 128 x 128 texels. A level's window is snapped to its page grid in the sun's
+// light space; a page is addressed TOROIDALLY (world page coordinate & 127), so a cached page keeps its slot while
+// the window pans and only the pages that scroll in are new (their tag differs: "VSM: Invalidate").
+//
+// Page table entry (u_Entries, VsmPageEntry): the physical page it maps, its flags and the world page it holds.
+// Physical pool: one R32_UINT texture of 128 x 128 pages, kVsmPoolPagesPerRow pages per row, each texel the bits
+// of (1 - light NDC depth) written with an atomic max by the casters ("VSM: Raster"), cleared to 0 = no occluder.
+
+#define VSM_PAGE_SIZE           128u
+#define VSM_LEVEL_PAGES         128u
+#define VSM_PAGES_PER_LEVEL     16384u
+#define VSM_VIRTUAL_RESOLUTION  16384.0
+#define VSM_POOL_PAGES_PER_ROW  64u
+#define VSM_INVALID             0xFFFFFFFFu
+
+#define VSM_FLAG_ALLOCATED 1u // maps a physical page
+#define VSM_FLAG_DIRTY     2u // its physical page does not hold its current depth: cleared and drawn when requested
+#define VSM_FLAG_REQUESTED 4u // a screen pixel of this frame needs it ("VSM: Mark")
+
+struct VsmFrame
+{
+    mat4 InvViewProjection; // the view's inverse jittered view-projection (reversed-Z device depth -> world)
+    vec4 CameraFootprint;   // xyz = camera position cm, w = world size of one render pixel per cm of distance
+    vec4 Lod;               // x = resolution LOD bias (levels), y = level count, z = first level, w = frame index
+    vec4 ToSun;             // xyz = toward the sun, w = SourceAngle radians
+    vec4 Smrt;              // x = rays per pixel, y = samples per ray, z = normal bias texels, w = ray length pages
+};
+
+struct VsmLevel
+{
+    mat4  ViewProjection; // world -> level clip: orthographic, standard Z [0, 1] (0 = toward the sun)
+    ivec4 Window;         // xy = world page coordinate of the window's page 0, z = absolute level, w = 1 reset now
+    vec4  Extent;         // x = page world size cm, y = depth range cm, z = radius cm, w = texel world size cm
+};
+
+struct VsmPageEntry
+{
+    uint Physical; // physical page index, valid with VSM_FLAG_ALLOCATED
+    uint Flags;
+    int  TagX;     // the world page coordinate the physical page holds
+    int  TagY;
+};
+
+// The entry of world page @p worldPage of level @p level (toroidal: & 127 is the Euclidean modulo for negatives too).
+uint VsmEntryIndex( uint level, ivec2 worldPage )
+{
+    const uvec2 slot = uvec2( worldPage & ivec2( int( VSM_LEVEL_PAGES ) - 1 ) );
+    return level * VSM_PAGES_PER_LEVEL + slot.y * VSM_LEVEL_PAGES + slot.x;
+}
+
+// The world page the slot @p local (0 .. 16383) of a level stands for this frame, given its window.
+ivec2 VsmWorldPageOfSlot( ivec2 windowOrigin, uint local )
+{
+    const ivec2 slot   = ivec2( int( local % VSM_LEVEL_PAGES ), int( local / VSM_LEVEL_PAGES ) );
+    const ivec2 offset = ( slot - windowOrigin ) & ivec2( int( VSM_LEVEL_PAGES ) - 1 );
+    return windowOrigin + offset;
+}
+
+// The top-left texel of physical page @p physical in the pool.
+ivec2 VsmPoolPageOrigin( uint physical )
+{
+    return ivec2( int( physical % VSM_POOL_PAGES_PER_ROW ), int( physical / VSM_POOL_PAGES_PER_ROW ) ) *
+           int( VSM_PAGE_SIZE );
+}
+
+// THE LEVEL A RECEIVER IS SHADED FROM (UE CalcClipmapLevel): the level whose texel matches the receiver's screen
+// footprint, moved by the resolution LOD bias (negative = finer), never finer than the smallest level whose window
+// holds the point (the window is +-radius around a page-snapped centre; 1.02 keeps the snap's page inside).
+uint VsmSelectLevel( VsmFrame frame, vec3 world )
+{
+    const float distanceCm = max( length( world - frame.CameraFootprint.xyz ), 1.0 );
+    const float footprint  = max( distanceCm * frame.CameraFootprint.w, 1.0e-3 );
+    // level radius 2^k cm, texel 2^(k+1) / 16384 cm: the texel equals the footprint at k = log2(footprint * 8192).
+    const float byFootprint = floor( log2( footprint * 0.5 * VSM_VIRTUAL_RESOLUTION ) + frame.Lod.x );
+    const float byWindow    = ceil( log2( distanceCm * 1.02 ) );
+    const float absolute    = max( byFootprint, byWindow );
+    return uint( clamp( absolute - frame.Lod.z, 0.0, frame.Lod.y - 1.0 ) );
+}
+
+// Window page (0 .. 127 on each axis) and texel within the level of a world point; false outside the window.
+bool VsmProject( VsmLevel level, vec3 world, out vec2 texel, out float depth )
+{
+    const vec4 clip = level.ViewProjection * vec4( world, 1.0 );
+    texel           = ( clip.xy * 0.5 + 0.5 ) * VSM_VIRTUAL_RESOLUTION;
+    depth           = clip.z;
+    return all( greaterThanEqual( texel, vec2( 0.0 ) ) ) && all( lessThan( texel, vec2( VSM_VIRTUAL_RESOLUTION ) ) );
+}
+
+#endif
