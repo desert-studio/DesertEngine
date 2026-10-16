@@ -65,7 +65,7 @@ namespace Common::Scalability
     enum class ShadowMethod : int
     {
         CascadedMaps = 0, // the sun's cascaded shadow maps
-        VirtualMaps,      // virtual shadow maps (SHADOW-VSM: VirtualShadowMapRenderer); a 16k render area
+        VirtualMaps,      // virtual shadow maps (SHADOW-VSM: VirtualShadowMapRenderer) — casters not drawn yet
         HardwareTraced,   // ray-query visibility (RT-SHADOWS: RayTracedSunShadow); RT device
         Stochastic,       // many-light ReSTIR DI + ray-query visibility (MEGALIGHTS)    — not implemented
     };
@@ -96,10 +96,12 @@ namespace Common::Scalability
                method == ReflectionMethod::ScreenSpace || method == ReflectionMethod::SoftwareTraced ||
                method == ReflectionMethod::HardwareTraced;
     }
+    // Shadows VirtualMaps is NOT here yet: the page management, the SMRT projection, the attachment-less raster
+    // (RDG PassBuilder::RenderArea), the VirtualShadowDepth cells and the per-level caster views of MeshRenderer
+    // exist, but no "VSM: Raster" pass draws the casters into the pool yet, so every page would hold "no occluder".
     [[nodiscard]] constexpr bool IsImplemented( ShadowMethod method )
     {
-        return method == ShadowMethod::CascadedMaps || method == ShadowMethod::VirtualMaps ||
-               method == ShadowMethod::HardwareTraced;
+        return method == ShadowMethod::CascadedMaps || method == ShadowMethod::HardwareTraced;
     }
     // The two shadow supplements beside the method (PostProcessSettings ContactShadows / DistanceFieldShadows):
     // contact shadows (SHADOW-CONTACT) and distance-field shadows (GLOBAL-SDF) — neither implemented yet.

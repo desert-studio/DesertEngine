@@ -38,6 +38,7 @@
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
+#include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
 
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
@@ -505,7 +506,15 @@ namespace Desert::Graphic::System
         // same frame as the cascade's static layer, so it needs caster materials (light-matrix UBO, instance and
         // bone SSBOs) of its own — two passes through one material would both read whichever upload came last.
         static constexpr uint32_t kCascadeMovableViewBase = kMaxShadowCascades + kMaxLocalShadowViews;
-        static constexpr uint32_t kMaxShadowViews         = kCascadeMovableViewBase + kMaxShadowCascades;
+        // After those, one view per clipmap level of the sun's virtual shadow map ("VSM: Raster"): its casters draw
+        // into the physical pool through the VirtualShadowDepth cells (CasterPipelinesOf), each level with caster
+        // materials of its own for the same reason as the movable views.
+        static constexpr uint32_t kVsmViewBase    = kCascadeMovableViewBase + kMaxShadowCascades;
+        static constexpr uint32_t kMaxShadowViews = kVsmViewBase + kVsmClipmapLevelCount;
+        [[nodiscard]] static constexpr bool IsVirtualShadowView( const uint32_t view )
+        {
+            return view >= kVsmViewBase && view < kMaxShadowViews;
+        }
 
         // THE POINT AND SPOT LIGHTS' SHADOWS FOR THIS FRAME, before the graph records (SceneRenderer, after
         // UpdateCascades): gives each light that casts a tile per view in the atlas (allocating the atlas on the
@@ -993,7 +1002,17 @@ namespace Desert::Graphic::System
                                                          uint32_t cascade );
         // The pipeline of one masked caster cell: the shared caster's state for @p path with the cell's shader,
         // built on first use and kept per cell shader. Null (logged once per shader) when it cannot.
-        GraphicsPipeline* MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path );
+        GraphicsPipeline* MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path, MeshPass pass );
+        // The shared caster pipelines of shadow view @p view, by path, and the cell pass they draw: ShadowDepth for a
+        // cascade or local view, VirtualShadowDepth for a virtual shadow map level. Null where that caster is off.
+        struct CasterPipelines
+        {
+            GraphicsPipeline* Static    = nullptr;
+            GraphicsPipeline* Instanced = nullptr;
+            GraphicsPipeline* Skinned   = nullptr;
+            MeshPass          Pass      = MeshPass::ShadowDepth;
+        };
+        [[nodiscard]] CasterPipelines CasterPipelinesOf( uint32_t view );
 #if DESERT_DEV_INSTRUMENTS
         bool SetupDebugLinePass();
         bool SetupOverdrawPass(); // overdraw accumulation pipeline + FB + fullscreen heat resolve
@@ -1139,6 +1158,13 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline>      m_ShadowSkinnedPipeline;
         std::shared_ptr<Shader>                m_ShadowSkinnedShader;
         std::unique_ptr<MaterialShadowSkinned> m_ShadowSkinnedMaterial[kMaxShadowViews];
+
+        // The virtual shadow map's caster pipelines, by path: the (path x VirtualShadowDepth) cells of the default
+        // surface, no attachment (RenderTargetLayout{}), no depth test (the pool's atomic max is the test). Null until
+        // the "VSM: Raster" passes build them.
+        std::shared_ptr<GraphicsPipeline> m_VsmPipeline;
+        std::shared_ptr<GraphicsPipeline> m_VsmInstancedPipeline;
+        std::shared_ptr<GraphicsPipeline> m_VsmSkinnedPipeline;
 
         // THE BUDGET, copied from the owning SceneRenderer in Initialize() and never written again. Held
         // by value rather than read through m_SceneRenderer on every use, because the three numbers decide

@@ -421,16 +421,17 @@ namespace Desert::Graphic::System
     DataDrivenMaterial* MeshRenderer::MaskedCasterMaterial( const DataDrivenMaterial* material,
                                                             MeshVertexPath path, uint32_t cascade )
     {
-        auto* caster = Runtime::ResourceRegistry::GetMaterialService()->GetViewVariant(
-             material, path, MeshPass::ShadowDepth, cascade );
+        const MeshPass pass   = IsVirtualShadowView( cascade ) ? MeshPass::VirtualShadowDepth : MeshPass::ShadowDepth;
+        auto*          caster = Runtime::ResourceRegistry::GetMaterialService()->GetViewVariant( material, path, pass,
+                                                                                                cascade );
         if ( caster == nullptr )
         {
             // Not drawn through the shared program instead: that is the square shadow this route exists to end.
             static std::unordered_set<const DataDrivenMaterial*> s_Refused;
             if ( s_Refused.insert( material ).second )
-                LOG_ERROR( "[Shadows] a Masked material ('{}') has no ({} x ShadowDepth) caster of its own; its "
-                           "objects cast NO shadow on that path (MaterialService named the cell it refused).",
-                           material->GetShaderName(), MeshVertexPathName( path ) );
+                LOG_ERROR( "[Shadows] a Masked material ('{}') has no ({} x {}) caster of its own; its objects cast "
+                           "NO shadow on that path (MaterialService named the cell it refused).",
+                           material->GetShaderName(), MeshVertexPathName( path ), MeshPassName( pass ) );
         }
         return caster;
     }
@@ -554,26 +555,38 @@ namespace Desert::Graphic::System
         return name ? TranslucentDrawFor( *name ) : nullptr;
     }
 
-    GraphicsPipeline* MeshRenderer::MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path )
+    MeshRenderer::CasterPipelines MeshRenderer::CasterPipelinesOf( const uint32_t view )
+    {
+        if ( IsVirtualShadowView( view ) )
+            return { m_VsmPipeline.get(), m_VsmInstancedPipeline.get(), m_VsmSkinnedPipeline.get(),
+                     MeshPass::VirtualShadowDepth };
+        return { m_ShadowPipeline.get(), m_ShadowInstancedPipeline.get(), m_ShadowSkinnedPipeline.get(),
+                 MeshPass::ShadowDepth };
+    }
+
+    GraphicsPipeline* MeshRenderer::MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path,
+                                                          const MeshPass pass )
     {
         const auto& name = caster.GetShaderName();
         if ( const auto found = m_MaskedCasterPipelines.find( name ); found != m_MaskedCasterPipelines.end() )
             return found->second.get(); // null = refused before (said once, below)
         auto& slot = m_MaskedCasterPipelines[name];
 
-        // The shared caster's state for this path (vertex layout, standard-Z depth, the cascade target) — only
-        // the program differs, which is the whole difference between an opaque and a masked caster.
+        // The shared caster's state for this path and pass (vertex layout, standard-Z depth, the cascade target or the
+        // virtual map's render area) — only the program differs, which is the whole difference between an opaque and
+        // a masked caster. The cell's name names its pass, so the name alone keys the pipeline.
+        const CasterPipelines casters = CasterPipelinesOf( pass == MeshPass::VirtualShadowDepth ? kVsmViewBase : 0u );
         const GraphicsPipeline* shared = nullptr;
         switch ( path )
         {
             case MeshVertexPath::Instanced:
-                shared = m_ShadowInstancedPipeline.get();
+                shared = casters.Instanced;
                 break;
             case MeshVertexPath::Skinned:
-                shared = m_ShadowSkinnedPipeline.get();
+                shared = casters.Skinned;
                 break;
             case MeshVertexPath::Static:
-                shared = m_ShadowPipeline.get();
+                shared = casters.Static;
                 break;
         }
         auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
@@ -612,11 +625,14 @@ namespace Desert::Graphic::System
         m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
                                              m_CascadeCasterBias[c] );
         const MaterialExecutor* casterExecutor = m_ShadowMaterial[c]->GetMaterialExecutor();
+        // The pipelines of the view's caster cells: the cascades' and local views' depth attachment, or the virtual
+        // shadow map's attachment-less pool raster (IsVirtualShadowView).
+        const CasterPipelines casters = CasterPipelinesOf( c );
 
         // Shadow casters are MATERIAL-INDEPENDENT (depth only), so batch purely by Mesh*: any
         // group of >= 2 identical meshes collapses into ONE instanced draw per cascade. This is
         // the dominant cost in the 256-mesh stress test (256x4 per-object draws -> 4 draws).
-        const bool instancingOn = m_ShadowInstancedPipeline && m_ShadowInstancedMaterial[c];
+        const bool instancingOn = casters.Instanced != nullptr && m_ShadowInstancedMaterial[c];
 
         // THE CASCADE'S OWN MATRIX, NOT THE CAMERA'S — and that distinction is the whole
         // safety of culling a shadow pass at all. An object behind the camera casts into
@@ -862,7 +878,7 @@ namespace Desert::Graphic::System
         // Per-object path (singletons).
         for ( const auto* rd : singles )
         {
-            list.Add( { .Pipeline          = m_ShadowPipeline.get(),
+            list.Add( { .Pipeline          = casters.Static,
                         .Mesh              = rd->Mesh,
                         .Transform         = rd->Transform,
                         .Material          = casterExecutor,
@@ -895,7 +911,7 @@ namespace Desert::Graphic::System
             if ( drawStatic && g.Mesh != nullptr && g.CastShadows &&
                  IsVisibleInView( cascadeFrustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
             {
-                list.Add( { .Pipeline          = m_ShadowPipeline.get(),
+                list.Add( { .Pipeline          = casters.Static,
                             .Mesh              = g.Mesh,
                             .Transform         = g.Transform,
                             .Material          = casterExecutor,
@@ -913,7 +929,7 @@ namespace Desert::Graphic::System
         // packed into ONE buffer on the cascade's own material and each draw names its slice,
         // for the same reason the forward skinned path does it — a per-draw upload would
         // leave the earlier recorded draws reading the last caster's pose.
-        if ( drawMovable && m_ShadowSkinnedPipeline && m_ShadowSkinnedMaterial[c] && !m_SkinnedQueue.empty() )
+        if ( drawMovable && casters.Skinned != nullptr && m_ShadowSkinnedMaterial[c] && !m_SkinnedQueue.empty() )
         {
             auto* skinMat = m_ShadowSkinnedMaterial[c].get();
             skinMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
@@ -979,7 +995,7 @@ namespace Desert::Graphic::System
                          caster.Data->MotionRow < rows.size() ? rows[caster.Data->MotionRow] : GpuObjectMotion{};
                     const uint64_t address =
                          ( static_cast<uint64_t>( row.SkinCacheAddressHi ) << 32u ) | row.SkinCacheAddressLo;
-                    list.Add( { .Pipeline          = m_ShadowSkinnedPipeline.get(),
+                    list.Add( { .Pipeline          = casters.Skinned,
                                 .Mesh              = caster.Data->Mesh,
                                 .Transform         = caster.Data->Transform,
                                 .Material          = skinMat->GetMaterialExecutor(),
@@ -1007,7 +1023,7 @@ namespace Desert::Graphic::System
             {
                 // The same wind the surface pass pushed for these instances, so the shadow
                 // sways with the plant (Common/FoliageWind.glslh is the one formula).
-                list.Add( { .Pipeline          = m_ShadowInstancedPipeline.get(),
+                list.Add( { .Pipeline          = casters.Instanced,
                             .Mesh              = b.Mesh,
                             .Transform         = glm::mat4( 1.0f ),
                             .Material          = instMat->GetMaterialExecutor(),
@@ -1066,7 +1082,7 @@ namespace Desert::Graphic::System
             // composite reading the cascades with it. Refused (null; MaskedCasterPipeline said why, once) or failed
             // in the driver: that caster casts no shadow. Still compiling: not drawn THIS frame, and the static
             // cache is marked stale so the cascade redraws it once the pipeline is ready.
-            GraphicsPipeline* const pipeline = MaskedCasterPipeline( *material, draw.Path );
+            GraphicsPipeline* const pipeline = MaskedCasterPipeline( *material, draw.Path, casters.Pass );
             if ( pipeline == nullptr || pipeline->GetReadiness() == PipelineReadiness::Failed )
                 continue;
             if ( pipeline->GetReadiness() == PipelineReadiness::Compiling )
