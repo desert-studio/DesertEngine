@@ -208,17 +208,17 @@ namespace Desert::Assets
         // had is an error naming the mesh (the queue logs it), never a field guessed from a different input.
         // The job owns copies of what it reads: this asset may be reloaded or unloaded while it runs, and a
         // reload makes a new slot, so a late field lands in a slot nothing reads any more.
-        auto slot       = std::make_shared<MeshDistanceFieldSlot>();
-        m_DistanceField = slot;
-        auto cards      = std::make_shared<MeshCardsSlot>();
-        m_Cards         = cards;
-        auto input      = MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes, twoSided );
+        auto input = MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes, twoSided );
         if ( !input )
         {
             LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh is left out of every distance-field trace",
                        m_Metadata.Filepath.string(), input.GetError() );
             return;
         }
+        auto slot       = std::make_shared<MeshDistanceFieldSlot>( MostlyTwoSided( input.GetValue() ) );
+        m_DistanceField = slot;
+        auto cards      = std::make_shared<MeshCardsSlot>();
+        m_Cards         = cards;
         EnqueueMeshDistanceField(
              slot, m_Metadata.Filepath.string(),
              [path = m_Metadata.Filepath, key = m_RenderDataKey, sided = std::move( twoSided ),

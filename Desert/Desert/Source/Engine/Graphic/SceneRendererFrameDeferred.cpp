@@ -696,21 +696,21 @@ namespace Desert::Graphic
         // volume lives as long as the field it belongs to). A mesh whose field is still being derived (the
         // asynchronous queue) is not in it yet.
         const auto place = [&objects]( const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
-                                       const glm::mat4&                                            world )
+                                       const glm::mat4& world, const bool mostlyTwoSided )
         {
             for ( const Assets::MeshDistanceFieldVolume& volume : field->Volumes )
-                objects.push_back(
-                     { std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ), world } );
+                objects.push_back( { std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ),
+                                     world, mostlyTwoSided } );
         };
         for ( const auto& draw : meshRenderer->GetStaticQueue() )
             if ( draw.Mesh != nullptr )
                 if ( const auto field = draw.Mesh->GetDistanceField() )
-                    place( field, draw.Transform );
+                    place( field, draw.Transform, draw.Mesh->IsDistanceFieldMostlyTwoSided() );
         for ( const auto& ism : meshRenderer->GetInstancedQueue() )
             if ( ism.Mesh != nullptr && ism.Transforms )
                 if ( const auto field = ism.Mesh->GetDistanceField() )
                     for ( const glm::mat4& world : *ism.Transforms )
-                        place( field, world );
+                        place( field, world, ism.Mesh->IsDistanceFieldMostlyTwoSided() );
 
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };

@@ -108,6 +108,14 @@ namespace Desert::Assets
         return largest > 0.0f ? 1.0f / largest : 0.0f;
     }
 
+    bool MostlyTwoSided( const MeshDistanceFieldBuildInput& input )
+    {
+        const size_t twoSided =
+             static_cast<size_t>( std::count_if( input.TriangleTwoSided.begin(), input.TriangleTwoSided.end(),
+                                                 []( const uint8_t f ) { return f != 0; } ) );
+        return !input.TriangleTwoSided.empty() && twoSided * 4 >= input.TriangleTwoSided.size();
+    }
+
     Common::ResultStr<MeshDistanceFieldBuildInput>
     MeshDistanceFieldInputOf( const std::vector<Vertex>& vertices, const std::vector<Index>& indices,
                               const std::vector<Submesh>& submeshes, const std::vector<uint8_t>& submeshTwoSided )

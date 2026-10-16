@@ -24,8 +24,15 @@ GITraceResult GITraceRay( GITraceInput ray )
     GITraceResult result;
     result.hit = false;
     const vec3 start = ray.origin + ray.direction * ray.tMin;
-    const GlobalDistanceFieldHit march =
-         TraceGlobalDistanceField( start, ray.direction, ray.tMax - ray.tMin, GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS );
+    // A gather ray passes foliage stochastically (UE bDitheredTransparency); a shadow ray stops on it. The dither's
+    // seed is the ray itself: every consumer already jitters its rays per frame, so the noise moves with them.
+    const bool  dithered = ( ray.flags & GI_TRACE_SHADOW_RAY ) == 0u;
+    const uvec3 o        = floatBitsToUint( ray.origin );
+    const uvec2 d        = floatBitsToUint( ray.direction.xy );
+    const uint  seed     = ( o.x * 73856093u ) ^ ( o.y * 19349663u ) ^ ( o.z * 83492791u ) ^ ( d.x * 2654435761u ) ^
+                      ( d.y * 2246822519u );
+    const GlobalDistanceFieldHit march = TraceGlobalDistanceField( start, ray.direction, ray.tMax - ray.tMin,
+                                                                   GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS, dithered, seed );
     if ( !march.Hit )
         return result;
 

@@ -77,6 +77,11 @@ namespace Desert
         {
             return m_DistanceField ? m_DistanceField->Get() : nullptr;
         }
+        // Whether the mesh is mostly two-sided (foliage; Assets::MeshDistanceFieldSlot::MostlyTwoSided).
+        [[nodiscard]] bool IsDistanceFieldMostlyTwoSided() const
+        {
+            return m_DistanceField && m_DistanceField->MostlyTwoSided();
+        }
         void SetDistanceField( std::shared_ptr<const Assets::MeshDistanceFieldSlot> slot )
         {
             m_DistanceField = std::move( slot );

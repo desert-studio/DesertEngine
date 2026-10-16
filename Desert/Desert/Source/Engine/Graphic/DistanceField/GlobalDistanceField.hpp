@@ -2,7 +2,9 @@
 
 // THE GLOBAL DISTANCE FIELD (UE GlobalDistanceField.cpp / GlobalDistanceField.h): the scene's mesh distance fields
 // composited into four camera-centred clipmaps of 128^3 voxels (Lumen's extents: 25 m half-size for the first,
-// doubling per level), each the distance in centimetres to the nearest surface clamped to four of its voxels.
+// doubling per level), each the distance in centimetres to the nearest surface clamped to four of its voxels, and
+// its COVERAGE (UE's coverage atlas): 1 where a solid surface lies within a voxel, 0 where only foliage (a mostly
+// two-sided mesh) or nothing does - a GI ray passes foliage stochastically (GlobalDistanceField.glslh).
 // What a software trace marches when it needs "the scene" rather than one mesh: Shaders/Common/
 // GlobalDistanceField.glslh is the one reading of it (the debug view today; GI, reflections and DF shadows next).
 //
@@ -59,6 +61,9 @@ namespace Desert::Graphic::DistanceField
     {
         std::shared_ptr<const Assets::MeshDistanceFieldVolume> Field;
         glm::mat4                                            World = glm::mat4( 1.0f );
+        // The mesh is foliage (Assets::MeshDistanceFieldSlot::MostlyTwoSided, UE bMostlyTwoSided): its surface
+        // marks no voxel of the field covered.
+        bool MostlyTwoSided = false;
     };
 
     // The parameters of a clipmap level (pure, shared by the update and every reader): its voxel in centimetres,
