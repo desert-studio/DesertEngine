@@ -988,7 +988,9 @@ namespace Desert::Player
 
         m_UIRenderTextures = std::make_unique<Graphic::Render2D::UIRenderTextureCache>();
         m_Render2D         = std::make_unique<Graphic::Render2D::Render2D>();
-        if ( const auto r = m_Render2D->Init( swapFb ); !r )
+        // The game's UI is drawn for the game's one view: its rows are that view's (RT-LEDGER-4). m_Render2D is
+        // reset in OnDetach, before m_SceneRenderer goes, so the view closes with none of them left.
+        if ( const auto r = m_Render2D->Init( swapFb, m_SceneRenderer->GetLedgerInstance() ); !r )
             return r;
 
         m_PresentReady = true;

@@ -4,6 +4,7 @@
 
 #include <Engine/Core/Device.hpp>
 #include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRayTracingFunctions.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSamplerCache.hpp>
 
 #include <vulkan/vulkan.h>
@@ -152,6 +153,13 @@ namespace Desert::Graphic::API::Vulkan
         // app runs (PersistPipelineCache) and on Destroy — so the driver reuses previously-built pipeline binaries
         // across runs instead of rebuilding every graphics/compute pipeline from scratch each startup. Passed to
         // every vkCreate*Pipelines call (graphics + compute).
+        // Filled iff DeviceCaps has AccelerationStructure (VulkanRayTracingFunctions.hpp); Complete() is the
+        // check.
+        [[nodiscard]] const RayTracingDeviceFunctions& GetRayTracingFunctions() const
+        {
+            return m_RayTracingFunctions;
+        }
+
         VkPipelineCache GetPipelineCache() const
         {
             return m_PipelineCache;
@@ -200,6 +208,7 @@ namespace Desert::Graphic::API::Vulkan
         std::shared_ptr<VulkanPhysicalDevice> m_PhysicalDevice;
         VkDevice                              m_LogicalDevice;
         VkPipelineCache                       m_PipelineCache = VK_NULL_HANDLE;
+        RayTracingDeviceFunctions             m_RayTracingFunctions;
         PipelineCacheFile::DeviceIdentity     m_PipelineIdentity;
         std::filesystem::path                 m_PipelineCacheFile; // empty = not persisted (reason logged)
         uint64_t                              m_PersistedPipelineHash  = 0; // of the entry on disk, 0 = none

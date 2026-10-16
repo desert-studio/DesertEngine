@@ -8,6 +8,7 @@
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/RenderMethods.hpp>
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
@@ -76,6 +77,8 @@
 
 #include <Engine/Graphic/IRenderSystem.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
 
 namespace Desert::Core
 {
@@ -91,6 +94,23 @@ namespace Desert::Graphic
     class FrameTextures;
     struct FrameValues;
     class ReflectionCaptureRenderer;
+
+    /**
+     * What one view holds and what the scene it draws shares, READ FROM THE RESOURCE LEDGER (RT-LEDGER-3): the
+     * view's rows (every device object opened under its instance: targets, history, per-view copies, its TLAS
+     * and landscape tiles) and the scene's rows (its RayTracingSceneCache: BLAS variants, skin cache,
+     * procedural BLASes). The ONE source of the view's budget entry (SceneRenderer::HeldBytes), of its
+     * [ViewMemory] log lines and of the viewport's memory overlay rows, so the three cannot disagree.
+     */
+    struct ViewLedgerMemory
+    {
+        ResourceInstanceCensus View;
+        ResourceInstanceCensus Scene; // Instance None until the view's first BeginScene
+    };
+
+    /// "view #3 41 rows 182.40 MiB (the view's budget); scene #1 12 rows 9.10 MiB (scene-shared, the
+    /// scene's own budget entry)" — the [ViewMemory] line.
+    [[nodiscard]] std::string FormatViewLedgerMemory( const ViewLedgerMemory& memory );
 
     class SceneRenderer final
     {
@@ -143,7 +163,14 @@ namespace Desert::Graphic
         // @p extent is the size of the surface this view renders into — the viewport panel, the preview
         // widget, the thumbnail, the runtime window — and the build allocates at exactly that; Resize()
         // follows the surface from then on. A surface that has no size yet passes kUnsizedViewExtent.
-        SceneRenderer( const ViewExtent& extent, const ViewProfile& profile = kSceneViewProfile );
+        //
+        // @p accountUnder: None (every real view) mints this view's own ledger instance. A view that renders FOR
+        // its scene's state rather than for a viewer — a reflection capture's face view — passes the scene's
+        // instance: its rows are then the scene's ("scene #N", RT-LEDGER-4 lead decision), it is no budget entry
+        // of its own (LiveHoldings skips it, HeldBytes is 0) and its close checks nothing (the scene's rows are
+        // not its to account for).
+        SceneRenderer( const ViewExtent& extent, const ViewProfile& profile = kSceneViewProfile,
+                       ResourceOwnerInstance accountUnder = ResourceOwnerInstance{} );
         // Unregisters the view; its per-view copies defer their GPU release (ViewResources).
         ~SceneRenderer();
 
@@ -257,7 +284,7 @@ namespace Desert::Graphic
 
         // Submit one landscape tile for this frame (from LandscapeECSSystem via DrawLandscapeTileCommand):
         // the Terrain pipeline reading the tile's R16 copy, surfaced with its root's material and layers.
-        void SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile,
+        void SubmitLandscapeTile( const std::shared_ptr<Image2D>& heightmap, const System::LandscapeTileDraw& tile,
                                   const MaterialOverrides& overrides, const System::LandscapeWeightDraw& weights );
 
         // Submit one water zone for this frame (from WaterZoneECSSystem via WaterZoneCommand): its quadtree is
@@ -273,7 +300,8 @@ namespace Desert::Graphic
         void SubmitGenericMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                 const std::string& shaderName, const MaterialOverrides& overrides,
                                 bool outlined = false, Image2D* directTexture = nullptr,
-                                const std::string& directTextureSampler = {}, bool castShadows = false );
+                                const std::string& directTextureSampler = {}, bool castShadows = false,
+                                bool visibleInRayTracing = false );
 
         // v3 per-slot custom shaders: draw only @p visibleSubmeshMask submeshes of the mesh with the
         // slot's own runtime material (a MaterialService-owned DataDrivenMaterial). @p motionPart: the stable part
@@ -292,7 +320,7 @@ namespace Desert::Graphic
         // and the one this replaces was an unconditional append in the cascade pass.
         // `Mesh*` AND NOT `const Mesh*`, and that removes a const_cast rather than adding a hazard: the
         // only caller holds a non-const mesh, and the queue this reaches needs one too.
-        void SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
+        void SubmitInstancedMesh( uint32_t entity, Mesh* mesh, const MaterialInstancePtr& material,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                   bool castShadows, bool castContactShadow,
                                   const InstanceCullDistance& cullDistance, const InstanceWind& wind );
@@ -344,7 +372,6 @@ namespace Desert::Graphic
         {
             return m_RenderMethods;
         }
-
         // Read back by the editor's own external passes (grid, colliders), which draw INTO this view and
         // therefore must ask this view what it is showing — not a global, or every offscreen preview would
         // inherit the main viewport's flags.
@@ -414,14 +441,29 @@ namespace Desert::Graphic
         // is readable as a count that only goes up.
         static std::string DescribeLiveViews();
 
-        // Device memory this view holds: its targets' forecast at its current extent (ViewTargetCensus,
-        // the same table the view's build is checked against) plus every per-view copy its ViewResources
-        // keeps (uniform/storage buffer copies, ...). What the view-budget rule counts as "open views hold"
-        // (Engine/Core/ViewBudget.hpp).
+        // Device memory this view holds, MEASURED (RT-LEDGER-3): the bytes of the ledger rows that carry this
+        // view's instance — its targets, its temporal history, its per-view buffer copies, its TLAS and its
+        // landscape tiles. Not a forecast: ViewTargetCensus only answers "may a view of this size be CREATED"
+        // (ViewBudgetGate), before any row exists. The scene-shared rows are the scene's and are NOT here
+        // (SceneHoldings). What the view-budget rule counts as "open views hold" (Engine/Core/ViewBudget.hpp).
         [[nodiscard]] uint64_t HeldBytes() const;
+
+        // This view's and its scene's ledger rows, taken now (ViewLedgerMemory).
+        [[nodiscard]] ViewLedgerMemory TakeLedgerMemory() const;
+
+        // This view's ledger instance: what an object drawing FOR this view but owned elsewhere (the game's
+        // Render2D over it) tags its rows with, so they are in this view's budget (RT-LEDGER-4).
+        [[nodiscard]] ResourceOwnerInstance GetLedgerInstance() const
+        {
+            return m_LedgerView.Instance;
+        }
 
         // Every live view and what it holds, for the budget's refusal text and its usage stand-in.
         [[nodiscard]] static std::vector<Engine::ViewBudget::HeldView> LiveHoldings();
+
+        // Every live scene instance in the ledger and what its shared rows hold — each scene ONCE, however many
+        // views draw it, and never inside a view's entry. The budget's scene entries (ViewBudgetGate).
+        [[nodiscard]] static std::vector<Engine::ViewBudget::HeldView> SceneHoldings();
 
         const auto& GetMainCamera() const
         {
@@ -539,6 +581,40 @@ namespace Desert::Graphic
                                                                                       bool hasOpaqueDepth ) const;
 
     private:
+        // THIS VIEW in the resource ledger (RT-LEDGER-2). Its RT rows — the TLAS storage, the landscape tiles'
+        // buffers and BLASes — carry this instance (the RT block's scope in OnUpdate); HeldBytes reads them back
+        // from the ledger. DECLARED FIRST so it is destroyed LAST: its destructor reads the ledger after every
+        // member that held a row of the view is gone, and logs what is left (0, or a leak by name).
+        struct LedgerView
+        {
+            // The view's own instance, or the scene's it accounts under (the constructor's accountUnder).
+            ResourceOwnerInstance Instance;
+            // True when Instance is the scene's: the rows are not this view's to check on close or to budget.
+            bool Borrowed = false;
+
+            explicit LedgerView( const ResourceOwnerInstance accountUnder )
+                 : Instance( accountUnder.IsNone() ? ResourceOwnerInstance::NewView() : accountUnder ),
+                   Borrowed( !accountUnder.IsNone() )
+            {
+            }
+            ~LedgerView();
+            LedgerView( const LedgerView& )            = delete;
+            LedgerView& operator=( const LedgerView& ) = delete;
+            LedgerView( LedgerView&& )                 = delete;
+            LedgerView& operator=( LedgerView&& )      = delete;
+        };
+        LedgerView m_LedgerView;
+        // The ledger instance of the scene this view last began (Scene::GetLedgerInstance). A value, not the
+        // cache pointer: the overlay reads it after EndScene cleared m_FrameRayTracingCache.
+        ResourceOwnerInstance m_SceneLedgerInstance;
+
+        // Rows opened while the returned scope lives are this view's (owner SceneRenderer, the view's instance).
+        // Opened by every entry point that can allocate; C++17 guaranteed elision returns the pinned scope.
+        [[nodiscard]] ResourceAttributionScope OpenViewLedgerScope() const
+        {
+            return ResourceAttributionScope( ResourceOwner::SceneRenderer, m_LedgerView.Instance );
+        }
+
         // Everything this view keeps per frame in flight, keyed by the shared resource it copies; its name is
         // the view's name in every log line. Made the target of per-frame writes by an ActiveViewScope at the
         // top of each frame phase (BeginScene/OnUpdate/EndScene).
@@ -861,6 +937,9 @@ namespace Desert::Graphic
         // The reflection captures of the scene BeginScene was handed (Core::Scene owns them, one set for all its
         // views): published into this view's graph by OnUpdate, cleared by EndScene.
         ReflectionCaptureRenderer* m_FrameReflectionCaptures = nullptr;
+        // The ray-tracing geometry of the scene BeginScene was handed (Core::Scene owns it, shared by its views):
+        // read by this view's TLAS gather in OnUpdate, cleared by EndScene.
+        RayTracing::RayTracingSceneCache* m_FrameRayTracingCache = nullptr;
 
     public:
         // --- UI glass (backdrop blur) -----------------------------------------------------------
@@ -902,6 +981,26 @@ namespace Desert::Graphic
         // What this view renders for GI / reflections / shadows: Graphic::ResolveRenderMethods of the view's
         // request, the machine's ceiling and the device, refreshed in BeginScene. The passes read `.Effective`.
         RenderMethods           m_RenderMethods;
+        // The view's TLAS (built when a resolved method traces rays; RT-SHADOWS reads GetFrame().Tlas).
+        RayTracing::RayTracingSceneRenderer m_RayTracingScene;
+        // The view's landscape tiles in that TLAS (their BLAS at the view's raster LOD).
+        RayTracing::LandscapeRayTracing m_LandscapeRayTracing;
+#if DESERT_DEV_INSTRUMENTS
+        // The TLAS storage size the RT scene's [ViewMemory] lines were last logged at (logged again when it
+        // steps).
+        uint64_t m_LoggedRayTracingTlasBytes = 0;
+#endif
+        // BuildObjectMotions' landscape tile records, kept across frames (no per-frame allocation).
+        std::vector<MotionRecord> m_ScratchTileMotions;
+
+    public:
+        // This view's RT scene (instances, skips, stats) as of its last frame - the viewport's RT scene overlay.
+        [[nodiscard]] const RayTracing::RayTracingSceneRenderer& GetRayTracingScene() const
+        {
+            return m_RayTracingScene;
+        }
+
+    private:
         float                   m_GIIntensity   = 2.0f;
         float                   m_SSRIntensity  = 1.0f;
         // World units (= centimetres). Mirrors SceneSettings::SSRMaxDistance's default; refreshed from

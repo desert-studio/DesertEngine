@@ -57,11 +57,6 @@ namespace
             return Common::MakeSuccess( true );
         }
 
-        [[nodiscard]] uint64_t HeldBytes() const noexcept override
-        {
-            return Bytes.size();
-        }
-
         std::vector<std::byte> Bytes;
         uint32_t               Writes = 0; // the seed counts as one
     };

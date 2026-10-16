@@ -90,6 +90,9 @@ namespace Desert::Graphic::RDG
         StorageTexture, // image2D, one mip
         UniformBuffer,
         StorageBuffer,
+        // accelerationStructureEXT (ray query): a TLAS buffer the pass declares as AccelStructRead; the backend
+        // binds the acceleration structure that buffer stores, not the buffer.
+        AccelerationStructure,
     };
 
     // RDG-FAULT1. A shader's resource interface as the graph sees it: names and kinds, no set / binding indices

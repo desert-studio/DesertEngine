@@ -488,6 +488,11 @@ namespace Desert::Graphic::API::Vulkan
                     written = descriptors.WriteTexture( set, entry.Slot.Binding, binding->descriptorType,
                                                         texture.Texture, texture.Range, layout, sampler );
                 }
+                else if ( entry.Kind == RDG::ShaderResourceKind::AccelerationStructure )
+                {
+                    written = descriptors.WriteAccelerationStructure(
+                         set, entry.Slot.Binding, binding->descriptorType, entry.Buffer->Buffer );
+                }
                 else
                 {
                     written = descriptors.WriteBuffer( set, entry.Slot.Binding, binding->descriptorType,
@@ -1207,8 +1212,8 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgBackend->SetRecordingListener( [this]( VkCommandBuffer commandBuffer )
                                                 { SetGraphRecordingTarget( commandBuffer ); } );
             m_RdgTransients  = std::make_unique<VulkanRdgTransientAllocator>( m_RdgDevice, slots );
-            m_RdgDescriptors =
-                 std::make_unique<VulkanRdgPassDescriptors>( m_RdgDevice.Device, EngineSamplerCache(), slots );
+            m_RdgDescriptors = std::make_unique<VulkanRdgPassDescriptors>(
+                 m_RdgDevice.Device, EngineSamplerCache(), slots, device->GetRayTracingFunctions().Complete() );
 
             // The compute queue is the graph's AsyncCompute pipe only when the catalog offers async compute
             // (CapabilityCatalog::AsyncCompute: a separate compute family, and not a portability device whose

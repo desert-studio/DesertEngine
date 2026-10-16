@@ -48,6 +48,7 @@ namespace Desert::Graphic
 {
     void SceneRenderer::Init()
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         // Init runs on the first scene AND on every scene after it — see the header for the two lifetimes
         // this splits into and the rule that separates them. The timings are logged because the cost of
         // this call is what Г11 was about and a claim about it should be readable from any run's log
@@ -104,8 +105,9 @@ namespace Desert::Graphic
         {
             const uint32_t viewW = m_TargetFramebuffer->GetFramebufferWidth();
             const uint32_t viewH = m_TargetFramebuffer->GetFramebufferHeight();
-            LOG_INFO( "[ViewMemory] view '{}' {}", m_ViewResources.GetName(),
-                      FormatViewTargetCensus( ViewTargetCensus( m_ViewProfile, viewW, viewH ), viewW, viewH ) );
+            // MEASURED: the view's ledger rows and its scene's, not the ViewTargetCensus forecast (RT-LEDGER-3).
+            LOG_INFO( "[ViewMemory] view '{}' {}x{} ledger: {}", m_ViewResources.GetName(), viewW, viewH,
+                      FormatViewLedgerMemory( TakeLedgerMemory() ) );
         }
         LOG_INFO( "[Resources] {}", ResourceLedger::Report() );
 
@@ -200,7 +202,9 @@ namespace Desert::Graphic
         //
         // A texture or mesh lazily built INSIDE this window is still the asset's: the services claim
         // theirs explicitly after the build, and an explicit claim overrides the ambient one.
-        const ResourceAttributionScope owned( ResourceOwner::SceneRenderer );
+        // AND TO THIS VIEW (RT-LEDGER-3): the rows carry the view's instance, and the view's budget
+        // (HeldBytes) is those rows measured, not the ViewTargetCensus forecast of them.
+        const ResourceAttributionScope owned = OpenViewLedgerScope();
 
         // ONE STAGE PER CALL, in the order the systems depend on each other: the post chain is wired to
         // framebuffers the earlier stages made, so a later stage reads its predecessors from m_RenderSystems.
@@ -632,12 +636,63 @@ namespace Desert::Graphic
         }
     } // namespace
 
+    std::string FormatViewLedgerMemory( const ViewLedgerMemory& memory )
+    {
+        constexpr double kMiB = 1024.0 * 1024.0;
+        return std::format( "{} {} rows {:.2f} MiB (the view's budget); {} {} rows {:.2f} MiB (scene-shared, the "
+                            "scene's own budget entry)",
+                            ResourceOwnerInstanceName( memory.View.Instance ), memory.View.Live,
+                            static_cast<double>( memory.View.Bytes ) / kMiB,
+                            ResourceOwnerInstanceName( memory.Scene.Instance ), memory.Scene.Live,
+                            static_cast<double>( memory.Scene.Bytes ) / kMiB );
+    }
+
     uint64_t SceneRenderer::HeldBytes() const
     {
-        return SumViewTargets( ViewTargetCensus( m_ViewProfile, m_ViewExtent.Width, m_ViewExtent.Height ) )
-                    .Total() +
-               m_ViewResources.HeldBytes() + m_ViewState.HeldBytes();
+        // READ FROM THE ROWS (RT-LEDGER-3), and only from them: every entry point that can allocate opens the
+        // view's ledger scope, so the targets, the history, the per-view copies and the RT rows all carry the
+        // view's instance. The ledger is the one statement of those bytes; the budget, the [ViewMemory] lines,
+        // the overlay and the [Resources] census cannot disagree. The scene cache's rows carry the scene's
+        // instance and are its own entry (SceneHoldings), never here — nor are a capture face view's, which
+        // accounts under its scene's instance (LedgerView::Borrowed).
+        if ( m_LedgerView.Borrowed )
+            return 0;
+        return ResourceLedger::TakeFor( m_LedgerView.Instance ).Bytes;
     }
+
+    ViewLedgerMemory SceneRenderer::TakeLedgerMemory() const
+    {
+        return ViewLedgerMemory{ .View  = ResourceLedger::TakeFor( m_LedgerView.Instance ),
+                                 .Scene = ResourceLedger::TakeFor( m_SceneLedgerInstance ) };
+    }
+
+    std::vector<Engine::ViewBudget::HeldView> SceneRenderer::SceneHoldings()
+    {
+        std::vector<Engine::ViewBudget::HeldView> held;
+        for ( const ResourceInstanceCensus& scene : ResourceLedger::TakeInstances( ResourceInstanceKind::Scene ) )
+            held.push_back(
+                 { std::format( "{} (shared by its views)", ResourceOwnerInstanceName( scene.Instance ) ),
+                   scene.Bytes } );
+        return held;
+    }
+
+    SceneRenderer::LedgerView::~LedgerView()
+    try
+    {
+        // A view accounting under its scene's instance has no rows of its own to check: the scene's rows are
+        // held by the scene and outlive this view by design.
+        if ( Borrowed )
+            return;
+        // Every member that held a row of this view has been destroyed by now (this one is declared first).
+        const ResourceInstanceCensus left = ResourceLedger::TakeFor( Instance );
+        if ( left.Live == 0 )
+            LOG_INFO( "[Resources] {} closed: 0 ledger rows left.", ResourceOwnerInstanceName( Instance ) );
+        else
+            LOG_ERROR( "[Resources] {} closed but {} ledger rows ({} bytes) still carry it: a view member's "
+                       "device object outlived the view.",
+                       ResourceOwnerInstanceName( Instance ), left.Live, left.Bytes );
+    }
+    DESERT_DESTRUCTOR_GUARD( "~SceneRenderer::LedgerView" )
 
     std::vector<Engine::ViewBudget::HeldView> SceneRenderer::LiveHoldings()
     {
@@ -645,7 +700,13 @@ namespace Desert::Graphic
         std::vector<Engine::ViewBudget::HeldView> held;
         held.reserve( LiveRenderers().size() );
         for ( const SceneRenderer* renderer : LiveRenderers() )
+        {
+            // A capture face view's rows are its scene's entry (SceneHoldings): listing it here would count them
+            // twice, or list a view at 0 bytes that no viewer opened.
+            if ( renderer->m_LedgerView.Borrowed )
+                continue;
             held.push_back( { renderer->m_ViewResources.GetName(), renderer->HeldBytes() } );
+        }
         return held;
     }
 
@@ -654,14 +715,23 @@ namespace Desert::Graphic
         uint64_t held = 0;
         for ( const Engine::ViewBudget::HeldView& view : LiveHoldings() )
             held += view.Bytes;
-        return std::format( "{} live, {:.1f} MiB", ViewResourceRegistry::LiveCount(),
-                            static_cast<double>( held ) / ( 1024.0 * 1024.0 ) );
+        uint64_t shared = 0;
+        for ( const Engine::ViewBudget::HeldView& scene : SceneHoldings() )
+            shared += scene.Bytes;
+        return std::format( "{} live, {:.1f} MiB; scenes {:.1f} MiB shared", ViewResourceRegistry::LiveCount(),
+                            static_cast<double>( held ) / ( 1024.0 * 1024.0 ),
+                            static_cast<double>( shared ) / ( 1024.0 * 1024.0 ) );
     }
 
-    SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile )
-         : m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ), m_ViewExtent( extent ),
-           m_RenderExtent( extent )
+    SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile,
+                                  const ResourceOwnerInstance accountUnder )
+         : m_LedgerView( accountUnder ), m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ),
+           m_ViewExtent( extent ), m_RenderExtent( extent )
     {
+        // Every device object this view makes, here and in each entry point that can allocate (Init, the staged
+        // build, the three frame phases, Resize, the Ensure* builders), is opened under the view's ledger
+        // instance: the view's budget is those rows (HeldBytes), measured, not a forecast (RT-LEDGER-3).
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         {
             const std::scoped_lock lock( LiveRenderersMutex() );
             LiveRenderers().push_back( this );
@@ -700,6 +770,7 @@ namespace Desert::Graphic
         // a per-frame resource; the frame context gets them back on every exit, so nothing written after the
         // last view of a frame lands in this view's copies.
         const ActiveViewScope viewScope( m_ViewResources );
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
 
         // HANDED IN, NOT READ OFF THE SCENE. This used to be `scene.GetMainCamera()`, which is the same
         // answer for every renderer of that scene — so a second view of one world rendered from the
@@ -719,6 +790,11 @@ namespace Desert::Graphic
         m_FrameExtensions = &scene.GetExtensionPasses();
         // The scene's reflection captures, published into this frame's graph (SceneViewInputs).
         m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
+        // The scene's ray-tracing geometry (skin cache, BLAS variants), shared by this frame's views.
+        m_FrameRayTracingCache = &scene.GetRayTracingCache();
+        m_SceneLedgerInstance  = scene.GetLedgerInstance();
+        // The scene's procedural sky environment: baked once per scene, read by this view (SceneSkyEnvironment).
+        skyboxSystem->BindSceneSky( scene.GetSkyEnvironment() );
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -955,6 +1031,7 @@ namespace Desert::Graphic
         // Without this line a second view writes its per-frame GPU state into the frame context instead of
         // its own copies, a torn picture with nothing in the log (Docs/RENDERER_FRAME_STATE.md).
         const ActiveViewScope viewScope( m_ViewResources );
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
         m_DirectionLights        = sceneRenderInfo.DirLights;
@@ -1161,8 +1238,18 @@ namespace Desert::Graphic
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
             meshes->SetPrevWorldTimeSeconds( GetViewFrame()->PrevTimeSeconds );
-            if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions( m_ViewState.Motion() ); !rows )
+            // Every landscape tile is a GPU-scene primitive too (its TLAS custom index): world-space vertices, so
+            // an identity World.
+            m_ScratchTileMotions.clear();
+            for ( const System::TerrainDrawData& tile : terrain->GetQueue() )
+                m_ScratchTileMotions.push_back(
+                     { .Entity = tile.Landscape.Entity, .Part = 0, .World = glm::mat4( 1.0f ) } );
+            if ( const Common::BoolResultStr rows =
+                      meshes->BuildObjectMotions( m_ViewState.Motion(), m_ScratchTileMotions );
+                 !rows )
             {
                 LOG_ERROR( "[SceneRenderer] {}: the view's motion rows could not be built; nothing is drawn this "
                            "frame: {}",
@@ -1179,6 +1266,111 @@ namespace Desert::Graphic
         };
 
         AddFrameClearMainFramebuffer( graph, textures );
+
+        // The view's TLAS, before any pass that traces rays is declared (RayTracingSceneRenderer.hpp). A frame
+        // whose TLAS could not be declared still draws; its ray readers see GetFrame().Built == false.
+        {
+            // Every RT allocation this block makes is a ledger row of the scene renderer (RT-SCENE-2 contract,
+            // Memory accounting). The VIEW's rows — its TLAS storage, its landscape tiles' vertex / index buffers
+            // and BLASes — carry this view's instance (RT-LEDGER-2) and are counted in HeldBytes. The scene
+            // cache's variant, procedural and skin-cache BLASes and skinned positions carry the SCENE's instance
+            // (RayTracingSceneRenderer::AddPasses opens the cache's scope around them): shared, in no view's
+            // budget. A mesh BLAS built here by a lazy upload is claimed by the mesh service for its asset (an
+            // explicit claim wins and clears the instance). The graph transients (TLAS instance rows, build
+            // scratch, PrimitiveInstances) live in the device's transient heaps, each a TransientHeap row of the
+            // Device. The view's scope is OnUpdate's (RT-LEDGER-3), not a second one here.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            auto* const     meshes     = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            const auto*     camera     = GetMainCamera();
+            const glm::vec3 viewOrigin = camera != nullptr ? camera->GetPosition() : glm::vec3( 0.0f );
+            const float     lensScale  = camera != nullptr
+                                              ? DrawDistanceScale( Geometry::LODView{ camera->GetPosition(),
+                                                                                 camera->GetProjectionMatrix() } )
+                                              : 1.0f;
+            const bool      required   = RayTracing::RayTracingSceneRequired( m_RenderMethods );
+
+            // The landscape tiles first: their vertex compute, then their BLAS requests join the RT scene's
+            // dynamic-geometry pass, which the TLAS pass reads (orders it after the builds).
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+            std::span<const System::TerrainDrawData>       queue     = terrain->GetQueue();
+            const std::span<const System::TerrainInstance> instances = terrain->GetFrameInstances();
+            const std::span<const uint32_t>                rows      = meshes->GetOtherMotionRows();
+            // Parallel by construction (PrepareFrame packs one row per queued tile, BuildObjectMotions one motion
+            // row per tile record); a mismatch is a broken invariant, said and not traced, never truncated.
+            std::vector<RayTracing::LandscapeRayTracingTile> tiles;
+            if ( instances.size() != queue.size() || rows.size() != queue.size() )
+            {
+                LOG_ERROR(
+                     "[SceneRenderer] {}: {} landscape tiles queued but {} terrain rows and {} GPU-scene rows; "
+                     "the landscape is not in this frame's TLAS",
+                     m_ViewResources.GetName(), queue.size(), instances.size(), rows.size() );
+                queue = {};
+            }
+            tiles.reserve( queue.size() );
+            for ( std::size_t i = 0; i < queue.size(); ++i )
+            {
+                const System::TerrainDrawData& draw = queue[i];
+                tiles.push_back( { .Entity         = draw.Landscape.Entity,
+                                   .GpuSceneRow    = rows[i],
+                                   .Heightmap      = draw.Heightmap,
+                                   .HeightRevision = draw.Landscape.HeightRevision,
+                                   .Weightmap      = draw.Weights.Weightmap,
+                                   .WeightRevision = draw.Weights.Revision,
+                                   .Instance       = instances[i],
+                                   .Weights        = draw.Weights } );
+            }
+            const Common::BoolResultStr landscape =
+                 m_LandscapeRayTracing.AddPasses( graph, textures, required, tiles );
+            if ( !landscape )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: the view's landscape could not enter the TLAS; rays miss it this "
+                           "frame: {}",
+                           m_ViewResources.GetName(), landscape.GetError() );
+            }
+            // A failed AddPasses may have registered tiles whose build was never declared: none enters the TLAS.
+            const RayTracing::LandscapeRayTracingFrame& landscapeFrame = m_LandscapeRayTracing.GetFrame();
+            RayTracing::RayTracingExternalPrimitives    external;
+            if ( landscape.IsSuccess() )
+                external = { .Primitives  = landscapeFrame.Primitives,
+                             .Builds      = landscapeFrame.Builds,
+                             .Resident    = landscapeFrame.Resident,
+                             .Built       = landscapeFrame.Built,
+                             .Refit       = landscapeFrame.Refit,
+                             .VertexBytes = landscapeFrame.VertexBytes,
+                             .BlasBytes   = landscapeFrame.BlasBytes };
+
+            Common::BoolResultStr tlas = BOOLSUCCESS;
+            if ( m_FrameRayTracingCache == nullptr )
+                tlas = Common::MakeError(
+                     std::string( "OnUpdate ran outside BeginScene/EndScene: no scene ray-tracing cache" ) );
+            else
+                tlas = m_RayTracingScene.AddPasses( graph, required, *meshes, *m_FrameRayTracingCache, viewOrigin,
+                                                    lensScale, external );
+            for ( const std::string& error : m_RayTracingScene.GetGatherErrors() )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: a mesh row traces nothing this frame: {}",
+                           m_ViewResources.GetName(), error );
+            }
+            if ( !tlas )
+                LOG_ERROR( "[SceneRenderer] {}: the view's TLAS could not be declared; ray-traced methods read "
+                           "nothing this frame: {}",
+                           m_ViewResources.GetName(), tlas.GetError() );
+#if DESERT_DEV_INSTRUMENTS
+            // The RT scene's view-memory lines, beside the targets' census, when its TLAS storage is
+            // (re)allocated: the moment the view's RT memory steps, not every frame.
+            const RayTracing::RayTracingSceneStats& rtStats = m_RayTracingScene.GetStats();
+            if ( rtStats.Built && rtStats.TlasBytes != m_LoggedRayTracingTlasBytes )
+            {
+                m_LoggedRayTracingTlasBytes = rtStats.TlasBytes;
+                LOG_INFO( "[ViewMemory] view '{}' {}", m_ViewResources.GetName(),
+                          RayTracing::FormatRayTracingSceneMemory( rtStats ) );
+                // The view's and the scene's budget entries, from the same rows the budget and the overlay read.
+                LOG_INFO( "[ViewMemory] view '{}' ledger: {}", m_ViewResources.GetName(),
+                          FormatViewLedgerMemory( TakeLedgerMemory() ) );
+            }
+#endif
+        }
 
         AddFrameParticlesSimulate( graph );
 
@@ -1364,6 +1556,7 @@ namespace Desert::Graphic
     NO_DISCARD Common::BoolResultStr SceneRenderer::EndScene()
     {
         const ActiveViewScope viewScope( m_ViewResources ); // same reason as OnUpdate: phases interleave
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
 
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ClearQueues();
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
@@ -1377,6 +1570,7 @@ namespace Desert::Graphic
         m_SpotLightShadows.clear();
         m_FrameExtensions         = nullptr;
         m_FrameReflectionCaptures = nullptr;
+        m_FrameRayTracingCache    = nullptr;
 
         return BOOLSUCCESS;
     }
@@ -1418,6 +1612,7 @@ namespace Desert::Graphic
 
     bool SceneRenderer::EnsureGIResources()
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( m_GIResourcesReady )
             return true;
         // A preview profile never builds GI targets; the scene's GI mode stays on the screen-space path.
@@ -1467,6 +1662,7 @@ namespace Desert::Graphic
 
     bool SceneRenderer::EnsureSSRResources()
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( m_SSRResourcesReady )
             return true;
         if ( m_SSRResourcesFailed || !m_ViewProfile.ScreenSpaceReflections )
@@ -1509,6 +1705,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::Resize( const uint32_t width, const uint32_t height )
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         // A SIZE THAT NO TARGET CAN BE BUILT AT IS SKIPPED, and `width == 0 && height == 0` was not that
         // test. It let through exactly the sizes the UI actually produces: a collapsed dock panel is 0 on ONE
         // side, and a panel dragged shut hands out a negative ImGui float that becomes ~4.29e9 on the cast to
@@ -1562,6 +1759,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::ResizeRenderTargets( const ViewExtent render )
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( !m_TargetFramebuffer || m_RenderExtent == render )
             return;
         m_RenderExtent        = render;
@@ -1649,7 +1847,8 @@ namespace Desert::Graphic
                              .TranslucencySortPriority = extra.TranslucencySortPriority } );
     }
 
-    void SceneRenderer::SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile,
+    void SceneRenderer::SubmitLandscapeTile( const std::shared_ptr<Image2D>&    heightmap,
+                                             const System::LandscapeTileDraw&   tile,
                                              const MaterialOverrides&           overrides,
                                              const System::LandscapeWeightDraw& weights )
     {
@@ -1667,7 +1866,8 @@ namespace Desert::Graphic
     void SceneRenderer::SubmitGenericMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                            const std::string& shaderName, const MaterialOverrides& overrides,
                                            bool outlined, Image2D* directTexture,
-                                           const std::string& directTextureSampler, bool castShadows )
+                                           const std::string& directTextureSampler, bool castShadows,
+                                           bool visibleInRayTracing )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -1679,6 +1879,7 @@ namespace Desert::Graphic
                                     .Overrides            = overrides,
                                     .Outlined             = outlined,
                                     .CastShadows          = castShadows,
+                                    .VisibleInRayTracing  = visibleInRayTracing,
                                     .DirectTexture        = directTexture,
                                     .DirectTextureSampler = directTextureSampler } );
     }
@@ -1690,14 +1891,16 @@ namespace Desert::Graphic
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitGenericMesh( { .Entity             = entity,
-                                    .MotionPart         = motionPart,
-                                    .Mesh               = mesh,
-                                    .Transform          = transform,
-                                    .Outlined           = outlined,
-                                    .CastShadows        = castShadows,
-                                    .SlotMaterial       = material,
-                                    .VisibleSubmeshMask = visibleSubmeshMask } );
+             ->SubmitGenericMesh( { .Entity      = entity,
+                                    .MotionPart  = motionPart,
+                                    .Mesh        = mesh,
+                                    .Transform   = transform,
+                                    .Outlined    = outlined,
+                                    .CastShadows = castShadows,
+                                    // A per-slot material draw is always a mesh's submeshes: a surface rays hit.
+                                    .VisibleInRayTracing = true,
+                                    .SlotMaterial        = material,
+                                    .VisibleSubmeshMask  = visibleSubmeshMask } );
     }
 
     uint32_t SceneRenderer::GetIsmInstancesDrawn() const
@@ -1708,7 +1911,8 @@ namespace Desert::Graphic
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
     }
 
-    void SceneRenderer::SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
+    void SceneRenderer::SubmitInstancedMesh( const uint32_t entity, Mesh* mesh,
+                                             const MaterialInstancePtr&                           material,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                              bool castShadows, bool castContactShadow,
                                              const InstanceCullDistance& cullDistance, const InstanceWind& wind )
@@ -1722,7 +1926,8 @@ namespace Desert::Graphic
         // as a StaticMesh (RenderMesh takes a Mesh), so nothing broke; the type simply claimed
         // something untrue, and a reader who believed it would reach for members that are not there.
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitInstancedMesh( { .Mesh              = mesh,
+             ->SubmitInstancedMesh( { .Entity            = entity,
+                                      .Mesh              = mesh,
                                       .Material          = material,
                                       .Transforms        = transforms,
                                       .CastShadows       = castShadows,
@@ -1816,6 +2021,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::EnsureTemporalUpscaler( const TemporalMethod method )
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         const TemporalMethod held = m_TemporalUpscaler ? m_TemporalUpscaler->Method() : TemporalMethod::None;
         if ( held != method )
             m_TemporalUpscaler = CreateTemporalUpscaler( method );

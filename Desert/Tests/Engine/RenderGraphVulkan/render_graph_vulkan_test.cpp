@@ -435,7 +435,7 @@ void main()
     {
         FrameObjects( Gpu& gpu, uint32_t frameSlots, bool asyncCompute = false )
              : Transients( gpu.Rdg, frameSlots ), Samplers( gpu.Device.device ),
-               Descriptors( gpu.Device.device, Samplers, frameSlots ),
+               Descriptors( gpu.Device.device, Samplers, frameSlots, false ),
                Objects( gpu.Device.device, gpu.QueueFamily,
                         asyncCompute && gpu.ComputeQueue != VK_NULL_HANDLE
                              ? std::optional<uint32_t>( gpu.ComputeFamily )

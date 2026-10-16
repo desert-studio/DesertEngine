@@ -262,7 +262,12 @@ namespace Desert::Graphic
         void Swap(); // Current becomes Previous
         void Release();
 
-        [[nodiscard]] uint64_t HeldBytes() const; // counted in the view's budget (SceneRenderer::HeldBytes)
+        // The pairs' descs as Prepare last matched them. NOT a byte count: the history images are Image2D ledger
+        // rows (AllocatePhysical runs inside the view's ledger scope), and the view's budget reads those rows.
+        [[nodiscard]] std::span<const HistoryTextureDesc> Descs() const
+        {
+            return m_Descs;
+        }
 
     private:
         std::vector<HistoryTextureDesc>                  m_Descs;
@@ -306,8 +311,6 @@ namespace Desert::Graphic
         // The view is torn down or re-targeted to an unrelated output: drops the history memory and the motion
         // records; the next frame is FirstFrame.
         void Reset();
-
-        [[nodiscard]] uint64_t HeldBytes() const;
 
     private:
         bool            m_HasCommitted = false;

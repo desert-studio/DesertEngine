@@ -3,6 +3,7 @@
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderTarget.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
 #include <shaderc/shaderc.hpp>
@@ -115,12 +116,8 @@ namespace Desert::Core
                 const std::string_view value = ShaderDefineValue( define );
                 options.AddMacroDefinition( name.data(), name.size(), value.data(), value.size() );
             }
-            // THE OLDEST ACCEPTED DEVICE, NOT THE CURRENT ONE. SPIR-V is cached on disk and shipped, so its
-            // target cannot follow the GPU of the machine that compiled it; it follows DeviceCaps' minimum,
-            // which every device that passes CheckRequired meets. Raising it is VKF2's call (with the minimum).
-            static_assert( Graphic::API::Vulkan::kMinimumDeviceApiVersion == VK_API_VERSION_1_1,
-                           "the shader target below must move with kMinimumDeviceApiVersion" );
-            options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
+            // The oldest accepted device's version (ShaderTarget.hpp), never a literal here.
+            options.SetTargetEnvironment( shaderc_target_env_vulkan, kShaderTargetEnvVersion );
             options.SetWarningsAsErrors();
 
             // NO SetOptimizationLevel, measured (PSO2, 2026-09-27, 126 shaders of the SPIR-V cache). shaderc's

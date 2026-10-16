@@ -444,7 +444,8 @@ namespace Desert::Graphic
         return static_cast<double>( totals.ViewScaledBytes ) / ( static_cast<double>( width ) * height );
     }
 
-    /// The census as a table, largest first — what the suite prints and the renderer logs once per build.
+    /// The FORECAST as a table, largest first — what the ViewMemory suite prints. The renderer logs the view's
+    /// MEASURED ledger rows instead (FormatViewLedgerMemory, RT-LEDGER-3); this forecast only admits a new view.
     [[nodiscard]] inline std::string FormatViewTargetCensus( std::vector<ViewTarget> rows, const uint32_t width,
                                                              const uint32_t height )
     {

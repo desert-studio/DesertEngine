@@ -1,5 +1,6 @@
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanVertexBuffer.hpp>
+#include <Engine/Graphic/API/Vulkan/MeshBufferUsage.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 
@@ -149,14 +150,11 @@ namespace Desert::Graphic::API::Vulkan
                 }
             }
 
-            // STORAGE beside VERTEX: a static mesh's vertices are also what a compute pass reads them as - the
-            // morph update blends a skinned mesh's base vertices into a component's morphed copy
-            // (MeshRendererMorph.cpp, UE GPUMorphUpdateCS reading the base vertex buffer).
-            auto vertexBufferCreateInfo =
-                 CreateVertexBufferInfo( m_Size,
-                                         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                                         VK_SHARING_MODE_EXCLUSIVE );
+            // The usage is MeshBufferUsage's: storage for the morph update, a BLAS build input where the device
+            // can build one.
+            auto vertexBufferCreateInfo = CreateVertexBufferInfo(
+                 m_Size, MeshBufferUsage( MeshBufferRole::Vertex, allocator->GetDeviceCaps() ),
+                 VK_SHARING_MODE_EXCLUSIVE );
 
             const auto buffer = allocator->RT_AllocateBuffer( "VertexBuffer", vertexBufferCreateInfo,
                                                               VMA_MEMORY_USAGE_GPU_ONLY, m_VulkanBuffer );
