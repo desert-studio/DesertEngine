@@ -2,7 +2,7 @@
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/LogView.hpp>
-#include <Editor/Core/TextTemplate.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -360,19 +360,19 @@ namespace Desert::Editor
         {
             if ( ImGui::MenuItem( "Copy visible" ) )
             {
-                static const TextTemplates::CompiledTemplate kVisible(
+                static const ::Desert::Core::TextTemplate kVisible(
+                     "LogsCopyVisible",
                      "{% for row in rows %}{{ row.text }}{% if row.count > 1 %}  (x{{ row.count }}){% endif %}\n"
-                     "{% endfor %}",
-                     "LogsCopyVisible" );
+                     "{% endfor %}" );
                 Common::Json::Value::Array lines;
                 lines.reserve( rows.size() );
                 for ( const auto& r : rows )
                     lines.emplace_back(
                          Common::Json::ObjectBuilder().Set( "text", r.Text ).Set( "count", r.Count ).Build() );
-                const std::string all = TextTemplates::RenderOrError(
-                     kVisible, Common::Json::Value( Common::Json::ObjectBuilder()
-                                                         .Set( "rows", Common::Json::Value( std::move( lines ) ) )
-                                                         .Build() ) );
+                const std::string all = kVisible.RenderOrLog(
+                     Common::Json::Value( Common::Json::ObjectBuilder()
+                                               .Set( "rows", Common::Json::Value( std::move( lines ) ) )
+                                               .Build() ) );
                 ImGui::SetClipboardText( all.c_str() );
             }
             ImGui::EndPopup();

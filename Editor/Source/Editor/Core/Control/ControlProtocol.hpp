@@ -3,7 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
-#include <Editor/Core/TextTemplate.hpp>
+#include <Editor/Core/TextList.hpp>
 
 #include <algorithm>
 #include <cstdint>

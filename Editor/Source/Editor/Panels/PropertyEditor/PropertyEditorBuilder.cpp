@@ -48,7 +48,7 @@
 #include <unordered_map>
 #include <vector>
 #include <Editor/Core/AssetPickerRows.hpp>
-#include <Editor/Core/TextTemplate.hpp>
+#include <Editor/Core/TextList.hpp>
 
 namespace Desert::Editor
 {

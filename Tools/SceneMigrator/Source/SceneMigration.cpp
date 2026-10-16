@@ -59,7 +59,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Units.hpp>
-#include <Common/Json/Template.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 
 #include <glm/trigonometric.hpp>
 
@@ -87,14 +87,13 @@ namespace Desert::Migration
     {
         // A scene refused over a list, in one line: "'<scene>': [<count> <what>: ]<items, '; '-separated>.
         // Nothing was written." From one template (text built from a list is a template, owner 10-16). A
-        // template that fails is a defect of this tool: logged at ERROR, and the refusal still refuses.
+        // template that fails is logged at ERROR and its error becomes the refusal: the scene is still refused.
         std::string RefusedOver( const std::string& scene, std::string_view what,
                                  const std::vector<std::string>& items )
         {
-            static const auto kRefusal =
-                 Common::Text::Compile( "'{{ scene }}': {% if what %}{{ items | length }} {{ what }}: {% endif %}"
-                                        "{{ items | join(\"; \") }}. Nothing was written.",
-                                        "SceneRefusal" );
+            static const Core::TextTemplate kRefusal(
+                 "SceneRefusal", "'{{ scene }}': {% if what %}{{ items | length }} {{ what }}: {% endif %}"
+                                 "{{ items | join(\"; \") }}. Nothing was written." );
             Common::Json::Value::Array list;
             list.reserve( items.size() );
             for ( const std::string& item : items )
@@ -103,16 +102,7 @@ namespace Desert::Migration
             model.Set( "scene", scene ).Set( "items", Common::Json::Value( std::move( list ) ) );
             if ( !what.empty() )
                 model.Set( "what", what );
-            const Common::Json::Value data( model.Build() );
-            const Common::Json::Node  root = Common::Json::Root( data );
-            auto rendered = kRefusal.IsSuccess() ? Common::Text::Render( kRefusal.GetValue(), root )
-                                                 : Common::MakeError<std::string>( kRefusal.GetError() );
-            if ( rendered.IsSuccess() )
-                return rendered.ExtractValue();
-            LOG_ERROR( "[SceneMigrator] the refusal text template failed: {}", rendered.GetError() );
-            return std::format(
-                 "'{}': refused, and the refusal text could not be rendered ({}). Nothing was written.", scene,
-                 rendered.GetError() );
+            return kRefusal.RenderOrLog( Common::Json::Value( model.Build() ) );
         }
 
         // A step that refused entities refuses the whole scene: one line naming the scene and every refusal.

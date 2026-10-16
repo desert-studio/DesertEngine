@@ -5,7 +5,7 @@
 
 #include <Editor/Core/Control/ControlPipeline.hpp>
 #include <Editor/Core/EditableProperty.hpp>
-#include <Editor/Core/TextTemplate.hpp>
+#include <Editor/Core/TextList.hpp>
 
 #include <cstdint>
 #include <string>

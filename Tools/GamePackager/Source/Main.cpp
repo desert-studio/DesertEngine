@@ -34,7 +34,7 @@
 #include <ToolMain.hpp>
 #include <ToolEngineDir.hpp>
 
-#include <Editor/Core/TextTemplate.hpp>
+#include <Editor/Core/TextList.hpp>
 #include <Editor/Packaging/GamePackager.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>

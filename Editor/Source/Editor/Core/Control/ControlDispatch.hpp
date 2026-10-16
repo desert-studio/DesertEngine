@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Editor/Core/FuzzyMatch.hpp>
-#include <Editor/Core/TextTemplate.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -153,10 +153,10 @@ namespace Desert::Editor::Control
         if ( resolution.Suggestions.empty() )
             return std::format( "{}. Nothing resembles it either; ask 'commands' for the full list.", message );
 
-        static const TextTemplates::CompiledTemplate kDidYouMean(
+        static const ::Desert::Core::TextTemplate kDidYouMean(
+             "UnknownCommandSuggestions",
              "{{ message }}. Did you mean {% for s in suggestions %}{% if not loop.first %}, {% endif %}"
-             "'{{ s.group }}' / '{{ s.label }}'{% endfor %}?",
-             "UnknownCommandSuggestions" );
+             "'{{ s.group }}' / '{{ s.label }}'{% endfor %}?" );
         Common::Json::Value::Array suggestions;
         suggestions.reserve( resolution.Suggestions.size() );
         for ( const CommandAddress& suggestion : resolution.Suggestions )
@@ -164,8 +164,7 @@ namespace Desert::Editor::Control
                                            .Set( "group", suggestion.Group )
                                            .Set( "label", suggestion.Label )
                                            .Build() );
-        return TextTemplates::RenderOrError(
-             kDidYouMean,
+        return kDidYouMean.RenderOrLog(
              Common::Json::Value( Common::Json::ObjectBuilder()
                                        .Set( "message", message )
                                        .Set( "suggestions", Common::Json::Value( std::move( suggestions ) ) )

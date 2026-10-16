@@ -26,7 +26,8 @@
 #include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/PakFile.hpp>
 #include <Common/Utilities/PeImports.hpp>
-#include <Editor/Core/TextTemplate.hpp>
+#include <Editor/Core/TextList.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 
 #ifdef _WIN32
 #define popen _popen
@@ -494,19 +495,19 @@ namespace Desert::Editor
             return "The asset registry could not be gathered: " + gathered.GetError();
 
         // Each non-empty list is one section: its count and what is wrong, then one indented line per item.
-        static const TextTemplates::CompiledTemplate kSection(
-             "{{ items | length }} {{ what }}:{% for item in items %}\n  {{ item }}{% endfor %}",
-             "PackagedRegistryProblems" );
+        static const ::Desert::Core::TextTemplate kSection(
+             "PackagedRegistryProblems",
+             "{{ items | length }} {{ what }}:{% for item in items %}\n  {{ item }}{% endfor %}" );
         std::vector<std::string> sections;
         const auto               section = [&]( const std::vector<std::string>& items, std::string_view what )
         {
             if ( items.empty() )
                 return;
-            sections.push_back( TextTemplates::RenderOrError(
-                 kSection, Common::Json::Value( Common::Json::ObjectBuilder()
-                                                     .Set( "items", TextTemplates::StringList( items ) )
-                                                     .Set( "what", what )
-                                                     .Build() ) ) );
+            sections.push_back( kSection.RenderOrLog(
+                 Common::Json::Value( Common::Json::ObjectBuilder()
+                                           .Set( "items", TextTemplates::StringList( items ) )
+                                           .Set( "what", what )
+                                           .Build() ) ) );
         };
         section( refused, "content file(s) on the disk this package is built from could not enter the asset "
                           "registry, so the packaged game could not load them" );

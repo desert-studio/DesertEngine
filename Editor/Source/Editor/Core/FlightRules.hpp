@@ -20,7 +20,8 @@
 // same flight visit the same positions on the same frame numbers. Frame times are WALL milliseconds.
 
 #include <Common/Core/ResultStr.hpp>
-#include <Editor/Core/TextTemplate.hpp>
+#include <Editor/Core/TextList.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 
 #include <glm/glm.hpp>
 
@@ -522,7 +523,8 @@ namespace Desert::Editor::Flight
         // One paragraph; the GPU numbers, the worst frame's activation and the costliest activation frame are
         // there only when the flight had them. Times arrive already formatted (Number) so the digits are the
         // ones the CSV carries.
-        static const TextTemplates::CompiledTemplate kDescribe(
+        static const ::Desert::Core::TextTemplate kDescribe(
+             "FlightSummary",
              "{{ frames }} timed frame(s) ({{ settling }} settling, {{ untimed }} untimed left out): CPU frame "
              "p50 "
              "{{ p50 }} / p95 {{ p95 }} / p99 {{ p99 }} / max {{ max }} ms, mean {{ mean }} ms"
@@ -539,8 +541,7 @@ namespace Desert::Editor::Flight
              "{% if costly %}; costliest activation frame {{ costly.frame }}: [{{ costly.names }}] {{ costly.ms "
              "}} ms "
              "in a {{ costly.cpuMs }} ms frame{% endif %}"
-             ". Peak {{ maxEntities }} entities, {{ maxResident }} streamed record(s) resident.",
-             "FlightSummary" );
+             ". Peak {{ maxEntities }} entities, {{ maxResident }} streamed record(s) resident." );
 
         const FrameRow& worst = rows[s.Worst];
         Common::Json::ObjectBuilder worstModel;
@@ -589,6 +590,6 @@ namespace Desert::Editor::Flight
                                       .Set( "cpuMs", Number( costly.CpuMs, 2 ) )
                                       .Build() );
         }
-        return TextTemplates::RenderOrError( kDescribe, Common::Json::Value( model.Build() ) );
+        return kDescribe.RenderOrLog( Common::Json::Value( model.Build() ) );
     }
 } // namespace Desert::Editor::Flight

@@ -10,7 +10,7 @@
 
 // glm::vec3 <-> JSON reflector (OutlineColor). Must be visible before the rfl::json read/write below.
 #include <Common/Core/Serialization/GlmReflection.hpp>
-#include <Editor/Core/TextTemplate.hpp>
+#include <Editor/Core/TextList.hpp>
 
 #include <algorithm>
 #include <array>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Editor/Core/TextTemplate.hpp>
+#include <Editor/Core/TextList.hpp>
 
 #include <array>
 #include <cstddef>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Editor/Core/EditableProperty.hpp>
-#include <Editor/Core/TextTemplate.hpp>
+#include <Editor/Core/TextList.hpp>
 #include <Editor/Import/TextureSourceFormats.hpp>
 
 #include <Engine/Assets/MaterialData.hpp>

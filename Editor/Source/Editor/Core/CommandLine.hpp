@@ -4,7 +4,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Editor/Core/ShotOptions.hpp>
-#include <Editor/Core/TextTemplate.hpp>
+#include <Editor/Core/TextList.hpp>
 #include <Engine/Localization/LocaleFormat.hpp>
 
 #include <charconv>
