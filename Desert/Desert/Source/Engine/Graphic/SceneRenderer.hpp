@@ -600,6 +600,9 @@ namespace Desert::Graphic
         /// Steps = 0 (no march) - there is nothing in front of them for the ray to hit.
         [[nodiscard]] SceneResources::ContactShadowSettings GetContactShadowSettings( const ViewFrame& frame,
                                                                                       bool hasOpaqueDepth ) const;
+        /// THE view's sun PCSS kernel (Scalability Shadows.BlockerSearchTaps / Shadows.FilterTaps), packed into
+        /// ShadowUB by every lit pass that samples the cascades.
+        [[nodiscard]] SceneResources::ShadowFilterSettings GetShadowFilterSettings() const;
 
     private:
         // THIS VIEW in the resource ledger (RT-LEDGER-2). Its RT rows — the TLAS storage, the landscape tiles'
@@ -1186,6 +1189,11 @@ namespace Desert::Graphic
         int m_SSRMaxSteps = 32;
         // Reflections.RaysPerPixel (Scalability), refreshed per frame like m_SSRMaxSteps.
         int m_SSRRaysPerPixel = 1;
+        // Reflections.DenoiserRadius (Scalability): the reflections denoiser's reconstruction kernel, taps per
+        // side from the centre. High column: 2 (5x5).
+        uint32_t m_ReflectionDenoiserRadius = 2;
+        // GlobalIllumination.ScreenSpaceSamples (Scalability): the screen-space gather's samples per pixel.
+        int m_ScreenSpaceGISamples = 12;
         // The mesh distance-field brick pool, MiB (Scalability GlobalIllumination.DistanceFieldPoolMiB): what the
         // global distance field's atlas holds and its finer mips stream within.
         uint32_t m_DistanceFieldPoolMiB = 256;
@@ -1236,6 +1244,11 @@ namespace Desert::Graphic
         bool m_ShadowBudgetSunRayTraced = false;
         // Scalability Shadows.RayTracedSamplesPerPixel and the elected sun's SourceAngle, taken each BeginScene.
         uint32_t m_RayTracedShadowSamples = 1;
+        // Shadows.RayTracedDenoiserRadius (Scalability): the ShadowVisibility reconstruction kernel. High: 2.
+        uint32_t m_ShadowDenoiserRadius = 2;
+        // Shadows.BlockerSearchTaps / Shadows.FilterTaps (Scalability): the sun's PCSS kernel, taken each
+        // BeginScene and packed into every ShadowUB (GetShadowFilterSettings).
+        SceneResources::ShadowFilterSettings                            m_ShadowFilter;
         float    m_SunSourceAngleDegrees  = 0.0f;
         bool                                                            m_SSRResourcesFailed = false;
         std::unordered_map<std::string, std::shared_ptr<IRenderSystem>> m_RenderSystems;

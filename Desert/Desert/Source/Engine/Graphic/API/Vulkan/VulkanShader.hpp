@@ -120,6 +120,10 @@ namespace Desert::Graphic::API::Vulkan
         {
             return !m_PipelineShaderStageCreateInfos.empty();
         }
+        [[nodiscard]] std::string_view GetDeviceRefusal() const override
+        {
+            return m_DeviceRefusal;
+        }
         /**
          * The layout for @p set, as a STRONG reference.
          *
@@ -206,6 +210,8 @@ namespace Desert::Graphic::API::Vulkan
         std::filesystem::path                        m_ShaderPath;
         std::string                                  m_ShaderName;
         std::string                                  m_PassName; // empty = default program
+        // Set by BuildFromSpirv when a stage needs a capability this device lacks (GetDeviceRefusal).
+        std::string m_DeviceRefusal;
 
         // STORED **AND** HONOURED, which is the half its predecessor never had: this reaches
         // CompileProgram below, and through it the includer and the SPIR-V cache key. A variant that

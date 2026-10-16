@@ -428,9 +428,19 @@ namespace Desert::Graphic::RDG
     void Builder::Compiler::FoldUse( const PassRecord& pass, const ResourceUse& use, std::vector<int32_t>& slot,
                                      std::vector<RdgSubUse>& uses, std::string& error ) const
     {
-        const ResourceRecord& record   = m_Resources[use.Resource];
-        AccessState           state    = GetAccessState( use.Usage );
-        bool                  consumes = true;
+        const ResourceRecord& record = m_Resources[use.Resource];
+        // A texture an earlier graph created and extracted takes only the accesses it was created for (its usage
+        // flags): any other faults the pass here, before a command the image cannot take is recorded.
+        if ( record.ExternalTex != nullptr && record.ExternalTex->CreatedAccessMask != 0 &&
+             ( record.ExternalTex->CreatedAccessMask & ( 1u << static_cast<uint32_t>( use.Usage ) ) ) == 0 )
+        {
+            error = fmt::format( "graph '{}' pass '{}' declares texture '{}' as {}, an access the graph that "
+                                 "created it did not extract it for (Builder::Extract @p later)",
+                                 m_Name, pass.Name, record.Name, GetAccessName( use.Usage ) );
+            return;
+        }
+        AccessState state    = GetAccessState( use.Usage );
+        bool        consumes = true;
         if ( use.Attachment >= 0 )
         {
             const AttachmentRecord& attachment = pass.Attachments[static_cast<size_t>( use.Attachment )];
@@ -991,7 +1001,7 @@ namespace Desert::Graphic::RDG
         {
             const ResourceRecord& record = m_Resources[usage.Resource];
             if ( record.IsExtracted() )
-                usage.AccessMask |= 1u << static_cast<uint32_t>( record.FinalAccess );
+                usage.AccessMask |= ( 1u << static_cast<uint32_t>( record.FinalAccess ) ) | record.LaterAccessMask;
         }
     }
 

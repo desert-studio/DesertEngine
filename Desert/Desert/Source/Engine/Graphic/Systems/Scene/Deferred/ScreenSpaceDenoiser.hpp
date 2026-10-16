@@ -50,6 +50,9 @@ namespace Desert::Graphic::System
         RDG::TextureRef TraceRay;
         RDG::TextureRef TileMask;
         uint32_t        TraceSeed = 0;
+        // The reconstruction's kernel, trace texels per side from the centre (Scalability
+        // Reflections.DenoiserRadius; UE r.Reflections.Denoiser.ReconstructionSamples). 2 = 5x5.
+        uint32_t ReconstructionRadius = 2;
     };
 
     // What a diffuse-indirect producer hands the denoiser (UE FDiffuseIndirectInputs): its full-resolution
@@ -68,6 +71,9 @@ namespace Desert::Graphic::System
         RDG::TextureRef Mask;
         RDG::TextureRef ClosestOccluder;
         float           LightSourceAngleRadians = 0.0f;
+        // The reconstruction's kernel, taps per side from the centre, spread over the penumbra (Scalability
+        // Shadows.RayTracedDenoiserRadius; UE r.Shadow.Denoiser.ReconstructionSamples). 2 = 5x5.
+        uint32_t ReconstructionRadius = 2;
     };
 
     // THE SCREEN-SPACE DENOISER (UE ScreenSpaceDenoiser.cpp / ScreenSpaceDenoise/*.usf): one denoiser for every
@@ -169,10 +175,11 @@ namespace Desert::Graphic::System
                           .Uniform( "DenoiserViewUB", uniforms )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
                  },
-                 [this, seed = in.TraceSeed, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [this, seed = in.TraceSeed, radius = in.ReconstructionRadius, width,
+                  height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Denoise: Reflections Reconstruction" );
-                     const glm::vec4   push( static_cast<float>( seed ), 0.0f, 0.0f, 0.0f );
+                     const glm::vec4 push( static_cast<float>( seed ), static_cast<float>( radius ), 0.0f, 0.0f );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                      return Renderer::GetInstance().DispatchCompute( bindings, *m_ReconstructPipeline,
@@ -242,7 +249,8 @@ namespace Desert::Graphic::System
             const RDG::TextureRef signal =
                  graph.CreateTexture( Desc( width, height, kSignalFormat ), "SSD.Signal" );
             graph.SetFaultDefault( signal, RDG::FaultDefault::Black );
-            const glm::vec4 push( std::tan( in.LightSourceAngleRadians * 0.5f ), 0.0f, 0.0f, 0.0f );
+            const glm::vec4 push( std::tan( in.LightSourceAngleRadians * 0.5f ),
+                                  static_cast<float>( in.ReconstructionRadius ), 0.0f, 0.0f );
             graph.AddPass(
                  "Denoise: Shadow Visibility Reconstruction", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )

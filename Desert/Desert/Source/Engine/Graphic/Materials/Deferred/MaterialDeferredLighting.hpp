@@ -51,6 +51,19 @@ namespace Desert::Graphic
         std::variant<DeferredCascadeShadow, DeferredScreenShadowMask> Sun;
         // The view's contact shadows, packed into the same block (SceneResources::PackContactShadow).
         SceneResources::ContactShadowSettings Contact{};
+        // The sun's PCSS taps (SceneResources::PackShadowFilter); read by the cascade program only.
+        SceneResources::ShadowFilterSettings Filter{};
+    };
+
+    // Where the composite's indirect light comes from (DeferredLighting.shader u_Params.w / u_ScreenSpaceGI).
+    struct DeferredGIInput
+    {
+        // 0 none, 1 the screen-space gather inside the composite, 2 the traced final gather in place of the sky's
+        // two cubes.
+        int   Mode      = 0;
+        float Intensity = 0.0f; // scales the screen-space gather only (PostProcessSettings GIIntensity)
+        // The screen-space gather's samples per pixel (Scalability GlobalIllumination.ScreenSpaceSamples).
+        int ScreenSpaceSamples = 12;
     };
 
     // PURE. The ShadowUB values of @p shadow (x the sun's angular radius tangent for the soft shadow; y enabled;
@@ -87,6 +100,7 @@ namespace Desert::Graphic
              },
              shadow.Sun );
         SceneResources::PackContactShadow( data, shadow.Contact );
+        SceneResources::PackShadowFilter( data, shadow.Filter );
         return data;
     }
 
@@ -139,8 +153,8 @@ namespace Desert::Graphic
         // debugMode 0=Lit,1=Albedo,2=Normal,3=Metallic,4=Roughness; point/spotCount = the uploaded lights' counts.
         void BindInputs( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
                          const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
-                         uint32_t spotCount, const DeferredShadowInput& shadow, float giIntensity,
-                         bool ssaoEnabled, int giMode, const CloudShadowInput& cloudShadow,
+                         uint32_t spotCount, const DeferredShadowInput& shadow, const DeferredGIInput& gi,
+                         bool ssaoEnabled, const CloudShadowInput& cloudShadow,
                          const DeferredEnvironmentInput& environment, const glm::mat4& jitteredViewProjection )
         {
             // The baked sky's cubes and the BRDF LUT are pass parameters (SceneViewInputs, bound by the Composite
@@ -160,8 +174,10 @@ namespace Desert::Graphic
             // w = GI mode (0 = off, 1 = screen-space gather, 2 = the traced GI's final gather in place of the
             // sky's two cubes). Mode picks WHERE the indirect light comes from; intensity scales the screen-space
             // gather only.
-            SetParams( glm::vec4( static_cast<float>( debugMode ), giIntensity, ssaoEnabled ? 1.0f : 0.0f,
-                                  static_cast<float>( giMode ) ) );
+            SetParams( glm::vec4( static_cast<float>( debugMode ), gi.Intensity, ssaoEnabled ? 1.0f : 0.0f,
+                                  static_cast<float>( gi.Mode ) ) );
+            // u_ScreenSpaceGI: x = the screen-space gather's samples per pixel (read under mode 1 only).
+            SetScreenSpaceGI( glm::vec4( static_cast<float>( gi.ScreenSpaceSamples ), 0.0f, 0.0f, 0.0f ) );
 
             // The contact shadows march the G-buffer depth in the space it was rasterised in
             // (Common/ContactShadow.glslh); their steps and the sun's length ride ShadowUB (UploadShadow).
@@ -214,6 +230,7 @@ namespace Desert::Graphic
         MPROPERTY( glm::vec4, CameraPos,  "u_CameraPos",  ( glm::vec4( 0.0f ) ) )
         MPROPERTY( glm::mat4, InvJitteredViewProjection, "u_InvJitteredViewProjection", ( glm::mat4( 1.0f ) ) )
         MPROPERTY( glm::mat4, JitteredViewProjection, "u_JitteredViewProjection", ( glm::mat4( 1.0f ) ) )
+        MPROPERTY( glm::vec4, ScreenSpaceGI, "u_ScreenSpaceGI", ( glm::vec4( 12.0f, 0.0f, 0.0f, 0.0f ) ) )
 
     private:
     };

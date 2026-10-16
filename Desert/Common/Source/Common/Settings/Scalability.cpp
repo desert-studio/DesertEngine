@@ -96,6 +96,21 @@ namespace Common::Scalability
                2048, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows under a ray-traced sun (blended "
                "u_ShadowCascades readers, MeshRenderer::SunCascadeReadersQueued)" },
+             { P::ShadowFilterTaps, G::Shadows, "Shadows.FilterTaps", 4, 64, CL::None,
+               "SceneRenderer::BeginScene -> SceneResources::PackShadowFilter (ShadowUB u_ShadowFilter.y: "
+               "Mesh/CascadedShadow.glslh PCSS filter taps)" },
+             { P::ShadowBlockerSearchTaps, G::Shadows, "Shadows.BlockerSearchTaps", 4, 32, CL::None,
+               "SceneRenderer::BeginScene -> SceneResources::PackShadowFilter (ShadowUB u_ShadowFilter.x: "
+               "Mesh/CascadedShadow.glslh PCSS blocker search taps)" },
+             { P::ShadowRayTracedDenoiserRadius, G::Shadows, "Shadows.RayTracedDenoiserRadius", 1, 3, CL::None,
+               "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseShadowVisibility (reconstruction "
+               "kernel)" },
+             { P::ScreenSpaceGISamples, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceSamples", 4, 64,
+               CL::None,
+               "SceneRenderer::BeginScene -> MaterialDeferredLighting (u_ScreenSpaceGI.x: DeferredLighting.shader "
+               "GatherIndirectGI samples)" },
+             { P::ReflectionDenoiserRadius, G::Reflections, "Reflections.DenoiserRadius", 1, 3, CL::None,
+               "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseReflections (reconstruction kernel)" },
              { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
              { P::TextureStreamingPoolMiB, G::Textures, "Textures.StreamingPoolMiB", 256, 16384, CL::None,
                std::nullopt },
@@ -121,13 +136,22 @@ namespace Common::Scalability
              { P::SurfaceCacheRadiosityProbeResolution, G::GlobalIllumination,
                "GlobalIllumination.RadiosityHemisphereProbeResolution", 2, 8, CL::None, std::nullopt },
              { P::RadianceCacheProbeResolution, G::GlobalIllumination,
-               "GlobalIllumination.RadianceCacheProbeResolution", 8, 64, CL::None, std::nullopt },
+               "GlobalIllumination.RadianceCacheProbeResolution", 8, 64, CL::None,
+               "SceneRenderer::BeginScene -> RadianceCache::MakeRadianceCacheInputs (probe texels per side)" },
              { P::RadianceCacheProbesPerFrame, G::GlobalIllumination,
-               "GlobalIllumination.RadianceCacheProbesPerFrame", 10, 2000, CL::None, std::nullopt },
+               "GlobalIllumination.RadianceCacheProbesPerFrame", 10, 2000, CL::None,
+               "SceneRenderer::BeginScene -> RadianceCache::MakeRadianceCacheInputs (probes traced per frame)" },
              { P::HitLightingAllowed, G::GlobalIllumination, "GlobalIllumination.HitLighting", 0, 1, CL::None,
-               std::nullopt },
+               "SceneRenderer::BeginScene -> GlobalIllumination::PipelineFor (hardware-traced hits lit in "
+               "place)" },
              { P::ReflectionsHitLighting, G::Reflections, "Reflections.HitLighting", 0, 1, CL::None,
                "SceneRenderer::ReflectionsTracer -> SSR.shader \"HitLighting\" ray generation (Renderer::TraceRays)" },
+             { P::ScreenProbeDownsample, G::GlobalIllumination, "GlobalIllumination.ScreenProbeDownsample", 8, 64,
+               CL::None, std::nullopt },
+             { P::ScreenProbeTracedTexels, G::GlobalIllumination, "GlobalIllumination.ScreenProbeTracedTexels", 4,
+               16, CL::None, std::nullopt },
+             { P::IrradianceFieldProbesPerFrame, G::GlobalIllumination,
+               "GlobalIllumination.IrradianceFieldProbesPerFrame", 10, 2000, CL::None, std::nullopt },
         } };
     } // namespace
 

@@ -15,6 +15,9 @@ namespace Common::Scalability
 
     std::string_view RefuseGIMethod( std::int64_t value )
     {
+        if ( static_cast<GIMethod>( value ) == GIMethod::HardwareTraced )
+            return "declared, but its ray-query tracer is not connected to the screen probes and the radiance "
+                   "cache yet: the GI frame carries no TLAS, ray-tracing records or instance MeshCards table";
         return RefuseUnimplemented<GIMethod>( value );
     }
 

@@ -1055,11 +1055,26 @@ namespace Desert::Graphic::System
                                 static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
             }
         }
+        bool maskedPending = false;
         for ( const MaskedCasterDraw& draw : m_ScratchMaskedDraws )
         {
             DataDrivenMaterial* material  = draw.Set->Caster;
             const bool          instanced = draw.Path == MeshVertexPath::Instanced;
-            list.Add( { .Pipeline          = MaskedCasterPipeline( *material, draw.Path ),
+            // A masked caster draws through its OWN pipeline only once the driver has built it (UE: a draw whose
+            // pipeline is not ready is not submitted). Handed to the list unbuilt or refused, the cascade pass would
+            // fault at its bind ("could not be bound in the open render pass") and take the cascade's copy and the
+            // composite reading the cascades with it. Refused (null; MaskedCasterPipeline said why, once) or failed
+            // in the driver: that caster casts no shadow. Still compiling: not drawn THIS frame, and the static
+            // cache is marked stale so the cascade redraws it once the pipeline is ready.
+            GraphicsPipeline* const pipeline = MaskedCasterPipeline( *material, draw.Path );
+            if ( pipeline == nullptr || pipeline->GetReadiness() == PipelineReadiness::Failed )
+                continue;
+            if ( pipeline->GetReadiness() == PipelineReadiness::Compiling )
+            {
+                maskedPending = true;
+                continue;
+            }
+            list.Add( { .Pipeline          = pipeline,
                         .Mesh              = draw.Mesh,
                         .Transform         = draw.Transform,
                         .Material          = material->GetMaterialExecutor(),
@@ -1083,6 +1098,9 @@ namespace Desert::Graphic::System
                             material->Bind( draw.Instance );
                         } } );
         }
+        // The cache drawn now lacks the casters still compiling: the next frame's plan sees no key and redraws it.
+        if ( maskedPending && layer == ShadowCasterLayer::Static && c < kMaxCascades )
+            m_CascadeCache[c].StaticKey.reset();
     }
     RDG::TextureRef MeshRenderer::AcquireCascadeMaps( RDG::Builder& graph )
     {
@@ -1097,7 +1115,11 @@ namespace Desert::Graphic::System
                                .Layers = m_Shadow.CascadeCount,
                                .Dim    = RDG::TextureDim::Tex2DArray },
              "CSM.Cascades" );
-        graph.Extract( created, m_CascadeMaps, RDG::Access::SampledGraphics );
+        // A rebuilt cascade is COPIED from its cache in a later frame (SceneRenderer::AddFrameSunCascades,
+        // "MeshShadowCascade{c}.FromCache"), and this frame may make no copy (no caster pipeline, no fitted
+        // cascade, the ray-traced sun): the array is created for the copy all the same (UE: the TexCreate flags of
+        // the pooled target), or the copy's command meets an image without TRANSFER_DST.
+        graph.Extract( created, m_CascadeMaps, RDG::Access::SampledGraphics, { RDG::Access::CopyDst } );
         m_CascadeMapsBuilt = true;
         // Every layer starts at the far plane (1, standard Z: "no occluder"), written once on the frame the array
         // is made. The cascade passes write only the layers fitted this frame, and none when nothing is fitted (an

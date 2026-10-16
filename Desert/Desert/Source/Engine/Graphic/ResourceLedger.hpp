@@ -391,6 +391,17 @@ namespace Desert::Graphic
         uint32_t              BytesKnownFor = 0;
     };
 
+    /// One live row of an instance, as a closing holder names what it left (ResourceLedger::RowsOf): the kind,
+    /// the owner that claimed it, its size, and its id (ids grow in creation order, so the id dates the row).
+    struct ResourceRowSummary
+    {
+        uint64_t      Id    = 0;
+        ResourceKind  Kind  = ResourceKind::Image2D;
+        ResourceOwner Owner = ResourceOwner::Unclaimed;
+        std::size_t   Bytes = 0;
+        bool          BytesKnown = false;
+    };
+
     /// A whole-ledger answer, taken in ONE pass under ONE lock. A caller that asked for the total and then
     /// for the per-owner split in two calls would be handed two halves of two different instants, and the
     /// difference between them reads exactly like a leak.
@@ -477,6 +488,8 @@ namespace Desert::Graphic
         /// What @p instance holds, at this instant. A `None` instance is refused with an empty answer rather
         /// than summed: "every row nobody gave an instance to" is not one holder's footprint.
         [[nodiscard]] static ResourceInstanceCensus TakeFor( ResourceOwnerInstance instance );
+        /// The live rows of @p instance, oldest first. For a holder that closes with rows left: what they are.
+        [[nodiscard]] static std::vector<ResourceRowSummary> RowsOf( ResourceOwnerInstance instance );
 
         /// Every live instance of @p kind and what each holds, in one pass under one lock (RT-LEDGER-3: the
         /// view budget's scene entries — each scene's shared rows once, never inside a view's entry). Ordered
@@ -803,6 +816,25 @@ namespace Desert::Graphic
             }
         }
         return census;
+    }
+
+    inline std::vector<ResourceRowSummary> ResourceLedger::RowsOf( const ResourceOwnerInstance instance )
+    {
+        std::vector<ResourceRowSummary> rows;
+        if ( instance.IsNone() )
+            return rows;
+        {
+            std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
+            for ( const auto& [id, row] : LedgerDetail::Rows() )
+                if ( row.Instance == instance )
+                    rows.push_back( { .Id         = id,
+                                      .Kind       = row.Kind,
+                                      .Owner      = row.Owner,
+                                      .Bytes      = row.Bytes,
+                                      .BytesKnown = row.BytesKnown } );
+        }
+        std::ranges::sort( rows, {}, &ResourceRowSummary::Id );
+        return rows;
     }
 
     inline std::vector<ResourceInstanceCensus> ResourceLedger::TakeInstances( const ResourceInstanceKind kind )

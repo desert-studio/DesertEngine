@@ -624,6 +624,7 @@ namespace Desert::Graphic
                                                 .SourceTanHalf        = meshRenderer->GetSunSourceTanHalf() };
         // The composite marches the G-buffer depth, so its view always has one (GetContactShadowSettings).
         shadow.Contact                       = GetContactShadowSettings( frame, true );
+        shadow.Filter                        = GetShadowFilterSettings();
         const CloudShadowInput   cloudShadow = GetCloudShadowInput();
         DeferredEnvironmentInput environment;
         {
@@ -648,8 +649,10 @@ namespace Desert::Graphic
         // (Common/Settings/RenderMethods.hpp).
         using Common::Scalability::GIMethod;
         const GIMethod gi            = m_RenderMethods.GlobalIllumination.Effective;
-        const int      compositeGI   = gi == GIMethod::ScreenSpace ? 1 : traced ? 2 : 0;
-        const float    giIntensity   = ( gi == GIMethod::ScreenSpace ) ? m_GIIntensity : 0.0f;
+        const int             giMode        = gi == GIMethod::ScreenSpace ? 1 : traced ? 2 : 0;
+        const DeferredGIInput compositeGI{ .Mode      = giMode,
+                                           .Intensity = gi == GIMethod::ScreenSpace ? m_GIIntensity : 0.0f,
+                                           .ScreenSpaceSamples = m_ScreenSpaceGISamples };
 
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
@@ -669,7 +672,7 @@ namespace Desert::Graphic
              {
                  deferred->FillMaterial( lightDir, lightColor, cameraPos, frame.InvJitteredViewProjection,
                                          static_cast<int>( m_DebugView.DeferredDebug ), pointCount, spotCount,
-                                         shadow, giIntensity, m_EnableSSAO, compositeGI, cloudShadow, environment,
+                                         shadow, compositeGI, m_EnableSSAO, cloudShadow, environment,
                                          frame.JitteredViewProjection );
                  deferred->DeclareCompositeBindings( pass, inputs, lights );
                  DeferredFrameNodes::LoadTarget( pass, target, loads );
@@ -1287,8 +1290,11 @@ namespace Desert::Graphic
         }
         const RDG::TextureRef resolved =
              ssr.Denoise( graph,
-                          System::ReflectionsDenoiserInputs{
-                               .Trace = trace, .TraceRay = traceRay, .TileMask = tiles, .TraceSeed = seed },
+                          System::ReflectionsDenoiserInputs{ .Trace                = trace,
+                                                             .TraceRay             = traceRay,
+                                                             .TileMask             = tiles,
+                                                             .TraceSeed            = seed,
+                                                             .ReconstructionRadius = m_ReflectionDenoiserRadius },
                           System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
                                                          .GBufferDepth  = inputs[2],
                                                          .Velocity      = velocity,

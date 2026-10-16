@@ -49,7 +49,26 @@ namespace Desert::Graphic::SceneResources
         // x = the sun's ContactShadowLength, y = 1 when it is in world centimetres, z = its Contact Shadow Casting
         // Intensity, w = its Non Casting Intensity (Common/ContactShadow.glslh's `light`).
         glm::vec4 SunContactShadow;
+        // The sun's PCSS cost (Mesh/CascadedShadow.glslh): x = blocker search taps, y = filter taps, zw unused.
+        // Packed by PackShadowFilter.
+        glm::vec4 ShadowFilter;
     };
+
+    // THE COST OF THE SUN'S SOFT SHADOW (Scalability Shadows.BlockerSearchTaps / Shadows.FilterTaps; UE: the
+    // r.ShadowQuality kernel of sg.ShadowQuality): how many Vogel-disc taps the PCSS blocker search and filter
+    // walk. One value per view, so every lit surface - deferred composite, forward meshes, glass, surface-cache
+    // cards - filters the cascades with one kernel. The initialisers are the High column.
+    struct ShadowFilterSettings
+    {
+        int BlockerSearchTaps = 16;
+        int FilterTaps        = 32;
+    };
+
+    inline void PackShadowFilter( ShadowUBData& data, const ShadowFilterSettings& filter )
+    {
+        data.ShadowFilter = glm::vec4( static_cast<float>( filter.BlockerSearchTaps ),
+                                       static_cast<float>( filter.FilterTaps ), 0.0f, 0.0f );
+    }
 
     // THE CONTACT SHADOWS OF A VIEW (UE: the light's ContactShadowLength, marched by ShadowRayCast): the
     // screen-space ray every light with a length marches through the opaque scene depth. It rides the SAME

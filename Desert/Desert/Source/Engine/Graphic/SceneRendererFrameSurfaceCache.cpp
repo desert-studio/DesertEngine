@@ -225,6 +225,7 @@ namespace Desert::Graphic
             // A card texel has no screen depth to march: the block states the view's contact settings with no
             // steps (GetContactShadowSettings), so the cache reads the same ShadowUB layout with the march off.
             shadow.Contact      = GetContactShadowSettings( frame, false );
+            shadow.Filter       = GetShadowFilterSettings();
             lighting.Shadow     = PackDeferredShadow( shadow );
             lighting.Cloud      = CloudShadowPackUniforms( GetCloudShadowInput() );
             const FrameSun sun  = GetFrameSun();

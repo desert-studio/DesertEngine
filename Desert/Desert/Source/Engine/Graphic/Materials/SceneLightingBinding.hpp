@@ -139,7 +139,8 @@ namespace Desert::Graphic
                                  bool enabled, int debugMode, bool showNormals,
                                  const glm::vec4& cascadeWorldPerTexel, const glm::vec4& cascadeDepthRange,
                                  float sourceTanHalf, bool lightingDebug,
-                                 const SceneResources::ContactShadowSettings& contact )
+                                 const SceneResources::ContactShadowSettings& contact,
+                                 const SceneResources::ShadowFilterSettings&  filter )
     {
         if ( material == nullptr || cascadeViewProj == nullptr )
             return;
@@ -162,6 +163,7 @@ namespace Desert::Graphic
         data.CascadeTexelWorld = cascadeWorldPerTexel;
         data.CascadeDepthRange = cascadeDepthRange;
         SceneResources::PackContactShadow( data, contact );
+        SceneResources::PackShadowFilter( data, filter );
 
         if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kShadowBlockName ) )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );

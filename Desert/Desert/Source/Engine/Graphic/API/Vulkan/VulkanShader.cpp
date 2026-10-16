@@ -16,6 +16,33 @@
 
 namespace Desert::Graphic::API::Vulkan
 {
+    namespace
+    {
+        // SPIR-V OpCapability (opcode 17) and the capability a ray-query stage declares (SPIR-V spec,
+        // Capability RayQueryKHR = 4472; glslang emits it for GL_EXT_ray_query).
+        constexpr uint32_t kSpirvOpCapability       = 17;
+        constexpr uint32_t kSpirvCapabilityRayQuery = 4472;
+        constexpr size_t   kSpirvHeaderWords        = 5;
+
+        // Whether @p spirv declares @p capability. OpCapability instructions open the module, right after
+        // the header; the walk stops at the first other instruction.
+        bool SpirvDeclaresCapability( const std::vector<uint32_t>& spirv, const uint32_t capability )
+        {
+            size_t word = kSpirvHeaderWords;
+            while ( word < spirv.size() )
+            {
+                const uint32_t count  = spirv[word] >> 16;
+                const uint32_t opcode = spirv[word] & 0xFFFFu;
+                if ( opcode != kSpirvOpCapability || count < 2 || word + 1 >= spirv.size() )
+                    return false;
+                if ( spirv[word + 1] == capability )
+                    return true;
+                word += count;
+            }
+            return false;
+        }
+    } // namespace
+
     namespace ReflectionUtils
     {
         static VkShaderStageFlags StageToVkStage( Core::Formats::ShaderStage stage )
@@ -71,7 +98,28 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanShader::BuildFromSpirv( const std::vector<Core::ShaderMapStage>& stages )
     {
-        auto device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+        const auto logical = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
+        auto       device  = logical->GetVulkanLogicalDevice();
+
+        // A program that needs inline ray tracing is not built on a device without it (UE: a ray-tracing shader
+        // is not compiled for a platform/device that lacks RHI ray tracing): vkCreateShaderModule would be handed
+        // the RayQueryKHR capability (VUID-VkShaderModuleCreateInfo-pCode-08740) and the set layout an
+        // ACCELERATION_STRUCTURE_KHR binding the device has no enumerator for. The refusal names the device; the
+        // methods that use these programs are never resolved on it (NeedsRayQuery, Graphic::ResolveRenderMethods).
+        const DeviceCaps& caps = logical->GetPhysicalDevice()->GetDeviceCaps();
+        if ( !caps.Has( Capability::RayQuery ) || !caps.Has( Capability::AccelerationStructure ) )
+        {
+            for ( const auto& [stage, spirv] : stages )
+            {
+                if ( !SpirvDeclaresCapability( spirv, kSpirvCapabilityRayQuery ) )
+                    continue;
+                m_DeviceRefusal = std::format( "its {} stage uses inline ray tracing (SPIR-V RayQueryKHR) and device "
+                                               "'{}' has no ray query; no module or set layout is created on it",
+                                               GetStringShaderStage( stage ), caps.DeviceName );
+                return Common::MakeFormattedError( "Shader '{}': {}", m_ShaderName, m_DeviceRefusal );
+            }
+        }
+        m_DeviceRefusal.clear();
 
         // TRANSACTIONAL. Everything is built into locals first, and the shader's own state is only
         // replaced once every stage has compiled and reflected. Tearing the old state down up front

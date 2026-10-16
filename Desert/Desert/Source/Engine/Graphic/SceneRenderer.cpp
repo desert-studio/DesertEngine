@@ -696,6 +696,11 @@ namespace Desert::Graphic
             LOG_ERROR( "[Resources] {} closed but {} ledger rows ({} bytes) still carry it: a view member's "
                        "device object outlived the view.",
                        ResourceOwnerInstanceName( Instance ), left.Live, left.Bytes );
+            // Each by kind, claiming owner and size: the row names no object, these find its holder.
+            for ( const ResourceRowSummary& row : ResourceLedger::RowsOf( Instance ) )
+                LOG_ERROR( "[Resources]   row #{}: {} claimed by {}, {}", row.Id, ResourceKindName( row.Kind ),
+                           ResourceOwnerName( row.Owner ),
+                           row.BytesKnown ? std::format( "{} bytes", row.Bytes ) : std::string( "size unknown" ) );
         }
     }
     DESERT_DESTRUCTOR_GUARD( "~SceneRenderer::LedgerView" )
@@ -886,6 +891,12 @@ namespace Desert::Graphic
         m_ContactShadowSteps                  = quality.As<int>( Parameter::ShadowContactSteps );
         m_RayTracedShadowSamples =
              static_cast<uint32_t>( quality.As<int>( Parameter::ShadowRayTracedSamplesPerPixel ) );
+        m_ShadowFilter = SceneResources::ShadowFilterSettings{
+             .BlockerSearchTaps = quality.As<int>( Parameter::ShadowBlockerSearchTaps ),
+             .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ) };
+        m_ShadowDenoiserRadius                = quality.As<uint32_t>( Parameter::ShadowRayTracedDenoiserRadius );
+        m_ReflectionDenoiserRadius            = quality.As<uint32_t>( Parameter::ReflectionDenoiserRadius );
+        m_ScreenSpaceGISamples                = quality.As<int>( Parameter::ScreenSpaceGISamples );
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
         m_SunContactShadowLengthInWorldSpace  = shadows.ContactShadowLengthInWorldSpace;
@@ -1775,7 +1786,8 @@ namespace Desert::Graphic
              graph,
              System::ShadowVisibilityDenoiserInputs{ .Mask                    = traced.GetValue().Mask,
                                                      .ClosestOccluder         = traced.GetValue().ClosestOccluder,
-                                                     .LightSourceAngleRadians = params.SourceAngleRadians },
+                                                     .LightSourceAngleRadians = params.SourceAngleRadians,
+                                                     .ReconstructionRadius    = m_ShadowDenoiserRadius },
              System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
                                             .GBufferDepth  = depth,
                                             .Velocity      = velocity,
@@ -2331,8 +2343,10 @@ namespace Desert::Graphic
     // scene asks before this frame's BeginScene, so a method change reaches the capture schedule one frame later.
     bool SceneRenderer::ReadsReflectionCaptures() const
     {
+        // The profile admits captures for the view; the resolved method decides whether this view reflects them
+        // (Off is the sky's environment only - ReflectionMethod).
         return m_ViewProfile.ReflectionCaptures &&
-               m_RenderMethods.Reflections.Effective >= Common::Scalability::ReflectionMethod::Captures;
+               m_RenderMethods.Reflections.Effective != Common::Scalability::ReflectionMethod::Off;
     }
 
     uint64_t SceneRenderer::GetEnvironmentIdentity()
@@ -2436,6 +2450,11 @@ namespace Desert::Graphic
              .SunInWorldSpace        = m_SunContactShadowLengthInWorldSpace,
              .SunCastingIntensity    = m_SunContactShadowCastingIntensity,
              .SunNonCastingIntensity = m_SunContactShadowNonCastingIntensity };
+    }
+
+    SceneResources::ShadowFilterSettings SceneRenderer::GetShadowFilterSettings() const
+    {
+        return m_ShadowFilter;
     }
 
     CloudShadowInput SceneRenderer::GetCloudShadowInput() const

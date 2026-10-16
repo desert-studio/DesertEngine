@@ -216,7 +216,8 @@ namespace Desert::Graphic::RDG
         return BufferRef{ static_cast<uint32_t>( m_Resources.size() - 1 ) };
     }
 
-    void Builder::Extract( TextureRef texture, ExternalTexture& into, Access final )
+    void Builder::Extract( TextureRef texture, ExternalTexture& into, Access final,
+                           std::initializer_list<Access> later )
     {
         if ( FindResource( texture.Index, ResourceKind::Texture ) == nullptr )
         {
@@ -247,6 +248,16 @@ namespace Desert::Graphic::RDG
         record.ExtractTex     = &into;
         record.HasFinalAccess = true;
         record.FinalAccess    = final;
+        for ( const Access access : later )
+        {
+            if ( ( GetAccessInfo( access ).Targets & AccessTarget_Texture ) == 0 )
+            {
+                RecordError( fmt::format( "graph '{}': texture '{}' extracted for a later {}, a buffer-only access",
+                                          m_Name, record.Name, GetAccessName( access ) ) );
+                return;
+            }
+            record.LaterAccessMask |= 1u << static_cast<uint32_t>( access );
+        }
         record.ExtractOwner   = CurrentResourceAttribution();
     }
 
@@ -939,7 +950,7 @@ namespace Desert::Graphic::RDG
             if ( !record.IsExtracted() || views[r].Used )
                 continue;
             views[r].Used = true;
-            views[r].AccessMask |= 1u << static_cast<uint32_t>( record.FinalAccess );
+            views[r].AccessMask |= ( 1u << static_cast<uint32_t>( record.FinalAccess ) ) | record.LaterAccessMask;
         }
         // A LATE fault substitutes through PassContext at record time, so the system textures are bound whenever
         // a FaultDefault exists, not only when Compile already substituted one.
@@ -1186,7 +1197,10 @@ namespace Desert::Graphic::RDG
                                                    recorded.GetError() );
                 }
                 if ( !record.IsExternal() )
-                    target->Physical = std::move( extractedTextures[final.Resource] );
+                {
+                    target->Physical          = std::move( extractedTextures[final.Resource] );
+                    target->CreatedAccessMask = views[final.Resource].AccessMask;
+                }
             }
             else
             {
