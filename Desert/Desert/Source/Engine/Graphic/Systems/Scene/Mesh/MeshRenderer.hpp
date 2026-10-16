@@ -915,26 +915,34 @@ namespace Desert::Graphic::System
         std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeCasters[kMaxCascades];
         MeshRendererDetail::MeshDrawList m_GlassDraws;      // "Deferred: Glass" (block 0 = the glass executor's)
         MeshRendererDetail::MeshDrawList m_CardCaptureDraws; // "SurfaceCache: Card Capture"
-        // This frame's gathered card instances (GatherSurfaceCacheInstances), by SceneInstance::Source.
-        struct CardCaptureSource
+        // One section of a card instance (UE FLumenCardRenderer: a card is drawn with every section of its mesh,
+        // each a mesh batch with its own material): its material, the submeshes it does NOT draw, its motion row.
+        struct CardCaptureSection
         {
-            const Desert::Mesh* Mesh     = nullptr;
-            glm::mat4           World    = glm::mat4( 1.0f );
-            MaterialInstance*   Instance = nullptr;
-            // The surface's material: a static/generic slot's (Static x Forward), an ISM's, a skinned mesh's
-            // (Skinned x Forward). Null for a Shader Override draw (Generic below).
+            MaterialInstance* Instance = nullptr;
+            // The section's surface: a static/generic slot's `.demat`, an ISM section group's, a skinned
+            // section's. Null for a Shader Override draw (Generic below).
             DataDrivenMaterial* Surface = nullptr;
-            uint64_t            Hidden  = 0;
+            uint64_t            Hidden  = 0; // every submesh of the instance's other sections
             // Static, generic and skinned: the view's ObjectMotions row (the view-pass cell's world, and the
             // skinned cell's bone palette).
             uint32_t MotionRow = 0;
-            // Static (static and generic draws: the static cell), Instanced (an ISM instance: the instanced cell,
-            // World as its one transform) or Skinned (the skinned cell, posed from the view's ObjectBones).
-            MeshVertexPath Path = MeshVertexPath::Static;
             // A Shader Override draw (MaterialComponent: no `.demat`): its record of this frame's generic queue,
             // and the (Static x GBuffer) cell of its template that captures it.
             const GenericMeshRenderData* Generic = nullptr;
             std::string                  OverrideCell;
+        };
+        // This frame's gathered card instances (GatherSurfaceCacheInstances), by SceneInstance::Source: one per
+        // mesh instance, its cards captured by drawing every opaque section into them (a translucent section
+        // is not drawn: glass transmits, a card would hold what is behind it).
+        struct CardCaptureSource
+        {
+            const Desert::Mesh* Mesh  = nullptr;
+            glm::mat4           World = glm::mat4( 1.0f );
+            // Static (static and generic draws: the static cell), Instanced (an ISM instance: the instanced cell,
+            // World as its one transform) or Skinned (the skinned cell, posed from the view's ObjectBones).
+            MeshVertexPath                  Path = MeshVertexPath::Static;
+            std::vector<CardCaptureSection> Sections;
         };
         std::vector<CardCaptureSource> m_CardCaptureSources;
         // The renderer-owned surface (MeshECSSystem's default, no `.demat` and so no view copies): one cell
