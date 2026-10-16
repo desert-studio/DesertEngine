@@ -413,11 +413,11 @@ def self_check():
 # on the build lock instead of OOM-ing the 16 GB machine.
 import datetime as _dt
 # Owner 10-12: «в рамках текущего контекста снимаю лимит на агентов. Запускай 20 штук» — lifted for 10-12.
-MAX_WORKING_AGENTS = 7  # owner 2026-10-12: limit raised 5 -> 7
+MAX_WORKING_AGENTS = 3  # owner 2026-10-16: «снизил лимит агентов до 3» (was 7 from 10-12)
 # Owner 10-15: «уберу лимит агентов до понедельника» — no count cap through Monday 2026-10-19, then back to 7 by
 # itself. The real ceiling is the disk (10-15: 5.3 GB free; a tree + build is several GB), so a launch is refused
 # below MIN_FREE_DISK_GB whatever the count.
-NO_AGENT_CAP_THROUGH = _dt.date( 2026, 10, 19 )
+NO_AGENT_CAP_THROUGH = _dt.date( 2026, 10, 15 )  # owner 10-16: cap of 3 back in force now (lift was through 10-19)
 MIN_FREE_DISK_GB = 15
 PROCESS_EVENTS = os.path.expanduser("~/.claude/process-events.csv")
 
