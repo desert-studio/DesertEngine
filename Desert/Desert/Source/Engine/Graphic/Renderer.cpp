@@ -175,6 +175,13 @@ namespace Desert::Graphic
         return s_RendererAPI->DispatchComputeIndirect( bindings, pipeline, args, offset );
     }
 
+    Common::BoolResultStr Renderer::TraceRays( const RDG::PassBindings& bindings, const RayTracingPipeline& pipeline,
+                                               const RayTracing::RayTracingHitGroupTable& hits, uint32_t width,
+                                               uint32_t height )
+    {
+        return s_RendererAPI->TraceRays( bindings, pipeline, hits, width, height );
+    }
+
     Common::BoolResultStr Renderer::DrawFullscreen( const RDG::PassBindings& bindings,
                                                     const GraphicsPipeline&  pipeline,
                                                     const MaterialExecutor*  material )

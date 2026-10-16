@@ -350,6 +350,11 @@ namespace Desert::Core::Formats
         // Each is a separate program registered in the ShaderService as "<Shader>/<Pass>";
         // empty for legacy single-program shaders.
         std::vector<std::string> PassNames;
+        // The passes of PassNames whose stages run in a ray tracing pipeline (RayGen / Miss / ClosestHit /
+        // AnyHit; a surface template's `RayTracing.Hit` cell). ShaderService builds them only on a device that
+        // offers the pipeline (CapabilityCatalog RayTracingMode::RayTracingPipeline): their SPIR-V needs the
+        // RayTracingKHR capability, which no other device can take a module of.
+        std::vector<std::string> RayTracingPassNames;
 
         // THE BODY OF A `Medium { ... }` BLOCK — a PROGRAM FRAGMENT, not a stage.
         //

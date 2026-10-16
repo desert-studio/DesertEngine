@@ -86,6 +86,11 @@ namespace Desert::Graphic
         [[nodiscard]] static Common::BoolResultStr DispatchComputeIndirect( const RDG::PassBindings& bindings,
                                                                             const ComputePipeline&   pipeline,
                                                                             RDG::BufferRef args, uint64_t offset );
+        // The ray tracing pipeline's launch over @p width x @p height (RendererAPI::TraceRays): hit-lit reflections.
+        [[nodiscard]] static Common::BoolResultStr TraceRays( const RDG::PassBindings&                    bindings,
+                                                              const RayTracingPipeline&                   pipeline,
+                                                              const RayTracing::RayTracingHitGroupTable& hits,
+                                                              uint32_t width, uint32_t height );
         // One triangle covering the viewport: DrawProcedural( ..., kFullscreenTriangleVertexCount, 1 )
         // (Common/FullscreenTriangle.glslh), drawn inside the render pass the graph opened for this pass (its
         // ColorTarget / DepthTarget declarations). @p material supplies uniform values and asset textures only;

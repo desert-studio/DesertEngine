@@ -172,6 +172,9 @@ namespace Common::Scalability
                                                 // r.Lumen.ScreenProbeGather.RadianceCache.NumProbesToTraceBudget)
         HitLightingAllowed,                     // 0/1: a hardware-traced hit may be lit in place (UE
                                                 // r.Lumen.HardwareRayTracing.HitLighting.Allowed)
+        ReflectionsHitLighting,                 // 0/1: HardwareTraced reflections run hit lighting - the ray
+                                                // tracing pipeline with each hit surface's own material (UE
+                                                // r.Lumen.Reflections.HardwareRayTracing.LightingMode = hit lighting)
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

@@ -138,8 +138,13 @@ namespace Desert::Graphic::RayTracing
         if ( !frame )
             return Common::MakeError( frame.GetError() );
         m_Frame = frame.GetValue();
+        m_GeometryRecords.clear();
         if ( m_Frame.Built )
+        {
             m_Frame.Metadata = AddRayTracingMetadataUpload( graph, metadata.GetValue().Metadata );
+            m_GeometryRecords.assign( metadata.GetValue().Metadata.Geometry.begin(),
+                                      metadata.GetValue().Metadata.Geometry.end() );
+        }
 
         m_Stats.Built           = m_Frame.Built;
         m_Stats.InstancesByKind = m_Instances.InstancesByKind;
