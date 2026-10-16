@@ -66,8 +66,6 @@ namespace Desert::Graphic::RayTracing
     inline constexpr std::string_view kSkinCacheShader    = "SkinCache";
     inline constexpr std::string_view kSkinCachePassName  = "SkinCache: Skin";
     inline constexpr uint32_t         kSkinCacheGroupSize = 64; // LocalSize of Programs/Compute/SkinCache.shader
-    // Floats per vertex in an entry's streams buffer (layout above; Vertex_Skinned.glslh and SkinCache.shader).
-    inline constexpr uint32_t kSkinCacheFloatsPerVertex = 15;
 
     class RayTracingSkinCache
     {

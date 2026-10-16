@@ -12,6 +12,11 @@
 // the cache so the API layer never includes the renderer.
 namespace Desert::Graphic::RayTracing
 {
+    // Floats per vertex in a GPU skin cache entry's streams buffer (layout: RayTracingSkinCache.hpp;
+    // Vertex_Skinned.glslh and SkinCache.shader read it). Here, in the RenderCore interface, because the Vulkan
+    // side sizes the buffer and RenderCore does not include the renderer's skin cache.
+    inline constexpr uint32_t kSkinCacheFloatsPerVertex = 15;
+
     // What one primitive's build costs this frame: the scratch it needs (alignment slack included) and whether it
     // refits the BLAS already built (true) or builds it anew (false).
     struct SkinnedBlasPrepared
