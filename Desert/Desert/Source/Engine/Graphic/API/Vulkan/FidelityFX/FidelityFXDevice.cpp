@@ -175,6 +175,11 @@ namespace Desert::Graphic::API::Vulkan::FidelityFX
         // Nothing to hand over: Fsr3Upscaler gives the backend the engine's device per context (VkDeviceContext).
     }
 
+    void DeviceRequirements::AmendPresentationDispatch( VulkanPresentationDispatch& /*dispatch*/ ) const
+    {
+        // FSR runs as compute work inside the engine's frame: it has no presentation of its own to observe.
+    }
+
     void DeviceRequirements::OnDeviceDestroying()
     {
         // Nothing owned: every FidelityFX object belongs to an Fsr3Upscaler context, released with its view.

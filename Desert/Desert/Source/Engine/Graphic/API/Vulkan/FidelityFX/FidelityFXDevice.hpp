@@ -29,6 +29,7 @@ namespace Desert::Graphic::API::Vulkan::FidelityFX
         void OnPhysicalDeviceSelected( VkInstance instance, vkb::PhysicalDevice& device ) override;
         void AmendCatalogProbe( CatalogProbe& probe ) const override;
         void OnDeviceCreated( const VulkanDeviceHandles& handles ) override;
+        void AmendPresentationDispatch( VulkanPresentationDispatch& dispatch ) const override;
         void OnDeviceDestroying() override;
 
     private:

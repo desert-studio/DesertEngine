@@ -5,6 +5,7 @@
 #include <Engine/Core/Device.hpp>
 #include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSamplerCache.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDeviceExtensions.hpp> // VulkanPresentationDispatch
 
 #include <vulkan/vulkan.h>
 
@@ -143,6 +144,13 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_PhysicalDevice;
         }
+        /// The present / acquire / swapchain / wait-idle entry points of this device: the loader's, or a
+        /// platform runtime's proxies (Streamline manual hooking). Every such call of the engine goes through it.
+        [[nodiscard]] const VulkanPresentationDispatch& GetPresentationDispatch() const
+        {
+            return m_Presentation;
+        }
+
         VkDevice GetVulkanLogicalDevice() const
         {
             return m_LogicalDevice;
@@ -208,6 +216,9 @@ namespace Desert::Graphic::API::Vulkan
         std::string                           m_DeviceName;
         // Made with the device in CreateDevice, released in Destroy before vkDestroyDevice.
         std::unique_ptr<VulkanSamplerCache> m_Samplers;
+        // Set after the extensions' OnDeviceCreated (AmendPresentationDispatch), back to the loader's before
+        // their OnDeviceDestroying: a runtime's proxies live exactly as long as the runtime does.
+        VulkanPresentationDispatch m_Presentation;
 
         // Whether VK_EXT_memory_budget was ENABLED on this device, not merely supported by it. Chaining
         // `VkPhysicalDeviceMemoryBudgetPropertiesEXT` into a properties query whose extension the device

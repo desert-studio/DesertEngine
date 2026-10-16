@@ -160,6 +160,9 @@ namespace Desert::Graphic::Streamline
         void OnPhysicalDeviceSelected( VkInstance instance, vkb::PhysicalDevice& device ) override;
         void AmendCatalogProbe( API::Vulkan::CatalogProbe& probe ) const override;
         void OnDeviceCreated( const API::Vulkan::VulkanDeviceHandles& handles ) override;
+        // eUseManualHooking: present, acquire, the swapchain's create/destroy/images and vkDeviceWaitIdle go
+        // through sl.interposer's exports, so sl.common's presentCommon runs on every frame's present.
+        void AmendPresentationDispatch( API::Vulkan::VulkanPresentationDispatch& dispatch ) const override;
         void OnDeviceDestroying() override;
 
     private:

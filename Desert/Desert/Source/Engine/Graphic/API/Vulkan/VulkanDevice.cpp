@@ -249,7 +249,7 @@ namespace Desert::Graphic::API::Vulkan
             return;
 
         const std::scoped_lock queues( m_QueueMutex );
-        const VkResult         idle = vkDeviceWaitIdle( m_LogicalDevice );
+        const VkResult         idle = m_Presentation.vkDeviceWaitIdle( m_LogicalDevice );
         if ( idle != VK_SUCCESS && !NoteIfDeviceLost( idle, "vkDeviceWaitIdle", __FILE__, __LINE__ ) )
             LOG_ERROR( "[Device] vkDeviceWaitIdle failed: {}", VkResultToString( idle ) );
     }
@@ -341,7 +341,7 @@ namespace Desert::Graphic::API::Vulkan
     VkResult VulkanLogicalDevice::PresentToQueue( VkQueue queue, const VkPresentInfoKHR& present ) const
     {
         const std::scoped_lock queues( m_QueueMutex );
-        return vkQueuePresentKHR( queue, &present );
+        return m_Presentation.vkQueuePresentKHR( queue, &present );
     }
 
     std::unique_lock<std::mutex> VulkanLogicalDevice::LockQueues() const
@@ -358,7 +358,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( Graphic::DeviceLost::AllowWork() )
             {
                 const std::scoped_lock queues( m_QueueMutex );
-                vkDeviceWaitIdle( m_LogicalDevice );
+                m_Presentation.vkDeviceWaitIdle( m_LogicalDevice );
             }
 
             // THE LAST MOMENT AT WHICH THIS DEVICE IS STILL ALIVE, and therefore the only place from which
@@ -381,6 +381,9 @@ namespace Desert::Graphic::API::Vulkan
             m_Samplers.reset();
 
             // The GPU is idle (above): a platform runtime releases what it made on this device while it exists.
+            // Its presentation proxies go first: the runtime unloads them in OnDeviceDestroying (slShutdown, then
+            // the interposer's FreeLibrary), and nothing presents past this point.
+            m_Presentation = {};
             for ( IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
                 extension->OnDeviceDestroying();
 
@@ -450,6 +453,10 @@ namespace Desert::Graphic::API::Vulkan
         handles.ComputeQueuesCreated  = 1;
         for ( IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
             extension->OnDeviceCreated( handles );
+        // Before any swapchain exists (a swapchain is made on this device): the swapchain is created, acquired,
+        // presented and destroyed through the same entry points for its whole life.
+        for ( const IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            extension->AmendPresentationDispatch( m_Presentation );
 
         CreatePipelineCache();
         m_Samplers = std::make_unique<VulkanSamplerCache>( m_LogicalDevice );

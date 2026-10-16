@@ -52,6 +52,23 @@ namespace Desert::Graphic::API::Vulkan
         bool PassesHandlesBesideTheLayers = false;
     };
 
+    // THE DEVICE'S PRESENTATION ENTRY POINTS (UE: the DLSS/Streamline plugin's manual hooking, where the RHI's
+    // present, acquire and swapchain calls run through Streamline's proxies so its common plugin sees every frame
+    // - presentCommon - and every swapchain). The engine's swapchain and device call these, never the loader's
+    // symbols directly; by default each one IS the loader's. A runtime that has to see presentation (Streamline
+    // with eUseManualHooking: its interposer exports these functions and runs its plugins' before/after hooks
+    // around the driver's) replaces them in AmendPresentationDispatch. Members carry the Vulkan names so a call
+    // reads as the Vulkan call it is.
+    struct VulkanPresentationDispatch
+    {
+        PFN_vkQueuePresentKHR       vkQueuePresentKHR       = ::vkQueuePresentKHR;
+        PFN_vkAcquireNextImageKHR   vkAcquireNextImageKHR   = ::vkAcquireNextImageKHR;
+        PFN_vkCreateSwapchainKHR    vkCreateSwapchainKHR    = ::vkCreateSwapchainKHR;
+        PFN_vkDestroySwapchainKHR   vkDestroySwapchainKHR   = ::vkDestroySwapchainKHR;
+        PFN_vkGetSwapchainImagesKHR vkGetSwapchainImagesKHR = ::vkGetSwapchainImagesKHR;
+        PFN_vkDeviceWaitIdle        vkDeviceWaitIdle        = ::vkDeviceWaitIdle;
+    };
+
     class IVulkanDeviceExtension
     {
     public:
@@ -73,6 +90,12 @@ namespace Desert::Graphic::API::Vulkan
 
         // After vkCreateDevice and vkGetDeviceQueue, once.
         virtual void OnDeviceCreated( const VulkanDeviceHandles& handles ) = 0;
+
+        // Right after OnDeviceCreated, once, before any swapchain exists: replaces the presentation entry points
+        // this runtime has to see (a runtime that does not, or that refused itself, leaves @p dispatch as it is).
+        // What it puts there stays valid until OnDeviceDestroying; the device restores the loader's entry points
+        // before calling that.
+        virtual void AmendPresentationDispatch( VulkanPresentationDispatch& dispatch ) const = 0;
 
         // After vkDeviceWaitIdle and before vkDestroyDevice, once: the GPU is idle, every object the runtime made
         // on the device goes now.

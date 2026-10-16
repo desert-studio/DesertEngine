@@ -313,6 +313,11 @@ namespace Desert::Graphic::Streamline
         PFun_slDLSSGetOptimalSettings* GetOptimalSettings = nullptr;
         PFun_slDLSSSetOptions*         SetOptions         = nullptr;
         PFun_slDLSSGetState*           GetState           = nullptr;
+        // The interposer's presentation proxies (manual hooking), resolved once slSetVulkanInfo has handed it the
+        // device: each runs the plugins' before/after hooks (sl.common's presentCommon on vkQueuePresentKHR)
+        // around the driver's entry point. Hooked = all of them resolved.
+        API::Vulkan::VulkanPresentationDispatch Presentation;
+        bool                                    Hooked = false;
 
         ~Library()
         {
@@ -642,6 +647,29 @@ namespace Desert::Graphic::Streamline
             Refuse( std::format( "slSetVulkanInfo failed: {}", ResultName( result ) ) );
             return;
         }
+        // Manual hooking (Streamline ProgrammingGuideManualHooking, Vulkan; sl_hooks.h "Mandatory - Vulkan"):
+        // with eUseManualHooking the interposer intercepts nothing by itself, so the engine presents, acquires
+        // and manages its swapchain through the interposer's exports. Without that sl.common's presentCommon
+        // never runs - "presentCommon() was not observed" on every evaluate, and its per-frame bookkeeping and
+        // garbage collection never run either. The surface entry points of that list are not routed: the surface
+        // is made before the device (to choose a device that presents to it) and outlives slShutdown, and
+        // Streamline registers no surface hook for DLSS Super Resolution (only sl.common's present before/after).
+        // A detached ImGui window presents its own swapchain through the backend's loader calls; the engine's
+        // frame is the main swapchain's present, the one Streamline counts frames by.
+        API::Vulkan::VulkanPresentationDispatch& hooks = m_Library->Presentation;
+        for ( const auto& resolved :
+              { m_Library->Resolve( hooks.vkQueuePresentKHR, "vkQueuePresentKHR" ),
+                m_Library->Resolve( hooks.vkAcquireNextImageKHR, "vkAcquireNextImageKHR" ),
+                m_Library->Resolve( hooks.vkCreateSwapchainKHR, "vkCreateSwapchainKHR" ),
+                m_Library->Resolve( hooks.vkDestroySwapchainKHR, "vkDestroySwapchainKHR" ),
+                m_Library->Resolve( hooks.vkGetSwapchainImagesKHR, "vkGetSwapchainImagesKHR" ),
+                m_Library->Resolve( hooks.vkDeviceWaitIdle, "vkDeviceWaitIdle" ) } )
+            if ( !resolved )
+            {
+                Refuse( std::format( "manual hooking: {}", resolved.GetError() ) );
+                return;
+            }
+        m_Library->Hooked = true;
         void*            getOptimal = nullptr;
         void*            setOptions = nullptr;
         void*            getState   = nullptr;
@@ -666,6 +694,18 @@ namespace Desert::Graphic::Streamline
         m_DlssReady                   = true;
         m_Refusal.clear();
         LOG_INFO( "[Streamline] DLSS Super Resolution ready" );
+    }
+
+    void Runtime::AmendPresentationDispatch( API::Vulkan::VulkanPresentationDispatch& dispatch ) const
+    {
+        const std::scoped_lock lock( m_Mutex );
+        // Hooked even when DLSS refused itself after slSetVulkanInfo: Streamline owns the device's bookkeeping
+        // from that call until slShutdown either way.
+        if ( !m_Initialized || m_Library == nullptr || !m_Library->Hooked )
+            return;
+        dispatch = m_Library->Presentation;
+        LOG_INFO( "[Streamline] presentation runs through sl.interposer (manual hooking): present, acquire, "
+                  "swapchain create/destroy/images, device wait idle" );
     }
 
     void Runtime::OnDeviceDestroying()
