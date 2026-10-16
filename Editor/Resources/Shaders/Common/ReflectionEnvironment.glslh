@@ -29,12 +29,12 @@ const float kReflectionMixLargestWeight  = 10000.0;
 // UE ComputeMixingWeight. The captures carry high DIRECTIONAL frequency but low SPATIAL frequency (one cube for a
 // whole room); the local diffuse lighting has the opposite. The capture's low spatial frequency is replaced by the
 // local one: scaled by (the diffuse at the pixel / the diffuse at the capture point), luminance only so the hue is
-// kept. BOTH come from the view's own diffuse estimator - the active GI's (REFL-CAPTURE-NORM): @p indirectIrradiance
-// is what the pixel receives, @p averageBrightness what the same estimator measured at the capture point when the
-// cube was written (ReflectionCaptureDiffuse.shader), so the ratio is 1 at the capture point and a relit room keeps
-// its reflections in step with its diffuse until the capture is rendered again. A capture whose point the estimator
-// did not answer stores 0 and is NOT normalised (its own radiance): dividing by a value nobody measured would be a
-// guess, and the old floor (0.0001) turned it into a 10000x blow-out.
+// kept. @p indirectIrradiance is the pixel's side, @p averageBrightness the one stored with the cube when it was
+// written (ReflectionCaptureDiffuse.shader); what each is under the view's estimator is Graphic
+// ReflectionCaptureLighting (under the radiance cache UE's pair: a smooth irradiance at the pixel against the cube's
+// own brightness), so a relit room keeps its reflections in step with its diffuse until the capture is rendered
+// again. A capture that stores 0 is NOT normalised (its own radiance): dividing by a value nobody measured would be
+// a guess, and the old floor (0.0001) turned it into a 10000x blow-out.
 float ReflectionCaptureMixingWeight(float indirectIrradiance, float averageBrightness, float roughness)
 {
 	if (averageBrightness <= 0.0)
@@ -126,6 +126,10 @@ vec4 GatherReflectionCaptures(vec3 P, vec3 R, vec3 N, float roughness, float ind
 				continue;
 			lookup = ReflectionCaptureBoxLookup(R, P, capture, local, distanceAlpha);
 		}
+		// A capture whose first cube was just written fades in over a few frames (ReflectionCaptureRenderer's
+		// presence): the environment behind it shows through meanwhile, so a capture becoming readable is a
+		// ramp, never a one-frame change of every rough surface it covers.
+		distanceAlpha *= uintBitsToFloat(capture.ShapeCube.z);
 		if (distanceAlpha <= 0.0)
 			continue;
 

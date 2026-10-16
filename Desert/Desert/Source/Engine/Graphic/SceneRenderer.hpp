@@ -366,6 +366,10 @@ namespace Desert::Graphic
         // irradiance handle beside a zeroed prefiltered one and correctly reported a half-baked
         // environment. Found 2026-09-03 by the diagnostic that was supposed to catch a failed bake.
         std::optional<Environment> GetEnvironment();
+        // A reflection capture's face view (ViewProfile::SceneCapture) is lit by the scene's sky light and bakes
+        // none (SkyboxRenderer::BorrowEnvironment): @p environment is the reading view's, handed before each
+        // frame.
+        void BorrowEnvironment( std::optional<Environment> environment );
 
         // Procedural sky configuration (from the SkyAtmosphereComponent + the atmosphere sun, via the ECS).
         // sunDir is the direction TOWARD the sun, already normalized; bakeNow is the one-shot request from
@@ -409,6 +413,10 @@ namespace Desert::Graphic
         // Whether this view has a sky light (SkyLightState): no sky at all, or a sky whose light is captured in
         // the frame graph from the view's first frame. What tells a defined black ambient (no sky) from a fault.
         [[nodiscard]] SkyLightState GetSkyLightState() const;
+
+        // Whether this view draws a cloud layer: a picture that reprojects a history and converges over frames (a
+        // reflection capture's face waits for it: ReflectionCaptureRenderer).
+        [[nodiscard]] bool DrawsVolumetricClouds() const;
 
         // How far that rebuild has got, 0..1. Meaningless unless IsCloudVolumeBaking(); see
         // System::VolumetricCloudRenderer::ModellingBakeProgress for why the wait is worth a number.

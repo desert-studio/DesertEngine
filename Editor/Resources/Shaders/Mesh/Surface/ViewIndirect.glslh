@@ -1,0 +1,57 @@
+#ifndef VIEW_INDIRECT_GLSLH
+#define VIEW_INDIRECT_GLSLH
+
+// THE VIEW'S INDIRECT LIGHT AS A FORWARD PASS READS IT (the forward meshes, Pass_Forward.glslh; the glass,
+// Pass_Forward_Translucent.glslh): the scene's reflection captures and the view's world radiance cache - the same
+// two sources, under the same bindings by name, as the deferred composite's (Programs/Deferred/DeferredLighting
+// .shader). Both are scene view inputs (Graphic::SceneViewInputs, bound by MeshRenderer through
+// BindSceneViewInputs): the capture list and cube array the view published (a one-cube black array and an empty
+// list where it reads none), and the radiance cache this frame's traced GI updated - or the neutral one, a cache
+// with no clipmap, where the view traces no GI (a forward view, GI Off or ScreenSpace, the meshes drawn before the
+// GI ran).
+//
+// WHY A FORWARD PIXEL NEEDS THE CACHE: a capture's reflection is normalised by "the diffuse at the pixel / the
+// diffuse at the capture point" (Common/ReflectionEnvironment.glslh), whose two sides follow the view's estimator
+// (Graphic ReflectionCaptureLighting): wherever the view traces GI the pixel's side is the radiance cache's smooth
+// read. A forward pixel that took its side from the sky would divide the night sky by a cube normalised for the
+// GI: black. Mesh/AmbientIBL.glslh takes the pixel's side from the cache when the view has one, as the deferred
+// composite does.
+//
+// SET 1, as the composite's: the set-0 table keeps its numbers (ShaderCacheKey pins them by name, 25-27 are the
+// scene-read range, 28 up a shader graph's own). The passes bind by name; the backend resolves each name to its
+// (set, binding) from the reflection.
+
+// The reflection captures (Common/ReflectionEnvironment.glslh), declared before Mesh/AmbientIBL.glslh includes it.
+#define DESERT_REFLECTION_CAPTURES
+#include <Common/ReflectionCaptureGpu.glslh>
+layout( std430, set = 1, binding = 0 ) readonly buffer ReflectionCapturesUB
+{
+    uvec4                u_ReflectionCaptureHeader; // x = capture count
+    ReflectionCaptureGpu u_ReflectionCaptures[];
+};
+layout( set = 1, binding = 1 ) uniform samplerCubeArray u_ReflectionCaptureCubes;
+
+// The world radiance cache's read (Common/RadianceCache.glslh, the read section).
+#include <Common/RadianceCache.glslh>
+layout( std430, set = 1, binding = 2 ) readonly buffer RadianceCacheParamsUB
+{
+    RadianceCacheParams radianceCache;
+};
+layout( std430, set = 1, binding = 3 ) readonly buffer RadianceCacheIndirectionUB
+{
+    uint radianceCacheIndirection[];
+};
+layout( std430, set = 1, binding = 4 ) readonly buffer RadianceCacheProbesUB
+{
+    RadianceCacheProbe radianceCacheProbes[];
+};
+layout( set = 1, binding = 5 ) uniform sampler2D u_RadianceCacheIrradiance;
+layout( set = 1, binding = 6 ) uniform sampler2D u_RadianceCacheDepth;
+#define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
+#define RADIANCE_CACHE_PROBES radianceCacheProbes
+#include <Common/RadianceCache.glslh>
+
+// Mesh/AmbientIBL.glslh defines DesertSampleViewAmbient once this is set.
+#define DESERT_VIEW_RADIANCE_CACHE
+
+#endif // VIEW_INDIRECT_GLSLH

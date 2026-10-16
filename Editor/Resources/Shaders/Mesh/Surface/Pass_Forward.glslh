@@ -91,6 +91,9 @@ layout( binding = 21 ) uniform CloudShadowUB
 
 #include <Common/CloudShadowReceiver.glslh>
 
+// The reflection captures and the view's radiance cache, the deferred composite's two indirect sources.
+#include <Mesh/Surface/ViewIndirect.glslh>
+
 // The split-sum ambient, the SAME text the deferred lighting pass compiles; it also provides the two environment
 // lookups a shading model may call, so it precedes the generated dispatch.
 #include <Mesh/AmbientIBL.glslh>
@@ -202,9 +205,11 @@ void main()
         return;
     }
 
-    // Occlusion attenuates only the ambient; the forward path has no indirect-bounce gather (zero), the one
-    // difference from the deferred composite's call, visible in the argument list.
+    // Occlusion attenuates only the ambient. The estimator is the view's (the radiance cache where it traces GI,
+    // else the sky), and the reflection captures compose over its specular normalised by its diffuse - the
+    // deferred composite's ambient; the forward path has no screen-space bounce gather.
     const vec3 ambient = DesertEvaluateShadingModelAmbient(
-         DESERT_SHADING_MODEL_INDEX, DesertSampleAmbient( surface, vec3( 0.0 ), s.AmbientOcclusion ), surface, payload );
+         DESERT_SHADING_MODEL_INDEX, DesertSampleViewAmbient( surface, s.AmbientOcclusion, gl_FragCoord.xy ), surface,
+         payload );
     oColor = vec4( light + ambient + s.Emissive, 1.0 );
 }

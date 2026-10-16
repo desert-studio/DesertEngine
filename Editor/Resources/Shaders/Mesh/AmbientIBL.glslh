@@ -139,11 +139,20 @@ DesertAmbient DesertSampleAmbient(DesertSurface S, vec3 irradiance, vec3 remaind
 	A.Irradiance  = irradiance;
 	A.Prefiltered = remainder;
 #ifdef DESERT_REFLECTION_CAPTURES
-	// UE's IndirectIrradiance for the normalisation: the diffuse this pixel is lit with (the estimator's irradiance
-	// under the occlusion, plus the bounce), as luminance - the same estimator the captures' stored diffuse was
-	// measured with at their capture points (ReflectionCaptureDiffuse.shader), never the sky alone where the GI
-	// lights the pixel.
-	const float indirectIrradiance = dot(A.Irradiance * occlusion + indirect, vec3(0.2126, 0.7152, 0.0722));
+	// UE's IndirectIrradiance for the normalisation: the diffuse this pixel receives under its occlusion, plus the
+	// bounce, as luminance (Graphic ReflectionCaptureLighting: what the captures' stored side is under each
+	// estimator). Where the view has a radiance cache it is the cache's SMOOTH read, not the final gather that
+	// lights the pixel: the gather's visibility steps from cell to cell, and a ratio of it scaled a smooth cube into
+	// wall patches (REFL-NORM-SMOOTH); UE reads the as smooth lightmap. The sky's irradiance cube is smooth already.
+	vec3 estimator = A.Irradiance;
+#ifdef DESERT_VIEW_RADIANCE_CACHE
+	if (radianceCache.shape.x != 0u)
+	{
+		const vec4 smoothIrradiance = RadianceCacheSmoothIrradianceAt(S.WorldPosition, S.N);
+		estimator                   = smoothIrradiance.a > 0.0 ? smoothIrradiance.rgb : vec3(0.0);
+	}
+#endif
+	const float indirectIrradiance = dot(estimator * occlusion + indirect, vec3(0.2126, 0.7152, 0.0722));
 	A.Prefiltered = DesertReflectionEnvironment(S.WorldPosition, reflect(-S.V, S.N), S.N, S.Roughness, A.Prefiltered,
 	                                            indirectIrradiance);
 #endif
@@ -159,6 +168,26 @@ DesertAmbient DesertSampleAmbient(DesertSurface S, vec3 indirect, float occlusio
 	return DesertSampleAmbient(S, DesertAmbientIrradiance(S.N), DesertAmbientSpecular(reflect(-S.V, S.N), S.Roughness),
 	                           indirect, occlusion);
 }
+
+#ifdef DESERT_VIEW_RADIANCE_CACHE
+// THE FORWARD PASSES' ESTIMATOR (Mesh/Surface/ViewIndirect.glslh): the view's world radiance cache where the view
+// traces GI - read in place at the pixel, the irradiance about N and the cosine lobe about the reflection under the
+// same eight probes and weights, exactly the ProbeVolume final gather the deferred composite takes in GI mode 2
+// (Programs/GlobalIllumination/IrradianceFieldGather.shader), black where no traced probe answers as there (never
+// the sky through a wall) - else the sky's two cubes. The cache with no clipmap is the view without traced GI.
+// @p pixel picks the clipmap fade's dither (gl_FragCoord.xy).
+DesertAmbient DesertSampleViewAmbient(DesertSurface S, float occlusion, vec2 pixel)
+{
+	if (radianceCache.shape.x == 0u)
+		return DesertSampleAmbient(S, vec3(0.0), occlusion);
+	vec3       specular;
+	const vec4 diffuse = RadianceCacheIrradianceAtImpl(S.WorldPosition, S.N, S.V, reflect(-S.V, S.N),
+	                                                    RadianceCachePixelDither(pixel), true, specular);
+	const bool answered = diffuse.a > 0.0;
+	return DesertSampleAmbient(S, answered ? diffuse.rgb : vec3(0.0), answered ? specular : vec3(0.0), vec3(0.0),
+	                           occlusion);
+}
+#endif
 
 #endif // AMBIENT_IBL_NO_SAMPLERS
 

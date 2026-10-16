@@ -83,6 +83,19 @@ namespace Desert::Graphic::System
         // step is recorded, GetEnvironment answers the new cubes -- for this view and every view after it.
         void AddSkyCapturePasses( RDG::Builder& graph, FrameTextures& textures );
 
+        /// THE VIEW LIGHTS WITH ANOTHER VIEW'S SKY LIGHT and bakes none of its own (UE: a reflection capture reads
+        /// the scene's sky light; it never captures a sky of its own for it). A capture's face view is handed the
+        /// scene's environment before each of its frames (ReflectionCaptureRenderer::RenderCaptureViews): six face
+        /// views of one capture point used to bake six copies of one sky, each landing seconds after its submit,
+        /// and the cube waited on all six. From the first call this view's EnsureProceduralEnvironment bakes
+        /// nothing and GetEnvironment answers @p environment (std::nullopt: the scene has no sky light yet). The
+        /// cubes stay the lending view's: they are read by this frame only, before that view can rebake.
+        void BorrowEnvironment( std::optional<Environment> environment )
+        {
+            m_BorrowsEnvironment  = true;
+            m_BorrowedEnvironment = std::move( environment );
+        }
+
         // The physical atmosphere's LUTs (Hillaire 2020): the cached pair — transmittance 256x64 +
         // multi-scattering 32x32 — the per-view Sky-View LUT, 192x104, the per-view camera
         // aerial-perspective volume, 32x32x16, all RGBA16F, and the one-texel distant sky light. Call
@@ -133,6 +146,8 @@ namespace Desert::Graphic::System
 
         const std::optional<Environment> GetEnvironment() const
         {
+            if ( m_BorrowsEnvironment )
+                return m_BorrowedEnvironment;
             // While the procedural sky is active, the scene's captured sky light drives ambient/reflections.
             if ( m_UseProceduralSky )
                 if ( const std::shared_ptr<SceneSkyLight> skyLight = m_SceneSkyLight.lock();
@@ -363,6 +378,9 @@ namespace Desert::Graphic::System
         // The scene's sky light: its capture, its environment and the stamps it was captured from. The Bake
         // button's request waits here until this view's next EnsureProceduralEnvironment hands it on.
         std::weak_ptr<SceneSkyLight> m_SceneSkyLight;
+        // BorrowEnvironment: this view lights with the environment it is handed and never captures one.
+        bool                       m_BorrowsEnvironment = false;
+        std::optional<Environment> m_BorrowedEnvironment;
         bool                         m_BakeRequested    = false;
         bool                         m_NoSkyLightLogged = false;
 

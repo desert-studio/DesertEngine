@@ -51,13 +51,6 @@ Shader "IrradianceFieldGather"
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #include <Common/RadianceCache.glslh>
 
-        // The clipmap pick's dither, stable per pixel (no temporal filter follows this pass): interleaved gradient
-        // noise (Jimenez 2014), the pattern UE's InterleavedGradientNoise uses for the same pick.
-        float PixelDither( vec2 pixel )
-        {
-            return fract( 52.9829189 * fract( dot( pixel, vec2( 0.06711056, 0.00583715 ) ) ) );
-        }
-
         void main()
         {
             const ivec2 half_  = ivec2( gl_GlobalInvocationID.xy );
@@ -79,7 +72,7 @@ Shader "IrradianceFieldGather"
             const float distance = max( length( giFrame.camera.xyz - p ), 1e-3 );
             const vec3  v        = ( giFrame.camera.xyz - p ) / distance;
             const vec3  r        = reflect( -v, n );
-            const float dither   = PixelDither( vec2( pixel ) );
+            const float dither   = RadianceCachePixelDither( vec2( pixel ) ); // stable per pixel: no temporal filter follows
 
             vec3       specular;
             const vec4 diffuse = RadianceCacheIrradianceAtImpl( p, n, v, r, dither, true, specular );

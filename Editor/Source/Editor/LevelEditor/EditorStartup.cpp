@@ -34,7 +34,9 @@
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Core/SceneAssetRoots.hpp>
+#include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
@@ -505,7 +507,14 @@ namespace Desert::Editor
         state.ContentSettling     = ContentSettling();
         state.RealFrameDrawn      = m_RealFrameDrawn;
         state.TexturesStreaming   = Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0;
+        state.ReflectionCapturesFilling = ReflectionCapturesFilling();
         return state;
+    }
+
+    bool EditorStartup::ReflectionCapturesFilling() const
+    {
+        const auto& scene = m_Workspace.ActiveScene();
+        return scene && scene->GetReflectionCaptures().FirstFillPending();
     }
 
     void EditorStartup::ReportUnproducedThumbnailKinds()

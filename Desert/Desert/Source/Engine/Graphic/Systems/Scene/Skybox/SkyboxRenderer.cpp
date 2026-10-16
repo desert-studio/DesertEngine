@@ -720,7 +720,8 @@ namespace Desert::Graphic::System
 
     void SkyboxRenderer::EnsureProceduralEnvironment( float deltaSeconds )
     {
-        if ( !m_UseProceduralSky )
+        // A view lit by a lent environment (BorrowEnvironment) bakes none.
+        if ( !m_UseProceduralSky || m_BorrowsEnvironment )
             return;
 
         // THE SCENE'S SKY LIGHT. Every view rendering a scene is handed it by BeginScene, so a view without one

@@ -201,6 +201,13 @@ namespace Desert::Graphic::System
             return m_ShadowMapValid;
         }
 
+        /// This view draws a cloud layer this frame (SetCloudSettings: the scene has one and the view's profile
+        /// draws clouds). Its picture then reprojects a history and needs frames to converge.
+        bool IsPresent() const
+        {
+            return m_Present;
+        }
+
         /// The map: a transient of the graph DeclareShadowMapNodes was given. Invalid unless HasShadowMap(); a
         /// reader takes it through FrameTransients::CloudShadowMap (SceneViewInputsOf).
         RDG::TextureRef GetShadowMap() const

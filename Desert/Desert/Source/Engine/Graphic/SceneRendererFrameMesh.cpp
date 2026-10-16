@@ -200,7 +200,8 @@ namespace Desert::Graphic
                          UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
                               ->CompositePass() );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] ) )
+        if ( auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+             particles != nullptr && !m_ViewProfile.SceneCapture )
             AddSystemRaster( graph, textures, particles->DrawPass() );
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterTranslucency, {} );
     }

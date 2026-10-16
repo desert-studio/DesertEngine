@@ -3,49 +3,39 @@ Shader "ReflectionCaptureDiffuse"
 {
     Compute
     {
-        // THE DIFFUSE AT THE CAPTURE POINTS, measured by the estimator the view's lit pixels receive their diffuse
-        // from (Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp ReflectionCaptureLighting), and stored in the
-        // alpha of the capture's LAST mip - the capture's ONE stored brightness, which the lighting divides the
-        // pixel's own diffuse by (UE ComputeMixingWeight, Common/ReflectionEnvironment.glslh).
+        // THE CAPTURE'S SIDE OF THE NORMALISATION (UE ComputeMixingWeight, Common/ReflectionEnvironment.glslh),
+        // stored in the alpha of the capture's LAST mip - the capture's ONE stored brightness, which the lighting
+        // divides the pixel's own diffuse by. What it is follows the view's estimator
+        // (Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp ReflectionCaptureLighting):
         //
-        // WHAT IS MEASURED: the luminance of the irradiance (/ pi, the convention of the sky's irradiance cube and of
-        // the GI's final gather) about each of the six axis normals - an AMBIENT CUBE of the capture point: the last
-        // mip is 1x1 per face, so face f's texel holds the value about f's axis and the lighting reads it about the
-        // pixel's own normal, comparing like with like in direction as well as in estimator. (UE stores one value,
-        // the cube's mean radiance - which is also the mean of these six's E(n) / pi over every normal; the per-axis
-        // form keeps the direction it throws away.)
+        //   THE RADIANCE CACHE (u_Estimator.x = 1): the CUBE'S OWN brightness, UE's AverageBrightness - the last
+        // mip's radiance about each axis, the roughest lobe the filter wrote, i.e. the cube's light as a surface
+        // facing that axis would gather it. The pixel's side is the cache's smooth irradiance (Mesh/AmbientIBL.glslh),
+        // so the ratio rescales the cube to the GI's brightness where it is read: a cube rendered without the GI
+        // (a face view runs none) no longer passes its own darkness - or a lamp seen directly - into every rough
+        // surface it covers (REFL-NORM-SMOOTH: the Bistro night measured against the cache at the capture point
+        // laid a grey veil over the street, 46.6 against 53.1 without captures; its own brightness gives 54.7).
+        //   THE SKY (u_Estimator.x = 0): the sky's irradiance at the capture point, as the pixels receive it. Not the
+        // cube's own: a pixel lit by the sky alone at night would divide a lamp-lit cube's brightness by the dark
+        // sky - the black reflections UE shows without lightmaps.
         //
-        // ONE INVOCATION PER WRITTEN CUBE, every frame. The cube being written this frame is measured
-        // unconditionally (its old value belongs to the old cube). Any other cube is measured only while its stored
-        // value is 0, "not measured": a cube written before the radiance cache had traced probes around its point
-        // (outside the clipmaps, or the first frames of a scene) is normalised as soon as the cache answers there,
-        // not at the next lighting change. A point the estimator does not answer in all six directions stays 0 on
-        // every axis - never a guessed value, never a mix of measured and missing axes.
+        // WHAT IS STORED: a luminance per axis normal - an AMBIENT CUBE: the last mip is 1x1 per face, so face f's
+        // texel holds the value about f's axis and the lighting reads it about the pixel's own normal. (UE stores
+        // one value, the cube's mean radiance; the per-axis form keeps the direction it throws away.)
+        //
+        // ONE INVOCATION PER LISTED CUBE. The cube being written this frame is measured unconditionally (its old
+        // value belongs to the old cube); any other only while its stored value is 0, "not measured".
 
         LocalSize(1, 1, 1);
 
-        #include <Common/RadianceCache.glslh>
         #include <Common/SkyLook.glslh>
 
-        ReadBuffer(0) RadianceCacheParamsUB
-        {
-            RadianceCacheParams radianceCache;
-        };
-        ReadBuffer(1) RadianceCacheIndirectionUB
-        {
-            uint radianceCacheIndirection[];
-        };
-        ReadBuffer(2) RadianceCacheProbesUB
-        {
-            RadianceCacheProbe radianceCacheProbes[];
-        };
-        Uniform(3) sampler2D   u_RadianceCacheIrradiance;
-        Uniform(4) sampler2D   u_RadianceCacheDepth;
         Uniform(5) samplerCube u_EnvIrradianceTex; // the sky's irradiance cube, as the view's pixels read it
         struct DiffusePoint
         {
             vec4  Point;      // xyz = the capture point (world cm)
-            uvec4 CubeForced; // x = cube index in the array, y = 1 measure unconditionally (the cube being written)
+            uvec4 CubeForced; // x = cube index in the array (the staging cube for a recapture), y = 1 measure
+                              // unconditionally (the cube being written)
         };
         ReadBuffer(6) ReflectionCaptureDiffusePointsUB
         {
@@ -59,10 +49,6 @@ Shader "ReflectionCaptureDiffuse"
             vec4 u_SkyYawCosSin; // Graphic::SkyLookGPU: how the view reads its sky cubes
             vec4 u_SkyGain;
         };
-
-        #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
-        #define RADIANCE_CACHE_PROBES radianceCacheProbes
-        #include <Common/RadianceCache.glslh>
 
         void main()
         {
@@ -83,37 +69,16 @@ Shader "ReflectionCaptureDiffuse"
 
             const vec3 axes[6] = vec3[6](vec3(1, 0, 0), vec3(-1, 0, 0), vec3(0, 1, 0), vec3(0, -1, 0), vec3(0, 0, 1),
                                          vec3(0, 0, -1));
-            float luminance[6];
-            float answered = 0.0;
-            for (int i = 0; i < 6; ++i)
-            {
-                const vec3 n = axes[i];
-                if (u_Estimator.x > 0.5)
-                {
-                    // A point in the air has no viewer: the read's bias goes along the normal (V = N), as the
-                    // radiance cache marks it (RadianceCacheMark.shader's capture points). The dither picks the
-                    // middle of a clipmap fade; both ends of it are marked.
-                    const vec4 irradiance = RadianceCacheIrradianceAt(point.Point.xyz, n, n, 0.5);
-                    luminance[i] = dot(irradiance.rgb, vec3(0.2126, 0.7152, 0.0722));
-                    if (irradiance.a > 0.0)
-                        answered += 1.0;
-                }
-                else
-                {
-                    const vec3 sky = ApplySkyGain(
-                         texture(u_EnvIrradianceTex, SkyLookDirection(n, u_SkyYawCosSin.xy)).rgb, u_SkyGain.rgb);
-                    luminance[i] = dot(sky, vec3(0.2126, 0.7152, 0.0722));
-                    answered += 1.0;
-                }
-            }
-            // An unanswered re-measure leaves the stored 0 as it is; a forced one stores 0 (the old cube's value
-            // does not describe the new one).
-            if (answered < 6.0 && point.CubeForced.y == 0u)
-                return;
             for (int i = 0; i < 6; ++i)
             {
                 const ivec3 texel = ivec3(0, 0, firstLayer + i);
-                imageStore(u_Cubes, texel, vec4(imageLoad(u_Cubes, texel).rgb, answered >= 6.0 ? luminance[i] : 0.0));
+                const vec4  own   = imageLoad(u_Cubes, texel);
+                const vec3  light = u_Estimator.x > 0.5
+                                         ? own.rgb
+                                         : ApplySkyGain(texture(u_EnvIrradianceTex,
+                                                                SkyLookDirection(axes[i], u_SkyYawCosSin.xy)).rgb,
+                                                        u_SkyGain.rgb);
+                imageStore(u_Cubes, texel, vec4(own.rgb, dot(light, vec3(0.2126, 0.7152, 0.0722))));
             }
         }
     }
