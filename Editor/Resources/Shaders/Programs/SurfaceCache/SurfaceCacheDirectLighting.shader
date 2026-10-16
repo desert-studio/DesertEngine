@@ -105,6 +105,7 @@ Shader "SurfaceCacheDirectLighting"
             // Common/ContactShadow.glslh, so Mesh/LocalLightShadow.glslh offers it the shadow-map terms only.
             vec4 u_ContactShadowView;
             vec4 u_SunContactShadow;
+            vec4 u_ShadowFilter;      // x = PCSS blocker search taps, y = PCSS filter taps
         };
         #include <Mesh/CascadedShadow.glslh>
 

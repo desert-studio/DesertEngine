@@ -140,6 +140,23 @@ namespace Common::Scalability
         // (MeshRenderer::SunCascadeReadersQueued). Count 1..4 and texel side 256..2048.
         ShadowRayTracedTranslucencyCascades,
         ShadowRayTracedTranslucencyMapSize,
+        // THE QUALITY OF EACH IMPLEMENTED METHOD (METHOD-QUALITY; UE sg.ShadowQuality / GlobalIlluminationQuality
+        // / ReflectionQuality set the method's own r.* cost cvars per level). Cost knobs only: the look stays
+        // authored, Cinematic spends without compromise.
+        // CascadedMaps: the sun's PCSS (Mesh/CascadedShadow.glslh, ShadowUB u_ShadowFilter) - Vogel-disc taps of
+        // the percentage-closer filter (UE r.Shadow.FilterMethod / the r.ShadowQuality kernel) and of the blocker
+        // search. 4..64 and 4..32.
+        ShadowFilterTaps,
+        ShadowBlockerSearchTaps,
+        // HardwareTraced sun: the ShadowVisibility denoiser's reconstruction kernel, in taps from the centre per
+        // side (2 = 5x5; UE r.Shadow.Denoiser.ReconstructionSamples). 1..3
+        ShadowRayTracedDenoiserRadius,
+        // GI ScreenSpace: the one-bounce gather's samples per pixel (DeferredLighting.shader GatherIndirectGI,
+        // u_ScreenSpaceGI.x). 4..64
+        ScreenSpaceGISamples,
+        // Reflections ScreenSpace: the Reflections denoiser's reconstruction kernel, taps per side from the centre
+        // (UE r.Reflections.Denoiser.ReconstructionSamples). 1..3
+        ReflectionDenoiserRadius,
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget
@@ -149,7 +166,8 @@ namespace Common::Scalability
         // GlobalIllumination: the budgets of the surface cache and the world radiance cache (GI-CACHE-IFACE,
         // Graphic/GlobalIllumination). Each gains its reader with the pass that spends it (GI-SURFACE-CACHE,
         // GI-RADIANCE-CACHE, GI-HWRT); the per-level values are UE's BaseScalability.ini
-        // GlobalIlluminationQuality.
+        // GlobalIlluminationQuality. Read today: the atlas/card/direct-lighting rows (SurfaceCacheScene), the
+        // two radiance-cache rows and HitLighting; the three radiosity rows are still placeholders.
         SurfaceCacheAtlasSize,                  // texels per side of the surface cache atlases (UE
                                                 // r.LumenScene.SurfaceCache.AtlasSize)
         SurfaceCacheCardTexelDensity,           // card texels per world unit, percent (UE
@@ -172,6 +190,16 @@ namespace Common::Scalability
                                                 // r.Lumen.ScreenProbeGather.RadianceCache.NumProbesToTraceBudget)
         HitLightingAllowed,                     // 0/1: a hardware-traced hit may be lit in place (UE
                                                 // r.Lumen.HardwareRayTracing.HitLighting.Allowed)
+        // GI SoftwareTraced / ProbeVolume costs still fixed in code that another task owns (ScreenProbeGather,
+        // WorldRadianceCache: FOLIAGE-LOOK-7). Reserved with their per-level values; each gains its reader there.
+        ScreenProbeDownsample,   // screen pixels per probe side (UE r.Lumen.ScreenProbeGather.DownsampleFactor;
+                                 // today ScreenProbeGather::kDownsample = SP_DOWNSAMPLE = 16)
+        ScreenProbeTracedTexels, // traced octahedral texels per probe side (UE
+                                 // r.Lumen.ScreenProbeGather.TracingOctahedronResolution; today kTracedTexels
+                                 // = SP_RES = 8)
+        IrradianceFieldProbesPerFrame, // ProbeVolume's radiance-cache probes traced per frame (UE
+                                       // r.Lumen.IrradianceFieldGather.NumProbesToTraceBudget; today
+                                       // RadianceCache::MakeRadianceCacheInputs scales ProbesPerFrame by 200/300)
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

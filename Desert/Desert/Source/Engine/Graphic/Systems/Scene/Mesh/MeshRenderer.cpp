@@ -458,6 +458,8 @@ namespace Desert::Graphic::System
         if ( view != nullptr )
             frame.ContactShadow = m_SceneRenderer->GetContactShadowSettings(
                  *view, m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred );
+        // The sun's PCSS taps: the SAME value the deferred composite and the surface-cache cards pack.
+        frame.ShadowFilter = m_SceneRenderer->GetShadowFilterSettings();
 
         // The view's motion rows and both frames' bone palettes (BuildObjectMotions, this frame). Carried by
         // every capture: only the view-pass cells declare them (a light view — shadow depth, RSM — reads none),

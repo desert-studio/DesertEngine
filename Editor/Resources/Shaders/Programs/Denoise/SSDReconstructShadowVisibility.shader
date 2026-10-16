@@ -39,7 +39,8 @@ Shader "SSDReconstructShadowVisibility"
 
         PushConstant PushConstants
         {
-        	vec4 u_Params; // x = tan(light source angle / 2), yzw unused
+        	vec4 u_Params; // x = tan(light source angle / 2), y = kernel radius in taps per side (Scalability
+        	               // Shadows.RayTracedDenoiserRadius: 2 = 5x5), zw unused
         };
 
         LocalSize(8, 8, 1);
@@ -86,18 +87,21 @@ Shader "SSDReconstructShadowVisibility"
         	}
 
         	const float maxPlaneDistance = max(pixelRadius * kernelPixels * 2.0, 1e-3);
-        	const float stride           = kernelPixels * 0.5; // the 5x5 taps span +-2 strides = the radius
+        	// The (2R+1)^2 taps span +-R strides = the penumbra's radius; a tent weight of R+1-|offset|.
+        	const int   radius           = int(u_Params.y + 0.5);
+        	const float tent             = float(radius + 1);
+        	const float stride           = kernelPixels / float(radius);
         	float       sum              = 0.0;
         	float       weightSum        = 0.0;
-        	for (int y = -2; y <= 2; ++y)
-        		for (int x = -2; x <= 2; ++x)
+        	for (int y = -radius; y <= radius; ++y)
+        		for (int x = -radius; x <= radius; ++x)
         		{
         			const ivec2 p = clamp(pixel + ivec2(round(vec2(x, y) * stride)), ivec2(0), viewSize - 1);
         			const SSDSceneInfo other = SSDLoadSceneInfo(u_GBufferNormal, u_GBufferDepth,
         			                                            u_InvJitteredViewProjection, p, size);
         			if (dot(other.Normal, other.Normal) <= 0.0)
         				continue; // sky
-        			const float w = (3.0 - abs(float(x))) * (3.0 - abs(float(y))) *
+        			const float w = (tent - abs(float(x))) * (tent - abs(float(y))) *
         			                SSDPlaneWeight(ref, other.Position, maxPlaneDistance) *
         			                SSDNormalWeight(ref.Normal, other.Normal);
         			sum       += texelFetch(u_Mask, p, 0).r * w;

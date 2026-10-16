@@ -886,6 +886,12 @@ namespace Desert::Graphic
         m_ContactShadowSteps                  = quality.As<int>( Parameter::ShadowContactSteps );
         m_RayTracedShadowSamples =
              static_cast<uint32_t>( quality.As<int>( Parameter::ShadowRayTracedSamplesPerPixel ) );
+        m_ShadowFilter = SceneResources::ShadowFilterSettings{
+             .BlockerSearchTaps = quality.As<int>( Parameter::ShadowBlockerSearchTaps ),
+             .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ) };
+        m_ShadowDenoiserRadius                = quality.As<uint32_t>( Parameter::ShadowRayTracedDenoiserRadius );
+        m_ReflectionDenoiserRadius            = quality.As<uint32_t>( Parameter::ReflectionDenoiserRadius );
+        m_ScreenSpaceGISamples                = quality.As<int>( Parameter::ScreenSpaceGISamples );
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
         m_SunContactShadowLengthInWorldSpace  = shadows.ContactShadowLengthInWorldSpace;
@@ -1757,7 +1763,8 @@ namespace Desert::Graphic
              graph,
              System::ShadowVisibilityDenoiserInputs{ .Mask                    = traced.GetValue().Mask,
                                                      .ClosestOccluder         = traced.GetValue().ClosestOccluder,
-                                                     .LightSourceAngleRadians = params.SourceAngleRadians },
+                                                     .LightSourceAngleRadians = params.SourceAngleRadians,
+                                                     .ReconstructionRadius    = m_ShadowDenoiserRadius },
              System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
                                             .GBufferDepth  = depth,
                                             .Velocity      = velocity,
@@ -2386,6 +2393,11 @@ namespace Desert::Graphic
              .SunInWorldSpace        = m_SunContactShadowLengthInWorldSpace,
              .SunCastingIntensity    = m_SunContactShadowCastingIntensity,
              .SunNonCastingIntensity = m_SunContactShadowNonCastingIntensity };
+    }
+
+    SceneResources::ShadowFilterSettings SceneRenderer::GetShadowFilterSettings() const
+    {
+        return m_ShadowFilter;
     }
 
     CloudShadowInput SceneRenderer::GetCloudShadowInput() const
