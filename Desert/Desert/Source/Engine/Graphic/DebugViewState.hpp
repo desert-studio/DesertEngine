@@ -42,6 +42,12 @@ namespace Desert::Graphic
         // (hue = direction, brightness = speed), black where the pixel is still. Deferred only, like the G-buffer
         // modes; drawn by "Debug: Velocity" (System::VelocityViewRenderer) after the temporal resolve.
         Velocity = 12,
+        // The global distance field (Graphic/DistanceField/GlobalDistanceField): UE's "Global DistanceField"
+        // visualization - every pixel sphere-traces the four clipmaps; the hit lit by the field's gradient, tinted
+        // by the clipmap that answered, the march's step count heat-mapped. Deferred only; drawn by
+        // "Debug: Global Distance Field" after the temporal resolve. Today the only reader of the field, so the
+        // field is built only while this mode is on.
+        GlobalDistanceField = 13,
     };
 
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a

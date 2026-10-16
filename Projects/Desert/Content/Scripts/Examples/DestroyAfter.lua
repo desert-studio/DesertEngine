@@ -5,7 +5,7 @@
 -- outlived its entity, and the box came to rest on nothing, in mid-air.
 
 Properties = {
-    Delay = 0.25, -- seconds; under `--play` dt is a fixed 1/60 s, so this is frame 15 in every run
+    Delay = Property.Float( 0.25 ), -- seconds; under `--play` dt is a fixed 1/60 s, so this is frame 15 in every run
 }
 
 local elapsed = 0.0

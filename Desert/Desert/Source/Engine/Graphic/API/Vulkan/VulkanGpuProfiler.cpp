@@ -229,12 +229,21 @@ namespace Desert::Graphic::API::Vulkan
         m_CommandBuffer = VK_NULL_HANDLE;
     }
 
+    void VulkanGpuProfiler::SetCommandBuffer( VkCommandBuffer commandBuffer )
+    {
+        // Outside a frame there is no recording pool, and the frame's own BeginFrame sets the first buffer.
+        if ( !m_Active || m_Recording == nullptr )
+            return;
+        m_CommandBuffer = commandBuffer;
+    }
+
     int32_t VulkanGpuProfiler::BeginScope( const char* name )
     {
         // FrameTotalWritten doubles as "this frame's queries have been reset". Without it, flipping the
         // toggle on mid-frame would write timestamps into queries nobody reset — undefined, and the kind
         // of thing that reads as a wild number rather than an error.
-        if ( !m_Active || m_Recording == nullptr || !m_Recording->FrameTotalWritten )
+        if ( !m_Active || m_Recording == nullptr || !m_Recording->FrameTotalWritten ||
+             m_CommandBuffer == VK_NULL_HANDLE )
             return -1;
 
         // The owner is whichever view the ActiveViewScope targets, else the frame context. Its NAME is
@@ -264,6 +273,8 @@ namespace Desert::Graphic::API::Vulkan
         // nesting it belongs to — so a scope closes against the view it opened in even if the active view
         // moved meanwhile.
         m_Recording->Recorder.End( handle );
+        if ( m_CommandBuffer == VK_NULL_HANDLE )
+            return;
         vkCmdWriteTimestamp( m_CommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->Pool,
                              GpuScopeQueryBase( static_cast<uint32_t>( handle ) ) + 1 );
     }

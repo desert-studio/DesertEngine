@@ -33,17 +33,20 @@ namespace Desert::Graphic::Render
         bool                                           ReceiveShadows  = true;
         int                                            TranslucencySortPriority = 0; // lower draws first
         float MaxDrawDistance = 0.0f; // StaticMeshComponent::MaxDrawDistance (cm, 0 = no limit)
+        bool  CastContactShadow = true; // StaticMeshComponent::CastContactShadow (UE bCastContactShadow)
 
         DrawStaticMeshCommand( uint32_t entity, Desert::Mesh* mesh, Graphic::MaterialSlotBindingPtr materialSlots,
                                const glm::mat4& transform, bool outlined = false, uint64_t hiddenSubmeshes = 0,
                                int forcedLOD = -1, int lodBias = 0, bool castShadows = true,
                                bool receiveShadows = true, int translucencySortPriority = 0,
-                               float maxDrawDistance = 0.0f, uint32_t motionPart = 0 )
+                               float maxDrawDistance = 0.0f, uint32_t motionPart = 0,
+                               bool castContactShadow = true )
              : Entity( entity ), MotionPart( motionPart ), Mesh( mesh ),
                MaterialSlots( std::move( materialSlots ) ), Transform( transform ), Outlined( outlined ),
                HiddenSubmeshes( hiddenSubmeshes ), ForcedLOD( forcedLOD ), LODBias( lodBias ),
                CastShadows( castShadows ), ReceiveShadows( receiveShadows ),
-               TranslucencySortPriority( translucencySortPriority ), MaxDrawDistance( maxDrawDistance )
+               TranslucencySortPriority( translucencySortPriority ), MaxDrawDistance( maxDrawDistance ),
+               CastContactShadow( castContactShadow )
         {
         }
 
@@ -60,6 +63,7 @@ namespace Desert::Graphic::Render
                                        .LODBias                  = LODBias,
                                        .CastShadows              = CastShadows,
                                        .ReceiveShadows           = ReceiveShadows,
+                                       .CastContactShadow        = CastContactShadow,
                                        .TranslucencySortPriority = TranslucencySortPriority } );
         }
     };
@@ -73,21 +77,25 @@ namespace Desert::Graphic::Render
         Graphic::MaterialInstancePtr                  Material;
         std::shared_ptr<const std::vector<glm::mat4>> Transforms;
         bool                                          CastShadows;
+        bool CastContactShadow; // InstancedStaticMeshComponent::CastContactShadow (UE bCastContactShadow)
         InstanceCullDistance                          CullDistance; // the foliage type's (FO-5); {0, 0} = none
         InstanceWind                                  Wind;         // the foliage type's (FO-7); still = none
 
         DrawInstancedStaticMeshCommand( Desert::Mesh* mesh, Graphic::MaterialInstancePtr material,
                                         std::shared_ptr<const std::vector<glm::mat4>> transforms, bool castShadows,
-                                        const InstanceCullDistance& cullDistance, const InstanceWind& wind )
+                                        bool castContactShadow, const InstanceCullDistance& cullDistance,
+                                        const InstanceWind& wind )
              : Mesh( mesh ), Material( std::move( material ) ), Transforms( std::move( transforms ) ),
-               CastShadows( castShadows ), CullDistance( cullDistance ), Wind( wind )
+               CastShadows( castShadows ), CastContactShadow( castContactShadow ), CullDistance( cullDistance ),
+               Wind( wind )
         {
         }
 
         void Execute( SceneRenderer& renderer ) override
         {
             if ( Mesh && Material && Transforms )
-                renderer.SubmitInstancedMesh( Mesh, Material, Transforms, CastShadows, CullDistance, Wind );
+                renderer.SubmitInstancedMesh( Mesh, Material, Transforms, CastShadows, CastContactShadow,
+                                              CullDistance, Wind );
         }
     };
 } // namespace Desert::Graphic::Render

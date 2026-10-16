@@ -8,8 +8,8 @@
 -- name the parameter, list the ones that exist — and leave the machine where it was.
 
 Properties = {
-    Param = "Go",  -- the AnimGraph parameter to set (declared Bool in the witness scene)
-    Delay = 0.5,   -- seconds of GAMEPLAY time to wait first, so the moment is the same in every run
+    Param = Property.String( "Go" ),  -- the AnimGraph parameter to set (declared Bool in the witness scene)
+    Delay = Property.Float( 0.5 ),   -- seconds of GAMEPLAY time to wait first, so the moment is the same in every run
 }
 
 local elapsed = 0.0

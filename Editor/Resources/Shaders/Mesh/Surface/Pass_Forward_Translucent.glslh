@@ -4,8 +4,9 @@
 // (ShaderProgramMeta::Blend), never because of a parameter value. The surface is clear glass: the scene behind
 // it (u_SceneColor, bent by the normal and s.Refraction) tinted by s.BaseColor, mixed by Schlick Fresnel into
 // the sky's reflection, plus the sun's specular hotspot under the cloud shadow. Written opaque: the refracted
-// scene already carries the background. It declares what it reads and nothing else (no cascades, no irradiance,
-// no BRDF LUT, no local lights); the slots keep the numbers the rest of the mesh family uses.
+// scene already carries the background; the highlight also loses the sun's contact shadow. It declares what it
+// reads and nothing else (no cascade maps, no irradiance, no BRDF LUT, no local lights); the slots keep the numbers
+// the rest of the mesh family uses.
 DESERT_SURFACE_VARYINGS( in )
 
 layout( location = 0 ) out vec4 oColor;
@@ -59,6 +60,27 @@ layout( binding = 21 ) uniform CloudShadowUB
 
 #include <Common/CloudShadowReceiver.glslh>
 
+// The sun's contact shadow takes its highlight away too (Common/ContactShadow.glslh, through the opaque scene depth,
+// u_SceneDepth of Mesh/Surface/SurfaceTypes.glslh). The block is the cascades' ShadowUB, declared whole because it
+// is one layout (SceneResources::ShadowUBData); the glass reads only its contact-shadow members.
+layout( binding = 7 ) uniform ShadowUB
+{
+    mat4 u_LightViewProj[4];
+    vec4 u_ShadowParams;
+    vec4 u_DebugParams;
+    vec4 u_CascadeTexelWorld;
+    vec4 u_CascadeDepthRange;
+    vec4 u_ContactShadowView; // x = contact shadow ray steps (0 = off), y = tan(fovY / 2), z = dither frame 0..7
+    vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5),
+                              // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
+};
+// The hit texel's caster bit: the opaque scene's shading word (u_SceneShadingWord, SurfaceTypes.glslh).
+#include <ShadingModels/ShadingModelContract.glslh>
+#define CONTACT_SHADOW_DEPTH        u_SceneDepth
+#define CONTACT_SHADOW_VP           cameraUB.JitteredViewProjection
+#define CONTACT_SHADOW_SHADING_WORD u_SceneShadingWord
+#include <Common/ContactShadow.glslh>
+
 void main()
 {
     const SurfaceInput i =
@@ -78,7 +100,9 @@ void main()
     const vec3  L    = normalize( -directionLights.directionLights.Direction.xyz );
     const vec3  H    = normalize( V + L );
     const float spec = pow( max( dot( N, H ), 0.0 ), 128.0 ) * directionLights.directionLights.ColorIntensity.a *
-                       CloudShadowFactor( v_Surface.WorldPosition );
+                       CloudShadowFactor( v_Surface.WorldPosition ) *
+                       ContactShadowFactor( v_Surface.WorldPosition, N, L, u_SunContactShadow,
+                                            /*not a subsurface receiver*/ -1.0 );
 
     // Screen-space refraction: the composited scene behind the surface, bent by the normal (more for a higher
     // IOR) and tinted by the surface colour.

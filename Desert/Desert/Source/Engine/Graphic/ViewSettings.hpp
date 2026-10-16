@@ -19,6 +19,15 @@ namespace Desert::Graphic
         bool  Enabled            = true;
         CascadeBiasSettings Bias; // ECS::DirectionalLightData::ShadowBias / ShadowSlopeBias / ...Distribution
         float CascadeSplitLambda = 0.6f;
+        float SourceAngleDegrees = 0.5357f; // ECS::DirectionalLightData::SourceAngle: the penumbra (PCSS)
+        // ECS::DirectionalLightData::ContactShadowLength / ...InWorldSpace: the sun's screen-space contact shadow
+        // in the deferred composite (Common/ContactShadow.glslh). 0 = none, UE's default.
+        float ContactShadowLength             = 0.0f;
+        bool  ContactShadowLengthInWorldSpace = false;
+        // ...ContactShadowCastingIntensity / ...NonCastingIntensity: the occlusion of a hit on a contact-shadow
+        // caster / non-caster (UE's defaults 1 and 0).
+        float ContactShadowCastingIntensity    = 1.0f;
+        float ContactShadowNonCastingIntensity = 0.0f;
     };
 
     // EVERYTHING A VIEW IS GRADED AND SHADOWED WITH, RESOLVED IN ONE PLACE — UE's FFinalPostProcessSettings.

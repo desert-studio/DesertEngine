@@ -1,0 +1,147 @@
+// SAMPLING AND MARCHING THE GLOBAL DISTANCE FIELD - the one GPU reading of Graphic/DistanceField/
+// GlobalDistanceField's clipmaps, shared by the debug view and every software trace that will march the scene
+// (GI, reflections, distance-field shadows). Ported from UE 5.8 Engine/Shaders/Private/DistanceField/
+// GlobalDistanceFieldShared.ush (clipmap selection, SampleGlobalDistanceField, the gradient) and
+// GlobalDistanceFieldUtils.ush (the sphere-trace loop), adapted: dense clipmaps addressed toroidally through a
+// REPEAT sampler (texel = world voxel index mod resolution) instead of UE's page atlas, distances stored in
+// centimetres (R32F) rather than normalized by the influence radius.
+//
+// The including shader declares u_GlobalDistanceField0..3 before including this file (separate texture3Ds, each
+// with a same-name `sampler3D(texture, u_LinearRepeatSampler)` macro: the pass's shared repeat state), and passes
+// the clipmap parameters: GDFLevel[k] = (centre.xyz world cm, voxel size cm), the C++ ClipmapUniforms().
+#ifndef GLOBAL_DISTANCE_FIELD_GLSLH
+#define GLOBAL_DISTANCE_FIELD_GLSLH
+
+#include <Common/DistanceFieldShared.glslh>
+
+float SampleGlobalDistanceFieldLevel(int level, vec3 worldPosition, float voxelSize)
+{
+    // World voxel g covers [g, g+1) * voxel and lives in texel g mod R, whose centre is at (g + 0.5) / R - so
+    // the normalized coordinate is simply position / (voxel * R), wrapped by the sampler.
+    const vec3 uvw = worldPosition / (voxelSize * float(GDF_RESOLUTION));
+    if (level == 0)
+        return textureLod(u_GlobalDistanceField0, uvw, 0.0).x;
+    if (level == 1)
+        return textureLod(u_GlobalDistanceField1, uvw, 0.0).x;
+    if (level == 2)
+        return textureLod(u_GlobalDistanceField2, uvw, 0.0).x;
+    return textureLod(u_GlobalDistanceField3, uvw, 0.0).x;
+}
+
+// The finest clipmap whose window holds @p worldPosition with a one-voxel margin (the trilinear footprint must
+// not wrap onto the far side of the window), or -1 outside all of them.
+int GlobalDistanceFieldLevelAt(vec3 worldPosition, vec4 levels[GDF_NUM_CLIPMAPS])
+{
+    for (int level = 0; level < GDF_NUM_CLIPMAPS; ++level)
+    {
+        const float halfExtent = levels[level].w * float(GDF_RESOLUTION) * 0.5 - levels[level].w;
+        if (all(lessThan(abs(worldPosition - levels[level].xyz), vec3(halfExtent))))
+            return level;
+    }
+    return -1;
+}
+
+// Centimetres to the nearest surface, clamped to the level's influence radius; a large value outside the field.
+float SampleGlobalDistanceField(vec3 worldPosition, vec4 levels[GDF_NUM_CLIPMAPS])
+{
+    const int level = GlobalDistanceFieldLevelAt(worldPosition, levels);
+    if (level < 0)
+        return levels[GDF_NUM_CLIPMAPS - 1].w * GDF_INFLUENCE_RANGE_IN_VOXELS;
+    return SampleGlobalDistanceFieldLevel(level, worldPosition, levels[level].w);
+}
+
+vec3 GlobalDistanceFieldGradient(int level, vec3 worldPosition, float voxelSize)
+{
+    const float h = voxelSize;
+    const float dx = SampleGlobalDistanceFieldLevel(level, worldPosition + vec3(h, 0, 0), voxelSize) -
+                     SampleGlobalDistanceFieldLevel(level, worldPosition - vec3(h, 0, 0), voxelSize);
+    const float dy = SampleGlobalDistanceFieldLevel(level, worldPosition + vec3(0, h, 0), voxelSize) -
+                     SampleGlobalDistanceFieldLevel(level, worldPosition - vec3(0, h, 0), voxelSize);
+    const float dz = SampleGlobalDistanceFieldLevel(level, worldPosition + vec3(0, 0, h), voxelSize) -
+                     SampleGlobalDistanceFieldLevel(level, worldPosition - vec3(0, 0, h), voxelSize);
+    return vec3(dx, dy, dz);
+}
+
+struct GlobalDistanceFieldHit
+{
+    bool  Hit;
+    float T;     // centimetres along the (normalized) ray
+    int   Level; // the clipmap the hit was found in
+    int   Steps;
+};
+
+// Sphere trace from @p origin along the unit @p direction until a surface, @p maxT, @p maxSteps, or the ray leaves
+// the coarsest clipmap.
+//
+// THE SURFACE IS EXPANDED BY UP TO HALF A VOXEL (UE RayTraceGlobalDistanceField: ExpandSurfaceDistance =
+// ClipmapVoxelExtent, ramped in over 2x that much ray time, bExpandSurfaceUsingRayTimeInsteadOfMaxDistance; no
+// coverage pages here, so UE's CoveredExpandSurfaceScale 1). A surface thinner than a voxel - a 20 cm floor in
+// 39 cm voxels, its two neighbouring voxel centres both outside it - never reconstructs to a negative distance,
+// so a test against a fixed small threshold sees through it; the expansion catches it. The ramp keeps a ray that
+// starts on a surface from hitting itself.
+//
+// THE FIRST HIT IS REFINED BY BISECTION (not in UE). Such a sheet reconstructs to a V whose bottom is the voxel
+// centre nearest to it, not the sheet, and trilinear interpolation of a V overestimates the distance by up to half
+// a voxel, so a full sphere step can land anywhere in the band where the field is under the expansion - also in
+// its lower half, past the sheet, where the gradient points away from the ray (the dark pits of the 80 m Bistro
+// view: every clipmap-2 voxel of the plaza floor has a V of minimum ~0.3 voxel at its centre). The band is one
+// interval along the ray between the last miss and the first hit, so bisecting that segment finds its entry: the
+// expanded surface every ray reports, whatever its step phase.
+float GlobalDistanceFieldExcess(vec3 origin, vec3 direction, float t, vec4 levels[GDF_NUM_CLIPMAPS])
+{
+    const vec3 p     = origin + direction * t;
+    const int  level = GlobalDistanceFieldLevelAt(p, levels);
+    if (level < 0)
+        return 1.0;
+    const float voxel          = levels[level].w;
+    const float expandDistance = 0.5 * voxel;
+    const float expand         = expandDistance * clamp(t / (2.0 * expandDistance), 0.0, 1.0);
+    return SampleGlobalDistanceFieldLevel(level, p, voxel) - expand;
+}
+
+GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, float maxT, int maxSteps,
+                                                vec4 levels[GDF_NUM_CLIPMAPS])
+{
+    GlobalDistanceFieldHit result;
+    result.Hit   = false;
+    result.T     = 0.0;
+    result.Level = -1;
+    result.Steps = 0;
+    float t         = 0.0;
+    float previousT = 0.0;
+    for (int step = 0; step < maxSteps && t < maxT; ++step)
+    {
+        const vec3 p     = origin + direction * t;
+        const int  level = GlobalDistanceFieldLevelAt(p, levels);
+        if (level < 0)
+            break;
+        const float voxel    = levels[level].w;
+        const float distance = SampleGlobalDistanceFieldLevel(level, p, voxel);
+        result.Steps = step + 1;
+        const float expandDistance = 0.5 * voxel;
+        const float expand         = expandDistance * clamp(t / (2.0 * expandDistance), 0.0, 1.0);
+        if (distance < expand)
+        {
+            float lo = previousT;
+            float hi = t;
+            for (int i = 0; i < 6 && step > 0; ++i)
+            {
+                const float mid = 0.5 * (lo + hi);
+                if (GlobalDistanceFieldExcess(origin, direction, mid, levels) < 0.0)
+                    hi = mid;
+                else
+                    lo = mid;
+            }
+            result.Hit   = true;
+            result.T     = max(hi + min(GlobalDistanceFieldExcess(origin, direction, hi, levels), 0.0), 0.0);
+            result.Level = GlobalDistanceFieldLevelAt(origin + direction * hi, levels);
+            return result;
+        }
+        previousT = t;
+        t += max(distance, voxel * 0.1);
+    }
+    result.T = t;
+    return result;
+}
+
+#endif

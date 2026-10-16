@@ -9,9 +9,9 @@
 -- Attach to an entity that has a Point Light and press Play.
 
 Properties = {
-    BaseIntensity = 3.0,
-    Flicker = 0.35, -- 0..1: how strong the flicker is
-    Speed = 9.0,
+    BaseIntensity = Property.Float( 3.0 ),
+    Flicker = Property.Float( 0.35 ), -- 0..1: how strong the flicker is
+    Speed = Property.Float( 9.0 ),
 }
 
 local t = 0.0

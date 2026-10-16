@@ -197,8 +197,7 @@ namespace
 
         const glm::vec2 origin = Desert::Assets::CloudProceduralRegionOriginKm( column.Params, 0.0f, 0.0f );
 
-        column.Lumps = Desert::Assets::GenerateCloudProceduralLumps(
-             column.Params, 0u, origin, Desert::Assets::CloudProceduralLumpSet::KeptCells );
+        column.Lumps = Desert::Assets::GenerateCloudProceduralLumps( column.Params, 0u, origin );
         for ( const Desert::Assets::CloudProceduralLump& lump : column.Lumps )
             column.Blobs.push_back( lump.Blob );
 
@@ -222,7 +221,7 @@ namespace
         if ( column.Blobs.empty() )
             return 0.0f;
 
-        return Desert::Assets::EvaluateCloudProceduralProfile(
+        return Desert::Assets::EvaluateCloudProceduralBodies(
              column.Params, 0u, column.Lumps, glm::vec3( column.TallestKm.x, altitudeKm, column.TallestKm.z ) );
     }
 

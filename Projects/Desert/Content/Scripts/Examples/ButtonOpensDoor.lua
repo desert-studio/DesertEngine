@@ -5,9 +5,9 @@
 -- physics step, so it pushes and blocks while it moves.
 
 Properties = {
-    Door = "Door",      -- Tag of the entity to move
-    OpenHeight = 250.0, -- cm the door rises when open
-    Speed = 200.0,      -- cm/s
+    Door = Property.String( "Door" ),      -- Tag of the entity to move
+    OpenHeight = Property.Float( 250.0 ), -- cm the door rises when open
+    Speed = Property.Float( 200.0 ),      -- cm/s
 }
 
 local door = nil

@@ -1175,11 +1175,16 @@ TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresExactlyItsNamed
     //     the black ground under a bright sky the owner saw;
     //   - the sky's look (20, ENV1), applied where the cubes are sampled;
     //   - GBUF1: slot 1 is the R32_UINT shading word, the position is rebuilt from the depth at 21;
-    //   - SHADOW-LOCAL: the local shadow atlas and its view table (22, 23);
-    //   - REFL-CAPTURE: the capture records and their cube array are NOT here: set 0 had one spare slot (24) under
-    //     the scene-read range and the graph's window, so they are set 1, pinned by the second register below.
-    // And the cascade block it must NOT have disturbed: the same four maps at the same four slots, with
-    // ShadowUB where Lit.glsl.frag mirrors it.
+    //   - SHADOW-CSM2: the four cascade maps became one sampler2DArray at 5 (MoltenVK's 16-sampler stage limit),
+    //     freeing 13, 14 and 15;
+    //   - SHADOW-LOCAL: the local shadow atlas and its view table (13, 14 since SSR2; 22, 23 before);
+    //   - LIGHT-CLUSTER: the light grid's parameters and cells (22, 23) - not 28/29, which is the shader graph's
+    //     window and the forward cells' scene-read range, where the forward cell's own copy of the grid lives;
+    //   - SSR2: this frame's resolved screen-space reflection (24);
+    //   - REFL-CAPTURE: the capture records and their cube array are NOT here: set 1, pinned by the second
+    //   register
+    //     below. 15 is the one spare slot under the scene-read range.
+    // ShadowUB (7) carries the cascades' matrices and, since SHADOW-CONTACT, the contact-shadow march's values.
     struct Row
     {
         uint32_t         Binding;
@@ -1195,7 +1200,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresExactlyItsNamed
          { 2, kSampler, "u_GBufferA" },
          { 3, kSampler, "u_GBufferB" },
          { 4, kUniform, "LightsMetadata" },
-         { 5, kSampler, "u_ShadowMap0" },
+         { 5, kSampler, "u_ShadowCascades" },
          { 6, kStorage, "PointLightsUB" },
          { 7, kUniform, "ShadowUB" },
          { 8, kSampler, "u_SSAO" },
@@ -1203,17 +1208,17 @@ TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresExactlyItsNamed
          { 10, kSampler, "u_GI" },
          { 11, kSampler, "u_CloudShadowMap" },
          { 12, kUniform, "CloudShadowUB" },
-         { 13, kSampler, "u_ShadowMap1" },
-         { 14, kSampler, "u_ShadowMap2" },
-         { 15, kSampler, "u_ShadowMap3" },
+         { 13, kSampler, "u_LocalShadowAtlas" },
+         { 14, kStorage, "LocalShadowViewsUB" },
          { 16, kStorage, "SpotLightsUB" },
          { 17, kSampler, "u_EnvIrradianceTex" },
          { 18, kSampler, "u_EnvSpecularTex" },
          { 19, kSampler, "u_BRDFLUTTexture" },
          { 20, kUniform, "SkyLookUB" },
          { 21, kSampler, "u_GBufferDepth" },
-         { 22, kSampler, "u_LocalShadowAtlas" },
-         { 23, kStorage, "LocalShadowViewsUB" },
+         { 22, kStorage, "LightGridParamsUB" },
+         { 23, kStorage, "LightGridCellsUB" },
+         { 24, kSampler, "u_SSR" },
     };
     const auto bindings = FragmentSetZero( ShaderPath( "Deferred/DeferredLighting.shader" ) );
 
@@ -1279,7 +1284,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteA
     // And the two the deferred composite owns, named individually because they are the ones a reader is
     // most likely to put back "so the G-buffer can shade the ambient". It cannot: it writes attributes and
     // Deferred/DeferredLighting.shader shades them, on its own material with its own layout.
-    EXPECT_FALSE( HasBinding( gbuffer, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) // u_ShadowMap0
+    EXPECT_FALSE( HasBinding( gbuffer, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) // u_ShadowCascades
          << "the G-buffer pass declares a cascade map; it shades nothing and samples none";
     EXPECT_FALSE( HasBinding( gbuffer, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) // u_EnvIrradianceTex
          << "the G-buffer pass declares the irradiance cube; the ambient lives in the deferred composite";
@@ -1471,14 +1476,11 @@ TEST_F( ShaderCacheKeyShaderRoot, TheLitGraphSurfaceIsHANDEDTheSceneITSHADESWITH
     EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // SpotLightsUB
     EXPECT_TRUE( HasBinding( bindings, 3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // DirectionLightsUB
 
-    // The five cascade bindings. Since SURF1f a graph surface's forward cell is lit by
+    // The two cascade bindings. Since SURF1f a graph surface's forward cell is lit by
     // Mesh/Surface/Pass_Forward.glslh, so these are the mesh forward layout's numbers (StandardSurface's), not a
     // shader-graph layout of its own.
     EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // ShadowUB
-    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_ShadowMap0
-    EXPECT_TRUE( HasBinding( bindings, 13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap1
-    EXPECT_TRUE( HasBinding( bindings, 14, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap2
-    EXPECT_TRUE( HasBinding( bindings, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap3
+    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_ShadowCascades
 
     // The graph's own textures start at kGraphTextureBinding (24) and count upward, so none of the slots
     // above can be taken by a Properties block however many textures an artist adds. Distinctness is the
@@ -2551,12 +2553,12 @@ TEST_F( ShaderCacheKeyShaderRoot, TheBrokenShaderFixtureStillDoesNotCompile )
 
 // ─── The window a shader graph's own resources live in is EMPTY in the shipped tree ──────────────
 //
-// О1-G. Core::kGraphOwnedBindingFirst reserves set-0 bindings from 28 (24 before TAA1, 27 before the scene depth
-// joined the scene-read range) upward for what a SHADER GRAPH declares — the textures a Surface graph's Properties
-// block takes today, and whatever an authored cloud medium declares tomorrow. A reservation is worth exactly what
-// enforces it, and nothing enforced this one: the claim lived in a comment listing the engine's slots by hand, and
-// the check beside it was `EXPECT_GT( kGraphTextureBinding, 23u )` — a number that can be satisfied by editing the
-// number.
+// О1-G. Core::kGraphOwnedBindingFirst reserves set-0 bindings from 31 (24 before TAA1, 27 before the scene depth
+// joined the scene-read range, 28 before the scene shading word and the light grid did) upward for what a SHADER
+// GRAPH declares — the textures a Surface graph's Properties block takes today, and whatever an authored cloud
+// medium declares tomorrow. A reservation is worth exactly what enforces it, and nothing enforced this one: the
+// claim lived in a comment listing the engine's slots by hand, and the check beside it was
+// `EXPECT_GT( kGraphTextureBinding, 23u )` — a number that can be satisfied by editing the number.
 //
 // The claim asserted here is the one that matters and it names no engine binding: over the whole shipped
 // tree, compiled by shaderc and reflected by the engine's own reflection, NOTHING declares a set-0

@@ -19,6 +19,9 @@ namespace Desert::Graphic::API::Vulkan
             CreateFallbackTexture3D( format );
             CreateFallbackStorageImage3D( format );
         }
+        // The integer sampled fallback (usampler2D; RDG System.ZeroUint): a float image in an integer binding is a
+        // format mismatch. Sampled 2D only - no integer cube, volume or storage image is read anywhere.
+        CreateFallbackTexture2D( Core::Formats::ImageFormat::RG32_UINT );
     }
 
     const std::shared_ptr<Image2D>&
@@ -71,6 +74,9 @@ namespace Desert::Graphic::API::Vulkan
                 break;
             case Core::Formats::ImageFormat::RGBA32F:
                 spec.Data = std::vector<float>{ 1.0f, 1.0f, 1.0f, 1.0f };
+                break;
+            case Core::Formats::ImageFormat::RG32_UINT:
+                spec.Data = std::vector<unsigned char>( 8u, 0u ); // two zero uint32 channels
                 break;
             default:
                 return;

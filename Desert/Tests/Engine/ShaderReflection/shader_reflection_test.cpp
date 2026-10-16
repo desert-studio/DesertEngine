@@ -159,9 +159,9 @@ void main()
 TEST( ShaderReflection, RefusesArrayedImagesInsteadOfGuessing )
 {
     const char* kArrayed = R"(#version 450
-layout(binding = 0) uniform sampler2DArray u_Slices;
+layout(binding = 0) uniform sampler1DArray u_Slices;
 layout(location = 0) out vec4 o_Color;
-void main() { o_Color = texture(u_Slices, vec3(0.5)); }
+void main() { o_Color = texture(u_Slices, vec2(0.5)); }
 )";
 
     const auto spirv = Compile( kArrayed, shaderc_glsl_fragment_shader );
@@ -172,7 +172,6 @@ void main() { o_Color = texture(u_Slices, vec3(0.5)); }
 
     ASSERT_EQ( diagnostics.size(), 1u );
     EXPECT_NE( diagnostics.front().find( "u_Slices" ), std::string::npos ) << diagnostics.front();
-    EXPECT_NE( diagnostics.front().find( "sampler2DArray" ), std::string::npos ) << diagnostics.front();
 
     for ( const auto& [set, descriptorSet] : data.ShaderDescriptorSets )
     {
@@ -180,6 +179,36 @@ void main() { o_Color = texture(u_Slices, vec3(0.5)); }
         EXPECT_TRUE( descriptorSet.SampledImages.empty() ) << "set " << set;
         EXPECT_TRUE( descriptorSet.SampledImages.empty() ) << "set " << set;
     }
+}
+
+// texture2DArray is the sun's shadow cascades (one layer each): the render graph's Tex2DArray texture hands it a
+// 2D_ARRAY view at every layer count. It is a separate texture of its own dimension, so it is never mistaken for a
+// material's 2D texture property (GetUniformImage2DModels).
+TEST( ShaderReflection, ReflectsTexture2DArrayAsItsOwnDimension )
+{
+    const char* kArrayed = R"(#version 450
+layout(binding = 0) uniform texture2DArray u_ShadowCascades;
+layout(binding = 1) uniform sampler u_LinearRepeatSampler;
+layout(location = 0) out vec4 o_Color;
+void main() { o_Color = texture(sampler2DArray(u_ShadowCascades, u_LinearRepeatSampler), vec3(0.5)); }
+)";
+
+    const auto spirv = Compile( kArrayed, shaderc_glsl_fragment_shader );
+    ASSERT_FALSE( spirv.empty() );
+
+    ShaderResource::ReflectionData data;
+    const auto diagnostics = ShaderReflection::ReflectStage( spirv, ShaderStage::Fragment, data );
+    EXPECT_TRUE( diagnostics.empty() );
+
+    size_t found = 0;
+    for ( const auto& [set, descriptorSet] : data.ShaderDescriptorSets )
+        for ( const auto& [binding, image] : descriptorSet.SampledImages )
+        {
+            EXPECT_EQ( image.Dimension,
+                       Desert::ShaderResources::ShaderLayout::SampledImageDimension::Texture2DArray );
+            ++found;
+        }
+    EXPECT_EQ( found, 1u );
 }
 
 // sampler2DMS is a combined image sampler over a 2D view of a multisampled image (the MSAA scene depth read

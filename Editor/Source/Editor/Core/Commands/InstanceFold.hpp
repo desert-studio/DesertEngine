@@ -50,6 +50,8 @@ namespace Desert::Editor::Commands
         std::optional<Desert::Geometry::PrimitiveType> Primitive; ///< a built-in shape instead of an asset
         std::vector<Common::AssetHandle>               Materials; ///< the material slot list, in order
         bool                                           CastShadows = true;
+        // The same for the contact-shadow cast flag (UE bCastContactShadow): an ISM carries one for all.
+        bool CastContactShadow = true;
 
         [[nodiscard]] bool SameAs( const FoldMeshIdentity& other ) const;
 

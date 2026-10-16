@@ -32,6 +32,9 @@
 
         #include <Common/LandscapeHeight.glslh>
         #include <Common/LandscapeLod.glslh>
+#ifdef TERRAIN_DEPTH_ONLY
+#include <Common/ShadowCasterBias.glslh>
+#endif
 
         // A caster writes depth and nothing else: the shading outputs exist only for the programs that shade.
 #ifndef TERRAIN_DEPTH_ONLY
@@ -106,13 +109,19 @@
             vec4  worldPos = vec4( worldXZ.x, u_T.LandscapeFrame.y + h, worldXZ.y, 1.0 );
             gl_Position    = m_PushConstants.Transform * worldPos;
 
+            vec2 d0     = TileGradient( x0, z0 );
+            vec2 d1     = TileGradient( x1, z1 );
+            vec2 d      = vec2( LandscapeLodMorph( d0.x, d1.x, morph ), LandscapeLodMorph( d0.y, d1.y, morph ) );
+            vec3 normal = normalize( vec3( -d.x, 1.0, -d.y ) ); // the surface y = h(x, z)
 #ifndef TERRAIN_DEPTH_ONLY
             v_WorldPos = worldPos.xyz;
-            vec2 d0    = TileGradient( x0, z0 );
-            vec2 d1    = TileGradient( x1, z1 );
-            vec2 d     = vec2( LandscapeLodMorph( d0.x, d1.x, morph ), LandscapeLodMorph( d0.y, d1.y, morph ) );
-            v_Normal   = normalize( vec3( -d.x, 1.0, -d.y ) ); // the surface y = h(x, z)
+            v_Normal   = normal;
 #else
             v_TileSample = local; // the sample coordinate within the tile, as the surface derives it
+            // The caster's slope depth bias, as every mesh caster's vertex stage adds it (UE:
+            // ShadowDepthVertexShader.usf). One material draws every cascade, so the cascade's pair is pushed
+            // beside its matrix (Material::SetShadowSlopeBias).
+            gl_Position = ShadowCasterSlopeBias( gl_Position, m_PushConstants.Transform, normal,
+                                                 m_PushConstants.ShadowSlope.x, m_PushConstants.ShadowSlope.y );
 #endif
         }

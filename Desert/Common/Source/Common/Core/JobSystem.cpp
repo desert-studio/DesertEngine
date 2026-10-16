@@ -106,15 +106,16 @@ namespace Common
         }
     }
 
-    void JobSystem::Submit( InlineJob job )
+    bool JobSystem::Submit( InlineJob job )
     {
         {
             std::lock_guard<std::mutex> lk( m_Mutex );
             if ( m_Stop )
-                return; // shutting down: drop silently (jobs must not matter past shutdown)
+                return false; // shutting down: dropped, and the caller is told so
             m_Queue.push_back( std::move( job ) );
         }
         m_CV.notify_one();
+        return true;
     }
 
     size_t JobSystem::PendingJobs() const

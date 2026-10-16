@@ -72,6 +72,27 @@ namespace Desert::Graphic::System
         static_assert( SceneResources::kMaxCascades == kSceneViewShadowCascades,
                        "the lit materials' cascade count is the scene/view inputs' cascade count" );
 
+        // FNV-1a over raw bytes: a shadow cache key (local views, the cascades' static layer) only has to change
+        // when what was drawn changes.
+        struct SignatureHash
+        {
+            uint64_t Value = 1469598103934665603ull;
+
+            void Bytes( const void* data, const std::size_t size )
+            {
+                const auto* bytes = static_cast<const unsigned char*>( data );
+                for ( std::size_t i = 0; i < size; ++i )
+                {
+                    Value ^= bytes[i];
+                    Value *= 1099511628211ull;
+                }
+            }
+            template <typename T>
+            void Add( const T& value )
+            {
+                Bytes( &value, sizeof( T ) );
+            }
+        };
     } // namespace MeshRendererDetail
 
     using MeshRendererDetail::MeshDrawList;

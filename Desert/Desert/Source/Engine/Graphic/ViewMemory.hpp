@@ -232,7 +232,7 @@ namespace Desert::Graphic
     // constructs, and every scene system and panel between Init and the first frame reaches those systems,
     // so "not built yet" would become a state all of them had to handle. 64 keeps every derived target
     // non-empty with room to spare (the smallest divisor in the census is 1/4 and
-    // bloom's 6-level chain starts at 32 px) for 0.8 MiB of view-scaled targets.
+    // bloom's 6-level chain starts at 32 px) for 0.99 MiB of view-scaled targets.
     inline constexpr ViewExtent kUnsizedViewExtent{ 64, 64 };
 
     struct ViewTarget
@@ -371,13 +371,27 @@ namespace Desert::Graphic
         }
         if ( profile.ScreenSpaceReflections )
         {
-            add( { "SSR.Trace", "SceneRenderer.cpp", F::kSSRTrace, width, height } );
-            add( { "SSR.Accum x2", "SSRRenderer.hpp", F::kSSRAccum, width, height, 1, 2 } );
+            add( { "SSR.Trace", "SSRRenderer.hpp", F::kSSRTrace, Div( width, 2 ), Div( height, 2 ) } );
+            add( { "SSR.TraceRay", "SSRRenderer.hpp", F::kSSRTraceRay, Div( width, 2 ), Div( height, 2 ) } );
+            // ScreenSpaceDenoiser::DenoiseReflections: reconstruction + output (transients), the
+            // history pair (accumulation + sample count, two slots).
+            add( { "SSD.Reflections.Signal+Output", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height,
+                   1, 2 } );
+            add( { "SSD.Reflections.History x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height, 1,
+                   2 } );
+            add( { "SSD.Reflections.History.Count x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSampleCount, width,
+                   height, 1, 2 } );
         }
         if ( profile.GlobalIllumination )
         {
             add( { "GI.Gather", "SceneRendererFrameDeferred.cpp", F::kGIResolve, width, height } );
-            add( { "GI.Accum x2", "GIResolveRenderer.hpp", F::kGIAccum, width, height, 1, 2 } );
+            // ScreenSpaceDenoiser::DenoiseDiffuseIndirect: reconstruction + output, the history pair.
+            add( { "SSD.Diffuse.Signal+Output", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height, 1,
+                   2 } );
+            add( { "SSD.Diffuse.History x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height, 1,
+                   2 } );
+            add( { "SSD.Diffuse.History.Count x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSampleCount, width,
+                   height, 1, 2 } );
             // SceneRenderer::kRSMResolution = 512, one row per attachment WITH AN IMAGE: they mirror the
             // G-buffer's formats, which need not all be the same. Colour slot 2 is an unused slot (no image, no
             // row).
@@ -395,11 +409,11 @@ namespace Desert::Graphic
             // MeshRenderer::SetupShadowPass — see ShadowAttachmentBytes.
             const uint32_t s = profile.Shadows.ShadowMapSize;
             const uint32_t n = profile.Shadows.CascadeCount;
-            ViewTarget     color{ "ShadowCascades.Color", "MeshRenderer.cpp", F::kShadowColor, s, s, 1, n };
             ViewTarget     depth{ "ShadowCascades.Depth", "MeshRenderer.cpp", F::kShadowDepth, s, s, 1, n };
-            color.ScalesWithView = depth.ScalesWithView = false;
-            add( color );
+            ViewTarget     cache{ "ShadowCascades.StaticCache", "MeshRenderer.cpp", F::kShadowDepth, s, s, 1, n };
+            depth.ScalesWithView = cache.ScalesWithView = false;
             add( depth );
+            add( cache );
         }
         return rows;
     }

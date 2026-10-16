@@ -417,10 +417,10 @@ namespace Desert::Graphic::System
         // UpdateCascades. The two differ whenever the fit does not run or degenerates (no sun in the
         // scene, most commonly), and publishing the allocation then sends the shader through matrices no
         // frame ever wrote.
-        frame.CascadeCount = GetValidCascadeCount();
-        for ( uint32_t c = 0; c < frame.CascadeCount; ++c )
-            frame.CascadeMaps[c] = m_CascadeFB[c] ? m_CascadeFB[c]->GetColorAttachmentImage().get() : nullptr;
+        frame.CascadeCount      = GetValidCascadeCount();
         frame.CascadeTexelWorld = m_CascadeWorldPerTexel;
+        frame.CascadeDepthRange = m_CascadeDepthRange;
+        frame.SunSourceTanHalf  = GetSunSourceTanHalf();
         frame.ShadowsEnabled    = m_ShadowsEnabled;
         frame.ShadowDebugMode   = m_ShadowDebugMode;
         frame.ShowNormals       = m_ShowNormals;
@@ -450,6 +450,13 @@ namespace Desert::Graphic::System
         // (SceneRenderer::GetCloudShadowInput). Filled by ExecuteCloudShadowMap() before the render graph
         // records, so it is final by the time any mesh pass runs — in both render paths.
         frame.CloudShadow = m_SceneRenderer->GetCloudShadowInput();
+
+        // The view's contact shadows, from the SAME settings the deferred composite packs. The forward meshes
+        // and the glass march the opaque scene depth (u_SceneDepth): the deferred path has it (the G-buffer
+        // depth, finished before any of them draws); the forward path has no prepass, so it marches nothing.
+        if ( view != nullptr )
+            frame.ContactShadow = m_SceneRenderer->GetContactShadowSettings(
+                 *view, m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred );
 
         // The view's motion rows and both frames' bone palettes (BuildObjectMotions, this frame). Carried by
         // every capture: only the view-pass cells declare them (a light view — shadow depth, RSM — reads none),
@@ -539,6 +546,7 @@ namespace Desert::Graphic::System
                 staticData.LODBias         = data.LODBias;
                 staticData.CastShadows     = data.CastShadows;
                 staticData.ReceiveShadows  = data.ReceiveShadows;
+                staticData.CastContactShadow        = data.CastContactShadow;
                 staticData.TranslucencySortPriority = data.TranslucencySortPriority;
 
                 m_StaticQueue.push_back( staticData );

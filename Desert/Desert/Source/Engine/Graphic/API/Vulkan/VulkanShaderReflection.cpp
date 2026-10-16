@@ -40,6 +40,7 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                 case ImageKind::ImageCube:
                     return arrayed ? Dimension::CubeArray : Dimension::Cube;
                 case ImageKind::Image2D:
+                    return arrayed ? Dimension::Texture2DArray : Dimension::Texture2D;
                 case ImageKind::Unsupported:
                     break;
             }
@@ -51,15 +52,18 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     {
         const auto& image = type.image;
 
-        // Arrayed images need a different view type and a different bind path. The one the engine builds is
-        // the CUBE ARRAY, and only through the render graph: an RDG::TextureDim::CubeArray texture's views are
-        // CUBE_ARRAY views at every layer count (the reflection captures, samplerCubeArray / imageCubeArray),
-        // so it shares the cube buckets - the view, not the bucket, carries the type. Every other arrayed
+        // Arrayed images need a different view type and a different bind path. The ones the engine builds are
+        // the CUBE ARRAY and the 2D ARRAY, and only through the render graph: an RDG::TextureDim::CubeArray /
+        // Tex2DArray texture's views are CUBE_ARRAY / 2D_ARRAY views at every layer count (the reflection
+        // captures, samplerCubeArray / imageCubeArray; the sun's shadow cascades, sampler2DArray), so each
+        // shares its base dimension's bucket - the view, not the bucket, carries the type. Every other arrayed
         // image is refused rather than approximated by its base dimension.
         if ( image.arrayed )
         {
             if ( image.dim == spv::DimCube && !image.ms )
                 return ImageKind::ImageCube;
+            if ( image.dim == spv::Dim2D && !image.ms )
+                return ImageKind::Image2D;
             return ImageKind::Unsupported;
         }
         // A multisampled image is only ever 2D (Vulkan has no 3D or cube MS image); its view is a plain 2D

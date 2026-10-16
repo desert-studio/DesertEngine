@@ -64,7 +64,11 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 //   bits 16..23  payload 1, unorm8
 //   bit  24      NO_SUN_SHADOWS: set = the sun's cascaded shadows do not darken this surface
 //                (SurfaceOutput.ReceiveSunShadows < 0.5, the material half of UE's receive-CSM-shadows flag)
-//   bits 25..31  free
+//   bit  25      NO_CONTACT_SHADOW: set = the primitive does not cast contact shadows (UE !bCastContactShadow,
+//                the G-buffer's PerObjectGBufferData bit): a light's contact-shadow ray that hits this texel
+//                darkens with the light's Non Casting Intensity instead of its Casting Intensity
+//                (Common/ContactShadow.glslh)
+//   bits 26..31  free
 //   bits 32..39  payload 2, unorm8   (.y bits 0..7)
 //   bits 40..47  payload 3, unorm8   (.y bits 8..15)
 //   bits 48..63  free
@@ -81,6 +85,7 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 #define DESERT_SHADING_WORD_PAYLOAD3_FIRST_BIT 40
 #define DESERT_SHADING_WORD_PAYLOAD_BITS       8
 #define DESERT_SHADING_WORD_NO_SUN_SHADOWS_BIT 24
+#define DESERT_SHADING_WORD_NO_CONTACT_SHADOW_BIT 25
 
 // The G-buffer writer marks the flag after DesertPackShadingWord, so the deferred composite applies the toggle
 // exactly as the forward pass does, and a writer that forgets the mark gets the default, receives.
@@ -93,6 +98,20 @@ uvec2 DesertMarkSunShadowReceive( uvec2 shadingWord, float receiveSunShadows )
 bool DesertReceivesSunShadows( uvec2 shadingWord )
 {
     return ( ( shadingWord.x >> uint( DESERT_SHADING_WORD_NO_SUN_SHADOWS_BIT ) ) & 1u ) == 0u;
+}
+
+// The primitive's contact-shadow cast flag, from the draw (UE bCastContactShadow, the push PrimitiveFlags): marked
+// like the sun-shadow receive, so a cleared texel and a writer that forgets the mark both read "casts".
+uvec2 DesertMarkContactShadowCast( uvec2 shadingWord, bool castContactShadow )
+{
+    const uint noCast = castContactShadow ? 0u : 1u;
+    return uvec2( shadingWord.x | ( noCast << uint( DESERT_SHADING_WORD_NO_CONTACT_SHADOW_BIT ) ), shadingWord.y );
+}
+
+// UE CastContactShadow( GBuffer ): whether a contact-shadow ray that hit this texel is stopped by a caster.
+bool DesertCastsContactShadow( uvec2 shadingWord )
+{
+    return ( ( shadingWord.x >> uint( DESERT_SHADING_WORD_NO_CONTACT_SHADOW_BIT ) ) & 1u ) == 0u;
 }
 
 // A model's four payload floats, in [0, 1] (the pass clamps; 1/255 resolution). The manifest's `Payload` block

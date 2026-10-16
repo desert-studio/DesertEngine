@@ -1,5 +1,6 @@
 #include "ReflectionCaptureRenderer.hpp"
 
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -201,6 +202,9 @@ namespace Desert::Graphic
     {
         m_FacesRenderedThisFrame = false;
 
+        const auto& frames = Engine::FrameManager::GetInstance();
+        m_RetiringFaces.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+
         const uint32_t faceSize = ReflectionCaptureFaceSize();
         if ( !std::has_single_bit( faceSize ) )
         {
@@ -255,9 +259,11 @@ namespace Desert::Graphic
                 // recaptures kept six views' worth of targets alive for nothing (measured on Bistro: the atlas,
                 // the cascades and the sky bake x7 instead of x1, 1.4 GB). UE's capture renderers are transient
                 // the same way. A recapture builds them again; their GPU objects go through the device's
-                // deferred deletion, so a frame still in flight that read a face keeps it until it retires.
+                // deferred deletion, but a view's pipelines are destroyed with it: the views are parked until every
+                // frame that can have recorded their passes has retired.
                 for ( std::unique_ptr<FaceView>& face : m_Faces )
-                    face.reset();
+                    if ( face )
+                        m_RetiringFaces.Park( std::move( face ), frames.GetAbsoluteFrameCount() );
                 return;
             }
             m_Pending            = static_cast<uint32_t>( next - m_Done.begin() );

@@ -8,7 +8,9 @@
 #include <Engine/Geometry/LODSelection.hpp>
 
 #include <Common/Core/ResultWithCodes.hpp>
+#include <Engine/Assets/MeshDistanceField.hpp>
 
+#include <memory>
 #include <optional>
 #include <unordered_map>
 
@@ -66,6 +68,19 @@ namespace Desert
 
         [[nodiscard]] virtual Common::BoolResultWithCodes<MeshError> Invalidate() = 0;
 
+        // The mesh's signed distance field (Assets::MeshDistanceFieldData) once it has landed in the slot shared
+        // with the asset it was loaded with (the field is derived asynchronously,
+        // Assets::EnqueueMeshDistanceField); null before that and for a mesh that has none (skinned, procedural).
+        // What the GPU scene's distance-field atlas uploads (Graphic/DistanceField), keyed by the field's pointer.
+        [[nodiscard]] std::shared_ptr<const Assets::MeshDistanceFieldData> GetDistanceField() const
+        {
+            return m_DistanceField ? m_DistanceField->Get() : nullptr;
+        }
+        void SetDistanceField( std::shared_ptr<const Assets::MeshDistanceFieldSlot> slot )
+        {
+            m_DistanceField = std::move( slot );
+        }
+
         // THE GPU BUFFERS ARE THE RENDERER'S COPY OF THE CPU GEOMETRY, BUILT WHERE A RENDERER EXISTS. A mesh
         // whose data was set or edited without a device (headless, server, tests, a game-thread write) only
         // marks its GPU side stale; the renderer calls this when the mesh is submitted for drawing (the
@@ -121,5 +136,6 @@ namespace Desert
         std::shared_ptr<Graphic::IndexBuffer>   m_IndexBuffer;
         std::vector<std::vector<TriangleCache>> m_TriangleCache;
         std::vector<Submesh>                    m_Submeshes;
+        std::shared_ptr<const Assets::MeshDistanceFieldSlot> m_DistanceField;
     };
 } // namespace Desert

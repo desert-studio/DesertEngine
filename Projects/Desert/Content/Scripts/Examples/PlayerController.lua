@@ -14,7 +14,7 @@
 --   * Optional swimming: World.set("waterLevel", <cm>) in a level script.
 
 Properties = {
-    LookSens = 0.0025, -- radians per mouse-pixel
+    LookSens = Property.Float( 0.0025 ), -- radians per mouse-pixel
 }
 
 function OnStart()

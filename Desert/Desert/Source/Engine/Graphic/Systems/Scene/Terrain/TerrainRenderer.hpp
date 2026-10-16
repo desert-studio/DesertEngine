@@ -81,6 +81,10 @@ namespace Desert::Graphic::System
         void                                DeclareGBufferDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context );
 
+        [[nodiscard]] bool CastsShadowThisFrame() const override
+        {
+            return !m_Queue.empty();
+        }
         [[nodiscard]] uint32_t DeclareShadowCascade( RenderPassDeclaration& declared, uint32_t cascade ) override;
         [[nodiscard]] Common::BoolResultStr RecordShadowCascade( const RDG::PassContext& context, uint32_t cascade,
                                                                  uint32_t                 firstBlock,

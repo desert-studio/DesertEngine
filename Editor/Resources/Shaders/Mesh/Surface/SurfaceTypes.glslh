@@ -96,16 +96,28 @@ SurfaceSubUV DesertParticleSubUV( SurfaceParticleInput p, vec2 uv, float columns
 
 // Depth Fade (UE's DepthFade expression, "soft particles"): @p opacity scaled by how far the scene behind the pixel
 // is, over @p fadeDistance CENTIMETRES — 0 where the pixel touches the scene, @p opacity at fadeDistance or more.
-// Only the ParticleSprite cell reads the scene depth (the parser defines DESERT_SURFACE_PARTICLE_SPRITE in both stages
-// of that cell, and its fragment stage declares the depth here); a mesh cell has no scene depth behind it to read
-// and returns the opacity unchanged, as UE's DepthFade does outside translucency.
-#if defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
-// A separate texture read through its own point-clamped state (ParticleRenderer binds both); 24 is the one set-0
-// slot below the scene-read range that no sprite-cell declaration takes.
-layout( binding = 24 ) uniform sampler u_PointClampSampler;
+// Only the ParticleSprite cell fades by the scene depth (the parser defines DESERT_SURFACE_PARTICLE_SPRITE in both
+// stages of that cell); a mesh cell returns the opacity unchanged, as UE's DepthFade does outside translucency.
+//
+// THE SCENE DEPTH, declared here once for every fragment stage that reads it: the particle sprites (Depth Fade) and
+// the Forward cells (opaque and translucent), whose contact shadows march it (Common/ContactShadow.glslh; bound as
+// SceneViewInputs::SceneDepth, the opaque G-buffer depth, or a black texture where the view has none). A separate
+// texture read through the point-clamped shared state (ParticleRenderer / Graphic::BindSceneViewInputs bind both),
+// numbered by the program build (SharedSamplerBinding.hpp).
+#if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) &&      ( defined( DESERT_SURFACE_PARTICLE_SPRITE ) || defined( DESERT_SURFACE_PASS_Forward ) )
+Uniform sampler u_PointClampSampler;
 layout( binding = 27 ) uniform texture2D u_SceneDepth; // 27 = Core::kSceneDepthBinding, the scene-read range's third slot (ShaderGraphBindings.hpp)
 #define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
+#endif
+// THE SCENE SHADING WORD beside it, for the Forward cells only: the contact-shadow ray's hit texel's NO_CONTACT_SHADOW
+// bit (UE CastContactShadow( GBuffer ); SceneViewInputs::SceneShadingWord, the G-buffer's, or an integer zero). Read
+// with texelFetch through the same point-clamped state.
+#if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) && defined( DESERT_SURFACE_PASS_Forward )
+layout( binding = 28 ) uniform utexture2D u_SceneShadingWord; // 28 = Core::kSceneShadingWordBinding, the range's fourth slot
+#define u_SceneShadingWord usampler2D(u_SceneShadingWord, u_PointClampSampler)
+#endif
 
+#if defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
 float DesertDepthFade( vec3 worldPosition, float opacity, float fadeDistance )
 {
     const vec2  uv     = gl_FragCoord.xy / vec2( textureSize( u_SceneDepth, 0 ) );

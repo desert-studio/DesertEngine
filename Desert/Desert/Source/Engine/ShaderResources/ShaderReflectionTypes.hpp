@@ -83,6 +83,7 @@ namespace Desert::ShaderResources::ShaderLayout
     enum class SampledImageDimension : uint8_t
     {
         Texture2D,
+        Texture2DArray, // the sun's shadow cascades (layer c = cascade c): a pass input, never a material property
         Texture2DMultisample,
         Texture3D,
         Cube,

@@ -44,15 +44,16 @@ Shader "DeferredLighting"
         // through one of these three, bound once by the pass (DeferredLightingRenderer::DeclareCompositeBindings).
         // A combined sampler per input put 17 samplers in this fragment stage, over MoltenVK's
         // maxPerStageDescriptorSamplers of 16, and the device refused the program; now the stage holds 3.
-        // Slots 24..26: 0-23 are taken in set 0.
+        // Numbered by the program build after the last slot of set 0 (SharedSamplerBinding.hpp); 28 up is the
+        // shader graph's window, and set 0 ends at 24 (u_SSR), so they land on 25..27.
         //
         // Each input keeps the name the C++ binds and the shared includes read (Mesh/CascadedShadow.glslh,
         // Mesh/AmbientIBL.glslh, ...): right after its declaration a macro of the SAME name turns every later use
         // into the combined form `sampler2D(texture, sampler)`. The preprocessor never re-expands a macro inside
         // its own expansion, so the inner name is the texture itself.
-        layout(set = 0, binding = 24) uniform sampler u_LinearRepeatSampler;
-        layout(set = 0, binding = 25) uniform sampler u_LinearClampSampler;
-        layout(set = 0, binding = 26) uniform sampler u_PointClampSampler;
+        Uniform sampler u_LinearRepeatSampler;
+        Uniform sampler u_LinearClampSampler;
+        Uniform sampler u_PointClampSampler;
 
         // The G-buffer's layout and the shading-model ids it carries (the shading word, Emissive.a).
         // The shading word (ShadingModels/ShadingModelContract.glslh): an RG32_UINT target, read ONLY by texelFetch.
@@ -107,8 +108,8 @@ Shader "DeferredLighting"
         // SkinnedMeshLit. Included after the three bindings above because it names them.
         // The reflection captures (Common/ReflectionEnvironment.glslh): the per-capture records and their cube array,
         // bound by the Composite node as scene view inputs (SceneViewInputs::ReflectionCaptures / ...Cubes).
-        // SET 1, bindings 0 and 1. Set 0 has no room for two: 0-23 are taken in this layout (22 and 23 are the
-        // local shadow atlas and its views), 24 is the only spare, 25-27 are the reserved scene-read range
+        // SET 1, bindings 0 and 1, so the set-0 table (pinned by name in ShaderCacheKey) keeps its free slots for the
+        // passes that come next. 25-27 are the reserved scene-read range
         // (Core::IsSceneReadBinding) and 28 up is the window a shader graph's own resources are numbered into
         // (Core::kGraphOwnedBindingFirst) - which no engine declaration may enter, graph or no graph in this
         // program. A second set is outside both reservations by construction (they are set-0 numbers), and the
@@ -123,6 +124,11 @@ Shader "DeferredLighting"
         };
         layout(set = 1, binding = 1) uniform textureCubeArray u_ReflectionCaptureCubes;
         #define u_ReflectionCaptureCubes samplerCubeArray(u_ReflectionCaptureCubes, u_LinearClampSampler)
+        // The screen-space reflection of this frame (SSRRenderer's resolved trace, full resolution): rgb = the traced
+        // radiance, a = the share of the specular lobe the trace answered. When SSR is off it is System.Black (opaque)
+        // and u_CameraPos.w = 0: nothing is read, the environment answers the whole lobe.
+        layout(set = 0, binding = 24) uniform texture2D u_SSR;
+        #define u_SSR sampler2D(u_SSR, u_LinearClampSampler)
         #include <Mesh/AmbientIBL.glslh>
         #include <Mesh/LightSources.glslh>
         // THE lighting of this pass: the texel's shading model through the dispatch the registry generates. The
@@ -141,8 +147,9 @@ Shader "DeferredLighting"
         	vec4 u_LightDir;   // xyz = direction the light travels (away from the sun); w unused
         	vec4 u_LightColor; // rgb = colour, a = intensity
         	vec4 u_Params;     // x = debug mode (0..9), y = GI intensity (0 = off), z = SSAO enabled, w = GI mode
-        	vec4 u_CameraPos;  // xyz = camera world position (for the view vector); w unused
+        	vec4 u_CameraPos;  // xyz = camera world position (for the view vector); w = 1 when u_SSR holds a trace
         	mat4 u_InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
+        	mat4 u_JitteredViewProjection;    // the matrix itself: the contact shadows march the depth in its space
         };
 
         float ssgiHash(vec2 p)
@@ -219,24 +226,33 @@ Shader "DeferredLighting"
         	return indirect / float(SAMPLES);
         }
 
-        // The cascaded shadow's five bindings, at slots free in THIS layout. The text that reads them is
+        // The cascaded shadow's two bindings, at slots free in THIS layout. The text that reads them is
         // one file for every shader in the engine that shades a surface with the sun —
         // Mesh/CascadedShadow.glslh, included right below because it names what is declared here.
-        // The four cascades are ONE binding (an array of separate textures, element = cascade); the names the
-        // shared text reads are its elements through the shared sampler.
-        layout(set = 0, binding = 5) uniform texture2D u_ShadowMaps[4];
-        #define u_ShadowMap0 sampler2D(u_ShadowMaps[0], u_LinearRepeatSampler)
-        #define u_ShadowMap1 sampler2D(u_ShadowMaps[1], u_LinearRepeatSampler)
-        #define u_ShadowMap2 sampler2D(u_ShadowMaps[2], u_LinearRepeatSampler)
-        #define u_ShadowMap3 sampler2D(u_ShadowMaps[3], u_LinearRepeatSampler)
+        // The four cascades are ONE array texture (layer c = cascade c), read through the shared repeat state.
+        Uniform(5) texture2DArray u_ShadowCascades;
+        #define u_ShadowCascades sampler2DArray(u_ShadowCascades, u_LinearRepeatSampler)
         Uniform(7) ShadowUB {
         	mat4 u_LightViewProj[4];
-        	vec4 u_ShadowParams;      // x = bias, y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
+        	vec4 u_ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
         	vec4 u_DebugParams;       // x = show normals (>0.5), y = light debug (>0.5); z,w reserved
         	vec4 u_CascadeTexelWorld; // per-cascade world size of one shadow-map texel (x..w = cascade 0..3)
+        	vec4 u_CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (x..w = cascade 0..3)
+        	vec4 u_ContactShadowView; // x = contact shadow ray steps (0 = off), y = tan(fovY / 2), z = dither frame 0..7
+        	vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5),
+        	                          // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
         };
 
         #include <Mesh/CascadedShadow.glslh>
+
+        // THE CONTACT SHADOWS (UE ContactShadowLength): a short screen-space ray toward each light through
+        // u_GBufferDepth. Included after ShadowUB, which carries the march's view values; Mesh/LocalLightShadow.glslh
+        // below applies it to the point and spot lights, the sun's is applied in main().
+        #define CONTACT_SHADOW_DEPTH u_GBufferDepth
+        #define CONTACT_SHADOW_VP    u_JitteredViewProjection
+        // The hit texel's NO_CONTACT_SHADOW bit (UE CastContactShadow( GBuffer )): which intensity occludes.
+        #define CONTACT_SHADOW_SHADING_WORD u_GBufferShadingWord
+        #include <Common/ContactShadow.glslh>
 
         // THE CLOUD LAYER'S SHADOW ON THE WORLD — a second, independent occluder of the same sun.
         // Declared here, evaluated by the shared receiver text below: the wrapper used to live in this
@@ -259,13 +275,40 @@ Shader "DeferredLighting"
         // (Graphic/LocalShadows.hpp; MeshRenderer::UpdateLocalShadows writes both, and each light's shadowView).
         // The row struct first, then the two bindings, then the reader, which names them.
         #include <Mesh/LocalLightShadowView.glslh>
-        layout(set = 0, binding = 22) uniform texture2D u_LocalShadowAtlas;
+        Uniform(13) texture2D u_LocalShadowAtlas; // 13/14: freed by the cascade array
         #define u_LocalShadowAtlas sampler2D(u_LocalShadowAtlas, u_PointClampSampler)
-        ReadBuffer(23) LocalShadowViewsUB
+        ReadBuffer(14) LocalShadowViewsUB
         {
         	LocalShadowView localShadowViews[];
         };
         #include <Mesh/LocalLightShadow.glslh>
+
+        // THE VIEW'S LIGHT GRID ("LightGrid", Programs/Deferred/LightGridBuild.shader): a pixel is shaded by
+        // the point and spot lights of its froxel only (UE LightGrid). The parameters, then the cells, at set-0
+        // slots 22/23 (freed by the cascade array; 28 up is the shader graph's window, which this pass may not enter).
+        #include <Mesh/LightGrid.glslh>
+        ReadBuffer(22) LightGridParamsUB
+        {
+        	LightGridParams lightGrid;
+        };
+        ReadBuffer(23) LightGridCellsUB
+        {
+        	uint lightGridCells[];
+        };
+
+        // One light of the grid's index space (Mesh/LightGrid.glslh): points first, then spots.
+        vec3 ShadeGridLight(uint light, int shadingModel, vec3 worldPos, vec3 N, float subsurfaceOpacity,
+                            DesertSurface surface, DesertPayload payload)
+        {
+        	if (light < lightsMetadata.PointLightCount)
+        		return DesertEvaluateShadingModel(shadingModel,
+        		                                  DesertShadowedPointLightAt(pointLights[light], worldPos, N, subsurfaceOpacity),
+        		                                  surface, payload);
+        	return DesertEvaluateShadingModel(shadingModel,
+        	                                  DesertShadowedSpotLightAt(spotLights[light - lightsMetadata.PointLightCount],
+        	                                                            worldPos, N, subsurfaceOpacity),
+        	                                  surface, payload);
+        }
 
         // Heat ramp for the Light-Complexity debug view: 0 -> dark blue, up through cyan/green/yellow -> red.
         // Standard "jet"-style piecewise map so overlapping light volumes read as hotter pixels.
@@ -316,21 +359,17 @@ Shader "DeferredLighting"
         	if (dbg == 4) { oColor = vec4(vec3(roughness), 1.0); return; }                 // Roughness
         	if (dbg == 5) { oColor = vec4(vec3(ao),        1.0); return; }                 // Ambient Occlusion
 
-        	// Light Complexity: count how many point/spot light VOLUMES cover this pixel (by radius/range +
-        	// cone), then map the count to a heat colour. Cheap in deferred — the light data is already bound.
+        	// Light Complexity: the number of point/spot lights the lighting below shades this pixel with — its froxel's
+        	// count in the view's light grid (UE's clustered "light count" view), so the picture is the cost actually
+        	// paid, not a separate estimate. An overflowed cell is shaded by every light and shows that total.
+        	// Normalized by a fixed budget (8 lights = full red) so the scale is stable.
         	if (dbg == 7)
         	{
-        		uint lights = 0u;
-        		for (uint i = 0u; i < lightsMetadata.PointLightCount; i++)
-        			if (distance(pointLights[i].position, worldPos) < pointLights[i].radius)
-        				lights++;
-        		for (uint i = 0u; i < lightsMetadata.SpotLightCount; i++)
-        		{
-        			vec3  toL = spotLights[i].position - worldPos;
-        			if (length(toL) < spotLights[i].range && SpotConeFactor(spotLights[i], normalize(toL)) > 0.0)
-        				lights++;
-        		}
-        		// Normalize by a fixed budget (8 overlapping lights = full red) so the scale is stable.
+        		const uint cell   = LightGridCellAt(lightGrid, gl_FragCoord.xy, worldPos);
+        		const uint count  = lightGridCells[cell];
+        		const uint lights = LightGridCellOverflowed(lightGrid, count)
+        		                        ? lightsMetadata.PointLightCount + lightsMetadata.SpotLightCount
+        		                        : count;
         		oColor = vec4(HeatColor(float(lights) / 8.0), 1.0);
         		return;
         	}
@@ -369,7 +408,14 @@ Shader "DeferredLighting"
         	int   cascade  = -1;
         	// The cascades skip a surface whose material does not receive them (the shading word's NO_SUN_SHADOWS bit), then the
         	// cloud layer — the cloud factor AFTER the toggle, exactly as the forward pass assembles it.
-        	float shadow   = DesertReceivesSunShadows(word) ? ShadowFactor(worldPos, N, L, cascade) : 1.0;
+        	// The sun's contact shadow joins its cascades: it is the near-contact part of the same occlusion.
+        	// The receiver's subsurface opacity (UE IsSubsurfaceModel + CustomData.a; -1 = not subsurface): its
+        	// contact shadows fade with the hit distance.
+        	const float subsurfaceOpacity = DesertSubsurfaceOpacity(shadingModel, payload);
+        	float shadow   = DesertReceivesSunShadows(word)
+        	                     ? ShadowFactor(worldPos, N, L, cascade) *
+        	                           ContactShadowFactor(worldPos, N, L, u_SunContactShadow, subsurfaceOpacity)
+        	                     : 1.0;
         	shadow        *= CloudShadowFactor(worldPos);
         	vec3  radiance = u_LightColor.rgb * u_LightColor.a;
 
@@ -378,26 +424,32 @@ Shader "DeferredLighting"
         	vec3 result = DesertEvaluateShadingModel(shadingModel, DesertSunLight(u_LightDir.xyz, radiance, shadow),
         	                                         surface, payload);
 
-        	// Point lights (the city payoff): every source contributes full Cook-Torrance lit, occluded by its cube of
-        	// atlas views when it casts shadows.
-        	for (uint i = 0u; i < lightsMetadata.PointLightCount; i++)
-        		result += DesertEvaluateShadingModel(shadingModel, DesertShadowedPointLightAt(pointLights[i], worldPos, N),
-        		                                     surface, payload);
-
-        	// Spot lights (street lamps / headlights), occluded by their one perspective atlas view.
-        	for (uint i = 0u; i < lightsMetadata.SpotLightCount; i++)
-        		result += DesertEvaluateShadingModel(shadingModel, DesertShadowedSpotLightAt(spotLights[i], worldPos, N),
-        		                                     surface, payload);
+        	// Point and spot lights (the city payoff): full Cook-Torrance lit, each occluded by its atlas views when it
+        	// casts shadows — the lights of this pixel's froxel only, in the order the full loop would sum them. An
+        	// overflowed cell (more lights than its list holds) is shaded by every light: slower, never wrong.
+        	const uint cell  = LightGridCellAt(lightGrid, gl_FragCoord.xy, worldPos);
+        	const uint count = lightGridCells[cell];
+        	if (!LightGridCellOverflowed(lightGrid, count))
+        	{
+        		const uint list = LightGridListOffset(lightGrid, cell);
+        		for (uint j = 0u; j < count; j++)
+        			result += ShadeGridLight(lightGridCells[list + j], shadingModel, worldPos, N, subsurfaceOpacity, surface,
+        			                         payload);
+        	}
+        	else
+        	{
+        		const uint lights = lightsMetadata.PointLightCount + lightsMetadata.SpotLightCount;
+        		for (uint i = 0u; i < lights; i++)
+        			result += ShadeGridLight(i, shadingModel, worldPos, N, subsurfaceOpacity, surface, payload);
+        	}
 
         	// One-bounce GI (D6). Two interchangeable sources, picked by u_Params.w:
         	//  1 = SCREEN-SPACE: gather from sun-lit G-buffer neighbours. Cheap and self-contained, but only
         	//      geometry currently ON SCREEN can bounce, and there is no denoiser.
         	//  2 = RSM: read the GIResolve buffer, which bounced light from everything the SUN sees (off-screen
-        	//      included) and was temporally accumulated. Costs an extra shadow-style pass + two fullscreen
-        	//      passes. Its intensity is already applied in GIResolve, so it is NOT scaled again here.
-        	// The RSM buffer is a jittered gather even after temporal accumulation, so read it through a 5x5
-        	// tent — single-tap leaves visible grain that glass refraction and SSR then magnify. UVs are
-        	// clamped because the global sampler is REPEAT.
+        	//      included), denoised by the screen-space denoiser (ScreenSpaceDenoiser). Costs an extra
+        	//      shadow-style pass, the gather and the denoiser's passes. Its intensity is already applied in
+        	//      GIResolve, so it is NOT scaled again here.
         	vec3  indirect    = vec3(0.0);
         	float giIntensity = u_Params.y;
         	int   giMode      = int(u_Params.w + 0.5);
@@ -407,18 +459,9 @@ Shader "DeferredLighting"
         	}
         	else if (giMode == 2)
         	{
-        		vec2  texel = 1.0 / vec2(textureSize(u_GI, 0));
-        		vec3  giAcc = vec3(0.0);
-        		float wsum  = 0.0;
-        		for (int gy = -2; gy <= 2; gy++)
-        			for (int gx = -2; gx <= 2; gx++)
-        			{
-        				float w  = (3.0 - abs(float(gx))) * (3.0 - abs(float(gy))); // 5x5 tent
-        				vec2  uv = clamp(v_TexCoord + vec2(gx, gy) * texel, vec2(0.001), vec2(0.999));
-        				giAcc += texture(u_GI, uv).rgb * w;
-        				wsum  += w;
-        			}
-        		indirect = giAcc / wsum;
+        		// Already denoised (ScreenSpaceDenoiser, diffuse indirect: bilateral reconstruction, temporal
+        		// accumulation, history convolution) - a second, depth-blind blur here would bleed across edges.
+        		indirect = textureLod(u_GI, v_TexCoord, 0.0).rgb;
         	}
 
         	if (dbg == 6) { oColor = vec4(indirect, 1.0); return; } // Indirect GI only
@@ -428,8 +471,13 @@ Shader "DeferredLighting"
         	// forward mesh shaders call, so a scene rendered through either RenderingPath gets one ambient
         	// model. The only argument that differs there is `indirect`, which the forward path passes as
         	// zero because it has no bounce gather.
-        	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, DesertSampleAmbient(surface, indirect, ao),
-        	                                                 surface, payload);
+        	// The specular radiance along the reflection is the traced one where SSR answered, the reflection
+        	// environment (captures, then sky) for the rest (UE ReflectionEnvironmentPixelShader: SSR over the
+        	// captures, then the split-sum Fresnel of both together).
+        	DesertAmbient sampled = DesertSampleAmbient(surface, indirect, ao);
+        	if (u_CameraPos.w > 0.5)
+        		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), sampled.Prefiltered);
+        	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, sampled, surface, payload);
 
         	// Self-illumination (view-independent) — added here (not lit) so HDR emissive reaches the composite
         	// and blooms, matching the forward path. GBufferEmissive is 0 where the material has none.

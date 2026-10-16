@@ -48,15 +48,15 @@ namespace Desert::Editor
             // and the flag lives in EditorPreferences. The images below read GPU state and write nothing,
             // so they stay.
 
-            // CSM cascade depth maps (R32F light-space depth, near→far cascades).
+            // CSM cascades' static-caster caches (D32F light-space depth, near→far cascades).
             if ( auto* sr = m_Scene->GetSceneRenderer() )
             {
                 const uint32_t count = sr->GetShadowCascadeCount();
-                ImGui::TextDisabled( "CSM cascade depth maps (near -> far):" );
+                ImGui::TextDisabled( "CSM static-caster caches (near -> far):" );
                 constexpr float kThumb = 96.0f;
                 for ( uint32_t c = 0; c < count; ++c )
                 {
-                    if ( auto img = sr->GetShadowCascadeImage( c ) )
+                    if ( auto img = sr->GetShadowCascadeCacheImage( c ) )
                         m_UIHelper->Image( img, ImVec2( kThumb, kThumb ) );
                     if ( ( c % 3 ) != 2 && c + 1 < count )
                         ImGui::SameLine();
