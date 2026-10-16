@@ -117,6 +117,13 @@ project "FidelityFX"
         root .. "/src/backends/shared/ffx_shader_blobs.cpp",
         root .. "/src/backends/shared/blob_accessors/ffx_fsr3upscaler_shaderblobs.cpp",
         root .. "/src/backends/vk/ffx_vk.cpp",
+        -- The VK backend's own frame-interpolation swapchain: ffx_vk.cpp's interface table points at
+        -- ffxSetFrameGenerationConfigToSwapchainVK, so the backend links only with it (AMD builds the backend
+        -- the same way, src/backends/vk/CMakeLists.txt). Frame generation itself stays unused.
+        root .. "/src/backends/vk/FrameInterpolationSwapchain/FrameInterpolationSwapchainVK.cpp",
+        root .. "/src/backends/vk/FrameInterpolationSwapchain/FrameInterpolationSwapchainVK_DebugPacing.cpp",
+        root .. "/src/backends/vk/FrameInterpolationSwapchain/FrameInterpolationSwapchainVK_Helpers.cpp",
+        root .. "/src/backends/vk/FrameInterpolationSwapchain/FrameInterpolationSwapchainVK_UiComposition.cpp",
     }
 
     includedirs
