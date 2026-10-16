@@ -1155,6 +1155,9 @@ namespace Desert::Graphic
         RayTracing::RayTracingHitGroupTable m_ReflectionHitGroups;
         std::shared_ptr<DataDrivenMaterial> m_ReflectionDefaultSurface;
         bool                                m_ReportedHitLightingDevice = false;
+        // Templates already reported as shading on the default hit group (no compiled `RayTracing.Hit` cell):
+        // each is warned about once per session, not per frame.
+        std::vector<std::string> m_ReportedHitGroupFallbacks;
         // The view's landscape tiles in that TLAS (their BLAS at the view's raster LOD).
         RayTracing::LandscapeRayTracing m_LandscapeRayTracing;
 #if DESERT_DEV_INSTRUMENTS

@@ -43,7 +43,13 @@ namespace Desert::Graphic::RayTracing
         std::vector<std::string>         Templates;
         std::vector<RayTracingHitRecord> Records; // one per segment record, same order
         std::vector<glm::vec4>           Rows;    // the records' material rows end to end (16-byte slots)
-        uint32_t                         SegmentsOnDefaultSurface = 0;
+        // Segments with no surface template (a whole-entity shader override): shaded by the default surface.
+        uint32_t SegmentsOnDefaultSurface = 0;
+        // Segments whose template has no compiled hit group (its `RayTracing.Hit` cell was refused or failed to
+        // compile): shaded by the default surface's group and row (UE: the fallback material of a mesh command
+        // whose material has no ray tracing shaders), never a refused frame. TemplatesWithoutHitGroup names them.
+        uint32_t                 SegmentsOnFallbackHitGroup = 0;
+        std::vector<std::string> TemplatesWithoutHitGroup;
     };
 
 } // namespace Desert::Graphic::RayTracing

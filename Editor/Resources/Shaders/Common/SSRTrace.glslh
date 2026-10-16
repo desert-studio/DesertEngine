@@ -109,8 +109,8 @@ layout(binding = 22) uniform texture2D u_GBufferEmissive;
 // lighting): the world ray is traced by the ray tracing pipeline from this program's ray generation stage (the
 // "HitLighting" pass of SSR.shader), the hit's material is its surface template's own closest-hit shader
 // (Mesh/Surface/Pass_RayHit.glslh, the template's `RayTracing.Hit` cell) and the hit is lit here in place
-// (GIHitRadianceLit: every light with a visibility ray, the radiance cache's bounce) - no surface cache, no G-buffer
-// guess. The view block is bound for the hit shaders (SurfaceInput's camera and time) and the ray cone.
+// (GIHitRadianceLit: every light's diffuse + specular with a visibility ray, the radiance cache's bounce) - no
+// surface cache, no G-buffer guess. The view block is bound for the hit shaders (SurfaceInput's camera and time) and the ray cone.
 #if !defined( DESERT_GI_TRACER_HARDWARE ) || !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
 #error "hit-lit reflections are the hardware tracer's, lit in place"
 #endif
@@ -239,7 +239,8 @@ bool TraceWorld(vec3 worldPos, vec3 N, vec3 L, float start, bool nearField, floa
 	hit.primitive    = 0u;
 	hit.barycentrics = vec2(0.0);
 	hit.frontFace    = (payload.Flags & kDesertRayPayloadFrontFace) != 0u;
-	radiance = GIHitRadianceLit(hit, L, payload.BaseColor * (1.0 - payload.Metallic), payload.Emissive);
+	radiance = GIHitRadianceLit(hit, L, GIHitSurface(payload.BaseColor, payload.Metallic, payload.Roughness,
+	                                                 payload.Emissive, true));
 	hitPoint = hit.position;
 	return true;
 #else

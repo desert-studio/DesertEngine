@@ -1047,10 +1047,11 @@ namespace Desert::Graphic
             return Common::MakeError( defaultCell.GetError() );
         if ( !m_ReflectionDefaultSurface || m_ReflectionDefaultSurface->GetShaderName() != defaultCell.GetValue() )
             m_ReflectionDefaultSurface = std::make_shared<DataDrivenMaterial>( defaultCell.GetValue() );
-        if ( const auto hit = shaders->GetByName( std::format( "{}/RayTracing.Hit", defaultTemplate.GetValue() ) );
-             !hit || !hit->IsCompiled() )
-            return Common::MakeFormattedError( "the default surface template '{}' has no compiled hit group",
-                                               defaultTemplate.GetValue() );
+        const auto hasHitGroup = [shaders]( const std::string& name )
+        {
+            const auto hit = shaders->GetByName( std::format( "{}/RayTracing.Hit", name ) );
+            return hit && hit->IsCompiled();
+        };
         const RayTracing::RayTracingSegmentSurface defaultSurface{ defaultTemplate.GetValue(),
                                                                    m_ReflectionDefaultSurface->GetParamRow() };
         const auto surfaceOf = []( const RayTracing::RayTracingSegmentRecord& segment )
@@ -1069,10 +1070,20 @@ namespace Desert::Graphic
         };
         auto table = RayTracing::BuildRayTracingHitGroupTable( m_RayTracingScene.GetGeometryRecords(),
                                                                 m_RayTracingScene.GetSegmentRecords(), surfaceOf,
-                                                                defaultSurface );
+                                                                defaultSurface, hasHitGroup );
         if ( !table )
             return Common::MakeError( table.GetError() );
         m_ReflectionHitGroups = std::move( table.GetValue() );
+        for ( const std::string& name : m_ReflectionHitGroups.TemplatesWithoutHitGroup )
+        {
+            if ( std::ranges::find( m_ReportedHitGroupFallbacks, name ) != m_ReportedHitGroupFallbacks.end() )
+                continue;
+            m_ReportedHitGroupFallbacks.push_back( name );
+            LOG_WARN( "[SceneRenderer] Reflections hit lighting: surface template '{}' has no compiled hit group "
+                      "('{}/RayTracing.Hit' refused or failed: DShaderParser SurfaceTemplateInfo::RayHitRefusal) - "
+                      "its segments shade with the default surface '{}' ({} segments this frame)",
+                      name, name, defaultTemplate.GetValue(), m_ReflectionHitGroups.SegmentsOnFallbackHitGroup );
+        }
         return BOOLSUCCESS;
     }
 

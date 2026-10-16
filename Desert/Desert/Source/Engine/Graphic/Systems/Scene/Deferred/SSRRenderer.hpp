@@ -141,8 +141,9 @@ namespace Desert::Graphic::System
         // GRAPH BUILD, after EnsureTracedProgram( ..., true ): the ray tracing pipeline of the hit-lit trace - the
         // "SSR/HitLighting" pass of the same permutation and one hit group per surface template of this frame's
         // hit group table (@p templates = RayTracingHitGroupTable::Templates: each template's `RayTracing.Hit`
-        // cell, "<Template>/RayTracing.Hit"). Rebuilt when the permutation or the template list changes. An
-        // error names the template whose cell is missing or what the pipeline refused.
+        // cell, "<Template>/RayTracing.Hit"). Rebuilt when the permutation or the template list changes. The table
+        // holds only templates with a compiled cell (BuildRayTracingHitGroupTable falls back to the default
+        // surface), so a missing cell here is a broken invariant; an error names it or what the pipeline refused.
         [[nodiscard]] Common::BoolResultStr EnsureHitLightingPipeline( const std::vector<std::string>& templates )
         {
             if ( !m_TracedHitLit )
@@ -161,11 +162,9 @@ namespace Desert::Graphic::System
                 const std::string cell = std::format( "{}/RayTracing.Hit", name );
                 auto              hit  = shaders->GetByName( cell );
                 if ( !hit || !hit->IsCompiled() )
-                    return Common::MakeFormattedError(
-                         "SSR: surface template '{}' has no compiled hit group '{}' (a translucent template or one "
-                         "binding a texture outside its row has none: DShaderParser SurfaceTemplateInfo::"
-                         "RayHitRefusal)",
-                         name, cell );
+                    return Common::MakeFormattedError( "SSR: the hit group table names surface template '{}', whose "
+                                                       "hit group '{}' is not compiled",
+                                                       name, cell );
                 spec.HitGroups.push_back( std::move( hit ) );
             }
             auto pipeline = RayTracingPipeline::Create( spec );

@@ -27,14 +27,18 @@ namespace Desert::Graphic::RayTracing
         Core::Formats::MaterialParamRow Row;
     };
     using RayTracingSegmentSurfaceFn = std::function<RayTracingSegmentSurface( const RayTracingSegmentRecord& )>;
+    // Does surface template @p name have a compiled hit group (its "<name>/RayTracing.Hit" cell)?
+    using RayTracingHasHitGroupFn = std::function<bool( const std::string& )>;
 
     // PURE. @p geometry and @p segments are the frame's two sides of the per-segment table
     // (RayTracingSceneRenderer::GetGeometryRecords / GetSegmentRecords) and must be the same length. A record
     // whose geometry row is empty (a run no TLAS instance points at, BuildRayTracingMetadata) is never hit: it
-    // gets group 0 and no row. @p defaultSurface is the default surface template and its default row.
+    // gets group 0 and no row. @p defaultSurface is the default surface template and its default row; it must have
+    // a hit group. A segment whose template has none (@p hasHitGroup) takes the default surface, counted.
     [[nodiscard]] inline Common::ResultStr<RayTracingHitGroupTable> BuildRayTracingHitGroupTable(
          std::span<const RayTracingGeometryRecord> geometry, std::span<const RayTracingSegmentRecord> segments,
-         const RayTracingSegmentSurfaceFn& surfaceOf, const RayTracingSegmentSurface& defaultSurface )
+         const RayTracingSegmentSurfaceFn& surfaceOf, const RayTracingSegmentSurface& defaultSurface,
+         const RayTracingHasHitGroupFn& hasHitGroup )
     {
         using Result = RayTracingHitGroupTable;
         if ( geometry.size() != segments.size() )
@@ -44,6 +48,11 @@ namespace Desert::Graphic::RayTracing
                  geometry.size(), segments.size() );
         if ( defaultSurface.Template.empty() )
             return Common::MakeError<Result>( "RayTracingHitGroupTable: no default surface template" );
+        if ( !hasHitGroup( defaultSurface.Template ) )
+            return Common::MakeFormattedError<Result>(
+                 "RayTracingHitGroupTable: the default surface template '{}' has no compiled hit group - nothing to "
+                 "fall back to",
+                 defaultSurface.Template );
 
         Result table;
         table.Templates.push_back( defaultSurface.Template );
@@ -67,6 +76,20 @@ namespace Desert::Graphic::RayTracing
             {
                 surface = defaultSurface;
                 ++table.SegmentsOnDefaultSurface;
+            }
+            else if ( std::ranges::find( table.Templates, surface.Template ) == table.Templates.end() )
+            {
+                const bool knownMissing = std::ranges::find( table.TemplatesWithoutHitGroup, surface.Template ) !=
+                                          table.TemplatesWithoutHitGroup.end();
+                if ( knownMissing || !hasHitGroup( surface.Template ) )
+                {
+                    if ( !knownMissing )
+                        table.TemplatesWithoutHitGroup.push_back( surface.Template );
+                    // The segment's row is laid out for its own template's parameters, so the default group
+                    // takes the default row too.
+                    surface = defaultSurface;
+                    ++table.SegmentsOnFallbackHitGroup;
+                }
             }
             record.HitGroup           = groupOf( surface.Template );
             record.Data.VertexAddress = g.VertexAddress;
