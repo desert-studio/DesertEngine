@@ -22,6 +22,11 @@ namespace Desert::ShaderResources
 namespace Desert::Graphic
 {
     class RendererAPI;
+    class RayTracingPipeline;
+    namespace RayTracing
+    {
+        struct RayTracingHitGroupTable;
+    } // namespace RayTracing
     class VertexBuffer;
     namespace RDG
     {
