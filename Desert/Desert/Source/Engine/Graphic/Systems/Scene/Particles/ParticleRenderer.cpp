@@ -565,7 +565,7 @@ namespace Desert::Graphic::System
         // Depth-tested, never written, and sampled for the depth fade in the same pass: the node holds the scene
         // depth READ-ONLY (UE: FExclusiveDepthStencil::DepthRead with the SceneDepth SRV).
         pass.DepthReadOnly = true;
-        pass.Declare       = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
+        pass.Declare       = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
             const ViewFrame* view = m_SceneRenderer->GetViewFrame();
             if ( m_SceneRenderer->GetMainCamera() == nullptr || view == nullptr )
@@ -595,8 +595,13 @@ namespace Desert::Graphic::System
             }
 
             // The scene depth the cells fade against: the single-sample depth (the attachment itself at MSAA 1,
-            // read-only in this node), bound only where the cell's layout samples it.
-            const std::shared_ptr<Image2D> depth = m_SceneRenderer->GetComputeSceneDepth();
+            // read-only in this node), on BOTH paths (SceneViewInputs::SceneDepth is the G-buffer's, absent on the
+            // forward path). Every other scene/view input a cell samples comes from THE one list, as the forward
+            // meshes and the glass take them — the shading word the lit cell's contact shadow tests, the cascades,
+            // the environment, the light grid: a slot the pass leaves unfilled faults the node
+            // (ValidatePassBindings), so a sprite cell that gains a scene read must not need this pass to name it.
+            const std::shared_ptr<Image2D> depth  = m_SceneRenderer->GetComputeSceneDepth();
+            const SceneViewInputs          inputs = SceneViewInputsOf( refs );
             for ( const ViewEmitter& ve : m_ViewEmitters )
             {
                 if ( !IsDrawn( ve ) )
@@ -610,9 +615,22 @@ namespace Desert::Graphic::System
                           .Storage( "DrawLayout", ve.DrawLayoutRef, RDG::Access::StorageRead )
                           .Storage( "AliveList", ve.Sorted ? m_SortedRef : m_Pool.AliveRef,
                                     RDG::Access::StorageRead );
-                if ( SceneViewDetail::LayoutSamples( *layout, "u_SceneDepth" ) && depth )
-                    block.Sampled( "u_SceneDepth", depth, RDG::Access::SampledGraphics,
+                const bool fades = SceneViewDetail::LayoutSamples( *layout, kSceneViewSceneDepthName );
+                if ( fades && depth )
+                    block.Sampled( kSceneViewSceneDepthName, depth, RDG::Access::SampledGraphics,
                                    RDG::SamplerDesc::PointClamp(), "SceneDepth.Compute" );
+                // The rest of the list, minus the depth above and minus what the material route already fills
+                // (a slot filled by both faults the node as surely as one filled by neither).
+                const RDG::OtherRouteFill& route  = ve.Sprite->Material->GetMaterialExecutor()->GetRouteFill();
+                RDG::ShaderBindingLayout   others = *layout;
+                std::erase_if( others.Slots,
+                               [&route]( const RDG::ShaderSlot& slot )
+                               {
+                                   return slot.Name == kSceneViewSceneDepthName ||
+                                          std::find( route.Slots.begin(), route.Slots.end(), slot.Name ) !=
+                                               route.Slots.end();
+                               } );
+                BindSceneViewInputs( block, inputs, others );
                 declared.Read( ve.CountersRef, RDG::Access::IndirectArgs );
             }
         };

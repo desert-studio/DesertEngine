@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "5d1e7c0a2b9f4e3c8a6d1f0b7e2c9a41",
         "Versions": {
-            "SCNE": 50,
+            "SCNE": 54,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "a0f8d89f476e4abfb22847b902230cb7", "e12666e7f7b0b5c39c12214da879324e"]
     },
     "SceneName": "Destruction Dust Witness",
     "Entities": [
@@ -29,10 +29,15 @@
                 "BloomMaxBrightness": 100.0,
                 "BloomTint": [1.0, 1.0, 1.0],
                 "CastShadows": true,
+                "SourceAngle": 0.5357000231742859,
                 "ShadowBias": 1.0,
                 "ShadowSlopeBias": 2.0,
                 "ShadowCascadeBiasDistribution": 1.0,
-                "CascadeSplitLambda": 0.6000000238418579
+                "CascadeSplitLambda": 0.6000000238418579,
+                "ContactShadowLength": 0.0,
+                "ContactShadowLengthInWorldSpace": false,
+                "ContactShadowCastingIntensity": 1.0,
+                "ContactShadowNonCastingIntensity": 0.0
             }
         },
         {
@@ -146,11 +151,14 @@
                 "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": false,
-                    "GlobalIllumination": 1,
+                    "GlobalIlluminationMethod": 2,
                     "GIIntensity": 2.0,
-                    "EnableSSR": false,
+                    "ReflectionsMethod": 0,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
+                    "ShadowsMethod": 0,
+                    "ContactShadows": false,
+                    "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "Exposure": 1.0,
                     "Gamma": 2.200000047683716,
@@ -199,7 +207,7 @@
             "Scale": [1.0, 1.0, 1.0],
             "Destructible": {
                 "Fracture": "Fractures/Crate.dfrac",
-                "DamageThreshold": [0.0, 0.0, 0.0],
+                "DamageThreshold": [50000.0, 50000.0],
                 "AnchoredNodes": [],
                 "DensityKgPerCm3": 0.002400000113993883,
                 "Friction": 0.6000000238418579,
@@ -230,10 +238,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "VFX": {
-                "System": {
-                    "Guid": "a0f8d89f476e4abfb22847b902230cb7",
-                    "Path": "VFX/DestructionDust.dfx"
-                },
+                "System": "VFX/DestructionDust.dfx",
                 "AutoActivate": true
             }
         }

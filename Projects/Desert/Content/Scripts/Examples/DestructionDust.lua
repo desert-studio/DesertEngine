@@ -7,10 +7,11 @@
 -- Positions arrive as vectors (p.x, p.y, p.z) in cm; a channel field takes a table {x, y, z}.
 
 Properties = {
-    BreakChannel = "BreakDust",
-    ImpactChannel = "ImpactDust",
-    SettleChannel = "SettleDust",
-    MinImpulse = 0.0, -- kg*cm/s; quieter contacts raise no dust (on top of the component's own minimum)
+    BreakChannel = Property.String( "BreakDust", { category = "Channels", tooltip = "Written once per break" } ),
+    ImpactChannel = Property.String( "ImpactDust", { category = "Channels", tooltip = "Written once per collision" } ),
+    SettleChannel = Property.String( "SettleDust", { category = "Channels", tooltip = "Written once per removal" } ),
+    -- kg*cm/s; quieter contacts raise no dust (on top of the component's own minimum)
+    MinImpulse = Property.Float( 0.0, { min = 0, max = 100000, units = "kg*cm/s", category = "Dust" } ),
 }
 
 local function xyz(v)
