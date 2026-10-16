@@ -436,18 +436,17 @@ namespace Desert::Core::Rules
                  !std::isfinite( source.RangeScale ) || source.RangeScale < 0.0f )
             {
                 return Common::MakeError<StreamingWish>(
-                     "QueryStreamingCells: streaming source " + std::to_string( index ) + " has position (" +
-                     std::to_string( source.Position.x ) + ", " + std::to_string( source.Position.z ) +
-                     ") and RangeScale " + std::to_string( source.RangeScale ) +
-                     "; a position must be finite and a scale finite and non-negative" );
+                     std::format( "QueryStreamingCells: streaming source {} has position ({:f}, {:f}) and "
+                                  "RangeScale {:f}; a position must be finite and a scale finite and non-negative",
+                                  index, source.Position.x, source.Position.z, source.RangeScale ) );
             }
             if ( source.LoadingRange.has_value() &&
                  ( !std::isfinite( *source.LoadingRange ) || *source.LoadingRange < 0.0f ) )
             {
                 return Common::MakeError<StreamingWish>(
-                     "QueryStreamingCells: streaming source " + std::to_string( index ) +
-                     " overrides LoadingRange with " + std::to_string( *source.LoadingRange ) +
-                     " cm; a range must be finite and non-negative" );
+                     std::format( "QueryStreamingCells: streaming source {} overrides LoadingRange with {:f} cm; "
+                                  "a range must be finite and non-negative",
+                                  index, *source.LoadingRange ) );
             }
             if ( !std::isfinite( source.AngleScale ) || source.AngleScale < 0.0f ||
                  ( source.Facing.has_value() &&
@@ -489,18 +488,18 @@ namespace Desert::Core::Rules
 
         if ( settings.Grids.empty() )
         {
-            return Common::MakeError<StreamingWish>( "QueryStreamingCells: the plan has " +
-                                                     std::to_string( plan.Cells.size() ) +
-                                                     " cell(s) but the partition settings state no grid" );
+            return Common::MakeError<StreamingWish>( std::format(
+                 "QueryStreamingCells: the plan has {} cell(s) but the partition settings state no grid",
+                 plan.Cells.size() ) );
         }
         const WorldPartitionGridSerialized& grid = settings.Grids.front();
         if ( !( grid.CellSize > 0.0f ) || !std::isfinite( grid.CellSize ) || !( grid.LoadingRange >= 0.0f ) ||
              !std::isfinite( grid.LoadingRange ) )
         {
-            return Common::MakeError<StreamingWish>( "QueryStreamingCells: grid 0 has CellSize " +
-                                                     std::to_string( grid.CellSize ) + " and LoadingRange " +
-                                                     std::to_string( grid.LoadingRange ) +
-                                                     "; a cell must be wider than zero and a range non-negative" );
+            return Common::MakeError<StreamingWish>(
+                 std::format( "QueryStreamingCells: grid 0 has CellSize {:f} and LoadingRange {:f}; a cell must "
+                              "be wider than zero and a range non-negative",
+                              grid.CellSize, grid.LoadingRange ) );
         }
 
         // Where each level's cells begin in the sorted plan; levelBegin[L + 1] is where they end. Found by

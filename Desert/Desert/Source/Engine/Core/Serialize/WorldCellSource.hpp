@@ -16,6 +16,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstddef>
+#include <format>
 #include <span>
 #include <string>
 #include <utility>
@@ -54,16 +55,15 @@ namespace Desert::Core::Rules
         {
             using Result = std::vector<Assets::EntityData>;
             if ( unit >= m_Units.size() )
-                return Common::MakeError<Result>( "memory cell source: unit " + std::to_string( unit ) + " of " +
-                                                  std::to_string( m_Units.size() ) + " does not exist" );
+                return Common::MakeError<Result>(
+                     std::format( "memory cell source: unit {} of {} does not exist", unit, m_Units.size() ) );
             Result out;
             out.reserve( m_Units[unit].size() );
             for ( const std::size_t record : m_Units[unit] )
             {
                 if ( record >= m_Records.size() )
-                    return Common::MakeError<Result>( "memory cell source: unit " + std::to_string( unit ) +
-                                                      " names record " + std::to_string( record ) + " of " +
-                                                      std::to_string( m_Records.size() ) );
+                    return Common::MakeError<Result>( std::format(
+                         "memory cell source: unit {} names record {} of {}", unit, record, m_Records.size() ) );
                 out.push_back( m_Records[record] );
             }
             return Common::MakeSuccess( std::move( out ) );

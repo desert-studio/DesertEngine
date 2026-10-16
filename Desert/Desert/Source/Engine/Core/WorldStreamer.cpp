@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <format>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -159,10 +160,10 @@ namespace Desert::Core
                 {
                     const Common::UUID id = Rules::HLODRecordId( snapshot->SceneName, name, batch );
                     if ( id.IsNull() || byId.contains( id ) )
-                        return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
-                                                          "': the id of batch " + std::to_string( batch ) +
-                                                          " of " + name +
-                                                          " is null or a record's; rename the world" );
+                        return Common::MakeError<Result>(
+                             std::format( "world streaming of '{}': the id of batch {} of {} is null or a "
+                                          "record's; rename the world",
+                                          snapshot->SceneName, batch, name ) );
                     hlod.Records.push_back( Rules::HLODRecord( built.Batches[batch], id, batch ) );
                 }
                 hlods.push_back( std::move( hlod ) );
@@ -184,9 +185,8 @@ namespace Desert::Core
         if ( streamer->m_MostResident < snapshot->Entities.size() )
         {
             Assets::AssetEvictionSchedule::Request(
-                 "world '" + streamer->m_SceneName + "': Play began, " +
-                 std::to_string( snapshot->Entities.size() - streamer->m_MostResident ) +
-                 " record(s) outside the resident cells destroyed" );
+                 std::format( "world '{}': Play began, {} record(s) outside the resident cells destroyed",
+                              streamer->m_SceneName, snapshot->Entities.size() - streamer->m_MostResident ) );
         }
         return Common::MakeSuccess( std::move( streamer ) );
     }
@@ -352,9 +352,9 @@ namespace Desert::Core
         }
         if ( Rules::ReleasesCellAssets( done ) )
         {
-            Assets::AssetEvictionSchedule::Request(
-                 "world '" + m_SceneName + "': " + std::to_string( done.UnitsDeactivated ) +
-                 " cell(s) deactivated, " + std::to_string( done.UnitsUnloaded ) + " unloaded" );
+            Assets::AssetEvictionSchedule::Request( std::format( "world '{}': {} cell(s) deactivated, {} unloaded",
+                                                                 m_SceneName, done.UnitsDeactivated,
+                                                                 done.UnitsUnloaded ) );
         }
         m_Scene->GetRegistry().set<WorldStreamingWait>(
              WorldStreamingWait{ m_LastTick.Streaming, m_FramesWaiting } );
@@ -408,13 +408,14 @@ namespace Desert::Core
         // StepResidency activates only a Loaded unit, and a unit is Loaded only once its read was reported Ok.
         const std::vector<Assets::EntityData>* unitRecords = m_Loader->Records( unit );
         if ( unitRecords == nullptr )
-            return Common::MakeError( "world streaming of '" + m_SceneName + "': unit " + std::to_string( unit ) +
-                                      " is activated with no finished read of its records" );
+            return Common::MakeError(
+                 std::format( "world streaming of '{}': unit {} is activated with no finished read of its records",
+                              m_SceneName, unit ) );
         if ( unitRecords->size() != records.size() )
         {
-            return Common::MakeError( "world streaming of '" + m_SceneName + "': unit " + std::to_string( unit ) +
-                                      " came back with " + std::to_string( unitRecords->size() ) +
-                                      " record(s), the plan holds " + std::to_string( records.size() ) );
+            return Common::MakeError(
+                 std::format( "world streaming of '{}': unit {} came back with {} record(s), the plan holds {}",
+                              m_SceneName, unit, unitRecords->size(), records.size() ) );
         }
         auto made = SceneSerializer( m_Scene, m_Assets ).InstantiateRecords( *unitRecords, m_SceneName, nullptr );
 
@@ -474,10 +475,11 @@ namespace Desert::Core
             return Common::MakeError( "world streaming of '" + m_SceneName + "': " + synced.GetError() );
         // THE HOLES: a drawing record the builder could not batch has no stand-in (WorldPartitionHLODSwitch.hpp).
         const std::string holesText =
-             holes.empty() ? std::string( "every drawing record has its stand-in" )
-                           : std::to_string( holes.size() ) +
-                                  " drawing record(s) have none and leave a hole while their cell is not drawn: " +
-                                  Rules::DescribeHLODHoles( holes );
+             holes.empty()
+                  ? std::string( "every drawing record has its stand-in" )
+                  : std::format(
+                         "{} drawing record(s) have none and leave a hole while their cell is not drawn: {}",
+                         holes.size(), Rules::DescribeHLODHoles( holes ) );
         // A hole is something the player sees vanish (WP-FAR-1: a whole landscape beyond the loading range), so
         // it is a warning, not a line among the info.
         if ( holes.empty() )

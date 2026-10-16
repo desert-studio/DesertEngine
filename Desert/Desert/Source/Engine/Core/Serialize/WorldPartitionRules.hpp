@@ -112,6 +112,7 @@
 #include <Common/Json/Document.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 
@@ -1729,29 +1730,40 @@ namespace Desert::Core::Rules
     [[nodiscard]] inline std::string SummarisePartition( const WorldPartitionPlan&       plan,
                                                          const WorldPartitionSerialized& settings )
     {
-        const auto units = []( float value ) { return std::to_string( std::llround( value ) ); };
+        static const TextTemplate kSummary(
+             "PartitionSummary",
+             "{{ composites }} composite(s): {{ cells }} cell(s) over {{ levels }} level(s) ["
+             "{% for n in perLevel %}{% if not loop.first %}, {% endif %}L{{ loop.index0 }}: {{ n }}{% endfor %}"
+             "], {{ alwaysLoaded }} always-loaded (author {{ author }}, component {{ component }}, "
+             "no fit {{ noFit }}, no grid {{ noGrid }}); highest promotion: level {{ maxLevel }}; "
+             "{{ pointOnly }} record(s) placed by position alone"
+             "{% if grid %}; grid 0: cell {{ grid.cell }}, loading range {{ grid.range }} world units{% endif %}" );
 
-        std::string line = std::to_string( plan.Composites.size() ) +
-                           " composite(s): " + std::to_string( plan.Cells.size() ) + " cell(s) over " +
-                           std::to_string( plan.LevelCount ) + " level(s) [";
-        const auto perLevel = CellsPerLevel( plan );
-        for ( std::size_t level = 0; level < perLevel.size(); ++level )
-            line +=
-                 ( level == 0 ? "L" : ", L" ) + std::to_string( level ) + ": " + std::to_string( perLevel[level] );
-
+        Common::Json::Value::Array perLevel;
+        for ( const std::size_t cells : CellsPerLevel( plan ) )
+            perLevel.emplace_back( static_cast<std::int64_t>( cells ) );
         const auto byReason = AlwaysLoadedByReason( plan );
-        line += "], " + std::to_string( plan.AlwaysLoaded.size() ) + " always-loaded (author " +
-                std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::Author )] ) +
-                ", component " +
-                std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::Component )] ) +
-                ", no fit " + std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::NoFit )] ) +
-                ", no grid " + std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::NoGrid )] ) +
-                "); highest promotion: level " + std::to_string( plan.MaxLevel ) + "; " +
-                std::to_string( plan.PointOnlyRecords ) + " record(s) placed by position alone";
+        const auto reason   = [&]( AlwaysLoadedReason r ) { return byReason[static_cast<std::size_t>( r )]; };
+
+        Common::Json::ObjectBuilder data;
+        data.Set( "composites", plan.Composites.size() )
+             .Set( "cells", plan.Cells.size() )
+             .Set( "levels", plan.LevelCount )
+             .Set( "perLevel", Common::Json::Value( std::move( perLevel ) ) )
+             .Set( "alwaysLoaded", plan.AlwaysLoaded.size() )
+             .Set( "author", reason( AlwaysLoadedReason::Author ) )
+             .Set( "component", reason( AlwaysLoadedReason::Component ) )
+             .Set( "noFit", reason( AlwaysLoadedReason::NoFit ) )
+             .Set( "noGrid", reason( AlwaysLoadedReason::NoGrid ) )
+             .Set( "maxLevel", plan.MaxLevel )
+             .Set( "pointOnly", plan.PointOnlyRecords );
+        // Lengths are printed as whole world units.
         if ( !settings.Grids.empty() )
-            line += "; grid 0: cell " + units( settings.Grids.front().CellSize ) + ", loading range " +
-                    units( settings.Grids.front().LoadingRange ) + " world units";
-        return line;
+            data.Set( "grid", Common::Json::ObjectBuilder()
+                                   .Set( "cell", std::llround( settings.Grids.front().CellSize ) )
+                                   .Set( "range", std::llround( settings.Grids.front().LoadingRange ) )
+                                   .Build() );
+        return kSummary.RenderOrLog( Common::Json::Value( data.Build() ) );
     }
 
     // THE BOX A PREFAB STATES (AL1-8a): what its registry row carries in the `bounds` column, so a world

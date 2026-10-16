@@ -98,8 +98,8 @@ namespace Desert::Core::WorldCells
                                                        CC::FourCCToString( kWorldFormatTag ) + "')" );
             if ( stamped->Version != kWorldFormatVersion )
                 return Common::MakeError<std::string>(
-                     "'" + name + "' is world format version " + std::to_string( stamped->Version ) +
-                     "; this build reads " + std::to_string( kWorldFormatVersion ) + " only. Re-cook it." );
+                     std::format( "'{}' is world format version {}; this build reads {} only. Re-cook it.", name,
+                                  stamped->Version, kWorldFormatVersion ) );
             for ( const CC::EnvelopeSectionData& section : envelope.GetValue().Sections )
                 if ( section.Tag == CC::EnvelopeSection::Payload )
                     return Common::MakeSuccess( std::string( reinterpret_cast<const char*>( section.Bytes.data() ),
@@ -129,8 +129,7 @@ namespace Desert::Core::WorldCells
         // or loses another cell.
         std::string CellFileName( const Rules::PlannedCell& cell )
         {
-            return "L" + std::to_string( cell.Level ) + "_" + std::to_string( cell.Cell.X ) + "_" +
-                   std::to_string( cell.Cell.Z ) + std::string( kCellExtension );
+            return std::format( "L{}_{}_{}{}", cell.Level, cell.Cell.X, cell.Cell.Z, kCellExtension );
         }
 
         // WHAT A UNIT NEEDS FROM THE CONTENT: every value in its records that the registry recognises as an
@@ -419,15 +418,15 @@ namespace Desert::Core::WorldCells
         std::unordered_map<Common::UUID, std::size_t> byId;
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
-            const std::string what = "record " + std::to_string( record ) + " ('" +
-                                     records[record].Tag.value_or( "" ) + "') of '" + scene.SceneName + "'";
+            const std::string what = std::format( "record {} ('{}') of '{}'", record,
+                                                  records[record].Tag.value_or( "" ), scene.SceneName );
             if ( !records[record].id.has_value() || records[record].id->IsNull() )
                 return Common::MakeError<Result>( what + " has no id; a cell's records are found by id" );
             const auto [where, fresh] = byId.emplace( *records[record].id, record );
             if ( !fresh )
-                return Common::MakeError<Result>(
-                     what + " has id " + std::to_string( static_cast<std::uint64_t>( *records[record].id ) ) +
-                     ", which record " + std::to_string( where->second ) + " already has" );
+                return Common::MakeError<Result>( std::format( "{} has id {}, which record {} already has", what,
+                                                               static_cast<std::uint64_t>( *records[record].id ),
+                                                               where->second ) );
         }
 
         // The plan is the descriptors': they must be the records', one for one, or the cells would hold
@@ -494,9 +493,9 @@ namespace Desert::Core::WorldCells
         }
         for ( std::size_t record = 0; record < records.size(); ++record )
             if ( unitOf[record] == Rules::kNoRecord )
-                return Common::MakeError<Result>( "record " + std::to_string( record ) + " ('" +
-                                                  records[record].Tag.value_or( "" ) + "') of '" +
-                                                  scene.SceneName + "' is in no unit of the plan" );
+                return Common::MakeError<Result>(
+                     std::format( "record {} ('{}') of '{}' is in no unit of the plan", record,
+                                  records[record].Tag.value_or( "" ), scene.SceneName ) );
 
         // The references that cross a unit, from the one register every reader of them uses.
         for ( std::size_t record = 0; record < records.size(); ++record )
@@ -512,10 +511,10 @@ namespace Desert::Core::WorldCells
                     continue;
                 if ( reference.Kind == Rules::ReferenceKind::Containment )
                     return Common::MakeError<Result>(
-                         "record " + std::to_string( record ) + " ('" + records[record].Tag.value_or( "" ) +
-                         "') of '" + scene.SceneName + "' is held by a " + std::string( reference.ComponentKey ) +
-                         "." + std::string( reference.Field ) +
-                         " in another unit; containment never crosses one" );
+                         std::format( "record {} ('{}') of '{}' is held by a {}.{} in another unit; containment "
+                                      "never crosses one",
+                                      record, records[record].Tag.value_or( "" ), scene.SceneName,
+                                      reference.ComponentKey, reference.Field ) );
                 index.References.push_back(
                      { static_cast<std::uint64_t>( *records[record].id ), static_cast<std::uint64_t>( target ),
                        static_cast<std::uint32_t>( unitOf[record] ),
@@ -586,10 +585,9 @@ namespace Desert::Core::WorldCells
                     const Common::UUID id = Rules::HLODRecordId( scene.SceneName, name, batch );
                     if ( id.IsNull() || byId.contains( id ) ||
                          !hlodIds.insert( static_cast<std::uint64_t>( id ) ).second )
-                        return Common::MakeError<Result>( "the HLOD id " +
-                                                          std::to_string( static_cast<std::uint64_t>( id ) ) +
-                                                          " of batch " + std::to_string( batch ) + " in '" + name +
-                                                          "' is null or already taken; rename the world" );
+                        return Common::MakeError<Result>( std::format(
+                             "the HLOD id {} of batch {} in '{}' is null or already taken; rename the world",
+                             static_cast<std::uint64_t>( id ), batch, name ) );
                     Assets::EntityData hlodRecord = Rules::HLODRecord( built.Batches[batch], id, batch );
                     closure.Record( hlodRecord, keys );
                     row.Ids.push_back( static_cast<std::uint64_t>( id ) );
@@ -648,25 +646,24 @@ namespace Desert::Core::WorldCells
                                                       unit.File + "', which the index does not list" );
         }
         if ( held != index.Records )
-            return Common::MakeError<WorldIndex>( "'" + name + "' states " + std::to_string( index.Records ) +
-                                                  " record(s) and its units hold " + std::to_string( held ) );
+            return Common::MakeError<WorldIndex>(
+                 std::format( "'{}' states {} record(s) and its units hold {}", name, index.Records, held ) );
         for ( const IndexReference& reference : index.References )
             if ( reference.FromUnit >= index.Units.size() || reference.ToUnit >= index.Units.size() )
                 return Common::MakeError<WorldIndex>(
-                     "'" + name + "': a reference names unit " +
-                     std::to_string( std::max( reference.FromUnit, reference.ToUnit ) ) + " of " +
-                     std::to_string( index.Units.size() ) );
+                     std::format( "'{}': a reference names unit {} of {}", name,
+                                  std::max( reference.FromUnit, reference.ToUnit ), index.Units.size() ) );
         for ( const IndexHLOD& hlod : index.HLODs )
         {
             if ( hlod.Unit >= index.Units.size() || !index.Units[hlod.Unit].Level.has_value() )
-                return Common::MakeError<WorldIndex>( "'" + name + "': an HLOD stands in for unit " +
-                                                      std::to_string( hlod.Unit ) + ", which is not a cell of " +
-                                                      std::to_string( index.Units.size() ) + " unit(s)" );
+                return Common::MakeError<WorldIndex>(
+                     std::format( "'{}': an HLOD stands in for unit {}, which is not a cell of {} unit(s)", name,
+                                  hlod.Unit, index.Units.size() ) );
             const std::string& unitName = index.Units[hlod.Unit].Name;
             if ( hlod.File.has_value() == hlod.Ids.empty() )
-                return Common::MakeError<WorldIndex>( "'" + name + "': the HLOD of " + unitName + " has " +
-                                                      std::to_string( hlod.Ids.size() ) + " record(s) and " +
-                                                      ( hlod.File ? "a" : "no" ) + " file" );
+                return Common::MakeError<WorldIndex>(
+                     std::format( "'{}': the HLOD of {} has {} record(s) and {} file", name, unitName,
+                                  hlod.Ids.size(), ( hlod.File ? "a" : "no" ) ) );
             const bool listed = !hlod.File.has_value() ||
                                 std::any_of( index.Files.begin(), index.Files.end(),
                                              [&]( const IndexFile& file ) { return file.Name == *hlod.File; } );
@@ -728,20 +725,18 @@ namespace Desert::Core::WorldCells
                 ids.insert( ids.end(), hlod.Ids.begin(), hlod.Ids.end() );
             }
         if ( cell.Units != units )
-            return Common::MakeError<CellPayload>( "'" + name + "' holds " + std::to_string( cell.Units.size() ) +
-                                                   " unit(s) and the index gives it " +
-                                                   std::to_string( units.size() ) + " others" );
-        if ( cell.Records.size() != ids.size() )
             return Common::MakeError<CellPayload>(
-                 "'" + name + "' holds " + std::to_string( cell.Records.size() ) +
-                 " record(s) and the index lists " + std::to_string( ids.size() ) );
+                 std::format( "'{}' holds {} unit(s) and the index gives it {} others", name, cell.Units.size(),
+                              units.size() ) );
+        if ( cell.Records.size() != ids.size() )
+            return Common::MakeError<CellPayload>( std::format( "'{}' holds {} record(s) and the index lists {}",
+                                                                name, cell.Records.size(), ids.size() ) );
         for ( std::size_t record = 0; record < ids.size(); ++record )
         {
             const auto& id = cell.Records[record].id;
             if ( !id.has_value() || static_cast<std::uint64_t>( *id ) != ids[record] )
-                return Common::MakeError<CellPayload>( "'" + name + "': record " + std::to_string( record ) +
-                                                       " is not the id " + std::to_string( ids[record] ) +
-                                                       " the index lists there" );
+                return Common::MakeError<CellPayload>( std::format(
+                     "'{}': record {} is not the id {} the index lists there", name, record, ids[record] ) );
         }
         return Common::MakeSuccess( std::move( cell ) );
     }
@@ -818,9 +813,8 @@ namespace Desert::Core::WorldCells
     {
         using Result = std::vector<Assets::EntityData>;
         if ( unit >= m_Index->Units.size() )
-            return Common::MakeError<Result>( "world '" + m_Index->SceneName + "' has no unit " +
-                                              std::to_string( unit ) + " (it has " +
-                                              std::to_string( m_Index->Units.size() ) + ")" );
+            return Common::MakeError<Result>( std::format( "world '{}' has no unit {} (it has {})",
+                                                           m_Index->SceneName, unit, m_Index->Units.size() ) );
         auto cell = ReadUnitFile( *m_Index, m_Reader, m_Index->Units[unit].File );
         if ( !cell )
             return Common::MakeError<Result>( cell.GetError() );
@@ -837,9 +831,8 @@ namespace Desert::Core::WorldCells
     {
         using Result = std::vector<Assets::EntityData>;
         if ( hlod >= index.HLODs.size() )
-            return Common::MakeError<Result>( "world '" + index.SceneName + "' has no HLOD " +
-                                              std::to_string( hlod ) + " (it has " +
-                                              std::to_string( index.HLODs.size() ) + ")" );
+            return Common::MakeError<Result>( std::format( "world '{}' has no HLOD {} (it has {})",
+                                                           index.SceneName, hlod, index.HLODs.size() ) );
         if ( !index.HLODs[hlod].File.has_value() )
             return Common::MakeSuccess( Result{} );
         auto cell = ReadUnitFile( index, reader, *index.HLODs[hlod].File );
@@ -865,15 +858,14 @@ namespace Desert::Core::WorldCells
         for ( std::size_t unit = 0; unit < index.Units.size(); ++unit )
         {
             const IndexUnit&  from = index.Units[unit];
-            const std::string name =
-                 "world '" + index.SceneName + "' unit " + std::to_string( unit ) + " ('" + from.Name + "')";
+            const std::string name = std::format( "world '{}' unit {} ('{}')", index.SceneName, unit, from.Name );
             Rules::PlannedComposite composite;
             for ( const std::uint64_t id : from.Ids )
             {
                 const std::size_t record = world.RecordIds.size();
                 if ( !recordOf.emplace( id, std::make_pair( record, unit ) ).second )
-                    return Common::MakeError<Result>( name + " holds record id " + std::to_string( id ) +
-                                                      ", which an earlier unit holds too" );
+                    return Common::MakeError<Result>(
+                         std::format( "{} holds record id {}, which an earlier unit holds too", name, id ) );
                 world.RecordIds.push_back( id );
                 composite.Members.push_back( record );
             }
@@ -924,10 +916,9 @@ namespace Desert::Core::WorldCells
             const auto from = recordOf.find( reference.From );
             const auto to   = recordOf.find( reference.To );
             if ( from == recordOf.end() || to == recordOf.end() )
-                return Common::MakeError<Result>( "world '" + index.SceneName + "': the reference " +
-                                                  reference.Component + "." + reference.Field + " from " +
-                                                  std::to_string( reference.From ) + " to " +
-                                                  std::to_string( reference.To ) + " names an id no unit holds" );
+                return Common::MakeError<Result>( std::format(
+                     "world '{}': the reference {}.{} from {} to {} names an id no unit holds", index.SceneName,
+                     reference.Component, reference.Field, reference.From, reference.To ) );
             // Only observation can cross a unit and dangle (the cook refuses a crossing containment).
             const bool observation =
                  std::any_of( std::begin( Rules::kEntityReferences ), std::end( Rules::kEntityReferences ),

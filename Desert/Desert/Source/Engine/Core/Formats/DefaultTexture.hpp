@@ -76,20 +76,4 @@ namespace Desert::Core::Formats
         }
         return std::nullopt;
     }
-
-    /// The legal set as one comma-separated string, for the parser's refusal. Built from the array
-    /// above so a name added to the enum joins the message without anybody editing the message.
-    inline std::string DefaultTextureKindList()
-    {
-        std::string out;
-        for ( const DefaultTextureKind kind : kAllDefaultTextureKinds )
-        {
-            if ( !out.empty() )
-                out += ", ";
-            out += '"';
-            out += DefaultTextureKindName( kind );
-            out += '"';
-        }
-        return out;
-    }
 } // namespace Desert::Core::Formats

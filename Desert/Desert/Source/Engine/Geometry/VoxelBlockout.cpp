@@ -991,7 +991,7 @@ namespace Desert::Geometry::VoxelBlockout
         for ( auto& [material, b] : buckets )
         {
             Submesh sm{};
-            sm.Name         = "MaterialID " + std::to_string( material );
+            sm.Name         = std::format( "MaterialID {}", material );
             sm.VertexOffset = static_cast<uint32_t>( out.Vertices.size() );
             sm.VertexCount  = static_cast<uint32_t>( b.Verts.size() );
             sm.IndexOffset  = static_cast<uint32_t>( out.Indices.size() * 3 ); // uint32 units
