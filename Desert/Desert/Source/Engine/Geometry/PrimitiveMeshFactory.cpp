@@ -60,7 +60,8 @@ namespace Desert::Geometry
         Assets::EnqueueMeshDistanceField(
              std::move( slot ), std::format( "primitive '{}'", PrimitiveTypeName( type ) ),
              [in = std::make_shared<Assets::MeshDistanceFieldBuildInput>( input.ExtractValue() ), cards,
-              type]( bool& built ) -> Common::ResultStr<std::shared_ptr<const Assets::MeshDistanceFieldData>>
+              type]( bool& built, const Assets::MeshDistanceFieldCancel& cancel )
+                  -> Common::ResultStr<std::shared_ptr<const Assets::MeshDistanceFieldData>>
              {
                  built = true;
                  if ( auto cardBuild = Assets::BuildMeshCards( *in, Assets::MeshCardsBuildSettings{} );
@@ -70,7 +71,8 @@ namespace Desert::Geometry
                  else
                      LOG_ERROR( "[PrimitiveMeshFactory] '{}' has no surface-cache cards: {}",
                                 PrimitiveTypeName( type ), cardBuild.GetError() );
-                 auto field = Assets::BuildMeshDistanceField( *in, Assets::MeshDistanceFieldBuildSettings{} );
+                 auto field =
+                      Assets::BuildMeshDistanceField( *in, Assets::MeshDistanceFieldBuildSettings{}, cancel );
                  if ( !field.IsSuccess() )
                      return Common::MakeError<std::shared_ptr<const Assets::MeshDistanceFieldData>>(
                           field.GetError() );
