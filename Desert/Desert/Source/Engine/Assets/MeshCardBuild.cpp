@@ -145,11 +145,13 @@ namespace Desert::Assets
             {
                 return Coverage / static_cast<float>( Bounds.FaceArea() );
             }
+            [[nodiscard]] float MinCoverage( const ClusteringParams& params ) const
+            {
+                return NearPlane == 0 ? params.MinOuterClusterCoverage : params.MinClusterCoverage;
+            }
             [[nodiscard]] bool IsValid( const ClusteringParams& params ) const
             {
-                return WeightedCoverage >=
-                            ( NearPlane == 0 ? params.MinOuterClusterCoverage : params.MinClusterCoverage ) &&
-                       Density() > params.MinDensityPerCluster;
+                return WeightedCoverage >= MinCoverage( params ) && Density() > params.MinDensityPerCluster;
             }
             void AddSurfel( const std::vector<Surfel>& surfels, const int index )
             {
@@ -411,6 +413,107 @@ namespace Desert::Assets
                 assigned[i] = 1;
             clusters.push_back( cluster );
         }
+
+        // The surfels of @p subset grouped by 8-connected occupied cells of the direction's (x, y) lattice.
+        std::vector<std::vector<int>> ConnectedRegions( const std::vector<Surfel>& surfels,
+                                                        const std::vector<int>&    subset )
+        {
+            if ( subset.empty() )
+                return {};
+            IntBox box;
+            for ( const int i : subset )
+                box.Add( surfels[i].Coord );
+            const int        width = box.Max.x + 1 - box.Min.x, height = box.Max.y + 1 - box.Min.y;
+            std::vector<int> cellOf( subset.size() ), region( static_cast<size_t>( width ) * height, -1 );
+            std::vector<std::vector<int>> cells( static_cast<size_t>( width ) * height );
+            for ( size_t k = 0; k < subset.size(); ++k )
+            {
+                const glm::ivec3& c = surfels[subset[k]].Coord;
+                cellOf[k]           = ( c.y - box.Min.y ) * width + ( c.x - box.Min.x );
+                cells[cellOf[k]].push_back( subset[k] );
+            }
+            std::vector<std::vector<int>> regions;
+            std::vector<int>              stack;
+            for ( size_t k = 0; k < subset.size(); ++k )
+            {
+                if ( region[cellOf[k]] >= 0 )
+                    continue;
+                const int id = static_cast<int>( regions.size() );
+                regions.emplace_back();
+                region[cellOf[k]] = id;
+                stack.assign( 1, cellOf[k] );
+                while ( !stack.empty() )
+                {
+                    const int cell = stack.back();
+                    stack.pop_back();
+                    regions[id].insert( regions[id].end(), cells[cell].begin(), cells[cell].end() );
+                    const int cx = cell % width, cy = cell / width;
+                    for ( int ny = std::max( cy - 1, 0 ); ny <= std::min( cy + 1, height - 1 ); ++ny )
+                        for ( int nx = std::max( cx - 1, 0 ); nx <= std::min( cx + 1, width - 1 ); ++nx )
+                        {
+                            const int n = ny * width + nx;
+                            if ( region[n] < 0 && !cells[n].empty() )
+                            {
+                                region[n] = id;
+                                stack.push_back( n );
+                            }
+                        }
+                }
+            }
+            return regions;
+        }
+
+        // NOT IN UE. UE's BuildSurfelClusters takes a near plane's surfels as ONE cluster over the whole face of
+        // the mesh's box, and drops it when its coverage is below MinDensity of that face. On a large
+        // architectural mesh the surface is sparse in its own box - a street that is a cross of lanes in a 64 m
+        // square, a facade wing beside an empty courtyard - so Bistro's street and four of its buildings got NO
+        // card at all (density 0.008-0.035 against 0.067) and 62 more got 1-4, while the surfel budget never
+        // bound (at most 5600 surfels of 10000). Here a slab too sparse for one card is cut into its connected
+        // regions, a region still too sparse is halved across its longer side and cut again, and every piece
+        // that is dense enough and covers enough is a candidate, judged by UE's own IsValid. A slab dense enough
+        // as a whole is one cluster exactly as in UE, so a compact mesh's cards do not change.
+        void ValidRegions( const std::vector<Surfel>& surfels, const Cluster& slab, const ClusteringParams& params,
+                           std::vector<Cluster>& out )
+        {
+            out.clear();
+            if ( slab.IsValid( params ) )
+            {
+                out.push_back( slab );
+                return;
+            }
+            const float                   minCoverage = slab.MinCoverage( params );
+            std::vector<std::vector<int>> work        = ConnectedRegions( surfels, slab.Surfels );
+            Cluster                       piece;
+            while ( !work.empty() )
+            {
+                const std::vector<int> subset = std::move( work.back() );
+                work.pop_back();
+                piece.Init( slab.NearPlane );
+                for ( const int i : subset )
+                    piece.AddSurfel( surfels, i );
+                // A piece below the coverage floor only has smaller pieces below it.
+                if ( piece.WeightedCoverage < minCoverage )
+                    continue;
+                if ( piece.IsValid( params ) )
+                {
+                    out.push_back( piece );
+                    continue;
+                }
+                const int axis =
+                     ( piece.Bounds.Max.x - piece.Bounds.Min.x ) >= ( piece.Bounds.Max.y - piece.Bounds.Min.y )
+                          ? 0
+                          : 1;
+                if ( piece.Bounds.Max[axis] == piece.Bounds.Min[axis] )
+                    continue; // one cell: nothing left to cut
+                const int        middle = ( piece.Bounds.Min[axis] + piece.Bounds.Max[axis] ) / 2;
+                std::vector<int> halves[2];
+                for ( const int i : subset )
+                    halves[surfels[i].Coord[axis] > middle ? 1 : 0].push_back( i );
+                for ( const std::vector<int>& half : halves )
+                    for ( std::vector<int>& region : ConnectedRegions( surfels, half ) )
+                        work.push_back( std::move( region ) );
+            }
+        }
     } // namespace
 
     Common::ResultStr<MeshCardsBuildData> BuildMeshCards( const MeshDistanceFieldBuildInput& input,
@@ -483,9 +586,12 @@ namespace Desert::Assets
         {
             std::vector<uint8_t> assigned( surfels[d].size(), 0 );
             Cluster              temp;
+            std::vector<Cluster> regions;
             BuildCluster( 0, surfels[d], assigned, temp );
-            if ( temp.IsValid( params ) )
-                CommitCluster( clusters[d], assigned, temp );
+            // The outer slab's valid pieces are disjoint: all of them are committed.
+            ValidRegions( surfels[d], temp, params, regions );
+            for ( const Cluster& region : regions )
+                CommitCluster( clusters[d], assigned, region );
             // Two-sided is assumed foliage: the simpler box projection only.
             if ( out.MostlyTwoSided )
                 continue;
@@ -496,8 +602,10 @@ namespace Desert::Assets
                 for ( int nearPlane = 1; nearPlane < params.Basis[d].VolumeSize.z; ++nearPlane )
                 {
                     BuildCluster( nearPlane, surfels[d], assigned, temp );
-                    if ( temp.IsValid( params ) && temp.WeightedCoverage > best.WeightedCoverage )
-                        best = temp;
+                    ValidRegions( surfels[d], temp, params, regions );
+                    for ( const Cluster& region : regions )
+                        if ( region.WeightedCoverage > best.WeightedCoverage )
+                            best = region;
                 }
                 if ( !best.IsValid( params ) )
                     break;
@@ -578,12 +686,13 @@ namespace Desert::Assets
         return Common::MakeSuccess( out );
     }
 
-    float MeasureMeshCardsCoverage( const MeshDistanceFieldBuildInput& input, const MeshCardsBuildData& cards,
-                                    const uint32_t samples )
+    MeshCardsCoverage MeasureMeshCardsCoverage( const MeshDistanceFieldBuildInput& input,
+                                                const MeshCardsBuildData& cards, const uint32_t samples )
     {
+        MeshCardsCoverage result;
         const size_t triangleCount = input.Indices.size() / 3;
         if ( triangleCount == 0 || samples == 0 || input.TriangleTwoSided.size() != triangleCount )
-            return 1.0f;
+            return result;
         std::vector<glm::dvec3> positions( input.Positions.begin(), input.Positions.end() );
         std::vector<glm::uvec3> triangles;
         triangles.reserve( triangleCount );
@@ -591,7 +700,10 @@ namespace Desert::Assets
         {
             const glm::uvec3 tri( input.Indices[i], input.Indices[i + 1], input.Indices[i + 2] );
             if ( tri.x >= positions.size() || tri.y >= positions.size() || tri.z >= positions.size() )
-                return 0.0f;
+            {
+                result.Held = 0.0f;
+                return result;
+            }
             triangles.push_back( tri );
         }
         const Geometry::TriangleBvh bvh = Geometry::TriangleBvh::Build( positions, triangles );
@@ -605,11 +717,11 @@ namespace Desert::Assets
             cumulative[t] = area;
         }
         if ( area <= 0.0 )
-            return 1.0f;
+            return result;
         const glm::dvec3 boundsMin( cards.BoundsMin ), boundsMax( cards.BoundsMax );
         const double     diagonal = glm::length( boundsMax - boundsMin ) + 1.0;
 
-        double seen = 0.0, held = 0.0;
+        double seen = 0.0, held = 0.0, backOnly = 0.0, oneSided = 0.0;
         for ( uint32_t k = 0; k < samples; ++k )
         {
             // Stratified along the CDF; the point within the triangle from the R2 sequence (deterministic).
@@ -631,6 +743,29 @@ namespace Desert::Assets
                 continue;
             const glm::dvec3 front = bvh.Normal[t] / length;
             const int        sides = input.TriangleTwoSided[t] != 0 ? 2 : 1;
+            // A one-sided triangle seen from outside only from behind: its winding faces into the mesh.
+            const auto seenFromOutside = [&]( const glm::dvec3& n )
+            {
+                for ( int axis = 0; axis < 3; ++axis )
+                {
+                    if ( n[axis] * n[axis] < 0.01 )
+                        continue;
+                    constexpr double kRayBias = 0.1;
+                    const glm::dvec3 origin   = p + n * kRayBias;
+                    const double     o[3]     = { origin.x, origin.y, origin.z };
+                    double           d[3]     = { 0.0, 0.0, 0.0 };
+                    d[axis]                   = n[axis] > 0.0 ? 1.0 : -1.0;
+                    if ( bvh.ClosestHit( o, d, 0.0, diagonal, static_cast<int>( t ) ).Triangle < 0 )
+                        return true;
+                }
+                return false;
+            };
+            if ( sides == 1 )
+            {
+                oneSided += 1.0;
+                if ( !seenFromOutside( front ) && seenFromOutside( -front ) )
+                    backOnly += 1.0;
+            }
             for ( int side = 0; side < sides; ++side )
             {
                 const glm::dvec3 n       = side == 0 ? front : -front;
@@ -672,6 +807,8 @@ namespace Desert::Assets
                 }
             }
         }
-        return seen > 0.0 ? static_cast<float>( held / seen ) : 1.0f;
+        result.Held     = seen > 0.0 ? static_cast<float>( held / seen ) : 1.0f;
+        result.BackOnly = oneSided > 0.0 ? static_cast<float>( backOnly / oneSided ) : 0.0f;
+        return result;
     }
 } // namespace Desert::Assets

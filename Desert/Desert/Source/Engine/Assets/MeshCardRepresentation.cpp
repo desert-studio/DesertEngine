@@ -200,33 +200,44 @@ namespace Desert::Assets
             auto                      measured = Common::DDC::GetOrBuild( kMeshCardsCoverageDeriver, coverageKey,
                                                                           [&input, &cards]() -> Common::ResultStr<std::string>
                                                                           {
-                                                         std::string bytes;
-                                                         PutF32( bytes, MeasureMeshCardsCoverage( input, cards ) );
+                                                         std::string             bytes;
+                                                         const MeshCardsCoverage coverage =
+                                                              MeasureMeshCardsCoverage( input, cards );
+                                                         PutF32( bytes, coverage.Held );
+                                                         PutF32( bytes, coverage.BackOnly );
                                                          return Common::MakeSuccess( bytes );
                                                      } );
-            if ( !measured.IsSuccess() || measured.GetValue().size() != 4 )
+            if ( !measured.IsSuccess() || measured.GetValue().size() != 8 )
             {
                 LOG_ERROR( "mesh asset '{}': card coverage {:016x}: {}", asset.string(), coverageKey,
-                           measured.IsSuccess() ? std::string( "not 4 bytes" ) : measured.GetError() );
+                           measured.IsSuccess() ? std::string( "not 8 bytes" ) : measured.GetError() );
             }
             else
             {
-                Reader r{ measured.GetValue(), 0 };
-                RecordMeshCardsCoverage( asset, r.F32(), static_cast<uint32_t>( cards.Cards.size() ) );
+                Reader            r{ measured.GetValue(), 0 };
+                MeshCardsCoverage coverage;
+                coverage.Held     = r.F32();
+                coverage.BackOnly = r.F32();
+                RecordMeshCardsCoverage( asset, coverage, cards );
             }
         }
         return Common::MakeSuccess<Result>( std::make_shared<const MeshCardsBuildData>( decoded.ExtractValue() ) );
     }
 
-    void RecordMeshCardsCoverage( const std::filesystem::path& asset, const float coverage, const uint32_t cards )
+    void RecordMeshCardsCoverage( const std::filesystem::path& asset, const MeshCardsCoverage& coverage,
+                                  const MeshCardsBuildData& cards )
     {
-        MeshCardsCoverageEntry entry{ asset.generic_string(), coverage, cards };
+        MeshCardsCoverageEntry entry{ asset.generic_string(), coverage.Held, coverage.BackOnly,
+                                      static_cast<uint32_t>( cards.Cards.size() ),
+                                      cards.BoundsMax - cards.BoundsMin };
         if ( entry.Coverage < kMeshCardsLowCoverage )
         {
             LOG_WARN(
-                 "[MeshCards] '{}': its {} card(s) hold {:.0f} % of its surface (below {:.0f} %); a ray hit on "
+                 "[MeshCards] '{}' ({:.0f} x {:.0f} x {:.0f} cm): its {} card(s) hold {:.0f} % of its surface "
+                 "(below {:.0f} %; {:.0f} % of its one-sided surface is seen only from behind); a ray hit on "
                  "the rest is lit in place, not from the surface cache",
-                 entry.Asset, entry.Cards, entry.Coverage * 100.0f, kMeshCardsLowCoverage * 100.0f );
+                 entry.Asset, entry.Size.x, entry.Size.y, entry.Size.z, entry.Cards, entry.Coverage * 100.0f,
+                 kMeshCardsLowCoverage * 100.0f, entry.BackOnly * 100.0f );
         }
         const std::lock_guard<std::mutex> lock( s_CoverageMutex );
         s_Coverage[entry.Asset] = std::move( entry );

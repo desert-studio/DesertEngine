@@ -99,8 +99,9 @@ namespace Desert::Assets
 
     inline constexpr Common::DDC::Deriver kMeshCardsDeriver{
          "MeshCards", ".mcard", { 0x2F86C1D94B0E73A5ULL, 0x9D3E5A71C6B2F048ULL } };
-    // 1: UE's surfel clustering on a per-axis voxel lattice
-    inline constexpr uint32_t kMeshCardsBuilderVersion = 1;
+    // 1: UE's surfel clustering on a per-axis voxel lattice; 2: a slab too sparse for one card is cut into its
+    // connected regions (MeshCardBuild.cpp ValidRegions)
+    inline constexpr uint32_t kMeshCardsBuilderVersion = 2;
 
     // Render-data key + settings + builder version + every submesh's sidedness -> this bucket's key.
     [[nodiscard]] uint64_t MeshCardsDerivedDataKey( uint64_t renderDataKey, const MeshCardsBuildSettings& settings,
@@ -125,15 +126,22 @@ namespace Desert::Assets
     // cover either). Deterministic area-weighted samples, ray-cast against the mesh (Geometry/TriangleBvh.hpp);
     // two-sided triangles count once per side.
     inline constexpr uint32_t kMeshCardsCoverageSamples = 4096;
-    [[nodiscard]] float       MeasureMeshCardsCoverage( const MeshDistanceFieldBuildInput& input,
-                                                        const MeshCardsBuildData&          cards,
-                                                        uint32_t samples = kMeshCardsCoverageSamples );
+    struct MeshCardsCoverage
+    {
+        float Held = 1.0f; // the share of the outside-seen surface the cards hold
+        // The share of the one-sided surface seen from outside ONLY from behind: winding that faces into the mesh,
+        // which the card build (as UE's) takes for the inside of the geometry and never makes a card for.
+        float BackOnly = 0.0f;
+    };
+    [[nodiscard]] MeshCardsCoverage MeasureMeshCardsCoverage( const MeshDistanceFieldBuildInput& input,
+                                                              const MeshCardsBuildData&          cards,
+                                                              uint32_t samples = kMeshCardsCoverageSamples );
     // Derived from the cards and the same triangles, in its own DDC bucket keyed on the cards' key and this
     // measure's version: a mesh pays for it once per card build, as for the cards.
     inline constexpr Common::DDC::Deriver kMeshCardsCoverageDeriver{
          "MeshCardsCoverage", ".mccov", { 0x6B1E2F0C93D84A57ULL, 0xA4C7155E2D9B03F1ULL } };
-    // 1: area-weighted samples, held when a facing card contains the point and sees it
-    inline constexpr uint32_t kMeshCardsCoverageVersion = 1;
+    // 1: area-weighted samples, held when a facing card contains the point and sees it; 2: + the back-only share
+    inline constexpr uint32_t kMeshCardsCoverageVersion = 2;
 
     // THE COVERAGE REPORT. Every mesh whose cards are loaded or built where a builder is registered (the editor,
     // the cook) is recorded with its coverage; one below kMeshCardsLowCoverage is logged as a warning naming it,
@@ -144,7 +152,9 @@ namespace Desert::Assets
     {
         std::string Asset;
         float       Coverage = 0.0f;
+        float       BackOnly = 0.0f;
         uint32_t    Cards    = 0;
+        glm::vec3   Size{ 0.0f }; // the cards' box, cm
     };
     struct MeshCardsCoverageReport
     {
@@ -152,7 +162,8 @@ namespace Desert::Assets
         float                               MeanCoverage = 0.0f; // by mesh
         std::vector<MeshCardsCoverageEntry> Low;                 // below kMeshCardsLowCoverage, lowest first
     };
-    void RecordMeshCardsCoverage( const std::filesystem::path& asset, float coverage, uint32_t cards );
+    void RecordMeshCardsCoverage( const std::filesystem::path& asset, const MeshCardsCoverage& coverage,
+                                  const MeshCardsBuildData& cards );
     [[nodiscard]] MeshCardsCoverageReport MeshCardsCoverageSummary();
     // The report as one line: "N mesh(es), mean X %, K below Y %: a 41 %, b 52 %, ..." (the first @p listed).
     [[nodiscard]] std::string FormatMeshCardsCoverage( const MeshCardsCoverageReport& report, size_t listed );
