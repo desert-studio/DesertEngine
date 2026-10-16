@@ -49,7 +49,8 @@ Shader "SSDReconstructReflections"
 
         PushConstant PushConstants
         {
-        	vec4 u_Params; // x = the trace's frame seed (its 2x2 block rotation), yzw unused
+        	vec4 u_Params; // x = the trace's frame seed (its 2x2 block rotation), y = kernel radius in trace texels
+        	               // (Scalability Reflections.DenoiserRadius: 2 = 5x5), zw unused
         };
 
         LocalSize(8, 8, 1);
@@ -95,13 +96,14 @@ Shader "SSDReconstructReflections"
         	const ivec2 traceSize = textureSize(u_Trace, 0);
         	const ivec2 centre    = clamp(pixel / 2, ivec2(0), traceSize - 1);
         	const int   frame     = int(u_Params.x);
+        	const int   radius    = int(u_Params.y + 0.5);
         	const ivec2 rotation  = ivec2(frame & 1, (frame >> 1) & 1);
         	vec3  radiance    = vec3(0.0);
         	float hitWeight   = 0.0;
         	float coverage    = 0.0;
         	float weightSum   = 0.0;
-        	for (int y = -2; y <= 2; ++y)
-        		for (int x = -2; x <= 2; ++x)
+        	for (int y = -radius; y <= radius; ++y)
+        		for (int x = -radius; x <= radius; ++x)
         		{
         			const ivec2 t   = clamp(centre + ivec2(x, y), ivec2(0), traceSize - 1);
         			const vec4  ray = texelFetch(u_TraceRay, t, 0);

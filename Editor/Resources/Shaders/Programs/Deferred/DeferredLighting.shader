@@ -155,6 +155,8 @@ Shader "DeferredLighting"
         	vec4 u_CameraPos;  // xyz = camera world position (for the view vector); w = 1 when u_SSR holds a trace
         	mat4 u_InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
         	mat4 u_JitteredViewProjection;    // the matrix itself: the contact shadows march the depth in its space
+        	vec4 u_ScreenSpaceGI;  // x = the screen-space gather's samples per pixel (Scalability
+        	                       // GlobalIllumination.ScreenSpaceSamples); yzw unused
         };
 
         float ssgiHash(vec2 p)
@@ -199,7 +201,7 @@ Shader "DeferredLighting"
         // therefore bounces as though it stood in sun.
         vec3 GatherIndirectGI(vec2 uv, vec3 worldPos, vec3 N, vec3 sunL, vec3 sunRadiance)
         {
-        	const int   SAMPLES = 12;     // GI sample count (perf/quality knob)
+        	const int   SAMPLES = int(u_ScreenSpaceGI.x + 0.5); // the machine's quality, never the scene's
         	// NOT a range knob, measured: because the sum below is divided by SAMPLES whether or not a
         	// sample found an emitter, and BounceFalloff grows with distance, a WIDER radius spreads the
         	// same fixed budget over dimmer contributions. At 0.45 instead of 0.12 the only non-zero
@@ -253,6 +255,7 @@ Shader "DeferredLighting"
         	vec4 u_ContactShadowView; // x = contact shadow ray steps (0 = off), y = tan(fovY / 2), z = dither frame 0..7
         	vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5),
         	                          // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
+        	vec4 u_ShadowFilter;      // x = PCSS blocker search taps, y = PCSS filter taps (Mesh/CascadedShadow.glslh)
         };
 
         #ifdef DESERT_SUN_SHADOW_RAY_QUERY

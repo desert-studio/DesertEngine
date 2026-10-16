@@ -255,12 +255,12 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
         // SETUP of "Deferred: Composite", FIRST: the material's values for this frame (lead decision B - a
         // material whose route fill the setup validates is filled before the validation reads it, never in the
         // exec). lightDir.xyz = the direction the sun travels; lightColor.rgb/.a = colour/intensity; cameraPos.xyz
-        // = camera world position; debugMode selects a raw channel (0 = lit); giMode picks the indirect-light
+        // = camera world position; debugMode selects a raw channel (0 = lit); gi.Mode picks the indirect-light
         // source (0 = off, 1 = screen-space, 2 = the traced final gather: GIDiffuse / GISpecular).
         void FillMaterial( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
                            const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
-                           uint32_t spotCount, const DeferredShadowInput& shadow, float giIntensity,
-                           bool ssaoEnabled, int giMode, const CloudShadowInput& cloudShadow,
+                           uint32_t spotCount, const DeferredShadowInput& shadow, const DeferredGIInput& gi,
+                           bool ssaoEnabled, const CloudShadowInput& cloudShadow,
                            const DeferredEnvironmentInput& environment, const glm::mat4& jitteredViewProjection )
         {
             // The sun's arm picks the program this frame's composite draws with.
@@ -270,8 +270,8 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
                 return;
             ReportEnvironmentGap( environment );
             program.Material->BindInputs( lightDir, lightColor, cameraPos, invJitteredViewProjection, debugMode,
-                                    pointCount, spotCount, shadow, giIntensity, ssaoEnabled, giMode, cloudShadow,
-                                    environment, jitteredViewProjection );
+                                          pointCount, spotCount, shadow, gi, ssaoEnabled, cloudShadow, environment,
+                                          jitteredViewProjection );
         }
 
         // SETUP of "Deferred: Composite", after FillMaterial: the node's one block (block 0). UE's shared-sampler
