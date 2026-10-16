@@ -215,7 +215,7 @@ namespace Desert::Assets
             }
             else
             {
-                Reader            r{ measured.GetValue(), 0 };
+                MeshCardReader    r{ measured.GetValue(), 0 };
                 MeshCardsCoverage coverage;
                 coverage.Held     = r.F32();
                 coverage.BackOnly = r.F32();
