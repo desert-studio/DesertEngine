@@ -1451,9 +1451,9 @@ namespace Desert::Core::Preprocess
                     return e;
             if ( !mask.TilingParam.empty() )
             {
-                if ( auto e = value( mask.TilingParam, ShaderValueType::Vec2, "tiling" ); !e.empty() )
+                if ( auto e = value( mask.TilingParam, ShaderValueType::Float2, "tiling" ); !e.empty() )
                     return e;
-                if ( auto e = value( mask.OffsetParam, ShaderValueType::Vec2, "offset" ); !e.empty() )
+                if ( auto e = value( mask.OffsetParam, ShaderValueType::Float2, "offset" ); !e.empty() )
                     return e;
                 if ( auto e = value( mask.RotationParam, ShaderValueType::Float, "rotation" ); !e.empty() )
                     return e;
