@@ -251,7 +251,7 @@ namespace Desert::Assets
         // UE GenerateSurfelsForDirection.
         void GenerateSurfels( const BuildMesh& mesh, const DirectionBasis& basis,
                               const std::vector<glm::dvec3>& hemisphere, const float normalThreshold,
-                              std::vector<Surfel>& out )
+                              const MeshDistanceFieldCancel& cancel, std::vector<Surfel>& out )
         {
             constexpr uint32_t kSamples          = 32;
             constexpr uint32_t kMinSurfelSamples = 1;
@@ -262,6 +262,10 @@ namespace Desert::Assets
             std::vector<SurfelSample> samples;
             std::vector<uint32_t>     perCell( volumeZ ), cellOffset( volumeZ );
             for ( int cy = 0; cy < basis.VolumeSize.y; ++cy )
+            {
+                // Polled per lattice row: the caller sees the token and drops the partial surfels.
+                if ( cancel.IsCancelled() )
+                    return;
                 for ( int cx = 0; cx < basis.VolumeSize.x; ++cx )
                 {
                     samples.clear();
@@ -372,6 +376,7 @@ namespace Desert::Assets
                         }
                     }
                 }
+            }
         }
 
         void BuildCluster( const int nearPlane, const std::vector<Surfel>& surfels,
@@ -494,8 +499,11 @@ namespace Desert::Assets
     } // namespace
 
     Common::ResultStr<MeshCardsBuildData> BuildMeshCards( const MeshDistanceFieldBuildInput& input,
-                                                          const MeshCardsBuildSettings&      settings )
+                                                          const MeshCardsBuildSettings&      settings,
+                                                          const MeshDistanceFieldCancel&     cancel )
     {
+        const auto cancelled = []
+        { return Common::MakeError<MeshCardsBuildData>( std::string( kMeshCardsCancelled ) ); };
         if ( input.Indices.size() % 3 != 0 || input.TriangleTwoSided.size() != input.Indices.size() / 3 )
             return Common::MakeError<MeshCardsBuildData>( "card build input: indices and sidedness disagree" );
 
@@ -563,7 +571,9 @@ namespace Desert::Assets
             {
                 surfels[d].clear();
                 GenerateSurfels( mesh, params.Basis[d], hemisphere,
-                                 std::clamp( settings.NormalThreshold, 0.0f, 1.0f ), surfels[d] );
+                                 std::clamp( settings.NormalThreshold, 0.0f, 1.0f ), cancel, surfels[d] );
+                if ( cancel.IsCancelled() )
+                    return cancelled();
                 total += surfels[d].size();
             }
             maxVoxels /= 2;
@@ -588,6 +598,8 @@ namespace Desert::Assets
                 continue;
             for ( ;; )
             {
+                if ( cancel.IsCancelled() )
+                    return cancelled();
                 Cluster best;
                 best.Init( -1 );
                 for ( int nearPlane = 1; nearPlane < params.Basis[d].VolumeSize.z; ++nearPlane )

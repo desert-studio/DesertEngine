@@ -1002,11 +1002,27 @@ namespace Desert::Graphic::System
                                 static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
             }
         }
+        // A masked caster's pipeline is its material's own program (MaskedCasterPipeline), built on demand by the
+        // pipeline cache: the first frames that reach it find it still in the driver. Recording it then would
+        // fail the cascade pass's bind (VulkanRendererAPI::BindGraphicsPipeline refuses a compiling pipeline)
+        // and fault the pass and everything reading the cascades - the deferred composite with it, a black
+        // frame. It has no stand-in (the shared program casts the square shadow this route exists to end), so
+        // it is not drawn until Ready; and since the static layer is a CACHE, a static draw left out marks the
+        // cascade's cache as never drawn, so it is drawn again, whole, the next frame (PlanCascadeCache).
+        // A pipeline that failed is left out the same way (its builder logged why), never bound.
         for ( const MaskedCasterDraw& draw : m_ScratchMaskedDraws )
         {
-            DataDrivenMaterial* material  = draw.Set->Caster;
-            const bool          instanced = draw.Path == MeshVertexPath::Instanced;
-            list.Add( { .Pipeline          = MaskedCasterPipeline( *material, draw.Path ),
+            DataDrivenMaterial* material = draw.Set->Caster;
+            GraphicsPipeline*   pipeline = MaskedCasterPipeline( *material, draw.Path );
+            if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
+            {
+                if ( pipeline != nullptr && pipeline->GetReadiness() == PipelineReadiness::Compiling &&
+                     drawStatic )
+                    m_CascadeCache[c].StaticKey.reset();
+                continue;
+            }
+            const bool instanced = draw.Path == MeshVertexPath::Instanced;
+            list.Add( { .Pipeline          = pipeline,
                         .Mesh              = draw.Mesh,
                         .Transform         = draw.Transform,
                         .Material          = material->GetMaterialExecutor(),

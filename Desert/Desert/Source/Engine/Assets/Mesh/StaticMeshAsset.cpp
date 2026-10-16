@@ -224,12 +224,18 @@ namespace Desert::Assets
              [path = m_Metadata.Filepath, key = m_RenderDataKey, sided = std::move( twoSided ),
               in = std::make_shared<MeshDistanceFieldBuildInput>( input.ExtractValue() ),
               cards]( bool& built, const MeshDistanceFieldCancel& cancel )
+                  -> Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>>
              {
                  // The cards first (UE FCardRepresentationAsyncQueue, here the same job): a DDC hit or a build
                  // from the same triangles. A failure leaves the mesh without cards - out of the surface cache,
                  // lit in place by a trace that hits it - and is logged naming the mesh, never guessed.
-                 if ( auto loaded = LoadMeshCards( path, key, sided, *in ); loaded.IsSuccess() )
+                 // A cancelled card build is the job's cancel (DfRun: not a failure, nothing logged; a flight
+                 // that followed another owner's cancelled leader is derived again).
+                 if ( auto loaded = LoadMeshCards( path, key, sided, *in, cancel ); loaded.IsSuccess() )
                      cards->Publish( loaded.ExtractValue() );
+                 else if ( loaded.GetError().find( kMeshCardsCancelled ) != std::string::npos )
+                     return Common::MakeError<std::shared_ptr<const MeshDistanceFieldData>>(
+                          std::string( kMeshDistanceFieldCancelled ) );
                  else
                      LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh has no surface-cache cards", path.string(),
                                 loaded.GetError() );

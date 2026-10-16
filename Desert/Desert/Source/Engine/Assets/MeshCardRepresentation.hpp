@@ -101,9 +101,15 @@ namespace Desert::Assets
     };
 
     // The builder (MeshCardBuild.cpp). Deterministic for the same input and settings. Takes the distance
-    // field's input: LOD0 triangles in mesh space with each one's material sidedness.
-    [[nodiscard]] Common::ResultStr<MeshCardsBuildData> BuildMeshCards( const MeshDistanceFieldBuildInput& input,
-                                                                        const MeshCardsBuildSettings& settings );
+    // field's input: LOD0 triangles in mesh space with each one's material sidedness. It runs in the distance
+    // field's job (EnqueueMeshDistanceField) and takes that job's cancel token (UE FCardRepresentationAsyncQueue
+    // shares the distance field queue's shutdown): polled per lattice row of every direction and per cluster
+    // pass, a cancelled build returns kMeshCardsCancelled - an error, so the DDC writes nothing for it.
+    [[nodiscard]] Common::ResultStr<MeshCardsBuildData>
+    BuildMeshCards( const MeshDistanceFieldBuildInput& input, const MeshCardsBuildSettings& settings,
+                    const MeshDistanceFieldCancel& cancel = {} );
+    // The error a cancelled card build returns (and a DDC flight that followed a cancelled leader).
+    inline constexpr std::string_view kMeshCardsCancelled = "cards: build cancelled";
 
     // THE DDC ENTRY: "DESTCARD", a version, the bounds, the flag, the cards.
     inline constexpr uint32_t                           kMeshCardsFormatVersion = 1;
@@ -122,14 +128,17 @@ namespace Desert::Assets
 
     // Where a builder is registered (the editor, at startup) a miss builds and Puts; a packaged game registers
     // none, and a miss there is an error naming the asset and the key.
-    using MeshCardsBuilder =
-         std::function<Common::ResultStr<std::string>( const MeshDistanceFieldBuildInput& input )>;
+    using MeshCardsBuilder = std::function<Common::ResultStr<std::string>(
+         const MeshDistanceFieldBuildInput& input, const MeshDistanceFieldCancel& cancel )>;
     void                                         SetMeshCardsBuilder( MeshCardsBuilder builder );
-    [[nodiscard]] Common::ResultStr<std::string> BuildMeshCardsBytes( const MeshDistanceFieldBuildInput& input );
+    [[nodiscard]] Common::ResultStr<std::string> BuildMeshCardsBytes( const MeshDistanceFieldBuildInput& input,
+                                                                      const MeshDistanceFieldCancel&     cancel );
 
+    // A cancelled build (@p cancel) returns an error containing kMeshCardsCancelled and measures no coverage.
     [[nodiscard]] Common::ResultStr<std::shared_ptr<const MeshCardsBuildData>>
     LoadMeshCards( const std::filesystem::path& asset, uint64_t renderDataKey,
-                   const std::vector<uint8_t>& submeshTwoSided, const MeshDistanceFieldBuildInput& input );
+                   const std::vector<uint8_t>& submeshTwoSided, const MeshDistanceFieldBuildInput& input,
+                   const MeshDistanceFieldCancel& cancel );
 
     // THE COVERAGE (not in UE): the share of the mesh's surface, by area, that its cards hold the way the runtime
     // lookup reads them (Common/SurfaceCacheSampling.glslh) - a surface point is HELD when a card facing one of

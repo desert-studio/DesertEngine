@@ -146,9 +146,10 @@ namespace Desert::Assets
         s_CardBuilder = std::move( builder );
     }
 
-    Common::ResultStr<std::string> BuildMeshCardsBytes( const MeshDistanceFieldBuildInput& input )
+    Common::ResultStr<std::string> BuildMeshCardsBytes( const MeshDistanceFieldBuildInput& input,
+                                                        const MeshDistanceFieldCancel&     cancel )
     {
-        auto built = BuildMeshCards( input, MeshCardsBuildSettings{} );
+        auto built = BuildMeshCards( input, MeshCardsBuildSettings{}, cancel );
         if ( !built.IsSuccess() )
             return Common::MakeError<std::string>( built.GetError() );
         return Common::MakeSuccess( EncodeMeshCards( built.GetValue() ) );
@@ -156,7 +157,8 @@ namespace Desert::Assets
 
     Common::ResultStr<std::shared_ptr<const MeshCardsBuildData>>
     LoadMeshCards( const std::filesystem::path& asset, const uint64_t renderDataKey,
-                   const std::vector<uint8_t>& submeshTwoSided, const MeshDistanceFieldBuildInput& input )
+                   const std::vector<uint8_t>& submeshTwoSided, const MeshDistanceFieldBuildInput& input,
+                   const MeshDistanceFieldCancel& cancel )
     {
         using Result         = std::shared_ptr<const MeshCardsBuildData>;
         const uint64_t   key = MeshCardsDerivedDataKey( renderDataKey, MeshCardsBuildSettings{}, submeshTwoSided );
@@ -178,8 +180,8 @@ namespace Desert::Assets
         }
         else
         {
-            auto derived = Common::DDC::GetOrBuild( kMeshCardsDeriver, key,
-                                                    [&builder, &input]() { return builder( input ); } );
+            auto derived = Common::DDC::GetOrBuild( kMeshCardsDeriver, key, [&builder, &input, &cancel]()
+                                                    { return builder( input, cancel ); } );
             if ( !derived.IsSuccess() )
                 return Common::MakeFormattedError<Result>( "mesh asset '{}': cards: {}", asset.string(),
                                                            derived.GetError() );
@@ -189,7 +191,9 @@ namespace Desert::Assets
         if ( !decoded.IsSuccess() )
             return Common::MakeFormattedError<Result>( "mesh asset '{}': cached cards {:016x} are corrupt: {}",
                                                        asset.string(), key, decoded.GetError() );
-        if ( builder )
+        // A cancelled job measures nothing: nobody reads the report of a mesh that is unloading or a process
+        // that is exiting, and the measurement casts thousands of rays.
+        if ( builder && !cancel.IsCancelled() )
         {
             // The coverage report (the editor / the cook only: a packaged game has nothing to report to).
             std::string image;

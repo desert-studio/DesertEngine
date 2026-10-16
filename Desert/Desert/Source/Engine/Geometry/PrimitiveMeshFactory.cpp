@@ -64,10 +64,13 @@ namespace Desert::Geometry
                   -> Common::ResultStr<std::shared_ptr<const Assets::MeshDistanceFieldData>>
              {
                  built = true;
-                 if ( auto cardBuild = Assets::BuildMeshCards( *in, Assets::MeshCardsBuildSettings{} );
+                 if ( auto cardBuild = Assets::BuildMeshCards( *in, Assets::MeshCardsBuildSettings{}, cancel );
                       cardBuild.IsSuccess() )
                      cards->Publish(
                           std::make_shared<const Assets::MeshCardsBuildData>( cardBuild.ExtractValue() ) );
+                 else if ( cancel.IsCancelled() )
+                     return Common::MakeError<std::shared_ptr<const Assets::MeshDistanceFieldData>>(
+                          std::string( Assets::kMeshDistanceFieldCancelled ) );
                  else
                      LOG_ERROR( "[PrimitiveMeshFactory] '{}' has no surface-cache cards: {}",
                                 PrimitiveTypeName( type ), cardBuild.GetError() );
