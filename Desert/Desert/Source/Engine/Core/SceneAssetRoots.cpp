@@ -115,6 +115,16 @@ namespace Desert::Core
         // reachable only through `RetargetAsset`'s own dependency, exactly as a `.skeleton` is reachable
         // only through the `.skmesh` that names it, so dropping the retarget drops the rig behind it and
         // nothing can bring either back.
+        // A VFX system is named only by the entities that play it: without this row the eviction sweep drops
+        // the `.dfx` under a live entity and VFXWorld finds a handle the manager no longer has.
+        for ( const auto entity : registry.view<ECS::VFXComponent>() )
+            roots.Mark( registry.get<ECS::VFXComponent>( entity ).Data.System, "an entity plays it" );
+        // A `.dfrac` is named only by the destructibles built from it: without this row the sweep after the scene
+        // load unloads it under FractureService, and Play finds a fracture with no nodes (UE: the component's
+        // RestCollection is a hard reference).
+        for ( const auto entity : registry.view<ECS::DestructibleComponent>() )
+            roots.Mark( registry.get<ECS::DestructibleComponent>( entity ).Data.Fracture,
+                        "a destructible is simulated from it" );
         // A foliage entity names its type; the paint brush reads the numbers from it.
         for ( const auto entity : registry.view<ECS::FoliageComponent>() )
             roots.Mark( registry.get<ECS::FoliageComponent>( entity ).FoliageType,

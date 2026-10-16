@@ -9,7 +9,6 @@
 #include <Engine/ECS/System/DestructibleLifetime.hpp>
 #include <Engine/ECS/System/WaterBodyGather.hpp>
 #include <Engine/ECS/System/RagdollLifetime.hpp>
-#include <Engine/ECS/System/DestructionVFXEvents.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -145,8 +144,15 @@ namespace Desert::ECS
             m_Landscape->Attach( registry );
             m_Destructibles->Attach( registry );
             m_Ragdolls->Attach( registry );
-            m_Destructibles->Sync( registry, []( const Assets::AssetHandle& fracture )
-                                   { return Runtime::ResourceRegistry::GetFractureService()->Get( fracture ); } );
+            m_Destructibles->Sync(
+                 registry, []( const Assets::AssetHandle& fracture )
+                 { return Runtime::ResourceRegistry::GetFractureService()->Get( fracture ); },
+                 []( const Assets::AssetHandle& mesh )
+                 {
+                     // The file a run-time fracture cuts (DST-RUNTIME): the static mesh asset the entity draws.
+                     const auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( mesh );
+                     return asset ? asset->GetMetadata().Filepath : std::filesystem::path();
+                 } );
             // Refused tiles get no body; LandscapeECSSystem reports them (it applies the same test).
             m_Landscape->Sync( DrawableLandscapeTiles( registry ).Tiles );
 
@@ -290,13 +296,14 @@ namespace Desert::ECS
             m_World->Step( ts.GetSeconds() );
             m_World->SetPreStepCallback( {} );
             m_Ragdolls->WriteBackAfterStep( registry );
+            // At Impact destructibles hit hard enough are sent to be cut around the hit (DST-RUNTIME).
+            m_Destructibles->CutOnImpact( registry );
             // Every simulated destructible's piece poses from its bodies (DST-06), what its pieces draw at.
             m_Destructibles->WritePoses( registry );
             PublishEvents( registry );
-            // The steps' breaks are destruction's own news, published by its owner into its own queue.
+            // The steps' breaks, collisions and removals are destruction's own news, published by its owner into
+            // its own queue; the Gameplay Framework (ComponentEventSystem, ScriptSystem) hands them on.
             m_Destructibles->PublishEvents( registry );
-            // And into the scene's VFX data channels (DST-05), for the VFXWorld tick that follows the systems.
-            PublishDestructionEvents( registry );
 
             // Write the pose to DRAW back into the transform for moving bodies: interpolated between the last
             // two fixed steps, so motion is smooth at any frame rate.
@@ -499,29 +506,6 @@ namespace Desert::ECS
             }
         }
 
-        // DST-05: this frame's breaks, collisions and removals into the scene's VFX data channels, read by the
-        // VFXWorld tick that follows the systems. A refusal (no channel asset, a layout without a field) is said
-        // once until it changes, not every frame.
-        void PublishDestructionEvents( entt::registry& registry )
-        {
-            if ( m_Scene == nullptr )
-                return;
-            const DestructionEventSources sources  = CollectDestructionEventSources( registry );
-            VFX::VFXDataChannels&         channels = m_Scene->GetVFXWorld().GetDataChannels();
-            Common::BoolResultStr         outcome  = Common::MakeSuccess( true );
-            if ( const auto assets = Runtime::ResourceRegistry::GetFractureService()->LockAssetManager() )
-                outcome = UseDestructionChannels( sources, channels, *assets );
-            if ( outcome.IsSuccess() )
-            {
-                DestructionVFXReport report;
-                outcome = WriteDestructionEventsToVFX( m_Destruction->GetEvents(), sources, channels, report );
-            }
-            const std::string refusal = outcome.IsSuccess() ? std::string() : outcome.GetError();
-            if ( !refusal.empty() && refusal != m_DestructionVFXRefusal )
-                LOG_ERROR( "[Destruction] events not published to VFX: {}", refusal );
-            m_DestructionVFXRefusal = refusal;
-        }
-
         // Said once per entity per Play: a refused collider would otherwise be retried, and logged, every frame.
         void RefuseCollider( entt::entity entity, const std::string& reason )
         {
@@ -552,7 +536,5 @@ namespace Desert::ECS
         std::unordered_map<Physics::BodyHandle, entt::entity> m_BodyEntities; // see PublishEvents
         std::unordered_set<entt::entity> m_RefusedCharacters;
         bool                             m_ProfilesRefused = false;
-        // The last refusal PublishDestructionEvents said; empty while publishing works.
-        std::string m_DestructionVFXRefusal;
     };
 } // namespace Desert::ECS

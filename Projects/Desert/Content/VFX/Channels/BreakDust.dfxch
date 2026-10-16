@@ -27,10 +27,6 @@
         {
             "Name": "PieceCount",
             "Type": "Int"
-        },
-        {
-            "Name": "SourceEntity",
-            "Type": "Int"
         }
     ]
 }

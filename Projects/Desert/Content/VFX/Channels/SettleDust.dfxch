@@ -1,7 +1,7 @@
 {
     "Header": {
         "Kind": "VFXDataChannel",
-        "Guid": "1fa62436408541dcb1e0ecc5ea5c1052",
+        "Guid": "43ab240d7ce3481f8b795e573f9c4feb",
         "Versions": {
             "VFXD": 1
         },
@@ -13,14 +13,6 @@
             "Type": "Position"
         },
         {
-            "Name": "Normal",
-            "Type": "Direction"
-        },
-        {
-            "Name": "Impulse",
-            "Type": "Float"
-        },
-        {
             "Name": "Velocity",
             "Type": "Direction"
         },
@@ -29,7 +21,7 @@
             "Type": "Float"
         },
         {
-            "Name": "SourceEntity",
+            "Name": "PieceCount",
             "Type": "Int"
         }
     ]

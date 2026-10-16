@@ -42,6 +42,7 @@ namespace Desert::Destruction
         Clustered, // UE Cluster Voronoi: Clusters centres, SitesPerCluster sites around each
         Planar,    // UE Planar: the arrangement of Planes
         Brick,     // UE Brick: Brick bond pattern
+        Radial,    // UE Radial, in shells: fine at Radial.Center, coarse away from it (FractureCells.hpp)
     };
 
     [[nodiscard]] const char* ToString( FractureMethod method );
@@ -59,6 +60,7 @@ namespace Desert::Destruction
 
         std::vector<CutPlane> Planes; // Planar, in the source mesh's space
         BrickSettings         Brick;  // Brick
+        RadialSettings        Radial; // Radial
 
         /// UE Damage Threshold of this level's pieces: the strain a piece of this level breaks off at.
         float DamageThreshold = 500000.0f;

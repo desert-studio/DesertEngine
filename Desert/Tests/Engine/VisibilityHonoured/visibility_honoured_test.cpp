@@ -157,10 +157,6 @@ namespace
               "it fires a placed field entity into the destruction world (UE: AFieldSystemActor, which is "
               "never drawn); a field is an event acting on bodies, and hiding it must not change what a "
               "Sequencer event or a script breaks." },
-         Row{ "DestructionVFXEvents.hpp", Verdict::MustNot,
-              "DST-05: it writes the frame's destruction events into the VFX data channels (UE: Chaos break "
-              "events read by Niagara); a hidden destructible is still simulated and still breaks, and the "
-              "picture is the reading emitter's, whose own Visible decides whether it is drawn." },
          Row{ "FracturePieceDraw.hpp", Verdict::Honours,
               "DST-06: it records a fractured entity's pieces as static-mesh draws in place of its mesh, so a "
               "hidden destructible must draw no piece, exactly as MeshECSSystem draws no hidden static." },
@@ -265,6 +261,8 @@ namespace
          Site{ "MeshECSSystem.hpp", "static meshes", "StaticMeshComponent& mesh," },
          Site{ "MeshECSSystem.hpp", "instanced static meshes (ISM)", "InstancedStaticMeshComponent& ism" },
          Site{ "MeshECSSystem.hpp", "skinned meshes", "SkinnedMeshComponent& mesh," },
+         Site{ "FracturePieceDraw.hpp", "fracture pieces (preview and destructible)",
+               "auto record = [&]( entt::entity entity," },
          Site{ "TextECSSystem.hpp", "world text", "view<TextComponent, TransformComponent>" },
          Site{ "HeightFogECSSystem.hpp", "the fog volume election", "view<ECS::ExponentialHeightFogComponent>" },
          Site{ "VolumetricCloudECSSystem.hpp", "the cloud layer election", "view<ECS::VolumetricCloudComponent>" },
