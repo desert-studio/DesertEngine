@@ -1,11 +1,10 @@
 // DesertAsset {"Kind":"Shader","Guid":"ad572b5fc8784311a2fcc5a2d28adc9a","Versions":{"SHDR":1},"Dependencies":[]}
 // THE SCREEN PROBE GATHER, 4/4 — INTEGRATE (UE ScreenProbeIntegrateCS + the gather's temporal filter,
 // LumenScreenProbeGather.usf): one thread per G-buffer pixel.
-//   probes    the four probes around the pixel of every level (uniform 16 px, adaptive 8 and 4 px), each weighted
-//             bilinearly x by how well its plane holds the pixel and its hemisphere faces the pixel's normal
-//             (CalculateUpsampleInterpolationWeights). Where no probe's plane holds the pixel the uniform four
-//             answer by position and normal alone, so a pixel never reads nothing while a probe is near; where
-//             no probe is near at all (a lone leaf against the sky) the world radiance cache answers in place;
+//   probes    the four uniform probes around the pixel, bilinear x how well each lies on the pixel's plane and
+//             faces its normal; a corner that misses takes the best adaptive probe of its tile (SPInterpolate, UE
+//             CalculateUpsampleInterpolationWeights). The placement put an adaptive probe wherever this test
+//             failed, so only a pixel past the adaptive budget finds none: it reads the world radiance cache;
 //   diffuse   the probes' irradiance SH at the pixel's normal (already / pi);
 //   specular  UE's rough specular (LumenScreenProbeGather.usf ScreenProbeIntegrateCS, the default
 //             ROUGH_SPECULAR_ALONG_REFLECTION_DIRECTION 0): the diffuse irradiance above (UE `DiffuseLighting / PI`)
@@ -191,74 +190,43 @@ Shader "ScreenProbeIntegrate"
 
             vec3  diffuse  = vec3( 0.0 );
             vec3  specular = vec3( 0.0 );
-            float total    = 0.0;
             // The probes that hold the pixel and their weights: the diffuse reads every one, each GGX sample one of
             // them picked by weight (UE r.Lumen.ScreenProbeGather.StochasticInterpolation) - four radiance fetches a
             // pixel instead of four per probe (Bistro's backlit crown: 7.1 ms of integrate, then a GPU watchdog).
-            uint  heldId[SP_LEVELS * 4u];
-            float heldW[SP_LEVELS * 4u];
-            uint  held = 0u;
-            for ( uint level = 0u; level < SP_LEVELS; ++level )
+            uvec4 heldId;
+            vec4  heldW;
+            SPInterpolate( pixel, p, n, distance, SP_LEVELS, heldId, heldW );
+            const float total = dot( heldW, vec4( 1.0 ) );
+            if ( total >= SP_ADAPTIVE_EPSILON )
             {
-                uvec4 ids;
-                vec4  weights;
-                SPLevelWeights( level, vec2( pixel ) + 0.5, p, n, distance, extent, ids, weights );
                 for ( int i = 0; i < 4; ++i )
-                    if ( weights[i] > 1e-4 )
-                    {
-                        diffuse  += weights[i] * ProbeIrradiance( ids[i], n );
-                        heldId[held] = ids[i];
-                        heldW[held]  = weights[i];
-                        ++held;
-                        total    += weights[i];
-                    }
-            }
-            if ( total <= 1e-4 )
-            {
-                // No probe's plane holds the pixel: the uniform four by position and normal alone.
-                const vec2  c = ( vec2( pixel ) + 0.5 ) / SPSpacing( 0u ) - 0.5;
-                const ivec2 b = ivec2( floor( c ) );
-                const vec2  f = c - vec2( b );
-                for ( int i = 0; i < 4; ++i )
-                {
-                    const ivec2 o  = ivec2( i & 1, i >> 1 );
-                    const uint  id = SPProbeAt( 0u, b + o, extent );
-                    if ( id == SP_INVALID )
-                        continue;
-                    const vec2  bilinear = mix( 1.0 - f, f, vec2( o ) );
-                    const float w = bilinear.x * bilinear.y * ( max( dot( n, screenProbes[id].normal.xyz ), 0.0 ) + 0.05 );
-                    diffuse  += w * ProbeIrradiance( id, n );
-                    heldId[held] = id;
-                    heldW[held]  = w;
-                    ++held;
-                    total    += w;
-                }
-            }
-            if ( total > 1e-6 )
-            {
+                    if ( heldW[i] > 0.0 )
+                        diffuse += heldW[i] * ProbeIrradiance( heldId[i], n );
                 diffuse /= total;
                 for ( int k = 0; k < SP_ROUGH_SPECULAR_SAMPLES; ++k )
                 {
                     if ( roughW[k] <= 0.0 )
                         continue;
                     float pick = SPPixelNoise( uvec2( pixel ), uint( k ) + 8u, screenProbeParams.atlas.y ).x * total;
-                    uint  j    = 0u;
-                    while ( j + 1u < held && pick >= heldW[j] )
-                    {
-                        pick -= heldW[j];
-                        ++j;
-                    }
+                    int   j    = 0;
+                    for ( int i = 0; i < 4; ++i )
+                        if ( heldW[i] > 0.0 )
+                        {
+                            j = i;
+                            if ( pick < heldW[i] )
+                                break;
+                            pick -= heldW[i];
+                        }
                     specular += roughW[k] * ProbeRadiance( heldId[j], roughL[k] );
                 }
                 specular = mix( specular, diffuse, diffuseLerp );
             }
             else
             {
-                // NO SCREEN PROBE HOLDS THE PIXEL, NOT EVEN BY POSITION: every probe of its tiles sits on the sky (a
-                // leaf card or a twig at a crown's edge, alone against the sky, under every level's placement). It
-                // reads the world radiance cache in place, as the ProbeVolume method does for every pixel
-                // (IrradianceFieldGather) - the same cache the probes' own rays end in - and is never black: before
-                // this, Bistro's linde tree drew every such leaf as a black cut-out (FOLIAGE-LOOK-2 x1_uncovered).
+                // NO SCREEN PROBE HOLDS THE PIXEL: the placement wanted an adaptive probe here and the budget was
+                // spent (UE would draw it dark, its weights over max(sum, Epsilon)). It reads the world radiance cache
+                // in place, as the ProbeVolume method does for every pixel (IrradianceFieldGather) - the same cache
+                // the probes' own rays end in - and is never black (FOLIAGE-LOOK-2 x1_uncovered: the black leaves).
                 vec3       cacheSpecular;
                 const vec4 cache = RadianceCacheIrradianceAtImpl( p, n, v, r, 0.5, true, cacheSpecular );
                 if ( cache.a > 0.0 )

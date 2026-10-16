@@ -66,7 +66,6 @@ Shader "ScreenProbeFilter"
             if ( state.position.w <= 0.0 )
                 return;
 
-            const vec2  extent = giFrame.screen.xy;
             const uint  texel  = gl_LocalInvocationIndex;
             const ivec2 t      = ivec2( texel % SP_RES, texel / SP_RES );
             const mat3  frame  = SPProbeFrame( state.normal.xyz );
@@ -77,11 +76,11 @@ Shader "ScreenProbeFilter"
             vec3        sum    = own.rgb;
             float       weight = 1.0;
             const vec3  p      = state.position.xyz;
-            const ivec2 tile   = SPProbePixelOf( state ) / int( SP_DOWNSAMPLE );
+            const ivec2 tile   = SPUniformTileOf( SPProbePixelOf( state ) );
             for ( int y = -1; y <= 1; ++y )
                 for ( int x = -1; x <= 1; ++x )
                 {
-                    const uint other = SPProbeAt( 0u, tile + ivec2( x, y ), extent );
+                    const uint other = SPUniformProbeAt( tile + ivec2( x, y ) );
                     if ( other == SP_INVALID || other == probe )
                         continue;
                     const ScreenProbe neighbour = screenProbes[other];

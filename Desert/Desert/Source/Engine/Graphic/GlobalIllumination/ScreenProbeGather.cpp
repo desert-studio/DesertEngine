@@ -155,8 +155,9 @@ namespace Desert::Graphic::GlobalIllumination
         params.PrevViewProjection = inputs.PrevViewProjection;
         params.PrevCamera         = glm::vec4( inputs.PrevCameraPosition, 0.0f );
         params.Grid               = glm::uvec4( layout.Grid, layout.UniformProbes, layout.AdaptiveProbes );
-        params.Atlas =
-             glm::uvec4( ScreenProbeLayout::kAtlasProbesRow, ++m_FrameIndex, m_HistoryValid ? 1u : 0u, 0u );
+        const glm::uvec2 jitter   = ScreenProbeJitter( ++m_FrameIndex );
+        params.Atlas   = glm::uvec4( ScreenProbeLayout::kAtlasProbesRow, m_FrameIndex, m_HistoryValid ? 1u : 0u,
+                                     jitter.x | ( jitter.y << 16u ) );
         m_HistoryValid = true;
 
         const RDG::BufferRef paramsBuffer =
@@ -180,7 +181,8 @@ namespace Desert::Graphic::GlobalIllumination
                  .Sampled( "u_GBufferB", inputs.GBufferB, kS, all, RDG::SamplerDesc::PointClamp() );
         };
 
-        // Place: level 0 (uniform), then the two adaptive levels, each reading the coarser ones.
+        // Place: level 0 (uniform, and the tiles' adaptive counts reset), then the two adaptive levels, each
+        // reading the probes the coarser ones placed.
         for ( uint32_t level = 0; level < ScreenProbeLayout::kLevels; ++level )
         {
             ComputePipeline* const pipeline = m_Pipelines[Place].get();
