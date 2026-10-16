@@ -152,6 +152,7 @@ namespace Desert::Graphic::DistanceField
         m_AssetSlots       = {};
         m_AssetData.clear();
         m_Indirection.clear();
+        ++m_Revision;
         m_Pending.clear();
         m_Atlas.reset();
         m_PoolMiB = poolMiB;
@@ -259,11 +260,13 @@ namespace Desert::Graphic::DistanceField
         // The bricks are written by FlushUploads before any pass of this frame reads the record.
         ++resident.NumMips;
         record[0] = glm::vec4( DfBits( resident.NumMips ), 0.0f, 0.0f, 0.0f );
+        ++m_Revision;
         return true;
     }
 
     void DistanceFieldSceneData::DropMip( Resident& resident )
     {
+        ++m_Revision;
         const uint32_t r        = --resident.NumMips;
         glm::vec4*     record   = &m_AssetData[static_cast<size_t>( resident.AssetIndex ) * kDfAssetStride];
         record[0]               = glm::vec4( DfBits( resident.NumMips ), 0.0f, 0.0f, 0.0f );

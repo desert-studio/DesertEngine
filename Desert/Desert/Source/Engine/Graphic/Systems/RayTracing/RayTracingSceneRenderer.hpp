@@ -267,6 +267,12 @@ namespace Desert::Graphic::RayTracing
         {
             return m_Gather.Errors;
         }
+        // This frame's gathered primitives (the TLAS instances' sources; a primitive with no BLAS is in the list
+        // and not in the TLAS). Meaningful after AddPasses.
+        [[nodiscard]] std::span<const RayTracingPrimitive> GetPrimitives() const
+        {
+            return m_Gather.Primitives;
+        }
 
     private:
         std::unique_ptr<RayTracingSceneTarget>      m_Target;

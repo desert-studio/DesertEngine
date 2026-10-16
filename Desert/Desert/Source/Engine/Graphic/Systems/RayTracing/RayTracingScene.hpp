@@ -113,6 +113,10 @@ namespace Desert::Graphic::RayTracing
         // procedural cache builds its (mesh, Submeshes) BLAS in "RayTracingScene.DynamicGeometry" and fills
         // Geometry (RayTracingProceduralGeometry.hpp). Instanced rows keep Kind Instanced.
         const Mesh* ProceduralMesh = nullptr;
+        // The mesh asset the primitive draws (a static row's, an ISM instance's), the identity the surface cache
+        // keys an instance by with World (SurfaceCacheScene::PlacementKey): the hardware tracer's hit -> cards.
+        // Null where the cache holds no such instance (skinned, landscape).
+        const void* SourceMesh = nullptr;
     };
 
     // ONE PER-FRAME BLAS BUILD FOR A DEFORMED PRIMITIVE (UE FRayTracingDynamicGeometryUpdateParams): the skin pass

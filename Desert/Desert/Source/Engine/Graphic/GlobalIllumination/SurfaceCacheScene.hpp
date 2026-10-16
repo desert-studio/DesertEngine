@@ -123,8 +123,6 @@ namespace Desert::Graphic::SurfaceCache
         std::vector<uint32_t> LightingPages;
         // The instance table (contract B3, SurfaceCache.hpp): one row per live instance, by its stable row.
         std::vector<InstanceRowPayload> InstanceRows;
-        // The object grid of the rows around the viewer (SurfaceCache.hpp, kObjectGrid*).
-        std::vector<uint32_t> ObjectGrid;
         // The scene frame these records belong to (ConfirmCapturesExecuted takes it back).
         uint64_t Frame         = 0;
         uint32_t ResidentCards = 0;
@@ -161,6 +159,13 @@ namespace Desert::Graphic::SurfaceCache
             const auto it = m_Instances.find( key );
             return it != m_Instances.end() ? it->second.Row : kNoInstance;
         }
+
+        // The rows by placement: PlacementKey( mesh, world ) of every instance the scene holds -> its row. What
+        // the global distance field's objects (a mesh and its world, no entity) are listed under in its object
+        // grid.
+        [[nodiscard]] std::unordered_map<uint64_t, uint32_t> RowsByPlacement() const;
+        // A mesh instance's placement: the mesh's identity and its world transform's bits.
+        [[nodiscard]] static uint64_t PlacementKey( const void* mesh, const glm::mat4& world );
 
     private:
         // One resolution of a card: its pages in the atlas and whether they hold a capture.
@@ -217,9 +222,9 @@ namespace Desert::Graphic::SurfaceCache
         [[nodiscard]] uint32_t WantedLongSide( const Card& card ) const;
         [[nodiscard]] uint32_t AllocateRow();
         void                   FreeRow( uint32_t row );
-        // The frame's instance table and object grid (SceneFrame::InstanceRows / ObjectGrid), after the records.
-        void BuildInstanceTable( SceneFrame& frame, const std::vector<std::pair<uint32_t, uint32_t>>& rowRecords,
-                                 const glm::vec3& viewer ) const;
+        // The frame's instance table (SceneFrame::InstanceRows), after the records.
+        void BuildInstanceTable( SceneFrame&                                       frame,
+                                 const std::vector<std::pair<uint32_t, uint32_t>>& rowRecords ) const;
 
         SurfaceCacheBudget                     m_Budget;
         uint32_t                               m_CaptureAtlasSize    = 0;

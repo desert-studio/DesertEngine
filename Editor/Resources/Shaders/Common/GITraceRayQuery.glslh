@@ -12,7 +12,7 @@
 //
 // Included by Common/GITracer.glslh only, which declares the TLAS and the record blocks (through
 // Common/RayQueryVisibility.glslh, the ONE hardware visibility walk and the ONE vertex fetch by device address) and
-// the u_GIInstanceMeshCards table, then includes this file.
+// the u_GIInstanceSurfaceCacheRows table, then includes this file.
 
 #ifndef DESERT_GI_TRACER_HARDWARE
 #error "GITraceRayQuery.glslh is the hardware tracer: include it only under DESERT_GI_TRACER_HARDWARE"
@@ -24,14 +24,20 @@
 const float kGIHardwareRayBiasCm    = 0.1;
 const float kGIHardwareNormalBiasCm = 0.1;
 
-// THE surface cache's MeshCards index of TLAS instance @p customIndex (RayTracingInstance::CustomIndex = the
-// instance's scene row; one TLAS instance per mesh instance, DECISIONS-1015 S4), or GI_NO_MESH_CARDS. The table is
-// GI-SURFACE-CACHE's (B3: one uint per custom index, GI_NO_MESH_CARDS where the instance has no cards); this is the
-// one place the tracer reads it.
-uint GIMeshCardsForInstance( uint customIndex )
+// THE surface cache's instance-table row (contract B3) of TLAS instance @p customIndex (RayTracingInstance::
+// CustomIndex = the instance's GPU-scene row; one TLAS instance per mesh instance, DECISIONS-1015 S4), or
+// GI_NO_INSTANCE where the cache holds no such instance. One uint per custom index
+// (SceneRenderer::AddFrameInstanceSurfaceCacheRows); this is the one place the tracer reads it.
+uint GISurfaceCacheRowForInstance( uint customIndex )
 {
-    return customIndex < uint( u_GIInstanceMeshCards.length() ) ? u_GIInstanceMeshCards[customIndex]
-                                                                : GI_NO_MESH_CARDS;
+    return customIndex < uint( u_GIInstanceSurfaceCacheRows.length() ) ? u_GIInstanceSurfaceCacheRows[customIndex]
+                                                                        : GI_NO_INSTANCE;
+}
+
+// The hardware hit belongs to exactly one instance: its own row, nothing after it (GITracing.glslh).
+uvec4 GIHitInstanceRows( GIHit hit )
+{
+    return uvec4( hit.instance, GI_NO_INSTANCE, GI_NO_INSTANCE, GI_NO_INSTANCE );
 }
 
 // Three consecutive floats of the segment's vertex @p vertex at @p byteOffset (RayQueryVisibility.glslh's fetch).
@@ -102,8 +108,10 @@ GITraceResult GITraceRay( GITraceInput ray )
     result.surface.distance     = rayQueryGetIntersectionTEXT( query, true );
     result.surface.position     = ray.origin + ray.direction * result.surface.distance;
     result.surface.normal       = normalize( objectNormal * mat3( worldToObject ) );
-    result.surface.instance     = uint( rayQueryGetIntersectionInstanceCustomIndexEXT( query, true ) );
-    result.surface.meshCards    = GIMeshCardsForInstance( result.surface.instance );
+    // The row carries the cards (SurfaceCacheSampleRow reads them from the instance table), as for every tracer.
+    result.surface.instance     = GISurfaceCacheRowForInstance(
+        uint( rayQueryGetIntersectionInstanceCustomIndexEXT( query, true ) ) );
+    result.surface.meshCards    = GI_NO_MESH_CARDS;
     result.surface.primitive    = primitive;
     result.surface.barycentrics = barycentrics;
     result.surface.frontFace    = rayQueryGetIntersectionFrontFaceEXT( query, true );

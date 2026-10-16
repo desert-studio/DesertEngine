@@ -185,6 +185,7 @@ namespace Desert::Graphic::RayTracing
             primitive.Geometry             = geometry;
             primitive.World                = record.World;
             primitive.GpuSceneRow          = record.Row;
+            primitive.SourceMesh           = record.MeshPtr;
             primitive.CastShadows          = record.CastShadows;
             primitive.Submeshes            = masks;
             primitive.Kind                 = record.Kind;
@@ -245,6 +246,7 @@ namespace Desert::Graphic::RayTracing
                 primitive.Geometry             = geometry;
                 primitive.World                = transforms[instance];
                 primitive.GpuSceneRow          = inputs.InstancedMotionRows[data.FirstMotionRow + instance];
+                primitive.SourceMesh           = data.Mesh;
                 primitive.CastShadows          = field.CastShadows;
                 primitive.Submeshes            = masks;
                 primitive.Kind                 = RayTracingPrimitiveKind::Instanced;

@@ -16,6 +16,8 @@ namespace Desert::Graphic::GlobalIllumination
                         return "the global distance field was not brought up";
                 if ( !frame.GlobalDistanceFieldLevels.IsValid() )
                     return "the global distance field's clipmap placement was not uploaded";
+                if ( !frame.GlobalDistanceFieldObjectGrid.IsValid() )
+                    return "the global distance field's object grid was not brought up";
                 return {};
             case Tracer::HardwareRayQuery:
                 // Never answered by the distance field instead: a hardware pipeline without its TLAS is a defect
@@ -25,8 +27,8 @@ namespace Desert::Graphic::GlobalIllumination
                     return "the view's TLAS was not built this frame";
                 if ( !frame.Metadata.Geometry.IsValid() || !frame.Metadata.Materials.IsValid() )
                     return "the ray-tracing geometry / material records were not declared this frame";
-                if ( !frame.InstanceMeshCards.IsValid() )
-                    return "the surface cache's instance -> MeshCards table was not declared this frame "
+                if ( !frame.InstanceSurfaceCacheRows.IsValid() )
+                    return "the TLAS instance -> surface cache row table was not declared this frame "
                            "(GI-SURFACE-CACHE)";
                 return {};
         }
@@ -44,12 +46,16 @@ namespace Desert::Graphic::GlobalIllumination
                                    RDG::SubresourceRange::All() )
                          .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
                 block.Storage( "GITracerSoftwareUB", frame.GlobalDistanceFieldLevels, RDG::Access::StorageRead );
+                // Fetched texel by texel through the includer's point-clamped shared state (GITracer.glslh).
+                block.Texture( "u_GlobalDistanceFieldObjectGrid", frame.GlobalDistanceFieldObjectGrid, sampled,
+                               RDG::SubresourceRange::All() )
+                     .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
                 return;
             case Tracer::HardwareRayQuery:
                 block.AccelerationStructure( kHardwareTracerTlasName, frame.Tlas )
                      .Storage( kHardwareTracerGeometryName, frame.Metadata.Geometry, RDG::Access::StorageRead )
                      .Storage( kHardwareTracerMaterialsName, frame.Metadata.Materials, RDG::Access::StorageRead )
-                     .Storage( kHardwareTracerInstanceMeshCardsName, frame.InstanceMeshCards,
+                     .Storage( kHardwareTracerInstanceSurfaceCacheRowsName, frame.InstanceSurfaceCacheRows,
                                RDG::Access::StorageRead );
                 return;
         }
@@ -59,7 +65,7 @@ namespace Desert::Graphic::GlobalIllumination
     {
         if ( !frame.Cards.IsValid() || !frame.Pages.IsValid() || !frame.MeshCards.IsValid() )
             return "the surface cache's card records were not uploaded this frame";
-        if ( !frame.InstanceRows.IsValid() || !frame.ObjectGrid.IsValid() )
+        if ( !frame.InstanceRows.IsValid() )
             return "the surface cache's instance table was not uploaded this frame";
         if ( !frame.FinalLighting.IsValid() || !frame.Depth.IsValid() || !frame.Opacity.IsValid() )
             return "the surface cache's atlas layers were not imported this frame";
@@ -73,7 +79,6 @@ namespace Desert::Graphic::GlobalIllumination
              .Storage( "SurfaceCardPageBuffer", frame.Pages, RDG::Access::StorageRead )
              .Storage( "SurfaceMeshCardsBuffer", frame.MeshCards, RDG::Access::StorageRead )
              .Storage( "SurfaceCacheInstancesUB", frame.InstanceRows, RDG::Access::StorageRead )
-             .Storage( "SurfaceCacheObjectGridUB", frame.ObjectGrid, RDG::Access::StorageRead )
              .Texture( "u_SurfaceCacheFinalLighting", frame.FinalLighting, RDG::Access::SampledCompute, all )
              .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
              .Texture( "u_SurfaceCacheDepth", frame.Depth, RDG::Access::SampledCompute, all )

@@ -1237,7 +1237,7 @@ namespace Desert::Graphic
         ImportSceneViewTextures( graph, textures );
         // The reflection captures, before any lit node reads them (SceneViewInputs).
         if ( m_FrameReflectionCaptures )
-            m_FrameReflectionCaptures->AddPasses( graph, textures, m_ViewProfile.ReflectionCaptures );
+            m_FrameReflectionCaptures->AddPasses( graph, textures, ReadsReflectionCaptures() );
         // The view's velocity: one transient of this graph at the RENDER EXTENT (frame.Split.Render: the scene
         // target and the G-buffer are resized to it by ResizeRenderTargets), a colour slot of the scene target
         // (SceneTargetLayout, slot kSceneTargetVelocitySlot) and of the G-buffer (GBufferLayout, slot
@@ -1489,19 +1489,32 @@ namespace Desert::Graphic
             const glm::vec4 lightColor = sun.ColorIntensity;
             AddFrameSSAO( graph, textures, gbuffer, frame );
             AddFrameSurfaceCache( graph, textures, frame );
-            AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, frame );
+
+            // The screen traces - SSR's rays and the screen probes' (UE ScreenProbeTraceScreenTextures) - walk
+            // this frame's HZB and return LAST frame's lit scene at a hit: the view's scene colour history, which
+            // this frame's scene copy below refills.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            // ScreenSpace, SoftwareTraced and HardwareTraced run the same pass (the traced two its traced
+            // permutation over their tracer, AddFrameSSR).
+            const Common::Scalability::ReflectionMethod reflections = m_RenderMethods.Reflections.Effective;
+            System::SSRRenderer* const                  ssr =
+                 ( reflections == Common::Scalability::ReflectionMethod::ScreenSpace ||
+                   reflections == Common::Scalability::ReflectionMethod::SoftwareTraced ||
+                   reflections == Common::Scalability::ReflectionMethod::HardwareTraced ) &&
+                           EnsureSSRResources()
+                                       ? UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] )
+                                       : nullptr;
+            const bool             probesTrace = RadianceCacheRuns() && m_GIPipeline.ScreenProbes;
+            const FrameScreenTrace screenTrace =
+                 ( ssr != nullptr || ( probesTrace && EnsureScreenTraceResources() ) )
+                      ? AddFrameScreenTrace( graph, textures, frame )
+                      : FrameScreenTrace{};
+            AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, screenTrace, frame );
 
             // SSR before the lighting, which composes it over the reflection environment (UE: SSR, then the
-            // reflection environment pass). The trace reflects LAST frame's lit scene - SSR's scene colour
-            // history, which this frame's scene copy below refills.
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            System::SSRRenderer* const ssr =
-                 m_RenderMethods.Reflections.Effective == Common::Scalability::ReflectionMethod::ScreenSpace &&
-                           EnsureSSRResources()
-                      ? UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] )
-                      : nullptr;
+            // reflection environment pass).
             const FrameSSR ssrFrame =
-                 ssr != nullptr ? AddFrameSSR( graph, textures, *ssr, gbuffer, frame ) : FrameSSR{};
+                 ssr != nullptr ? AddFrameSSR( graph, textures, *ssr, gbuffer, screenTrace, frame ) : FrameSSR{};
 
             // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
             // with their neutral defaults), not as a second, separately resolved read list.
@@ -1517,13 +1530,18 @@ namespace Desert::Graphic
 
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
-            // With SSR on, the copy IS SSR's scene colour history (what next frame's trace reflects): one copy
-            // serves this frame's refraction and next frame's reflections.
+            // With a screen trace on, the copy IS the view's scene colour history (what next frame's traces read):
+            // one copy serves this frame's refraction and next frame's SSR and screen probes.
             std::function<void()> stampHistory;
-            if ( ssrFrame.SceneHistory.IsValid() )
-                stampHistory = [ssr, index = frame.FrameIndex]() { ssr->StampSceneColorHistory( index ); };
+            if ( screenTrace.SceneHistory.IsValid() )
+            {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                auto* history = UNIQUE_GET_AS( System::SceneColorHistoryRenderer,
+                                               m_RenderSystems["SceneColorHistorySystem"] );
+                stampHistory  = [history, index = frame.FrameIndex]() { history->Stamp( index ); };
+            }
             const RDG::TextureRef sceneCopy = AddFrameSceneCopy(
-                 graph, textures, sceneColor(), copy, ssrFrame.SceneHistory, std::move( stampHistory ) );
+                 graph, textures, sceneColor(), copy, screenTrace.SceneHistory, std::move( stampHistory ) );
 
             // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
             // the glass, which then refracts the water behind it.
@@ -1793,18 +1811,46 @@ namespace Desert::Graphic
             m_SSRResourcesFailed = true;
             return false;
         }
-        // The hierarchy SSR walks (HZBRenderer); its first reader is SSR, so it is built with it.
-        RegisterSystem<System::HZBRenderer>( "HZBSystem", this, m_TargetFramebuffer );
-        if ( const Common::BoolResultStr initialized =
-                  SP_CAST( System::HZBRenderer, m_RenderSystems["HZBSystem"] )->Initialize();
-             !initialized )
+        if ( !EnsureScreenTraceResources() )
         {
-            LOG_WARN( "[SceneRenderer] SSR system unavailable: the HZB: {}", initialized.GetError() );
             m_SSRResourcesFailed = true;
             return false;
         }
 
         m_SSRResourcesReady = true;
+        return true;
+    }
+
+    bool SceneRenderer::EnsureScreenTraceResources()
+    {
+        if ( m_ScreenTraceResourcesReady )
+            return true;
+        if ( m_ScreenTraceResourcesFailed )
+            return false;
+        Renderer::GetInstance().WaitDeviceIdle();
+        // The hierarchy every screen trace walks (HZBRenderer) and the scene colour history every trace returns at
+        // a hit (SceneColorHistoryRenderer): the view's, built with the first trace that needs them.
+        RegisterSystem<System::HZBRenderer>( "HZBSystem", this, m_TargetFramebuffer );
+        if ( const Common::BoolResultStr initialized =
+                  SP_CAST( System::HZBRenderer, m_RenderSystems["HZBSystem"] )->Initialize();
+             !initialized )
+        {
+            LOG_WARN( "[SceneRenderer] Screen traces unavailable: the HZB: {}", initialized.GetError() );
+            m_ScreenTraceResourcesFailed = true;
+            return false;
+        }
+        RegisterSystem<System::SceneColorHistoryRenderer>( "SceneColorHistorySystem", this, m_TargetFramebuffer );
+        if ( const Common::BoolResultStr initialized =
+                  SP_CAST( System::SceneColorHistoryRenderer, m_RenderSystems["SceneColorHistorySystem"] )
+                       ->Initialize();
+             !initialized )
+        {
+            LOG_WARN( "[SceneRenderer] Screen traces unavailable: the scene colour history: {}",
+                      initialized.GetError() );
+            m_ScreenTraceResourcesFailed = true;
+            return false;
+        }
+        m_ScreenTraceResourcesReady = true;
         return true;
     }
 
@@ -2280,9 +2326,13 @@ namespace Desert::Graphic
         return overlay;
     }
 
+    // The view reads the captures when its profile has them and its resolved reflection method is Captures or
+    // above (ScreenSpace composes over them, UE's SSR-then-reflection-environment); Off reads the sky alone. The
+    // scene asks before this frame's BeginScene, so a method change reaches the capture schedule one frame later.
     bool SceneRenderer::ReadsReflectionCaptures() const
     {
-        return m_ViewProfile.ReflectionCaptures;
+        return m_ViewProfile.ReflectionCaptures &&
+               m_RenderMethods.Reflections.Effective >= Common::Scalability::ReflectionMethod::Captures;
     }
 
     uint64_t SceneRenderer::GetEnvironmentIdentity()
