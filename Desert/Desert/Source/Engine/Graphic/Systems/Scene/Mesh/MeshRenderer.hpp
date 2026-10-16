@@ -607,17 +607,6 @@ namespace Desert::Graphic::System
         }
 #endif // DESERT_DEV_INSTRUMENTS
 
-        // This frame's static and instanced draws, whole (before any view's culling): what the view's global
-        // distance field composites (SceneRenderer::AddFrameGlobalDistanceFieldView).
-        [[nodiscard]] const std::vector<StaticMeshRenderData>& GetStaticQueue() const
-        {
-            return m_StaticQueue;
-        }
-        [[nodiscard]] const std::vector<InstancedMeshRenderData>& GetInstancedQueue() const
-        {
-            return m_InstancedQueue;
-        }
-
         // True if any queued mesh is flagged for the selection outline this frame. The Jump Flood pass
         // uses this to skip its (log2(width)) full-screen ping-pong passes when nothing is selected.
         bool HasOutline() const

@@ -200,8 +200,6 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewReflectionCubesName = "u_ReflectionCaptureCubes";
     inline constexpr std::string_view kSceneViewReflectionListName  = "ReflectionCapturesUB";
     inline constexpr std::string_view kSceneViewLocalShadowAtlasName = "u_LocalShadowAtlas";
-    inline constexpr std::string_view kSceneViewReflectionCubesName = "u_ReflectionCaptureCubes";
-    inline constexpr std::string_view kSceneViewReflectionListName  = "ReflectionCapturesUB";
     inline constexpr std::string_view kSceneViewSceneDepthName       = "u_SceneDepth";
     inline constexpr std::string_view kSceneViewSceneShadingWordName = "u_SceneShadingWord";
     // DeferredLighting.shader and Mesh/Surface/Pass_Forward.glslh's DESERT_SUN_SHADOW_RAY_QUERY branch.
