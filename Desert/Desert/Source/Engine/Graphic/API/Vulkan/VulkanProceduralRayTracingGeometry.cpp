@@ -59,16 +59,15 @@ namespace Desert::Graphic::API::Vulkan
         const auto&    allocator =
              SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
 
-        m_IndexAddress                   = functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() );
+        m_IndexAddress  = functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() );
         m_VertexAddress = functions.BufferAddress( device, vertexBuffer->GetVulkanBuffer() );
-        const VulkanBlasBuildInput input = TranslateBlasGeometry(
-             m_Segments, functions.BufferAddress( device, vertexBuffer->GetVulkanBuffer() ), m_IndexAddress );
-        VkAccelerationStructureBuildGeometryInfoKHR build = MakeBlasBuildInfo( input );
+        const VulkanBlasBuildInput buildInput = TranslateBlasGeometry( m_Segments, m_VertexAddress, m_IndexAddress );
+        VkAccelerationStructureBuildGeometryInfoKHR build = MakeBlasBuildInfo( buildInput );
         build.flags                                       = kProceduralBlasFlags;
         VkAccelerationStructureBuildSizesInfoKHR sizes{
              VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
         functions.GetAccelerationStructureBuildSizes( device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
-                                                      &build, input.MaxPrimitiveCounts.data(), &sizes );
+                                                      &build, buildInput.MaxPrimitiveCounts.data(), &sizes );
         m_BuildScratch = sizes.buildScratchSize;
 
         const auto storage = allocator->RT_AllocateBuffer(
