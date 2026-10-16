@@ -7,6 +7,8 @@
 //            cards: LightingFromSurfaceCache): the FinalLighting of the card texels at the hit
 //            (Common/SurfaceCacheSampling.glslh — the instance table and object grid of contract B3): direct light,
 //            the indirect of the radiosity slot (SurfaceCacheIndirectLighting.shader) and emissive — one fetch;
+//   back     a hit behind a surface the cards captured (SURFACE_CACHE_HIT_BACK_FACE: the back of one-sided
+//            geometry, inside its SDF's solid band; GI-BACKFACE-HIT): black, an occluder, as UE's surface-cache miss;
 //   in place where no card holds the hit (GI_NO_MESH_CARDS: no cards built, none resident — small and far meshes
 //            — or a coverage hole), or under DESERT_GI_HIT_LIGHTING_IN_PLACE (hardware only): a port of UE Lumen's
 //            hit lighting (LumenHardwareRayTracingCommon.ush CalculateRayTracedLighting):
@@ -67,8 +69,11 @@ vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
 {
 #if !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
     {
-        vec3 cardLighting;
-        if ( SurfaceCacheHitLighting( hit, GIHitSurfaceCacheBias( hit ), cardLighting ) )
+        vec3       cardLighting;
+        const uint cards = SurfaceCacheHitLighting( hit, GIHitSurfaceCacheBias( hit ), cardLighting );
+        // The back of one-sided geometry: an occluder that sends nothing back (UE: a surface-cache miss there has
+        // no weight and no radiance). Lighting it in place would light the room from an underside nobody modelled.
+        if ( cards != SURFACE_CACHE_HIT_UNCOVERED )
             return cardLighting;
     }
 #endif
