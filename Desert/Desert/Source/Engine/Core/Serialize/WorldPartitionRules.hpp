@@ -1737,7 +1737,8 @@ namespace Desert::Core::Rules
              "], {{ alwaysLoaded }} always-loaded (author {{ author }}, component {{ component }}, "
              "no fit {{ noFit }}, no grid {{ noGrid }}); highest promotion: level {{ maxLevel }}; "
              "{{ pointOnly }} record(s) placed by position alone"
-             "{% if grid %}; grid 0: cell {{ grid.cell }}, loading range {{ grid.range }} world units{% endif %}" );
+             "{% if grid %}; grid 0: cell {{ grid.cell }}, loading range {{ grid.range }} world units{% endif "
+             "%}" );
 
         Common::Json::Value::Array perLevel;
         for ( const std::size_t cells : CellsPerLevel( plan ) )

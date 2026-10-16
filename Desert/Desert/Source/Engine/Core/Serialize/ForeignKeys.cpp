@@ -44,9 +44,9 @@ namespace Desert::Core::Serialize
 
     std::string DescribeForeignKeys( const std::map<std::string, int>& counted )
     {
-        static const TextTemplate kDescribed(
-             "ForeignKeys", "{% for k in keys %}{% if not loop.first %}, {% endif %}{{ k.key }}"
-                            "{% if k.count > 1 %} (x{{ k.count }}){% endif %}{% endfor %}" );
+        static const TextTemplate  kDescribed( "ForeignKeys",
+                                               "{% for k in keys %}{% if not loop.first %}, {% endif %}{{ k.key }}"
+                                                "{% if k.count > 1 %} (x{{ k.count }}){% endif %}{% endfor %}" );
         Common::Json::Value::Array keys;
         for ( const auto& [key, count] : counted )
             keys.emplace_back( Common::Json::ObjectBuilder().Set( "key", key ).Set( "count", count ).Build() );
