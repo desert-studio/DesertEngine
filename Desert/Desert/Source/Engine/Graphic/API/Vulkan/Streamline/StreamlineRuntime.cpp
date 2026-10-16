@@ -200,6 +200,16 @@ namespace Desert::Graphic::Streamline
             return Common::MakeSuccess( true );
         }
 
+        // The first feature @p wanted asks for that @p supported does not have; empty when every one is there.
+        template <typename Table, typename Struct>
+        std::string_view FirstMissingFeature( const Table& table, const Struct& wanted, const Struct& supported )
+        {
+            for ( const auto& row : table )
+                if ( wanted.*( row.Member ) == VK_TRUE && supported.*( row.Member ) != VK_TRUE )
+                    return row.Name;
+            return {};
+        }
+
         void LogFromStreamline( const sl::LogType type, const char* message )
         {
             const std::string_view text = message != nullptr ? message : "";
@@ -492,11 +502,27 @@ namespace Desert::Graphic::Streamline
             Refuse( set.GetError() );
             return;
         }
-        if ( ( requirements.vkNumFeatures12 != 0 && !device.are_extension_features_present( features12 ) ) ||
-             ( requirements.vkNumFeatures13 != 0 && !device.are_extension_features_present( features13 ) ) )
+        // What the DEVICE supports, asked of the device (vkGetPhysicalDeviceFeatures2). vkb's
+        // are_extension_features_present is not that question: it matches against the features already ENABLED
+        // on the selection, so it refused DLSS on every GPU whose 1.2/1.3 struct the engine had not enabled yet.
+        VkPhysicalDeviceVulkan13Features supported13{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+        VkPhysicalDeviceVulkan12Features supported12{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+                                                      .pNext = &supported13 };
+        VkPhysicalDeviceFeatures2 supported{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+                                             .pNext = &supported12 };
+        vkGetPhysicalDeviceFeatures2( device.physical_device, &supported );
+        if ( const std::string_view missing = FirstMissingFeature( kFeatures12, features12, supported12 );
+             !missing.empty() )
         {
-            Refuse(
-                 std::format( "'{}' lacks a Vulkan 1.2/1.3 feature DLSS needs", device.properties.deviceName ) );
+            Refuse( std::format( "'{}' lacks the Vulkan 1.2 feature {} DLSS needs", device.properties.deviceName,
+                                 missing ) );
+            return;
+        }
+        if ( const std::string_view missing = FirstMissingFeature( kFeatures13, features13, supported13 );
+             !missing.empty() )
+        {
+            Refuse( std::format( "'{}' lacks the Vulkan 1.3 feature {} DLSS needs", device.properties.deviceName,
+                                 missing ) );
             return;
         }
 
