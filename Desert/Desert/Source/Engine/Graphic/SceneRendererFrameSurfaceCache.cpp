@@ -12,8 +12,11 @@
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 
+#include <algorithm>
 #include <format>
 #include <span>
+#include <unordered_map>
+#include <vector>
 
 namespace Desert::Graphic
 {
@@ -21,7 +24,7 @@ namespace Desert::Graphic
     {
         if ( m_RenderPath != Core::RenderPath::Deferred )
             return false;
-        if ( m_GIPipeline.SurfaceCache )
+        if ( m_GIPipeline.SurfaceCache || ReflectionsTraced() )
             return true;
 #if DESERT_DEV_INSTRUMENTS
         // Its views bring it up on their own (and light its cards) under any GI method.
@@ -46,11 +49,12 @@ namespace Desert::Graphic
 
     GlobalIllumination::TracerFrame
     SceneRenderer::MakeTracerFrame( RDG::Builder& graph, const FrameTextures& textures,
-                                    const GlobalIllumination::Pipeline& pipeline ) const
+                                    const GlobalIllumination::Pipeline& pipeline )
     {
         const FrameTransients&          t = textures.Transients;
-        GlobalIllumination::TracerFrame tracer{ .Pipeline            = pipeline,
-                                                .GlobalDistanceField = t.GlobalDistanceField };
+        GlobalIllumination::TracerFrame tracer{ .Pipeline                      = pipeline,
+                                                .GlobalDistanceField           = t.GlobalDistanceField,
+                                                .GlobalDistanceFieldObjectGrid = t.GlobalDistanceFieldObjectGrid };
         // The software walk's clipmap placement is its own record ("GITracerSoftwareUB").
         if ( GlobalIllumination::TracerReadsGlobalDistanceField( pipeline ) )
         {
@@ -59,7 +63,53 @@ namespace Desert::Graphic
             graph.QueueBufferUpload( tracer.GlobalDistanceFieldLevels,
                                      std::as_bytes( std::span( t.GlobalDistanceFieldLevels ) ) );
         }
+        // The ray-query walk's own records: this frame's TLAS and its segment records (RT-SCENE / RT-SHADOWS), and
+        // the instance -> surface cache row table. Left invalid when the TLAS was not built: TracerFrameMissing
+        // names it, the consumer refuses the frame.
+        if ( pipeline.Traced && pipeline.Tracer == GlobalIllumination::Tracer::HardwareRayQuery )
+        {
+            const RayTracing::RayTracingSceneFrame& scene = m_RayTracingScene.GetFrame();
+            if ( scene.Built )
+            {
+                tracer.Tlas              = scene.Tlas;
+                tracer.Metadata          = scene.Metadata;
+                tracer.InstanceSurfaceCacheRows = AddFrameInstanceSurfaceCacheRows( graph );
+            }
+        }
         return tracer;
+    }
+
+    RDG::BufferRef SceneRenderer::AddFrameInstanceSurfaceCacheRows( RDG::Builder& graph )
+    {
+        if ( m_TracedFrameShared.InstanceSurfaceCacheRows.IsValid() )
+            return m_TracedFrameShared.InstanceSurfaceCacheRows;
+        if ( !m_SurfaceCache || !m_RayTracingScene.GetFrame().Built )
+            return {};
+        // UE GetMeshCardsIndexFromSceneInstanceIndex: a hit's scene instance -> its cards. Here the TLAS custom
+        // index is the primitive's GPU-scene row (RayTracingInstance::CustomIndex), and the surface cache knows
+        // an instance by its placement (mesh, world: SurfaceCacheScene::PlacementKey) - the key the global
+        // distance field's object grid uses for the same rows. A row with no surface cache instance (a skinned
+        // mesh, a landscape tile, a mesh the cache does not hold) reads kNoInstance: the hit is lit in place.
+        const std::unordered_map<uint64_t, uint32_t> rows = m_SurfaceCache->GetScene().RowsByPlacement();
+        const std::span<const RayTracing::RayTracingPrimitive> primitives = m_RayTracingScene.GetPrimitives();
+        uint32_t                                               count      = 1u; // a graph buffer cannot be empty
+        for ( const RayTracing::RayTracingPrimitive& primitive : primitives )
+            count = std::max( count, primitive.GpuSceneRow + 1u );
+        std::vector<uint32_t> table( count, SurfaceCache::kNoInstance );
+        for ( const RayTracing::RayTracingPrimitive& primitive : primitives )
+        {
+            if ( primitive.SourceMesh == nullptr )
+                continue;
+            const auto it =
+                 rows.find( SurfaceCache::SurfaceCacheScene::PlacementKey( primitive.SourceMesh, primitive.World ) );
+            if ( it != rows.end() )
+                table[primitive.GpuSceneRow] = it->second;
+        }
+        const RDG::BufferRef buffer = graph.CreateBuffer( RDG::BufferDesc{ table.size() * sizeof( uint32_t ) },
+                                                          "GI.Tracer.InstanceSurfaceCacheRows" );
+        graph.QueueBufferUpload( buffer, std::as_bytes( std::span<const uint32_t>( table ) ) );
+        m_TracedFrameShared.InstanceSurfaceCacheRows = buffer;
+        return buffer;
     }
 
     void SceneRenderer::AddFrameSurfaceCache( RDG::Builder& graph, FrameTextures& textures,

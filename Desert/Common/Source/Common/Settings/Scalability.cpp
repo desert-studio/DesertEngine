@@ -233,6 +233,23 @@ namespace Common::Scalability
             return true;
         }
 
+        // The render-method ceilings' refusal (RenderMethods.hpp, RefuseGIMethod and its siblings): empty for
+        // every other parameter and for an implemented method.
+        [[nodiscard]] std::string_view RefuseMethodCeiling( Parameter parameter, ParameterValue value )
+        {
+            switch ( parameter )
+            {
+                case Parameter::GlobalIlluminationMethod:
+                    return RefuseGIMethod( value );
+                case Parameter::ReflectionsMethod:
+                    return RefuseReflectionMethod( value );
+                case Parameter::ShadowsMethod:
+                    return RefuseShadowMethod( value );
+                default:
+                    return {};
+            }
+        }
+
         std::optional<ParameterValue> ParseValue( const ParameterSpec& spec, const Json::Node& node,
                                                   Errors& errors )
         {
@@ -264,6 +281,14 @@ namespace Common::Scalability
             if ( value < spec.Min || value > spec.Max )
             {
                 errors.Add( node, "{}: {} is outside [{}, {}]", spec.Key, value, spec.Min, spec.Max );
+                return std::nullopt;
+            }
+            // A level states the render method it renders (RenderMethods.hpp): one this build has not implemented
+            // would be lowered on every machine, so the level would say one thing and every frame show another.
+            if ( const std::string_view refused = RefuseMethodCeiling( spec.Id, value ); !refused.empty() )
+            {
+                errors.Add( node, "{}: '{}' is {}; a level names a method this build renders", spec.Key,
+                            names[static_cast<std::size_t>( value )], refused );
                 return std::nullopt;
             }
             return value;
@@ -498,6 +523,37 @@ namespace Common::Scalability
         };
 
         constexpr std::string_view kNotOffered = "not offered by this device";
+
+        // A render-method ceiling (RenderMethods.hpp) down its ladder - the enum's order - past what this device
+        // cannot run (no ray query) and what this build does not implement. The table cannot name an unimplemented
+        // method (ParseValue refuses it), an override can; either lowering is a Fallback, logged by Publish like
+        // every other, so the resolved ceiling is what the machine renders and the log says why it is lower.
+        template <typename Method>
+        void NarrowMethod( Parameter parameter, bool rayQuery, Resolution& r )
+        {
+            auto             method = static_cast<Method>( r.Get( parameter ) );
+            std::string_view reason;
+            for ( ;; )
+            {
+                std::string_view blocked;
+                if ( NeedsRayQuery( method ) && !rayQuery )
+                    blocked = "the device offers no ray query";
+                else if ( !IsImplemented( method ) )
+                    blocked = "not implemented in this build";
+                if ( blocked.empty() )
+                    break;
+                if ( reason.empty() )
+                    reason = blocked;
+                method = static_cast<Method>( static_cast<int>( method ) - 1 );
+            }
+            r.Set( parameter, static_cast<ParameterValue>( method ), reason );
+        }
+
+        [[nodiscard]] bool OffersRayQuery( const CapabilityCatalog& catalog )
+        {
+            return std::any_of( catalog.RayTracingModes.begin(), catalog.RayTracingModes.end(),
+                                []( RayTracingMode m ) { return m != RayTracingMode::None; } );
+        }
 
         // Largest offered <= value; the list's front when none is (MSAACounts / AnisotropyLevels are ascending
         // and start at 1).
@@ -739,6 +795,12 @@ namespace Common::Scalability
         {
             r.Set( spec.Id, std::clamp( r.Get( spec.Id ), spec.Min, spec.Max ), "outside the parameter's range" );
             NarrowByCatalog( spec, catalog, r );
+        }
+        {
+            const bool rayQuery = OffersRayQuery( catalog );
+            NarrowMethod<GIMethod>( Parameter::GlobalIlluminationMethod, rayQuery, r );
+            NarrowMethod<ReflectionMethod>( Parameter::ReflectionsMethod, rayQuery, r );
+            NarrowMethod<ShadowMethod>( Parameter::ShadowsMethod, rayQuery, r );
         }
 
         // 5. The two axes are coupled (UE: below 100 % r.ScreenPercentage the AA method's temporal pass upscales,

@@ -49,11 +49,16 @@ namespace Common::Scalability
     enum class ReflectionMethod : int
     {
         Off = 0,        // the sky's prefiltered environment only
-        Captures,       // sky + reflection captures, parallax-corrected (REFL-CAPTURE: ReflectionCaptureRenderer,
-                        // composited by DeferredLighting under DESERT_REFLECTION_CAPTURES)
-        ScreenSpace,    // screen-space trace over the captures; a miss shows the captures and the sky
-        SoftwareTraced, // global SDF + radiance cache (GI/REFL-SW)                       — not implemented
-        HardwareTraced, // screen ray continued into the TLAS (RT-REFL); RT device        — not implemented
+        Captures,       // sky + reflection captures, parallax-corrected (ReflectionCaptureRenderer; UE's
+                        // reflection environment with r.SSR off)
+        ScreenSpace,    // screen-space trace composed over the captures; a miss shows the captures, then the sky
+                        // (UE r.ReflectionMethod 2: SSR, then the reflection environment)
+        SoftwareTraced, // the screen trace continued through the GI's tracer - mesh SDFs, then the global SDF -,
+                        // a hit lit from the surface cache, a miss answered by the captures, then the sky; past
+                        // UE's MaxRoughnessToTrace the screen alone (REFL-SW; UE Lumen reflections)
+        HardwareTraced, // SoftwareTraced's pipeline with the ray-query tracer: the screen trace continued into the
+                        // view's TLAS (alpha-tested), a hit lit from the surface cache, a miss answered by the
+                        // captures, then the sky (RT-REFL; UE Lumen reflections, hardware ray tracing); RT device
         PathTraced,     // reference (PATHTRACER); RT device                              — not implemented
     };
 
@@ -88,7 +93,8 @@ namespace Common::Scalability
     [[nodiscard]] constexpr bool IsImplemented( ReflectionMethod method )
     {
         return method == ReflectionMethod::Off || method == ReflectionMethod::Captures ||
-               method == ReflectionMethod::ScreenSpace;
+               method == ReflectionMethod::ScreenSpace || method == ReflectionMethod::SoftwareTraced ||
+               method == ReflectionMethod::HardwareTraced;
     }
     [[nodiscard]] constexpr bool IsImplemented( ShadowMethod method )
     {
