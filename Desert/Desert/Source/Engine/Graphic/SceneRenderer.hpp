@@ -86,6 +86,7 @@
 #include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/RayTracedSunShadow.hpp>
+#include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
 
 namespace Desert::Core
 {
@@ -813,7 +814,7 @@ namespace Desert::Graphic
         // This frame's sun shadow is "Shadows: Ray Traced Sun": the Shadows method resolved to HardwareTraced AND
         // this view-frame's TLAS was built (OnUpdate lowers it with LowerShadowsForFrame before any pass is
         // declared, so every reader of one frame sees one answer). The composite's and the opaque generic
-        // programs' DESERT_SUN_SHADOW_RAY_QUERY permutations read the mask.
+        // programs' DESERT_SUN_SHADOW_SCREEN_MASK permutations read the mask.
         [[nodiscard]] bool SunShadowIsRayTraced() const;
         // "Shadows: Ray Traced Sun" over the G-buffer, then the DENOISE-CORE ShadowVisibility signal (SourceAngle,
         // closest occluder): the composite's screen shadow mask. Invalid (logged) only when the trace pass itself
@@ -822,6 +823,20 @@ namespace Desert::Graphic
                                                     const std::vector<RDG::TextureRef>& gbuffer,
                                                     const glm::vec3& directionToSun, const ViewFrame& frame );
         bool            EnsureRayTracedShadowResources();
+        // This frame's sun shadow is the virtual shadow map (the Shadows method resolved to VirtualMaps).
+        [[nodiscard]] bool SunShadowIsVirtual() const;
+        // THE ONE ANSWER TO "is the sun shadowed from a screen mask this frame" (the ray-traced sun or the virtual
+        // shadow map, both ShadowMask.Sun): every mask READER asks it - the composite's and the opaque generic
+        // programs' DESERT_SUN_SHADOW_SCREEN_MASK permutations, the depth/normal prepass, the cascade budget (the
+        // low-detail cascades kept for the blended u_ShadowCascades readers). The producers ask their own method.
+        [[nodiscard]] bool SunShadowIsScreenMask() const;
+        // "Shadows: Virtual Shadow Map" (System::VirtualShadowMapRenderer): the page passes over this view's
+        // G-buffer, then "VSM: Project" (SMRT inside the sun's SourceAngle) into the screen mask. Invalid (logged)
+        // when the passes could not be declared; the readers then bind System.White, as for the ray-traced sun.
+        RDG::TextureRef AddFrameVirtualSunShadow( RDG::Builder& graph, FrameTextures& textures,
+                                                  const std::vector<RDG::TextureRef>& gbuffer,
+                                                  const glm::vec3& directionToSun, const ViewFrame& frame );
+        bool            EnsureVirtualShadowResources();
         void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures );
         // One raster node for @p pass on @p target (its whole attachment set, or @p overlay's), with the pass's
@@ -884,7 +899,7 @@ namespace Desert::Graphic
         void AddFrameForwardDepthNormal( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer );
         // @p sunShadowMask: the ray-traced sun's screen mask (invalid when the sun is not ray traced), bound where a
-        // generic program's DESERT_SUN_SHADOW_RAY_QUERY permutation reads it (SceneViewInputs.SunShadowMask).
+        // generic program's DESERT_SUN_SHADOW_SCREEN_MASK permutation reads it (SceneViewInputs.SunShadowMask).
         void AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
                               RDG::TextureRef sunShadowMask );
         // @p sceneCopy: this frame's scene snapshot (FrameTransients::SceneColorCopy); invalid -> no glass node.
@@ -1219,6 +1234,12 @@ namespace Desert::Graphic
         System::ScreenSpaceDenoiser        m_SunShadowDenoiser{ System::DenoiserSignal::ShadowVisibility };
         bool                               m_RayTracedShadowReady  = false;
         bool                               m_RayTracedShadowFailed = false;
+        // "Shadows: Virtual Shadow Map" (per view: the page cache is this view's), created on the first frame that
+        // resolves the sun to VirtualMaps; its quality (Shadows.Virtual*) taken each BeginScene.
+        System::VirtualShadowMapRenderer m_VirtualShadowMap;
+        System::VirtualShadowMapQuality  m_VirtualShadowQuality;
+        bool                             m_VirtualShadowReady  = false;
+        bool                             m_VirtualShadowFailed = false;
         // This frame draws the sun's cascades (OnUpdate's frame decision): CascadedMaps, or a ray-traced sun with a
         // cascade reader queued (MeshRenderer::SunCascadeReadersQueued). Last frame's, to redraw the static caches
         // after a gap in which nothing drew them.

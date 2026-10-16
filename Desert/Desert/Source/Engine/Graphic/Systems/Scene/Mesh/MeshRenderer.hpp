@@ -480,7 +480,7 @@ namespace Desert::Graphic::System
         [[nodiscard]] ShadowCascadeFrame ShadowCascadePasses( RDG::TextureRef maps );
         // THE ONE ANSWER TO "does a program of this frame sample the sun's cascades while the sun is ray traced":
         // a blended draw of the generic queue, in the camera's frustum, whose program declares u_ShadowCascades
-        // (the opaque ones read the screen mask through their DESERT_SUN_SHADOW_RAY_QUERY permutation, the lit
+        // (the opaque ones read the screen mask through their DESERT_SUN_SHADOW_SCREEN_MASK permutation, the lit
         // queue is shaded by the composite). SceneRenderer::OnUpdate draws the low-detail cascades only when true.
         [[nodiscard]] bool SunCascadeReadersQueued() const;
         // Every cascade's static cache marked never drawn: the next ShadowCascadePasses redraws and rebuilds each
@@ -544,7 +544,7 @@ namespace Desert::Graphic::System
         // program into G-buffer depth + normal, so the ray-traced sun trace and the screen passes see the meshes
         // that are shaded forward over the composite. The exec records that list. @p rayTracedSun: the frame
         // intends to ray trace the sun (SceneRenderer::SunShadowIsRayTraced), so "Deferred: Generic" shades the
-        // sun-reading opaque programs through their DESERT_SUN_SHADOW_RAY_QUERY permutation - the forward
+        // sun-reading opaque programs through their DESERT_SUN_SHADOW_SCREEN_MASK permutation - the forward
         // pipeline whose readiness this prepass checks together with its own.
         void DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, bool rayTracedSun );
         [[nodiscard]] Common::BoolResultStr RenderForwardDepthNormalManual( const RDG::PassContext& context ) const;
@@ -873,7 +873,7 @@ namespace Desert::Graphic::System
             // at CloserOrEqual against its own prepassed depth.
             DeferredForward,
             // DeferredForward while the sun is ray traced: an opaque program that samples the sun shadow is shaded
-            // through its DESERT_SUN_SHADOW_RAY_QUERY permutation (ReadsSunShadowRayTraced), which reads the view's
+            // through its DESERT_SUN_SHADOW_SCREEN_MASK permutation (ReadsSunShadowScreenMask), which reads the view's
             // screen mask (SceneViewInputs.SunShadowMask) in place of the cascades; a blended one through itself.
             DeferredForwardRayTracedSun,
         };
@@ -969,9 +969,9 @@ namespace Desert::Graphic::System
         void PrecacheRequestedMaterials();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
         // An opaque generic program that samples the sun's shadow (declares u_ShadowCascades): the one that gets a
-        // DESERT_SUN_SHADOW_RAY_QUERY permutation while the sun is ray traced. A blended program (TextSDF) or one
+        // DESERT_SUN_SHADOW_SCREEN_MASK permutation while the sun is ray traced. A blended program (TextSDF) or one
         // that reads no sun shadow is shaded through itself.
-        [[nodiscard]] static bool ReadsSunShadowRayTraced( const Shader& shader, bool opaque );
+        [[nodiscard]] static bool ReadsSunShadowScreenMask( const Shader& shader, bool opaque );
         // Whether the pipeline "Deferred: Generic" shades @p shader's opaque draw with is Ready, tracked (so a
         // compiling one counts among the pending pipelines); @p rayTracedSun picks the permutation as that pass does.
         [[nodiscard]] bool GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,

@@ -236,9 +236,9 @@ Shader "DeferredLighting"
         // The cascaded shadow's two bindings, at slots free in THIS layout. The text that reads them is
         // one file for every shader in the engine that shades a surface with the sun —
         // Mesh/CascadedShadow.glslh, included right below because it names what is declared here.
-        // DESERT_SUN_SHADOW_RAY_QUERY (DeferredLightingRenderer's second program, "Shadows: Ray Traced Sun"): the
+        // DESERT_SUN_SHADOW_SCREEN_MASK (DeferredLightingRenderer's second program, "Shadows: Ray Traced Sun"): the
         // sun's visibility is the denoised screen mask, and the cascades are compiled out.
-        #ifdef DESERT_SUN_SHADOW_RAY_QUERY
+        #ifdef DESERT_SUN_SHADOW_SCREEN_MASK
         Uniform(5) texture2D u_ScreenShadowMask; // r = visibility, 1 = lit (render extent = this target's)
         #define u_ScreenShadowMask sampler2D(u_ScreenShadowMask, u_PointClampSampler)
         #else
@@ -258,7 +258,7 @@ Shader "DeferredLighting"
         	vec4 u_ShadowFilter;      // x = PCSS blocker search taps, y = PCSS filter taps (Mesh/CascadedShadow.glslh)
         };
 
-        #ifdef DESERT_SUN_SHADOW_RAY_QUERY
+        #ifdef DESERT_SUN_SHADOW_SCREEN_MASK
         #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) texelFetch(u_ScreenShadowMask, ivec2(gl_FragCoord.xy), 0).r
         #else
         #include <Mesh/CascadedShadow.glslh>

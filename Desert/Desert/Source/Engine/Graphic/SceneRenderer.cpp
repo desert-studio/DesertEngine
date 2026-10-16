@@ -895,6 +895,11 @@ namespace Desert::Graphic
              .BlockerSearchTaps = quality.As<int>( Parameter::ShadowBlockerSearchTaps ),
              .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ) };
         m_ShadowDenoiserRadius                = quality.As<uint32_t>( Parameter::ShadowRayTracedDenoiserRadius );
+        m_VirtualShadowQuality = System::VirtualShadowMapQuality{
+             .MaxPhysicalPages  = static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualMaxPhysicalPages ) ),
+             .ResolutionLodBias = 0.1f * static_cast<float>( quality.As<int>( Parameter::ShadowVirtualResolutionLodBias ) ),
+             .SmrtRayCount      = static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTRayCount ) ),
+             .SmrtSamplesPerRay = static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTSamplesPerRay ) ) };
         m_ReflectionDenoiserRadius            = quality.As<uint32_t>( Parameter::ReflectionDenoiserRadius );
         m_ScreenSpaceGISamples                = quality.As<int>( Parameter::ScreenSpaceGISamples );
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
@@ -1443,7 +1448,8 @@ namespace Desert::Graphic
             // frame's when AddPasses succeeded - or the trace resources could not be created) resolves to
             // CascadedMaps for the whole frame (LowerShadowsForFrame: the overlay row and one log line name it).
             // Every reader - the cascades below, the depth/normal prepass, the trace, the composite, "Deferred:
-            // Generic" - asks SunShadowIsRayTraced(), which reads this resolution.
+            // Generic" - asks SunShadowIsScreenMask() (the ray-traced sun or the virtual shadow map), which reads
+            // this resolution.
             const bool sunTraced = SunShadowIsRayTraced();
             LowerShadowsForFrame( m_RenderMethods, !sunTraced || ( tlas && m_RayTracingScene.GetFrame().Built &&
                                                                    EnsureRayTracedShadowResources() ) );
@@ -1451,14 +1457,14 @@ namespace Desert::Graphic
             // The cascade budget follows the FRAME's answer: a frame that fell back to CascadedMaps draws the full
             // ShadowQuality cascades, the low-detail Shadows.RayTracedTranslucency* ones only while the sun is
             // ray traced. Then the maps are imported at that budget, before any pass reads them.
-            RebudgetShadowsFor( m_Quality, SunShadowIsRayTraced() );
+            RebudgetShadowsFor( m_Quality, SunShadowIsScreenMask() );
             ImportViewShadowMaps( graph, textures );
             // The sun's cascades this frame: always under CascadedMaps; under a ray-traced sun only when a program
             // of this frame samples them (MeshRenderer::SunCascadeReadersQueued: blended draws whose program
             // declares u_ShadowCascades - the low-detail sun CSM, budgeted by the Shadows.RayTracedTranslucency*
             // rows). Not drawn -> the view binds the far-plane stand-in, never last drawn frame's maps; drawn after
             // a gap -> every cascade's static cache is redrawn (it went stale while nothing drew it).
-            m_FrameSunCascades = meshes != nullptr && ( !SunShadowIsRayTraced() || meshes->SunCascadeReadersQueued() );
+            m_FrameSunCascades = meshes != nullptr && ( !SunShadowIsScreenMask() || meshes->SunCascadeReadersQueued() );
             if ( !m_FrameSunCascades )
                 textures.Transients.ShadowCascades = AddFrameNoSunCascades( graph );
             else if ( !m_SunCascadesDrawnLastFrame )
@@ -1530,9 +1536,12 @@ namespace Desert::Graphic
             // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
             // with their neutral defaults), not as a second, separately resolved read list.
             // "Shadows: Ray Traced Sun" in place of the cascades (SunShadowIsRayTraced): the composite's
-            // DESERT_SUN_SHADOW_RAY_QUERY permutation reads this mask.
+            // DESERT_SUN_SHADOW_SCREEN_MASK permutation reads this mask.
+            // "VSM: Project" likewise: the same mask, the same permutations.
             const RDG::TextureRef sunShadowMask =
-                 SunShadowIsRayTraced()
+                 SunShadowIsVirtual()
+                      ? AddFrameVirtualSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
+                 : SunShadowIsRayTraced()
                       ? AddFrameRayTracedSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
                       : RDG::TextureRef{};
             AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, sunShadowMask, meshRenderer,
@@ -1723,6 +1732,70 @@ namespace Desert::Graphic
     bool SceneRenderer::SunShadowIsRayTraced() const
     {
         return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::HardwareTraced;
+    }
+
+    bool SceneRenderer::SunShadowIsVirtual() const
+    {
+        return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::VirtualMaps;
+    }
+
+    bool SceneRenderer::SunShadowIsScreenMask() const
+    {
+        return SunShadowIsRayTraced() || SunShadowIsVirtual();
+    }
+
+    bool SceneRenderer::EnsureVirtualShadowResources()
+    {
+        if ( m_VirtualShadowReady )
+            return true;
+        if ( m_VirtualShadowFailed )
+            return false;
+        if ( const Common::BoolResultStr initialized = m_VirtualShadowMap.Initialize(); !initialized )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: Shadows: Virtual Shadow Map could not be created; the sun casts no shadow "
+                       "while the method resolves to VirtualMaps: {}",
+                       m_ViewResources.GetName(), initialized.GetError() );
+            m_VirtualShadowFailed = true;
+            return false;
+        }
+        m_VirtualShadowReady = true;
+        return true;
+    }
+
+    RDG::TextureRef SceneRenderer::AddFrameVirtualSunShadow( RDG::Builder& graph, FrameTextures& textures,
+                                                             const std::vector<RDG::TextureRef>& gbuffer,
+                                                             const glm::vec3&                    directionToSun,
+                                                             const ViewFrame&                    frame )
+    {
+        if ( !EnsureVirtualShadowResources() )
+            return {};
+        const System::VirtualShadowMapViewInputs view{ .Depth  = textures.Depth( m_GBuffer, "GBuffer" ),
+                                                       .Normal = gbuffer[1],
+                                                       .InvJitteredViewProjection = frame.InvJitteredViewProjection,
+                                                       .Projection                = frame.Projection,
+                                                       .CameraPosition            = frame.CameraPosition,
+                                                       .Width                     = frame.Split.Render.Width,
+                                                       .Height                    = frame.Split.Render.Height,
+                                                       .FrameIndex                = frame.FrameIndex };
+        const System::VirtualShadowMapSun sun{ .DirectionToSun     = directionToSun,
+                                               .SourceAngleDegrees = m_SunSourceAngleDegrees };
+        const Common::ResultStr<System::VirtualShadowMapFrame> pages =
+             m_VirtualShadowMap.AddPagePasses( graph, view, sun, m_VirtualShadowQuality, {}, false );
+        if ( !pages )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
+                       pages.GetError() );
+            return {};
+        }
+        const Common::ResultStr<RDG::TextureRef> mask =
+             m_VirtualShadowMap.AddProjection( graph, pages.GetValue(), view );
+        if ( !mask )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
+                       mask.GetError() );
+            return {};
+        }
+        return mask.GetValue();
     }
 
     bool SceneRenderer::EnsureRayTracedShadowResources()

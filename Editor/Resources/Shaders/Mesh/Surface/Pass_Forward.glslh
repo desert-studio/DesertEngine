@@ -48,7 +48,7 @@ directionLights;
 layout( binding = 13 ) uniform sampler u_LinearRepeatSampler;
 layout( binding = 14 ) uniform sampler u_LinearClampSampler;
 
-#ifdef DESERT_SUN_SHADOW_RAY_QUERY
+#ifdef DESERT_SUN_SHADOW_SCREEN_MASK
 // "Shadows: Ray Traced Sun" (the permutation the deferred path draws a forward mesh with when the sun is ray
 // traced, as DeferredLighting.shader's): the screen shadow mask the trace wrote, at the render extent this target
 // has (r = visibility, 1 = lit), in place of the cascades - bound by SceneViewInputs (kSceneViewSunShadowMaskName)
@@ -74,7 +74,7 @@ layout( binding = 7 ) uniform ShadowUB
     vec4 u_ShadowFilter;      // x = PCSS blocker search taps, y = PCSS filter taps (Mesh/CascadedShadow.glslh)
 };
 
-#ifndef DESERT_SUN_SHADOW_RAY_QUERY
+#ifndef DESERT_SUN_SHADOW_SCREEN_MASK
 #include <Mesh/CascadedShadow.glslh>
 #endif
 
@@ -154,7 +154,7 @@ void main()
     const vec3 sunDir = normalize( -directionLights.directionLights.Direction.xyz ); // toward the sun
     // The receiver's subsurface opacity for its contact shadows (UE IsSubsurfaceModel; -1 = not subsurface).
     const float subsurfaceOpacity = DesertSubsurfaceOpacity( DESERT_SHADING_MODEL_INDEX, payload );
-#ifdef DESERT_SUN_SHADOW_RAY_QUERY
+#ifdef DESERT_SUN_SHADOW_SCREEN_MASK
     const float sunVisibility = texelFetch( u_ScreenShadowMask, ivec2( gl_FragCoord.xy ), 0 ).r;
 #else
     int         cascade;
@@ -222,7 +222,7 @@ void main()
 
     // Shadow debug: mode 2 tints by cascade, mode 1 is the raw factor (1 = lit). A traced sun has no cascades:
     // mode 2 shows the raw factor there.
-#ifndef DESERT_SUN_SHADOW_RAY_QUERY
+#ifndef DESERT_SUN_SHADOW_SCREEN_MASK
     if ( u_ShadowParams.z > 1.5 )
     {
         oColor = vec4( cascadeDebugColor( cascade ) * ( shadow * 0.7 + 0.3 ), 1.0 );

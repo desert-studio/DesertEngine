@@ -74,11 +74,12 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
             m_Programs[kCascadeProgram].Shader = shaders->GetByName( "DeferredLighting" );
             if ( !m_Programs[kCascadeProgram].Shader )
                 return Common::MakeError( "DeferredLighting shader not found" );
-            // The permutation of "Shadows: Ray Traced Sun": u_ScreenShadowMask in place of u_ShadowCascades.
-            m_Programs[kRayTracedSunProgram].Shader = shaders->AcquireVariant(
-                 "DeferredLighting", Core::ShaderVariant{ .Defines = { std::string( kSunShadowRayQueryDefine ) } } );
-            if ( !m_Programs[kRayTracedSunProgram].Shader )
-                return Common::MakeError( "DeferredLighting (DESERT_SUN_SHADOW_RAY_QUERY) did not compile" );
+            // The screen-mask permutation (the ray-traced sun, the virtual shadow map): u_ScreenShadowMask in place of
+            // u_ShadowCascades.
+            m_Programs[kScreenMaskSunProgram].Shader = shaders->AcquireVariant(
+                 "DeferredLighting", Core::ShaderVariant{ .Defines = { std::string( kSunShadowScreenMaskDefine ) } } );
+            if ( !m_Programs[kScreenMaskSunProgram].Shader )
+                return Common::MakeError( "DeferredLighting (DESERT_SUN_SHADOW_SCREEN_MASK) did not compile" );
 
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target )
@@ -308,7 +309,7 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
                  // One texel per pixel, read through the point-clamped state like the depth.
                  .Texture( "u_GIDiffuse", inputs.GIDiffuse, kRead, kWhole )
                  .Texture( "u_GISpecular", inputs.GISpecular, kRead, kWhole );
-            if ( m_Active == kRayTracedSunProgram )
+            if ( m_Active == kScreenMaskSunProgram )
                 block.Texture( "u_ScreenShadowMask", inputs.SunShadowMask, kRead, kWhole );
             if ( layout )
                 BindSceneViewInputs( block, inputs.View, *layout );
@@ -364,7 +365,7 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
         }
 
         // One program per DeferredShadowInput::Sun arm (the index): the cascades, and the
-        // DESERT_SUN_SHADOW_RAY_QUERY permutation reading the screen shadow mask.
+        // DESERT_SUN_SHADOW_SCREEN_MASK permutation reading the screen shadow mask.
         struct CompositeProgram
         {
             std::shared_ptr<Shader>                   Shader;
@@ -373,7 +374,7 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
             mutable ShaderBindingLayoutCache          Layout;
         };
         static constexpr std::size_t kCascadeProgram      = 0; // DeferredCascadeShadow
-        static constexpr std::size_t kRayTracedSunProgram = 1; // DeferredScreenShadowMask
+        static constexpr std::size_t kScreenMaskSunProgram = 1; // DeferredScreenShadowMask
         static constexpr std::array<std::string_view, 2> kProgramDebugNames = { "DeferredLighting",
                                                                                 "DeferredLighting RayTracedSun" };
         std::array<CompositeProgram, 2> m_Programs;

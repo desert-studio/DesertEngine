@@ -169,7 +169,7 @@ namespace Desert::Graphic
         RDG::BufferRef LightGridParams;
         RDG::BufferRef LightGridCells;
         // "Shadows: Ray Traced Sun": the render-resolution screen shadow mask the trace wrote (R = sun visibility,
-        // SceneRenderer::AddFrameRayTracedSunShadow), read by a forward draw's DESERT_SUN_SHADOW_RAY_QUERY
+        // SceneRenderer::AddFrameRayTracedSunShadow), read by a forward draw's DESERT_SUN_SHADOW_SCREEN_MASK
         // permutation in place of the cascades. Invalid when the sun is not ray traced (nothing then reads it).
         RDG::TextureRef SunShadowMask;
 
@@ -205,11 +205,11 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewLocalShadowAtlasName = "u_LocalShadowAtlas";
     inline constexpr std::string_view kSceneViewSceneDepthName       = "u_SceneDepth";
     inline constexpr std::string_view kSceneViewSceneShadingWordName = "u_SceneShadingWord";
-    // DeferredLighting.shader and Mesh/Surface/Pass_Forward.glslh's DESERT_SUN_SHADOW_RAY_QUERY branch.
+    // DeferredLighting.shader and Mesh/Surface/Pass_Forward.glslh's DESERT_SUN_SHADOW_SCREEN_MASK branch.
     inline constexpr std::string_view kSceneViewSunShadowMaskName = "u_ScreenShadowMask";
     // The permutation define of every program that reads kSceneViewSunShadowMaskName in place of the cascades
     // (DeferredLighting.shader, Mesh/Surface/Pass_Forward.glslh): one name for every renderer that acquires it.
-    inline constexpr std::string_view kSunShadowRayQueryDefine = "DESERT_SUN_SHADOW_RAY_QUERY";
+    inline constexpr std::string_view kSunShadowScreenMaskDefine = "DESERT_SUN_SHADOW_SCREEN_MASK";
     // The light grid's two blocks (Mesh/LightGrid.glslh): the build shader, the composite, the forward cells.
     inline constexpr std::string_view kLightGridParamsBlockName = "LightGridParamsUB";
     inline constexpr std::string_view kLightGridCellsBlockName  = "LightGridCellsUB";

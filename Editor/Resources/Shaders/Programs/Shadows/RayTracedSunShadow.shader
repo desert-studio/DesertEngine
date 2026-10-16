@@ -13,6 +13,7 @@ Shader "RayTracedSunShadow"
         #define RAY_QUERY_VISIBILITY_GEOMETRY_BINDING  3
         #define RAY_QUERY_VISIBILITY_MATERIALS_BINDING 4
         #include <Common/RayQueryVisibility.glslh>
+        #include <Common/ConeSampling.glslh>
 
         // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
         // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
@@ -34,33 +35,6 @@ Shader "RayTracedSunShadow"
         };
 
         LocalSize(8, 8, 1);
-
-        uint Pcg( uint v )
-        {
-            const uint state = v * 747796405u + 2891336453u;
-            const uint word  = ( ( state >> ( ( state >> 28u ) + 4u ) ) ^ state ) * 277803737u;
-            return ( word >> 22u ) ^ word;
-        }
-
-        vec2 Random2( uvec2 pixel, uint frame, uint sampleIndex )
-        {
-            const uint first  = Pcg( pixel.x + Pcg( pixel.y + Pcg( frame * 16u + sampleIndex ) ) );
-            const uint second = Pcg( first );
-            return vec2( float( first ), float( second ) ) * ( 1.0 / 4294967296.0 );
-        }
-
-        // A direction inside the cone of half-angle @p halfAngle around @p axis, uniform over its solid angle.
-        vec3 ConeDirection( vec3 axis, float halfAngle, vec2 u )
-        {
-            const float cosTheta  = mix( 1.0, cos( halfAngle ), u.x );
-            const float sinTheta  = sqrt( max( 0.0, 1.0 - cosTheta * cosTheta ) );
-            const float phi       = 6.28318530718 * u.y;
-            const vec3  helper    = abs( axis.z ) < 0.999 ? vec3( 0.0, 0.0, 1.0 ) : vec3( 1.0, 0.0, 0.0 );
-            const vec3  tangent   = normalize( cross( helper, axis ) );
-            const vec3  bitangent = cross( axis, tangent );
-            return normalize( tangent * ( cos( phi ) * sinTheta ) + bitangent * ( sin( phi ) * sinTheta ) +
-                              axis * cosTheta );
-        }
 
         void main()
         {
@@ -92,7 +66,7 @@ Shader "RayTracedSunShadow"
             {
                 vec3 dir = toSun;
                 if ( halfAngle > 0.0 )
-                    dir = ConeDirection( toSun, halfAngle, Random2( uvec2( pixel ), uint( u_TraceParams.w ), s ) );
+                    dir = ConeDirection( toSun, halfAngle, ConeRandom2( uvec2( pixel ), uint( u_TraceParams.w ), s ) );
                 float       hitT = u_TraceParams.z;
                 const float v =
                      RayQueryVisibilityHit( origin, dir, u_TraceParams.z, RAY_TRACING_MASK_SHADOW_CASTER, hitT );

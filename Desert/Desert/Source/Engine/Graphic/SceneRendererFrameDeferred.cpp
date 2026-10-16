@@ -604,7 +604,7 @@ namespace Desert::Graphic
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.
         DeferredShadowInput shadow;
-        if ( SunShadowIsRayTraced() )
+        if ( SunShadowIsScreenMask() )
         {
             // AddFrameRayTracedSunShadow logged why a mask is missing; the sun is then unshadowed (System.White),
             // never shadowed by cascades no pass drew.

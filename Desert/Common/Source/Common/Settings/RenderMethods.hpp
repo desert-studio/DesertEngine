@@ -65,7 +65,7 @@ namespace Common::Scalability
     enum class ShadowMethod : int
     {
         CascadedMaps = 0, // the sun's cascaded shadow maps
-        VirtualMaps,      // virtual shadow maps (SHADOW-VSM)                            — not implemented
+        VirtualMaps,      // virtual shadow maps (SHADOW-VSM: VirtualShadowMapRenderer)   — casters not drawn yet
         HardwareTraced,   // ray-query visibility (RT-SHADOWS: RayTracedSunShadow); RT device
         Stochastic,       // many-light ReSTIR DI + ray-query visibility (MEGALIGHTS)    — not implemented
     };
@@ -96,6 +96,11 @@ namespace Common::Scalability
                method == ReflectionMethod::ScreenSpace || method == ReflectionMethod::SoftwareTraced ||
                method == ReflectionMethod::HardwareTraced;
     }
+    // Shadows VirtualMaps is NOT here: its page management (mark, allocate, the page cache and its invalidation)
+    // and the SMRT projection exist (System::VirtualShadowMapRenderer, SceneRenderer::AddFrameVirtualSunShadow),
+    // but no caster draws the dirty pages yet - the casters' "VSM: Raster" needs a raster pass without
+    // attachments (the R32_UINT pool is written by an atomic max) and a VirtualShadowDepth surface cell - so
+    // every page would hold "no occluder".
     [[nodiscard]] constexpr bool IsImplemented( ShadowMethod method )
     {
         return method == ShadowMethod::CascadedMaps || method == ShadowMethod::HardwareTraced;
@@ -139,7 +144,8 @@ namespace Common::Scalability
     }
     [[nodiscard]] constexpr bool NeedsGBuffer( ShadowMethod method )
     {
-        return method == ShadowMethod::HardwareTraced || method == ShadowMethod::Stochastic;
+        return method == ShadowMethod::VirtualMaps || method == ShadowMethod::HardwareTraced ||
+               method == ShadowMethod::Stochastic;
     }
 
     // ---- The refusal every setter of a VIEW'S method applies (scene loader, Details, scripts) ----------------

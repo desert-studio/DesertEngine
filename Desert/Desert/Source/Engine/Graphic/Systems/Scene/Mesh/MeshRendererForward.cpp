@@ -281,8 +281,8 @@ namespace Desert::Graphic::System
                     if ( opaque && !OpaqueGenericAdmitted( g ) )
                         continue;
                     if ( slice == GenericSlice::DeferredForwardRayTracedSun &&
-                         ReadsSunShadowRayTraced( *shader, opaque ) )
-                        permutation.Defines = { std::string( kSunShadowRayQueryDefine ) };
+                         ReadsSunShadowScreenMask( *shader, opaque ) )
+                        permutation.Defines = { std::string( kSunShadowScreenMaskDefine ) };
                     break;
             }
             const std::shared_ptr<Shader> templateShader = shader;
@@ -525,7 +525,7 @@ namespace Desert::Graphic::System
         }
     }
 
-    bool MeshRenderer::ReadsSunShadowRayTraced( const Shader& shader, const bool opaque )
+    bool MeshRenderer::ReadsSunShadowScreenMask( const Shader& shader, const bool opaque )
     {
         return opaque && shader.SamplesTexture( kSceneViewShadowCascadesName );
     }
@@ -566,14 +566,14 @@ namespace Desert::Graphic::System
     {
         std::shared_ptr<Shader> program    = shader;
         std::string             programKey = shaderName;
-        if ( rayTracedSun && ReadsSunShadowRayTraced( *shader, /*opaque*/ true ) )
+        if ( rayTracedSun && ReadsSunShadowScreenMask( *shader, /*opaque*/ true ) )
         {
             Core::ShaderVariant permutation;
-            permutation.Defines = { std::string( kSunShadowRayQueryDefine ) };
+            permutation.Defines = { std::string( kSunShadowScreenMaskDefine ) };
             program = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( shaderName, permutation );
             if ( !program || !program->IsCompiled() )
                 return false; // ShaderService named the program and its compile error once
-            std::format_to( std::back_inserter( programKey ), "|{}", kSunShadowRayQueryDefine );
+            std::format_to( std::back_inserter( programKey ), "|{}", kSunShadowScreenMaskDefine );
         }
         // The spec "Deferred: Generic" builds for this program (BuildGenericDraws): the same cache entry.
         GraphicsPipelineSpecification spec = GenericPipelineSpec( program );

@@ -105,6 +105,16 @@ namespace Common::Scalability
              { P::ShadowRayTracedDenoiserRadius, G::Shadows, "Shadows.RayTracedDenoiserRadius", 1, 3, CL::None,
                "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseShadowVisibility (reconstruction "
                "kernel)" },
+             { P::ShadowVirtualMaxPhysicalPages, G::Shadows, "Shadows.VirtualMaxPhysicalPages", 256, 8192, CL::None,
+               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (the physical pool)" },
+             { P::ShadowVirtualResolutionLodBias, G::Shadows, "Shadows.VirtualResolutionLodBias", -30, 30, CL::None,
+               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Lod.x, tenths)" },
+             { P::ShadowVirtualSMRTRayCount, G::Shadows, "Shadows.VirtualSMRTRayCount", 0, 16, CL::None,
+               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Smrt.x: "
+               "VirtualShadowMapProject.shader rays)" },
+             { P::ShadowVirtualSMRTSamplesPerRay, G::Shadows, "Shadows.VirtualSMRTSamplesPerRay", 1, 16, CL::None,
+               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Smrt.y: "
+               "VirtualShadowMapProject.shader samples per ray)" },
              { P::ScreenSpaceGISamples, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceSamples", 4, 64,
                CL::None,
                "SceneRenderer::BeginScene -> MaterialDeferredLighting (u_ScreenSpaceGI.x: DeferredLighting.shader "

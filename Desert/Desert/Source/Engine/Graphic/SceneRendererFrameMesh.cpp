@@ -378,7 +378,7 @@ namespace Desert::Graphic
              graph, "Deferred: Forward Depth/Normal", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderForwardDepthNormalManual( context ); },
-             [meshRenderer, rayTracedSun = SunShadowIsRayTraced()]( RDG::PassBuilder& pass )
+             [meshRenderer, rayTracedSun = SunShadowIsScreenMask()]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun ); } );
     }
 
@@ -393,7 +393,7 @@ namespace Desert::Graphic
         SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
         // Under the frame's ray-traced sun the RT permutations read the mask; a trace pass that could not be
         // declared (AddFrameRayTracedSunShadow logged it) leaves the sun unshadowed, as in the composite.
-        if ( SunShadowIsRayTraced() )
+        if ( SunShadowIsScreenMask() )
             view.SunShadowMask = sunShadowMask.IsValid() ? sunShadowMask : textures.GraphRefs().System.White;
         AddRaster(
              graph, "Deferred: Generic", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),

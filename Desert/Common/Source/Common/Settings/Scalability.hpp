@@ -151,6 +151,16 @@ namespace Common::Scalability
         // HardwareTraced sun: the ShadowVisibility denoiser's reconstruction kernel, in taps from the centre per
         // side (2 = 5x5; UE r.Shadow.Denoiser.ReconstructionSamples). 1..3
         ShadowRayTracedDenoiserRadius,
+        // VirtualMaps sun (Graphic::System::VirtualShadowMapRenderer; UE r.Shadow.Virtual.*): the physical page
+        // pool's size in 128 x 128 pages (MaxPhysicalPages; a frame whose requests exceed it shades the rest from
+        // coarser levels), the clipmap's resolution LOD bias in tenths of a level (ResolutionLodBiasDirectional;
+        // negative = finer), and the shadow-map ray tracing's rays per pixel inside the SourceAngle cone and samples
+        // per ray (SMRT.RayCountDirectional / SamplesPerRayDirectional; 0 rays = one hard lookup).
+        // 256..8192, -30..30, 0..16 and 1..16.
+        ShadowVirtualMaxPhysicalPages,
+        ShadowVirtualResolutionLodBias,
+        ShadowVirtualSMRTRayCount,
+        ShadowVirtualSMRTSamplesPerRay,
         // GI ScreenSpace: the one-bounce gather's samples per pixel (DeferredLighting.shader GatherIndirectGI,
         // u_ScreenSpaceGI.x). 4..64
         ScreenSpaceGISamples,
