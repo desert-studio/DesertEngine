@@ -71,8 +71,7 @@ vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
 vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
 {
     const vec3 F0  = mix( vec3( 0.04 ), S.BaseColor, S.Metallic );
-    const vec3 ibl = EvaluateAmbientIBL( A.Irradiance, A.Prefiltered, A.SpecularBRDF, F0, S.BaseColor, S.Metallic,
-                                         max( dot( S.N, S.V ), 0.0 ) );
+    const vec3 ibl = EvaluateAmbientIBL( A.Irradiance, A.Prefiltered, A.SpecularBRDF, F0, S.BaseColor, S.Metallic );
     // The light through the leaf from its far side. Under the SKY LIGHT (A.Traced 0) it is the sky cube's
     // irradiance from -N (UE SkyLightingDiffuseShared.ush, TWOSIDED_FOLIAGE). Under a TRACED gather (A.Traced 1)
     // the cube is the open sky the trace has already occluded: read there, every leaf deep in a canopy took the
