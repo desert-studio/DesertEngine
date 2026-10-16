@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <bit>
 #include <cmath>
 
 using Desert::Core::Formats::MipChainLength;
@@ -32,11 +33,12 @@ using Desert::Graphic::CloudGpuPayload;
 using Desert::Graphic::CloudRegionBinding;
 using Desert::Graphic::CloudTypeShape;
 using Desert::Graphic::DispatchGroupCount;
-using Desert::Graphic::EnvironmentPanoramaSize;
+using Desert::Graphic::EnvironmentCaptureSize;
 using Desert::Graphic::EvaluateAtmosphere;
 using Desert::Graphic::kComputeImagesWorkGroupSize;
 using Desert::Graphic::kSkyEnvCubeFaceSize;
 using Desert::Graphic::kSkyEnvIrradianceFaceSize;
+using Desert::Graphic::kSkyEnvIrradianceSourceFace;
 using Desert::Graphic::kSkyEnvPrefilterFaceSize;
 using Desert::Graphic::kSkyEnvPrefilterMips;
 using Desert::Graphic::kSkyEnvRadianceMips;
@@ -51,8 +53,10 @@ using Desert::Graphic::PlanetRadiusToWorldUnits;
 using Desert::Graphic::ResolveSkyMode;
 using Desert::Graphic::SelectPrimarySky;
 using Desert::Graphic::ShouldRebakeSkyEnvironment;
+using Desert::Graphic::SkyCaptureIrradianceSourceMip;
 using Desert::Graphic::SkyEnvironmentBakeCost;
 using Desert::Graphic::SkyEnvironmentBakeWaitsForClouds;
+using Desert::Graphic::SkyEnvironmentCubeBytes;
 using Desert::Graphic::SkyEnvironmentRebakeMayRun;
 using Desert::Graphic::SkyGpuPayload;
 using Desert::Graphic::SkyMode;
@@ -294,38 +298,33 @@ TEST( PrimarySky, PicksTheLowestIdAndIsOrderIndependent )
 // Environment resolution and what it costs
 // ---------------------------------------------------------------------------------------------------
 
-TEST( EnvironmentResolution, LadderIsWorkGroupAligned )
+TEST( EnvironmentResolution, LadderIsAPowerOfTwoFaceWithAnIrradianceMip )
 {
     for ( const auto res :
           { SkyEnvironmentResolution::Low, SkyEnvironmentResolution::Medium, SkyEnvironmentResolution::High } )
     {
-        const auto size = EnvironmentPanoramaSize( res );
-        // The bake dispatches in 32x32 groups and the shader has no partial-group path, so a size that is
-        // not a multiple of 32 leaves the panorama's right/bottom edge unwritten.
-        EXPECT_EQ( size.Width % 32u, 0u );
-        EXPECT_EQ( size.Height % 32u, 0u );
-        EXPECT_EQ( size.Width, size.Height * 2u ) << "equirect panoramas are 2:1";
+        const uint32_t face = EnvironmentCaptureSize( res ).Face;
+        // The irradiance is summed over the radiance cube's 16-texel mip, which only a power-of-two face at
+        // least that large has; the capture's 8x8 groups cover the face exactly from 8 up.
+        EXPECT_TRUE( std::has_single_bit( face ) ) << face;
+        EXPECT_GE( face, kSkyEnvIrradianceSourceFace );
+        EXPECT_EQ( std::max( 1u, face >> SkyCaptureIrradianceSourceMip( face ) ), kSkyEnvIrradianceSourceFace );
     }
 
-    EXPECT_EQ( EnvironmentPanoramaSize( SkyEnvironmentResolution::Medium ).Width, 1024u )
-         << "Medium must stay what the engine baked at unconditionally, or every scene changes look";
+    EXPECT_EQ( EnvironmentCaptureSize( SkyEnvironmentResolution::Medium ).Face, 128u )
+         << "Medium is UE's real-time sky light capture resolution";
 }
 
-TEST( EnvironmentResolution, PanoramaCostIsTheAdvertisedNumber )
+TEST( EnvironmentResolution, CaptureCostIsTheCubesBeginCreates )
 {
-    // RGBA32F is 16 B/px: 2048*1024*16 = 32 MiB, 1024*512*16 = 8 MiB.
-    EXPECT_NEAR( BytesToMiB( SkyEnvironmentBakeCost( SkyEnvironmentResolution::High ).PanoramaBytes ), 32.0,
-                 1e-6 );
-    EXPECT_NEAR( BytesToMiB( SkyEnvironmentBakeCost( SkyEnvironmentResolution::Medium ).PanoramaBytes ), 8.0,
-                 1e-6 );
-    EXPECT_NEAR( BytesToMiB( SkyEnvironmentBakeCost( SkyEnvironmentResolution::Low ).PanoramaBytes ), 2.0, 1e-6 );
+    // RGBA32F is 16 B/px; a 128 face with its whole chain is 6 * 16 * (128^2 * 4/3 - ...) bytes.
+    const auto medium = SkyEnvironmentBakeCost( SkyEnvironmentResolution::Medium );
+    EXPECT_EQ( medium.RadianceBytes, SkyEnvironmentCubeBytes( 128u, MipChainLength( 128u ) ) );
+    EXPECT_EQ( medium.TotalBytes, medium.RadianceBytes + medium.CubeBytes );
 
-    // The cube chain does NOT scale with the ladder — its faces are fixed constants either way. That is
-    // the fact the log line exists to tell you, so it had better be true.
+    // The ladder scales the capture: High's radiance cube is four times Medium's, to within the mip tail.
     const auto high = SkyEnvironmentBakeCost( SkyEnvironmentResolution::High );
-    const auto low  = SkyEnvironmentBakeCost( SkyEnvironmentResolution::Low );
-    EXPECT_EQ( high.CubeBytes, low.CubeBytes );
-    EXPECT_EQ( high.TotalBytes, high.PanoramaBytes + high.CubeBytes );
+    EXPECT_GT( high.RadianceBytes, 3u * medium.RadianceBytes );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -398,9 +397,10 @@ TEST( SkyEnvironmentCubes, CostReportChargesForExactlyWhatTheBakeBuilds )
         return bytes;
     };
 
-    const uint64_t expected = cubeBytes( kSkyEnvCubeFaceSize, kSkyEnvRadianceMips ) +
-                              cubeBytes( kSkyEnvIrradianceFaceSize, 1u ) +
-                              cubeBytes( kSkyEnvPrefilterFaceSize, kSkyEnvPrefilterMips );
+    // The scene keeps the irradiance and the prefiltered cube, the latter at the capture's own face.
+    const uint32_t face = EnvironmentCaptureSize( SkyEnvironmentResolution::Medium ).Face;
+    const uint64_t expected =
+         cubeBytes( kSkyEnvIrradianceFaceSize, 1u ) + cubeBytes( face, MipChainLength( face ) );
     EXPECT_EQ( SkyEnvironmentBakeCost( SkyEnvironmentResolution::Medium ).CubeBytes, expected );
 }
 

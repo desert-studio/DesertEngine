@@ -116,14 +116,19 @@ namespace Desert::Graphic::System
             // rather than lazily so that "the scene has clouds" and "the bake can carry them" are never
             // two different answers: a scene that has none writes a zero payload it never reads, which is
             // 268 bytes per frame in flight and no dispatch at all.
-            m_CloudBakeParams = ShaderResources::StorageBuffer::Create(
-                 "SkyBakeCloudParams", kCloudPayloadBytes, kSkyBakeCloudParamsBinding, /*persistent=*/false );
-            m_CloudBakeAuthored = ShaderResources::StorageBuffer::Create(
-                 "SkyBakeCloudAuthored", static_cast<uint32_t>( sizeof( CloudAuthoredPayload ) ),
-                 kSkyBakeCloudAuthoredBinding, /*persistent=*/false );
-            m_CloudBakeMediumParams = ShaderResources::StorageBuffer::Create(
-                 "SkyBakeCloudMediumParams", Core::kCloudMediumParamsBytes, Core::kCloudMediumParamsBinding,
-                 /*persistent=*/false );
+            // Persistent and two sets: see the members' declaration (a time-sliced capture reads them over
+            // several frames).
+            for ( uint32_t set = 0; set < 2u; ++set )
+            {
+                m_CloudBakeParams[set] = ShaderResources::StorageBuffer::Create(
+                     "SkyBakeCloudParams", kCloudPayloadBytes, kSkyBakeCloudParamsBinding, /*persistent=*/true );
+                m_CloudBakeAuthored[set] = ShaderResources::StorageBuffer::Create(
+                     "SkyBakeCloudAuthored", static_cast<uint32_t>( sizeof( CloudAuthoredPayload ) ),
+                     kSkyBakeCloudAuthoredBinding, /*persistent=*/true );
+                m_CloudBakeMediumParams[set] = ShaderResources::StorageBuffer::Create(
+                     "SkyBakeCloudMediumParams", Core::kCloudMediumParamsBytes, Core::kCloudMediumParamsBinding,
+                     /*persistent=*/true );
+            }
 
             // The physical atmosphere's LUT pipelines. Built up front (they are two small compute
             // pipelines); the IMAGES stay lazy, so a scene on
@@ -750,7 +755,7 @@ namespace Desert::Graphic::System
         const bool hasEnvironment  = skyLight->HasEnvironment();
 
         // THIS VIEW'S CLOUD LAYER, asked for BEFORE the trigger rather than after it, because it IS half
-        // of the trigger: the panorama carries the clouds now, so a sky whose sun has not moved can still
+        // of the trigger: the capture carries the clouds now, so a sky whose sun has not moved can still
         // be a different sky. The call resolves the layer's species and guarantees its volumes, which is
         // work the frame is about to do anyway a few lines later — and nothing at all in a scene with no
         // cloud component, which is what every asset thumbnail and mesh preview is.
@@ -801,15 +806,16 @@ namespace Desert::Graphic::System
 
         skyLight->ClearStale();
 
-        const SkyEnvironmentSize size = EnvironmentPanoramaSize( m_Sky.EnvironmentResolution );
+        const SkyEnvironmentSize size = EnvironmentCaptureSize( m_Sky.EnvironmentResolution );
 
         if ( m_Sky.EnvironmentResolution == ECS::SkyEnvironmentResolution::High && !m_HighResCostLogged )
         {
             const SkyEnvironmentCost cost = SkyEnvironmentBakeCost( m_Sky.EnvironmentResolution );
-            LOG_INFO( "[SkyAtmosphere] Environment bake at High ({}x{}): panorama {:.1f} MiB + "
-                      "radiance/irradiance/prefiltered cubes {:.1f} MiB = {:.1f} MiB — paid once per "
-                      "scene, whatever its views.",
-                      size.Width, size.Height, BytesToMiB( cost.PanoramaBytes ), BytesToMiB( cost.CubeBytes ),
+            LOG_INFO( "[SkyAtmosphere] Sky light captured at High ({} face): radiance cube {:.1f} MiB while it "
+                      "runs + irradiance/prefiltered cubes {:.1f} MiB = {:.1f} MiB, and the clouds are marched "
+                      "over four times Medium's texels on every recapture -- paid once per scene, whatever its "
+                      "views.",
+                      size.Face, BytesToMiB( cost.RadianceBytes ), BytesToMiB( cost.CubeBytes ),
                       BytesToMiB( cost.TotalBytes ) );
             m_HighResCostLogged = true;
         }
@@ -823,11 +829,15 @@ namespace Desert::Graphic::System
         // buffer whose bytes were never set is uninitialised device memory behind a valid descriptor, and
         // the shader's gate is what stops it being read, not the absence of an upload.
         CloudBakeBinding cloudBinding;
-        if ( m_CloudBakeParams && m_CloudBakeAuthored )
+        m_CloudBakeSet                                     = 1u - m_CloudBakeSet;
+        ShaderResources::StorageBuffer* const bakeParams   = m_CloudBakeParams[m_CloudBakeSet].get();
+        ShaderResources::StorageBuffer* const bakeAuthored = m_CloudBakeAuthored[m_CloudBakeSet].get();
+        ShaderResources::StorageBuffer* const bakeMedium   = m_CloudBakeMediumParams[m_CloudBakeSet].get();
+        if ( bakeParams && bakeAuthored )
         {
-            const auto params   = m_CloudBakeParams->SetData( &clouds.Params, kCloudPayloadBytes );
-            const auto authored = m_CloudBakeAuthored->SetData(
-                 &clouds.Authored, static_cast<uint32_t>( sizeof( clouds.Authored ) ) );
+            const auto params = bakeParams->SetData( &clouds.Params, kCloudPayloadBytes );
+            const auto authored =
+                 bakeAuthored->SetData( &clouds.Authored, static_cast<uint32_t>( sizeof( clouds.Authored ) ) );
 
             // BOTH, OR NEITHER IS BOUND — and the paragraph above is exactly why. It says a layer that
             // is not marched still WRITES, because uninitialised device memory behind a valid descriptor
@@ -836,8 +846,8 @@ namespace Desert::Graphic::System
             // without clouds rather than with a block it cannot vouch for.
             if ( params.IsSuccess() && authored.IsSuccess() )
             {
-                cloudBinding.Params   = m_CloudBakeParams.get();
-                cloudBinding.Authored = m_CloudBakeAuthored.get();
+                cloudBinding.Params   = bakeParams;
+                cloudBinding.Authored = bakeAuthored;
             }
             else
             {
@@ -855,9 +865,9 @@ namespace Desert::Graphic::System
         // applying no atmosphere to it.
         cloudBinding.PerSampleSunTransmittance = clouds.PerSampleSunTransmittance;
         // The atmosphere's own knob, carried because the bake INTEGRATES the air in front of a cloud
-        // instead of fetching the camera aerial-perspective volume the screen march reads — a panorama has
-        // no view frustum to froxelize. Without it a scene that pushes the haze out would still see it in
-        // its reflections.
+        // instead of fetching the camera aerial-perspective volume the screen march reads — that volume is the
+        // camera's froxels, and the capture is anchored at a fixed point, not at the camera. Without it a scene
+        // that pushes the haze out would still see it in its reflections.
         cloudBinding.AerialStartDepthKm = m_Sky.AerialPerspectiveStartDepthKm;
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
             cloudBinding.Noise[slot] = clouds.Noise[slot];
@@ -872,37 +882,37 @@ namespace Desert::Graphic::System
         // the two blocks above are, and bound ONLY when there are values: the medium's program declares
         // that block exactly when its schema has something in it, and this backend writes a descriptor for
         // any binding a caller names — including one the layout does not have.
-        if ( !clouds.MediumValues.empty() && m_CloudBakeMediumParams )
+        if ( !clouds.MediumValues.empty() && bakeMedium )
         {
-            const auto uploaded = m_CloudBakeMediumParams->SetData(
-                 clouds.MediumValues.data(),
-                 static_cast<uint32_t>( clouds.MediumValues.size() * sizeof( glm::vec4 ) ) );
+            const auto uploaded =
+                 bakeMedium->SetData( clouds.MediumValues.data(),
+                                      static_cast<uint32_t>( clouds.MediumValues.size() * sizeof( glm::vec4 ) ) );
             if ( uploaded.IsSuccess() )
             {
-                cloudBinding.MediumParams = m_CloudBakeMediumParams.get();
+                cloudBinding.MediumParams = bakeMedium;
             }
             else
             {
                 // NOT SILENT, AND NOT SUBSTITUTED. An unbound block here means the bake's dispatch is
-                // skipped for an invalid descriptor set — the environment then keeps the panorama it had,
+                // skipped for an invalid descriptor set — the environment then keeps the sky light it had,
                 // which is the honest outcome, but only if somebody can find out why.
                 LOG_ERROR( "[SkyAtmosphere] the authored medium's {} value(s) were not uploaded for the "
-                           "environment bake: {}. The panorama that lights this scene will not be rebuilt.",
+                           "environment bake: {}. The sky light of this scene will not be recaptured.",
                            clouds.MediumValues.size(), uploaded.GetError() );
             }
         }
         cloudBinding.MediumImages = clouds.MediumImages;
-        // THE AUTHORED MEDIUM, so the panorama that LIGHTS the scene is compiled under the same
+        // THE AUTHORED MEDIUM, so the capture that LIGHTS the scene is compiled under the same
         // substitution the three on-screen cloud programs are. It points at `clouds`, which outlives Begin --
         // the variant program is acquired there, and the capture keeps it.
         cloudBinding.Medium = &clouds.Medium;
-        // The distant sky light is not part of the binding: this frame's graph writes it ahead of the panorama,
+        // The distant sky light is not part of the binding: this frame's graph writes it ahead of the faces,
         // which declares it as a read (AddSkyCapturePasses).
 
         const char* what = !clouds.Marched ? "sky only (this view has no cloud layer)"
                            : cloudBinding.SkyOcclusion
-                                ? "clouds marched into the panorama, sky-occlusion volume read"
-                                : "clouds marched into the panorama, profile-driven ambient "
+                                ? "clouds marched into the cube faces, sky-occlusion volume read"
+                                : "clouds marched into the cube faces, profile-driven ambient "
                                   "occlusion";
         // A refusal keeps the previous environment and says why (Begin logged it); the user can retry with the
         // Bake button. Nothing is stamped -- a failed capture must not look like an up-to-date one.
@@ -931,7 +941,8 @@ namespace Desert::Graphic::System
         // view's, written ahead of it in this graph.
         skyLight->AddPasses(
              this, graph, textures,
-             System::SkyCaptureFrameReads{ .TransmittanceLut = physical ? m_TransmittanceLut : nullptr,
+             System::SkyCaptureFrameReads{ .SkyParams        = m_SkyParams.get(),
+                                           .TransmittanceLut = physical ? m_TransmittanceLut : nullptr,
                                            .MultiScatterLut  = physical ? m_MultiScatterLut : nullptr,
                                            .DistantSkyLight  = m_Atmosphere.DistantSkyLight } );
     }

@@ -88,9 +88,10 @@ namespace Desert::Graphic
         const double spanMs =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - m_PendingStarted )
                   .count();
-        LOG_INFO( "[SkyAtmosphere] Sky light captured at {}x{} in the frame graph over {} frame(s) ({:.1f} ms of "
-                  "wall time from its begin), once for every view of the scene -- {}. The trigger is the sun, the "
-                  "clouds and the sky's own parameters.",
-                  m_PendingSize.Width, m_PendingSize.Height, m_PendingFrames, spanMs, m_PendingWhat );
+        LOG_INFO(
+             "[SkyAtmosphere] Sky light captured into a {} face cube in the frame graph over {} frame(s) "
+             "({:.1f} ms of wall time from its begin), once for every view of the scene -- {}. The trigger is "
+             "the sun, the clouds and the sky's own parameters.",
+             m_PendingSize.Face, m_PendingFrames, spanMs, m_PendingWhat );
     }
 } // namespace Desert::Graphic

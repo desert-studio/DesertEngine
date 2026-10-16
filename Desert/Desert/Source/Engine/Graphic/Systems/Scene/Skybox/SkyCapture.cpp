@@ -17,14 +17,25 @@
 #include <algorithm>
 #include <bit>
 #include <format>
+#include <string>
 
 namespace Desert::Graphic::System
 {
     namespace
     {
-        // SkyCaptureDownsample's and SkyCaptureIrradiance's LocalSize(8, 8, 1); PanoramaToCubemap and
-        // PrefilterEnvMap are 32x32 (kComputeImagesWorkGroupSize).
+        // SkyCaptureDownsample's, SkyCaptureIrradiance's and BakeProceduralSky's LocalSize(8, 8, 1);
+        // PrefilterEnvMap is 32x32 (kComputeImagesWorkGroupSize).
         constexpr uint32_t kSmallGroupSize = 8u;
+
+        // BakeProceduralSky's push block: the cloud gate (SkyCapture::m_CloudPush) and the rows this dispatch
+        // renders -- its z counts faces from FirstFace, its y rows from FirstRow.
+        struct FacesPush
+        {
+            glm::vec4 Clouds{ 0.0f };
+            uint32_t  FirstFace = 0u;
+            uint32_t  FirstRow  = 0u;
+            uint32_t  Pad[2]    = { 0u, 0u };
+        };
 
         struct PrefilterPush
         {
@@ -52,24 +63,34 @@ namespace Desert::Graphic::System
         {
             switch ( step )
             {
-                case SkyCaptureStep::Panorama:
-                    return "panorama";
-                case SkyCaptureStep::Radiance:
-                    return "radiance";
+                case SkyCaptureStep::Faces:
+                    return "faces";
                 case SkyCaptureStep::Filter:
-                    return "irradiance and prefilter";
+                    return "mips, irradiance and prefilter";
                 case SkyCaptureStep::Done:
                     return "done";
             }
             return "?";
         }
-
-        SkyCaptureStep NextStep( SkyCaptureStep step )
-        {
-            return step == SkyCaptureStep::Done ? step
-                                                : static_cast<SkyCaptureStep>( static_cast<uint8_t>( step ) + 1u );
-        }
     } // namespace
+
+    std::vector<SkyCaptureFaceSlice> SkyCaptureFaceSlices( uint32_t face )
+    {
+        // A band is never thinner than one 8-row group.
+        const uint32_t bandRows = std::max( face / kSkyCaptureBandsPerFace, std::min( face, kSmallGroupSize ) );
+        std::vector<SkyCaptureFaceSlice> slices;
+        for ( uint32_t index = 0; index < kSkyCaptureFaceCount; ++index )
+        {
+            // The rows that can see the sky: all of the up face, the upper half of a side face, none of the down.
+            const uint32_t skyRows = index == 2u ? face : index == 3u ? 0u : face / 2u;
+            for ( uint32_t row = 0; row < skyRows; row += bandRows )
+                slices.push_back(
+                     { .Face = index, .FirstRow = row, .Rows = std::min( bandRows, skyRows - row ) } );
+            if ( skyRows < face )
+                slices.push_back( { .Face = index, .FirstRow = skyRows, .Rows = face - skyRows } );
+        }
+        return slices;
+    }
 
     SkyCapture::~SkyCapture()
     {
@@ -98,12 +119,11 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr SkyCapture::Initialize()
     {
-        // All but the downsample are the .hdr path's too (EnvironmentManager::Create): the panorama resample, the
-        // irradiance -- the exact sum over a coarse radiance mip (SkyCaptureIrradiance), one estimator for both
-        // -- and the prefilter, at UE's real-time sample count here and the reference count for the cached file.
-        // Every program is attempted, so each missing one is named in the log, not only the first.
-        bool made = MakeProgram( m_PanoramaToCube, "PanoramaToCubemap" );
-        made      = MakeProgram( m_Downsample, "SkyCaptureDownsample" ) && made;
+        // The irradiance and the prefilter are the .hdr path's too (EnvironmentManager::Create): the exact sum
+        // over the 16-texel radiance mip (SkyCaptureIrradiance), one estimator for both, and the prefilter, at
+        // UE's real-time sample count here and the reference count for the cached file. Every program is
+        // attempted, so each missing one is named in the log, not only the first.
+        bool made = MakeProgram( m_Downsample, "SkyCaptureDownsample" );
         made      = MakeProgram( m_Irradiance, "SkyCaptureIrradiance" ) && made;
         made      = MakeProgram( m_Prefilter, "PrefilterEnvMap" ) && made;
         if ( !made )
@@ -111,9 +131,9 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    bool SkyCapture::AcquirePanoramaProgram( const CloudBakeBinding& clouds )
+    bool SkyCapture::AcquireFacesProgram( const CloudBakeBinding& clouds )
     {
-        // THE FOURTH CONSUMER OF THE CLOUD MEDIUM: the panorama that lights the world is compiled under the same
+        // THE FOURTH CONSUMER OF THE CLOUD MEDIUM: the faces that light the world is compiled under the same
         // substitution the three on-screen cloud programs are, so the light it puts into the world comes from the
         // clouds the camera sees (a second analytic dome beside them is the grey-clouds defect's shape).
         std::shared_ptr<Shader> shader;
@@ -123,7 +143,7 @@ namespace Desert::Graphic::System
                                                                                     *clouds.Medium );
             if ( !shader )
                 LOG_ERROR( "[SkyCapture] the authored cloud medium could not be compiled into BakeProceduralSky "
-                           "-- the panorama that lights this scene uses the shipped medium, so the world is lit "
+                           "-- the sky light of this scene uses the shipped medium, so the world is lit "
                            "by a different sky than the one on screen." );
         }
         if ( !shader )
@@ -134,32 +154,33 @@ namespace Desert::Graphic::System
                        "captured." );
             return false;
         }
-        if ( m_Panorama.Pipeline && m_Panorama.Pipeline->GetSpecification().Shader == shader )
+        if ( m_Faces.Pipeline && m_Faces.Pipeline->GetSpecification().Shader == shader )
             return true;
 
         const auto built = ComputePipeline::Create( { .Shader = shader, .DebugName = "BakeProceduralSky" } );
         if ( !built )
         {
-            LOG_ERROR( "[SkyCapture] the procedural sky panorama has no pipeline; the sky light is not captured: "
+            LOG_ERROR( "[SkyCapture] the procedural sky's capture faces have no pipeline; the sky light is not "
+                       "captured: "
                        "{}",
                        built.GetError() );
             return false;
         }
         // The program being replaced may still be recorded in a frame in flight; three captures cover them.
-        if ( m_Panorama.Pipeline )
+        if ( m_Faces.Pipeline )
         {
-            m_RetiredPanorama.push_back( std::move( m_Panorama ) );
-            while ( m_RetiredPanorama.size() > 3u )
-                m_RetiredPanorama.pop_front();
+            m_RetiredFaces.push_back( std::move( m_Faces ) );
+            while ( m_RetiredFaces.size() > 3u )
+                m_RetiredFaces.pop_front();
         }
-        m_Panorama          = Program{};
-        m_Panorama.Pipeline = built.GetValue();
+        m_Faces          = Program{};
+        m_Faces.Pipeline = built.GetValue();
         return true;
     }
 
-    void SkyCapture::BindPanoramaRoute( const SkyCaptureSource& source )
+    void SkyCapture::BindFacesRoute( const SkyCaptureSource& source )
     {
-        ComputePipeline&        pipeline = *m_Panorama.Pipeline;
+        ComputePipeline&        pipeline = *m_Faces.Pipeline;
         const CloudBakeBinding& clouds   = source.Clouds;
 
         // The sky block the screen pass reads, at the binding number both paths name (kSkyPayloadBinding).
@@ -177,10 +198,11 @@ namespace Desert::Graphic::System
         }
         else
         {
-            LOG_ERROR( "[SkyCapture] the panorama has no cloud parameter buffer to bind (params={}, authored={}). "
-                       "Both are created with the sky's own, so this is an allocation failure -- the dispatch is "
-                       "skipped for an invalid descriptor set and the environment comes back black.",
-                       clouds.Params != nullptr, clouds.Authored != nullptr );
+            LOG_ERROR(
+                 "[SkyCapture] the capture faces have no cloud parameter buffer to bind (params={}, authored={}). "
+                 "Both are created with the sky's own, so this is an allocation failure -- the dispatch is "
+                 "skipped for an invalid descriptor set and the environment comes back black.",
+                 clouds.Params != nullptr, clouds.Authored != nullptr );
         }
         const bool cloudsBound = clouds.Marched && clouds.Params != nullptr && clouds.Authored != nullptr;
         const auto sampled     = [&pipeline]( uint32_t binding, Image* image )
@@ -231,33 +253,32 @@ namespace Desert::Graphic::System
                        StepName( m_Next ) );
             return false;
         }
-        if ( !source.SkyParams || !m_PanoramaToCube.Pipeline || !m_Downsample.Pipeline || !m_Irradiance.Pipeline ||
-             !m_Prefilter.Pipeline )
+        if ( !source.SkyParams || !m_Downsample.Pipeline || !m_Irradiance.Pipeline || !m_Prefilter.Pipeline )
         {
             LOG_ERROR( "[SkyCapture] the sky light is not captured: sky block {}, programs {} (see the errors "
                        "above).",
                        source.SkyParams ? "present" : "MISSING",
-                       m_PanoramaToCube.Pipeline && m_Prefilter.Pipeline ? "present" : "MISSING" );
+                       m_Downsample.Pipeline && m_Irradiance.Pipeline && m_Prefilter.Pipeline ? "present"
+                                                                                              : "MISSING" );
             return false;
         }
-        if ( !AcquirePanoramaProgram( source.Clouds ) )
+        if ( !AcquireFacesProgram( source.Clouds ) )
             return false;
+        const uint32_t face = size.Face;
+        if ( !std::has_single_bit( face ) || face < kSkyEnvIrradianceSourceFace )
+        {
+            LOG_ERROR( "[SkyCapture] the sky light is not captured: a {} face has no {}-texel mip to sum the "
+                       "irradiance over.",
+                       face, kSkyEnvIrradianceSourceFace );
+            return false;
+        }
 
-        // The previous capture's intermediates: no graph built from here on imports them.
-        m_RetiredPanoramaImage.reset();
+        // The previous capture's intermediate: no graph built from here on imports it.
         m_RetiredRadianceImage.reset();
 
         // A procedural sky's capture products have no file behind them at all.
         const ResourceAttributionScope owned( ResourceOwner::Environment );
 
-        m_PanoramaImage = Image2D::Create(
-             Core::Formats::Image2DSpecification{ .Tag        = "ProceduralSkyPanorama",
-                                                  .Width      = size.Width,
-                                                  .Height     = size.Height,
-                                                  .Format     = Core::Formats::ImageFormat::RGBA32F,
-                                                  .Mips       = 1u,
-                                                  .Usage      = Core::Formats::Image2DUsage::Image2D,
-                                                  .Properties = Core::Formats::Storage | Core::Formats::Sample } );
         const auto cube = []( const char* tag, uint32_t face, uint32_t mips )
         {
             return SP_CAST( ImageCube, ImageCube::Create(
@@ -269,18 +290,19 @@ namespace Desert::Graphic::System
                                                  .Properties = Core::Formats::Storage | Core::Formats::Sample },
                                             nullptr ) );
         };
-        // The face sizes and mip counts are SkyRules.hpp's (beside the cost report that computes the same
-        // numbers): the radiance cube the prefilter convolves, the irradiance, the prefiltered GGX chain.
-        m_RadianceImage                = cube( "EnvRadiance", kSkyEnvCubeFaceSize, kSkyEnvRadianceMips );
+        // The faces and mip counts are SkyRules.hpp's (beside the cost report that computes the same numbers): the
+        // radiance cube the faces are rendered into and the prefilter convolves, the irradiance, and the
+        // prefiltered GGX chain at the capture's own face (UE filters its real-time capture at its resolution; the
+        // lighting reads the chain's length from the cube, textureQueryLevels).
+        const uint32_t mips            = Core::Formats::MipChainLength( face );
+        m_RadianceImage                = cube( "EnvRadiance", face, mips );
         std::shared_ptr<ImageCube> irr = cube( "EnvDiffuseIrradiance", kSkyEnvIrradianceFaceSize, 1u );
-        std::shared_ptr<ImageCube> pre = cube( "EnvPrefiltered", kSkyEnvPrefilterFaceSize, kSkyEnvPrefilterMips );
-        if ( !m_PanoramaImage || !m_RadianceImage || !irr || !pre )
+        std::shared_ptr<ImageCube> pre = cube( "EnvPrefiltered", face, mips );
+        if ( !m_RadianceImage || !irr || !pre )
         {
-            LOG_ERROR( "[SkyCapture] the sky light is not captured: an image of the {}x{} capture was not created "
-                       "(panorama {}, radiance {}, irradiance {}, prefiltered {}).",
-                       size.Width, size.Height, m_PanoramaImage != nullptr, m_RadianceImage != nullptr,
-                       irr != nullptr, pre != nullptr );
-            m_PanoramaImage.reset();
+            LOG_ERROR( "[SkyCapture] the sky light is not captured: an image of the {} face capture was not "
+                       "created (radiance {}, irradiance {}, prefiltered {}).",
+                       face, m_RadianceImage != nullptr, irr != nullptr, pre != nullptr );
             m_RadianceImage.reset();
             return false;
         }
@@ -288,12 +310,15 @@ namespace Desert::Graphic::System
         m_IrradianceHandle  = images->Register( std::move( irr ), Runtime::ImageHandle::Type::ImageCube );
         m_PrefilteredHandle = images->Register( std::move( pre ), Runtime::ImageHandle::Type::ImageCube );
 
-        BindPanoramaRoute( source );
-        m_Physical    = source.Physical;
-        m_Size        = size;
-        m_Pace        = pace;
-        m_Next        = SkyCaptureStep::Panorama;
-        m_RecordedEnd = SkyCaptureStep::Panorama;
+        BindFacesRoute( source );
+        m_Physical          = source.Physical;
+        m_Size              = size;
+        m_Pace              = pace;
+        m_Next              = SkyCaptureStep::Faces;
+        m_RecordedEnd       = SkyCaptureStep::Faces;
+        m_FaceSlices        = SkyCaptureFaceSlices( face );
+        m_FaceSlice         = 0u;
+        m_RecordedFaceSlice = 0u;
         return true;
     }
 
@@ -309,7 +334,6 @@ namespace Desert::Graphic::System
         }
         m_IrradianceHandle  = {};
         m_PrefilteredHandle = {};
-        m_PanoramaImage.reset();
         m_RadianceImage.reset();
         m_Next        = SkyCaptureStep::Done;
         m_RecordedEnd = SkyCaptureStep::Done;
@@ -317,38 +341,67 @@ namespace Desert::Graphic::System
 
     bool SkyCapture::AddPasses( RDG::Builder& graph, FrameTextures& textures, const SkyCaptureFrameReads& reads )
     {
-        m_RecordedEnd = m_Next;
+        m_RecordedEnd       = m_Next;
+        m_RecordedFaceSlice = m_FaceSlice;
         if ( !IsCapturing() )
             return true;
 
         // Every image this slice names is imported first, so a refusal adds no pass at all.
         auto* images = Runtime::ResourceRegistry::GetImageService();
-        if ( !textures.Import( m_PanoramaImage, "SkyCapture.Panorama" ).IsValid() ||
-             !textures.Import( m_RadianceImage, "SkyCapture.Radiance" ).IsValid() ||
+        if ( !textures.Import( m_RadianceImage, "SkyCapture.Radiance" ).IsValid() ||
              !textures.Import( images->Share( m_IrradianceHandle ), "SkyCapture.Irradiance" ).IsValid() ||
              !textures.Import( images->Share( m_PrefilteredHandle ), "SkyCapture.Prefiltered" ).IsValid() )
             return false;
 
-        const SkyCaptureStep end = m_Pace == SkyCapturePace::Whole ? SkyCaptureStep::Done : NextStep( m_Next );
-        for ( SkyCaptureStep step = m_Next; step != end; step = NextStep( step ) )
+        // ONE LAYOUT AT THE END OF EVERY SLICE. A face slice writes one face of mip 0 and leaves the other mips as
+        // they were, and an image whose subresources end a graph in different layouts cannot be recorded for the
+        // next graph's import (VulkanRenderer's end-of-graph check refuses it): the whole cube ends sampled.
+        if ( const auto extracted =
+                  textures.ExtractImported( m_RadianceImage, "SkyCapture.Radiance", RDG::Access::SampledCompute );
+             !extracted.IsSuccess() )
+        {
+            LOG_ERROR( "[SkyCapture] the radiance cube's end state was not declared: {}", extracted.GetError() );
+            return false;
+        }
+
+        // WHOLE: every remaining step, the six faces in one dispatch. TIME-SLICED: one step, and of the faces step
+        // one SkyCaptureFaceSlice -- it stays the next step until its last slice is recorded.
+        const uint32_t sliceCount = static_cast<uint32_t>( m_FaceSlices.size() );
+        SkyCaptureStep step       = m_Next;
+        uint32_t       faceSlice  = m_FaceSlice;
+        do
         {
             switch ( step )
             {
-                case SkyCaptureStep::Panorama:
-                    AddPanorama( graph, textures, reads );
+                case SkyCaptureStep::Faces:
+                {
+                    if ( m_Pace == SkyCapturePace::Whole && faceSlice == 0u )
+                    {
+                        AddFaces( graph, textures, reads, 0u, kSkyCaptureFaceCount, 0u, m_Size.Face );
+                        faceSlice = sliceCount;
+                    }
+                    else if ( faceSlice < sliceCount )
+                    {
+                        const SkyCaptureFaceSlice& slice = m_FaceSlices[faceSlice];
+                        AddFaces( graph, textures, reads, slice.Face, 1u, slice.FirstRow, slice.Rows );
+                        ++faceSlice;
+                    }
+                    if ( faceSlice >= sliceCount )
+                        step = SkyCaptureStep::Filter;
                     break;
-                case SkyCaptureStep::Radiance:
-                    AddRadiance( graph, textures );
-                    break;
+                }
                 case SkyCaptureStep::Filter:
+                    AddRadianceMips( graph, textures );
                     AddIrradiance( graph, textures );
                     AddPrefilter( graph, textures );
+                    step = SkyCaptureStep::Done;
                     break;
                 case SkyCaptureStep::Done:
                     break;
             }
-        }
-        m_RecordedEnd = end;
+        } while ( m_Pace == SkyCapturePace::Whole && step != SkyCaptureStep::Done );
+        m_RecordedEnd       = step;
+        m_RecordedFaceSlice = faceSlice;
         return true;
     }
 
@@ -358,28 +411,29 @@ namespace Desert::Graphic::System
             return std::nullopt;
         if ( !accepted )
         {
-            LOG_ERROR( "[SkyCapture] the frame graph refused the {}x{} sky capture's {} step; the capture is "
-                       "abandoned and the environment the scene reads is kept.",
-                       m_Size.Width, m_Size.Height, StepName( m_Next ) );
+            LOG_ERROR( "[SkyCapture] the frame graph refused the {} face sky capture's {} step (slice {}); the "
+                       "capture is abandoned and the environment the scene reads is kept.",
+                       m_Size.Face, StepName( m_Next ), m_FaceSlice );
             ReleaseCapture();
             return std::nullopt;
         }
         m_Next = m_RecordedEnd;
+        m_FaceSlice = m_RecordedFaceSlice;
         if ( m_Next != SkyCaptureStep::Done )
             return std::nullopt;
 
-        // COMPLETE: the two cubes go to the caller; the intermediates stay until the next capture begins, because
-        // this frame's graph has imported them and is still being built.
+        // COMPLETE: the two cubes go to the caller; the radiance cube stays until the next capture begins, because
+        // this frame's graph has imported it and is still being built.
         Environment captured{ Common::Filepath( "ProceduralSky" ), Runtime::ImageHandle{}, m_IrradianceHandle,
                               m_PrefilteredHandle };
         m_IrradianceHandle     = {};
         m_PrefilteredHandle    = {};
-        m_RetiredPanoramaImage = std::move( m_PanoramaImage );
         m_RetiredRadianceImage = std::move( m_RadianceImage );
         return captured;
     }
 
-    void SkyCapture::AddPanorama( RDG::Builder& graph, FrameTextures& textures, const SkyCaptureFrameReads& reads )
+    void SkyCapture::AddFaces( RDG::Builder& graph, FrameTextures& textures, const SkyCaptureFrameReads& reads,
+                               uint32_t firstFace, uint32_t faceCount, uint32_t firstRow, uint32_t rowCount )
     {
         // The LUTs the physical march samples, and the distant sky light the cloud ambient reads: this frame's
         // graph writes them before this pass (SkyboxRenderer::DeclareAtmosphereCachedLutNodes), so they are
@@ -391,18 +445,23 @@ namespace Desert::Graphic::System
         const std::shared_ptr<Image2D>& distant =
              reads.DistantSkyLight ? reads.DistantSkyLight : SharedFallback2D();
 
-        const RDG::TextureRef  panorama   = textures.Import( m_PanoramaImage, "SkyCapture.Panorama" );
+        if ( reads.SkyParams )
+            m_Faces.Pipeline->SetStorageBuffer( kSkyPayloadBinding, reads.SkyParams );
+
+        const RDG::TextureRef  radiance   = textures.Import( m_RadianceImage, "SkyCapture.Radiance" );
         const RDG::TextureRef  lutT       = textures.Import( transmittance, "Sky.TransmittanceLut" );
         const RDG::TextureRef  lutM       = textures.Import( multiScatter, "Sky.MultiScatterLut" );
         const RDG::TextureRef  distantSky = textures.Import( distant, "Sky.DistantLight" );
-        const uint32_t         width      = m_Size.Width;
-        const uint32_t         height     = m_Size.Height;
-        Program&               program    = m_Panorama;
-        const glm::vec4        push       = m_CloudPush;
+        const uint32_t         face       = m_Size.Face;
+        Program&               program    = m_Faces;
+        const FacesPush        push{ .Clouds = m_CloudPush, .FirstFace = firstFace, .FirstRow = firstRow };
         const RDG::SamplerDesc ownSampler = GlobalTextureFilterSampler();
 
         graph.AddPass(
-             "Sky Capture: Panorama", RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
+             faceCount == kSkyCaptureFaceCount
+                  ? std::string( "Sky Capture: Faces" )
+                  : std::format( "Sky Capture: Face {} rows {}", firstFace, firstRow ),
+             RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( program.Layout.Get( program.Pipeline->GetSpecification().Shader ),
@@ -413,50 +472,30 @@ namespace Desert::Graphic::System
                                 RDG::SubresourceRange::All(), ownSampler )
                       .Sampled( "u_DistantSkyLight", distantSky, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All(), ownSampler )
-                      .Storage( "outputPanorama", panorama, RDG::Access::StorageWrite, 0 )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
+                      .Storage( "outputFaces", radiance, RDG::Access::StorageWrite, 0 )
+                      .PushConstantBytes( static_cast<uint32_t>( sizeof( FacesPush ) ) );
              },
-             [pipeline = program.Pipeline, push, width,
-              height]( RDG::PassContext& context ) -> Common::BoolResultStr
+             [pipeline = program.Pipeline, push, face, faceCount,
+              rowCount]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 DESERT_PROFILE_PASS( "Sky Capture: Panorama" );
+                 DESERT_PROFILE_PASS( "Sky Capture: Faces" );
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                  return Renderer::GetInstance().DispatchCompute(
-                      bindings, *pipeline, std::max( 1u, width / kComputeImagesWorkGroupSize ),
-                      std::max( 1u, height / kComputeImagesWorkGroupSize ), 1u );
+                      bindings, *pipeline, DispatchGroupCount( face, kSmallGroupSize ),
+                      DispatchGroupCount( rowCount, kSmallGroupSize ), faceCount );
              } );
     }
 
-    void SkyCapture::AddRadiance( RDG::Builder& graph, FrameTextures& textures )
+    void SkyCapture::AddRadianceMips( RDG::Builder& graph, FrameTextures& textures )
     {
-        const RDG::TextureRef  panorama   = textures.Import( m_PanoramaImage, "SkyCapture.Panorama" );
-        const RDG::TextureRef  radiance   = textures.Import( m_RadianceImage, "SkyCapture.Radiance" );
-        const RDG::SamplerDesc ownSampler = GlobalTextureFilterSampler();
+        const RDG::TextureRef radiance = textures.Import( m_RadianceImage, "SkyCapture.Radiance" );
+        const uint32_t        face     = m_Size.Face;
+        const uint32_t        mips     = Core::Formats::MipChainLength( face );
 
-        graph.AddPass(
-             "Sky Capture: Radiance", RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 pass.Bindings(
-                          m_PanoramaToCube.Layout.Get( m_PanoramaToCube.Pipeline->GetSpecification().Shader ),
-                          Renderer::GetPipelineRouteFill( *m_PanoramaToCube.Pipeline ) )
-                      .Sampled( "inputTexture", panorama, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), ownSampler )
-                      .Storage( "outputTexture", radiance, RDG::Access::StorageWrite, 0 );
-             },
-             [pipeline = m_PanoramaToCube.Pipeline]( RDG::PassContext& context ) -> Common::BoolResultStr
-             {
-                 DESERT_PROFILE_PASS( "Sky Capture: Radiance" );
-                 const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 const uint32_t groups = DispatchGroupCount( kSkyEnvCubeFaceSize, kComputeImagesWorkGroupSize );
-                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, groups, groups, 6u );
-             } );
-
-        // The radiance cube's mip chain, each mip the 2x2 box of the one below it (the blit chain the GpuBatch
-        // bake recorded, as one compute dispatch per mip): the GGX prefilter's filtered importance sampling reads
-        // them.
-        for ( uint32_t mip = 1; mip < kSkyEnvRadianceMips; ++mip )
+        // The radiance cube's mip chain, each mip the 2x2 box of the one below it: the GGX prefilter's filtered
+        // importance sampling reads them, and the irradiance sums its 16-texel mip.
+        for ( uint32_t mip = 1; mip < mips; ++mip )
             graph.AddPass(
                  std::format( "Sky Capture: Radiance mip {}", mip ),
                  RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
@@ -468,12 +507,12 @@ namespace Desert::Graphic::System
                                     RDG::SubresourceRange::Mip( mip - 1u ), RDG::SamplerDesc::LinearClamp() )
                           .Storage( "u_Output", radiance, RDG::Access::StorageWrite, mip );
                  },
-                 [pipeline = m_Downsample.Pipeline, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline = m_Downsample.Pipeline, mip,
+                  face]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Sky Capture: Radiance mip" );
                      const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     const uint32_t          groups =
-                          DispatchGroupCount( std::max( 1u, kSkyEnvCubeFaceSize >> mip ), kSmallGroupSize );
+                     const uint32_t groups = DispatchGroupCount( std::max( 1u, face >> mip ), kSmallGroupSize );
                      return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, groups, groups, 6u );
                  } );
     }
@@ -492,7 +531,7 @@ namespace Desert::Graphic::System
                  pass.Bindings( m_Irradiance.Layout.Get( m_Irradiance.Pipeline->GetSpecification().Shader ),
                                 Renderer::GetPipelineRouteFill( *m_Irradiance.Pipeline ) )
                       .Sampled( "u_Radiance", radiance, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::Mip( kSkyEnvIrradianceSourceMip ),
+                                RDG::SubresourceRange::Mip( SkyCaptureIrradianceSourceMip( m_Size.Face ) ),
                                 RDG::SamplerDesc::PointClamp() )
                       .Storage( "u_Output", irradiance, RDG::Access::StorageWrite, 0 );
              },
@@ -515,7 +554,9 @@ namespace Desert::Graphic::System
 
         // One dispatch per mip, each convolved with the matching GGX roughness: the shader derives it from the mip
         // (Common/ReflectionCaptureMip.glslh, the engine's one ramp, which the lighting reads back).
-        for ( uint32_t mip = 0; mip < kSkyEnvPrefilterMips; ++mip )
+        const uint32_t face = m_Size.Face;
+        const uint32_t mips = Core::Formats::MipChainLength( face );
+        for ( uint32_t mip = 0; mip < mips; ++mip )
             graph.AddPass(
                  std::format( "Sky Capture: Prefilter mip {}", mip ),
                  RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
@@ -528,14 +569,15 @@ namespace Desert::Graphic::System
                           .Storage( "outputTexture", prefiltered, RDG::Access::StorageWrite, mip )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( PrefilterPush ) ) );
                  },
-                 [pipeline = m_Prefilter.Pipeline, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline = m_Prefilter.Pipeline, mip, face,
+                  mips]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Sky Capture: Prefilter" );
-                     const PrefilterPush push{ mip, kSkyEnvPrefilterMips - 1u, 1u };
+                     const PrefilterPush push{ mip, mips - 1u, 1u };
                      RDG::PassBindings   bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-                     const uint32_t groups = DispatchGroupCount( std::max( 1u, kSkyEnvPrefilterFaceSize >> mip ),
-                                                                 kComputeImagesWorkGroupSize );
+                     const uint32_t groups =
+                          DispatchGroupCount( std::max( 1u, face >> mip ), kComputeImagesWorkGroupSize );
                      return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, groups, groups, 6u );
                  } );
     }

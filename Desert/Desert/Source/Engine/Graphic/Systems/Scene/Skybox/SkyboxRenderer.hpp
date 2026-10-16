@@ -20,6 +20,7 @@
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <glm/glm.hpp>
+#include <array>
 #include <chrono>
 #include <memory>
 #include <optional>
@@ -342,15 +343,22 @@ namespace Desert::Graphic::System
         // SceneRenderer::OnUpdate. Writing that buffer here would put two values into one frame's copy
         // with a dispatch reading it in between.
         //
-        // PERSISTENT IS STILL WRONG for them, for the ordinary reason: several SceneRenderers are live at
-        // once (Docs/RENDERER_FRAME_STATE.md), and a shared block would let a thumbnail's sky bake with a
-        // preview's clouds.
-        std::shared_ptr<ShaderResources::StorageBuffer> m_CloudBakeParams;
-        std::shared_ptr<ShaderResources::StorageBuffer> m_CloudBakeAuthored;
+        // PERSISTENT, AND TWO SETS. A recapture renders its cube faces over several frames (one face per
+        // slice) and every face reads these blocks, which are written once, when the capture begins. A
+        // per-frame-in-flight buffer gives each later frame a copy nobody wrote this capture -- measured on
+        // Clouds_Protocol, the faces after the first marched clouds from a stale block and the clouds' share of
+        // the ground's sky light fell from 12.5 to 1.9 grey levels (SKY-CAPTURE-CLOUDS). One device buffer per
+        // block holds the bytes for every slice; the two sets alternate per capture, so a capture's upload never
+        // lands in a buffer the previous capture's last face, possibly still in flight, reads. Each view's
+        // renderer has its own sets, so no other view's sky is written into them.
+        std::array<std::shared_ptr<ShaderResources::StorageBuffer>, 2> m_CloudBakeParams;
+        std::array<std::shared_ptr<ShaderResources::StorageBuffer>, 2> m_CloudBakeAuthored;
         /// The authored medium's own parameter block, here for exactly the two reasons above and no new
         /// one. Bound only when the medium carries values, because only then does the program compiled
         /// from it declare the block.
-        std::shared_ptr<ShaderResources::StorageBuffer> m_CloudBakeMediumParams;
+        std::array<std::shared_ptr<ShaderResources::StorageBuffer>, 2> m_CloudBakeMediumParams;
+        // The set the most recent capture's upload went to.
+        uint32_t m_CloudBakeSet = 0u;
 
         // The scene's sky light: its capture, its environment and the stamps it was captured from. The Bake
         // button's request waits here until this view's next EnsureProceduralEnvironment hands it on.

@@ -11,6 +11,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <optional>
@@ -174,6 +175,7 @@ namespace Desert::Graphic
     // asset layer stages the cubes on a worker and must not include the renderer to learn their shape.
     using Assets::kSkyEnvCubeFaceSize;
     using Assets::kSkyEnvIrradianceFaceSize;
+    using Assets::kSkyEnvIrradianceSourceFace;
     using Assets::kSkyEnvIrradianceSourceMip;
     using Assets::kSkyEnvPrefilterFaceSize;
     using Assets::kSkyEnvPrefilterMips;
@@ -186,26 +188,37 @@ namespace Desert::Graphic
     // answering 16 on the day the cubes moved to RGBA16F.
     inline constexpr Core::Formats::ImageFormat kSkyEnvCubeFormat = Core::Formats::ImageFormat::RGBA32F;
 
+    /// THE SKY LIGHT'S CAPTURE SIZE: one cube FACE. The sky and its clouds are rendered straight into the faces
+    /// of the radiance cube at this size (UE: FSkyLightSceneProxy::CaptureResolution, 128 by default, the
+    /// real-time capture renders the sky material and the volumetric clouds per face at it); the prefiltered
+    /// specular cube is the same face, and the irradiance is summed over its 16-texel mip. There is no panorama
+    /// any more.
     struct SkyEnvironmentSize
     {
-        uint32_t Width  = 0;
-        uint32_t Height = 0;
+        uint32_t Face = 0;
     };
 
-    // An ENUM, not an int: the bake dispatches in 32x32 work groups, so a hand-typed size that is not a
-    // multiple of 32 would silently leave the panorama's right/bottom edge unwritten.
-    inline SkyEnvironmentSize EnvironmentPanoramaSize( ECS::SkyEnvironmentResolution resolution )
+    // An ENUM, not an int: a face that is not a power of two has no 16-texel mip to sum the irradiance over, and
+    // one under 32 would leave the capture's 8x8 groups half empty.
+    inline SkyEnvironmentSize EnvironmentCaptureSize( ECS::SkyEnvironmentResolution resolution )
     {
         switch ( resolution )
         {
             case ECS::SkyEnvironmentResolution::Low:
-                return { 512u, 256u };
+                return { 64u };
             case ECS::SkyEnvironmentResolution::High:
-                return { 2048u, 1024u };
+                return { 256u };
             case ECS::SkyEnvironmentResolution::Medium:
                 break;
         }
-        return { 1024u, 512u };
+        return { 128u };
+    }
+
+    /// The mip of a capture's radiance cube whose face is kSkyEnvIrradianceSourceFace: the one the irradiance is
+    /// summed over exactly, the same 16-texel face the .hdr bake reads at its own kSkyEnvIrradianceSourceMip.
+    inline constexpr uint32_t SkyCaptureIrradianceSourceMip( uint32_t face )
+    {
+        return static_cast<uint32_t>( std::countr_zero( face ) - std::countr_zero( kSkyEnvIrradianceSourceFace ) );
     }
 
     inline const char* EnvironmentResolutionName( ECS::SkyEnvironmentResolution resolution )
@@ -234,29 +247,23 @@ namespace Desert::Graphic
 
     struct SkyEnvironmentCost
     {
-        uint64_t PanoramaBytes = 0;
-        uint64_t CubeBytes     = 0; // radiance + irradiance + prefiltered
+        uint64_t RadianceBytes = 0; // the capture's intermediate, released when it completes
+        uint64_t CubeBytes     = 0; // irradiance + prefiltered, the two the scene keeps
         uint64_t TotalBytes    = 0;
     };
 
-    // What one baked environment costs on the GPU. Note that only the PANORAMA scales with the resolution
-    // ladder — the cube chain's faces are fixed constants either way — which is exactly the kind of thing
-    // a number in the log tells you and a tooltip does not.
-    //
-    // Each addend below is (face, mips) EXACTLY as SceneEnvironment requests it, from the same constants.
-    // This function once charged for a 1024-face 11-mip prefiltered cube (128 MiB) while the bake built a
-    // 256-face 9-mip one (8 MiB) — the two sides shared the face constant but one call site multiplied it
-    // by the cross layout and the other did not. Tests/Engine/SkyRules pins the agreement.
+    // What one captured sky light costs on the GPU while it is being captured. Each addend is (face, mips)
+    // EXACTLY as SkyCapture::Begin creates it, from the same functions; Tests/Engine/SkyRules pins the agreement.
     inline SkyEnvironmentCost SkyEnvironmentBakeCost( ECS::SkyEnvironmentResolution resolution )
     {
-        const SkyEnvironmentSize size = EnvironmentPanoramaSize( resolution );
+        const uint32_t face = EnvironmentCaptureSize( resolution ).Face;
+        const uint32_t mips = Core::Formats::MipChainLength( face );
 
         SkyEnvironmentCost cost;
-        cost.PanoramaBytes = Core::Formats::CalculateImageSize( size.Width, size.Height, kSkyEnvCubeFormat );
-        cost.CubeBytes     = SkyEnvironmentCubeBytes( kSkyEnvCubeFaceSize, kSkyEnvRadianceMips ) +
-                         SkyEnvironmentCubeBytes( kSkyEnvIrradianceFaceSize, 1u ) +
-                         SkyEnvironmentCubeBytes( kSkyEnvPrefilterFaceSize, kSkyEnvPrefilterMips );
-        cost.TotalBytes = cost.PanoramaBytes + cost.CubeBytes;
+        cost.RadianceBytes = SkyEnvironmentCubeBytes( face, mips );
+        cost.CubeBytes =
+             SkyEnvironmentCubeBytes( kSkyEnvIrradianceFaceSize, 1u ) + SkyEnvironmentCubeBytes( face, mips );
+        cost.TotalBytes = cost.RadianceBytes + cost.CubeBytes;
         return cost;
     }
 
