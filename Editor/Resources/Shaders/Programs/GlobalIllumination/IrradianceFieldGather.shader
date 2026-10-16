@@ -11,9 +11,12 @@
 //             rough reflection this method can give without a reflection tracer (UE writes the irradiance field's
 //             diffuse into RoughSpecularIndirect; a lobe about the reflection keeps a glossy floor's highlight on
 //             the side of what it reflects).
+//   backface  the same read at -N (its own weights: the probes behind the surface): the irradiance a two-sided
+//             leaf lets through (the screen probes' backface, ScreenProbeFilter).
 // Where no traced probe answers yet (cells allocated this frame) or past the coarsest clipmap the pixel reads black,
 // as UE's: the composite then has no bounce there, never the sky through a wall.
-// Output (half resolution): diffuse.rgb + .a = the sample's distance to the camera (0: no surface), specular.rgb.
+// Output (half resolution): diffuse.rgb + .a = the sample's distance to the camera (0: no surface), specular.rgb,
+// backface.rgb.
 Shader "IrradianceFieldGather"
 {
     Compute
@@ -46,6 +49,7 @@ Shader "IrradianceFieldGather"
         Uniform(7) sampler2D u_RadianceCacheDepth;
         layout(binding = 8, rgba16f) restrict writeonly uniform image2D u_GIHalfDiffuseOut;
         layout(binding = 9, rgba16f) restrict writeonly uniform image2D u_GIHalfSpecularOut;
+        layout(binding = 10, rgba16f) restrict writeonly uniform image2D u_GIHalfBackfaceOut;
 
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
@@ -63,6 +67,7 @@ Shader "IrradianceFieldGather"
             {
                 imageStore( u_GIHalfDiffuseOut, half_, vec4( 0.0 ) );
                 imageStore( u_GIHalfSpecularOut, half_, vec4( 0.0 ) );
+                imageStore( u_GIHalfBackfaceOut, half_, vec4( 0.0 ) );
                 return;
             }
             const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
@@ -78,6 +83,8 @@ Shader "IrradianceFieldGather"
             const vec4 diffuse = RadianceCacheIrradianceAtImpl( p, n, v, r, dither, true, specular );
             imageStore( u_GIHalfDiffuseOut, half_, vec4( diffuse.a > 0.0 ? diffuse.rgb : vec3( 0.0 ), distance ) );
             imageStore( u_GIHalfSpecularOut, half_, vec4( diffuse.a > 0.0 ? specular : vec3( 0.0 ), 1.0 ) );
+            const vec4 backface = RadianceCacheIrradianceAt( p, -n, v, dither );
+            imageStore( u_GIHalfBackfaceOut, half_, vec4( backface.a > 0.0 ? backface.rgb : vec3( 0.0 ), 1.0 ) );
         }
     }
 }

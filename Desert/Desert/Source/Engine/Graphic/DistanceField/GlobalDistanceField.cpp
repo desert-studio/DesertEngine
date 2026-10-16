@@ -1,7 +1,8 @@
 // Ported from UE 5.8 Engine/Source/Runtime/Renderer/Private/GlobalDistanceField.cpp (clipmap extents :488-499 with
 // Lumen's 25 m first extent, the four-voxel influence radius :464, partial updates of the regions a camera move
-// exposes and of the bounds of changed primitives), adapted: dense toroidal R32F clipmaps instead of the page
-// atlas, objects culled to update bricks on the CPU, one compute pass per level that has bricks to rewrite.
+// exposes and of the bounds of changed primitives), adapted: dense toroidal RG16F clipmaps (distance, coverage)
+// instead of the page atlas and its coverage atlas, objects culled to update bricks on the CPU, one compute pass
+// per level that has bricks to rewrite.
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 
 #include <Engine/Geometry/MeshBounds.hpp>
@@ -87,7 +88,7 @@ namespace Desert::Graphic::DistanceField
             const float* m    = &object.World[0][0];
             for ( int i = 0; i < 16; ++i )
                 hash = ( hash ^ std::bit_cast<uint32_t>( m[i] ) ) * 0x100000001B3ULL;
-            return hash;
+            return ( hash ^ ( object.MostlyTwoSided ? 1u : 0u ) ) * 0x100000001B3ULL;
         }
 
         template <typename T>
@@ -198,14 +199,14 @@ namespace Desert::Graphic::DistanceField
                  .Width      = static_cast<uint32_t>( kGdfResolution ),
                  .Height     = static_cast<uint32_t>( kGdfResolution ),
                  .Depth      = static_cast<uint32_t>( kGdfResolution ),
-                 .Format     = Core::Formats::ImageFormat::R32F,
+                 .Format     = Core::Formats::ImageFormat::RG16F,
                  .Data       = Core::Formats::EmptyPixelData{},
                  .Properties = Core::Formats::Storage | Core::Formats::Sample,
             };
             m_Clipmaps[level] = Image3D::Create( spec );
             if ( !m_Clipmaps[level] )
                 return Common::MakeFormattedError<bool>(
-                     "global distance field: clipmap {} ({}^3 R32F) not created", level, kGdfResolution );
+                     "global distance field: clipmap {} ({}^3 RG16F) not created", level, kGdfResolution );
         }
         // The object grid: every level's cells in one integer volume (GlobalDistanceField.hpp, THE OBJECT GRID).
         {
@@ -313,7 +314,8 @@ namespace Desert::Graphic::DistanceField
                 changed.push_back( tracked.Bounds );
         m_Tracked = std::move( current );
 
-        // The object buffer: world -> volume rows, the volume extent with the distance scale, the asset record.
+        // The object buffer: world -> volume rows, the volume extent with the distance scale, the asset record,
+        // the flags.
         std::vector<glm::vec4> objectData;
         objectData.reserve( placed.size() * kGdfObjectStride );
         // Beside it, each object's instance-table row (the object grid's entry).
@@ -342,6 +344,10 @@ namespace Desert::Graphic::DistanceField
             // Each volume axis' own scale: the box distance (MeshDistanceField.glslh) is exact, not the
             // smallest's.
             objectData.push_back( glm::vec4( std::bit_cast<float>( p.AssetIndex ), axisScale / localToVolume ) );
+            const uint32_t flags = p.Object->MostlyTwoSided
+                                        ? static_cast<uint32_t>( DFShared::DF_OBJECT_FLAG_MOSTLY_TWO_SIDED )
+                                        : 0u;
+            objectData.push_back( glm::vec4( std::bit_cast<float>( flags ), 0.0f, 0.0f, 0.0f ) );
         }
 
         if ( objectData != m_FrameObjectData || objectRows != m_FrameObjectRows )

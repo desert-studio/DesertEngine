@@ -26,6 +26,9 @@ Inputs
     Roughness;
 }
 SubsurfaceOpacity CustomData3;
+// The surface cache's card capture keeps it per texel and lights the card's far side with it (UE: Lumen cards of a
+// subsurface model carry GetMaterialSubsurfaceData; Programs/SurfaceCache).
+SubsurfaceColor TwoSidedFoliageSubsurfaceColor;
 
 #include <Mesh/BRDF.glslh>
 #include <Mesh/DirectLighting.glslh>
@@ -51,7 +54,7 @@ float TwoSidedFoliageGGX( float a2, float NoH )
 
 vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
 {
-    const vec3 F0      = mix( vec3( 0.04 ), S.BaseColor, S.Metallic );
+    const vec3 F0      = DesertSpecularF0( S );
     const vec3 surface = EvaluateDirectLight( L.L, L.Radiance, S.V, S.N, F0, S.Metallic, S.Roughness, S.BaseColor );
 
     // http://blog.stevemcauley.com/2011/12/03/energy-conserving-wrapped-diffuse/ — UE's Wrap = 0.5 on -N.L.
@@ -61,16 +64,24 @@ vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
     const float scatter      = TwoSidedFoliageGGX( 0.6 * 0.6, clamp( -dot( S.V, L.L ), 0.0, 1.0 ) );
     const vec3  transmission = L.Radiance * ( wrapNoL * scatter ) * TwoSidedFoliageSubsurfaceColor( P );
 
-    // UE multiplies Transmission by the light's TransmissionShadow; the cascades are this engine's one shadow
-    // term, so a leaf another leaf shades transmits nothing either.
-    return ( surface + transmission ) * L.Shadow;
+    // UE LightAccumulator_AddSplit: the surface light takes the light's Shadow, the transmitted light its
+    // TransmissionShadow (the thickness of what stands between the leaf and the light). With Shadow on both, the
+    // normal offset of the opaque test put a leaf's far side behind the leaf itself: every leaf turned from the
+    // light was fully shadowed and the transmission never reached the screen.
+    return surface * L.Shadow + transmission * L.TransmissionShadow;
 }
 
 vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
 {
-    const vec3 F0  = mix( vec3( 0.04 ), S.BaseColor, S.Metallic );
-    const vec3 ibl = EvaluateAmbientIBL( A.Irradiance, A.Prefiltered, A.SpecularBRDF, F0, S.BaseColor, S.Metallic,
-                                         max( dot( S.N, S.V ), 0.0 ) );
-    const vec3 through = DesertAmbientIrradiance( -S.N ) * TwoSidedFoliageSubsurfaceColor( P ) * A.Occlusion;
+    const vec3 F0  = DesertSpecularF0( S );
+    const vec3 ibl = EvaluateAmbientIBL( A.Irradiance, A.Prefiltered, A.SpecularBRDF, F0, S.BaseColor, S.Metallic );
+    // The light through the leaf from its far side: the irradiance from -N times SubsurfaceColor. Under the SKY
+    // LIGHT it is the sky cube's (UE SkyLightingDiffuseShared.ush, TWOSIDED_FOLIAGE); under a TRACED gather the
+    // gather's own backface irradiance, occluded as the trace sees it (UE DiffuseIndirectComposite.usf with
+    // r.Lumen.ScreenProbeGather.TwoSidedFoliageBackfaceDiffuse: BackfaceDiffuseIndirect x SubsurfaceColor). Both
+    // arrive as A.BackIrradiance. The traced gather's front irradiance in its place (UE's
+    // PreintegratedTwoSidedBxDF fallback) lit a leaf seen from below with the ground under it, not the sky above:
+    // the dark crown of FOLIAGE-LOOK-3.
+    const vec3 through = A.BackIrradiance * TwoSidedFoliageSubsurfaceColor( P ) * A.Occlusion;
     return ComposeAmbient( ibl, S.BaseColor, A.Occlusion, A.Indirect ) + through;
 }

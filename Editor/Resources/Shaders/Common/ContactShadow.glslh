@@ -105,12 +105,7 @@ float ContactShadowRayCast(vec3 worldPosition, vec3 L, float rayLength, out vec2
 	return -1.0;
 }
 
-// UE SubsurfaceDensityFromOpacity (DeferredShadingCommon.ush): the density per cm a subsurface receiver's opacity
-// stands for, tuned for a linear depth falloff with opacity.
-float ContactShadowSubsurfaceDensity(float opacity)
-{
-	return -0.05 * log(1.0 - min(opacity, 0.99));
-}
+#include <Common/SubsurfaceDensity.glslh> // ContactShadowSubsurfaceDensity
 
 // UE ApplyContactShadowWithShadowTerms (DeferredLightingCommon.ush): a light's contact shadow at `worldPosition`,
 // 1 = lit. `light` is the light's half: x = ContactShadowLength (0 = none), y = in world space (> 0.5),

@@ -20,12 +20,13 @@ namespace Desert::Graphic::SurfaceCache
 {
     namespace
     {
-        constexpr std::array<std::string_view, 5> kLayerNames{ "SurfaceCache.Depth", "SurfaceCache.Albedo",
-                                                               "SurfaceCache.Opacity", "SurfaceCache.Normal",
-                                                               "SurfaceCache.Emissive" };
+        constexpr std::array<std::string_view, SurfaceCacheRenderer::kCapturedLayers.size()> kLayerNames{
+             "SurfaceCache.Depth",  "SurfaceCache.Albedo",   "SurfaceCache.Opacity",
+             "SurfaceCache.Normal", "SurfaceCache.Emissive", "SurfaceCache.Subsurface" };
         // The shader names of the atlas layers, in kCapturedLayers order (Programs/SurfaceCache/*.shader).
-        constexpr std::array<std::string_view, 5> kLayerImages{ "u_AtlasDepth", "u_AtlasAlbedo", "u_AtlasOpacity",
-                                                                "u_AtlasNormal", "u_AtlasEmissive" };
+        constexpr std::array<std::string_view, SurfaceCacheRenderer::kCapturedLayers.size()> kLayerImages{
+             "u_AtlasDepth",  "u_AtlasAlbedo",   "u_AtlasOpacity",
+             "u_AtlasNormal", "u_AtlasEmissive", "u_AtlasSubsurface" };
         constexpr uint32_t kCopyGroup = 8; // Programs/SurfaceCache/SurfaceCacheCardCopy.shader LocalSize
 
         constexpr std::array<std::string_view, 3> kLitLayerNames{
@@ -178,7 +179,7 @@ namespace Desert::Graphic::SurfaceCache
     {
         if ( frame.Copies.empty() )
             return BOOLSUCCESS;
-        std::array<RDG::TextureRef, 5> layers;
+        std::array<RDG::TextureRef, kCapturedLayers.size()> layers;
         for ( std::size_t i = 0; i < layers.size(); ++i )
             layers[i] = import( m_Layers[i], kLayerNames[i] );
         const RDG::BufferRef copies   = UploadBuffer( graph, frame.Copies, "SurfaceCache.PageCopies" );
@@ -194,6 +195,8 @@ namespace Desert::Graphic::SurfaceCache
                  block.Sampled( "u_CaptureAlbedo", capture.Albedo, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
                       .Sampled( "u_CaptureNormal", capture.Normal, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                      .Sampled( "u_CaptureShadingWord", capture.ShadingWord, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
                       .Sampled( "u_CaptureEmissive", capture.Emissive, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
@@ -251,7 +254,7 @@ namespace Desert::Graphic::SurfaceCache
                                             desc.GetValue().Samples, false, "SurfaceCacheAtlasView" );
         if ( !pipeline )
             return Common::MakeError<bool>( pipeline.GetError() );
-        std::array<RDG::TextureRef, 5> layers;
+        std::array<RDG::TextureRef, kCapturedLayers.size()> layers;
         for ( std::size_t i = 0; i < layers.size(); ++i )
             layers[i] = import( m_Layers[i], kLayerNames[i] );
         GraphicsPipeline* const raw = pipeline.GetValue().get();
@@ -261,7 +264,7 @@ namespace Desert::Graphic::SurfaceCache
              {
                  auto block = pass.Bindings( m_AtlasViewLayout.Get( m_AtlasViewShader ), RDG::OtherRouteFill{} );
                  for ( std::size_t i = 0; i < layers.size(); ++i )
-                     if ( kCapturedLayers[i] != Layer::Emissive )
+                     if ( kCapturedLayers[i] != Layer::Emissive && kCapturedLayers[i] != Layer::Subsurface )
                          block.Sampled( kLayerImages[i], layers[i], RDG::Access::SampledGraphics,
                                         RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
                  pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 1.0f ) );
@@ -425,7 +428,7 @@ namespace Desert::Graphic::SurfaceCache
                  "surface cache direct lighting: {} (its shadow rays off the view's shadow maps)", missing );
         if ( const auto program = EnsureLightingProgram( inputs.Tracer.Pipeline ); !program )
             return program;
-        std::array<RDG::TextureRef, 5> layers;
+        std::array<RDG::TextureRef, kCapturedLayers.size()> layers;
         for ( std::size_t i = 0; i < layers.size(); ++i )
             layers[i] = import( m_Layers[i], kLayerNames[i] );
         const RDG::TextureRef direct   = import( m_LitLayers[0], kLitLayerNames[0] );
@@ -500,7 +503,7 @@ namespace Desert::Graphic::SurfaceCache
              !inputs.Irradiance.IsValid() || !inputs.Depth.IsValid() )
             return Common::MakeError<bool>(
                  "surface cache indirect lighting: the world radiance cache was not updated this frame" );
-        std::array<RDG::TextureRef, 5> layers;
+        std::array<RDG::TextureRef, kCapturedLayers.size()> layers;
         for ( std::size_t i = 0; i < layers.size(); ++i )
             layers[i] = import( m_Layers[i], kLayerNames[i] );
         const RDG::TextureRef   direct   = import( m_LitLayers[0], kLitLayerNames[0] );

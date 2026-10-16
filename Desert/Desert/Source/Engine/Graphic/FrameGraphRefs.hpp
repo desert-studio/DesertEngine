@@ -115,6 +115,7 @@ namespace Desert::Graphic
         // specular radiance. Invalid when the GI method traces nothing   -> Deferred: Composite
         RDG::TextureRef GIDiffuse;
         RDG::TextureRef GISpecular;
+        RDG::TextureRef GIBackface; // the irradiance from behind the surface (-N), a two-sided leaf's
         // THE VIEW'S WORLD RADIANCE CACHE as its readers bind it (GlobalIllumination::RadianceCacheFrame, the read
         // section of Common/RadianceCache.glslh): the neutral cache - one zeroed params block standing for all
         // three buffers (no clipmap: every read answers "past the coarsest clipmap"), System.Black for both

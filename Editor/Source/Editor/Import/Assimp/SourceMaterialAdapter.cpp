@@ -127,6 +127,16 @@ namespace Desert::Editor
         const std::optional<SourceTexture> baseColour =
              texture( fbxBaseColour ? aiTextureType_BASE_COLOR : aiTextureType_DIFFUSE );
         read.Alpha = ResolveSourceAlpha( mat, baseColour ? baseColour->File : std::filesystem::path{} );
+        // THE FORMAT-NEUTRAL STATEMENT "this material is cut out" (UE: BlendMode Masked). A template's `Requires` is
+        // all-of, so the masked template (StandardSurfaceMasked) requires this one key instead of a per-format
+        // alphaMask it could only ever name for one format. Set under exactly the conditions the format branches
+        // below carry the mask under: an FBX whose albedo alpha cuts out, a glTF MASK (or BLEND read as a mask).
+        const bool cutsOut =
+             read.Alpha.AlphaCutoff > 0.0f && baseColour &&
+             ( read.Alpha.Kind == SourceAlphaKind::Mask ||
+               ( format != "fbx" && read.Alpha.Kind == SourceAlphaKind::BlendAsMask ) );
+        if ( cutsOut )
+            entries["source.alphaMask"] = { glm::vec4( 1.0f, 0, 0, 0 ), std::nullopt, std::nullopt };
 
         if ( format == "fbx" )
         {
@@ -148,8 +158,9 @@ namespace Desert::Editor
             put( "AmbientOcclusion", std::nullopt, texture( aiTextureType_AMBIENT_OCCLUSION ) );
             put( "GlossinessMap", std::nullopt, texture( aiTextureType_SHININESS ) );
             // The Specular map (FbxSurfaceMaterial::sSpecular, "SpecularColor") under FBX's own name: what it
-            // holds is the user's statement (SourceImportSettings::SpecularMap, WithFbxSpecularMap) - FBX's
-            // specular colour, or AO/roughness/metalness packed in R/G/B (Lumberyard Bistro / ORCA).
+            // holds is read from its texels by default or stated by the user (SourceImportSettings::SpecularMap,
+            // ResolveFbxSpecularMap, WithFbxSpecularMap) - FBX's specular colour, roughness/metalness packed in
+            // G/B (Lumberyard Bistro / ORCA), or AO/roughness/metalness in R/G/B.
             put( "SpecularColor", std::nullopt, texture( aiTextureType_SPECULAR ) );
             if ( read.Alpha.AlphaCutoff > 0.0f )
                 put( "alphaCutoff", glm::vec4( read.Alpha.AlphaCutoff, 0, 0, 0 ) );
@@ -157,6 +168,15 @@ namespace Desert::Editor
             // opacity slot's source and the value half names its channel (3 = A), as glTF's alphaMask below.
             if ( read.Alpha.Kind == SourceAlphaKind::Mask && read.Alpha.AlphaCutoff > 0.0f && baseColour )
                 put( "alphaMask", glm::vec4( 3.0f, 0, 0, 0 ), baseColour );
+            // A separate opacity map (TransparentColor) is the cut-out as well: the mask is that image's R. It is
+            // stated under the same key, so "this source is alpha-masked" has ONE statement whichever form the
+            // file uses — FoliageSurface requires it, and a two-sided leaf card cut by its own opacity map was
+            // lit one-sided (StandardSurface) where the albedo-alpha one took TwoSidedFoliage.
+            if ( read.Alpha.Kind == SourceAlphaKind::OpacityMap && read.Alpha.AlphaCutoff > 0.0f )
+            {
+                if ( const std::optional<SourceTexture> opacity = texture( aiTextureType_OPACITY ) )
+                    put( "alphaMask", glm::vec4( 0.0f, 0, 0, 0 ), opacity );
+            }
             // Two-sidedness. FBX's surface material has no property for it, so a file states it the way its
             // authoring pipeline does: assimp's AI_MATKEY_TWOSIDED when a converter sets one, or the
             // ".DoubleSided" material-name suffix of the ORCA scenes (Bistro: Foliage_Leaves.DoubleSided, the

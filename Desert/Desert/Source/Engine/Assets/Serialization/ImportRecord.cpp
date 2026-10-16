@@ -25,7 +25,7 @@ namespace Desert::Assets::Serialization
                  settings.Skeleton
                       ? std::optional<std::string>( Common::Content::AssetGuidToText( *settings.Skeleton ) )
                       : std::nullopt,
-                 settings.SpecularMap == Assets::FbxSpecularMap::Specular
+                 settings.SpecularMap == Assets::FbxSpecularMap::FromImage
                       ? std::nullopt
                       : std::optional<std::string>( Assets::FbxSpecularMapName( settings.SpecularMap ) ),
                  settings.FileUnit == Assets::MeshFileUnit::FromFile
@@ -59,7 +59,7 @@ namespace Desert::Assets::Serialization
             const auto specular = Assets::FbxSpecularMapFromName( *text.SpecularMap );
             if ( !specular )
                 return Common::MakeFormattedError<Result>(
-                     "import settings name Specular map meaning '{}'; this build knows Specular, "
+                     "import settings name Specular map meaning '{}'; this build knows FromImage, Specular, "
                      "OcclusionRoughnessMetallic and RoughnessMetallic",
                      *text.SpecularMap );
             out.SpecularMap = *specular;

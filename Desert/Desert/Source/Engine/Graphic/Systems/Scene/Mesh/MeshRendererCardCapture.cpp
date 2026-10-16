@@ -92,24 +92,46 @@ namespace Desert::Graphic::System
             out.push_back( std::move( instance ) );
             m_CardCaptureSources.push_back( std::move( source ) );
         };
+        // A static mesh is queued once per SECTION (MESH-SECTION-MATS: each section group draws with its own slot,
+        // the other sections hidden), but its cards are the mesh's, captured once per entity: the capture keeps
+        // b18's rule - the whole mesh through its first surface slot - and hides only what the ENTITY hides, the
+        // submeshes hidden in every one of its section entries (each other submesh is visible in exactly one).
+        struct StaticCapture
+        {
+            const StaticMeshRenderData* Data   = nullptr;
+            uint64_t                    Hidden = ~0ull;
+        };
+        std::vector<uint64_t>                       staticOrder;
+        std::unordered_map<uint64_t, StaticCapture> staticCaptures;
         for ( const auto& data : m_StaticQueue )
         {
             if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
                 continue;
-            auto cards = data.Mesh->GetCards();
+            const uint64_t key = ( static_cast<uint64_t>( data.Entity ) << 24u ) | ( data.MotionPart & 0xFFFFFFu );
+            auto [it, inserted] = staticCaptures.try_emplace( key, StaticCapture{ &data, ~0ull } );
+            if ( inserted )
+                staticOrder.push_back( key );
+            it->second.Hidden &= data.HiddenSubmeshes;
+        }
+        for ( const uint64_t key : staticOrder )
+        {
+            const StaticCapture& capture = staticCaptures.at( key );
+            const auto&          data    = *capture.Data;
+            auto                 cards   = data.Mesh->GetCards();
             if ( !cards || cards->Cards.empty() )
                 continue;
             // Opaque surfaces only: glass transmits, its cards would hold what is behind it.
-            const SurfaceSlot slot = FirstSurfaceSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
+            SurfaceSlot slot;
+            for ( uint32_t s = 0; s < static_cast<uint32_t>( data.MaterialSlots->Slots.size() ) && !slot; ++s )
+                slot = SectionSurface( data.MaterialSlots.get(), s );
             if ( !slot || IsTranslucent( slot.Surface ) )
                 continue;
-            const uint64_t key = ( static_cast<uint64_t>( data.Entity ) << 24u ) | ( data.MotionPart & 0xFFFFFFu );
             add( key, data.Mesh, std::move( cards ), data.Transform,
                  { .Mesh      = data.Mesh,
                    .World     = data.Transform,
                    .Instance  = slot.Instance,
                    .Surface   = slot.Surface,
-                   .Hidden    = data.HiddenSubmeshes,
+                   .Hidden    = capture.Hidden,
                    .MotionRow = data.MotionRow },
                  std::nullopt );
         }
@@ -208,8 +230,16 @@ namespace Desert::Graphic::System
         // of the frame that captures them. Bit 62 set: never an entity key of the static or generic queue.
         for ( const auto& data : m_SkinnedQueue )
         {
-            if ( data.Mesh == nullptr || data.Material == nullptr || data.Instance == nullptr ||
-                 IsTranslucent( data.Material ) )
+            // The capture draws the whole pose through the first opaque section's material (as the static rule).
+            const SkinnedSection* section = nullptr;
+            for ( const auto& candidate : data.Sections )
+                if ( candidate.Material != nullptr && candidate.Instance != nullptr &&
+                     !IsTranslucent( candidate.Material ) )
+                {
+                    section = &candidate;
+                    break;
+                }
+            if ( data.Mesh == nullptr || section == nullptr )
                 continue;
             auto& cards = m_SkinnedBoundsCards[data.Mesh];
             if ( !cards )
@@ -230,8 +260,8 @@ namespace Desert::Graphic::System
             add( key, data.Mesh, cards, data.Transform,
                  { .Mesh      = data.Mesh,
                    .World     = data.Transform,
-                   .Instance  = data.Instance,
-                   .Surface   = data.Material,
+                   .Instance  = section->Instance,
+                   .Surface   = section->Material,
                    .MotionRow = data.MotionRow,
                    .Path      = MeshVertexPath::Skinned },
                  std::nullopt );

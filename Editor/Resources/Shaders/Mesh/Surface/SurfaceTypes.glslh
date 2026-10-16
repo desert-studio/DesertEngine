@@ -132,8 +132,11 @@ struct SurfaceOutput
     vec3  BaseColor; // linear
     float Metallic;
     float Roughness; // the pass clamps it to 0.04 so the GGX lobe stays finite
+    // UE's Specular pin: the dielectric reflectance, F0 = 0.08 x Specular (0.5, the default, = 4 %). It reaches the
+    // model through the shading word's 8-bit field (deferred) or quantized the same way (forward).
+    float Specular;
     vec3  Emissive;  // linear, HDR, added unlit
-    float Opacity;   // read only by BlendMode Masked, against u_Material.OpacityMaskClipValue
+    float Opacity;   // read by the translucency passes (BlendMode Translucent / Additive) and the sprite cell
     vec3  Normal;    // TANGENT space, as UE's Normal pin: (0,0,1) is the geometric normal
     float AmbientOcclusion;
     // The sun-shadow receive half the material owns (the renderer zeroes a mesh's row value when its Receive
@@ -159,6 +162,7 @@ SurfaceOutput DefaultSurfaceOutput()
     s.BaseColor           = vec3( 1.0 );
     s.Metallic            = 0.0;
     s.Roughness           = 0.5;
+    s.Specular            = 0.5;
     s.Emissive            = vec3( 0.0 );
     s.Opacity             = 1.0;
     s.Normal              = vec3( 0.0, 0.0, 1.0 );
@@ -246,14 +250,16 @@ vec3 DesertSurfaceWorldNormal( SurfaceInput i, SurfaceOutput s )
     return normalize( i.TBN * s.Normal );
 }
 
-// BlendMode Masked: the parser defines DESERT_SURFACE_MASKED and has already refused a template without the
-// Float parameter the threshold is read from.
+// BlendMode Masked (UE's OpacityMask < OpacityMaskClipValue): the parser defines DESERT_SURFACE_MASKED, has refused
+// a template without its `OpacityMask` line or the Float threshold, and GENERATES DesertSurfaceOpacityMask( i ) from
+// that line (DShaderParser OpacityMaskFunction) between the surface block and the pass header. Every cell clips
+// with it, BEFORE evaluating the surface; ray tracing reads the same line from ShaderProgramMeta::OpacityMask.
 #ifdef DESERT_SURFACE_MASKED
-#define DESERT_SURFACE_CLIP( s ) \
-    if ( ( s ).Opacity < u_Material.OpacityMaskClipValue ) \
+#define DESERT_SURFACE_CLIP( i ) \
+    if ( DesertSurfaceOpacityMask( i ) < u_Material.OpacityMaskClipValue ) \
         discard
 #else
-#define DESERT_SURFACE_CLIP( s )
+#define DESERT_SURFACE_CLIP( i )
 #endif
 
 #endif

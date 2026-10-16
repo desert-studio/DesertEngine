@@ -850,11 +850,12 @@ namespace Desert::Tests::PointerCensus
           "SkinnedMeshRenderData", "Mesh", Guard::FrameScoped,
           "held by the ECS component for the whole frame" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
-          "SkinnedMeshRenderData", "Material", Guard::FrameScoped,
+          "SkinnedSection", "Material", Guard::FrameScoped,
           "a Material owned by the MeshRenderer itself" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
-          "SkinnedMeshRenderData", "Instance", Guard::OwnedByThisObject,
-          "selected out of the MaterialSlots binding carried in the SAME struct, which co-owns it; before "
+          "SkinnedSection", "Instance", Guard::OwnedByThisObject,
+          "selected out of the MaterialSlots binding carried in the SkinnedMeshRenderData whose Sections hold "
+          "this section (one object, destroyed together), which co-owns it; before "
           "A8-3 this row read 'a heap MaterialInstance behind a shared_ptr in the component', and that was "
           "the register being too generous with itself -- the component's shared_ptr dies with the entity, "
           "and Lua can destroy the entity while this queue is waiting to be drawn" },
@@ -914,10 +915,10 @@ namespace Desert::Tests::PointerCensus
           "a reused scratch vector; the DataDrivenMaterial* in it are owned by MaterialService for longer than the frame" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererInternal.hpp",
           "SurfaceSlot", "Instance", Guard::CallScoped,
-          "FirstSurfaceSlot's return value (declared in MeshRendererInternal.hpp, defined in MeshRenderer.cpp), consumed by the caller in the same statement block: it is selected out of the MaterialSlots binding of the queue entry being walked, which co-owns it for the frame's passes (A8-3)" },
+          "SectionSurface's return value (declared in MeshRendererInternal.hpp, defined in MeshRenderer.cpp), consumed by the caller in the same statement block: it is selected out of the MaterialSlots binding of the queue entry being walked, which co-owns it for the frame's passes (A8-3)" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererInternal.hpp",
           "SurfaceSlot", "Surface", Guard::CallScoped,
-          "the same slot's parent material, cast once inside FirstSurfaceSlot; the Instance beside it holds that material by shared_ptr, so it lives as long as Instance does" },
+          "the same slot's parent material, cast once inside SectionSurface; the Instance beside it holds that material by shared_ptr, so it lives as long as Instance does" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
           "Draw", "Object", Guard::OwnedByThisObject,
           "a local of the translucency pass pointing into m_StaticQueue, which is fully populated before that pass and is not pushed to while the local vector lives" },

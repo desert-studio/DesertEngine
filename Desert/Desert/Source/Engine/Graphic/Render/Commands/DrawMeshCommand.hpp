@@ -24,6 +24,9 @@ namespace Desert::Graphic::Render
         // Graphic::MaterialSlotBinding for the mechanism this replaces (A8-3). Copying it is one atomic
         // increment; the per-entity slot-vector copy the old raw pointer avoided is still avoided.
         Graphic::MaterialSlotBindingPtr                MaterialSlots;
+        // The slot every submesh of this draw shades with (Desert::SectionMaterialSlot, grouped by
+        // Rules::SplitMeshSlotDraws): one command per section material, HiddenSubmeshes masking the rest.
+        uint32_t                                       SectionSlot = 0;
         glm::mat4                                      Transform;
         bool                                           Outlined        = false;
         uint64_t                                       HiddenSubmeshes = 0;  // bit i = submesh i hidden
@@ -36,13 +39,13 @@ namespace Desert::Graphic::Render
         bool  CastContactShadow = true; // StaticMeshComponent::CastContactShadow (UE bCastContactShadow)
 
         DrawStaticMeshCommand( uint32_t entity, Desert::Mesh* mesh, Graphic::MaterialSlotBindingPtr materialSlots,
-                               const glm::mat4& transform, bool outlined = false, uint64_t hiddenSubmeshes = 0,
+                               uint32_t sectionSlot, const glm::mat4& transform, bool outlined = false, uint64_t hiddenSubmeshes = 0,
                                int forcedLOD = -1, int lodBias = 0, bool castShadows = true,
                                bool receiveShadows = true, int translucencySortPriority = 0,
                                float maxDrawDistance = 0.0f, uint32_t motionPart = 0,
                                bool castContactShadow = true )
              : Entity( entity ), MotionPart( motionPart ), Mesh( mesh ),
-               MaterialSlots( std::move( materialSlots ) ), Transform( transform ), Outlined( outlined ),
+               MaterialSlots( std::move( materialSlots ) ), SectionSlot( sectionSlot ), Transform( transform ), Outlined( outlined ),
                HiddenSubmeshes( hiddenSubmeshes ), ForcedLOD( forcedLOD ), LODBias( lodBias ),
                CastShadows( castShadows ), ReceiveShadows( receiveShadows ),
                TranslucencySortPriority( translucencySortPriority ), MaxDrawDistance( maxDrawDistance ),
@@ -56,6 +59,7 @@ namespace Desert::Graphic::Render
                 renderer.SubmitMesh( Mesh, MaterialSlots, Transform,
                                      { .Entity                   = Entity,
                                        .MotionPart               = MotionPart,
+                                       .SectionSlot              = SectionSlot,
                                        .BoneMatrices             = {},
                                        .Outlined                 = Outlined,
                                        .HiddenSubmeshes          = HiddenSubmeshes,
@@ -74,7 +78,8 @@ namespace Desert::Graphic::Render
     struct DrawInstancedStaticMeshCommand : RenderCommand
     {
         Desert::Mesh*                                 Mesh;
-        Graphic::MaterialInstancePtr                  Material;
+        Graphic::MaterialInstancePtr                  Material;        // the section group's slot instance
+        uint64_t                                      HiddenSubmeshes; // the sections of the other slots
         std::shared_ptr<const std::vector<glm::mat4>> Transforms;
         bool                                          CastShadows;
         bool CastContactShadow; // InstancedStaticMeshComponent::CastContactShadow (UE bCastContactShadow)
@@ -82,20 +87,21 @@ namespace Desert::Graphic::Render
         InstanceWind                                  Wind;         // the foliage type's (FO-7); still = none
 
         DrawInstancedStaticMeshCommand( Desert::Mesh* mesh, Graphic::MaterialInstancePtr material,
+                                        uint64_t hiddenSubmeshes,
                                         std::shared_ptr<const std::vector<glm::mat4>> transforms, bool castShadows,
                                         bool castContactShadow, const InstanceCullDistance& cullDistance,
                                         const InstanceWind& wind )
-             : Mesh( mesh ), Material( std::move( material ) ), Transforms( std::move( transforms ) ),
-               CastShadows( castShadows ), CastContactShadow( castContactShadow ), CullDistance( cullDistance ),
-               Wind( wind )
+             : Mesh( mesh ), Material( std::move( material ) ), HiddenSubmeshes( hiddenSubmeshes ),
+               Transforms( std::move( transforms ) ), CastShadows( castShadows ),
+               CastContactShadow( castContactShadow ), CullDistance( cullDistance ), Wind( wind )
         {
         }
 
         void Execute( SceneRenderer& renderer ) override
         {
             if ( Mesh && Material && Transforms )
-                renderer.SubmitInstancedMesh( Mesh, Material, Transforms, CastShadows, CastContactShadow,
-                                              CullDistance, Wind );
+                renderer.SubmitInstancedMesh( Mesh, Material, HiddenSubmeshes, Transforms, CastShadows,
+                                              CastContactShadow, CullDistance, Wind );
         }
     };
 } // namespace Desert::Graphic::Render

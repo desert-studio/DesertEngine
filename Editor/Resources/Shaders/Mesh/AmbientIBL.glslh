@@ -19,7 +19,6 @@
 //     u_BRDFLUTTexture and the `skyLook` block (Common/SkyLook.glslh), which the includer must have
 //     declared. Define AMBIENT_IBL_NO_SAMPLERS to take only the algebra half.
 //
-// Requires Mesh/BRDF.glslh (fresnelSchlick) to have been included first.
 
 // The anti-black epsilon, and NOT an ambient model. Real ambient comes from the environment cubes above;
 // this only keeps a fully-occluded face with no environment bound from reading as a pure-black hole. It
@@ -31,18 +30,20 @@ const vec3 SURFACE_AMBIENT_FLOOR = vec3(0.008, 0.009, 0.012);
 //   irradiance    — the diffuse irradiance cube at N (exitant radiance for a Lambertian BRDF, so it is
 //                   NOT divided by PI again here);
 //   prefiltered   — the GGX-prefiltered radiance cube at reflect(-view, N), roughness-selected mip;
-//   specularBRDF  — the .rg of the split-sum BRDF LUT at (cosLo, roughness);
-//   cosLo         — max(0, dot(N, view)).
-// The Fresnel term uses cosLo rather than a half-vector angle because the prefiltered cube integrates
-// over many incident directions and there is no single L to build an H from (Lagarde 2011).
-vec3 EvaluateAmbientIBL(vec3 irradiance, vec3 prefiltered, vec2 specularBRDF, vec3 F0, vec3 albedo,
-                        float metalness, float cosLo)
+//   specularBRDF  — the .rg of the split-sum BRDF LUT at (max(0, N.V), roughness).
+// The diffuse half keeps the energy the specular lobe did not take: 1 - E, E = F0 * scale + bias being the lobe's
+// directional albedo from the same LUT sample (UE ComputeEnergyPreservation, ShadingEnergyConservationTemplate.ush:
+// 1 - luminance(E)). It was (1 - F) with F = Schlick at N.V, which is 1 at a grazing or turned-away shading normal:
+// the diffuse vanished there and the surface drew as its reflection alone - the pale fleck of every leaf seen
+// edge-on and the white rim of every pavement joint (FOLIAGE-LOOK-3). With 1 - E the two halves sum to at most
+// the environment (the split-sum's old 4 % white-furnace excess is gone).
+vec3 EvaluateAmbientIBL(vec3 irradiance, vec3 prefiltered, vec2 specularBRDF, vec3 F0, vec3 albedo, float metalness)
 {
-	vec3 F  = fresnelSchlick(F0, cosLo);
-	vec3 kd = mix(vec3(1.0) - F, vec3(0.0), metalness);
+	const vec3 E  = F0 * specularBRDF.x + specularBRDF.y;
+	const vec3 kd = vec3((1.0 - metalness) * (1.0 - dot(E, vec3(0.2126, 0.7152, 0.0722))));
 
 	vec3 diffuseIBL  = kd * albedo * irradiance;
-	vec3 specularIBL = (F0 * specularBRDF.x + specularBRDF.y) * prefiltered;
+	vec3 specularIBL = E * prefiltered;
 
 	return diffuseIBL + specularIBL;
 }
@@ -116,7 +117,7 @@ vec3 AmbientIBL(vec3 view, vec3 N, vec3 F0, float metalness, float roughness, ve
 
 	vec2 specularBRDF = texture(u_BRDFLUTTexture, vec2(cosLo, roughness)).rg;
 
-	return EvaluateAmbientIBL(irradiance, specularIrradiance, specularBRDF, F0, albedo, metalness, cosLo);
+	return EvaluateAmbientIBL(irradiance, specularIrradiance, specularBRDF, F0, albedo, metalness);
 }
 
 // The environment at a shaded point as a shading model receives it (DesertAmbient): the same three samples
@@ -159,6 +160,8 @@ DesertAmbient DesertSampleAmbient(DesertSurface S, vec3 irradiance, vec3 remaind
 	A.SpecularBRDF = texture(u_BRDFLUTTexture, vec2(max(0.0, dot(S.N, S.V)), S.Roughness)).rg;
 	A.Indirect     = indirect;
 	A.Occlusion    = occlusion;
+	A.BackIrradiance = DesertAmbientIrradiance(-S.N);
+	A.Traced       = 0.0; // the sky cubes (and the captures); DeferredLighting sets 1 where a traced gather replaces them
 	return A;
 }
 

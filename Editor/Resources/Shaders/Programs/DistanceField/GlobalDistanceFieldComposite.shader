@@ -37,7 +37,9 @@ Shader "GlobalDistanceFieldComposite"
         {
             uint u_BrickObjects[];
         };
-        layout(binding = 6, r32f) restrict writeonly uniform image3D u_Clipmap;
+        // (distance cm, coverage): the coverage is UE's coverage atlas (GlobalDistanceFieldCompositeObjects.usf
+        // COMPOSITE_COVERAGE_ATLAS), stored beside the distance instead of in pages of its own.
+        layout(binding = 6, rg16f) restrict writeonly uniform image3D u_Clipmap;
         // Per object of u_DFObjects: its instance-table row, or GDF_OBJECT_GRID_INVALID (no cards).
         ReadBuffer(7) GDFObjectRows
         {
@@ -126,16 +128,29 @@ Shader "GlobalDistanceFieldComposite"
             const ivec3 voxel = brick.xyz * GDF_UPDATE_BRICK + ivec3(gl_LocalInvocationID);
             const vec3  world = (vec3(voxel) + 0.5) * u_VoxelSize;
 
+            // Every object's surface makes the distance; only a SOLID one (not mostly two-sided) covers the voxel.
             float minDistance = u_InfluenceRadius;
+            float minSolid    = u_InfluenceRadius;
             const uint listOffset = uint(brick.w);
             const uint count = u_BrickObjects[listOffset];
             for (uint i = 0u; i < count; ++i)
             {
                 const uint objectIndex = u_BrickObjects[listOffset + 1u + i];
-                minDistance = min(minDistance, DistanceToNearestSurfaceForObject(objectIndex, world, minDistance));
+                const uint flags = floatBitsToUint(u_DFObjects[objectIndex * uint(DF_OBJECT_STRIDE) +
+                                                               uint(DF_OBJECT_STRIDE) - 1u].x);
+                const bool foliage = (flags & uint(DF_OBJECT_FLAG_MOSTLY_TWO_SIDED)) != 0u;
+                const float d = DistanceToNearestSurfaceForObject(objectIndex, world, foliage ? minDistance : minSolid);
+                minDistance = min(minDistance, d);
+                if (!foliage)
+                    minSolid = min(minSolid, d);
             }
+            // COVERED: a solid surface within one voxel of the voxel centre - the band the trace's expanded surface
+            // can stop in - so the trilinear coverage is 1 wherever a ray may hit solid geometry, and falls to 0
+            // across one voxel into foliage-only space.
+            const float coverage = minSolid < u_VoxelSize ? 1.0 : 0.0;
             const ivec3 texel = ((voxel % GDF_RESOLUTION) + GDF_RESOLUTION) % GDF_RESOLUTION;
-            imageStore(u_Clipmap, texel, vec4(clamp(minDistance, -u_InfluenceRadius, u_InfluenceRadius)));
+            imageStore(u_Clipmap, texel,
+                       vec4(clamp(minDistance, -u_InfluenceRadius, u_InfluenceRadius), coverage, 0.0, 0.0));
             CompositeObjectGridCell(brick, listOffset, count);
         }
     }

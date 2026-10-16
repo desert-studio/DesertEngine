@@ -147,10 +147,17 @@ namespace Desert::Graphic
                  },
                  [meshRenderer]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return meshRenderer->RenderCardCaptureManual( context ); } );
-            const SurfaceCache::SurfaceCacheRenderer::CaptureTextures capture{ .Albedo   = targets->Colors[0],
-                                                                               .Normal   = targets->Colors[1],
-                                                                               .Emissive = targets->Colors[3],
-                                                                               .Depth    = targets->Depth };
+            if ( !targets->Colors[2].IsValid() )
+            {
+                LOG_ERROR( "[SceneRenderer] Surface Cache: the capture atlas has no shading word (the subsurface "
+                           "colour of a card)" );
+                return;
+            }
+            const SurfaceCache::SurfaceCacheRenderer::CaptureTextures capture{ .Albedo      = targets->Colors[0],
+                                                                               .Normal      = targets->Colors[1],
+                                                                               .ShadingWord = targets->Colors[2],
+                                                                               .Emissive    = targets->Colors[3],
+                                                                               .Depth       = targets->Depth };
             if ( const auto copied = m_SurfaceCache->AddCopyPass( graph, import, capture, scene ); !copied )
             {
                 LOG_ERROR( "[SceneRenderer] Surface Cache: {}", copied.GetError() );

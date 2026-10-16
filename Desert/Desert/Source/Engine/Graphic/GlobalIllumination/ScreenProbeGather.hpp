@@ -19,9 +19,13 @@
 // LumenScreenProbeGather.cpp / LumenScreenProbeTracing.usf / LumenScreenProbeFiltering.usf /
 // LumenScreenProbeGather.usf. Six compute passes a frame (Programs/GlobalIllumination/ScreenProbe*.shader; the
 // GPU records are Common/ScreenProbes.glslh):
-//   Place ×3   a uniform probe on every 16-pixel tile's centre, then adaptive probes on the 8 and 4 pixel tiles
-//              where the coarser probes cannot interpolate (UE ScreenProbeAdaptivePlacement), up to half the
-//              uniform count (UE r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction 0.5).
+//   Place ×3   a uniform probe in every 16-pixel tile, at the frame's jitter (UE GetScreenTileJitter: Hammersley
+//              over 8 frames), then adaptive probes on the 8 and 4 pixel grids at the same jitter wherever the
+//              probes already placed cannot interpolate the pixel (UE ScreenProbeAdaptivePlacementCS), up to half
+//              the uniform count (UE r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction 0.5). An adaptive
+//              probe is listed under the uniform tile it falls in (UE ScreenTileAdaptiveProbeHeader / Indices),
+//              and a pixel whose uniform corner misses it takes the best adaptive probe of that corner's tile (UE
+//              CalculateUpsampleInterpolationWeights).
 //   Trace      8x8 rays per probe, each in UE's order of legs (LumenScreenProbeTracing.usf): the SCREEN over the
 //              view's HZB, a hit returning last frame's lit scene (ScreenProbeTraceScreenTexturesCS); then, from
 //              where the screen trace left off, the MESH SDFS of the objects near the probe out to
@@ -30,9 +34,12 @@
 //              DeclareTracerReads: the pass names no tracer resource) out to the world radiance cache's minimum
 //              trace distance; past it the cache's radiance is the far field (RadianceCacheRadianceAt).
 //   Filter     spatial filter across neighbouring probes with UE's hit-angle test; the filtered radiance (rough
-//              reflections) and its second-order SH irradiance (diffuse).
-//   Integrate  per pixel: the probes around it by plane and normal, diffuse from the SH, specular from the
-//              radiance in the reflection direction, blended with the reprojected history.
+//              reflections) and its second-order SH irradiance (diffuse); the irradiance from behind the probe's
+//              surface, read from the world radiance cache at -N (a hemisphere probe holds nothing there).
+//   Integrate  per pixel: the four uniform corners by plane and normal, each missed corner replaced by its
+//              tile's best adaptive probe; diffuse from the SH, rough specular from GGX samples of the probes'
+//              radiance, blended with the reprojected history. Only a pixel no probe holds after all that (the
+//              adaptive budget spent) reads the world radiance cache.
 // The deferred composite reads the two results per pixel (one fetch each) in place of the sky's diffuse
 // irradiance and prefiltered radiance: no surface of a traced method reads the sky cube.
 //
@@ -65,7 +72,8 @@ namespace Desert::Graphic::GlobalIllumination
         glm::mat4  PrevViewProjection{ 1.0f };
         glm::vec4  PrevCamera{ 0.0f };
         glm::uvec4 Grid{ 0u };  // xy = level-0 grid, z = uniform probes, w = adaptive probe budget
-        glm::uvec4 Atlas{ 0u }; // x = probes per atlas row, y = frame index, z = 1 when the history is valid
+        glm::uvec4 Atlas{ 0u }; // x = probes per atlas row, y = frame index, z = 1 when the history is valid,
+                                // w = the frame's probe jitter in pixels (x | y << 16, ScreenProbeJitter)
         // x = kMeshSDFTraceDistance, y = kMeshSDFEndDistanceFromCamera, z = the SP_TRACE_* flags' bits, w unused.
         glm::vec4 Trace{ 0.0f };
     };
@@ -84,6 +92,9 @@ namespace Desert::Graphic::GlobalIllumination
     {
         static constexpr uint32_t kDownsample     = 16; // UE r.Lumen.ScreenProbeGather.DownsampleFactor
         static constexpr uint32_t kLevels         = 3;  // uniform 16 px + adaptive 8 px + adaptive 4 px
+        // The adaptive positions one uniform tile holds: 2x2 - 1 at 8 px and 4x4 - 2x2 at 4 px (the positions of
+        // a coarser level are skipped, UE `any((DispatchThreadId.xy & 0x1) != 0)`).
+        static constexpr uint32_t kAdaptivePerTile = 3 + 12;
         static constexpr uint32_t kTracedTexels   = 8;  // UE r.Lumen.ScreenProbeGather.TracingOctahedronResolution
         static constexpr uint32_t kAtlasProbesRow = 128;
         static constexpr uint32_t kSHCoefficients = 9;
@@ -100,7 +111,9 @@ namespace Desert::Graphic::GlobalIllumination
         glm::uvec2 Grid{ 0u }; // level-0 tiles
         uint32_t   UniformProbes  = 0;
         uint32_t   AdaptiveProbes = 0; // the budget
-        uint32_t   IndexEntries   = 0; // 1 (the adaptive count) + every level's grid
+        // 1 (the adaptive count) + the uniform grid + per uniform tile: one adaptive count per adaptive level and
+        // kAdaptivePerTile adaptive probe slots (Common/ScreenProbes.glslh SPTileHeader / SPTileSlot).
+        uint32_t   IndexEntries   = 0;
         uint32_t   AtlasRows      = 0;
 
         [[nodiscard]] uint32_t Probes() const
@@ -117,15 +130,23 @@ namespace Desert::Graphic::GlobalIllumination
         layout.Grid           = grid( ScreenProbeLayout::kDownsample );
         layout.UniformProbes  = layout.Grid.x * layout.Grid.y;
         layout.AdaptiveProbes = layout.UniformProbes / 2u;
-        layout.IndexEntries   = 1u;
-        for ( uint32_t level = 0; level < ScreenProbeLayout::kLevels; ++level )
-        {
-            const glm::uvec2 g = grid( ScreenProbeLayout::kDownsample >> level );
-            layout.IndexEntries += g.x * g.y;
-        }
+        layout.IndexEntries   = 1u + layout.UniformProbes * ( 1u + ( ScreenProbeLayout::kLevels - 1u ) +
+                                                            ScreenProbeLayout::kAdaptivePerTile );
         layout.AtlasRows =
              ( layout.Probes() + ScreenProbeLayout::kAtlasProbesRow - 1u ) / ScreenProbeLayout::kAtlasProbesRow;
         return layout;
+    }
+
+    // The probes' pixel offset inside their tiles in frame @p frameIndex (UE GetScreenTileJitter:
+    // Hammersley16(TemporalIndex % 8, 8) * DownsampleFactor) — every level's grid is shifted by it, so over eight
+    // frames the probes visit eight positions of each tile and the integrate's history gathers them.
+    [[nodiscard]] inline glm::uvec2 ScreenProbeJitter( const uint32_t frameIndex )
+    {
+        const uint32_t i        = frameIndex % 8u;
+        uint32_t       reversed = 0u; // the 3-bit reversal of i: Hammersley's radical inverse over 8 samples
+        for ( uint32_t bit = 0; bit < 3u; ++bit )
+            reversed |= ( ( i >> bit ) & 1u ) << ( 2u - bit );
+        return glm::uvec2( i, reversed ) * ( ScreenProbeLayout::kDownsample / 8u );
     }
 
     // This frame's graph resources the gather reads.
@@ -163,6 +184,7 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::TextureRef
              Diffuse; // rgb = irradiance / pi, a = distance to the camera — "u_GIDiffuse" in the composite
         RDG::TextureRef Specular; // rgb = radiance in the reflection direction — "u_GISpecular" in the composite
+        RDG::TextureRef Backface; // rgb = irradiance / pi from -N (a two-sided leaf's) — "u_GIBackface"
     };
 
     class ScreenProbeGather
@@ -203,6 +225,7 @@ namespace Desert::Graphic::GlobalIllumination
         std::shared_ptr<Image2D>                m_Filtered; // (SP_RES + 2)² per probe
         std::array<std::shared_ptr<Image2D>, 2> m_Diffuse;  // this frame's output / last frame's history
         std::array<std::shared_ptr<Image2D>, 2> m_Specular;
+        std::array<std::shared_ptr<Image2D>, 2> m_Backface;
         glm::uvec2                              m_Extent{ 0u };
         uint32_t                                m_AtlasRows    = 0;
         uint32_t                                m_Current      = 0;

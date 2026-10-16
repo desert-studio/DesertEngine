@@ -500,6 +500,7 @@ namespace Desert::Graphic
             }
             t.GIDiffuse  = gathered.GetValue().Diffuse;
             t.GISpecular = gathered.GetValue().Specular;
+            t.GIBackface = gathered.GetValue().Backface;
             return;
         }
 
@@ -546,6 +547,7 @@ namespace Desert::Graphic
         }
         t.GIDiffuse  = gathered.GetValue().Diffuse;
         t.GISpecular = gathered.GetValue().Specular;
+        t.GIBackface = gathered.GetValue().Backface;
     }
 
     bool SceneRenderer::WorldLightGridRead() const
@@ -634,6 +636,7 @@ namespace Desert::Graphic
         const bool traced      = refs.Transients.GIDiffuse.IsValid();
         inputs.GIDiffuse       = traced ? refs.Transients.GIDiffuse : refs.System.Black;
         inputs.GISpecular      = traced ? refs.Transients.GISpecular : refs.System.Black;
+        inputs.GIBackface      = traced ? refs.Transients.GIBackface : refs.System.Black;
         inputs.View            = SceneViewInputsOf( refs );
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.
@@ -756,23 +759,23 @@ namespace Desert::Graphic
         // asynchronous queue) is not in it yet.
         const auto place = [&objects, &rows]( const void*                                                 mesh,
                                               const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
-                                              const glm::mat4&                                            world )
+                                              const glm::mat4& world, const bool mostlyTwoSided )
         {
             const auto     it  = rows.find( SurfaceCache::SurfaceCacheScene::PlacementKey( mesh, world ) );
             const uint32_t row = it != rows.end() ? it->second : DistanceField::kNoObjectGridRow;
             for ( const Assets::MeshDistanceFieldVolume& volume : field->Volumes )
-                objects.push_back(
-                     { std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ), world, row } );
+                objects.push_back( { std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ),
+                                     world, row, mostlyTwoSided } );
         };
         for ( const auto& draw : meshRenderer->GetStaticQueue() )
             if ( draw.Mesh != nullptr )
                 if ( const auto field = draw.Mesh->GetDistanceField() )
-                    place( draw.Mesh, field, draw.Transform );
+                    place( draw.Mesh, field, draw.Transform, draw.Mesh->IsDistanceFieldMostlyTwoSided() );
         for ( const auto& ism : meshRenderer->GetInstancedQueue() )
             if ( ism.Mesh != nullptr && ism.Transforms )
                 if ( const auto field = ism.Mesh->GetDistanceField() )
                     for ( const glm::mat4& world : *ism.Transforms )
-                        place( ism.Mesh, field, world );
+                        place( ism.Mesh, field, world, ism.Mesh->IsDistanceFieldMostlyTwoSided() );
 
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };

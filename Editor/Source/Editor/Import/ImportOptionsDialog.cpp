@@ -102,12 +102,12 @@ namespace Desert::Editor::ImportOptions
         constexpr std::array<Assets::MeshLodPolicy, 2> kLods = { Assets::MeshLodPolicy::Generate,
                                                                  Assets::MeshLodPolicy::None };
         constexpr std::array<const char*, 2> kLodLabels = { "Generate (authored, else simplified)", "LOD 0 only" };
-        constexpr std::array<Assets::FbxSpecularMap, 3> kSpecularMaps = {
-             Assets::FbxSpecularMap::Specular, Assets::FbxSpecularMap::OcclusionRoughnessMetallic,
-             Assets::FbxSpecularMap::RoughnessMetallic };
-        constexpr std::array<const char*, 3> kSpecularMapLabels = { "Specular (FBX's meaning)",
-                                                                    "Packed AO/Roughness/Metal (R/G/B)",
-                                                                    "Packed Roughness/Metal (G/B, R unused)" };
+        constexpr std::array<Assets::FbxSpecularMap, 4> kSpecularMaps = {
+             Assets::FbxSpecularMap::FromImage, Assets::FbxSpecularMap::Specular,
+             Assets::FbxSpecularMap::OcclusionRoughnessMetallic, Assets::FbxSpecularMap::RoughnessMetallic };
+        constexpr std::array<const char*, 4> kSpecularMapLabels = {
+             "From Image (its texels decide)", "Specular (FBX's meaning)", "Packed AO/Roughness/Metal (R/G/B)",
+             "Packed Roughness/Metal (G/B, R unused)" };
 
         constexpr std::array<Assets::MeshFileUnit, 6> kFileUnits = {
              Assets::MeshFileUnit::FromFile, Assets::MeshFileUnit::Millimetres, Assets::MeshFileUnit::Centimetres,
@@ -502,7 +502,9 @@ namespace Desert::Editor::ImportOptions
 
         UI::BeginPropertyRow(
              "FBX Specular Map",
-             "What the FBX Specular map holds. Specular: a specular-colour image, as FBX defines "
+             "What the FBX Specular map holds. From Image (default): read per map from its texels - R 0 "
+             "everywhere with G/B in use is Packed Roughness/Metal, anything else Specular; the import logs "
+             "what it read. Specular: a specular-colour image, as FBX defines "
              "it (the surface template has no input for it; the import says so). Packed AO/Roughness/"
              "Metal: AO in R, roughness in G, metalness in B. Packed Roughness/Metal: roughness in "
              "G, metalness in B, R holds no occlusion (Lumberyard Bistro / ORCA, Falcor's "

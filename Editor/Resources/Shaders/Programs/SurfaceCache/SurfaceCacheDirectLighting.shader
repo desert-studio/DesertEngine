@@ -8,10 +8,22 @@
 // composite's own receiver texts (Mesh/CascadedShadow.glslh, Common/CloudShadowReceiver.glslh,
 // Mesh/LocalLightShadow.glslh), so a card cannot be lit by a different formula than the surface it holds.
 //
-// Two targets, both R11G11B10F atlas layers: DirectLighting = the irradiance (sum of radiance x cos x shadow, UE
-// stores the same), FinalLighting = albedo / PI x direct + albedo x indirect + emissive (UE CombineLumenSceneLighting,
-// Diffuse_Lambert), indirect = the page's IndirectLighting layer as SurfaceCacheIndirectLighting.shader last wrote it
-// (already / PI); zero on a page captured this frame (its layer holds a stranger's texels until that pass runs).
+// Two targets, both R11G11B10F atlas layers: DirectLighting = the diffuse radiance the texel leaves, albedo / PI x
+// the front irradiance (sum of radiance x cos x shadow on +N) + subsurface / PI x the back irradiance (the same on
+// -N, see below); FinalLighting = direct + indirect + emissive (UE CombineLumenSceneLighting, Diffuse_Lambert),
+// indirect = the page's IndirectLighting layer as SurfaceCacheIndirectLighting.shader last wrote it; zero on a page
+// captured this frame (its layer holds a stranger's texels until that pass runs).
+//
+// THE LIGHT THROUGH A LEAF (FOLIAGE-LOOK-5): a texel of a subsurface model (the Subsurface layer, the capture's
+// DesertSubsurfaceColor - TwoSidedFoliage's SubsurfaceColor) also takes every light on its far side, -N, times its
+// subsurface colour: the sun with the cascades' TransmissionShadow (the thickness of what stands between the leaf
+// and the sun, as the deferred composite gives TwoSidedFoliage's transmission), the local lights with their shadow
+// from the far side. Without it a ray that met a leaf's underside under a lit canopy read black: the radiance cache
+// above a dense crown held only dark undersides and the crown went dark (FOLIAGE-LOOK-4).
+// WHERE THIS DIFFERS FROM UE (for the owner): UE's card capture folds SubsurfaceColor into the card's diffuse
+// albedo (LumenCardPixelShader.usf) and lights it from +N only, so a leaf's underside under the sun stays as dark as
+// an opaque one in the cache - the very defect here. The cache keeps the colour apart and lights the far side; a
+// card texel is view-independent, so the far side is Lambert (the deferred's forward-scatter lobe needs a viewer).
 //
 // One instance per page to relight: six vertices cover the page's rectangle of the atlas; the fragment works out
 // its card texel from the page's card rectangle. A texel the capture saw no surface in (opacity 0) is unlit.
@@ -124,6 +136,10 @@ Shader "SurfaceCacheDirectLighting"
 
         // The indirect light the page last received (SurfaceCacheIndirectLighting.shader).
         Uniform(27) sampler2D u_AtlasIndirectLighting;
+        // The light the texel lets through (rgb) and its subsurface opacity (a); 0 = opaque (SurfaceCacheCardCopy).
+        Uniform(28) sampler2D u_AtlasSubsurface;
+
+        #include <Common/SubsurfaceDensity.glslh> // ContactShadowSubsurfaceDensity
 
         // The active GI tracer's reads (GlobalIllumination::DeclareTracerReads), bindings 21..26.
         #define GI_TRACER_BINDING 21
@@ -206,11 +222,15 @@ Shader "SurfaceCacheDirectLighting"
                                   z * (card.localExtent.z - depth * 2.0 * card.localExtent.z);
             const vec3 N = OctahedronToUnitVector(texelFetch(u_AtlasNormal, atlasTexel, 0).rg * 2.0 - 1.0);
 
-            vec3 irradiance = vec3(0.0);
+            const vec4 subsurface  = texelFetch(u_AtlasSubsurface, atlasTexel, 0);
+            const bool through     = max(subsurface.r, max(subsurface.g, subsurface.b)) > 0.0;
+            vec3       irradiance  = vec3(0.0);
+            vec3       back        = vec3(0.0); // the irradiance on the far side, -N (a subsurface texel only)
             // The sun: always (a scene without one carries intensity 0), its cascades times the cloud layer.
             {
                 const vec3  L     = normalize(-u_LightDir.xyz);
-                const float NdotL = max(dot(N, L), 0.0);
+                const float NdotL = dot(N, L);
+                const vec3  sun   = u_LightColor.rgb * u_LightColor.a;
                 if (NdotL > 0.0)
                 {
                     int   cascade = -1;
@@ -218,7 +238,17 @@ Shader "SurfaceCacheDirectLighting"
                     // Shadows on (u_ShadowParams.y) but no cascade holds the texel: the distance field answers.
                     if (cascade < 0 && u_ShadowParams.y > 0.5)
                         shadow = TracedShadow(worldPos, N, L, 1.0e7);
-                    irradiance += u_LightColor.rgb * u_LightColor.a * NdotL * shadow * CloudShadowFactor(worldPos);
+                    irradiance += sun * NdotL * shadow * CloudShadowFactor(worldPos);
+                }
+                else if (through && NdotL < 0.0)
+                {
+                    // The deferred composite's TransmissionShadow (Mesh/CascadedShadow.glslh): the cascades'
+                    // thickness transmittance at the receiver's own depth; off the cascades, the tracer's ray from
+                    // the far side.
+                    float shadow = u_ShadowParams.y > 0.5 && chooseCascade(worldPos) < 0
+                                       ? TracedShadow(worldPos, -N, L, 1.0e7)
+                                       : TransmissionShadowFactor(worldPos, ContactShadowSubsurfaceDensity(subsurface.a));
+                    back += sun * -NdotL * shadow * CloudShadowFactor(worldPos);
                 }
             }
             // The point and spot lights the world light grid lists for the texel's cell (the card may be off-screen:
@@ -237,6 +267,12 @@ Shader "SurfaceCacheDirectLighting"
                             source.shadowView >= 0 ? PointLightShadow(source, worldPos, N) : 1.0, source.position,
                             worldPos, N);
                     irradiance += light.Radiance * light.Shadow * max(dot(N, light.L), 0.0);
+                    if (through && dot(N, light.L) < 0.0)
+                        back += light.Radiance * -dot(N, light.L) *
+                                LocalLightShadowOrTrace(
+                                     source.shadowView, source.shadowCaster,
+                                     source.shadowView >= 0 ? PointLightShadow(source, worldPos, -N) : 1.0,
+                                     source.position, worldPos, -N);
                 }
                 else
                 {
@@ -248,15 +284,22 @@ Shader "SurfaceCacheDirectLighting"
                             source.shadowView >= 0 ? SpotLightShadow(source, worldPos, N) : 1.0, source.position,
                             worldPos, N);
                     irradiance += light.Radiance * light.Shadow * max(dot(N, light.L), 0.0);
+                    if (through && dot(N, light.L) < 0.0)
+                        back += light.Radiance * -dot(N, light.L) *
+                                LocalLightShadowOrTrace(
+                                     source.shadowView, source.shadowCaster,
+                                     source.shadowView >= 0 ? SpotLightShadow(source, worldPos, -N) : 1.0,
+                                     source.position, worldPos, -N);
                 }
             }
 
             const vec3 albedo   = texelFetch(u_AtlasAlbedo, atlasTexel, 0).rgb;
             const vec3 emissive = texelFetch(u_AtlasEmissive, atlasTexel, 0).rgb;
-            oDirect = vec4(irradiance, 0.0);
+            const vec3 direct   = albedo / PI * irradiance + subsurface.rgb / PI * back;
+            oDirect = vec4(direct, 0.0);
             const vec3 indirect =
                  (v_Captured != 0u || u_Flags.x == 0u) ? vec3(0.0) : texelFetch(u_AtlasIndirectLighting, atlasTexel, 0).rgb;
-            oFinal  = vec4(albedo / PI * irradiance + albedo * indirect + emissive, 0.0);
+            oFinal  = vec4(direct + indirect + emissive, 0.0);
         }
     }
 }

@@ -52,7 +52,7 @@ namespace Desert::Geometry
                        input.GetError() );
             return;
         }
-        auto slot = std::make_shared<Assets::MeshDistanceFieldSlot>();
+        auto slot = std::make_shared<Assets::MeshDistanceFieldSlot>( Assets::MostlyTwoSided( input.GetValue() ) );
         mesh.SetDistanceField( slot );
         // The surface-cache cards too, built in the same job from the same triangles (no asset, no DDC key).
         auto cards = std::make_shared<Assets::MeshCardsSlot>();

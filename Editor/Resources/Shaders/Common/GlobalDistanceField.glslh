@@ -4,7 +4,8 @@
 // GlobalDistanceFieldShared.ush (clipmap selection, SampleGlobalDistanceField, the gradient) and
 // GlobalDistanceFieldUtils.ush (the sphere-trace loop), adapted: dense clipmaps addressed toroidally through a
 // REPEAT sampler (texel = world voxel index mod resolution) instead of UE's page atlas, distances stored in
-// centimetres (R32F) rather than normalized by the influence radius.
+// centimetres rather than normalized by the influence radius, and the coverage (UE's coverage atlas) in the second
+// channel of the same texel (RG16F).
 //
 // The including shader declares sampler3D u_GlobalDistanceField0..3 before including this file, and passes
 // the clipmap parameters: GDFLevel[k] = (centre.xyz world cm, voxel size cm), the C++ ClipmapUniforms().
@@ -25,6 +26,20 @@ float SampleGlobalDistanceFieldLevel(int level, vec3 worldPosition, float voxelS
     if (level == 2)
         return textureLod(u_GlobalDistanceField2, uvw, 0.0).x;
     return textureLod(u_GlobalDistanceField3, uvw, 0.0).x;
+}
+
+// The distance (x, cm) and the coverage (y: 1 near solid geometry, 0 where only foliage or nothing is near) in one
+// fetch (UE SampleGlobalDistanceFieldCoverage beside the page distance).
+vec2 SampleGlobalDistanceFieldLevelCoverage(int level, vec3 worldPosition, float voxelSize)
+{
+    const vec3 uvw = worldPosition / (voxelSize * float(GDF_RESOLUTION));
+    if (level == 0)
+        return textureLod(u_GlobalDistanceField0, uvw, 0.0).xy;
+    if (level == 1)
+        return textureLod(u_GlobalDistanceField1, uvw, 0.0).xy;
+    if (level == 2)
+        return textureLod(u_GlobalDistanceField2, uvw, 0.0).xy;
+    return textureLod(u_GlobalDistanceField3, uvw, 0.0).xy;
 }
 
 // The finest clipmap whose window holds @p worldPosition with a one-voxel margin (the trilinear footprint must
@@ -73,11 +88,24 @@ struct GlobalDistanceFieldHit
 // the coarsest clipmap.
 //
 // THE SURFACE IS EXPANDED BY UP TO HALF A VOXEL (UE RayTraceGlobalDistanceField: ExpandSurfaceDistance =
-// ClipmapVoxelExtent, ramped in over 2x that much ray time, bExpandSurfaceUsingRayTimeInsteadOfMaxDistance; no
-// coverage pages here, so UE's CoveredExpandSurfaceScale 1). A surface thinner than a voxel - a 20 cm floor in
-// 39 cm voxels, its two neighbouring voxel centres both outside it - never reconstructs to a negative distance,
-// so a test against a fixed small threshold sees through it; the expansion catches it. The ramp keeps a ray that
-// starts on a surface from hitting itself.
+// ClipmapVoxelExtent, ramped in over 2x that much ray time, bExpandSurfaceUsingRayTimeInsteadOfMaxDistance). A
+// surface thinner than a voxel - a 20 cm floor in 39 cm voxels, its two neighbouring voxel centres both outside it -
+// never reconstructs to a negative distance, so a test against a fixed small threshold sees through it; the
+// expansion catches it. The ramp keeps a ray that starts on a surface from hitting itself.
+//
+// FOLIAGE IS NOT A SOLID (UE's coverage, GlobalDistanceFieldUtils.ush + Lumen's r.Lumen.TraceGlobalSDF.*). A dense
+// crown of leaf cards is within half a 39 cm voxel everywhere inside, so the expanded field is one closed blob and
+// every GI ray from a leaf ends a few centimetres out in the dark crown (FOLIAGE-LOOK-6: the backlit crown at 63
+// of n7's 105; the expansion cut to 0.05 voxel alone gave 90). Where the coverage says no solid surface is near:
+//   - the expansion is scaled by GDF_NOT_COVERED_EXPAND_SURFACE_SCALE (UE NotCoveredExpandSurfaceScale; covered
+//     regions keep CoveredExpandSurfaceScale 1);
+//   - with @p ditheredTransparency (a GI gather ray, UE FGlobalSDFTraceInput::bDitheredTransparency) the band is
+//     hit only when noise x (1 - coverage) <= GDF_DITHERED_TRANSPARENCY_STEP_THRESHOLD (UE
+//     DitheredTransparencyStepThreshold): each step into foliage stops the ray with that chance, otherwise it goes on;
+//   - the smallest step grows from 0.1 voxel to one voxel (UE scales its MinStepSize by NotCoveredMinStepScale):
+//     one dither sample per voxel crossed, so a foliage voxel lets (1 - threshold) of the rays through whatever the
+//     step phase, and a crown's transmittance follows its depth in voxels.
+// Shadow rays (no dither) still stop on foliage, with the reduced expansion.
 //
 // THE FIRST HIT IS REFINED BY BISECTION (not in UE). Such a sheet reconstructs to a V whose bottom is the voxel
 // centre nearest to it, not the sheet, and trilinear interpolation of a V overestimates the distance by up to half
@@ -85,29 +113,51 @@ struct GlobalDistanceFieldHit
 // its lower half, past the sheet, where the gradient points away from the ray (the dark pits of the 80 m Bistro
 // view: every clipmap-2 voxel of the plaza floor has a V of minimum ~0.3 voxel at its centre). The band is one
 // interval along the ray between the last miss and the first hit, so bisecting that segment finds its entry: the
-// expanded surface every ray reports, whatever its step phase.
+// expanded surface every ray reports, whatever its step phase. After a step that passed through foliage the
+// previous sample lies in the band already, and the hit is taken where it is.
+const float GDF_COVERED_EXPAND_SURFACE_SCALE         = 1.0;
+const float GDF_NOT_COVERED_EXPAND_SURFACE_SCALE     = 0.6;
+const float GDF_DITHERED_TRANSPARENCY_STEP_THRESHOLD = 0.1;
+
+// The expansion at ray time @p t over a voxel of @p voxel cm with @p coverage.
+float GlobalDistanceFieldExpand(float t, float voxel, float coverage)
+{
+    const float expandDistance = 0.5 * voxel;
+    const float scale = mix(GDF_NOT_COVERED_EXPAND_SURFACE_SCALE, GDF_COVERED_EXPAND_SURFACE_SCALE, coverage);
+    return expandDistance * clamp(t / (2.0 * expandDistance), 0.0, 1.0) * scale;
+}
+
 float GlobalDistanceFieldExcess(vec3 origin, vec3 direction, float t, vec4 levels[GDF_NUM_CLIPMAPS])
 {
     const vec3 p     = origin + direction * t;
     const int  level = GlobalDistanceFieldLevelAt(p, levels);
     if (level < 0)
         return 1.0;
-    const float voxel          = levels[level].w;
-    const float expandDistance = 0.5 * voxel;
-    const float expand         = expandDistance * clamp(t / (2.0 * expandDistance), 0.0, 1.0);
-    return SampleGlobalDistanceFieldLevel(level, p, voxel) - expand;
+    const float voxel  = levels[level].w;
+    const vec2  field  = SampleGlobalDistanceFieldLevelCoverage(level, p, voxel);
+    return field.x - GlobalDistanceFieldExpand(t, voxel, field.y);
+}
+
+// A uniform number in [0, 1) per ray @p seed and step (PCG hash), the per-step noise of the dithered transparency.
+float GlobalDistanceFieldStepNoise(uint seed, int step)
+{
+    uint v = seed + uint(step) * 747796405u + 2891336453u;
+    v = ((v >> ((v >> 28u) + 4u)) ^ v) * 277803737u;
+    v = (v >> 22u) ^ v;
+    return float(v & 0xFFFFFFu) / 16777216.0;
 }
 
 GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, float maxT, int maxSteps,
-                                                vec4 levels[GDF_NUM_CLIPMAPS])
+                                                vec4 levels[GDF_NUM_CLIPMAPS], bool ditheredTransparency, uint seed)
 {
     GlobalDistanceFieldHit result;
     result.Hit   = false;
     result.T     = 0.0;
     result.Level = -1;
     result.Steps = 0;
-    float t         = 0.0;
-    float previousT = 0.0;
+    float t             = 0.0;
+    float previousT     = 0.0;
+    bool  previousInBand = false;
     for (int step = 0; step < maxSteps && t < maxT; ++step)
     {
         const vec3 p     = origin + direction * t;
@@ -115,15 +165,18 @@ GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, flo
         if (level < 0)
             break;
         const float voxel    = levels[level].w;
-        const float distance = SampleGlobalDistanceFieldLevel(level, p, voxel);
+        const vec2  field    = SampleGlobalDistanceFieldLevelCoverage(level, p, voxel);
+        const float distance = field.x;
+        const float coverage = field.y;
         result.Steps = step + 1;
-        const float expandDistance = 0.5 * voxel;
-        const float expand         = expandDistance * clamp(t / (2.0 * expandDistance), 0.0, 1.0);
-        if (distance < expand)
+        const bool inBand = distance < GlobalDistanceFieldExpand(t, voxel, coverage);
+        if (inBand && (!ditheredTransparency ||
+                       GlobalDistanceFieldStepNoise(seed, step) * (1.0 - coverage) <=
+                           GDF_DITHERED_TRANSPARENCY_STEP_THRESHOLD))
         {
             float lo = previousT;
             float hi = t;
-            for (int i = 0; i < 6 && step > 0; ++i)
+            for (int i = 0; i < 6 && step > 0 && !previousInBand; ++i)
             {
                 const float mid = 0.5 * (lo + hi);
                 if (GlobalDistanceFieldExcess(origin, direction, mid, levels) < 0.0)
@@ -136,8 +189,9 @@ GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, flo
             result.Level = GlobalDistanceFieldLevelAt(origin + direction * hi, levels);
             return result;
         }
-        previousT = t;
-        t += max(distance, voxel * 0.1);
+        previousT      = t;
+        previousInBand = inBand;
+        t += max(distance, voxel * mix(1.0, 0.1, coverage));
     }
     result.T = t;
     return result;

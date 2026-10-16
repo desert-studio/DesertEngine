@@ -78,6 +78,10 @@ Shader "DeferredLighting"
         // the rays saw the sky only where it is visible. Black in the other GI modes (unread).
         Uniform(30) sampler2D u_GIDiffuse;
         Uniform(31) sampler2D u_GISpecular;
+        // ...and the irradiance (/ pi) from behind the surface, -N, that a two-sided leaf lets through (UE
+        // BackfaceDiffuseIndirect). Set 1 like the reflection captures below: the set-0 slots from 25 up are reserved,
+        // and set 1's 0..6 are the captures and the view's radiance cache (Mesh/Surface/ViewIndirect.glslh).
+        layout(set = 1, binding = 7) uniform sampler2D u_GIBackface;
 
         Out(0) vec4 oColor;
 
@@ -380,17 +384,27 @@ Shader "DeferredLighting"
         	// The receiver's subsurface opacity (UE IsSubsurfaceModel + CustomData.a; -1 = not subsurface): its
         	// contact shadows fade with the hit distance.
         	const float subsurfaceOpacity = DesertSubsurfaceOpacity(shadingModel, payload);
-        	float shadow   = DesertReceivesSunShadows(word)
-        	                     ? ShadowFactor(worldPos, N, L, cascade) *
-        	                           ContactShadowFactor(worldPos, N, L, u_SunContactShadow, subsurfaceOpacity)
-        	                     : 1.0;
-        	shadow        *= CloudShadowFactor(worldPos);
+        	const bool  receivesSun       = DesertReceivesSunShadows(word);
+        	const float sunContact =
+        	     receivesSun ? ContactShadowFactor(worldPos, N, L, u_SunContactShadow, subsurfaceOpacity) : 1.0;
+        	float shadow   = receivesSun ? ShadowFactor(worldPos, N, L, cascade) * sunContact : 1.0;
+        	// The light a subsurface receiver lets through takes its own occlusion (DesertLight::TransmissionShadow):
+        	// the cascades' thickness transmittance, not ShadowFactor, whose normal offset puts a leaf's far side
+        	// behind the leaf. 1 for every other model (none reads it).
+        	float transmissionShadow =
+        	     (receivesSun && subsurfaceOpacity >= 0.0)
+        	          ? TransmissionShadowFactor(worldPos, ContactShadowSubsurfaceDensity(subsurfaceOpacity)) * sunContact
+        	          : 1.0;
+        	const float cloudShadow = CloudShadowFactor(worldPos);
+        	shadow             *= cloudShadow;
+        	transmissionShadow *= cloudShadow;
         	vec3  radiance = u_LightColor.rgb * u_LightColor.a;
 
-        	const DesertSurface surface = DesertMakeSurface(worldPos, N, view, albedo, metallic, roughness);
+        	const DesertSurface surface =
+        	     DesertMakeSurface(worldPos, N, view, albedo, metallic, roughness, DesertShadingWordSpecular(word));
 
-        	vec3 result = DesertEvaluateShadingModel(shadingModel, DesertSunLight(u_LightDir.xyz, radiance, shadow),
-        	                                         surface, payload);
+        	vec3 result = DesertEvaluateShadingModel(
+        	     shadingModel, DesertSunLight(u_LightDir.xyz, radiance, shadow, transmissionShadow), surface, payload);
 
         	// Point and spot lights (the city payoff): full Cook-Torrance lit, each occluded by its atlas views when it
         	// casts shadows — the lights of this pixel's froxel only, in the order the full loop would sum them. An
@@ -441,6 +455,12 @@ Shader "DeferredLighting"
         	                                                   texelFetch(u_GISpecular, ivec2(gl_FragCoord.xy), 0).rgb,
         	                                                   indirect, ao)
         	                             : DesertSampleAmbient(surface, indirect, ao);
+        	if (giMode == 2)
+        	{
+        		// The traced gather replaced the sky terms; a two-sided leaf's far side is lit by its -N gather.
+        		sampled.Traced         = 1.0;
+        		sampled.BackIrradiance = texelFetch(u_GIBackface, ivec2(gl_FragCoord.xy), 0).rgb;
+        	}
         	if (u_CameraPos.w > 0.5)
         		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), sampled.Prefiltered);
         	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, sampled, surface, payload);
