@@ -189,6 +189,10 @@ struct DesertAmbient
     // first the cube is the open sky the trace has already occluded, so a leaf deep in a canopy would take the
     // whole sky through its back face.
     float Traced;
+    // The diffuse irradiance arriving from behind the surface, -S.N (same units as Irradiance): the sky cube's at -N
+    // under the sky light, the traced gather's backface where Traced is 1 (UE BackfaceDiffuseIndirect). Read by a
+    // model that lets light through (TwoSidedFoliage).
+    vec3  BackIrradiance;
 };
 
 #endif

@@ -28,7 +28,8 @@
 //              no tracer resource), out to the world radiance cache's minimum trace distance; past it the cache's
 //              radiance is the far field (RadianceCacheRadianceAt).
 //   Filter     spatial filter across neighbouring probes with UE's hit-angle test; the filtered radiance (rough
-//              reflections) and its second-order SH irradiance (diffuse).
+//              reflections) and its second-order SH irradiance (diffuse); the irradiance from behind the probe's
+//              surface, read from the world radiance cache at -N (a hemisphere probe holds nothing there).
 //   Integrate  per pixel: the four uniform corners by plane and normal, each missed corner replaced by its
 //              tile's best adaptive probe; diffuse from the SH, rough specular from GGX samples of the probes'
 //              radiance, blended with the reprojected history. Only a pixel no probe holds after all that (the
@@ -155,6 +156,7 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::TextureRef
              Diffuse; // rgb = irradiance / pi, a = distance to the camera — "u_GIDiffuse" in the composite
         RDG::TextureRef Specular; // rgb = radiance in the reflection direction — "u_GISpecular" in the composite
+        RDG::TextureRef Backface; // rgb = irradiance / pi from -N (a two-sided leaf's) — "u_GIBackface"
     };
 
     class ScreenProbeGather
@@ -195,6 +197,7 @@ namespace Desert::Graphic::GlobalIllumination
         std::shared_ptr<Image2D>                m_Filtered; // (SP_RES + 2)² per probe
         std::array<std::shared_ptr<Image2D>, 2> m_Diffuse;  // this frame's output / last frame's history
         std::array<std::shared_ptr<Image2D>, 2> m_Specular;
+        std::array<std::shared_ptr<Image2D>, 2> m_Backface;
         glm::uvec2                              m_Extent{ 0u };
         uint32_t                                m_AtlasRows    = 0;
         uint32_t                                m_Current      = 0;

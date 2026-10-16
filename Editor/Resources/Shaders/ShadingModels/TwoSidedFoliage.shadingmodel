@@ -72,13 +72,13 @@ vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
 {
     const vec3 F0  = mix( vec3( 0.04 ), S.BaseColor, S.Metallic );
     const vec3 ibl = EvaluateAmbientIBL( A.Irradiance, A.Prefiltered, A.SpecularBRDF, F0, S.BaseColor, S.Metallic );
-    // The light through the leaf from its far side. Under the SKY LIGHT (A.Traced 0) it is the sky cube's
-    // irradiance from -N (UE SkyLightingDiffuseShared.ush, TWOSIDED_FOLIAGE). Under a TRACED gather (A.Traced 1)
-    // the cube is the open sky the trace has already occluded: read there, every leaf deep in a canopy took the
-    // whole sky through its back face and the bush was lit flat, its interior as bright as its rim. UE's Lumen
-    // answer (DiffuseIndirectComposite.usf, without r.Lumen.ScreenProbeGather.TwoSidedFoliageBackfaceDiffuse):
-    // the SubsurfaceColor joins the diffuse lobe under the traced irradiance, at PreintegratedTwoSidedBxDF = 1/PI.
-    const vec3 back    = A.Traced > 0.5 ? A.Irradiance * ( 1.0 / PI ) : DesertAmbientIrradiance( -S.N );
-    const vec3 through = back * TwoSidedFoliageSubsurfaceColor( P ) * A.Occlusion;
+    // The light through the leaf from its far side: the irradiance from -N times SubsurfaceColor. Under the SKY
+    // LIGHT it is the sky cube's (UE SkyLightingDiffuseShared.ush, TWOSIDED_FOLIAGE); under a TRACED gather the
+    // gather's own backface irradiance, occluded as the trace sees it (UE DiffuseIndirectComposite.usf with
+    // r.Lumen.ScreenProbeGather.TwoSidedFoliageBackfaceDiffuse: BackfaceDiffuseIndirect x SubsurfaceColor). Both
+    // arrive as A.BackIrradiance. The traced gather's front irradiance in its place (UE's
+    // PreintegratedTwoSidedBxDF fallback) lit a leaf seen from below with the ground under it, not the sky above:
+    // the dark crown of FOLIAGE-LOOK-3.
+    const vec3 through = A.BackIrradiance * TwoSidedFoliageSubsurfaceColor( P ) * A.Occlusion;
     return ComposeAmbient( ibl, S.BaseColor, A.Occlusion, A.Indirect ) + through;
 }

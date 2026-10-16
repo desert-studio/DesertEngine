@@ -108,8 +108,11 @@ namespace Desert::Graphic::GlobalIllumination
                                           ViewTargetFormats::kGIFinalGather );
             m_Specular[i] = CreateTarget( std::format( "ScreenProbes.Specular{}", i ), extent.x, extent.y,
                                           ViewTargetFormats::kGIFinalGather );
+            m_Backface[i] = CreateTarget( std::format( "ScreenProbes.Backface{}", i ), extent.x, extent.y,
+                                          ViewTargetFormats::kGIFinalGather );
         }
-        if ( !m_Traced || !m_Filtered || !m_Diffuse[0] || !m_Diffuse[1] || !m_Specular[0] || !m_Specular[1] )
+        if ( !m_Traced || !m_Filtered || !m_Diffuse[0] || !m_Diffuse[1] || !m_Specular[0] || !m_Specular[1] ||
+             !m_Backface[0] || !m_Backface[1] )
             return Common::MakeError<bool>( "screen probes: an image could not be created" );
         m_Extent       = extent;
         m_AtlasRows    = layout.AtlasRows;
@@ -150,6 +153,8 @@ namespace Desert::Graphic::GlobalIllumination
         const RDG::TextureRef specular        = import( m_Specular[m_Current], "ScreenProbes.Specular" );
         const RDG::TextureRef diffuseHistory  = import( m_Diffuse[previous], "ScreenProbes.DiffuseHistory" );
         const RDG::TextureRef specularHistory = import( m_Specular[previous], "ScreenProbes.SpecularHistory" );
+        const RDG::TextureRef backface        = import( m_Backface[m_Current], "ScreenProbes.Backface" );
+        const RDG::TextureRef backfaceHistory = import( m_Backface[previous], "ScreenProbes.BackfaceHistory" );
 
         ScreenProbeParamsPayload params;
         params.PrevViewProjection = inputs.PrevViewProjection;
@@ -170,6 +175,8 @@ namespace Desert::Graphic::GlobalIllumination
              "ScreenProbes.Probes" );
         const RDG::BufferRef sh = graph.CreateBuffer(
              RDG::BufferDesc{ layout.Probes() * ScreenProbeLayout::kSHCoefficients * 16ull }, "ScreenProbes.SH" );
+        const RDG::BufferRef backfaceIrradiance =
+             graph.CreateBuffer( RDG::BufferDesc{ layout.Probes() * 16ull }, "ScreenProbes.BackfaceIrradiance" );
 
         constexpr RDG::Access kW   = RDG::Access::StorageWrite;
         constexpr RDG::Access kR   = RDG::Access::StorageRead;
@@ -268,7 +275,15 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "GIFrameUB", inputs.GIFrame, kR )
                           .Sampled( "u_ScreenProbeTraced", traced, kS, all, RDG::SamplerDesc::PointClamp() )
                           .Storage( "u_ScreenProbeFiltered", filtered, kW )
-                          .Storage( "ScreenProbeSHUB", sh, kW );
+                          .Storage( "ScreenProbeSHUB", sh, kW )
+                          .Storage( "ScreenProbeBackfaceUB", backfaceIrradiance, kW )
+                          .Storage( "RadianceCacheParamsUB", inputs.RadianceCache.Params, kR )
+                          .Storage( "RadianceCacheIndirectionUB", inputs.RadianceCache.Indirection, kR )
+                          .Storage( "RadianceCacheProbesUB", inputs.RadianceCache.Probes, kR )
+                          .Sampled( "u_RadianceCacheIrradiance", inputs.RadianceCache.Irradiance, kS, all,
+                                    RDG::SamplerDesc::LinearClamp() )
+                          .Sampled( "u_RadianceCacheDepth", inputs.RadianceCache.Depth, kS, all,
+                                    RDG::SamplerDesc::LinearClamp() );
                  },
                  [pipeline, probeGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -297,6 +312,10 @@ namespace Desert::Graphic::GlobalIllumination
                                     RDG::SamplerDesc::LinearClamp() )
                           .Storage( "u_ScreenProbeDiffuseOut", diffuse, kW )
                           .Storage( "u_ScreenProbeSpecularOut", specular, kW )
+                          .Storage( "ScreenProbeBackfaceUB", backfaceIrradiance, kR )
+                          .Sampled( "u_ScreenProbeBackfaceHistory", backfaceHistory, kS, all,
+                                    RDG::SamplerDesc::LinearClamp() )
+                          .Storage( "u_ScreenProbeBackfaceOut", backface, kW )
                           // A pixel no screen probe holds reads the world radiance cache in place.
                           .Storage( "RadianceCacheParamsUB", inputs.RadianceCache.Params, kR )
                           .Storage( "RadianceCacheIndirectionUB", inputs.RadianceCache.Indirection, kR )
@@ -314,6 +333,7 @@ namespace Desert::Graphic::GlobalIllumination
                  } );
         }
 
-        return Common::MakeSuccess( ScreenProbeGatherFrame{ .Diffuse = diffuse, .Specular = specular } );
+        return Common::MakeSuccess(
+             ScreenProbeGatherFrame{ .Diffuse = diffuse, .Specular = specular, .Backface = backface } );
     }
 } // namespace Desert::Graphic::GlobalIllumination

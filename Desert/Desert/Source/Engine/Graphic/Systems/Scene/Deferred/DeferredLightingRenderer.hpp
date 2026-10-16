@@ -43,6 +43,7 @@ namespace Desert::Graphic::System
         // modes).
         RDG::TextureRef GIDiffuse;
         RDG::TextureRef GISpecular;
+        RDG::TextureRef GIBackface; // irradiance from -N, the light through a two-sided leaf ("u_GIBackface")
         // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
         SceneViewInputs View;
     };
@@ -290,6 +291,8 @@ namespace Desert::Graphic::System
                  .Sampled( "u_GIDiffuse", inputs.GIDiffuse, RDG::Access::SampledGraphics,
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
                  .Sampled( "u_GISpecular", inputs.GISpecular, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                 .Sampled( "u_GIBackface", inputs.GIBackface, RDG::Access::SampledGraphics,
                            RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
             if ( layout )
                 BindSceneViewInputs( block, inputs.View, *layout );

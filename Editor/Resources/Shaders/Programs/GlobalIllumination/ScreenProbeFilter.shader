@@ -9,7 +9,12 @@
 //   radiance  the filtered texels, with a one-texel border repeating the hemi-octahedron's edge (bilinear reads
 //             stay in the probe): the rough reflections' source;
 //   irradiance second-order SH of the filtered radiance, each texel weighted by its solid angle, convolved with
-//             the cosine and / pi: the diffuse source.
+//             the cosine and / pi: the diffuse source;
+//   backface  the irradiance (/ pi) arriving at the probe from the hemisphere behind its surface, -N: the light a
+//             two-sided leaf lets through (UE r.Lumen.ScreenProbeGather.TwoSidedFoliageBackfaceDiffuse, which
+//             evaluates the full-sphere probe at -N). This probe is a hemisphere around +N and holds nothing behind
+//             it, so the back hemisphere is read from the world radiance cache, the full-sphere probes its own rays
+//             end in (RadianceCacheIrradianceAt at -N, DDGI-visibility weighted): one read per probe.
 Shader "ScreenProbeFilter"
 {
     Compute
@@ -18,6 +23,7 @@ Shader "ScreenProbeFilter"
 
         #include <Common/GIFrame.glslh>
         #include <Common/ScreenProbes.glslh>
+        #include <Common/RadianceCache.glslh>
 
         ReadBuffer(0) ScreenProbeParamsUB
         {
@@ -41,8 +47,29 @@ Shader "ScreenProbeFilter"
         {
             vec4 screenProbeSH[];
         };
+        ReadBuffer(7) RadianceCacheParamsUB
+        {
+            RadianceCacheParams radianceCache;
+        };
+        ReadBuffer(8) RadianceCacheIndirectionUB
+        {
+            uint radianceCacheIndirection[];
+        };
+        ReadBuffer(9) RadianceCacheProbesUB
+        {
+            RadianceCacheProbe radianceCacheProbes[];
+        };
+        Uniform(10) sampler2D u_RadianceCacheIrradiance;
+        Uniform(11) sampler2D u_RadianceCacheDepth;
+        WriteBuffer(12) ScreenProbeBackfaceUB
+        {
+            vec4 screenProbeBackface[]; // rgb = irradiance / pi from -N, a = 1 when the cache answered
+        };
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
+        #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
+        #define RADIANCE_CACHE_PROBES radianceCacheProbes
+        #include <Common/RadianceCache.glslh>
 
         #define SP_FILTER_MAX_ANGLE_COS 0.98480775 // cos 10 degrees
 
@@ -142,6 +169,14 @@ Shader "ScreenProbeFilter"
                 // The texels cover the hemisphere: their solid angles sum to 2 pi up to the corner chords.
                 c *= 6.28318531 / max( total, 1e-4 );
                 screenProbeSH[probe * 9u + texel] = vec4( c * SPSHCosineBand( texel ), 0.0 );
+            }
+            // ---- Backface irradiance: one thread.
+            else if ( texel == 9u )
+            {
+                const vec3  toCamera = giFrame.camera.xyz - p;
+                const vec3  v        = toCamera / max( length( toCamera ), 1e-3 );
+                const vec4  cache    = RadianceCacheIrradianceAt( p, -state.normal.xyz, v, 0.5 );
+                screenProbeBackface[probe] = cache.a > 0.0 ? vec4( cache.rgb, 1.0 ) : vec4( 0.0 );
             }
         }
     }

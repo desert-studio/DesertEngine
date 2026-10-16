@@ -464,6 +464,7 @@ namespace Desert::Graphic
             }
             t.GIDiffuse  = gathered.GetValue().Diffuse;
             t.GISpecular = gathered.GetValue().Specular;
+            t.GIBackface = gathered.GetValue().Backface;
             return;
         }
 
@@ -492,6 +493,7 @@ namespace Desert::Graphic
         }
         t.GIDiffuse  = gathered.GetValue().Diffuse;
         t.GISpecular = gathered.GetValue().Specular;
+        t.GIBackface = gathered.GetValue().Backface;
     }
 
     bool SceneRenderer::WorldLightGridRead() const
@@ -580,6 +582,7 @@ namespace Desert::Graphic
         const bool traced      = refs.Transients.GIDiffuse.IsValid();
         inputs.GIDiffuse       = traced ? refs.Transients.GIDiffuse : refs.System.Black;
         inputs.GISpecular      = traced ? refs.Transients.GISpecular : refs.System.Black;
+        inputs.GIBackface      = traced ? refs.Transients.GIBackface : refs.System.Black;
         inputs.View            = SceneViewInputsOf( refs );
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.

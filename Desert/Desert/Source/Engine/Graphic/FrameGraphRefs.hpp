@@ -113,6 +113,7 @@ namespace Desert::Graphic
         // specular radiance. Invalid when the GI method traces nothing   -> Deferred: Composite
         RDG::TextureRef GIDiffuse;
         RDG::TextureRef GISpecular;
+        RDG::TextureRef GIBackface; // the irradiance from behind the surface (-N), a two-sided leaf's
     };
 
     // RDG-A2 (owner decision 2, 2026-10-05). What EVERY node of the frame graph is handed, whatever registered

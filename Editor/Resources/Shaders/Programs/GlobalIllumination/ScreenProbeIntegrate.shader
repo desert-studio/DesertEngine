@@ -18,9 +18,14 @@
 //             integrates the specular of surfaces above r.Lumen.Reflections.MaxRoughnessToTrace from the same
 //             probes); smoother surfaces read it too until a reflection tracer exists, so no surface reads the sky
 //             cube in a closed room;
+//   backface  the irradiance (/ pi) from behind the pixel's surface, -N, interpolated from the probes' backface
+//             (ScreenProbeFilter) under the same weights, the radiance cache's at -N where no probe holds the pixel:
+//             the composite lets it through a two-sided leaf times its SubsurfaceColor (UE
+//             TwoSidedFoliageBackfaceDiffuse, DiffuseIndirectComposite's BackfaceDiffuseIndirect);
 //   temporal  blended with the pixel's reprojected history while the history's distance to the camera matches
 //             the pixel's (UE r.Lumen.ScreenProbeGather.Temporal, ~10 frames).
-// Output: diffuse.rgb + .a = the pixel's distance to the camera (the next frame's history test), specular.rgb.
+// Output: diffuse.rgb + .a = the pixel's distance to the camera (the next frame's history test), specular.rgb,
+// backface.rgb.
 Shader "ScreenProbeIntegrate"
 {
     Compute
@@ -73,6 +78,12 @@ Shader "ScreenProbeIntegrate"
         };
         Uniform(15) sampler2D u_RadianceCacheIrradiance;
         Uniform(16) sampler2D u_RadianceCacheDepth;
+        ReadBuffer(17) ScreenProbeBackfaceUB
+        {
+            vec4 screenProbeBackface[];
+        };
+        Uniform(18) sampler2D u_ScreenProbeBackfaceHistory;
+        layout(binding = 19, rgba16f) restrict writeonly uniform image2D u_ScreenProbeBackfaceOut;
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
@@ -150,6 +161,7 @@ Shader "ScreenProbeIntegrate"
             {
                 imageStore( u_ScreenProbeDiffuseOut, pixel, vec4( 0.0 ) );
                 imageStore( u_ScreenProbeSpecularOut, pixel, vec4( 0.0 ) );
+                imageStore( u_ScreenProbeBackfaceOut, pixel, vec4( 0.0 ) );
                 return;
             }
             const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
@@ -190,6 +202,7 @@ Shader "ScreenProbeIntegrate"
 
             vec3  diffuse  = vec3( 0.0 );
             vec3  specular = vec3( 0.0 );
+            vec3  backface = vec3( 0.0 );
             // The probes that hold the pixel and their weights: the diffuse reads every one, each GGX sample one of
             // them picked by weight (UE r.Lumen.ScreenProbeGather.StochasticInterpolation) - four radiance fetches a
             // pixel instead of four per probe (Bistro's backlit crown: 7.1 ms of integrate, then a GPU watchdog).
@@ -203,6 +216,15 @@ Shader "ScreenProbeIntegrate"
                     if ( heldW[i] > 0.0 )
                         diffuse += heldW[i] * ProbeIrradiance( heldId[i], n );
                 diffuse /= total;
+                float backTotal = 0.0;
+                for ( int i = 0; i < 4; ++i )
+                    if ( heldW[i] > 0.0 )
+                    {
+                        const vec4 back = screenProbeBackface[heldId[i]];
+                        backface += heldW[i] * back.a * back.rgb;
+                        backTotal += heldW[i] * back.a;
+                    }
+                backface /= max( backTotal, 1e-6 );
                 for ( int k = 0; k < SP_ROUGH_SPECULAR_SAMPLES; ++k )
                 {
                     if ( roughW[k] <= 0.0 )
@@ -235,6 +257,9 @@ Shader "ScreenProbeIntegrate"
                     diffuse  = cache.rgb;
                     specular = mix( cacheSpecular, cache.rgb, diffuseLerp );
                 }
+                const vec4 back = RadianceCacheIrradianceAt( p, -n, v, 0.5 );
+                if ( back.a > 0.0 )
+                    backface = back.rgb;
             }
 
             // ---- Temporal: the pixel's surface in last frame's view.
@@ -254,12 +279,15 @@ Shader "ScreenProbeIntegrate"
                             diffuse  = mix( diffuse, history.rgb, SP_HISTORY_WEIGHT );
                             specular = mix( specular, textureLod( u_ScreenProbeSpecularHistory, prevUV, 0.0 ).rgb,
                                             SP_HISTORY_WEIGHT );
+                            backface = mix( backface, textureLod( u_ScreenProbeBackfaceHistory, prevUV, 0.0 ).rgb,
+                                            SP_HISTORY_WEIGHT );
                         }
                     }
                 }
             }
             imageStore( u_ScreenProbeDiffuseOut, pixel, vec4( diffuse, distance ) );
             imageStore( u_ScreenProbeSpecularOut, pixel, vec4( specular, 1.0 ) );
+            imageStore( u_ScreenProbeBackfaceOut, pixel, vec4( backface, 1.0 ) );
         }
     }
 }

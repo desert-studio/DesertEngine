@@ -146,6 +146,7 @@ DesertAmbient DesertSampleAmbient(DesertSurface S, vec3 indirect, float occlusio
 	A.SpecularBRDF = texture(u_BRDFLUTTexture, vec2(max(0.0, dot(S.N, S.V)), S.Roughness)).rg;
 	A.Indirect     = indirect;
 	A.Occlusion    = occlusion;
+	A.BackIrradiance = DesertAmbientIrradiance(-S.N);
 	A.Traced       = 0.0; // the sky cubes (and the captures); DeferredLighting sets 1 where a traced gather replaces them
 	return A;
 }

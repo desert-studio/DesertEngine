@@ -78,6 +78,9 @@ Shader "DeferredLighting"
         // the rays saw the sky only where it is visible. Black in the other GI modes (unread).
         Uniform(30) sampler2D u_GIDiffuse;
         Uniform(31) sampler2D u_GISpecular;
+        // ...and the irradiance (/ pi) from behind the surface, -N, that a two-sided leaf lets through (UE
+        // BackfaceDiffuseIndirect). Set 1 like the reflection captures below: the set-0 slots from 25 up are reserved.
+        layout(set = 1, binding = 2) uniform sampler2D u_GIBackface;
 
         Out(0) vec4 oColor;
 
@@ -454,6 +457,7 @@ Shader "DeferredLighting"
         		sampled.Irradiance  = texelFetch(u_GIDiffuse, ivec2(gl_FragCoord.xy), 0).rgb;
         		sampled.Prefiltered = texelFetch(u_GISpecular, ivec2(gl_FragCoord.xy), 0).rgb;
         		sampled.Traced      = 1.0;
+        		sampled.BackIrradiance = texelFetch(u_GIBackface, ivec2(gl_FragCoord.xy), 0).rgb;
         	}
         	if (u_CameraPos.w > 0.5)
         		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), sampled.Prefiltered);
