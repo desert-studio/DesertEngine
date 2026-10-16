@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Clouds/CloudEnvironmentBake.hpp>
+#include <Engine/Graphic/Environment/EnvironmentBake.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
@@ -9,7 +10,9 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <memory>
+#include <optional>
 
 namespace Desert::ShaderResources
 {
@@ -18,8 +21,6 @@ namespace Desert::ShaderResources
 
 namespace Desert::Graphic
 {
-    class GpuBatch;
-
     struct Environment
     {
         // What the cubes were baked from: the source .hdr path, or "ProceduralSky" for the procedural bake.
@@ -58,39 +59,36 @@ namespace Desert::Graphic
         }
     };
 
+    /// A SPECIFIED CUBEMAP THE CACHE DID NOT HOLD: its panorama, converted and filtered in the frame graph of the
+    /// first view that draws it (System::SkyCapture::BeginPanorama, MaterialSkybox::AddConvolutionPasses), and
+    /// the three cache files that conversion is then written to (radiance, irradiance, prefilter; Live is set
+    /// by EnvironmentManager::WriteCache from the converted environment).
+    struct EnvironmentConvolution
+    {
+        std::shared_ptr<Texture2D>           Panorama;
+        std::array<EnvironmentCacheEntry, 3> Cache;
+    };
+
     class EnvironmentManager
     {
     public:
-        // Builds the three IBL cubes of an HDR skybox asset — the panorama as authored, at unit gain. The
-        // scene's look (rotation, tint, intensity) is NOT in them: it is applied where they are sampled
-        // (Environment/SkyLook.hpp), which is what keeps a slider drag from being a bake per value.
+        // The three IBL cubes of an HDR skybox asset -- the panorama as authored, at unit gain. The scene's look
+        // (rotation, tint, intensity) is NOT in them: it is applied where they are sampled (Environment/SkyLook.hpp),
+        // which is what keeps a slider drag from being a bake per value.
         //
-        // ON A MISS THE CUBES ARE NOT WRITTEN YET WHEN THIS RETURNS. The whole chain is recorded into one
-        // batch, submitted, and handed back through @p convolving still running on the GPU; the caller keeps
-        // it until `IsComplete()` and samples nothing before then (SkyboxService holds the skybox pending
-        // meanwhile). A hit, and every refusal, leaves @p convolving empty.
+        // A HIT uploads the cached cubes and returns them. A MISS returns an environment with no cubes and hands
+        // the panorama back through @p convolution: the conversion is frame-graph work (SkyCapture), recorded by
+        // the first view that draws the skybox, whole, ahead of everything that samples it -- the frame that
+        // records it is lit by it. Every refusal leaves @p convolution empty and is logged.
         static Environment Create( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset,
-                                   std::unique_ptr<GpuBatch>&                  convolving );
+                                   std::optional<EnvironmentConvolution>&      convolution );
 
-        // THE PROCEDURAL SKY IS NOT BUILT HERE. Its light is captured in the frame graph of the view that
-        // needs it (Systems/Scene/Skybox/SkyCapture), with the same three programs this class runs on a file:
-        // a sky whose input is a time of day has no file to bake, and a capture outside the frame left every new
-        // view without sky ambient until a fence signalled.
+        // Writes a converted environment to its cache files. Called once the graph that converted it has been
+        // submitted (the writer's readbacks go after it on the same queue); a failure costs the cache only, and
+        // is logged with the file.
+        static void WriteCache( EnvironmentConvolution& convolution, const Environment& converted );
 
-    private:
-        // Samples an equirect panorama into the radiance cube (the sharp environment the skybox draws and
-        // the prefilter convolves). Named for the RESULT: the 4x3 "cross" this used to be named after was
-        // an internal unwrap of the source pixels, and carrying it in the name is how call sites came to
-        // reason in cross widths instead of faces.
-        static std::shared_ptr<ImageCube> ConvertPanoramaToRadianceCube( GpuBatch&                   batch,
-                                                                         const Runtime::ImageHandle& panorama );
-
-        // The diffuse irradiance, summed exactly over the radiance cube's 16-face mip (SkyCaptureIrradiance).
-        static std::shared_ptr<ImageCube> CreateDiffuseIrradiance( GpuBatch&                   batch,
-                                                                   const Runtime::ImageHandle& radianceCube );
-
-        // GGX-prefilters an already-built radiance cubemap (per-mip roughness).
-        static std::shared_ptr<ImageCube> CreatePrefilteredMap( GpuBatch&                   batch,
-                                                                const Runtime::ImageHandle& radianceCube );
+        // THE PROCEDURAL SKY IS NOT BUILT HERE either. Its light is captured in the frame graph of the view that
+        // needs it (Systems/Scene/Skybox/SkyCapture), with the same programs a specified cubemap is converted with.
     };
 } // namespace Desert::Graphic

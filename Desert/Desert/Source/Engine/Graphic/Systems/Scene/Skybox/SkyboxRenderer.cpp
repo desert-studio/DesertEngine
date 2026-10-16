@@ -947,8 +947,16 @@ namespace Desert::Graphic::System
 
     void SkyboxRenderer::AddSkyCapturePasses( RDG::Builder& graph, FrameTextures& textures )
     {
+        // A specified cubemap (an HDR skybox) the cache did not hold is converted here too, at the same point of
+        // the graph: ahead of every pass that samples the cubes.
+        if ( !m_UseProceduralSky )
+        {
+            if ( const std::shared_ptr<MaterialSkybox> material = m_MaterialSkybox.lock() )
+                material->AddConvolutionPasses( graph, textures );
+            return;
+        }
         const std::shared_ptr<SceneSkyLight> skyLight = m_SceneSkyLight.lock();
-        if ( !m_UseProceduralSky || !skyLight || !skyLight->IsCapturing() )
+        if ( !skyLight || !skyLight->IsCapturing() )
             return;
 
         // The physical march reads the cached pair this frame's graph has written (or an earlier one has, when

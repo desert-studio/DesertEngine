@@ -120,6 +120,18 @@ namespace Desert::Graphic::System
         std::shared_ptr<Image2D> DistantSkyLight;
     };
 
+    /// A SPECIFIED CUBEMAP's source (UE: USkyLightComponent::SourceType = SLS_SpecifiedCubemap): an authored
+    /// equirect panorama, converted to the radiance cube by one pass and then filtered exactly like a captured sky.
+    /// The capture keeps its radiance cube -- the backdrop draws it -- and filters at the cached file's sizes
+    /// (Assets::kSkyEnv*) with the reference prefilter sample count, because the result is written to that file.
+    struct SkyCapturePanorama
+    {
+        // The panorama image (an Image2D; held by the base pointer the image service shares).
+        std::shared_ptr<Image> Panorama;
+        // The skybox the environment is named after (Environment::Filepath).
+        Common::Filepath Source;
+    };
+
     /**
      * @brief THE SKY LIGHT'S CAPTURE, RECORDED IN THE FRAME GRAPH (UE: the real-time SkyLight capture --
      * FScene::AllocateAndCaptureFrameSkyEnvMap, ReflectionEnvironmentRealTimeCapture.cpp).
@@ -155,6 +167,10 @@ namespace Desert::Graphic::System
         /// capture is already running or an image or the faces' program is missing.
         [[nodiscard]] bool Begin( const SkyEnvironmentSize& size, SkyCapturePace pace,
                                   const SkyCaptureSource& source );
+
+        /// Allocates a capture of a specified cubemap (SkyCapturePanorama): always Whole, so the frame that records
+        /// it is lit by it. Makes the panorama program on first use. Refused, logged, as Begin is.
+        [[nodiscard]] bool BeginPanorama( const SkyCapturePanorama& source );
 
         [[nodiscard]] bool IsCapturing() const
         {
@@ -197,6 +213,10 @@ namespace Desert::Graphic::System
         // mip 0, one dispatch.
         void AddFaces( RDG::Builder& graph, FrameTextures& textures, const SkyCaptureFrameReads& reads,
                        uint32_t firstFace, uint32_t faceCount, uint32_t firstRow, uint32_t rowCount );
+        // A specified cubemap's faces step: the six faces of mip 0 from the panorama, one dispatch.
+        void AddPanoramaFaces( RDG::Builder& graph, FrameTextures& textures );
+        // The cubes and the step state every Begin sets; false (logged, nothing kept) when an image is missing.
+        [[nodiscard]] bool AllocateCubes( uint32_t radianceFace, uint32_t prefilterFace, bool keepRadiance );
         void AddRadianceMips( RDG::Builder& graph, FrameTextures& textures );
         void AddIrradiance( RDG::Builder& graph, FrameTextures& textures );
         void AddPrefilter( RDG::Builder& graph, FrameTextures& textures );
@@ -205,6 +225,7 @@ namespace Desert::Graphic::System
         Program m_Irradiance;
         Program m_Prefilter;
         Program m_Faces;
+        Program m_PanoramaToCube;
         // Faces programs replaced by a medium change, kept for a few captures: the dispatches of a frame still in
         // flight were recorded with them.
         std::deque<Program> m_RetiredFaces;
@@ -218,6 +239,16 @@ namespace Desert::Graphic::System
         // The intermediate of the capture that completed most recently: this frame's graph imported it, so it is
         // released when the next capture begins rather than while that graph is still being built.
         std::shared_ptr<ImageCube> m_RetiredRadianceImage;
+        // A specified cubemap's capture publishes its radiance cube too (the backdrop draws it): registered from
+        // the start, like the other two, and invalid for a captured sky.
+        Runtime::ImageHandle m_RadianceHandle;
+        // The specified cubemap being converted, held until its faces step is recorded; null for a captured sky.
+        std::shared_ptr<Image> m_Panorama;
+        Common::Filepath       m_Source;
+        // The prefiltered chain's face (a captured sky filters at its own face; a specified cubemap at the cached
+        // file's) and PrefilterEnvMap's sample count (1 = UE's real-time count, 0 = the reference 1024).
+        uint32_t m_PrefilterFace     = 0u;
+        uint32_t m_PrefilterRealTime = 1u;
 
         SkyEnvironmentSize m_Size{};
         SkyCapturePace     m_Pace = SkyCapturePace::Whole;
