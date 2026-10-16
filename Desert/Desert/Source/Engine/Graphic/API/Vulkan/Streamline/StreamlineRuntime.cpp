@@ -189,7 +189,7 @@ namespace Desert::Graphic::Streamline
             for ( uint32_t i = 0; i < count; ++i )
             {
                 const std::string_view name = names[i];
-                const auto*            row =
+                const auto             row =
                      std::find_if( table.begin(), table.end(), [&]( const auto& r ) { return r.Name == name; } );
                 if ( row == table.end() )
                     return Common::MakeFormattedError(
