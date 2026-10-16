@@ -361,6 +361,8 @@ namespace Desert::Graphic
             m_BlendCube         = kNoCapture;
             return;
         }
+        if ( m_DrivenFrame == ~0ull )
+            LOG_INFO( "[ReflectionCaptures] first fill: driven from frame {}", frames.GetAbsoluteFrameCount() );
         m_DrivenFrame = frames.GetAbsoluteFrameCount();
         if ( faceSize != m_FaceSize )
         {
@@ -441,6 +443,7 @@ namespace Desert::Graphic
             m_PendingRelit = false;
             m_FaceRenders.fill( 0u );
             m_FaceHeld.fill( 0u );
+            m_FaceStreamed.fill( false );
             m_FaceSettle.fill( kCaptureSettleFrames );
             m_FaceEnvironment.fill( 0u );
             m_LastFace = static_cast<uint32_t>( m_Faces.size() - 1u );
@@ -496,9 +499,14 @@ namespace Desert::Graphic
         m_LastFace = static_cast<uint32_t>( face );
         ++m_FaceRenders[face];
 
-        // Held while the face's sky environment (the scene's) stays the one it had at its previous render.
+        // Held while the face's sky environment (the scene's) stays the one it had at its previous render, and
+        // only by a render that drew every texture the scene asked for: a texture still read, cooked or uploaded
+        // draws its slot's white default, and a cube of white walls went 26 % darker over the Bistro running day
+        // when its re-capture with the real textures landed (REFL-NORM-SMOOTH).
         const uint64_t faceEnvironment = view.Renderer->GetEnvironmentIdentity();
-        if ( faceEnvironment != 0 && faceEnvironment == m_FaceEnvironment[face] )
+        const bool     streaming       = Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0;
+        m_FaceStreamed[face]           = streaming;
+        if ( !streaming && faceEnvironment != 0 && faceEnvironment == m_FaceEnvironment[face] )
             ++m_FaceHeld[face];
         else
             m_FaceHeld[face] = 0;
@@ -506,10 +514,17 @@ namespace Desert::Graphic
         m_FaceSettle[face] =
              view.Renderer->DrawsVolumetricClouds() ? kCaptureSettleFrames : kCaptureSettleFramesStill;
 
-        bool all = true;
+        bool all      = true;
+        bool streamed = false;
         for ( size_t f = 0; f < m_Faces.size(); ++f )
-            all = all && settled( f );
+        {
+            all      = all && settled( f );
+            streamed = streamed || m_FaceStreamed[f];
+        }
         m_WriteCapture = all;
+        // A face the frame budget settled under textures still in flight: the cube is written (it is better than
+        // none) and stays stale, so the round renders it again.
+        m_PendingRelit = m_PendingRelit || ( all && streamed );
     }
 
     void ReflectionCaptureRenderer::AddCapturePasses( RDG::Builder& graph, FrameTextures& textures,
@@ -840,6 +855,9 @@ namespace Desert::Graphic
                 ++m_Presence[cube];
             filled = filled && m_Captured[cube] && m_Presence[cube] >= kReflectionCaptureBlendFrames;
         }
+        if ( filled && !m_FirstFillDone )
+            LOG_INFO( "[ReflectionCaptures] first fill: {} capture(s) written and faded in by frame {}",
+                      m_Captured.size(), frame );
         m_FirstFillDone = m_FirstFillDone || filled;
 
         uint32_t   firstWrite    = kNoCapture;

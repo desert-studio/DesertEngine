@@ -215,8 +215,9 @@ namespace Desert::Graphic
 
         /// THE FIRST FILL IS STILL LOADING (REFL-NORM-SMOOTH): the scene has captures, a view that reads them
         /// drives their update, and not every one has been written and faded in yet since the scene's captures
-        /// were first gathered. A frame before that is the sky's reflection where the captures will occlude it -
-        /// the Bistro running day lost 26 % of its frame when its first cubes landed. UE captures a level's
+        /// were first gathered (a face settles only on renders with every texture in: RenderCaptureViews). A frame
+        /// before that reflects the sky, or a cube of white default textures, where the finished captures will be:
+        /// the Bistro running day lost 26 % of its frame when such a cube was replaced. UE captures a level's
         /// reflection captures as part of loading it; here the start-up's reveal and a screenshot's first
         /// recorded frame wait for it as for any content still arriving (Editor RevealGate, ShotRecordGate).
         /// Latched off once complete: a capture edited, added or relit later is updated behind the live view.
@@ -294,6 +295,7 @@ namespace Desert::Graphic
         bool                            m_PendingRelit = false; // relit while rendered: still stale once written
         std::array<uint32_t, 6>         m_FaceRenders{};
         std::array<uint32_t, 6>         m_FaceHeld{};
+        std::array<bool, 6>             m_FaceStreamed{}; // its last render drew textures still in flight
         std::array<uint32_t, 6>         m_FaceSettle{}; // the held renders that settle it (its clouds or none)
         std::array<uint64_t, 6>         m_FaceEnvironment{};
         uint32_t                        m_LastFace = 5u; // the face round's last face

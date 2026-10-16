@@ -45,8 +45,9 @@ namespace Desert::Editor
         // IStreamingManager::BlockTillAllRequestsFinished). Holds the START only, as AssetsCompiling does.
         bool     TexturesStreaming = false;
         // The scene's reflection captures not all written once yet (ReflectionCaptureRenderer FirstFillPending):
-        // a frame before that reflects the sky where the captures will occlude it (the Bistro running day's first
-        // cubes took 26 % of the frame). Holds the START only, as TexturesStreaming does.
+        // a frame before that reflects the sky, or cubes of white default textures, where the finished captures
+        // will be (the Bistro running day lost 26 % of its frame when they landed). Holds the START only, as
+        // TexturesStreaming does.
         bool     ReflectionCapturesFilling = false;
         uint32_t ViewportWidth    = 0;
         uint32_t ViewportHeight   = 0;
