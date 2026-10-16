@@ -26,6 +26,9 @@ namespace Desert::Graphic
         glm::vec3 SunDir           = glm::vec3( 0.0f, 1.0f, 0.0f );
         uint64_t  CloudFingerprint = 0;
         uint64_t  SkyFingerprint   = 0;
+        // Whether the capture marched a cloud layer (CloudBakeBinding::Marched): the first one that does is
+        // recorded whole (Graphic::SkyCaptureIsWhole).
+        bool CloudsMarched = false;
     };
 
     /**
@@ -112,9 +115,10 @@ namespace Desert::Graphic
             m_SecondsSinceStale = 0.0f;
         }
 
-        /// Begins a capture from the claiming view's @p source. The scene's first capture is whole -- recorded
-        /// complete in this frame's graph, so the frame is lit by its sky -- and every later one is time-sliced
-        /// while the previous environment lights the scene. @p what is the landing line's description.
+        /// Begins a capture from the claiming view's @p source. The scene's first capture, and the first that
+        /// carries its clouds, are whole -- recorded complete in this frame's graph, so the frame is lit by its
+        /// sky and clouds (Graphic::SkyCaptureIsWhole) -- and every later one is time-sliced while the previous
+        /// environment lights the scene. @p what is the landing line's description.
         [[nodiscard]] bool Begin( const SkyEnvironmentSize& size, const System::SkyCaptureSource& source,
                                   const SkyLightStamps& from, const char* what );
 

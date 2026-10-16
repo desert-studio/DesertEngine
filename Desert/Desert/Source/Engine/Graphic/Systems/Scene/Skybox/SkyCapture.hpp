@@ -36,8 +36,9 @@ namespace Desert::Graphic
 namespace Desert::Graphic::System
 {
     /// HOW A CAPTURE IS SPREAD OVER FRAMES (UE: r.SkyLight.RealTimeReflectionCapture.TimeSlice).
-    ///  - Whole: every step in the frame that begins it. A view's FIRST capture is whole, so the frame that opens
-    ///    the view already lights its scene with its sky (UE captures the first real-time sky light complete).
+    ///  - Whole: every step in the frame that begins it. A scene's FIRST capture is whole, so the frame that opens
+    ///    the view already lights its scene with its sky (UE captures the first real-time sky light complete),
+    ///    and so is the first that carries its clouds (Graphic::SkyCaptureIsWhole).
     ///  - TimeSliced: one slice per frame (a band of a face, see SkyCaptureFaceSlices, then the filters). A
     ///    RECAPTURE (the sun, the clouds or the sky changed) is sliced, and the environment the scene reads
     ///    meanwhile is the previous one, complete, so there is never a frame without sky light: the new one
@@ -91,7 +92,8 @@ namespace Desert::Graphic::System
 
     /// What the faces step marches, fixed when the capture begins: the faces are the capture's only step that
     /// reads the sky and its clouds. The buffers and volumes named here are bound once, at Begin, and read by
-    /// every face slice after it.
+    /// every face slice after it -- so the capture keeps Clouds (its shared references) until it completes or
+    /// is abandoned, and a slice never reads a volume the cloud renderer has since released.
     struct SkyCaptureSource
     {
         // The sky's parameter block -- the one the screen sky pass reads (SkyboxRenderer::m_SkyParams).
@@ -227,6 +229,9 @@ namespace Desert::Graphic::System
         uint32_t                         m_RecordedFaceSlice = 0u;
         // The steps the last AddPasses recorded, [m_Next, m_RecordedEnd); Settle advances to the end.
         SkyCaptureStep m_RecordedEnd = SkyCaptureStep::Done;
+        // The cloud layer the running capture marches, co-owned from Begin to its last face slice (see
+        // SkyCaptureSource): the faces' pipeline route names these by raw descriptor.
+        CloudBakeBinding m_Clouds;
         // The faces' push block (x marches, y reads sky occlusion, z aerial start km, w per-sample sun).
         glm::vec4 m_CloudPush{ 0.0f };
         bool      m_Physical = false;

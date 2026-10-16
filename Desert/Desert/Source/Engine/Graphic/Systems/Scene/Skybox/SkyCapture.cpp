@@ -193,8 +193,8 @@ namespace Desert::Graphic::System
              FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get();
         if ( clouds.Params && clouds.Authored )
         {
-            pipeline.SetStorageBuffer( kSkyBakeCloudParamsBinding, clouds.Params );
-            pipeline.SetStorageBuffer( kSkyBakeCloudAuthoredBinding, clouds.Authored );
+            pipeline.SetStorageBuffer( kSkyBakeCloudParamsBinding, clouds.Params.get() );
+            pipeline.SetStorageBuffer( kSkyBakeCloudAuthoredBinding, clouds.Authored.get() );
         }
         else
         {
@@ -210,30 +210,30 @@ namespace Desert::Graphic::System
 
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
         {
-            Image3D* noise = cloudsBound ? clouds.Noise[slot] : nullptr;
+            Image3D* noise = cloudsBound ? clouds.Noise[slot].get() : nullptr;
             sampled( kSkyBakeCloudNoiseBindings[slot], noise != nullptr ? noise : volumeFallback );
         }
         sampled( kSkyBakeCloudModellingBinding,
-                 cloudsBound && clouds.Modelling != nullptr ? clouds.Modelling : volumeFallback );
+                 cloudsBound && clouds.Modelling != nullptr ? clouds.Modelling.get() : volumeFallback );
         sampled( kSkyBakeCloudFarWeatherBinding,
-                 cloudsBound && clouds.FarWeather != nullptr ? clouds.FarWeather : Fallback2D() );
+                 cloudsBound && clouds.FarWeather != nullptr ? clouds.FarWeather.get() : Fallback2D() );
         sampled( kSkyBakeCloudLayoutPatternBinding,
-                 cloudsBound && clouds.LayoutPattern != nullptr ? clouds.LayoutPattern : Fallback2D() );
+                 cloudsBound && clouds.LayoutPattern != nullptr ? clouds.LayoutPattern.get() : Fallback2D() );
         sampled( kSkyBakeCloudLayoutMaskBinding,
-                 cloudsBound && clouds.LayoutMask != nullptr ? clouds.LayoutMask : Fallback2D() );
+                 cloudsBound && clouds.LayoutMask != nullptr ? clouds.LayoutMask.get() : Fallback2D() );
         sampled( kSkyBakeCloudAuthoredAtlasBinding,
-                 cloudsBound && clouds.AuthoredAtlas != nullptr ? clouds.AuthoredAtlas : volumeFallback );
+                 cloudsBound && clouds.AuthoredAtlas != nullptr ? clouds.AuthoredAtlas.get() : volumeFallback );
         sampled( kSkyBakeCloudSkyOcclusionBinding, cloudsBound && clouds.SkyOcclusion && clouds.SkyOcclusionVolume
-                                                        ? clouds.SkyOcclusionVolume
+                                                        ? clouds.SkyOcclusionVolume.get()
                                                         : volumeFallback );
 
         // THE AUTHORED MEDIUM'S OWN RESOURCES, bound only when the medium's program declares them (the emitter
         // writes a block only for properties its functions read, and a sampler per Texture2D property).
         if ( clouds.MediumParams )
-            pipeline.SetStorageBuffer( Core::kCloudMediumParamsBinding, clouds.MediumParams );
+            pipeline.SetStorageBuffer( Core::kCloudMediumParamsBinding, clouds.MediumParams.get() );
         for ( std::size_t slot = 0; slot < clouds.MediumImages.size(); ++slot )
             sampled( Core::kCloudMediumTextureFirst + static_cast<uint32_t>( slot ),
-                     clouds.MediumImages[slot] != nullptr ? clouds.MediumImages[slot] : Fallback2D() );
+                     clouds.MediumImages[slot] != nullptr ? clouds.MediumImages[slot].get() : Fallback2D() );
 
         // x marches, y reads the sky-occlusion volume, z is the aerial perspective's start depth, w applies the
         // atmosphere's transmittance at each cloud sample's own altitude -- ANDed with the physical model, whose
@@ -311,6 +311,12 @@ namespace Desert::Graphic::System
         m_PrefilteredHandle = images->Register( std::move( pre ), Runtime::ImageHandle::Type::ImageCube );
 
         BindFacesRoute( source );
+        // THE CAPTURE CO-OWNS WHAT ITS ROUTE NAMES until its last slice is recorded: the route holds raw
+        // descriptors, read by every face slice over the frames after this one, and the cloud renderer may
+        // reallocate a volume (or the beginning view go away with its cloud blocks) meanwhile. The medium
+        // pointer is Begin's argument only -- its program is already acquired.
+        m_Clouds            = source.Clouds;
+        m_Clouds.Medium     = nullptr;
         m_Physical          = source.Physical;
         m_Size              = size;
         m_Pace              = pace;
@@ -335,6 +341,7 @@ namespace Desert::Graphic::System
         m_IrradianceHandle  = {};
         m_PrefilteredHandle = {};
         m_RadianceImage.reset();
+        m_Clouds      = {};
         m_Next        = SkyCaptureStep::Done;
         m_RecordedEnd = SkyCaptureStep::Done;
     }
@@ -429,6 +436,9 @@ namespace Desert::Graphic::System
         m_IrradianceHandle     = {};
         m_PrefilteredHandle    = {};
         m_RetiredRadianceImage = std::move( m_RadianceImage );
+        // The cloud volumes and blocks the faces read: this frame's graph recorded the last face slice already,
+        // and an image or buffer released here is destroyed past the frames in flight.
+        m_Clouds = {};
         return captured;
     }
 

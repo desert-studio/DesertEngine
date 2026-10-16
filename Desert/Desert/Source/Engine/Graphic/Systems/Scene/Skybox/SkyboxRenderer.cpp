@@ -16,6 +16,8 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <chrono>
+#include <cmath>
+#include <format>
 
 namespace Desert::Graphic::System
 {
@@ -762,7 +764,8 @@ namespace Desert::Graphic::System
         const CloudEnvironmentBake clouds = m_SceneRenderer->BuildCloudEnvironmentBake();
         // ...but NEVER THE FIRST CAPTURE: a view without one has no sky light at all, and an ambient lit by the
         // sky before its clouds arrive is far nearer the answer than a black one. The clouds landing changes the
-        // cloud fingerprint, which recaptures (time-sliced) with them.
+        // cloud fingerprint, which recaptures with them -- whole, in that one frame, being the first capture
+        // that carries them (SkyCaptureIsWhole).
         if ( hasEnvironment && SkyEnvironmentBakeWaitsForClouds( explicitRequest, clouds.InputsPending ) )
             return;
 
@@ -830,9 +833,10 @@ namespace Desert::Graphic::System
         // the shader's gate is what stops it being read, not the absence of an upload.
         CloudBakeBinding cloudBinding;
         m_CloudBakeSet                                     = 1u - m_CloudBakeSet;
-        ShaderResources::StorageBuffer* const bakeParams   = m_CloudBakeParams[m_CloudBakeSet].get();
-        ShaderResources::StorageBuffer* const bakeAuthored = m_CloudBakeAuthored[m_CloudBakeSet].get();
-        ShaderResources::StorageBuffer* const bakeMedium   = m_CloudBakeMediumParams[m_CloudBakeSet].get();
+        const std::shared_ptr<ShaderResources::StorageBuffer>& bakeParams   = m_CloudBakeParams[m_CloudBakeSet];
+        const std::shared_ptr<ShaderResources::StorageBuffer>& bakeAuthored = m_CloudBakeAuthored[m_CloudBakeSet];
+        const std::shared_ptr<ShaderResources::StorageBuffer>& bakeMedium =
+             m_CloudBakeMediumParams[m_CloudBakeSet];
         if ( bakeParams && bakeAuthored )
         {
             const auto params = bakeParams->SetData( &clouds.Params, kCloudPayloadBytes );
@@ -904,16 +908,27 @@ namespace Desert::Graphic::System
         cloudBinding.MediumImages = clouds.MediumImages;
         // THE AUTHORED MEDIUM, so the capture that LIGHTS the scene is compiled under the same
         // substitution the three on-screen cloud programs are. It points at `clouds`, which outlives Begin --
-        // the variant program is acquired there, and the capture keeps it.
+        // the variant program is acquired there, and the capture keeps the program, not this pointer.
         cloudBinding.Medium = &clouds.Medium;
         // The distant sky light is not part of the binding: this frame's graph writes it ahead of the faces,
         // which declares it as a read (AddSkyCapturePasses).
 
-        const char* what = !clouds.Marched ? "sky only (this view has no cloud layer)"
-                           : cloudBinding.SkyOcclusion
-                                ? "clouds marched into the cube faces, sky-occlusion volume read"
-                                : "clouds marched into the cube faces, profile-driven ambient "
-                                  "occlusion";
+        const char* what =
+             !clouds.Marched ? ( clouds.InputsPending ? "sky only (the cloud layer's inputs are still arriving)"
+                                                      : "sky only (this view has no cloud layer)" )
+             : cloudBinding.SkyOcclusion ? "clouds marched into the cube faces, sky-occlusion volume read"
+                                         : "clouds marched into the cube faces, profile-driven ambient "
+                                           "occlusion";
+        // WHICH KEY MOVED, for a recapture: the landing line says what was captured, this says why.
+        if ( hasEnvironment )
+            LOG_INFO( "[SkyAtmosphere] Sky light recapture begins: {}{}{}{}.",
+                      explicitRequest ? "requested; " : "",
+                      captured.CloudFingerprint != clouds.Fingerprint ? "the clouds changed; " : "",
+                      captured.SkyFingerprint != skyFingerprint ? "the sky's parameters changed; " : "",
+                      std::format( "the sun is {:.2f} deg from the captured one",
+                                   glm::degrees( std::acos( glm::clamp(
+                                        glm::dot( glm::normalize( captured.SunDir ), glm::normalize( m_SunDir ) ),
+                                        -1.0f, 1.0f ) ) ) ) );
         // A refusal keeps the previous environment and says why (Begin logged it); the user can retry with the
         // Bake button. Nothing is stamped -- a failed capture must not look like an up-to-date one.
         (void)skyLight->Begin( size,
@@ -921,7 +936,9 @@ namespace Desert::Graphic::System
                                     .SkyParams = m_SkyParams.get(), .Clouds = cloudBinding, .Physical = physical },
                                SkyLightStamps{ .SunDir           = m_SunDir,
                                                .CloudFingerprint = clouds.Fingerprint,
-                                               .SkyFingerprint   = skyFingerprint },
+                                               .SkyFingerprint   = skyFingerprint,
+                                               .CloudsMarched    = cloudBinding.Marched && cloudBinding.Params &&
+                                                                cloudBinding.Authored },
                                what );
     }
 

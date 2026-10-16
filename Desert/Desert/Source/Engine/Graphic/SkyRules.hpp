@@ -107,6 +107,22 @@ namespace Desert::Graphic
         return !explicitRequest && cloudInputsPending;
     }
 
+    // WHETHER A SKY LIGHT CAPTURE IS RECORDED WHOLE, IN THE FRAME THAT BEGINS IT (UE: the first real-time sky
+    // light capture is complete; only the ones after it are time-sliced). Whole when the scene has no sky
+    // light yet (a scene opened or loaded, its first view) and when this capture is the FIRST to carry the
+    // clouds: a cloud layer's inputs arrive a few frames after the scene opens (SkyEnvironmentBakeWaitsForClouds
+    // does not hold the very first capture back, an unlit world being the worse answer), and a time-sliced
+    // capture of them left the scene lit by the bare sky for 54 frames on Clouds_Protocol -- the ambient
+    // jumped when they landed. Whole, that frame pays the six faces at the screen's march once (250-300 ms on
+    // an M1 Pro) and the scene's light carries its clouds from then on. Every later capture -- the sun, the
+    // clouds or the sky changed -- is time-sliced while the previous, complete one lights the scene.
+    // @p environmentHasClouds is whether the environment the scene reads now was captured with a marched
+    // cloud layer; @p captureHasClouds whether the capture about to begin marches one.
+    inline bool SkyCaptureIsWhole( bool hasEnvironment, bool environmentHasClouds, bool captureHasClouds )
+    {
+        return !hasEnvironment || ( captureHasClouds && !environmentHasClouds );
+    }
+
     inline bool ShouldRebakeSkyEnvironment( const glm::vec3& bakedSunDir, const glm::vec3& currentSunDir,
                                             float thresholdDeg, bool autoRebake, bool hasEnvironment,
                                             bool explicitRequest, uint64_t bakedCloudFingerprint,

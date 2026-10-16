@@ -991,20 +991,20 @@ namespace Desert::Graphic::System
         bake.Authored = m_AuthoredPayload;
 
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
-            bake.Noise[slot] = m_NoiseVolume[slot].get();
+            bake.Noise[slot] = m_NoiseVolume[slot];
 
-        bake.Modelling     = m_Clipmap.GetImage().get();
-        bake.FarWeather    = m_FarWeatherMap.get();
-        bake.LayoutPattern = m_LayoutPatternTexture.get();
-        bake.LayoutMask    = m_LayoutMaskTexture.get();
-        bake.AuthoredAtlas = m_AuthoredAtlas.get();
+        bake.Modelling     = m_Clipmap.GetImage();
+        bake.FarWeather    = m_FarWeatherMap;
+        bake.LayoutPattern = m_LayoutPatternTexture;
+        bake.LayoutMask    = m_LayoutMaskTexture;
+        bake.AuthoredAtlas = m_AuthoredAtlas;
 
         // THE PREVIOUS FRAME'S VOLUME, and it can be nothing else: this runs before the frame's own
         // dispatch of it. The first bake of a scene therefore marches with the profile-driven occlusion
         // the layer would fall back to anyway, and the fingerprint below carries the flag so that the
         // frame the volume appears asks for one more bake rather than leaving a permanently brighter dome.
         bake.SkyOcclusionValid  = m_SkyOcclusionValid && m_SkyOcclusionVolume != nullptr;
-        bake.SkyOcclusionVolume = m_SkyOcclusionVolume.get();
+        bake.SkyOcclusionVolume = m_SkyOcclusionVolume;
 
         // WHAT THE BLOCK ABOVE MEANS, asked of the same function PackCloudParams asked. BuildFieldPayload
         // has just chosen which illuminance SunColour carries; the bake marches that block and has to
@@ -1018,13 +1018,11 @@ namespace Desert::Graphic::System
         bake.Medium = m_MediumVariant;
 
         // AND ITS VALUES, which are NOT in the packed block above and never will be: they belong to a
-        // schema the graph author wrote. Copied for the same reason the variant is — the bake outlives this
-        // call by a submit-and-wait — while the IMAGES are borrowed, exactly like the noise volumes beside
-        // them, because the texture service owns them and outlives the bake.
+        // schema the graph author wrote. Copied for the same reason the variant is -- the capture outlives
+        // this call by its slices -- and the IMAGES are shared, exactly like the noise volumes beside them,
+        // so a material edit mid-capture cannot free one a later slice samples.
         bake.MediumValues = m_MediumValues.Params;
-        bake.MediumImages.clear();
-        for ( const std::shared_ptr<Image2D>& image : m_MediumImages )
-            bake.MediumImages.push_back( image.get() );
+        bake.MediumImages = m_MediumImages;
 
         bake.Marched = true;
         bake.Fingerprint =

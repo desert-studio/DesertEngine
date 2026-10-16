@@ -57,7 +57,9 @@ namespace Desert::Graphic
                                const SkyLightStamps& from, const char* what )
     {
         const System::SkyCapturePace pace =
-             m_Environment ? System::SkyCapturePace::TimeSliced : System::SkyCapturePace::Whole;
+             SkyCaptureIsWhole( static_cast<bool>( m_Environment ), m_Captured.CloudsMarched, from.CloudsMarched )
+                  ? System::SkyCapturePace::Whole
+                  : System::SkyCapturePace::TimeSliced;
         if ( !m_Capture.Begin( size, pace, source ) )
             return false;
         m_Pending        = from;
