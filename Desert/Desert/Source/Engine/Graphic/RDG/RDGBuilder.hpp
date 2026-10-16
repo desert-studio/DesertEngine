@@ -134,6 +134,12 @@ namespace Desert::Graphic::RDG
         // pass. The ColorTarget is declared first; both have the same format and size. The resolve overwrites
         // every pixel, so the image's previous contents are not loaded.
         void ResolveTarget( uint32_t slot, TextureRef texture );
+        // A raster pass with NO attachment over a @p width x @p height render area (UE: a raster pass whose
+        // render-target binding holds no target, as the virtual shadow map's page raster). Its fragments write only
+        // the storage resources the pass declares, so the area is bounded by the device's framebuffer and viewport
+        // limits, not by any texture: a 16k virtual shadow map is rasterized without a 16k image. Refused with a
+        // ColorTarget / DepthTarget on the same pass, outside a Raster pass, and with a zero side.
+        void RenderArea( uint32_t width, uint32_t height );
 
         // RDG-FAULT1. Declares the parameter block of one draw / dispatch this pass records, against the shader it
         // records with (UE: the pass parameter struct handed to AddPass, validated before the pass runs). Every
@@ -378,6 +384,9 @@ namespace Desert::Graphic::RDG
             PassFlags                     Flags = PassFlags::None;
             std::vector<ResourceUse>      Uses;
             std::vector<AttachmentRecord> Attachments;
+            // PassBuilder::RenderArea; zero when the render area is the attachments' size.
+            uint32_t                      AreaWidth  = 0;
+            uint32_t                      AreaHeight = 0;
             ExecFunction                  Exec;
             // RDG-FAULT1: the binding blocks its setup declared (PassBuilder::Bindings) and the first malformed
             // declaration of THIS pass. A pass with a declaration error is a Declaration fault, not a graph error.

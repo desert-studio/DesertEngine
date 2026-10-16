@@ -65,7 +65,7 @@ namespace Common::Scalability
     enum class ShadowMethod : int
     {
         CascadedMaps = 0, // the sun's cascaded shadow maps
-        VirtualMaps,      // virtual shadow maps (SHADOW-VSM: VirtualShadowMapRenderer)   — casters not drawn yet
+        VirtualMaps,      // virtual shadow maps (SHADOW-VSM: VirtualShadowMapRenderer); a 16k render area
         HardwareTraced,   // ray-query visibility (RT-SHADOWS: RayTracedSunShadow); RT device
         Stochastic,       // many-light ReSTIR DI + ray-query visibility (MEGALIGHTS)    — not implemented
     };
@@ -96,19 +96,33 @@ namespace Common::Scalability
                method == ReflectionMethod::ScreenSpace || method == ReflectionMethod::SoftwareTraced ||
                method == ReflectionMethod::HardwareTraced;
     }
-    // Shadows VirtualMaps is NOT here: its page management (mark, allocate, the page cache and its invalidation)
-    // and the SMRT projection exist (System::VirtualShadowMapRenderer, SceneRenderer::AddFrameVirtualSunShadow),
-    // but no caster draws the dirty pages yet - the casters' "VSM: Raster" needs a raster pass without
-    // attachments (the R32_UINT pool is written by an atomic max) and a VirtualShadowDepth surface cell - so
-    // every page would hold "no occluder".
     [[nodiscard]] constexpr bool IsImplemented( ShadowMethod method )
     {
-        return method == ShadowMethod::CascadedMaps || method == ShadowMethod::HardwareTraced;
+        return method == ShadowMethod::CascadedMaps || method == ShadowMethod::VirtualMaps ||
+               method == ShadowMethod::HardwareTraced;
     }
     // The two shadow supplements beside the method (PostProcessSettings ContactShadows / DistanceFieldShadows):
     // contact shadows (SHADOW-CONTACT) and distance-field shadows (GLOBAL-SDF) — neither implemented yet.
     inline constexpr bool kContactShadowsImplemented       = false;
     inline constexpr bool kDistanceFieldShadowsImplemented = false;
+
+    // ---- What a method needs from the device: a render area (CapabilityCatalog MaxRenderArea). -----------------
+    // The side of one virtual shadow map (UE VSM: 128 pages of 128 texels). Its casters are rasterized over the
+    // whole virtual map with no attachment (RDG PassBuilder::RenderArea), so the device's framebuffer and viewport
+    // must reach it; VirtualShadowMap.hpp derives its page layout from this value.
+    inline constexpr uint32_t kVirtualShadowMapResolution = 16384;
+    [[nodiscard]] constexpr uint32_t NeedsRenderArea( GIMethod )
+    {
+        return 0;
+    }
+    [[nodiscard]] constexpr uint32_t NeedsRenderArea( ReflectionMethod )
+    {
+        return 0;
+    }
+    [[nodiscard]] constexpr uint32_t NeedsRenderArea( ShadowMethod method )
+    {
+        return method == ShadowMethod::VirtualMaps ? kVirtualShadowMapResolution : 0;
+    }
 
     // ---- What a method needs from the device: inline ray tracing (CapabilityCatalog RayQuery). ----------------
     [[nodiscard]] constexpr bool NeedsRayQuery( GIMethod method )

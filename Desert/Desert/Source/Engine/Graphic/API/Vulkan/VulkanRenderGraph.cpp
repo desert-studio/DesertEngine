@@ -688,6 +688,14 @@ namespace Desert::Graphic::API::Vulkan
         }
     }
 
+    std::span<const std::byte> VulkanRdgBuffer::ReadForHost() const
+    {
+        if ( m_Mapped == nullptr )
+            return {};
+        InvalidateForHost();
+        return { static_cast<const std::byte*>( m_Mapped ), static_cast<std::size_t>( m_Size ) };
+    }
+
     // ── Pool ───────────────────────────────────────────────────────────────────────────────────────────
 
     VulkanRdgPool::VulkanRdgPool( const VulkanRdgDevice& device, uint32_t frameSlots )
@@ -1480,6 +1488,20 @@ namespace Desert::Graphic::API::Vulkan
                 key.Colours[attachment.Slot] = described;
                 colourViews[attachment.Slot] = { view.GetValue(), clear };
             }
+        }
+        if ( pass.AreaWidth != 0 )
+        {
+            // PassBuilder::RenderArea: no attachment, so the framebuffer has none and its size is the area. The
+            // device limits are the only bound (CapabilityCatalog refuses a renderer that needs more).
+            const VkPhysicalDeviceLimits& limits = m_Device.Limits;
+            if ( pass.AreaWidth > limits.maxFramebufferWidth || pass.AreaHeight > limits.maxFramebufferHeight ||
+                 pass.AreaWidth > limits.maxViewportDimensions[0] ||
+                 pass.AreaHeight > limits.maxViewportDimensions[1] )
+                return Common::MakeFormattedError(
+                     "render area of '{}': {}x{} exceeds the device's framebuffer {}x{} / viewport {}x{}",
+                     pass.Name, pass.AreaWidth, pass.AreaHeight, limits.maxFramebufferWidth,
+                     limits.maxFramebufferHeight, limits.maxViewportDimensions[0], limits.maxViewportDimensions[1] );
+            extent = { pass.AreaWidth, pass.AreaHeight };
         }
         const Common::ResultStr<VkRenderPass> renderPass = GetRenderPass( key );
         if ( !renderPass )

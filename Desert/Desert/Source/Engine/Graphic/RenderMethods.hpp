@@ -30,6 +30,7 @@ namespace Desert::Graphic
         RenderPath,     // the view renders forward: no G-buffer for a method that reads one (NeedsGBuffer)
         NotImplemented, // declared, but this build has no renderer for it (only a ceiling can name one)
         FrameScene,     // this view-frame's ray-traced scene (TLAS, trace resources) could not be built
+        RenderArea,     // the device's framebuffer / viewport is below the method's render area (NeedsRenderArea)
     };
 
     template <typename Method>

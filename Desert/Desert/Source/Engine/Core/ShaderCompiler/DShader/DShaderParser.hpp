@@ -80,7 +80,8 @@ namespace Desert::Core::Preprocess
     // the one home of the cell set and of the headers a cell is built from — the parser writes the cells
     // from them and ComputeShaderMapKey hashes the same headers, so the two cannot disagree.
     inline constexpr std::array<std::string_view, 3> kSurfaceVertexPaths = { "Static", "Instanced", "Skinned" };
-    inline constexpr std::array<std::string_view, 3> kSurfaceCellPasses  = { "Forward", "GBuffer", "ShadowDepth" };
+    inline constexpr std::array<std::string_view, 4> kSurfaceCellPasses  = { "Forward", "GBuffer", "ShadowDepth",
+                                                                             "VirtualShadowDepth" };
     inline constexpr std::string_view                kSurfaceTypesInclude = "Mesh/Surface/SurfaceTypes.glslh";
     // THE PARTICLE SPRITE USAGE (UE: a material's bUsedWithParticleSprites). A template that declares
     // `Usage ParticleSprites` gets ONE more cell, `ParticleSprite.Forward`, after the mesh cells: the sprite
@@ -129,6 +130,14 @@ namespace Desert::Core::Preprocess
     // The pass whose opaque cells never evaluate the surface: their fragment stage is the pass header alone (no
     // surface function, no material row, no push block), so the cell's layout is the shadow shader's.
     inline constexpr std::string_view kSurfaceDepthPass = "ShadowDepth";
+    // The virtual shadow map's caster pass (UE: the VSM page raster, a non-Nanite mesh's shadow-depth shader writing
+    // the physical pool): the same depth-only cell, its fragment stage writing the pool by an atomic max instead
+    // of a depth attachment (Mesh/Surface/Pass_VirtualShadowDepth.glslh).
+    inline constexpr std::string_view kSurfaceVirtualDepthPass = "VirtualShadowDepth";
+    constexpr bool IsSurfaceDepthOnlyPass( const std::string_view pass )
+    {
+        return pass == kSurfaceDepthPass || pass == kSurfaceVirtualDepthPass;
+    }
 
     // The template's blend mode lives on the program metadata (Core/Formats/ShaderProgramMeta.hpp), where the
     // renderer reads it. Masked: the pass headers discard below u_Material.<kSurfaceMaskClipParam>. Translucent:

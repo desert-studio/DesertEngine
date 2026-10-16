@@ -77,6 +77,8 @@ namespace Desert::Graphic::API::Vulkan
         catalog.RenderScale.MaxPercent =
              std::max( 100, std::min( catalog.RenderScale.MaxPercent, static_cast<int>( maxByImage ) ) );
 
+        catalog.MaxRenderArea = probe.MaxRenderArea;
+
         // Ray tracing: the pipeline is never offered through portability (MoltenVK has no SBT path even when a
         // feature bit leaks through).
         catalog.RayTracingModes.push_back( RayTracingMode::None );

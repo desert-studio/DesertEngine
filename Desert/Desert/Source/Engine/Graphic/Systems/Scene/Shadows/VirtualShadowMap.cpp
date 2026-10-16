@@ -2,6 +2,8 @@
 
 #include <Common/Core/Profiler.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Common/Core/Logger.hpp>
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/RayTracedSunShadow.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
@@ -174,6 +176,37 @@ namespace Desert::Graphic::System
         return lightChanged;
     }
 
+    void VirtualShadowMapRenderer::ReportOverflow( const uint32_t slot )
+    {
+        const RDG::ExternalBuffer& readback = m_AllocatorReadback[slot];
+        if ( !readback.Physical )
+            return; // the slot has not been used yet
+        const std::span<const std::byte> bytes = readback.Physical->ReadForHost();
+        if ( bytes.size() < kVsmOverflowOffset + sizeof( uint32_t ) )
+        {
+            LOG_ERROR( "[Shadows] Virtual Shadow Map: the allocator readback holds {} bytes, the overflow count is at "
+                       "{}; the pool overflow is not known",
+                       bytes.size(), kVsmOverflowOffset );
+            return;
+        }
+        uint32_t overflow = 0;
+        std::memcpy( &overflow, bytes.data() + kVsmOverflowOffset, sizeof( overflow ) );
+        if ( overflow == m_ReportedOverflow )
+            return;
+        m_ReportedOverflow = overflow;
+        if ( overflow == 0 )
+        {
+            LOG_INFO( "[Shadows] Virtual Shadow Map: the physical page pool holds every requested page again" );
+        }
+        else
+        {
+            LOG_WARN( "[Shadows] Virtual Shadow Map: physical page pool overflow - {} requested page(s) found no "
+                      "page among Shadows.VirtualMaxPhysicalPages = {}; their receivers are shaded from a coarser "
+                      "level",
+                      overflow, m_ReadbackPhysicalPages[slot] );
+        }
+    }
+
     Common::ResultStr<VirtualShadowMapFrame> VirtualShadowMapRenderer::AddPagePasses(
          RDG::Builder& graph, const VirtualShadowMapViewInputs& view, const VirtualShadowMapSun& sun,
          const VirtualShadowMapQuality& quality, const std::span<const VsmInvalidationBox> invalidations,
@@ -227,6 +260,28 @@ namespace Desert::Graphic::System
         graph.QueueBufferUpload( allocator, Bytes( zeroCounters ) );
         const RDG::BufferRef lists =
              graph.CreateBuffer( RDG::BufferDesc{ .Bytes = 3ull * pages * sizeof( uint32_t ) }, "VSM.Lists" );
+
+        // The overflow this slot's previous frame counted, then this frame's counters handed to the host in its
+        // place (read when the slot comes round again).
+        const uint32_t slots = std::max( 1u, EngineContext::GetInstance().GetMaxFramesInFlight() );
+        if ( m_AllocatorReadback.size() != slots )
+        {
+            m_AllocatorReadback.assign( slots, RDG::ExternalBuffer{} );
+            m_ReadbackPhysicalPages.assign( slots, 0u );
+        }
+        const uint32_t slot = static_cast<uint32_t>( view.FrameIndex % slots );
+        ReportOverflow( slot );
+        m_AllocatorReadback[slot]     = RDG::ExternalBuffer{};
+        m_ReadbackPhysicalPages[slot] = pages;
+        graph.Extract( allocator, m_AllocatorReadback[slot], RDG::Access::HostRead );
+
+        for ( uint32_t i = 0; i < kVsmClipmapLevelCount; ++i )
+        {
+            const glm::uvec4 level( i, 0u, 0u, 0u );
+            frame.RasterLevel[i] = graph.CreateBuffer( RDG::BufferDesc{ .Bytes = sizeof( level ) },
+                                                       std::format( "VSM.RasterLevel{}", i ) );
+            graph.QueueBufferUpload( frame.RasterLevel[i], std::as_bytes( std::span<const glm::uvec4>( &level, 1 ) ) );
+        }
 
         const RDG::BufferRef  frameData = frame.FrameData;
         const RDG::BufferRef  pageTable = frame.PageTable;

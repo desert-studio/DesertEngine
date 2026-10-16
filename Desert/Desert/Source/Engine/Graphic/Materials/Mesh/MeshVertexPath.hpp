@@ -164,9 +164,12 @@ namespace Desert::Graphic
         // G-buffer (the ray-traced sun's mask, SSAO, SSR) see the forward-shaded opaque meshes too (UE: the
         // depth prepass every opaque mesh draws). A surface template has no such cell: it is in the G-buffer.
         DepthNormal = 4,
+        // Depth only, into the virtual shadow map's physical pool (SHADOW-VSM "VSM: Raster"): the ShadowDepth cell's
+        // vertex stage, a fragment stage that atomic-maxes the depth into the page its texel maps to.
+        VirtualShadowDepth = 5,
     };
 
-    inline constexpr uint32_t kMeshPassCount = 5;
+    inline constexpr uint32_t kMeshPassCount = 6;
 
     // (path x pass) -> the surface CELL that draws it, "<Path>.<Pass>" (DShaderParser's SurfaceCellName), or
     // nullptr where the pass is not drawn through a surface template's cell (Glass, which is its own program).

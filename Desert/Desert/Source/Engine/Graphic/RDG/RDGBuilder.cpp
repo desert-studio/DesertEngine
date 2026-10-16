@@ -443,6 +443,36 @@ namespace Desert::Graphic::RDG
                            store );
     }
 
+    void PassBuilder::RenderArea( uint32_t width, uint32_t height )
+    {
+        Builder::PassRecord& pass  = m_Builder.m_Passes[m_Pass];
+        const std::string&   graph = m_Builder.m_Name;
+        if ( !HasFlag( pass.Flags, PassFlags::Raster ) )
+        {
+            m_Builder.RecordPassError( m_Pass, fmt::format( "graph '{}' pass '{}': RenderArea({}x{}) in a {} pass",
+                                                            graph, pass.Name, width, height,
+                                                            RdgPassKindName( pass.Flags ) ) );
+            return;
+        }
+        if ( width == 0 || height == 0 )
+        {
+            m_Builder.RecordPassError(
+                 m_Pass, fmt::format( "graph '{}' pass '{}': RenderArea({}x{}) has a zero side", graph, pass.Name,
+                                      width, height ) );
+            return;
+        }
+        if ( !pass.Attachments.empty() )
+        {
+            m_Builder.RecordPassError( m_Pass, fmt::format( "graph '{}' pass '{}': RenderArea({}x{}) in a pass with "
+                                                            "{} attachment(s); the area of such a pass is theirs",
+                                                            graph, pass.Name, width, height,
+                                                            pass.Attachments.size() ) );
+            return;
+        }
+        pass.AreaWidth  = width;
+        pass.AreaHeight = height;
+    }
+
     void PassBuilder::DeclareTexture( TextureRef texture, Access access, SubresourceRange range, bool asWrite,
                                       std::string_view call )
     {
@@ -598,6 +628,13 @@ namespace Desert::Graphic::RDG
             m_Builder.RecordPassError( m_Pass, fmt::format( "graph '{}' pass '{}': {}('{}') in a {} pass", graph,
                                                             pass.Name, call, resource->Name,
                                                             RdgPassKindName( pass.Flags ) ) );
+            return;
+        }
+        if ( pass.AreaWidth != 0 )
+        {
+            m_Builder.RecordPassError( m_Pass, fmt::format( "graph '{}' pass '{}': {}('{}') in a pass with a "
+                                                            "RenderArea; such a pass has no attachment",
+                                                            graph, pass.Name, call, resource->Name ) );
             return;
         }
         if ( access == Access::DepthRead && load.Action == LoadAction::Clear )
@@ -1049,7 +1086,8 @@ namespace Desert::Graphic::RDG
                          std::format( "graph '{}' pass '{}': {}", m_Name, pass.Name, recorded.GetError() ), {} );
                 }
             }
-            const bool rendering = HasFlag( pass.Flags, PassFlags::Raster ) && !pass.Attachments.empty();
+            const bool rendering = HasFlag( pass.Flags, PassFlags::Raster ) &&
+                                   ( !pass.Attachments.empty() || pass.AreaWidth != 0 );
             if ( skipRoot )
             {
                 if ( renderPassOpen )

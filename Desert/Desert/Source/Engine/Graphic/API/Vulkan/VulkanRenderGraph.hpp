@@ -236,6 +236,7 @@ namespace Desert::Graphic::API::Vulkan
         }
         // Makes device writes visible to the host on non-coherent memory; no-op on coherent memory.
         void InvalidateForHost() const;
+        [[nodiscard]] std::span<const std::byte> ReadForHost() const override;
 
         // See VulkanRdgTexture::ClaimLedger.
         void ClaimLedger( const ResourceAttribution& holder )

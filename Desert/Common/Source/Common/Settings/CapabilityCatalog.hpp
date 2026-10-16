@@ -187,6 +187,11 @@ namespace Common::Scalability
         // RayTracingPipeline never.
         std::vector<RayTracingMode> RayTracingModes;
 
+        // Reader: Graphic::ResolveRenderMethods (NeedsRenderArea: the virtual shadow map's attachment-less raster).
+        // The largest square render area the device rasterizes: min of maxFramebufferWidth / Height and
+        // maxViewportDimensions. Mac: 16384 on Apple GPUs (Metal's texture and render-target limit).
+        uint32_t MaxRenderArea = 0;
+
         // Reader: Filtering group (Anisotropy parameter). The selectable levels (1, 2, 4, 8, 16) up to the
         // device's maxSamplerAnisotropy; {1} when samplerAnisotropy is absent. Mac: 1..16.
         std::vector<int> AnisotropyLevels;

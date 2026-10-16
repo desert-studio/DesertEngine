@@ -6,7 +6,9 @@
 
 #include <array>
 #include <cstdint>
+#include <cstddef>
 #include <functional>
+#include <span>
 #include <limits>
 #include <memory>
 #include <vector>
@@ -147,6 +149,11 @@ namespace Desert::Graphic::RDG
     public:
         virtual ~IPhysicalBuffer()                               = default;
         [[nodiscard]] virtual BackendKind GetBackendKind() const = 0;
+        // UE FRHIGPUBufferReadback::Lock. The bytes of a buffer extracted with Access::HostRead, made visible to the
+        // host; meaningful only once the submission that wrote it has completed (the caller reads a frame-in-flight
+        // slot it reuses, whose fence the frame start waited). Empty for a buffer that is not host-visible: only a
+        // HostRead extraction makes one.
+        [[nodiscard]] virtual std::span<const std::byte> ReadForHost() const = 0;
     };
 
     // A texture that outlives the graph (swapchain image, history buffer, a baked cube). It carries its
