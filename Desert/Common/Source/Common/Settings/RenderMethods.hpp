@@ -41,8 +41,8 @@ namespace Common::Scalability
         ProbeVolume,
         SoftwareTraced, // global SDF + world radiance cache + screen probes (GLOBAL-SDF, GI-RADIANCE-CACHE,
                         // GI-FINAL-GATHER)
-        HardwareTraced, // ray query: screen probes + radiance cache (GI-HWRT); RT device — not connected yet:
-                        // the frame's tracer record carries no TLAS / instance MeshCards table (RefuseGIMethod)
+        HardwareTraced, // ray query: screen probes + radiance cache (GI-HWRT); the tracer record carries the frame's
+                        // TLAS, segment records and instance -> surface-cache rows (MakeTracerFrame); RT device
         PathTraced,     // reference / Cinematic (PATHTRACER); RT device                  — not implemented
     };
 
