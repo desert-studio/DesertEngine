@@ -64,6 +64,9 @@ namespace Desert::Graphic::System
                 continue;
             hash.Add( rd.Mesh );
             hash.Add( rd.Transform );
+            // One entry per section material: which submeshes it casts, and through which slot's route.
+            hash.Add( rd.HiddenSubmeshes );
+            hash.Add( rd.SectionSlot );
         }
         for ( const auto& g : m_GenericQueue )
         {
@@ -97,7 +100,10 @@ namespace Desert::Graphic::System
                 any = true;
             }
             if ( any )
+            {
                 hash.Add( ism.Mesh );
+                hash.Add( ism.HiddenSubmeshes );
+            }
         }
         return hash.Value;
     }
@@ -119,7 +125,7 @@ namespace Desert::Graphic::System
 
         // A renderer with no shadow budget has no caster pipeline (SetupShadowPass), and a view with shadows off
         // draws none: the lights are then unshadowed, exactly as the sun is.
-        const uint32_t atlasSide = LocalShadowAtlasSize( m_Shadow.ShadowMapSize );
+        const uint32_t atlasSide = LocalShadowAtlasSize( m_Shadow.LocalShadowMapSize );
         if ( !m_ShadowsEnabled || !m_ShadowPipeline || atlasSide < kMinLocalShadowTile )
             return;
 
@@ -362,6 +368,10 @@ namespace Desert::Graphic::System
                 m_LocalDraws[slot].Clear();
                 BuildShadowCascadeDraws( view, m_LocalDraws[slot] );
                 m_LocalDraws[slot].Declare( declared, std::nullopt );
+                // The skin cache's streams its skinned casters fetch (BuildShadowCascadeDraws pushes each draw's
+                // address, the masked ones read it from their row); written by the scene's skin step.
+                for ( const RDG::BufferRef& streams : m_SkinCacheReads )
+                    declared.Read( streams, RDG::Access::StorageRead );
             };
             passes.push_back( std::move( pass ) );
         }

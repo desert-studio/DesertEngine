@@ -88,10 +88,11 @@ namespace Desert::Graphic::API::Vulkan
     [[nodiscard]] const std::array<CapabilitySpec, kCapabilityCount>& CapabilityTable();
     [[nodiscard]] const CapabilitySpec&                               SpecOf( Capability capability );
 
-    // The oldest device the engine runs on: vkGetPhysicalDeviceMemoryProperties2 (QueryMemory) and
-    // vkGetPhysicalDeviceFeatures2 (every probe below) are core 1.1. The shader compiler's target is tied
-    // to this constant (ShaderCompiler.cpp), so SPIR-V never outruns the oldest accepted device.
-    inline constexpr uint32_t kMinimumDeviceApiVersion = VK_API_VERSION_1_1;
+    // The oldest device the engine runs on. 1.2 (RT-SCENE): shaders are compiled for this version
+    // (ShaderTarget.hpp) and ray query needs SPIR-V 1.4, which a 1.1 target cannot emit; every ray-tracing
+    // device is 1.2+ anyway (the AS rows route from 1.2), and 1.1-only drivers are pre-2020. QueryMemory's
+    // vkGetPhysicalDeviceMemoryProperties2 and the vkGetPhysicalDeviceFeatures2 probes are core since 1.1.
+    inline constexpr uint32_t kMinimumDeviceApiVersion = VK_API_VERSION_1_2;
     // The newest version the engine is written for; the instance, VMA and routing never go past it.
     inline constexpr uint32_t kMaximumApiVersion = VK_API_VERSION_1_3;
 

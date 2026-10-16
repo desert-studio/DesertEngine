@@ -376,3 +376,44 @@ TEST( RenderGraphVulkanPassBindings, ABlockWithAFailedEntryIsRefusedWithThatEntr
     EXPECT_NE( resolved.GetError().find( "is not a block this pass declared" ), std::string::npos )
          << resolved.GetError();
 }
+
+// RT-SCENE: a ray-query shader's u_Scene (acceleration structure, set 1 binding 3) filled by a block entry on the
+// view's TLAS buffer resolves to that slot as an AccelerationStructure entry carrying the TLAS - the entry
+// WriteRdgPassSets turns into a VkWriteDescriptorSetAccelerationStructureKHR write.
+TEST( RenderGraphVulkanPassBindings, ATlasEntryResolvesToTheReflectedAccelerationStructureSlot )
+{
+    ShaderResource::ReflectionData       reflection;
+    ShaderResource::ShaderDescriptorSet& set = reflection.ShaderDescriptorSets[1];
+    Layout::AccelerationStructure        scene;
+    scene.BindingPoint  = 3;
+    scene.DescriptorSet = 1;
+    scene.Name          = "u_Scene";
+    set.AccelerationStructures.emplace( 3, scene );
+
+    ExternalBuffer            tlasStorage( BufferDesc{ 4096 }, Access::None );
+    Builder                   graph( "ray-query-consumer" );
+    const BufferRef           tlas    = graph.RegisterExternal( tlasStorage, "RayTracingScene.TLAS" );
+    Verdict                   verdict = Common::MakeError<std::vector<RdgResolvedEntry>>( "the pass did not run" );
+    const ShaderBindingLayout believed{ .ShaderName = "RayQuery",
+                                        .Slots = { { "u_Scene", ShaderResourceKind::AccelerationStructure } } };
+    graph.AddPass(
+         "RayQuery", PassFlags::Compute | PassFlags::NeverCull, [&]( PassBuilder& pass )
+         { pass.Bindings( believed, OtherRouteFill{} ).AccelerationStructure( "u_Scene", tlas ); },
+         [&]( PassContext& context ) -> Common::BoolResultStr
+         {
+             PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+             verdict = ResolveRdgPassBindings( reflection, "RayQuery", bindings, RdgOtherRoute{} );
+             return Common::MakeSuccess( true );
+         } );
+    NoOpBackend                 backend;
+    const Common::BoolResultStr executed = graph.Execute( backend );
+    ASSERT_TRUE( executed.IsSuccess() ) << executed.GetError();
+    ASSERT_TRUE( verdict.IsSuccess() ) << verdict.GetError();
+    ASSERT_EQ( verdict.GetValue().size(), 1u );
+    const RdgResolvedEntry& entry = verdict.GetValue()[0];
+    EXPECT_EQ( entry.Slot, ( RdgSlotKey{ 1, 3 } ) );
+    EXPECT_EQ( entry.Kind, ShaderResourceKind::AccelerationStructure );
+    ASSERT_NE( entry.Buffer, nullptr );
+    EXPECT_EQ( entry.Buffer->Declared, Access::AccelStructRead );
+    EXPECT_EQ( entry.Buffer->Buffer.Name, "RayTracingScene.TLAS" );
+}

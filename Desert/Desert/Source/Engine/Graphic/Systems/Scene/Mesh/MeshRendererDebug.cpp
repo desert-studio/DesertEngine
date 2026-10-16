@@ -400,21 +400,34 @@ namespace Desert::Graphic::System
                 {
                     m_SilhouetteSkinnedMaterial->UpdateCamera( *view );
                     m_SilhouetteSkinnedMaterial->UploadBones( outlineBones );
-                    auto* const skinnedMask = m_SilhouetteSkinnedMaterial.get();
+                    auto* const                            skinnedMask = m_SilhouetteSkinnedMaterial.get();
+                    const std::span<const GpuObjectMotion> rows        = m_ScratchMotionRows.Rows;
                     for ( const auto& [sd, boneOffset] : outlined )
                     {
-                        // The pose slice is the draw's own state, set right before it.
+                        // The pose slice (or the skin cache's streams) is the draw's own state, set right before
+                        // it.
+                        const GpuObjectMotion row =
+                             sd->MotionRow < rows.size() ? rows[sd->MotionRow] : GpuObjectMotion{};
+                        const uint64_t address =
+                             ( static_cast<uint64_t>( row.SkinCacheAddressHi ) << 32u ) | row.SkinCacheAddressLo;
                         m_SilhouetteDraws.Add( { .Pipeline  = m_SilhouetteSkinnedPipeline.get(),
                                                  .Mesh      = sd->Mesh,
                                                  .Transform = sd->Transform,
                                                  .Material  = skinnedMask->GetMaterialExecutor(),
-                                                 .BindState = [skinnedMask, offset = boneOffset]
-                                                 { skinnedMask->SetBoneOffset( offset ); } } );
+                                                 .BindState = [skinnedMask, offset = boneOffset, address,
+                                                               count = row.SkinCacheVertexCount]
+                                                 {
+                                                     skinnedMask->SetBoneOffset( offset );
+                                                     skinnedMask->SetSkinCache( address, count );
+                                                 } } );
                     }
                 }
             }
             // The mask shaders sample no scene/view input.
             m_SilhouetteDraws.Declare( declared, std::nullopt );
+            // The skin cache's streams the skinned masks fetch (after "SkinCache: Skin" wrote them).
+            for ( const RDG::BufferRef& streams : m_SkinCacheReads )
+                declared.Read( streams, RDG::Access::StorageRead );
         };
         return pass;
     }

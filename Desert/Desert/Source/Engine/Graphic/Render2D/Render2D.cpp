@@ -33,11 +33,13 @@ namespace Desert::Graphic::Render2D
     // said here: a Texture2D unregisters its own image (Texture.hpp).
     Render2D::~Render2D() = default;
 
-    Common::BoolResultStr Render2D::Init( const std::shared_ptr<Framebuffer>& target )
+    Common::BoolResultStr Render2D::Init( const std::shared_ptr<Framebuffer>& target,
+                                          const ResourceOwnerInstance         view )
     {
-        // The three pipelines, the two buffers and the 1x1 white texture below belong to the UI backend
-        // and to no asset — one scope rather than six claims. See Engine/Graphic/ResourceLedger.hpp.
-        const ResourceAttributionScope owned( ResourceOwner::UserInterface );
+        // The two buffers and the 1x1 white texture below belong to the UI backend and to no asset, and to the
+        // view this UI is drawn for — one scope rather than claims. See Engine/Graphic/ResourceLedger.hpp.
+        m_LedgerView                         = view;
+        const ResourceAttributionScope owned = OpenLedgerScope();
 
         if ( !target )
             return Common::MakeError( "Render2D::Init: null target framebuffer" );
@@ -165,6 +167,8 @@ namespace Desert::Graphic::Render2D
         // failed GPU allocation left the renderer believing it owned a buffer of the new size: this
         // function then never retried, and every later draw wrote through the failed buffer. Leaving the
         // old capacity means the next call attempts the growth again.
+        // Grown while a frame is drawn, under whatever scope the caller has open: the view's rows regardless.
+        const ResourceAttributionScope owned = OpenLedgerScope();
         if ( vertexCount > m_VertexCapacity )
         {
             const uint32_t cap = std::max( vertexCount, m_VertexCapacity ? m_VertexCapacity * 2 : 4096u );
@@ -201,7 +205,8 @@ namespace Desert::Graphic::Render2D
         }
         else
         {
-            auto owned = MaterialExecutor::Create( "Render2D", shader );
+            const ResourceAttributionScope ledger = OpenLedgerScope();
+            auto                           owned  = MaterialExecutor::Create( "Render2D", shader );
             exec       = owned.get();
             cache.emplace( texture, CachedExecutor{ std::move( owned ), frame } );
         }
@@ -782,8 +787,8 @@ namespace Desert::Graphic::Render2D
                 return t.get();
             }
 
-        const ResourceAttributionScope owned( ResourceOwner::UserInterface );
-        auto                           t = std::make_unique<RetainedTarget>();
+        const ResourceAttributionScope owned = OpenLedgerScope();
+        auto                           t     = std::make_unique<RetainedTarget>();
         FramebufferSpecification       spec;
         spec.Width       = W;
         spec.Height      = H;
@@ -807,7 +812,7 @@ namespace Desert::Graphic::Render2D
             return nullptr;
         }
         t->Renderer = std::make_unique<Render2D>();
-        if ( const auto init = t->Renderer->Init( t->Target ); !init )
+        if ( const auto init = t->Renderer->Init( t->Target, m_LedgerView ); !init )
         {
             LOG_ERROR( "[Render2D] retained-layer renderer: {}", init.GetError() );
             return nullptr;

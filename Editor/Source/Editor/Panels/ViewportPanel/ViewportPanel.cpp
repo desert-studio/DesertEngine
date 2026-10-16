@@ -1235,6 +1235,7 @@ namespace Desert::Editor
                 VM_ShadingModel,
                 VM_SunShadowReceive,
                 VM_Velocity,
+                VM_LightGridWorld,
                 VM_GlobalDistanceField,
                 VM_ShadowCascades,
                 VM_ShadowFactor,
@@ -1255,6 +1256,7 @@ namespace Desert::Editor
                                          ICON_MDI_PALETTE_SWATCH "  Shading Model",
                                          ICON_MDI_WEATHER_SUNNY "  Sun Shadow Receive",
                                          ICON_MDI_ARROW_ALL "  Velocity",
+                                         ICON_MDI_GRID "  Light Grid (World)",
                                          ICON_MDI_CUBE_OUTLINE "  Global Distance Field",
                                          ICON_MDI_LAYERS "  Shadow Cascades",
                                          ICON_MDI_BRIGHTNESS_6 "  Shadow Factor" };
@@ -1295,6 +1297,8 @@ namespace Desert::Editor
                 vm = VM_SunShadowReceive;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::Velocity )
                 vm = VM_Velocity;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::LightGridWorld )
+                vm = VM_LightGridWorld;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::GlobalDistanceField )
                 vm = VM_GlobalDistanceField;
             else if ( view.ShowNormals )
@@ -1479,6 +1483,9 @@ namespace Desert::Editor
                         break;
                     case VM_Velocity:
                         view.DeferredDebug = Graphic::DeferredDebugMode::Velocity;
+                        break;
+                    case VM_LightGridWorld:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::LightGridWorld;
                         break;
                     case VM_GlobalDistanceField:
                         view.DeferredDebug = Graphic::DeferredDebugMode::GlobalDistanceField;
@@ -2028,12 +2035,17 @@ namespace Desert::Editor
             DrawViewAxisGizmo( m_ViewportData.ViewportPos, m_ViewportData.Size );
 
         // What this view renders for GI / reflections / shadows, and why a method came out lower than asked.
+        // Beside it, what this view's TLAS holds (drawn only on a frame that traced rays).
         if ( !m_Modes.UI2D && m_Scene )
             if ( const Graphic::SceneRenderer* renderer = m_Scene->GetViewRenderer( ViewIndex() ) )
-                DrawRenderMethodsOverlay( renderer->GetRenderMethods(),
-                                          ImVec2( m_ViewportData.ViewportPos.x, m_ViewportData.ViewportPos.y ),
-                                          ImVec2( m_ViewportData.ViewportPos.x + m_ViewportData.Size.x,
-                                                  m_ViewportData.ViewportPos.y + m_ViewportData.Size.y ) );
+            {
+                const ImVec2 viewportMin( m_ViewportData.ViewportPos.x, m_ViewportData.ViewportPos.y );
+                const ImVec2 viewportMax( m_ViewportData.ViewportPos.x + m_ViewportData.Size.x,
+                                          m_ViewportData.ViewportPos.y + m_ViewportData.Size.y );
+                DrawRenderMethodsOverlay( renderer->GetRenderMethods(), viewportMin, viewportMax );
+                DrawRayTracingSceneOverlay( renderer->GetRayTracingScene().GetStats(),
+                                            renderer->TakeLedgerMemory(), viewportMin, viewportMax );
+            }
 
         // Perf HUD (View -> Perf HUD): FPS + frame graph + top CPU scopes, useful in Play too.
         if ( EditorPreferences::Get().ShowPerfHud )

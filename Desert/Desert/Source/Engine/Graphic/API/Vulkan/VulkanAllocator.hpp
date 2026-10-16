@@ -48,6 +48,15 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t     FrameIndex;
     };
 
+    // The AS object only: its storage buffer is queued separately (RT_DestroyBuffer) on the same frame, and the
+    // drain destroys every AS before any buffer so the object never outlives the memory it was created in.
+    struct AccelerationStructureDeletionEntry
+    {
+        VkAccelerationStructureKHR            AccelerationStructure;
+        PFN_vkDestroyAccelerationStructureKHR Destroy; // the device's entry point (RayTracingDeviceFunctions)
+        uint32_t                              FrameIndex;
+    };
+
     struct QueryPoolDeletionEntry
     {
         VkQueryPool QueryPool;
@@ -110,6 +119,9 @@ namespace Desert::Graphic::API::Vulkan
         // A timestamp pool the GPU profiler outgrew: the frame that last wrote into it may still be in
         // flight, so it waits for that frame like any other per-frame object.
         void RT_DestroyQueryPool( VkQueryPool queryPool );
+        // A BLAS or TLAS a frame in flight may still trace: waits for that frame like a buffer does.
+        void RT_DestroyAccelerationStructure( VkAccelerationStructureKHR            accelerationStructure,
+                                              PFN_vkDestroyAccelerationStructureKHR destroy );
         // Takes every set allocated from the pool with it, so it waits for the frame that last bound one of
         // them exactly as a buffer does: a material or a view destroyed mid-session may still have its sets
         // in a command buffer the GPU has not finished.
@@ -150,6 +162,13 @@ namespace Desert::Graphic::API::Vulkan
 
         void Init( const std::shared_ptr<VulkanLogicalDevice>& device, VkInstance instance );
 
+        /// The capability rows of the device this allocator serves (copied at Init): what a buffer's usage
+        /// may name (MeshBufferUsage) is decided by what that device enabled.
+        [[nodiscard]] const DeviceCaps& GetDeviceCaps() const
+        {
+            return m_DeviceCaps;
+        }
+
         void Shutdown();
 
         static VmaAllocator& GetVMAAllocator();
@@ -173,12 +192,14 @@ namespace Desert::Graphic::API::Vulkan
 
         /// The device this allocator was created for. See Init() for why it is held rather than looked up.
         VkDevice m_Device = VK_NULL_HANDLE;
+        DeviceCaps m_DeviceCaps;
 
         std::vector<BufferDeletionEntry>      m_BufferDeletionQueue;
         std::vector<ImageDeletionEntry>       m_ImageDeletionQueue;
         std::vector<FramebufferDeletionEntry> m_FramebufferDeletionQueue;
         std::vector<RenderPassDeletionEntry>  m_RenderPassDeletionQueue;
         std::vector<QueryPoolDeletionEntry>      m_QueryPoolDeletionQueue;
+        std::vector<AccelerationStructureDeletionEntry> m_AccelerationStructureDeletionQueue;
         std::vector<DescriptorPoolDeletionEntry> m_DescriptorPoolDeletionQueue;
 
         AllocationLedger m_Ledger;

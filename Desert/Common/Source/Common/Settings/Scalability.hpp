@@ -123,18 +123,56 @@ namespace Common::Scalability
         GlobalIlluminationMethod, // Values: GIMethod
         ReflectionsMethod,        // Values: ReflectionMethod
         ShadowsMethod,            // Values: ShadowMethod
+        // GPU skin cache (RayTracing::RayTracingSkinCache): 1 = each skinned primitive skinned once per frame in
+        // compute, the raster fetches it and the TLAS traces it; 0 = the raster skins in the vertex stage, no
+        // skinned TLAS geometry. Values: 0/1
+        SkinCache,
         // The view's light grid (Graphic::LightGridQuality, "Deferred: LightGrid"): what the per-pixel light loop
         // costs against what building the grid costs. The image is the same at every value (a cell whose list is
         // full is shaded by every light), so these are cost knobs only - UE's r.Forward.LightGrid* cvars.
         LightGridPixelSize,        // tile edge in render pixels. 16..256
         LightGridSlices,           // logarithmic depth slices. 8..128
         LightGridMaxLightsPerCell, // list capacity of one cell. 8..256
+        // Shadow rays per pixel of "Shadows: Ray Traced Sun" inside the SourceAngle cone (UE
+        // r.RayTracing.Shadows.SamplesPerPixel); the denoiser's ShadowVisibility signal takes at most 8. 1..8
+        ShadowRayTracedSamplesPerPixel,
+        // Under a ray-traced sun, the sun's cascades kept for the blended programs that sample u_ShadowCascades
+        // (translucency; volumes when one reads them): drawn only on a frame with such a reader
+        // (MeshRenderer::SunCascadeReadersQueued). Count 1..4 and texel side 256..2048.
+        ShadowRayTracedTranslucencyCascades,
+        ShadowRayTracedTranslucencyMapSize,
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget
         TemporalAAQuality,       // AntiAliasing: TAA/TAAU history quality 0..2 (Low/Medium/High); reader
                                  // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
         UpscalerSharpness,       // ResolutionScale: percent
+        // GlobalIllumination: the budgets of the surface cache and the world radiance cache (GI-CACHE-IFACE,
+        // Graphic/GlobalIllumination). Each gains its reader with the pass that spends it (GI-SURFACE-CACHE,
+        // GI-RADIANCE-CACHE, GI-HWRT); the per-level values are UE's BaseScalability.ini
+        // GlobalIlluminationQuality.
+        SurfaceCacheAtlasSize,                  // texels per side of the surface cache atlases (UE
+                                                // r.LumenScene.SurfaceCache.AtlasSize)
+        SurfaceCacheCardTexelDensity,           // card texels per world unit, percent (UE
+                                                // r.LumenScene.SurfaceCache.CardTexelDensityScale)
+        SurfaceCacheCardMinResolution,          // smallest card side in texels (UE
+                                                // r.LumenScene.SurfaceCache.CardMinResolution)
+        SurfaceCacheCardMaxResolution,          // largest card side in texels (UE
+                                                // r.LumenScene.SurfaceCache.CardMaxResolution)
+        SurfaceCacheDirectLightingUpdateFactor, // 1/N of the card texels relit per frame (UE
+                                                // r.LumenScene.DirectLighting.UpdateFactor)
+        SurfaceCacheRadiosityUpdateFactor,      // 1/N of the card texels re-gathered per frame (UE
+                                                // r.LumenScene.Radiosity.UpdateFactor)
+        SurfaceCacheRadiosityProbeSpacing,      // card texels between radiosity probes (UE
+                                                // r.LumenScene.Radiosity.ProbeSpacing)
+        SurfaceCacheRadiosityProbeResolution,   // radiosity hemisphere probe side (UE
+                                                // r.LumenScene.Radiosity.HemisphereProbeResolution)
+        RadianceCacheProbeResolution,           // octahedral radiance texels per probe side (UE
+                                                // r.Lumen.ScreenProbeGather.RadianceCache.ProbeResolution)
+        RadianceCacheProbesPerFrame,            // probes traced per frame (UE
+                                                // r.Lumen.ScreenProbeGather.RadianceCache.NumProbesToTraceBudget)
+        HitLightingAllowed,                     // 0/1: a hardware-traced hit may be lit in place (UE
+                                                // r.Lumen.HardwareRayTracing.HitLighting.Allowed)
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

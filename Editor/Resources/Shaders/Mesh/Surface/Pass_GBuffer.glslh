@@ -32,8 +32,8 @@ void main()
     const SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
                               v_Surface.VertexColor, gl_FrontFacing );
+    DESERT_SURFACE_CLIP( i );
     const SurfaceOutput s = EvaluateSurface( i );
-    DESERT_SURFACE_CLIP( s );
     oGBufferA        = vec4( s.BaseColor, s.Metallic );
     oGBufferB        = vec4( DesertSurfaceWorldNormal( i, s ), max( s.Roughness, 0.04 ) );
 #ifndef DESERT_GBUFFER_RSM

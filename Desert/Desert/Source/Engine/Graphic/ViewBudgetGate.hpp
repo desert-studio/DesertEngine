@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Desert::Graphic
 {
@@ -20,6 +21,12 @@ namespace Desert::Graphic
     /// override), with the open views' holdings standing in for usage when the driver gives none. The
     /// first call logs the ceiling and its source once, so an unknown budget is never silent.
     [[nodiscard]] Engine::ViewBudget::Reading ReadViewBudget();
+
+    /// What the budget counts as held, MEASURED from the resource ledger (RT-LEDGER-3): every open view's
+    /// entry (SceneRenderer::LiveHoldings, its own rows), then every live scene's shared rows ONCE
+    /// (SceneRenderer::SceneHoldings) — never inside a view's entry. The list every refusal text names and
+    /// the sum ReadViewBudget stands in for usage with.
+    [[nodiscard]] std::vector<Engine::ViewBudget::HeldView> ReadBudgetHoldings();
 
     /**
      * @brief Asked BEFORE a SceneRenderer is built: may @p who create a view of @p profile at @p extent?

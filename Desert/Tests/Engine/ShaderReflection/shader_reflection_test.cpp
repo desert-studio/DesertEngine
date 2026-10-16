@@ -727,3 +727,57 @@ void main() { oColor = vec4(1.0); oVelocity = vec2(0.0); }
     EXPECT_EQ( opaque[1].colorWriteMask, kRgba );
     EXPECT_EQ( opaque[1].blendEnable, VK_FALSE );
 }
+
+// RT-SCENE: a shader declaring `accelerationStructureEXT` (GL_EXT_ray_query) gets an AccelerationStructures entry
+// with its set, binding, name and stage, and the set layout built from the reflection holds a binding of
+// VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR there. Red if the acceleration_structures loop in ReflectStage is
+// dropped (the TLAS binding would be missing from the layout and the descriptor write would have no slot).
+// Ray query needs SPIR-V 1.4, i.e. the Vulkan 1.2 target every ray-tracing device meets (DeviceCaps routes the
+// acceleration_structure row from 1.2).
+TEST( ShaderReflection, AnAccelerationStructureIsReflectedOnItsSetAndBinding )
+{
+    const char*             source = R"(#version 460
+#extension GL_EXT_ray_query : require
+layout(set = 1, binding = 3) uniform accelerationStructureEXT u_Scene;
+layout(binding = 0, r8) writeonly uniform image2D u_Visibility;
+layout(local_size_x = 8, local_size_y = 8) in;
+void main()
+{
+    rayQueryEXT q;
+    rayQueryInitializeEXT(q, u_Scene, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, vec3(0.0), 0.0, vec3(0.0, 1.0, 0.0), 1000.0);
+    while (rayQueryProceedEXT(q)) {}
+    float lit = rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
+    imageStore(u_Visibility, ivec2(gl_GlobalInvocationID.xy), vec4(lit));
+}
+)";
+    shaderc::Compiler       compiler;
+    shaderc::CompileOptions options;
+    options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2 );
+    options.SetTargetSpirv( shaderc_spirv_version_1_4 );
+    const auto result =
+         compiler.CompileGlslToSpv( source, shaderc_glsl_compute_shader, "rt_scene_test.glsl", options );
+    ASSERT_EQ( result.GetCompilationStatus(), shaderc_compilation_status_success ) << result.GetErrorMessage();
+    const std::vector<uint32_t> spirv( result.begin(), result.end() );
+
+    ShaderResource::ReflectionData data;
+    const auto diagnostics = ShaderReflection::ReflectStage( spirv, ShaderStage::Compute, data );
+    ASSERT_TRUE( diagnostics.empty() ) << FirstOr( diagnostics, "" );
+
+    ASSERT_EQ( data.ShaderDescriptorSets.count( 1 ), 1u );
+    const auto& set1 = data.ShaderDescriptorSets.at( 1 );
+    ASSERT_EQ( set1.AccelerationStructures.size(), 1u );
+    const auto& as = set1.AccelerationStructures.at( 3 );
+    EXPECT_EQ( as.Name, "u_Scene" );
+    EXPECT_EQ( as.BindingPoint, 3u );
+    EXPECT_EQ( as.DescriptorSet, 1u );
+    EXPECT_EQ( as.ShaderStage, ShaderStage::Compute );
+    // Not misfiled as another kind.
+    EXPECT_TRUE( set1.StorageBuffers.empty() );
+    EXPECT_TRUE( set1.UniformBuffers.empty() );
+
+    const auto bindings = ShaderReflection::BuildLayoutBindings( set1 );
+    ASSERT_EQ( bindings.size(), 1u );
+    EXPECT_EQ( bindings[0].binding, 3u );
+    EXPECT_EQ( bindings[0].descriptorType, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR );
+    EXPECT_EQ( bindings[0].descriptorCount, 1u );
+}

@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Clouds/CloudEnvironmentBake.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/Texture.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Runtime/ImageHandle.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 
@@ -120,9 +121,12 @@ namespace Desert::Graphic
         //
         // The panorama size is authored (SkyAtmosphereData::EnvironmentResolution) rather than a constant
         // because this cost is paid PER LIVE SceneRenderer, and the editor keeps several of those.
+        // @p scene: the ledger instance the bake's rows are tagged with (RT-LEDGER-4: an environment bake is
+        // its scene's row, "scene #N", never the view whose frame happened to start it).
         static Environment CreateProcedural( uint32_t panoramaWidth, uint32_t panoramaHeight,
                                              ShaderResources::StorageBuffer* skyParams, Image2D* transmittanceLut,
-                                             Image2D* multiScatterLut, const CloudBakeBinding& clouds );
+                                             Image2D* multiScatterLut, const CloudBakeBinding& clouds,
+                                             ResourceOwnerInstance scene );
 
         // THE SAME BAKE, NOT WAITED FOR: everything above recorded into one batch and submitted, the bake
         // handed back still running. What the renderer uses — the main thread never sleeps on the GPU for it.
@@ -131,7 +135,7 @@ namespace Desert::Graphic
         static std::unique_ptr<ProceduralEnvironmentBake>
         BeginProcedural( uint32_t panoramaWidth, uint32_t panoramaHeight,
                          ShaderResources::StorageBuffer* skyParams, Image2D* transmittanceLut,
-                         Image2D* multiScatterLut, const CloudBakeBinding& clouds );
+                         Image2D* multiScatterLut, const CloudBakeBinding& clouds, ResourceOwnerInstance scene );
 
     private:
         // Samples an equirect panorama into the radiance cube (the sharp environment the skybox draws and

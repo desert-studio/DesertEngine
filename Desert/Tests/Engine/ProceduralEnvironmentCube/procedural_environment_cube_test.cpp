@@ -177,8 +177,8 @@ namespace
 //
 // The bake is asynchronous: `BeginProcedural` records the chain into one batch and the cubes are handed
 // over by `ProceduralEnvironmentBake::Finish` once the GPU is done. So the release lives in `Finish`,
-// and BOTH routes to a procedural environment -- `CreateProcedural` (waits) and the renderer's
-// `SkyboxRenderer::LandPendingBake` (polls) -- must take their environment from `Finish` and nowhere else.
+// and BOTH routes to a procedural environment -- `CreateProcedural` (waits) and the scene's
+// `SceneSkyEnvironment::LandPendingBake` (polls) -- must take their environment from `Finish` and nowhere else.
 // ------------------------------------------------------------------------------------------------
 TEST( ProceduralEnvironmentCube, TheProceduralBakeFreesTheRadianceCubeAndKeepsNothingOfIt )
 {
@@ -222,14 +222,14 @@ TEST( ProceduralEnvironmentCube, TheProceduralBakeFreesTheRadianceCubeAndKeepsNo
     EXPECT_NE( create.find( "return bake->Finish();" ), std::string::npos )
          << "CreateProcedural no longer returns what the bake's Finish hands over";
 
-    const std::string skybox = StripComments(
-         ReadAll( ( std::filesystem::path( root ) / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/"
-                                                    "SkyboxRenderer.cpp" )
+    const std::string sceneSky = StripComments(
+         ReadAll( ( std::filesystem::path( root ) / "Desert/Desert/Source/Engine/Graphic/Environment/"
+                                                    "SceneSkyEnvironment.cpp" )
                        .string() ) );
-    const std::string land = BodyOf( skybox, "bool SkyboxRenderer::LandPendingBake" );
-    ASSERT_FALSE( land.empty() ) << "SkyboxRenderer::LandPendingBake is not where this suite expects it";
+    const std::string land = BodyOf( sceneSky, "bool SceneSkyEnvironment::LandPendingBake" );
+    ASSERT_FALSE( land.empty() ) << "SceneSkyEnvironment::LandPendingBake is not where this suite expects it";
     EXPECT_NE( land.find( "m_PendingBake->Finish()" ), std::string::npos )
-         << "the renderer lands its asynchronous bake without ProceduralEnvironmentBake::Finish, so the "
+         << "the scene lands its asynchronous bake without ProceduralEnvironmentBake::Finish, so the "
             "radiance cube it drops is not dropped";
 }
 
@@ -538,14 +538,14 @@ TEST( ProceduralEnvironmentCube, ARebakeReleasesThePreviousEnvironmentAndKeepsTh
     EXPECT_EQ( service.Resolve( owned.Get().PreFilteredMap ), expected );
 }
 
-TEST( ProceduralEnvironmentCube, TheSkyboxRendererOwnsItsEnvironmentRatherThanCopyingHandles )
+TEST( ProceduralEnvironmentCube, TheSceneOwnsItsSkyEnvironmentRatherThanCopyingHandles )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
     const std::string header = StripComments(
-         ReadAll( root + "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp" ) );
+         ReadAll( root + "Desert/Desert/Source/Engine/Graphic/Environment/SceneSkyEnvironment.hpp" ) );
     EXPECT_NE( header.find( "OwnedEnvironment m_ProceduralEnv;" ), std::string::npos )
-         << "SkyboxRenderer holds its procedural environment as bare handles again. The cubes live in the "
-            "process-wide ImageService and nothing unregisters the last bake when the view closes: the "
-            "8.16 MiB-per-view leak RT2k measured.";
+         << "SceneSkyEnvironment holds its procedural environment as bare handles again. The cubes live in the "
+            "process-wide ImageService and nothing unregisters the last bake when the scene closes: the "
+            "8.16 MiB-per-view leak RT2k measured, now per scene.";
 }

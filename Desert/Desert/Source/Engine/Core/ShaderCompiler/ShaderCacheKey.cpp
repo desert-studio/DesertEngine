@@ -5,12 +5,14 @@
 
 #include <Engine/Core/ShaderCompiler/BindlessSetIndex.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderTarget.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 
 #include <chrono>
 #include <format>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -28,6 +30,8 @@ namespace Desert::Core
         // stage is compiled under. The assembled text already carries the new #version line, but a key
         // that moves only through text would let an artifact compiled under 450 rules survive any path
         // that hashes a stage without that header; the fingerprint names the language version outright.
+        // The target environment is ShaderTarget.hpp's (the oldest accepted device), named from that constant so
+        // raising the minimum moves every key without a hand edit here.
         // v3 (BINDLESS-TEX): every stage is compiled with DESERT_BINDLESS_SET defined.
         // v4 (BINDLESS-TEX): every stage gets all of kBindlessShaderDefines (set, both bindings, sampler count and
         // wrap count); their values are mixed in right after the fingerprint (MixCompileOptions), so moving any
@@ -35,7 +39,13 @@ namespace Desert::Core
         // v5 (MAT-BINDLESS): the parser's generated row changed without the authored text changing: every row
         // carries Common/BindlessTextures.glslh, and a template's 2D textures are BindlessTexture row members
         // instead of samplers (Core::Formats::IsRowTexture).
-        constexpr const char* kOptionsFingerprint = "vulkan1.1|glsl460|v5";
+        const std::string& OptionsFingerprint()
+        {
+            static const std::string fingerprint =
+                 std::format( "vulkan{}.{}|glsl460|v5", VK_API_VERSION_MAJOR( kShaderTargetApiVersion ),
+                              VK_API_VERSION_MINOR( kShaderTargetApiVersion ) );
+            return fingerprint;
+        }
 
         void FnvMix( uint64_t& h, std::string_view data )
         {
@@ -49,7 +59,7 @@ namespace Desert::Core
         // The compile options every stage shares: the fingerprint and the engine-wide defines ShaderCompiler adds.
         void MixCompileOptions( uint64_t& key )
         {
-            FnvMix( key, kOptionsFingerprint );
+            FnvMix( key, OptionsFingerprint() );
             for ( const BindlessShaderDefine& define : kBindlessShaderDefines )
                 FnvMix( key, std::format( "|{}={}", define.Name, define.Value ) );
         }

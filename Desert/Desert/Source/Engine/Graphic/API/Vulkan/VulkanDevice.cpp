@@ -430,6 +430,20 @@ namespace Desert::Graphic::API::Vulkan
                  built.error().message(), static_cast<int>( built.vk_result() ) );
         m_LogicalDevice = built.value().device;
 
+        // Acceleration-structure entry points exist only through the device and only where the probe enabled
+        // the extension (DeviceCaps). An enabled extension whose functions do not resolve is a broken driver,
+        // not a device without ray tracing: refuse it rather than run with half a table.
+        const VkDevice device = m_LogicalDevice;
+        m_RayTracingFunctions =
+             LoadRayTracingDeviceFunctions( m_PhysicalDevice->GetDeviceCaps(), [device]( const char* name )
+                                            { return vkGetDeviceProcAddr( device, name ); } );
+        if ( m_PhysicalDevice->GetDeviceCaps().Has( Capability::AccelerationStructure ) &&
+             !m_RayTracingFunctions.Complete() )
+            return Common::MakeFormattedError<bool>(
+                 "'{}' enabled VK_KHR_acceleration_structure but vkGetDeviceProcAddr did not resolve all of its "
+                 "entry points",
+                 m_DeviceName );
+
         vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetGraphicsFamily(), 0, &m_GraphicsQueue );
         vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetComputeFamily(), 0, &m_ComputeQueue );
         vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetTransferFamily(), 0, &m_TransferQueue );

@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <format>
-#include <optional>
 #include <string>
 #include <tuple>
 
@@ -18,13 +17,12 @@ namespace Desert::Graphic::API::Vulkan
             RdgSlotKey       Slot;
             std::string      Name; // "<name>[<element>]" for an element of an arrayed binding
             std::string_view Bucket;
-            // Empty for a slot the block cannot fill (an acceleration structure).
-            std::optional<RDG::ShaderResourceKind> Kind;
+            RDG::ShaderResourceKind Kind = RDG::ShaderResourceKind::Texture;
         };
 
         template <class Map>
         void Collect( std::vector<ReflectedSlot>& out, uint32_t set, const Map& map, std::string_view bucket,
-                      std::optional<RDG::ShaderResourceKind> kind )
+                      RDG::ShaderResourceKind kind )
         {
             for ( const auto& [binding, resource] : map )
             {
@@ -57,7 +55,8 @@ namespace Desert::Graphic::API::Vulkan
                 Collect( slots, set, descriptors.StorageImage2DSamplers, "storage image", Kind::StorageTexture );
                 Collect( slots, set, descriptors.StorageImage3DSamplers, "storage 3D image",
                          Kind::StorageTexture );
-                Collect( slots, set, descriptors.AccelerationStructures, "acceleration structure", std::nullopt );
+                Collect( slots, set, descriptors.AccelerationStructures, "acceleration structure",
+                         Kind::AccelerationStructure );
                 Collect( slots, set, descriptors.SampledImages, "separate texture", Kind::Texture );
                 Collect( slots, set, descriptors.Samplers, "sampler", Kind::Sampler );
             }
@@ -85,6 +84,8 @@ namespace Desert::Graphic::API::Vulkan
                     return "Uniform buffer";
                 case RDG::ShaderResourceKind::StorageBuffer:
                     return "Storage buffer";
+                case RDG::ShaderResourceKind::AccelerationStructure:
+                    return "Acceleration structure";
             }
             return "?";
         }
@@ -97,8 +98,7 @@ namespace Desert::Graphic::API::Vulkan
         layout.ShaderName = std::string( shaderName );
         for ( const ReflectedSlot& slot : CollectSlots( reflection ) )
         {
-            if ( slot.Kind )
-                layout.Slots.push_back( { slot.Name, *slot.Kind } );
+            layout.Slots.push_back( { slot.Name, slot.Kind } );
         }
         layout.PushConstantBytes = reflection.PushConstantRanges ? reflection.PushConstantRanges->Size : 0;
         return layout;

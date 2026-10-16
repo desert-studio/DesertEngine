@@ -5,6 +5,8 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
+#include <glm/glm.hpp>
+
 #include <algorithm>
 #include <array>
 #include <optional>
@@ -39,6 +41,11 @@ namespace Desert::Graphic
         RDG::BufferRef ShadowViews; // "Upload: Lights.ShadowViews"
         RDG::BufferRef GridParams;  // "Upload: Lights.GridParams"
         RDG::BufferRef GridCells;   // written by "LightGrid"
+        // The world layout of the same lights (LightGridLayout::WorldClipmaps: the radiance cache's clipmap cells,
+        // for GI hits off screen). Invalid unless the frame has a reader of it
+        // (SceneRenderer::WorldLightGridRead).
+        RDG::BufferRef WorldGridParams; // "Upload: Lights.WorldGridParams"
+        RDG::BufferRef WorldGridCells;  // written by "LightGridWorld"
     };
 
     struct FrameTransients
@@ -96,6 +103,18 @@ namespace Desert::Graphic
         RDG::TextureRef SkyViewLut;
         // The view's lights and light grid (ViewLightBuffers); invalid refs until AddFrameLightGrid ran.
         ViewLightBuffers Lights;
+        // The global distance field brought up to this frame (SceneRenderer::AddFrameGlobalDistanceField,
+        // imported: DistanceField::GlobalDistanceField owns the clipmaps) and its clipmap parameters (centre.xyz
+        // cm, voxel cm); invalid refs when nothing of the frame reads it   -> the radiance cache's trace, "Debug:
+        // Global Distance Field"
+        std::array<RDG::TextureRef, 4> GlobalDistanceField;
+        std::array<glm::vec4, 4>       GlobalDistanceFieldLevels{};
+        // The traced GI's final gather of this frame (SceneRenderer::AddFrameTracedGI: the world radiance cache's
+        // update, then GlobalIllumination::ScreenProbeGather; the images are the gather's, imported): per pixel,
+        // the diffuse irradiance and the specular radiance. Invalid when the GI method traces nothing
+        //   -> Deferred: Composite
+        RDG::TextureRef ScreenProbeDiffuse;
+        RDG::TextureRef ScreenProbeSpecular;
     };
 
     // RDG-A2 (owner decision 2, 2026-10-05). What EVERY node of the frame graph is handed, whatever registered
@@ -149,6 +168,10 @@ namespace Desert::Graphic
         // point and spot lights of its froxel. Bound where the layout has the two storage blocks.
         RDG::BufferRef LightGridParams;
         RDG::BufferRef LightGridCells;
+        // "Shadows: Ray Traced Sun": the render-resolution screen shadow mask the trace wrote (R = sun visibility,
+        // SceneRenderer::AddFrameRayTracedSunShadow), read by a forward draw's DESERT_SUN_SHADOW_RAY_QUERY
+        // permutation in place of the cascades. Invalid when the sun is not ray traced (nothing then reads it).
+        RDG::TextureRef SunShadowMask;
 
         // Each distinct texture once (System.White fills several slots): what the node declares as read.
         [[nodiscard]] std::vector<RDG::TextureRef> Refs() const
@@ -162,7 +185,7 @@ namespace Desert::Graphic
             add( ShadowCascades );
             for ( const RDG::TextureRef ref :
                   { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, ReflectionCaptureCubes, LocalShadowAtlas,
-                    SceneDepth, SceneShadingWord } )
+                    SceneDepth, SceneShadingWord, SunShadowMask } )
                 add( ref );
             return refs;
         }
@@ -182,9 +205,17 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewLocalShadowAtlasName = "u_LocalShadowAtlas";
     inline constexpr std::string_view kSceneViewSceneDepthName       = "u_SceneDepth";
     inline constexpr std::string_view kSceneViewSceneShadingWordName = "u_SceneShadingWord";
+    // DeferredLighting.shader and Mesh/Surface/Pass_Forward.glslh's DESERT_SUN_SHADOW_RAY_QUERY branch.
+    inline constexpr std::string_view kSceneViewSunShadowMaskName = "u_ScreenShadowMask";
+    // The permutation define of every program that reads kSceneViewSunShadowMaskName in place of the cascades
+    // (DeferredLighting.shader, Mesh/Surface/Pass_Forward.glslh): one name for every renderer that acquires it.
+    inline constexpr std::string_view kSunShadowRayQueryDefine = "DESERT_SUN_SHADOW_RAY_QUERY";
     // The light grid's two blocks (Mesh/LightGrid.glslh): the build shader, the composite, the forward cells.
     inline constexpr std::string_view kLightGridParamsBlockName = "LightGridParamsUB";
     inline constexpr std::string_view kLightGridCellsBlockName  = "LightGridCellsUB";
+    // A READER of the world layout's cells (Mesh/LightGrid.glslh, LIGHT_GRID_WORLD_CELLS); the build shader writes
+    // either layout through kLightGridCellsBlockName.
+    inline constexpr std::string_view kLightGridWorldCellsBlockName = "LightGridWorldCellsUB";
 
     [[nodiscard]] inline SceneViewInputs SceneViewInputsOf( const FrameGraphRefs& refs )
     {
@@ -257,6 +288,9 @@ namespace Desert::Graphic
                   RDG::SamplerDesc::PointClamp() );
             // Marched texel by texel (Common/ContactShadow.glslh): nearest, clamped at the screen's edge.
             bind( kSceneViewSceneDepthName, inputs.SceneDepth, kPoint, RDG::SamplerDesc::PointClamp() );
+            // Read with texelFetch at the fragment (the mask is the render resolution the forward draws raster at).
+            if ( inputs.SunShadowMask.IsValid() )
+                bind( kSceneViewSunShadowMaskName, inputs.SunShadowMask, kPoint, RDG::SamplerDesc::PointClamp() );
             // Read with texelFetch at the hit texel (an integer format is never filtered).
             bind( kSceneViewSceneShadingWordName, inputs.SceneShadingWord, kPoint,
                   RDG::SamplerDesc::PointClamp() );

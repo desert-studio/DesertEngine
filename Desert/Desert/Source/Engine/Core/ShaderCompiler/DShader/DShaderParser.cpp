@@ -1422,6 +1422,14 @@ namespace Desert::Core::Preprocess
                  std::regex_search( include.Content, kRayQueryType ) )
                 out << "#extension GL_EXT_ray_query : require\n";
 
+            // Buffer references (the GPU skin cache's streams, Mesh/Surface/Vertex_Skinned.glslh) are declared in
+            // #include'd headers this text cannot see, and an #extension in a header lands after declarations,
+            // where glslang refuses it. Enabled for every stage: `enable` adds no capability by itself (glslang
+            // emits PhysicalStorageBufferAddresses only into a module that declares a buffer_reference block),
+            // and the target (kShaderTargetEnvVersion, Vulkan 1.2 / SPIR-V 1.5) has the storage class in core.
+            out << "#extension GL_EXT_buffer_reference : enable\n";
+            out << "#extension GL_EXT_buffer_reference_uvec2 : enable\n";
+
             if ( !autoDecls.empty() && ( stage == ShaderStage::Fragment || stage == ShaderStage::Compute ) )
                 out << autoDecls;
 
@@ -1438,6 +1446,72 @@ namespace Desert::Core::Preprocess
             return out.str();
         }
 
+        // Every name an `OpacityMask` line states must be a parameter of the right kind: a 2D texture, a Float
+        // channel, Vec2 tiling and offset, a Float rotation. Empty = sound.
+        std::string OpacityMaskParamError( const Formats::SurfaceOpacityMask& mask,
+                                           const std::vector<ShaderParam>&    params )
+        {
+            const auto find = [&]( const std::string& name ) -> const ShaderParam*
+            {
+                const auto it = std::find_if( params.begin(), params.end(),
+                                              [&]( const ShaderParam& p ) { return p.Name == name; } );
+                return it == params.end() ? nullptr : &*it;
+            };
+            const ShaderParam* texture = find( mask.Texture );
+            if ( texture == nullptr || !texture->IsTexture || texture->IsCubeTexture )
+                return std::format( "OpacityMask names '{}', which is not a Texture2D of the Properties block",
+                                    mask.Texture );
+            const auto value = [&]( const std::string& name, const ShaderValueType type,
+                                    const char* what ) -> std::string
+            {
+                const ShaderParam* p = find( name );
+                if ( p == nullptr || p->IsTexture || p->Type != type )
+                    return std::format( "OpacityMask {} '{}' is not a {} of the Properties block", what, name,
+                                        type == ShaderValueType::Float ? "Float" : "Vec2" );
+                return {};
+            };
+            if ( !mask.ChannelParam.empty() )
+                if ( auto e = value( mask.ChannelParam, ShaderValueType::Float, "Channel" ); !e.empty() )
+                    return e;
+            if ( !mask.TilingParam.empty() )
+            {
+                if ( auto e = value( mask.TilingParam, ShaderValueType::Vec2, "tiling" ); !e.empty() )
+                    return e;
+                if ( auto e = value( mask.OffsetParam, ShaderValueType::Vec2, "offset" ); !e.empty() )
+                    return e;
+                if ( auto e = value( mask.RotationParam, ShaderValueType::Float, "rotation" ); !e.empty() )
+                    return e;
+            }
+            return {};
+        }
+
+        // THE GENERATED OPACITY MASK of a Masked template: the GLSL of its `OpacityMask` line, placed after the
+        // surface block and before the pass header, whose DESERT_SURFACE_CLIP calls it. The mask texture is a
+        // BindlessTexture member of the material row (Core::Formats::IsRowTexture), read as the surface block
+        // reads its maps. A tiling component <= 0 reads as 1 (the templates' own guard on UVTiling); the channel
+        // parameter is clamped to 0..3.
+        std::string OpacityMaskFunction( const Formats::SurfaceOpacityMask& mask )
+        {
+            std::string uv = std::format( "i.UV{}", mask.UVSet );
+            std::string transform;
+            if ( !mask.TilingParam.empty() )
+            {
+                transform = std::format( "    vec2 tiling = u_Material.{};\n"
+                                         "    if ( tiling.x <= 0.0 ) tiling.x = 1.0;\n"
+                                         "    if ( tiling.y <= 0.0 ) tiling.y = 1.0;\n",
+                                         mask.TilingParam );
+                uv        = std::format( "SurfaceTransformUV( {}, u_Material.{}, tiling, u_Material.{} )", uv,
+                                         mask.OffsetParam, mask.RotationParam );
+            }
+            const std::string channel =
+                 mask.ChannelParam.empty()
+                      ? std::to_string( mask.Channel )
+                      : std::format( "clamp( int( u_Material.{} ), 0, 3 )", mask.ChannelParam );
+            return std::format( "float DesertSurfaceOpacityMask( SurfaceInput i )\n{{\n{}"
+                                "    return SurfaceSampleMaterial( u_Material.{}, {} )[{}];\n}}\n",
+                                transform, mask.Texture, uv, channel );
+        }
+
         // One stage of one surface CELL. The vertex stage is the path's engine header alone (a surface
         // function does not move vertices yet); the fragment stage is the author's surface function between
         // the shared types and the pass's engine header, which owns main(). `#line` puts glslang's errors in
@@ -1447,7 +1521,8 @@ namespace Desert::Core::Preprocess
         std::string AssembleSurfaceCellStage( ShaderStage stage, std::string_view path, std::string_view pass,
                                               const RawBlock& surface, const RawBlock& include,
                                               const std::string& autoDecls, const SurfaceBlendMode blend,
-                                              const std::string_view shadingModelDefine, const bool responsiveAA )
+                                              const std::string_view shadingModelDefine, const bool responsiveAA,
+                                              const std::string& opacityMaskFunction )
         {
             const bool        masked   = blend == SurfaceBlendMode::Masked;
             const bool        particle = path == kSurfaceParticleSpritePath;
@@ -1480,10 +1555,10 @@ namespace Desert::Core::Preprocess
                 code.Content =
                      // Only a stage that evaluates the surface fetches material textures: it alone declares the
                      // biased fetch (Mesh/Surface/SurfaceTypes.glslh SurfaceSampleMaterial) and the camera block.
-                     std::format( "{}#define {} 1\n#include <{}>\n#line {}\n{}\n#include <{}>\n", defines,
+                     std::format( "{}#define {} 1\n#include <{}>\n#line {}\n{}\n{}#include <{}>\n", defines,
                                   kSurfaceSamplesMaterialDefine, kSurfaceTypesInclude,
                                   surface.StartLine > 0 ? surface.StartLine - 1 : 0, surface.Content,
-                                  passInclude );
+                                  masked ? opacityMaskFunction : std::string(), passInclude );
             return AssembleStage( stage, code, include, autoDecls );
         }
 
@@ -1656,6 +1731,7 @@ namespace Desert::Core::Preprocess
         uint32_t                responsiveLine     = 0; // the `ResponsiveAA` line, refused on an opaque blend
         std::string             shadingModelName; // `ShadingModel <Name>`; empty = DefaultLit
         uint32_t                shadingModelLine = 0;
+        uint32_t                opacityMaskLine  = 0; // the `OpacityMask` line; checked once Properties are known
 
         // Reads one stage block into the given pass. Returns false + err on problems.
         const auto readStageBlock = [&]( Cursor& cur, PendingPass& pass, ShaderStage stage,
@@ -1905,6 +1981,104 @@ namespace Desert::Core::Preprocess
                 }
                 surfaceSettingLine = surfaceSettingLine != 0 ? surfaceSettingLine : line;
             }
+            // UE's OpacityMask input, STATED rather than written in the surface function:
+            //   OpacityMask <Texture2D> Channel(<R|G|B|A | FloatParam>) [UV(<0|1>)]
+            //               [Transform(<Tiling>, <Offset>, <Rotation>)]
+            // The parser generates DesertSurfaceOpacityMask() from it and every cell clips with that, so the
+            // shape the raster passes cut and the one a ray-traced reader evaluates from
+            // ShaderProgramMeta::OpacityMask are one definition. Checked against the Properties once the file is
+            // read.
+            else if ( lower == "opacitymask" )
+            {
+                if ( opacityMaskLine != 0 )
+                {
+                    err = { line, "duplicate OpacityMask" };
+                    return fail();
+                }
+                opacityMaskLine = line;
+                Formats::SurfaceOpacityMask mask;
+                mask.Texture    = ReadIdent( c );
+                mask.ClipParam  = std::string( kSurfaceMaskClipParam );
+                bool sawChannel = false;
+                if ( mask.Texture.empty() )
+                {
+                    err = { line, "OpacityMask needs the Texture2D parameter that holds the mask" };
+                    return fail();
+                }
+                for ( ;; )
+                {
+                    const size_t      pos  = c.Pos;
+                    const uint32_t    at   = c.Line;
+                    const std::string attr = Lower( ReadIdent( c ) );
+                    if ( attr == "channel" )
+                    {
+                        if ( !Expect( c, '(', err, "after Channel" ) )
+                            return fail();
+                        const std::string v      = ReadIdent( c );
+                        const std::string folded = Lower( v );
+                        if ( folded == "r" || folded == "g" || folded == "b" || folded == "a" )
+                            mask.Channel = folded == "r" ? 0u : folded == "g" ? 1u : folded == "b" ? 2u : 3u;
+                        else if ( !v.empty() )
+                            mask.ChannelParam = v;
+                        else
+                        {
+                            err = { line, "OpacityMask Channel takes R | G | B | A or a Float parameter" };
+                            return fail();
+                        }
+                        if ( !Expect( c, ')', err, "after the Channel" ) )
+                            return fail();
+                        sawChannel = true;
+                    }
+                    else if ( attr == "uv" )
+                    {
+                        float set = 0.0f;
+                        if ( !Expect( c, '(', err, "after UV" ) || !ReadNumber( c, set, err ) ||
+                             !Expect( c, ')', err, "after the UV set" ) )
+                            return fail();
+                        if ( set != 0.0f && set != 1.0f )
+                        {
+                            err = { line, "OpacityMask UV takes 0 or 1 (SurfaceInput.UV0 / UV1)" };
+                            return fail();
+                        }
+                        mask.UVSet = set == 1.0f ? 1u : 0u;
+                    }
+                    else if ( attr == "transform" )
+                    {
+                        if ( !Expect( c, '(', err, "after Transform" ) )
+                            return fail();
+                        mask.TilingParam = ReadIdent( c );
+                        if ( !Expect( c, ',', err, "after the tiling parameter" ) )
+                            return fail();
+                        mask.OffsetParam = ReadIdent( c );
+                        if ( !Expect( c, ',', err, "after the offset parameter" ) )
+                            return fail();
+                        mask.RotationParam = ReadIdent( c );
+                        if ( !Expect( c, ')', err, "after the rotation parameter" ) )
+                            return fail();
+                        if ( mask.TilingParam.empty() || mask.OffsetParam.empty() || mask.RotationParam.empty() )
+                        {
+                            err = { line,
+                                    "OpacityMask Transform names three parameters: (Tiling, Offset, Rotation)" };
+                            return fail();
+                        }
+                    }
+                    else
+                    {
+                        // Not this directive's word: the next directive starts here.
+                        c.Pos  = pos;
+                        c.Line = at;
+                        break;
+                    }
+                }
+                if ( !sawChannel )
+                {
+                    err = { line,
+                            "OpacityMask must state its Channel(R | G | B | A | FloatParam) - never guessed" };
+                    return fail();
+                }
+                result.Meta.OpacityMask = std::move( mask );
+                surfaceSettingLine      = surfaceSettingLine != 0 ? surfaceSettingLine : line;
+            }
             else if ( lower == "pass" )
             {
                 PendingPass pass;
@@ -2005,10 +2179,10 @@ namespace Desert::Core::Preprocess
         }
         else if ( surfaceSettingLine != 0 )
         {
-            err = {
-                 surfaceSettingLine,
-                 "TwoSided, BlendMode, ShadingModel, Usage and ResponsiveAA shape a Surface block, and this shader "
-                 "has none" };
+            err = { surfaceSettingLine, "TwoSided, BlendMode, OpacityMask, ShadingModel, Usage and ResponsiveAA "
+                                        "shape a Surface block, and this "
+                                        "shader "
+                                        "has none" };
             return fail();
         }
 
@@ -2145,7 +2319,30 @@ namespace Desert::Core::Preprocess
                                          kSurfaceMaskClipParam ) };
                     return fail();
                 }
+                if ( !result.Meta.OpacityMask )
+                {
+                    err = {
+                         surfaceSettingLine,
+                         "BlendMode Masked needs an `OpacityMask <Texture2D> Channel(...)` line - the mask the "
+                         "cells clip with and ray tracing reads is stated, not written in the surface function" };
+                    return fail();
+                }
+                if ( const std::string bad = OpacityMaskParamError( *result.Meta.OpacityMask, result.Meta.Params );
+                     !bad.empty() )
+                {
+                    err = { opacityMaskLine, bad };
+                    return fail();
+                }
             }
+            else if ( result.Meta.OpacityMask )
+            {
+                err = { opacityMaskLine,
+                        "OpacityMask is the input of BlendMode Masked; this template is not Masked" };
+                return fail();
+            }
+
+            const std::string opacityMaskFunction =
+                 result.Meta.OpacityMask ? OpacityMaskFunction( *result.Meta.OpacityMask ) : std::string();
 
             ShaderRenderState cellOverride;
             if ( result.Surface.TwoSided )
@@ -2161,10 +2358,10 @@ namespace Desert::Core::Preprocess
                     cell.Name  = SurfaceCellName( path, pass );
                     cell.State = cellState;
                     for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
-                        cell.Stages.emplace( stage, AssembleSurfaceCellStage(
-                                                         stage, path, pass, *surfaceBlock, includeBlock, autoDecls,
-                                                         result.Surface.Blend, shadingModelDefine,
-                                                         result.Surface.ResponsiveAA ) );
+                        cell.Stages.emplace(
+                             stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock, includeBlock,
+                                                              autoDecls, result.Surface.Blend, shadingModelDefine,
+                                                              result.Surface.ResponsiveAA, opacityMaskFunction ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
@@ -2182,7 +2379,7 @@ namespace Desert::Core::Preprocess
                          stage, AssembleSurfaceCellStage( stage, kSurfaceParticleSpritePath,
                                                           kSurfaceParticleSpritePass, *surfaceBlock, includeBlock,
                                                           autoDecls, result.Surface.Blend, shadingModelDefine,
-                                                          result.Surface.ResponsiveAA ) );
+                                                          result.Surface.ResponsiveAA, opacityMaskFunction ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );
@@ -2199,6 +2396,19 @@ namespace Desert::Core::Preprocess
             result.Passes.push_back( assemblePass( pass, MergeState( defaultPass.State, pass.State ) ) );
             result.Meta.PassNames.push_back( pass.Name );
         }
+
+        // An OPAQUE mesh-path template without a Surface block is drawn forward on the deferred path, after the
+        // screen-space readers of the G-buffer (the ray-traced sun's mask, SSAO, SSR); they see it only through
+        // its depth-normal pass, so it must declare one (no silent hole in their depth). A blended one (text,
+        // ZWrite off) writes no depth and is exempt, as UE's translucency is from the depth prepass.
+        if ( result.Surface.Cells.empty() && Formats::DrawnByMeshPath( result.Meta.Domain ) &&
+             !defaultPass.State.Blend.value_or( false ) && defaultPass.State.DepthWrite.value_or( true ) &&
+             result.FindPass( std::string( kGenericDepthNormalPass ) ) == nullptr )
+            return Common::MakeFormattedError<DShaderParseResult>(
+                 "DShader '{}': an opaque Domain {} program without a Surface block declares no '{}' pass - the "
+                 "deferred path's depth/normal prepass draws it (write depth and DesertWriteDepthNormal, "
+                 "Mesh/Generic/DepthNormal.glslh)",
+                 result.Name, Formats::ShaderDomainName( result.Meta.Domain ), kGenericDepthNormalPass );
 
         // A surface template's default program is NAMED, never positional: kSurfaceDefaultCell. A template
         // whose cell set lost it is refused here by name, rather than having some other cell stand in for it.
