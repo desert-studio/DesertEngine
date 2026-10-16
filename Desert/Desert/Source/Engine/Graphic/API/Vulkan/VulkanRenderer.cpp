@@ -16,6 +16,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRayTracingPipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanVertexBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanIndexBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
@@ -660,6 +661,56 @@ namespace Desert::Graphic::API::Vulkan
             vkCmdPushConstants( cmd.GetValue(), compute.GetVkPipelineLayout(), VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                 static_cast<uint32_t>( push.size() ), push.data() );
         out = cmd.GetValue();
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::TraceRays( const RDG::PassBindings&                   bindings,
+                                                        const RayTracingPipeline&                  pipeline,
+                                                        const RayTracing::RayTracingHitGroupTable& hits,
+                                                        const uint32_t width, const uint32_t height )
+    {
+        const RDG::PassContext&                  context = bindings.GetContext();
+        const std::string_view                   pass    = context.GetPassName();
+        const Common::ResultStr<VkCommandBuffer> cmd     = VulkanRdgBackend::CommandBufferOf( context );
+        if ( !cmd )
+            return Common::MakeError( cmd.GetError() );
+        const Common::ResultStr<VulkanRdgPassDescriptors*> descriptors =
+             VulkanRdgBackend::DescriptorsOf( context );
+        if ( !descriptors )
+            return Common::MakeError( descriptors.GetError() );
+
+        auto& traced =
+             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast,cppcoreguidelines-pro-type-static-cast-downcast):
+             // only the Vulkan API makes pipelines; a launch writes the pipeline's own shader binding table
+             const_cast<VulkanRayTracingPipeline&>( static_cast<const VulkanRayTracingPipeline&>( pipeline ) );
+        const auto* program = dynamic_cast<const VulkanShader*>( traced.GetSpecification().Program.get() );
+        if ( program == nullptr || traced.GetVkPipeline() == VK_NULL_HANDLE )
+            return Common::MakeFormattedError( "{}: ray tracing pipeline '{}' is not built", pass,
+                                               traced.GetSpecification().DebugName );
+
+        // The program's reflection is the pipeline's layout (VulkanRayTracingPipeline::Build): the pass's
+        // bindings resolve against it alone, as a compute dispatch's against its program; no setter route.
+        const auto resolved =
+             ResolveRdgPassBindings( program->GetReflectionData(), program->GetName(), bindings, RdgOtherRoute{} );
+        if ( !resolved )
+            return Common::MakeError( resolved.GetError() );
+        const auto sets = WriteRdgPassSets( *descriptors.GetValue(), traced.GetLayouts(), resolved.GetValue(), pass );
+        if ( !sets )
+            return Common::MakeError( sets.GetError() );
+
+        vkCmdBindPipeline( cmd.GetValue(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, traced.GetVkPipeline() );
+        if ( !sets.GetValue().empty() )
+            vkCmdBindDescriptorSets( cmd.GetValue(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
+                                     traced.GetVkPipelineLayout(), 0,
+                                     static_cast<uint32_t>( sets.GetValue().size() ), sets.GetValue().data(), 0,
+                                     nullptr );
+        const std::span<const std::byte> push = ChoosePushConstants( bindings, {} );
+        if ( !push.empty() )
+            vkCmdPushConstants( cmd.GetValue(), traced.GetVkPipelineLayout(), traced.GetPushConstantStages(), 0,
+                                static_cast<uint32_t>( push.size() ), push.data() );
+        if ( const Common::BoolResultStr launched = traced.RecordTraceRays( cmd.GetValue(), hits, width, height );
+             !launched )
+            return Common::MakeFormattedError( "{}: {}", pass, launched.GetError() );
         return Common::MakeSuccess( true );
     }
 

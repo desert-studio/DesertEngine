@@ -221,6 +221,14 @@ namespace Desert::Core::Preprocess
                 return ShaderStage::TessControl;
             if ( s == "tesseval" || s == "tessevaluation" )
                 return ShaderStage::TessEvaluation;
+            if ( s == "raygen" )
+                return ShaderStage::RayGen;
+            if ( s == "miss" )
+                return ShaderStage::Miss;
+            if ( s == "closesthit" )
+                return ShaderStage::ClosestHit;
+            if ( s == "anyhit" )
+                return ShaderStage::AnyHit;
             return ShaderStage::None;
         }
 
@@ -1017,9 +1025,41 @@ namespace Desert::Core::Preprocess
         // THE LAYOUT IS THE INPUT. Every declaration below is written from Core::Formats::MaterialLayout (the
         // one builder, kept on the parse result), so the GLSL cannot name a parameter, an offset or a binding
         // the layout does not have — and ReconcileMaterialLayout holds the compiled SPIR-V to the same object.
-        std::string BuildAutoDeclarations( const MaterialLayout& layout )
+        //
+        // A RAY TRACING HIT CELL (kSurfaceRayHitPath) has no draw and so no push constant and no bound row: its row
+        // travels in the hit group's shader record (Common/RayTracingHitRecord.glslh), UE's FRayTracingMeshCommand
+        // loose parameters. @p rowByShaderRecord declares the same MaterialParams struct and names `u_Material`
+        // through the record's device address instead of a Materials[] binding. Bound (non-row) textures have no
+        // place in a record; the parser gives a template with any no hit cell (SurfaceTemplateInfo::RayHitRefusal).
+        std::string BuildAutoDeclarations( const MaterialLayout& layout, const bool rowByShaderRecord = false )
         {
             std::ostringstream out;
+
+            if ( rowByShaderRecord )
+            {
+                // The bindless table, not the engine push block (MaterialTransport.glslh): a hit group has no
+                // draw, so no push constants - a pipeline's push range is its ray generation program's.
+                out << "#include <" << kParserInjectedIncludes[1] << ">\n";
+                out << "#include <" << kSurfaceRayHitRecordInclude << ">\n";
+                if ( layout.RowBinding )
+                {
+                    out << "struct MaterialParams\n{\n";
+                    uint32_t slot = 0;
+                    for ( const auto& p : layout.Params )
+                    {
+                        out << "    " << ( p.IsTexture ? kMaterialTextureGlslType : MaterialLayoutGlslType( p.Type ) )
+                            << " " << p.Name << ";\n";
+                        if ( const uint32_t pad = ( kMaterialParamSlotSize - p.Size ) / 4; pad > 0 )
+                            out << "    float _slotPad" << slot << "[" << pad << "];\n";
+                        ++slot;
+                    }
+                    out << "};\n";
+                    out << "layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer "
+                           "DesertMaterialRowRef\n{\n    MaterialParams Row;\n};\n";
+                    out << "#define u_Material DesertMaterialRowRef( u_RayHitRecord.MaterialRow ).Row\n";
+                }
+                return out.str();
+            }
 
             if ( layout.RowBinding )
             {
@@ -1430,7 +1470,14 @@ namespace Desert::Core::Preprocess
             out << "#extension GL_EXT_buffer_reference : enable\n";
             out << "#extension GL_EXT_buffer_reference_uvec2 : enable\n";
 
-            if ( !autoDecls.empty() && ( stage == ShaderStage::Fragment || stage == ShaderStage::Compute ) )
+            // A ray tracing stage (a program's RayGen / Miss, a surface template's hit cell) gets the pipeline's
+            // extension and DESERT_RAY_TRACING_STAGE, the one name a header shared with a compute program guards
+            // its compute-only parts (shared memory, LocalSize) with.
+            if ( Formats::IsRayTracingStage( stage ) )
+                out << "#extension GL_EXT_ray_tracing : require\n#define DESERT_RAY_TRACING_STAGE 1\n";
+
+            if ( !autoDecls.empty() && ( stage == ShaderStage::Fragment || stage == ShaderStage::Compute ||
+                                         stage == ShaderStage::ClosestHit || stage == ShaderStage::AnyHit ) )
                 out << autoDecls;
 
             if ( !include.Content.empty() )
@@ -1527,7 +1574,9 @@ namespace Desert::Core::Preprocess
             const bool        masked   = blend == SurfaceBlendMode::Masked;
             const bool        particle = path == kSurfaceParticleSpritePath;
             const std::string defines  = std::format(
-                 "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}#define {} {}\n", pass,
+                 "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}{}#define {} {}\n", pass,
+                 // The hit cell's two stages share one pass header; the any-hit stage is told which it is.
+                 stage == ShaderStage::AnyHit ? "#define DESERT_SURFACE_RAY_ANY_HIT 1\n" : "",
                  masked ? "#define DESERT_SURFACE_MASKED 1\n" : "",
                  Formats::IsTranslucentBlend( blend ) ? std::format( "#define {} 1\n", kSurfaceTranslucentDefine )
                                                        : std::string(),
@@ -1536,8 +1585,11 @@ namespace Desert::Core::Preprocess
                  kSurfaceShadingModelDefine, shadingModelDefine );
             // The sprite path has its own pass header whatever the blend: the mesh Forward / glass headers light a
             // mesh, the sprite header composites a particle.
+            const bool        rayHit = path == kSurfaceRayHitPath;
             const std::string passInclude =
-                 particle ? std::string( kSurfaceParticleSpritePassInclude ) : SurfacePassInclude( pass, blend );
+                 particle ? std::string( kSurfaceParticleSpritePassInclude )
+                 : rayHit ? std::string( kSurfaceRayHitPassInclude )
+                          : SurfacePassInclude( pass, blend );
             RawBlock          code;
             code.StartLine = 1;
             if ( stage == ShaderStage::Vertex )
@@ -1674,6 +1726,8 @@ namespace Desert::Core::Preprocess
         includes.emplace_back( kSurfaceTranslucentPassInclude );
         includes.push_back( SurfaceVertexInclude( kSurfaceParticleSpritePath ) );
         includes.emplace_back( kSurfaceParticleSpritePassInclude );
+        includes.emplace_back( kSurfaceRayHitPassInclude );
+        includes.emplace_back( kSurfaceRayHitRecordInclude );
         return includes;
     }
 
@@ -2243,6 +2297,8 @@ namespace Desert::Core::Preprocess
                     return fail();
                 }
         const std::string autoDecls = BuildAutoDeclarations( result.Layout );
+        // The hit cell's: the same row, named through the hit group's shader record.
+        const std::string rayHitAutoDecls = BuildAutoDeclarations( result.Layout, true );
 
         const auto assemblePass = [&]( const PendingPass& pending, const ShaderRenderState& state )
         {
@@ -2367,6 +2423,44 @@ namespace Desert::Core::Preprocess
                     result.Passes.push_back( std::move( cell ) );
                 }
 
+            // THE RAY TRACING HIT CELL (UE: the material's ray tracing hit group, FRayTracingMeshCommand's
+            // closest-hit / any-hit shaders), after the mesh cells: the same surface function between the shared
+            // types and Mesh/Surface/Pass_RayHit.glslh. Closest hit evaluates the surface into the ray's payload;
+            // a Masked template adds the any-hit stage, its OpacityMask test. Opaque and Masked templates only: a
+            // translucent surface is not a ray tracing occluder (UE skips it in the ray tracing scene too). A
+            // template that binds a texture outside its row has nothing to put in a shader record: no cell, and the
+            // reason is kept for the pipeline that asks for it.
+            if ( !Formats::IsTranslucentBlend( result.Surface.Blend ) )
+            {
+                if ( !result.Layout.Textures.empty() )
+                    result.Surface.RayHitRefusal = std::format(
+                         "texture '{}' is bound outside the material row; a hit group reads its material from the "
+                         "shader record, which carries the row alone",
+                         result.Layout.Textures.front().Name );
+                else
+                {
+                    DShaderPass cell;
+                    cell.Name  = SurfaceCellName( kSurfaceRayHitPath, kSurfaceRayHitPass );
+                    cell.State = cellState;
+                    const bool masked = result.Surface.Blend == SurfaceBlendMode::Masked;
+                    for ( const ShaderStage stage : { ShaderStage::ClosestHit, ShaderStage::AnyHit } )
+                    {
+                        if ( stage == ShaderStage::AnyHit && !masked )
+                            continue;
+                        cell.Stages.emplace(
+                             stage, AssembleSurfaceCellStage( stage, kSurfaceRayHitPath, kSurfaceRayHitPass,
+                                                              *surfaceBlock, includeBlock, rayHitAutoDecls,
+                                                              result.Surface.Blend, shadingModelDefine,
+                                                              result.Surface.ResponsiveAA, opacityMaskFunction ) );
+                    }
+                    result.Meta.PassNames.push_back( cell.Name );
+                    result.Meta.RayTracingPassNames.push_back( cell.Name );
+                    result.Surface.Cells.push_back( cell.Name );
+                    result.Surface.RayHitCell = cell.Name;
+                    result.Passes.push_back( std::move( cell ) );
+                }
+            }
+
             // `Usage ParticleSprites`: the sprite cell, after every mesh cell (the mesh cells' order is
             // unchanged).
             if ( result.Surface.UsedWithParticleSprites )
@@ -2395,6 +2489,9 @@ namespace Desert::Core::Preprocess
         {
             result.Passes.push_back( assemblePass( pass, MergeState( defaultPass.State, pass.State ) ) );
             result.Meta.PassNames.push_back( pass.Name );
+            if ( std::any_of( result.Passes.back().Stages.begin(), result.Passes.back().Stages.end(),
+                              []( const auto& stage ) { return Formats::IsRayTracingStage( stage.first ); } ) )
+                result.Meta.RayTracingPassNames.push_back( pass.Name );
         }
 
         // An OPAQUE mesh-path template without a Surface block is drawn forward on the deferred path, after the

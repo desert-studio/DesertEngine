@@ -1,4 +1,5 @@
 #include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp>
 #include <Common/Settings/MachineSettings.hpp>
 #include <Engine/Graphic/PipelineCacheFile.hpp>
 #include <Engine/Project/ProjectContext.hpp>
@@ -437,6 +438,7 @@ namespace Desert::Graphic::API::Vulkan
         m_RayTracingFunctions =
              LoadRayTracingDeviceFunctions( m_PhysicalDevice->GetDeviceCaps(), [device]( const char* name )
                                             { return vkGetDeviceProcAddr( device, name ); } );
+        SetRdgRayTracingShaderStages( m_PhysicalDevice->GetDeviceCaps().Has( Capability::RayTracingPipeline ) );
         if ( m_PhysicalDevice->GetDeviceCaps().Has( Capability::AccelerationStructure ) &&
              !m_RayTracingFunctions.Complete() )
             return Common::MakeFormattedError<bool>(

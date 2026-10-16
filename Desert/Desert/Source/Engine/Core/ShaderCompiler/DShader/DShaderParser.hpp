@@ -92,6 +92,14 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceParticleSpritePass        = "Forward";
     inline constexpr std::string_view kSurfaceParticleSpritePassInclude = "Mesh/Surface/Pass_ParticleSprite.glslh";
     inline constexpr std::string_view kSurfaceParticleSpriteDefine      = "DESERT_SURFACE_PARTICLE_SPRITE";
+    // THE RAY TRACING HIT CELL (UE: the material's hit group). Every Opaque / Masked template whose bindings are
+    // all row slots gets `RayTracing.Hit` after its mesh cells: ClosestHit (the surface into the ray's payload) and,
+    // Masked, AnyHit (the OpacityMask test). Its stages define DESERT_SURFACE_PASS_Hit; their material row comes
+    // from the hit group's shader record (kSurfaceRayHitRecordInclude), the geometry from the same record.
+    inline constexpr std::string_view kSurfaceRayHitPath          = "RayTracing";
+    inline constexpr std::string_view kSurfaceRayHitPass          = "Hit";
+    inline constexpr std::string_view kSurfaceRayHitPassInclude   = "Mesh/Surface/Pass_RayHit.glslh";
+    inline constexpr std::string_view kSurfaceRayHitRecordInclude = "Common/RayTracingHitRecord.glslh";
     // Defined in both stages of every cell of a `BlendMode Translucent` template (the sprite pass blends on it).
     inline constexpr std::string_view kSurfaceTranslucentDefine = "DESERT_SURFACE_TRANSLUCENT";
     // Defined in every cell of a `ResponsiveAA` template (UE: the material's bResponsiveAA): the translucent pass
@@ -166,6 +174,10 @@ namespace Desert::Core::Preprocess
         bool ResponsiveAA = false;
         Common::UUID             ShadingModel{ ShadingModels::kDefaultLitGuid };
         std::vector<std::string> Cells; // `<Path>.<Pass>`, in kSurfaceVertexPaths × kSurfaceCellPasses order
+        // `RayTracing.Hit` when the template has its hit cell (also in Cells); otherwise empty, and RayHitRefusal
+        // says why for an Opaque / Masked template (empty for a translucent one, which has no hit group by design).
+        std::string RayHitCell;
+        std::string RayHitRefusal;
     };
 
     struct DShaderParseResult

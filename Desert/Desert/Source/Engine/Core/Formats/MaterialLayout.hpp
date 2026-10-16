@@ -280,6 +280,14 @@ namespace Desert::Core::Formats
                 return "fragment";
             case ShaderStage::Compute:
                 return "compute";
+            case ShaderStage::RayGen:
+                return "ray-generation";
+            case ShaderStage::AnyHit:
+                return "any-hit";
+            case ShaderStage::ClosestHit:
+                return "closest-hit";
+            case ShaderStage::Miss:
+                return "miss";
             default:
                 return "unknown";
         }

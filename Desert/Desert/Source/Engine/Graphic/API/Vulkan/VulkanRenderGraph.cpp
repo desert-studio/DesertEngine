@@ -6,6 +6,8 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <atomic>
+
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
@@ -142,6 +144,17 @@ namespace Desert::Graphic::API::Vulkan
 
     // Vulkan 1.0 barriers (owner decision 2026-09-27: no synchronization2). The graph's stages are finer
     // than v1 in one place: Copy becomes TRANSFER.
+    namespace
+    {
+        // A device fact, written once at device creation (SetRdgRayTracingShaderStages) before any graph runs.
+        std::atomic<bool> g_RdgRayTracingShaderStages{ false };
+    } // namespace
+
+    void SetRdgRayTracingShaderStages( const bool enabled )
+    {
+        g_RdgRayTracingShaderStages.store( enabled, std::memory_order_relaxed );
+    }
+
     VkPipelineStageFlags RdgVulkanStages( RDG::PipelineStageFlags stages )
     {
         static constexpr std::array<std::pair<uint32_t, VkPipelineStageFlags>, 11> kTable = { {
@@ -163,6 +176,9 @@ namespace Desert::Graphic::API::Vulkan
             if ( ( stages & bit ) != 0 )
                 out |= vk;
         }
+        if ( ( stages & RDG::PipelineStage_ComputeShader ) != 0 &&
+             g_RdgRayTracingShaderStages.load( std::memory_order_relaxed ) )
+            out |= VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR;
         return out;
     }
 

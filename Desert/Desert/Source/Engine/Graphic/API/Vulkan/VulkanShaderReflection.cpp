@@ -782,6 +782,14 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                     return "fragment";
                 case Core::Formats::ShaderStage::Compute:
                     return "compute";
+                case Core::Formats::ShaderStage::RayGen:
+                    return "ray generation";
+                case Core::Formats::ShaderStage::AnyHit:
+                    return "any hit";
+                case Core::Formats::ShaderStage::ClosestHit:
+                    return "closest hit";
+                case Core::Formats::ShaderStage::Miss:
+                    return "miss";
                 case Core::Formats::ShaderStage::None:
                     break;
             }
@@ -802,8 +810,9 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                                                     const DescriptorIndexingLimits&       updateAfterBind )
     {
         using Core::Formats::ShaderStage;
-        constexpr std::array kStages{ ShaderStage::Vertex, ShaderStage::TessControl, ShaderStage::TessEvaluation,
-                                      ShaderStage::Fragment, ShaderStage::Compute };
+        constexpr std::array kStages{ ShaderStage::Vertex,     ShaderStage::TessControl, ShaderStage::TessEvaluation,
+                                      ShaderStage::Fragment,   ShaderStage::Compute,     ShaderStage::RayGen,
+                                      ShaderStage::AnyHit,     ShaderStage::ClosestHit,  ShaderStage::Miss };
         std::vector<std::string> refusals;
         for ( const ShaderStage stage : kStages )
         {

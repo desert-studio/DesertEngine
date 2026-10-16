@@ -210,6 +210,9 @@ namespace Common::Scalability
         IrradianceFieldProbesPerFrame, // ProbeVolume's radiance-cache probes traced per frame (UE
                                        // r.Lumen.IrradianceFieldGather.NumProbesToTraceBudget; today
                                        // RadianceCache::MakeRadianceCacheInputs scales ProbesPerFrame by 200/300)
+        ReflectionsHitLighting,                 // 0/1: HardwareTraced reflections run hit lighting - the ray
+                                                // tracing pipeline with each hit surface's own material (UE
+                                                // r.Lumen.Reflections.HardwareRayTracing.LightingMode = hit lighting)
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
