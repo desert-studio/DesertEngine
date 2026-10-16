@@ -404,21 +404,22 @@ namespace Desert::Graphic::System
                     const std::span<const GpuObjectMotion> rows        = m_ScratchMotionRows.Rows;
                     for ( const auto& [sd, boneOffset] : outlined )
                     {
-                        // The pose slice (or the skin cache's streams) is the draw's own state, set right before it.
+                        // The pose slice (or the skin cache's streams) is the draw's own state, set right before
+                        // it.
                         const GpuObjectMotion row =
                              sd->MotionRow < rows.size() ? rows[sd->MotionRow] : GpuObjectMotion{};
                         const uint64_t address =
                              ( static_cast<uint64_t>( row.SkinCacheAddressHi ) << 32u ) | row.SkinCacheAddressLo;
-                        m_SilhouetteDraws.Add(
-                             { .Pipeline  = m_SilhouetteSkinnedPipeline.get(),
-                               .Mesh      = sd->Mesh,
-                               .Transform = sd->Transform,
-                               .Material  = skinnedMask->GetMaterialExecutor(),
-                               .BindState = [skinnedMask, offset = boneOffset, address, count = row.SkinCacheVertexCount]
-                               {
-                                   skinnedMask->SetBoneOffset( offset );
-                                   skinnedMask->SetSkinCache( address, count );
-                               } } );
+                        m_SilhouetteDraws.Add( { .Pipeline  = m_SilhouetteSkinnedPipeline.get(),
+                                                 .Mesh      = sd->Mesh,
+                                                 .Transform = sd->Transform,
+                                                 .Material  = skinnedMask->GetMaterialExecutor(),
+                                                 .BindState = [skinnedMask, offset = boneOffset, address,
+                                                               count = row.SkinCacheVertexCount]
+                                                 {
+                                                     skinnedMask->SetBoneOffset( offset );
+                                                     skinnedMask->SetSkinCache( address, count );
+                                                 } } );
                     }
                 }
             }

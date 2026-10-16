@@ -28,7 +28,8 @@ namespace
 
 // Red if the table is loaded unconditionally: vkGetDeviceProcAddr for an extension the device did not enable is
 // undefined behaviour, so on a device without the AS row no acceleration-structure name may be asked for. The core
-// buffer-address entry IS loaded there (the GPU skin cache's raster consumers fetch by address without ray tracing).
+// buffer-address entry IS loaded there (the GPU skin cache's raster consumers fetch by address without ray
+// tracing).
 TEST( RayTracingFunctions, OnlyTheBufferAddressIsResolvedOnADeviceWithoutAccelerationStructure )
 {
     std::set<std::string> asked;
@@ -48,8 +49,9 @@ TEST( RayTracingFunctions, OnlyTheBufferAddressIsResolvedOnADeviceWithoutAcceler
 TEST( RayTracingFunctions, NothingIsResolvedOnADeviceWithoutBufferDeviceAddress )
 {
     std::set<std::string> asked;
-    const auto functions = LoadRayTracingDeviceFunctions( CapsWith( {} ), [&asked]( const char* name ) -> PFN_vkVoidFunction
-                                                          {
+    const auto            functions = LoadRayTracingDeviceFunctions( CapsWith( {} ),
+                                                                     [&asked]( const char* name ) -> PFN_vkVoidFunction
+                                                                     {
                                                               asked.insert( name );
                                                               return &Stub;
                                                           } );

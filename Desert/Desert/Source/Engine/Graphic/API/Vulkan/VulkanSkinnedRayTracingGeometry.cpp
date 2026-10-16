@@ -43,29 +43,31 @@ namespace Desert::Graphic::API::Vulkan
 
         const RayTracingDeviceFunctions& functions = logical->GetRayTracingFunctions();
         if ( functions.GetBufferDeviceAddress == nullptr )
-            return Common::MakeError<bool>( "SkinCache: vkGetBufferDeviceAddress was not resolved on this device" );
+            return Common::MakeError<bool>(
+                 "SkinCache: vkGetBufferDeviceAddress was not resolved on this device" );
 
         Release();
         const auto& allocator =
              SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
-        m_Bytes = static_cast<VkDeviceSize>( vertexCount ) * RayTracing::kSkinCacheFloatsPerVertex * sizeof( float );
+        m_Bytes =
+             static_cast<VkDeviceSize>( vertexCount ) * RayTracing::kSkinCacheFloatsPerVertex * sizeof( float );
         // The BLAS-input usage only where the device enabled VK_KHR_acceleration_structure (a usage bit of an
         // extension not enabled is invalid); the raster reads the streams as a storage buffer either way.
         VkBufferUsageFlags usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         if ( logical->GetPhysicalDevice()->GetDeviceCaps().Has( Capability::AccelerationStructure ) )
             usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
         const auto allocated = allocator->RT_AllocateBuffer(
-             "SkinCache_Streams",
-             DeviceAddressBufferInfo( m_Bytes, usage ),
-             VMA_MEMORY_USAGE_GPU_ONLY, m_Buffer );
+             "SkinCache_Streams", DeviceAddressBufferInfo( m_Bytes, usage ), VMA_MEMORY_USAGE_GPU_ONLY, m_Buffer );
         if ( !allocated.IsSuccess() )
         {
             m_Buffer = VK_NULL_HANDLE;
             Release();
-            return Common::MakeFormattedError<bool>( "SkinCache streams ({} bytes): {}", m_Bytes, allocated.GetError() );
+            return Common::MakeFormattedError<bool>( "SkinCache streams ({} bytes): {}", m_Bytes,
+                                                     allocated.GetError() );
         }
         m_Memory = allocated.GetValue();
-        m_Ledger = ResourceOwnership::Take( ResourceKind::StorageBuffer, VulkanAllocator::AllocationSize( m_Memory ) );
+        m_Ledger =
+             ResourceOwnership::Take( ResourceKind::StorageBuffer, VulkanAllocator::AllocationSize( m_Memory ) );
 
         // The device's loaded table (VulkanRayTracingFunctions.hpp), as every other address in the engine; it
         // holds the buffer-address entry on a device without acceleration structures too.
@@ -153,7 +155,7 @@ namespace Desert::Graphic::API::Vulkan
         m_IndexAddress = functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() );
         m_VertexAddress = functions.BufferAddress( device, vertexBuffer->GetVulkanBuffer() );
         // The sizes ignore the vertex address: RecordBuild passes the streams' (the positions SkinFrame wrote).
-        const VulkanBlasBuildInput sizing = TranslateBlasGeometry( m_Segments, 0, m_IndexAddress );
+        const VulkanBlasBuildInput sizing                 = TranslateBlasGeometry( m_Segments, 0, m_IndexAddress );
         VkAccelerationStructureBuildGeometryInfoKHR build = MakeBlasBuildInfo( sizing );
         build.flags                                       = kSkinnedBlasFlags;
         VkAccelerationStructureBuildSizesInfoKHR sizes{

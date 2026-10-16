@@ -42,7 +42,8 @@ namespace Desert::Graphic
 
     void MaterialSilhouetteSkinned::SetSkinCache( const uint64_t address, const uint32_t vertexCount )
     {
-        // The push block's SkinCache* fields (Programs/Silhouette/Silhouette_Skinned.shader), found by name like BoneOffset.
+        // The push block's SkinCache* fields (Programs/Silhouette/Silhouette_Skinned.shader), found by name like
+        // BoneOffset.
         const uint32_t addressLo = static_cast<uint32_t>( address & 0xffffffffu );
         const uint32_t addressHi = static_cast<uint32_t>( address >> 32u );
         WritePushField( "SkinCacheVertexCount", &vertexCount, sizeof( uint32_t ) );

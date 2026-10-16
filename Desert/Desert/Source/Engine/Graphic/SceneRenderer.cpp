@@ -1272,11 +1272,11 @@ namespace Desert::Graphic
             for ( const System::TerrainDrawData& tile : terrain->GetQueue() )
                 m_ScratchTileMotions.push_back(
                      { .Entity = tile.Landscape.Entity, .Part = 0, .World = glm::mat4( 1.0f ) } );
-            // The scene's GPU skin cache (RayTracingSkinCache.hpp): every view of the scene shares it, each skinned
-            // primitive is skinned once per frame by the skin step of the first view that queues it, the raster and
-            // the TLAS of every view read the result.
-            const uint64_t                   frameNumber = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
-            RayTracing::RayTracingSkinCache* skinCache   = nullptr;
+            // The scene's GPU skin cache (RayTracingSkinCache.hpp): every view of the scene shares it, each
+            // skinned primitive is skinned once per frame by the skin step of the first view that queues it, the
+            // raster and the TLAS of every view read the result.
+            const uint64_t frameNumber = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+            RayTracing::RayTracingSkinCache* skinCache = nullptr;
             if ( m_FrameRayTracingCache != nullptr )
             {
                 m_FrameRayTracingCache->BeginViewFrame( frameNumber );

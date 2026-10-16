@@ -205,7 +205,8 @@ namespace Desert::Graphic::RayTracing
             }
 
             // A morphed record reads the twin's output through the external the morph graph wrote it through
-            // (MeshRenderer::UpdateMorphTargets): one resource, so its carried VertexIndex state barriers this read.
+            // (MeshRenderer::UpdateMorphTargets): one resource, so its carried VertexIndex state barriers this
+            // read.
             RDG::ExternalBuffer* const morphed = meshes.FindMorphOutput( record.Entity, record.Mesh );
             RDG::ExternalBuffer* const source  = morphed != nullptr ? morphed : &entry.VerticesImport;
             auto [vertexRef, fresh]            = vertexRefs.try_emplace( source );
@@ -221,7 +222,8 @@ namespace Desert::Graphic::RayTracing
             const RDG::BufferRef          dispatchRef =
                  graph.CreateBuffer( RDG::BufferDesc{ sizeof( dispatch ) }, "SkinCache.Dispatch" );
             graph.QueueBufferUpload( dispatchRef, std::as_bytes( std::span( dispatch ) ) );
-            const RDG::BufferRef streams  = graph.RegisterExternal( entry.Streams->GetBuffer(), "SkinCache.Streams" );
+            const RDG::BufferRef streams =
+                 graph.RegisterExternal( entry.Streams->GetBuffer(), "SkinCache.Streams" );
             const RDG::BufferRef vertices = vertexRef->second;
             const RDG::BufferRef bonesRef = *bones;
             const uint32_t       groups   = ( vertexCount + kSkinCacheGroupSize - 1u ) / kSkinCacheGroupSize;
@@ -248,8 +250,9 @@ namespace Desert::Graphic::RayTracing
 
         if ( const Common::BoolResultStr executed = Renderer::ExecuteGraph( graph ); !executed )
         {
-            // Nothing of this graph reached the GPU: the streams hold no pose of this frame, so their rows lose the
-            // address (the raster skins those draws in the vertex stage) and the entries are not marked skinned.
+            // Nothing of this graph reached the GPU: the streams hold no pose of this frame, so their rows lose
+            // the address (the raster skins those draws in the vertex stage) and the entries are not marked
+            // skinned.
             for ( Entry* entry : skinned )
             {
                 entry->StreamsReady = false;
@@ -313,7 +316,8 @@ namespace Desert::Graphic::RayTracing
             if ( !m_OffLogged )
                 LOG_WARN( "[SkinCache] {} skinned primitive(s) are not in the TLAS: the skin cache is {}",
                           requests.size(),
-                          m_Enabled ? "without its pipeline (logged above)" : "off (Scalability Effects.SkinCache)" );
+                          m_Enabled ? "without its pipeline (logged above)"
+                                    : "off (Scalability Effects.SkinCache)" );
             m_OffLogged = true;
             return BOOLSUCCESS;
         }

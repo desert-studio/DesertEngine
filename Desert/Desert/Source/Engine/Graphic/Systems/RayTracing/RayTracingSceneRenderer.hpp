@@ -179,8 +179,8 @@ namespace Desert::Graphic::RayTracing
     // What one view's RT scene holds this frame (the viewport's RT scene overlay and the [ViewMemory] lines).
     // Every persistent byte count is READ FROM the ledger rows of the allocations (ResourceOwnership::GetBytes
     // through GetMemoryBytes / SkinCacheStreams::GetBytes / GetBuildInputBytes): one statement per allocation,
-    // the census and these numbers cannot disagree. The graph transients (instance rows, primitive ranges, scratch) are
-    // placed in the device's TransientHeap rows; their sizes are the frame's declared descs
+    // the census and these numbers cannot disagree. The graph transients (instance rows, primitive ranges,
+    // scratch) are placed in the device's TransientHeap rows; their sizes are the frame's declared descs
     // (RayTracingSceneFrame).
     struct RayTracingSceneStats
     {

@@ -548,14 +548,14 @@ namespace Desert::Graphic::System
                                                    bytes, wrote.GetError() );
             return BOOLSUCCESS;
         };
-        if ( const auto uploaded = upload( m_ObjectBones, SceneResources::kObjectBonesName,
-                                           Core::kObjectBonesBinding, palettes.data(),
-                                           palettes.size() * sizeof( glm::mat4 ) );
+        if ( const auto uploaded =
+                  upload( m_ObjectBones, SceneResources::kObjectBonesName, Core::kObjectBonesBinding,
+                          palettes.data(), palettes.size() * sizeof( glm::mat4 ) );
              !uploaded )
             return uploaded;
-        // The scene's skin step, after the palette it skins from is uploaded and before the rows are: its own graph
-        // is submitted here, ahead of every view graph (each only reads the streams), and a failure strips the
-        // address from the rows it was to fill before they reach the GPU.
+        // The scene's skin step, after the palette it skins from is uploaded and before the rows are: its own
+        // graph is submitted here, ahead of every view graph (each only reads the streams), and a failure strips
+        // the address from the rows it was to fill before they reach the GPU.
         if ( skinCache != nullptr )
             if ( const Common::BoolResultStr skinned =
                       skinCache->SkinFrame( *this, built.Rows, m_SkinCacheBonesImport, frame );

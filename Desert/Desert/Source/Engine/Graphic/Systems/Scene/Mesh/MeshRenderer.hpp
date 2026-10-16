@@ -351,11 +351,11 @@ namespace Desert::Graphic::System
         // @p otherRigid: rigid primitives drawn by another renderer of the view (the terrain renderer's landscape
         // tiles) that still need a GPU-scene row - their TLAS custom index; their rows, in order, are
         // GetOtherMotionRows().
-        // @p skinCache (the scene's GPU skin cache, null = none: every skinned primitive skins in the vertex stage)
-        // writes each skinned row's cached-streams address (RayTracingSkinCache::PrepareRows), then - after the
-        // ObjectBones upload, before the rows' - runs the scene's skin step for what no earlier view of the absolute
-        // frame @p frame skinned (RayTracingSkinCache::SkinFrame: its own graph, executed before any view graph).
-        // A skin step that fails is logged and its rows lose the address; the view still draws.
+        // @p skinCache (the scene's GPU skin cache, null = none: every skinned primitive skins in the vertex
+        // stage) writes each skinned row's cached-streams address (RayTracingSkinCache::PrepareRows), then - after
+        // the ObjectBones upload, before the rows' - runs the scene's skin step for what no earlier view of the
+        // absolute frame @p frame skinned (RayTracingSkinCache::SkinFrame: its own graph, executed before any view
+        // graph). A skin step that fails is logged and its rows lose the address; the view still draws.
         [[nodiscard]] Common::BoolResultStr BuildObjectMotions( MotionHistory&                   motion,
                                                                 std::span<const MotionRecord>    otherRigid,
                                                                 RayTracing::RayTracingSkinCache* skinCache,
@@ -378,14 +378,15 @@ namespace Desert::Graphic::System
         }
         // This view's graph refs of the skin-cache streams its skinned rows address (RayTracingSkinCache::
         // DeclareReads fills them, SceneRenderer clears them per frame): every pass that draws skinned primitives
-        // declares them StorageRead (the G-buffer / forward geometry pass, the cascade and local shadow passes, the
-        // silhouette).
+        // declares them StorageRead (the G-buffer / forward geometry pass, the cascade and local shadow passes,
+        // the silhouette).
         [[nodiscard]] std::vector<RDG::BufferRef>& SkinCacheReads()
         {
             return m_SkinCacheReads;
         }
         // The morph twin's output external of @p entity when @p mesh is its blended twin (the external
-        // UpdateMorphTargets' graph wrote through), else null: the skin step reads the morphed vertices through it.
+        // UpdateMorphTargets' graph wrote through), else null: the skin step reads the morphed vertices through
+        // it.
         [[nodiscard]] RDG::ExternalBuffer* FindMorphOutput( uint32_t entity, const SkinnedMesh* mesh );
         // This view's ObjectBones as the skin pass's graph external.
         [[nodiscard]] RDG::ExternalBuffer& SkinCacheBonesImport()
@@ -1422,7 +1423,7 @@ namespace Desert::Graphic::System
             uint32_t          First     = 0; // first instance transform / first bone
             // Skinned path: the primitive's row in the view's ObjectMotions (PrimitiveIndex), whose skin-cache
             // fields the cell fetches the cached pose by; a row without an address skins from the copy's bones.
-            uint32_t          MotionRow = 0;
+            uint32_t          MotionRow         = 0;
             uint32_t          LodLevel  = 0;
             uint64_t          HiddenSubmeshMask = 0; // the caster's section group, as its lit draw
             InstanceWindPush  Wind;

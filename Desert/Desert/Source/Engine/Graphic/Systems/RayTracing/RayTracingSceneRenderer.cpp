@@ -84,13 +84,13 @@ namespace Desert::Graphic::RayTracing
                                           .DrawDistanceScale   = drawDistanceScale },
                                         cache.GetVariants(), m_Gather );
             // Skinned primitives trace their per-frame BLAS, built from the positions the scene's skin step
-            // (RayTracingSkinCache::SkinFrame) already wrote this frame - no skinning here; an earlier view's build
-            // is reused. The gather appends one skinned primitive per skinned record, last.
+            // (RayTracingSkinCache::SkinFrame) already wrote this frame - no skinning here; an earlier view's
+            // build is reused. The gather appends one skinned primitive per skinned record, last.
             const auto firstSkinned =
                  static_cast<uint32_t>( m_Gather.Primitives.size() - meshes.GetSkinnedQueue().size() );
-            if ( const Common::BoolResultStr skinned = cache.GetSkinCache().AddPasses(
-                      graph, meshes, m_Gather.Primitives, firstSkinned, cache.GetFrame(), m_DynamicBuilds,
-                      m_DynamicBlas );
+            if ( const Common::BoolResultStr skinned =
+                      cache.GetSkinCache().AddPasses( graph, meshes, m_Gather.Primitives, firstSkinned,
+                                                      cache.GetFrame(), m_DynamicBuilds, m_DynamicBlas );
                  !skinned )
                 return skinned;
             // Meshes the uploader built no BLAS for (procedural): built in the same pass, once per buffer upload.

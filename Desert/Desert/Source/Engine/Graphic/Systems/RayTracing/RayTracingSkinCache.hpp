@@ -63,8 +63,8 @@ namespace Desert::Graphic::System
 //   [6V, 15V) tangent frame      - normal, tangent, bitangent (3 x float3) skinned by the palette's 3x3
 namespace Desert::Graphic::RayTracing
 {
-    inline constexpr std::string_view kSkinCacheShader   = "SkinCache";
-    inline constexpr std::string_view kSkinCachePassName = "SkinCache: Skin";
+    inline constexpr std::string_view kSkinCacheShader    = "SkinCache";
+    inline constexpr std::string_view kSkinCachePassName  = "SkinCache: Skin";
     inline constexpr uint32_t         kSkinCacheGroupSize = 64; // LocalSize of Programs/Compute/SkinCache.shader
     // Floats per vertex in an entry's streams buffer (layout above; Vertex_Skinned.glslh and SkinCache.shader).
     inline constexpr uint32_t kSkinCacheFloatsPerVertex = 15;
@@ -82,11 +82,10 @@ namespace Desert::Graphic::RayTracing
 
         // RASTER, step 1 (MeshRenderer::BuildObjectMotions, before the rows are uploaded): makes an entry (keyed
         // {Entity, n-th skinned record of the entity this frame}, MotionKey's slot rule) fit each queued skinned
-        // record of @p meshes and writes its streams' address and vertex count into the record's row, so the view passes fetch
-        // instead of skinning. A record whose entry cannot be made keeps a row without an address (the raster
-        // skins it in the vertex stage), logged once per entry. Off: rows are left without addresses.
-        void PrepareRows( const System::MeshRenderer& meshes,
-                          std::span<GpuObjectMotion> rows, uint64_t frame );
+        // record of @p meshes and writes its streams' address and vertex count into the record's row, so the view
+        // passes fetch instead of skinning. A record whose entry cannot be made keeps a row without an address
+        // (the raster skins it in the vertex stage), logged once per entry. Off: rows are left without addresses.
+        void PrepareRows( const System::MeshRenderer& meshes, std::span<GpuObjectMotion> rows, uint64_t frame );
 
         // RASTER, step 2 (MeshRenderer::BuildObjectMotions, after the view's ObjectBones are uploaded and before
         // its rows are): the scene's skin step (UE FGPUSkinCache::DispatchUpdateSkinning, which runs once per
@@ -114,9 +113,9 @@ namespace Desert::Graphic::RayTracing
         // hidden and non-opaque segments) and appends ONE build request per BLAS not yet built in @p frame to
         // @p buildsOut - its vertex input is the entry's streams (the current positions SkinFrame wrote), so the
         // RT scene's one "RayTracingScene.DynamicGeometry" pass refits / builds it without a second skinning - and
-        // points the primitive's Geometry at it. @p primitives[firstSkinned + i] is MeshRenderer's skinned record i.
-        // A BLAS an earlier view of the frame built is appended to @p blasOut for this view's TLAS pass to read.
-        // Off, or an entry without skinned streams: the primitive keeps Geometry null (counted
+        // points the primitive's Geometry at it. @p primitives[firstSkinned + i] is MeshRenderer's skinned record
+        // i. A BLAS an earlier view of the frame built is appended to @p blasOut for this view's TLAS pass to
+        // read. Off, or an entry without skinned streams: the primitive keeps Geometry null (counted
         // RayTracingSkip::Skinned), logged once.
         [[nodiscard]] Common::BoolResultStr AddPasses( RDG::Builder& graph, const System::MeshRenderer& meshes,
                                                        std::span<RayTracingPrimitive> primitives,
@@ -169,8 +168,8 @@ namespace Desert::Graphic::RayTracing
             bool                HasSkinned    = false; // SkinnedFrame is meaningful
             bool                BlasReady     = false; // BuiltFrame's build was declared
             bool                RefusalLogged = false;
-            // The registration of the streams / BLAS in the graph being declared (RayTracingSkinCache::m_GraphSerial):
-            // an external is registered once per graph.
+            // The registration of the streams / BLAS in the graph being declared
+            // (RayTracingSkinCache::m_GraphSerial): an external is registered once per graph.
             uint64_t                      GraphSerial = 0;
             std::optional<RDG::BufferRef> StreamsRef;
             std::optional<RDG::BufferRef> StorageRef;
@@ -178,11 +177,12 @@ namespace Desert::Graphic::RayTracing
 
         // The entry key of each skinned record of @p meshes, in order (MotionKey's slot rule).
         void KeyRecords( const System::MeshRenderer& meshes );
-        // Starts @p entry's registrations afresh when it was last registered in another graph than the current one.
+        // Starts @p entry's registrations afresh when it was last registered in another graph than the current
+        // one.
         void Touch( Entry& entry ) const;
         // @p entry's streams / BLAS in @p graph, registered on first use in that graph.
-        RDG::BufferRef StreamsIn( RDG::Builder& graph, Entry& entry );
-        RDG::BufferRef StorageIn( RDG::Builder& graph, Entry& entry );
+        RDG::BufferRef     StreamsIn( RDG::Builder& graph, Entry& entry );
+        RDG::BufferRef     StorageIn( RDG::Builder& graph, Entry& entry );
         [[nodiscard]] bool EnsurePipeline( std::size_t skinnedCount );
 
         std::unordered_map<uint64_t, Entry>    m_Entries;
@@ -191,8 +191,8 @@ namespace Desert::Graphic::RayTracing
         std::shared_ptr<ComputePipeline>       m_Pipeline;
         ShaderBindingLayoutCache               m_Layout;
         // The graph DeclareReads registered into last, and its serial: AddPasses must run on that same graph.
-        const RDG::Builder* m_DeclaringGraph = nullptr;
-        uint64_t            m_GraphSerial    = 0;
+        const RDG::Builder*                    m_DeclaringGraph        = nullptr;
+        uint64_t                               m_GraphSerial           = 0;
         bool                                   m_Enabled               = true;
         bool                                   m_PipelineRefusalLogged = false;
         bool                                   m_OffLogged             = false;

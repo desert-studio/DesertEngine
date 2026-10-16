@@ -17,10 +17,10 @@ namespace Desert::Graphic
 
 // THE VULKAN SKIN-CACHE ENTRY OF ONE SKINNED PRIMITIVE: its cached streams (VulkanSkinCacheStreams, written by
 // "SkinCache: Skin") and the BLAS built from their current positions (VulkanSkinnedRayTracingGeometry). Both live
-// across frames; the BLAS is recreated only when the mesh's buffers or the hidden mask change, and every other frame the BLAS is REFIT in place (UE
-// FRayTracingDynamicGeometryUpdateParams with bAllowUpdate: ALLOW_UPDATE + PREFER_FAST_BUILD, MODE_UPDATE with
-// src == dst). The build is recorded by the graph pass "RayTracingScene.DynamicGeometry"
-// (RayTracingDynamicGeometry.hpp).
+// across frames; the BLAS is recreated only when the mesh's buffers or the hidden mask change, and every other
+// frame the BLAS is REFIT in place (UE FRayTracingDynamicGeometryUpdateParams with bAllowUpdate: ALLOW_UPDATE +
+// PREFER_FAST_BUILD, MODE_UPDATE with src == dst). The build is recorded by the graph pass
+// "RayTracingScene.DynamicGeometry" (RayTracingDynamicGeometry.hpp).
 namespace Desert::Graphic::API::Vulkan
 {
     // One entry's streams buffer (RayTracingSkinCache.hpp layout, kSkinCacheFloatsPerVertex floats per vertex):

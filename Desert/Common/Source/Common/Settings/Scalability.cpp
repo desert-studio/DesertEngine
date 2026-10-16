@@ -77,10 +77,11 @@ namespace Common::Scalability
              { P::ReflectionsMethod, G::Reflections, "Reflections.Method", 0,
                LastOf( kReflectionMethodNames.size() ), CL::None,
                "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the reflection method ceiling" },
-             { P::ShadowsMethod, G::Shadows, "Shadows.Method", 0, LastOf( kShadowMethodNames.size() ),
-               CL::None, "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the shadow method ceiling" },
+             { P::ShadowsMethod, G::Shadows, "Shadows.Method", 0, LastOf( kShadowMethodNames.size() ), CL::None,
+               "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the shadow method ceiling" },
              { P::SkinCache, G::Effects, "Effects.SkinCache", 0, 1, CL::None,
-               "SceneRenderer::BeginScene -> MeshRenderer::SetSkinCacheEnabled -> RayTracingSkinCache::SetEnabled" },
+               "SceneRenderer::BeginScene -> MeshRenderer::SetSkinCacheEnabled -> "
+               "RayTracingSkinCache::SetEnabled" },
              { P::LightGridPixelSize, G::Shadows, "Shadows.LightGridPixelSize", 16, 256, CL::None,
                "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" tiles)" },
              { P::LightGridSlices, G::Shadows, "Shadows.LightGridSlices", 8, 128, CL::None,
@@ -93,8 +94,8 @@ namespace Common::Scalability
                CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows under a ray-traced sun (blended "
                "u_ShadowCascades readers, MeshRenderer::SunCascadeReadersQueued)" },
-             { P::ShadowRayTracedTranslucencyMapSize, G::Shadows, "Shadows.RayTracedTranslucencyMapSize", 256, 2048,
-               CL::None,
+             { P::ShadowRayTracedTranslucencyMapSize, G::Shadows, "Shadows.RayTracedTranslucencyMapSize", 256,
+               2048, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows under a ray-traced sun (blended "
                "u_ShadowCascades readers, MeshRenderer::SunCascadeReadersQueued)" },
              { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
