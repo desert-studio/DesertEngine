@@ -105,6 +105,10 @@ local function EngineModuleLibrary(module, legacyFiles)
         -- Luau, by module path (<VM/include/lua.h>, <Compiler/include/luacode.h>): its lua.h shares a name with
         -- PUC Lua's (DesertHeaderTool's), so the two VMs' headers can never resolve to each other.
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau",
+        -- Luau's C++ CodeGen API (<CodeGen/include/Luau/CodeGen.h>: the script debugger turns native execution
+        -- off while attached) includes its siblings as "Luau/...", from these two roots.
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau/CodeGen/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau/Common/include",
     }
 
     for name, path in DesertSortedPairs(deps.Common.IncludeDir) do

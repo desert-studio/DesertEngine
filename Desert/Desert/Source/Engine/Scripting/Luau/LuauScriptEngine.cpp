@@ -109,7 +109,8 @@ namespace Desert::Scripting
                                                              lua_pop( L, 1 );
 
                                                              RegisterHostNatives( L );
-                                                         } );
+                                                         },
+                                                         LuauDebugging::Attachable );
     }
 
     ScriptEngine::~ScriptEngine() = default;

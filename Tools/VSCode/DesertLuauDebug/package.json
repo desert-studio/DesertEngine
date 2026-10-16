@@ -1,0 +1,32 @@
+{
+  "name": "desert-luau-debug",
+  "displayName": "DesertEngine Luau Debugger",
+  "description": "Attaches VS Code to a running DesertEngine editor's script debugger (DAP over loopback TCP).",
+  "version": "0.1.0",
+  "publisher": "desertengine",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Debuggers"],
+  "main": "./extension.js",
+  "activationEvents": ["onDebugResolve:desert-luau"],
+  "contributes": {
+    "breakpoints": [{ "language": "lua" }, { "language": "luau" }],
+    "debuggers": [
+      {
+        "type": "desert-luau",
+        "label": "DesertEngine Luau",
+        "languages": ["lua", "luau"],
+        "configurationAttributes": {
+          "attach": {
+            "properties": {
+              "host": { "type": "string", "default": "127.0.0.1", "description": "The editor's machine (loopback only)." },
+              "port": { "type": "number", "default": 21110, "description": "Editor Preferences: ScriptDebugPort." }
+            }
+          }
+        },
+        "initialConfigurations": [
+          { "type": "desert-luau", "request": "attach", "name": "Attach to DesertEngine editor", "host": "127.0.0.1", "port": 21110 }
+        ]
+      }
+    ]
+  }
+}

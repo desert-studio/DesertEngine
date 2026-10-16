@@ -3,8 +3,10 @@
 #include <Common/Core/Logger.hpp>
 #include <Engine/Reflection/ReflectionTypes.hpp>
 #include <Engine/Scripting/Luau/LuauBinder.hpp>
+#include <Engine/Scripting/Luau/LuauDebugger.hpp>
 #include <Engine/Scripting/Luau/LuauProperties.hpp>
 
+#include <algorithm>
 #include <cstdlib>
 #include <memory>
 #include <format>
@@ -36,6 +38,11 @@ namespace Desert::Scripting
         /// Luau numbers its memory categories 0..LUA_MEMORY_CATEGORIES-1; 0 is the engine's own (libraries,
         /// prototypes, the console). One category per SCRIPT, so the count is of distinct scripts, not slots.
         constexpr int kFirstScriptCategory = 1;
+
+        int LineCount( const std::string& source )
+        {
+            return 1 + static_cast<int>( std::ranges::count( source, '\n' ) );
+        }
     } // namespace
 
     struct LuauRuntime::Impl
@@ -45,6 +52,7 @@ namespace Desert::Scripting
             std::string Source;
             int         Prototype = LUA_NOREF; // the loaded chunk in the main state, cloned by every slot
             int         Category  = 0;
+            int         Lines     = 0; // the debugger patches lines 1..Lines while a step is pending
         };
 
         struct Slot
@@ -71,6 +79,10 @@ namespace Desert::Scripting
         lua_State*                              Console    = nullptr;
         int                                     ConsoleRef = LUA_NOREF;
         bool                                    Native     = false;
+        bool                                    Debuggable = false;
+        // How long calls of this runtime were held at debugger stops: the watchdog's clock leaves it out, so a
+        // call resumed after a minute at a breakpoint still has the budget it had when it stopped.
+        Clock::duration Held{};
         std::unordered_map<std::string, Script> Scripts;
         std::unordered_map<LuauSlot, Slot>      Slots;
         LuauSlot                                NextSlot     = 1;
@@ -91,13 +103,19 @@ namespace Desert::Scripting
             const Impl& impl = Of( state );
             if ( !impl.Active.Armed )
                 return;
-            if ( Clock::now() > impl.Active.Deadline )
+            if ( impl.RunClock() > impl.Active.Deadline )
                 luaL_errorL( state, "stopped by the watchdog: the call ran longer than %lld ms",
                              static_cast<long long>( impl.Limits.CallBudget.count() ) );
             if ( impl.Active.Category != 0 &&
                  lua_totalbytes( state, impl.Active.Category ) > impl.Limits.ScriptMemoryBytes )
                 luaL_errorL( state, "stopped: the script holds more than %zu bytes",
                              impl.Limits.ScriptMemoryBytes );
+        }
+
+        /// The watchdog's clock: steady time minus the time held at debugger stops.
+        [[nodiscard]] Clock::time_point RunClock() const
+        {
+            return Clock::now() - Held;
         }
 
         static int Print( lua_State* state )
@@ -131,9 +149,13 @@ namespace Desert::Scripting
                                    const std::string& what )
         {
             const Guard outer = Active;
-            Active = Guard{ .Armed = true, .Deadline = Clock::now() + Limits.CallBudget, .Category = category };
+            Active = Guard{ .Armed = true, .Deadline = RunClock() + Limits.CallBudget, .Category = category };
+            if ( Debuggable )
+                LuauDebugger::Get().EnterCall();
             const int status = lua_pcall( thread, nargs, nresults, 0 );
-            Active           = outer;
+            if ( Debuggable )
+                LuauDebugger::Get().LeaveCall();
+            Active = outer;
             if ( status == LUA_OK )
                 return Common::MakeSuccess( true );
 
@@ -149,7 +171,7 @@ namespace Desert::Scripting
         {
             lua_CompileOptions options{};
             options.optimizationLevel = 1;
-            options.debugLevel        = 1;
+            options.debugLevel        = 2; // local and upvalue names, for the debugger's variables
             std::size_t    size       = 0;
             const Bytecode bytecode( luau_compile( source.data(), source.size(), &options, &size ) );
             ++Compiles;
@@ -161,7 +183,9 @@ namespace Desert::Scripting
                 lua_pop( L, 1 );
                 return Common::MakeError<bool>( error );
             }
-            if ( Native )
+            if ( Debuggable )
+                LuauDebugger::Get().Loaded( L, script, LineCount( source ) );
+            if ( Native && ( !Debuggable || LuauDebugger::Get().NativeAllowed() ) )
                 luau_codegen_compile( L, -1 );
             return Common::MakeSuccess( true );
         }
@@ -189,6 +213,7 @@ namespace Desert::Scripting
             else
                 lua_unref( L, found->second.Prototype );
             found->second.Source    = source;
+            found->second.Lines     = LineCount( source );
             found->second.Prototype = prototype;
             return Common::MakeSuccess( &found->second );
         }
@@ -233,11 +258,13 @@ namespace Desert::Scripting
         }
     };
 
-    LuauRuntime::LuauRuntime( LuauLimits limits, const LuauInstall& install ) : m_Impl( std::make_unique<Impl>() )
+    LuauRuntime::LuauRuntime( LuauLimits limits, const LuauInstall& install, LuauDebugging debugging )
+         : m_Impl( std::make_unique<Impl>() )
     {
-        Impl& impl  = *m_Impl;
-        impl.Limits = limits;
-        impl.L      = luaL_newstate();
+        Impl& impl      = *m_Impl;
+        impl.Limits     = limits;
+        impl.Debuggable = debugging == LuauDebugging::Attachable;
+        impl.L          = luaL_newstate();
 
         lua_Callbacks* callbacks = lua_callbacks( impl.L );
         callbacks->userdata      = &impl;
@@ -262,10 +289,23 @@ namespace Desert::Scripting
         impl.ConsoleRef = lua_ref( impl.L, -1 );
         lua_pop( impl.L, 1 );
         luaL_sandboxthread( impl.Console );
+
+        if ( impl.Debuggable )
+            LuauDebugger::Get().Register( LuauDebugTarget{
+                 .L = impl.L,
+                 .ForEachScript =
+                      [&impl]( const std::function<void( const LuauLoadedScript& )>& visit )
+                 {
+                     for ( const auto& [name, script] : impl.Scripts )
+                         visit( LuauLoadedScript{ .Script = name, .Prototype = script.Prototype, .Lines = script.Lines } );
+                 },
+                 .Held = [&impl]( Clock::duration held ) { impl.Held += held; } } );
     }
 
     LuauRuntime::~LuauRuntime()
     {
+        if ( m_Impl->Debuggable )
+            LuauDebugger::Get().Unregister( m_Impl->L );
         lua_close( m_Impl->L );
     }
 

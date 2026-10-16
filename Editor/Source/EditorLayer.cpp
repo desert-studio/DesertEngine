@@ -402,6 +402,7 @@ namespace Desert::Editor
         Core::ControlNudgeRequests::Tick();
 
         m_Control.ServiceChannel();
+        m_ScriptDebug.Service();
 
         // THE EDITOR'S FRAME BOUNDARY FOR Core::OpenLevel (UEngine::TickWorldTravel for the PIE world context).
         // In Play the queued level replaces the PLAYED world and Stop still returns to the authored one

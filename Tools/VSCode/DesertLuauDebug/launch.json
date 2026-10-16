@@ -1,0 +1,15 @@
+{
+  // Copy into the game project's .vscode/launch.json. Install the extension in this folder first
+  // ("Developer: Install Extension from Location..." and pick this folder), then start the editor's server
+  // (palette: Script Debugger > Start DAP Server) and press F5 on this configuration.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "desert-luau",
+      "request": "attach",
+      "name": "Attach to DesertEngine editor",
+      "host": "127.0.0.1",
+      "port": 21110
+    }
+  ]
+}
