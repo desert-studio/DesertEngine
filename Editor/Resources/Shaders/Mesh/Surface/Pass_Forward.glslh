@@ -119,7 +119,8 @@ void main()
     }
 
     const DesertSurface surface = DesertMakeSurface( i.WorldPosition, N, i.CameraPosition - i.WorldPosition,
-                                                     s.BaseColor, s.Metallic, s.Roughness );
+                                                     s.BaseColor, s.Metallic, s.Roughness,
+                                                     DesertQuantizePayloadFloat( s.Specular ) );
     // The payload a model reads, at the 8 bits an opaque surface's reaches it through the G-buffer.
     const DesertPayload payload = DesertQuantizePayload(
          DesertPayload( s.CustomData0, s.CustomData1, s.CustomData2, s.CustomData3 ) );

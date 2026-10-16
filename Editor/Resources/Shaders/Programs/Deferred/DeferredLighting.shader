@@ -404,7 +404,8 @@ Shader "DeferredLighting"
         	transmissionShadow *= cloudShadow;
         	vec3  radiance = u_LightColor.rgb * u_LightColor.a;
 
-        	const DesertSurface surface = DesertMakeSurface(worldPos, N, view, albedo, metallic, roughness);
+        	const DesertSurface surface =
+        	     DesertMakeSurface(worldPos, N, view, albedo, metallic, roughness, DesertShadingWordSpecular(word));
 
         	vec3 result = DesertEvaluateShadingModel(
         	     shadingModel, DesertSunLight(u_LightDir.xyz, radiance, shadow, transmissionShadow), surface, payload);

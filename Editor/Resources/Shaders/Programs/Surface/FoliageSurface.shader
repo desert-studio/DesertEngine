@@ -66,6 +66,9 @@ Shader "FoliageSurface"
         Color       AlbedoColor ("Albedo", Category("Surface")) = (1, 1, 1, 1)
         Float       MetallicFactor ("Metallic", Range(0,1), Category("Surface")) = 0
         Float       RoughnessFactor ("Roughness", Range(0,1), Category("Surface")) = 0.5
+        // UE's Specular pin: the dielectric reflectance, F0 = 0.08 x Specular. 0.5 (UE's default) is the 4 % of a
+        // common dielectric; a leaf whose sheen reads milky over a dark albedo takes less (UE foliage practice).
+        Float       Specular ("Specular", Range(0,1), Category("Surface")) = 0.5
         // UE's Ambient Occlusion input, ONE home (StandardSurface, MAT-AO-ONEHOME): the strength of the ORM map's R
         // (glTF occlusionStrength), applied once in SurfaceResolveORM. The template had copied the retired pair
         // (AOStrength multiplying, OcclusionStrength lerping the map), so one authored 0.5 was applied as 0.25.
@@ -134,6 +137,7 @@ Shader "FoliageSurface"
                                             u_Material.RoughnessFactor, u_Material.MetallicFactor );
             s.Metallic          = orm.z;
             s.Roughness         = orm.y;
+            s.Specular          = u_Material.Specular;
             s.AmbientOcclusion  = orm.x;
             s.Emissive          = SurfaceEmission( SurfaceSampleMaterial( u_EmissiveTexture, uv ).rgb,
                                                u_Material.EmissiveColor.rgb, u_Material.EmissiveIntensity );

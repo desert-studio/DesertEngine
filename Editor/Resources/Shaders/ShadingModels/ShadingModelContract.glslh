@@ -21,7 +21,8 @@
 // this file, then every model body, then the dispatch:
 //   vec3  DesertEvaluateShadingModel( int index, DesertLight L, DesertSurface S, DesertPayload P );
 //   vec3  DesertEvaluateShadingModelAmbient( int index, DesertAmbient A, DesertSurface S, DesertPayload P );
-//   uvec2 DesertPackShadingWord( int index, float sampledTextureCount, DesertPayload P );
+//   uvec2 DesertPackShadingWord( int index, float sampledTextureCount, float specular, DesertPayload P );
+//   float DesertShadingWordSpecular( uvec2 shadingWord );
 //   int   DesertShadingModelIndex( uvec2 shadingWord );
 //   float DesertSampledTextureCount( uvec2 shadingWord );
 //   DesertPayload DesertUnpackPayload( uvec2 shadingWord );
@@ -71,7 +72,9 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 //   bits 26..31  free
 //   bits 32..39  payload 2, unorm8   (.y bits 0..7)
 //   bits 40..47  payload 3, unorm8   (.y bits 8..15)
-//   bits 48..63  free
+//   bits 48..55  Specular, unorm8 (UE's Specular pin, GBuffer Specular): the dielectric F0 = 0.08 x Specular
+//                (DesertSpecularF0); 0.5, UE's default, is the 4 % of a common dielectric
+//   bits 56..63  free
 // The target clears to 0: an untouched texel reads Unlit, no payload, receives sun shadows.
 // ShadingModelManifest.hpp (kShadingWordFields) is the C++ half of this table; the ShadingModelContract suite
 // holds the two equal and the fields disjoint.
@@ -86,6 +89,8 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 #define DESERT_SHADING_WORD_PAYLOAD_BITS       8
 #define DESERT_SHADING_WORD_NO_SUN_SHADOWS_BIT 24
 #define DESERT_SHADING_WORD_NO_CONTACT_SHADOW_BIT 25
+#define DESERT_SHADING_WORD_SPECULAR_FIRST_BIT 48
+#define DESERT_SHADING_WORD_SPECULAR_BITS      8
 
 // The G-buffer writer marks the flag after DesertPackShadingWord, so the deferred composite applies the toggle
 // exactly as the forward pass does, and a writer that forgets the mark gets the default, receives.
@@ -137,6 +142,7 @@ struct DesertSurface
     vec3  BaseColor; // linear
     float Metallic;
     float Roughness; // already clamped to >= 0.04 by the pass (the GGX NDF divides by it)
+    float Specular;  // UE's Specular pin: the dielectric reflectance, F0 = 0.08 x Specular (DesertSpecularF0)
 };
 
 // THE ONE PLACE a DesertSurface is made: both passes (Pass_Forward.glslh, DeferredLighting.shader) build it here
@@ -144,7 +150,7 @@ struct DesertSurface
 // interpolated or G-buffer-decoded normal is not unit length; a model quantizing N.L (Toon's bands) turns that
 // per-triangle shortfall into band edges that follow the polygons.
 DesertSurface DesertMakeSurface( vec3 worldPosition, vec3 normal, vec3 toEye, vec3 baseColor, float metallic,
-                                 float roughness )
+                                 float roughness, float specular )
 {
     DesertSurface S;
     S.WorldPosition = worldPosition;
@@ -153,7 +159,15 @@ DesertSurface DesertMakeSurface( vec3 worldPosition, vec3 normal, vec3 toEye, ve
     S.BaseColor     = baseColor;
     S.Metallic      = metallic;
     S.Roughness     = max( roughness, 0.04 ); // GGX NDF stays finite for mirror-smooth surfaces
+    S.Specular      = specular;
     return S;
+}
+
+// UE ComputeF0 (ShadingCommon.ush): the reflectance at normal incidence, the dielectric's 0.08 x Specular blended
+// into the base colour by Metallic. Every model's F0, so the material's Specular reaches every lobe it lights.
+vec3 DesertSpecularF0( DesertSurface S )
+{
+    return mix( vec3( 0.08 * S.Specular ), S.BaseColor, S.Metallic );
 }
 
 // One light source as it arrives at the surface (DirectLighting.glslh:36-47 is the same split: everything specific

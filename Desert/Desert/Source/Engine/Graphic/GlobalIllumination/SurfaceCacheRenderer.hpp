@@ -51,9 +51,9 @@ namespace Desert::Graphic::SurfaceCache
 
         using ImportImage = std::function<RDG::TextureRef( const std::shared_ptr<Image>&, std::string_view )>;
 
-        // The captured layers this renderer owns (SurfaceCache::Layer Depth..Emissive).
-        static constexpr std::array<Layer, 5> kCapturedLayers{ Layer::Depth, Layer::Albedo, Layer::Opacity,
-                                                               Layer::Normal, Layer::Emissive };
+        // The captured layers this renderer owns (SurfaceCache::Layer Depth..Subsurface).
+        static constexpr std::array<Layer, 6> kCapturedLayers{ Layer::Depth,  Layer::Albedo,   Layer::Opacity,
+                                                               Layer::Normal, Layer::Emissive, Layer::Subsurface };
         // The lit layers: the direct lighting (GI-SURFACE-CACHE-4), the indirect lighting off the world radiance
         // cache (GI-CARD-LOOKUP) and their combine. The radiosity count arrives with the radiosity probes.
         static constexpr std::array<Layer, 3> kLitLayers{ Layer::DirectLighting, Layer::IndirectLighting,
@@ -112,12 +112,13 @@ namespace Desert::Graphic::SurfaceCache
             return m_CaptureBuffer;
         }
 
-        // The capture framebuffer's graph textures (TargetsOf of GetCaptureBuffer): albedo, normal, emissive and
-        // depth of the frame's capture atlas.
+        // The capture framebuffer's graph textures (TargetsOf of GetCaptureBuffer): albedo, normal, the shading
+        // word (its model and payload: the subsurface colour), emissive and depth of the frame's capture atlas.
         struct CaptureTextures
         {
             RDG::TextureRef Albedo;
             RDG::TextureRef Normal;
+            RDG::TextureRef ShadingWord;
             RDG::TextureRef Emissive;
             RDG::TextureRef Depth;
         };
@@ -161,7 +162,7 @@ namespace Desert::Graphic::SurfaceCache
 
         SurfaceCacheScene                                                     m_Scene;
         uint32_t                                                              m_AtlasSize = 0;
-        std::array<std::shared_ptr<Image2D>, 5>                               m_Layers;
+        std::array<std::shared_ptr<Image2D>, kCapturedLayers.size()>          m_Layers;
         std::array<std::shared_ptr<Image2D>, 3>                               m_LitLayers;
         std::shared_ptr<Framebuffer>                                          m_CaptureBuffer;
         std::shared_ptr<Shader>                                               m_CopyShader;

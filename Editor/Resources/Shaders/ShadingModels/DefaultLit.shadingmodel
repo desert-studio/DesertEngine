@@ -23,7 +23,7 @@ Inputs
 
 vec3 DefaultLitF0( DesertSurface S )
 {
-    return mix( vec3( 0.04 ), S.BaseColor, S.Metallic );
+    return DesertSpecularF0( S );
 }
 
 vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
