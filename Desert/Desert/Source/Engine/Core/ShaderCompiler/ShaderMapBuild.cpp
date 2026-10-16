@@ -96,18 +96,18 @@ namespace Desert::Core
         // The few SPIR-V words the shared-sampler rule reads (SPIR-V 1.0 spec, section 3): opcodes and the two
         // decorations. Spelled here rather than taken from spirv.hpp because this module is device-free and
         // reads nothing else of the format.
-        constexpr uint32_t kSpvMagic             = 0x07230203u;
-        constexpr size_t   kSpvHeaderWords       = 5;
-        constexpr uint32_t kSpvOpName            = 5;
-        constexpr uint32_t kSpvOpTypeSampler     = 26;
+        constexpr uint32_t kSpvMagic              = 0x07230203u;
+        constexpr size_t   kSpvHeaderWords        = 5;
+        constexpr uint32_t kSpvOpName             = 5;
+        constexpr uint32_t kSpvOpTypeSampler      = 26;
         constexpr uint32_t kSpvOpTypeArray        = 28;
         constexpr uint32_t kSpvOpTypeRuntimeArray = 29;
-        constexpr uint32_t kSpvOpTypePointer     = 32;
-        constexpr uint32_t kSpvOpVariable        = 59;
-        constexpr uint32_t kSpvOpLoad            = 61;
-        constexpr uint32_t kSpvOpDecorate        = 71;
-        constexpr uint32_t kSpvDecorationBinding = 33;
-        constexpr uint32_t kSpvDecorationSet     = 34;
+        constexpr uint32_t kSpvOpTypePointer      = 32;
+        constexpr uint32_t kSpvOpVariable         = 59;
+        constexpr uint32_t kSpvOpLoad             = 61;
+        constexpr uint32_t kSpvOpDecorate         = 71;
+        constexpr uint32_t kSpvDecorationBinding  = 33;
+        constexpr uint32_t kSpvDecorationSet      = 34;
 
         // One descriptor-backed variable of one stage, as the words declare it.
         struct SpvResource
@@ -185,9 +185,9 @@ namespace Desert::Core
                 if ( binding == bindingWords.end() )
                     continue; // no descriptor: an input, an output, a push block, a private
                 SpvResource resource;
-                const auto  name     = names.find( id );
-                resource.Name        = name != names.end() ? name->second : std::string();
-                const auto pointed   = pointee.find( pointerType );
+                const auto  name   = names.find( id );
+                resource.Name      = name != names.end() ? name->second : std::string();
+                const auto pointed = pointee.find( pointerType );
                 if ( resource.Name.empty() && pointed != pointee.end() )
                 {
                     // An anonymous block instance (`Buffer(0) Histogram { ... };`) has an empty OpName; the

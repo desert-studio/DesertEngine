@@ -15,7 +15,7 @@ namespace Desert::Graphic::API::Vulkan
         struct ReflectedSlot
         {
             RdgSlotKey       Slot;
-            std::string      Name; // "<name>[<element>]" for an element of an arrayed binding
+            std::string             Name; // "<name>[<element>]" for an element of an arrayed binding
             std::string_view Bucket;
             RDG::ShaderResourceKind Kind = RDG::ShaderResourceKind::Texture;
         };
