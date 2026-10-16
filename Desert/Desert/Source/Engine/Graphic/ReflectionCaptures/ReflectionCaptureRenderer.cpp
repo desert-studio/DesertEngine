@@ -353,12 +353,15 @@ namespace Desert::Graphic
             m_FaceSize = faceSize;
             m_Captures.clear();
             m_Captured.clear();
+            m_Presence.clear();
             m_Done.clear();
             m_Signature         = 0;
             m_LightingSignature = 0;
             m_Pending           = kNoCapture;
+            m_BlendCube         = kNoCapture;
             return;
         }
+        m_DrivenFrame = frames.GetAbsoluteFrameCount();
         if ( faceSize != m_FaceSize )
         {
             // A new face size re-renders every capture at it (UE: r.ReflectionCaptureResolution recaptures).
@@ -735,10 +738,10 @@ namespace Desert::Graphic
                                                     const bool                       forceAll,
                                                     const ReflectionCaptureLighting& lighting )
     {
-        // The sky's irradiance answers everywhere and at once: a cube written under it is measured when written,
-        // and re-measured when the sky changes (forceAll); in between a re-measure would store the same value.
-        // Only the radiance cache can owe one.
-        if ( forcedCube == kNoCapture && !stagingForced && !forceAll && !lighting.RadianceCache )
+        // Both estimators answer at once - the cube's own brightness under the radiance cache, the sky's
+        // irradiance otherwise: a cube is measured when written and again when the estimator changes (forceAll);
+        // in between a re-measure would store the same value.
+        if ( forcedCube == kNoCapture && !stagingForced && !forceAll )
             return;
         // The written cubes (a cube nothing captured is black and never read: its diffuse means nothing).
         std::vector<DiffusePointGpu> points;
@@ -774,22 +777,7 @@ namespace Desert::Graphic
         push.SkyYawCosSin = lighting.SkyYawCosSin;
         push.SkyGain      = lighting.SkyGain;
 
-        // The shader declares both estimators; the one it does not read is bound to a neutral resource: the
-        // view's neutral cache (no clipmap: SceneViewInputs, the one the forward passes read without traced GI),
-        // the black cube.
-        GlobalIllumination::RadianceCacheFrame cache;
-        if ( lighting.RadianceCache )
-            cache = *lighting.RadianceCache;
-        else
-        {
-            const SceneViewInputs view = SceneViewInputsOf( refs );
-            cache = GlobalIllumination::RadianceCacheFrame{ .Params      = view.RadianceCacheParams,
-                                                            .Indirection = view.RadianceCacheIndirection,
-                                                            .Probes      = view.RadianceCacheProbes,
-                                                            .Irradiance  = view.RadianceCacheIrradiance,
-                                                            .Depth       = view.RadianceCacheDepth,
-                                                            .Radiance    = refs.System.Black };
-        }
+        // Under the radiance cache the shader reads the cube itself and leaves the sky unread.
         const RDG::TextureRef sky =
              lighting.EnvIrradiance.IsValid() ? lighting.EnvIrradiance : refs.System.BlackCube;
         const uint32_t lastMip = Core::Formats::MipChainLength( m_FaceSize ) - 1u;
@@ -804,12 +792,6 @@ namespace Desert::Graphic
                  const auto            all = RDG::SubresourceRange::All();
                  pass.Bindings( m_DiffuseLayout.Get( m_Diffuse->GetSpecification().Shader ),
                                 Renderer::GetPipelineRouteFill( *m_Diffuse ) )
-                      .Storage( "RadianceCacheParamsUB", cache.Params, kR )
-                      .Storage( "RadianceCacheIndirectionUB", cache.Indirection, kR )
-                      .Storage( "RadianceCacheProbesUB", cache.Probes, kR )
-                      .Sampled( "u_RadianceCacheIrradiance", cache.Irradiance, kS, all,
-                                RDG::SamplerDesc::LinearClamp() )
-                      .Sampled( "u_RadianceCacheDepth", cache.Depth, kS, all, RDG::SamplerDesc::LinearClamp() )
                       .Sampled( "u_EnvIrradianceTex", sky, kS, all, RDG::SamplerDesc::LinearClamp() )
                       .Storage( "ReflectionCaptureDiffusePointsUB", pointsBuffer, kR )
                       // Read-modify-write of the last mip: its rgb is the roughest radiance and stays.
@@ -851,9 +833,14 @@ namespace Desert::Graphic
         m_MeasuredKey           = key;
 
         // The first cubes' fade-in counts this frame (CapturePresence: the next list reads one step further).
+        bool filled = !m_Captured.empty();
         for ( size_t cube = 0; cube < m_Captured.size(); ++cube )
+        {
             if ( m_Captured[cube] && m_Presence[cube] < kReflectionCaptureBlendFrames )
                 ++m_Presence[cube];
+            filled = filled && m_Captured[cube] && m_Presence[cube] >= kReflectionCaptureBlendFrames;
+        }
+        m_FirstFillDone = m_FirstFillDone || filled;
 
         uint32_t   firstWrite    = kNoCapture;
         bool       stagingForced = false;
@@ -891,6 +878,14 @@ namespace Desert::Graphic
             if ( ++m_BlendStep >= kReflectionCaptureBlendFrames )
                 m_BlendCube = kNoCapture;
         }
+    }
+
+    bool ReflectionCaptureRenderer::FirstFillPending() const
+    {
+        if ( m_FirstFillDone || m_PipelinesFailed || m_Captures.empty() || m_DrivenFrame == ~0ull )
+            return false;
+        // Driven this frame or the last: a scene no view reads captures for (or one not rendered) waits for none.
+        return Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() <= m_DrivenFrame + 1u;
     }
 
     std::vector<glm::vec3> ReflectionCaptureRenderer::CapturePoints() const

@@ -11,12 +11,11 @@
 // GI ran).
 //
 // WHY A FORWARD PIXEL NEEDS THE CACHE: a capture's reflection is normalised by "the diffuse at the pixel / the
-// diffuse at the capture point" (Common/ReflectionEnvironment.glslh), and its capture point was measured by the
-// view's own estimator - the radiance cache wherever the view traces GI (ReflectionCaptureRenderer
-// AddCaptureUpdate). A forward pixel that took its side from the sky would divide a lamp-lit cache measurement by
-// a night sky: the ratio of two different estimators, black or blown out. Mesh/AmbientIBL.glslh
-// DesertSampleViewAmbient takes both sides from the cache when the view has one, as the deferred composite's
-// final gather does.
+// diffuse at the capture point" (Common/ReflectionEnvironment.glslh), whose two sides follow the view's estimator
+// (Graphic ReflectionCaptureLighting): wherever the view traces GI the pixel's side is the radiance cache's smooth
+// read. A forward pixel that took its side from the sky would divide the night sky by a cube normalised for the
+// GI: black. Mesh/AmbientIBL.glslh takes the pixel's side from the cache when the view has one, as the deferred
+// composite does.
 //
 // SET 1, as the composite's: the set-0 table keeps its numbers (ShaderCacheKey pins them by name, 25-27 are the
 // scene-read range, 28 up a shader graph's own). The passes bind by name; the backend resolves each name to its

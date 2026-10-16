@@ -284,10 +284,10 @@ vec4 RadianceCacheIrradianceAt( vec3 p, vec3 N, vec3 V, float ditherRandom )
 }
 
 // THE SMOOTH READ (REFL-NORM-SMOOTH): the irradiance (/ pi) about @p N at @p p as a field that is continuous in
-// space - the reflection captures' normalisation estimator, read alike at the capture point
-// (ReflectionCaptureDiffuse.shader) and at the shaded pixel (Mesh/AmbientIBL.glslh), so their ratio carries only
-// the lighting's low spatial frequency. UE normalises with a quantity smooth on both sides too: the lightmap's (or
-// the volumetric lightmap's, a plain trilinear field) irradiance against the capture's own mean.
+// space - the pixel's side of the reflection captures' normalisation (Mesh/AmbientIBL.glslh), whose ratio must
+// carry only the lighting's low spatial frequency. UE's pixel side is as smooth: the lightmap's (or the volumetric
+// lightmap's, a plain trilinear field) irradiance, against the capture's own mean
+// (ReflectionCaptureDiffuse.shader).
 // What makes it smooth, against RadianceCacheIrradianceAtImpl (the pixel's own lighting): no DDGI visibility or
 // backface weight (both switch probes on and off along cell-shaped boundaries - the ProbeVolume patches once
 // divided into a capture), no bias toward a viewer, and the clipmap fade BLENDED instead of dithered - each

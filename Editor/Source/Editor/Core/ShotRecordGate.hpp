@@ -44,6 +44,10 @@ namespace Desert::Editor
         // start). UE flushes the same before a HighResShot (FlushAsyncLoading +
         // IStreamingManager::BlockTillAllRequestsFinished). Holds the START only, as AssetsCompiling does.
         bool     TexturesStreaming = false;
+        // The scene's reflection captures not all written once yet (ReflectionCaptureRenderer FirstFillPending):
+        // a frame before that reflects the sky where the captures will occlude it (the Bistro running day's first
+        // cubes took 26 % of the frame). Holds the START only, as TexturesStreaming does.
+        bool     ReflectionCapturesFilling = false;
         uint32_t ViewportWidth    = 0;
         uint32_t ViewportHeight   = 0;
     };
@@ -64,7 +68,8 @@ namespace Desert::Editor
             // viewport had under the splash says nothing about the size of the window once it is shown.
             const bool settled = !frame.SceneLoadPending && !frame.StartupLoading && !frame.SplashOnScreen &&
                                  !frame.ContentSettling && ( !frame.AssetsCompiling || m_Recording ) &&
-                                 ( !frame.TexturesStreaming || m_Recording ) && frame.ViewportWidth > 0 &&
+                                 ( !frame.TexturesStreaming || m_Recording ) &&
+                                 ( !frame.ReflectionCapturesFilling || m_Recording ) && frame.ViewportWidth > 0 &&
                                  frame.ViewportHeight > 0;
             const bool sameSize = frame.ViewportWidth == m_LastWidth && frame.ViewportHeight == m_LastHeight;
             if ( !settled )

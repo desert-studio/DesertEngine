@@ -86,20 +86,22 @@ namespace Desert::Graphic
     inline constexpr uint32_t kReflectionCaptureBlendFrames = 12u;
 
     /**
-     * @brief WHAT A CAPTURE'S STORED DIFFUSE IS MEASURED WITH: the view's own diffuse estimator, the one its lit
-     * pixels receive (REFL-CAPTURE-NORM).
+     * @brief THE TWO SIDES OF A CAPTURE'S NORMALISATION, by the view's diffuse estimator (REFL-CAPTURE-NORM,
+     * REFL-NORM-SMOOTH).
      *
      * A capture's reflection is normalised (UE ComputeMixingWeight, Common/ReflectionEnvironment.glslh) by the
-     * ratio "diffuse at the pixel / diffuse at the capture point". UE takes the pixel side from the lightmap (or,
-     * with no static lighting, from the SKY LIGHT's irradiance) and the capture side from the captured cube's own
-     * mean, so a capture of a lamp-lit street at night is divided by the bright cube and multiplied by the dark
-     * sky: black. Here BOTH sides come from the same estimator - the active GI's - so the ratio carries only how
-     * the lighting varies between the two points, and where the estimator is right at the capture point the ratio
-     * is exactly 1. RadianceCache set: the world radiance cache (GIMethod ProbeVolume / SoftwareTraced) - the
-     * probes the pixels' own final gather reads; the capture points are marked into it (CapturePoints).
-     *   RadianceCache unset: the view's GI has no world-space diffuse (Off, ScreenSpace, a forward view); its
-     * pixels are lit by the sky's irradiance cube, and so is the capture point. Environment names that sky bake
-     * (EnvironmentIdentity): a new one is a new estimator, and every written cube is measured again under it.
+     * ratio "diffuse at the pixel / brightness stored with the cube". UE takes the pixel side from the lightmap -
+     * a quantity smooth in space - and the capture side from the captured cube's own mean.
+     *   RadianceCache set (GIMethod ProbeVolume / SoftwareTraced): UE's pair. The pixel side is the cache's SMOOTH
+     * read (trilinear, no visibility, clipmaps blended: RadianceCacheSmoothIrradianceAt), not the final gather
+     * that lights the pixel - the gather's per-probe visibility steps from cell to cell and its ratio laid
+     * cell-shaped patches over the walls. The capture side is the cube's own brightness per axis, measured when it
+     * is written (ReflectionCaptureDiffuse.shader), so a cube rendered without the GI is rescaled to the GI's
+     * brightness where it is read. The capture points are marked into the cache (CapturePoints).
+     *   RadianceCache unset (Off, ScreenSpace, a forward view): the pixels are lit by the sky's irradiance cube,
+     * and the capture side is that same sky at the capture point - not the cube's own, which a lamp-lit night cube
+     * would make far brighter than the sky that lights the pixel (UE's black reflections without lightmaps).
+     * Environment names that sky bake (EnvironmentIdentity): a new one re-measures every written cube.
      */
     struct ReflectionCaptureLighting
     {
@@ -167,11 +169,8 @@ namespace Desert::Graphic
      * are taken round-robin from the one after the last, so a lighting that keeps changing refreshes every capture
      * in turn.
      *
-     * THE STORED DIFFUSE IS RE-MEASURED UNTIL IT IS MEASURED: every frame, the first view that reads captures runs
-     * ReflectionCaptureDiffuse over every written cube, and a cube whose stored diffuse is still 0 ("not
-     * measured": the radiance cache had no traced probes around its point when it was written) is measured again
-     * - on the GPU, where the answer is - until the estimator answers. A cube being written is measured
-     * unconditionally.
+     * THE STORED BRIGHTNESS IS MEASURED WHEN A CUBE IS WRITTEN (ReflectionCaptureDiffuse, on the GPU where the
+     * cube is): the cube's own under the radiance cache, the sky's at the capture point otherwise.
      *
      * AND AGAIN WHEN THE ESTIMATOR CHANGES: a new sky bake (or look) under the sky's estimator, or a switch
      * between the sky and the radiance cache, re-measures every written cube in the frame it is first seen. The
@@ -213,6 +212,15 @@ namespace Desert::Graphic
         /// (and at the one being written). A view whose AddPasses published no capturing array records nothing.
         void AddCaptureUpdate( RDG::Builder& graph, FrameTextures& textures,
                                const ReflectionCaptureLighting& lighting );
+
+        /// THE FIRST FILL IS STILL LOADING (REFL-NORM-SMOOTH): the scene has captures, a view that reads them
+        /// drives their update, and not every one has been written and faded in yet since the scene's captures
+        /// were first gathered. A frame before that is the sky's reflection where the captures will occlude it -
+        /// the Bistro running day lost 26 % of its frame when its first cubes landed. UE captures a level's
+        /// reflection captures as part of loading it; here the start-up's reveal and a screenshot's first
+        /// recorded frame wait for it as for any content still arriving (Editor RevealGate, ShotRecordGate).
+        /// Latched off once complete: a capture edited, added or relit later is updated behind the live view.
+        [[nodiscard]] bool FirstFillPending() const;
 
         /// Every capture point of the scene (world cm), for the radiance cache to keep probes around (its cells
         /// otherwise exist only where the screen's pixels read them, and a capture hangs in the air).
@@ -294,6 +302,10 @@ namespace Desert::Graphic
         // The estimator the written cubes were last measured with (MeasureKey: the radiance cache, or the sky bake
         // and look): another one re-measures them all.
         uint64_t m_MeasuredKey = 0;
+        // FirstFillPending: the last frame a view drove the update (RenderCaptureViews with a legal face size),
+        // and whether every capture was once written and faded in.
+        uint64_t m_DrivenFrame   = ~0ull;
+        bool     m_FirstFillDone = false;
         // THE RECAPTURE BLEND: the array's last cube (index m_Captures.size()) is the staging cube a recapture is
         // written into; m_BlendCube's live cube is moved toward it one step per frame (kNoCapture: no blend).
         uint32_t m_BlendCube = kNoCapture;

@@ -637,6 +637,7 @@ namespace Desert::Editor
         frame.ContentSettling  = m_Startup.ContentSettling();
         frame.AssetsCompiling   = m_AssetCompiling.RemainingAssets() > 0;
         frame.TexturesStreaming = Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0;
+        frame.ReflectionCapturesFilling = m_Startup.ReflectionCapturesFilling();
         // The picture the writer reads back (ViewportCapture), at the size this frame renders at: the panels'
         // deferred resizes were applied just before this call.
         if ( m_Workspace.ActiveScene() )
