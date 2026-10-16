@@ -687,11 +687,15 @@ namespace Desert::Graphic
         // Every member that held a row of this view has been destroyed by now (this one is declared first).
         const ResourceInstanceCensus left = ResourceLedger::TakeFor( Instance );
         if ( left.Live == 0 )
+        {
             LOG_INFO( "[Resources] {} closed: 0 ledger rows left.", ResourceOwnerInstanceName( Instance ) );
+        }
         else
+        {
             LOG_ERROR( "[Resources] {} closed but {} ledger rows ({} bytes) still carry it: a view member's "
                        "device object outlived the view.",
                        ResourceOwnerInstanceName( Instance ), left.Live, left.Bytes );
+        }
     }
     DESERT_DESTRUCTOR_GUARD( "~SceneRenderer::LedgerView" )
 
