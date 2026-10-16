@@ -18,18 +18,32 @@ const int DF_ASSET_MIP_STRIDE = 3;
 const int DF_ASSET_STRIDE     = 1 + DF_ASSET_MIP_STRIDE * DF_NUM_MIPS;
 // Per object in the object buffer (vec4s): world -> volume (three affine rows), the volume extent with the
 // volume -> world distance scale (the smallest axis'), the asset index with each volume axis' own volume -> world
-// scale (the box distance, exact under a non-uniform scale), the object's flags (UE FDFObjectData's flags).
-const int DF_OBJECT_STRIDE = 6;
+// scale (the box distance, exact under a non-uniform scale), the world box's minimum and maximum corners (xyz, cm;
+// UE FDFObjectBounds - the near field's cull), the object's flags (UE FDFObjectData's flags) last.
+const int DF_OBJECT_STRIDE = 8;
+const int DF_OBJECT_ROW_BOUNDS_MIN = 5;
+const int DF_OBJECT_ROW_BOUNDS_MAX = 6;
 // Flag bits of the object's last row (.x as uint bits): the mesh is mostly two-sided (foliage, UE bMostlyTwoSided).
 const int DF_OBJECT_FLAG_MOSTLY_TWO_SIDED = 1;
 
 // The near field a GI ray traces through the mesh distance fields before the global one (UE
-// r.Lumen.TraceMeshSDFs.TraceDistance 180), and the camera-centred grid of object lists it looks its objects up in:
-// cells per side and the grid's half-size (UE r.Lumen.DiffuseIndirect.CardTraceEndDistanceFromCamera 40 m - no
-// mesh field is traced from farther), in centimetres.
-const float DF_MESH_SDF_TRACE_DISTANCE = 180.0f;
-const int   DF_MESH_SDF_GRID_RESOLUTION = 32;
-const float DF_MESH_SDF_GRID_EXTENT     = 4000.0f;
+// r.Lumen.TraceMeshSDFs.TraceDistance 180 cm), and the view's froxel grid of object lists a ray looks its objects up
+// in by its origin (UE FLumenMeshSDFGridParameters, LumenMeshSDFCulling - culled on the GPU each frame): cells of
+// DF_MESH_SDF_GRID_PIXEL_SIZE pixels, slices of view depth log2(depth * LOG_Z_SCALE + LOG_Z_OFFSET) * Z_SCALE out to
+// DF_MESH_SDF_GRID_MAX_DISTANCE (UE r.Lumen.DiffuseIndirect.CullGridPixelSize 64,
+// CullGridDistributionLogZScale .01, LogZOffset 1, ZScale 4, CardTraceEndDistanceFromCamera 40 m - no mesh field is
+// traced from farther), each cell holding at most DF_MESH_SDF_GRID_MAX_OBJECTS_PER_CELL objects, the closest to it.
+// A near-field ray leaves its surface by one voxel of the finest resident mip of the objects there, at least
+// DF_MESH_SDF_SURFACE_BIAS (UE's mesh-SDF trace starts a few cm off the surface; the global field's continuation
+// keeps its own voxel - GIRayBias).
+const float DF_MESH_SDF_TRACE_DISTANCE            = 180.0f;
+const int   DF_MESH_SDF_GRID_PIXEL_SIZE           = 64;
+const float DF_MESH_SDF_GRID_LOG_Z_SCALE          = 0.01f;
+const float DF_MESH_SDF_GRID_LOG_Z_OFFSET         = 1.0f;
+const float DF_MESH_SDF_GRID_Z_SCALE              = 4.0f;
+const float DF_MESH_SDF_GRID_MAX_DISTANCE         = 4000.0f;
+const int   DF_MESH_SDF_GRID_MAX_OBJECTS_PER_CELL = 16;
+const float DF_MESH_SDF_SURFACE_BIAS              = 4.0f;
 
 // The global distance field (UE GlobalDistanceField.cpp: four clipmaps of 128^3, Lumen's 25 m first extent
 // doubling per level, an influence range of four voxels).

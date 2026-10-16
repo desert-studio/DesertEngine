@@ -19,15 +19,16 @@ layout( binding = GI_TRACER_BINDING + 1 ) uniform sampler3D u_GlobalDistanceFiel
 layout( binding = GI_TRACER_BINDING + 2 ) uniform sampler3D u_GlobalDistanceField2;
 layout( binding = GI_TRACER_BINDING + 3 ) uniform sampler3D u_GlobalDistanceField3;
 // The clipmaps' placement (centre.xyz cm, voxel cm; DistanceField::GlobalDistanceField::FrameField::Levels) and
-// the near-field object grid's (minimum corner.xyz cm, cell cm): the software walk's own record, not the neutral GI
+// the near field's froxel grid (Common/MeshSDFGrid.glslh): the software walk's own record, not the neutral GI
 // frame's (GlobalIllumination::TracerSoftwarePayload).
+#include <Common/MeshSDFGrid.glslh>
 layout( std430, binding = GI_TRACER_BINDING + 4 ) readonly buffer GITracerSoftwareUB
 {
-    vec4 giTracerGdfLevels[4];
-    vec4 giTracerMeshObjectGrid;
+    vec4        giTracerGdfLevels[4];
+    MeshSDFGrid giTracerMeshSDFGrid;
 };
 // The mesh fields the near field traces (DistanceField::MeshDistanceFieldReads; Common/MeshDistanceField.glslh's
-// inputs) and the object grid: per cell 0 or the offset of its count-prefixed object list.
+// inputs) and the froxel grid's cells: MeshSDFGridCellStride uints per cell, its count then its object indices.
 layout( std430, binding = GI_TRACER_BINDING + 5 ) readonly buffer GITracerDFAssetsUB
 {
     vec4 u_DFAssetData[];
@@ -41,9 +42,9 @@ layout( std430, binding = GI_TRACER_BINDING + 7 ) readonly buffer GITracerDFObje
     vec4 u_DFObjects[];
 };
 layout( binding = GI_TRACER_BINDING + 8 ) uniform sampler3D u_DFBrickAtlas;
-layout( std430, binding = GI_TRACER_BINDING + 9 ) readonly buffer GITracerDFObjectGridUB
+layout( std430, binding = GI_TRACER_BINDING + 9 ) readonly buffer GITracerMeshSDFGridCellsUB
 {
-    uint giTracerMeshObjectGridCells[];
+    uint giTracerMeshSDFGridCells[];
 };
 #include <Common/MeshDistanceField.glslh>
 #include <Common/GlobalDistanceField.glslh>

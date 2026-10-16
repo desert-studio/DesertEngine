@@ -11,11 +11,15 @@
 //   GITraceRay         the walk. DESERT_GI_TRACER_SOFTWARE: the mesh SDFs near the origin, then the global SDF march
 //                      (GLOBAL-SDF, GITraceDistanceField);
 //                      DESERT_GI_TRACER_HARDWARE: rayQueryEXT over the scene TLAS (RT-SCENE, GI-HWRT).
-//   GITraceVisibility  visibility only, 1 when nothing lies within @p maxT of @p origin along @p direction — the
-//                      shadow ray of hit lighting (and of the cards' lighting where no shadow map covers them).
-//   GIRayBias          how far a secondary ray leaves a hit and how close the view's pixel surface must lie to
-//                      count as the hit: the TRACER's own numbers (UE: the SDF tracer's surface bias, the hardware
-//                      tracer's RayBias), so the shared hit lighting below knows no distance field.
+//   GITraceVisibility  visibility only, 1 when nothing lies within @p maxT of @p origin along @p direction (the far
+//                      field from @p farTMin on) — the shadow ray of hit lighting (and of the cards' lighting where
+//                      no shadow map covers them).
+//   GIRayBias          how far a secondary ray leaves a hit — TWO offsets: the near field's (nearOffset, the ray's
+//                      origin) and the far field's (farOffset, which the ray must have risen to before the far
+//                      field counts: GIFarFieldTMin -> GITraceInput.farTMin) — and how close the view's pixel
+//                      surface must lie to count as the hit: the TRACER's own numbers (UE: the mesh-SDF and the
+//                      global-SDF surface biases, the hardware tracer's RayBias for both), so the shared hit
+//                      lighting below knows no distance field.
 //   GIMoveOutOfGeometry  a point pushed out of nearby geometry (a radiance-cache probe before it traces).
 //   GIHitRadiance      the radiance leaving a hit towards the ray's origin — ONE function for both tracers
 //                      (GIHitLighting.glslh; GI-SURFACE-CACHE): the surface cache's FinalLighting at the hit; a hit
@@ -51,6 +55,7 @@ struct GITraceInput {
     float tMax;      // cm; past it the ray is a miss
     float coneAngle; // half angle, radians: the SDF march widens its step with it, the surface cache picks a mip
     uint  flags;     // GI_TRACE_* below
+    float farTMin;   // cm skipped before a FAR-field hit counts: GIFarFieldTMin of the ray leaving a surface, else 0
 };
 #define GI_TRACE_SHADOW_RAY 1u // any hit ends the walk (visibility only)
 
@@ -73,16 +78,26 @@ struct GITraceResult {
 
 // The tracer's offsets (GIRayBias).
 struct GITraceBias {
-    float normalOffset;    // cm a secondary ray's origin leaves the hit along its normal
+    float nearOffset;      // cm a secondary ray's origin leaves the hit along its normal (the near field's precision)
+    float farOffset;       // cm off the hit along its normal before the far field counts a hit (its precision)
     float screenTolerance; // cm within which the view's pixel surface counts as the hit (it holds the material)
 };
 
 GITraceResult GITraceRay( GITraceInput ray );
-float         GITraceVisibility( vec3 origin, vec3 direction, float maxT );
+float         GITraceVisibility( vec3 origin, vec3 direction, float farTMin, float maxT );
 GITraceBias   GIRayBias( vec3 position, vec3 normal, vec3 direction );
 vec3          GIMoveOutOfGeometry( vec3 position, float clearance, float maxOffset );
 vec3          GIHitRadiance( GIHit hit, vec3 rayDirection );
 vec3          GIMissRadiance( vec3 rayDirection );
+
+// How far along @p direction a ray that left a surface (normal @p normal) by @p bias.nearOffset goes before it is
+// @p bias.farOffset off the surface's plane: its GITraceInput.farTMin. A ray within a few degrees of the plane
+// reaches it late (no far-field hit before), never early (no self-hit in the coarse field).
+float GIFarFieldTMin( GITraceBias bias, vec3 normal, vec3 direction )
+{
+    const float rise = bias.farOffset - bias.nearOffset;
+    return rise > 0.0 ? rise / max( dot( normal, direction ), 1.0e-3 ) : 0.0;
+}
 
 // THE ONE ENTRY: the radiance arriving at @p ray.origin from @p ray.direction.
 vec3 GIRayRadiance( GITraceInput ray )

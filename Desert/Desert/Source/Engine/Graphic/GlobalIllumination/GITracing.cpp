@@ -17,7 +17,7 @@ namespace Desert::Graphic::GlobalIllumination
                 if ( !frame.GlobalDistanceFieldLevels.IsValid() )
                     return "the global distance field's clipmap placement was not uploaded";
                 if ( !frame.MeshDistanceFields.IsValid() )
-                    return "the mesh distance fields and their near-field object grid were not imported";
+                    return "the mesh distance fields and their near-field grid were not brought up";
                 return {};
             case Tracer::HardwareRayQuery:
                 return "the ray-query tracer is not in this build (GI-HWRT)";
@@ -39,7 +39,7 @@ namespace Desert::Graphic::GlobalIllumination
                      .Storage( "GITracerDFIndirectionUB", frame.MeshDistanceFields.Indirection,
                                RDG::Access::StorageRead )
                      .Storage( "GITracerDFObjectsUB", frame.MeshDistanceFields.Objects, RDG::Access::StorageRead )
-                     .Storage( "GITracerDFObjectGridUB", frame.MeshDistanceFields.ObjectGrid,
+                     .Storage( "GITracerMeshSDFGridCellsUB", frame.MeshDistanceFields.NearFieldGrid,
                                RDG::Access::StorageRead )
                      .Sampled( "u_DFBrickAtlas", frame.MeshDistanceFields.BrickAtlas, sampled,
                                RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );

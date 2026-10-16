@@ -21,15 +21,27 @@
 // Sphere-trace steps per object of the near field (UE's mesh SDF MaxTraceSteps).
 #define GI_MESH_SDF_MAX_STEPS 64
 
-// The object list of the near-field grid cell holding @p position: the offset of its count in
-// giTracerMeshObjectGridCells, or 0 (no object, or outside the grid: the camera's DF_MESH_SDF_GRID_EXTENT).
-uint GIMeshObjectList( vec3 position )
+// The near-field object list of the froxel holding @p position (Common/MeshSDFGrid.glslh): the offset of its count in
+// giTracerMeshSDFGridCells, the indices following, or -1 outside the grid (no near field there).
+int GIMeshObjectList( vec3 position )
 {
-    const vec3 cell = floor( ( position - giTracerMeshObjectGrid.xyz ) / giTracerMeshObjectGrid.w );
-    if ( any( lessThan( cell, vec3( 0.0 ) ) ) || any( greaterThanEqual( cell, vec3( float( DF_MESH_SDF_GRID_RESOLUTION ) ) ) ) )
-        return 0u;
-    const uvec3 c = uvec3( cell );
-    return giTracerMeshObjectGridCells[( c.z * uint( DF_MESH_SDF_GRID_RESOLUTION ) + c.y ) * uint( DF_MESH_SDF_GRID_RESOLUTION ) + c.x];
+    const int cell = MeshSDFGridCellAt( giTracerMeshSDFGrid, position );
+    return cell < 0 ? -1 : cell * int( MeshSDFGridCellStride );
+}
+
+// One voxel of object @p objectIndex's finest resident mip, world cm (0 with no resident mip): the precision of its
+// near-field surface.
+float GIMeshObjectVoxel( uint objectIndex )
+{
+    const uint base       = objectIndex * uint( DF_OBJECT_STRIDE );
+    const uint assetIndex = floatBitsToUint( u_DFObjects[base + 4u].x );
+    const uint numMips    = DFAssetNumMips( assetIndex );
+    if ( numMips == 0u )
+        return 0.0;
+    const DFAssetMip finest = LoadDFAssetMip( assetIndex, numMips - 1u );
+    return u_DFObjects[base + 3u].w /
+           ( float( DF_UNIQUE_BRICK_SIZE ) * max( finest.VolumeToIndirectionScale.x,
+                                                  max( finest.VolumeToIndirectionScale.y, finest.VolumeToIndirectionScale.z ) ) );
 }
 
 // ONE OBJECT OF THE NEAR FIELD (UE RayTraceSingleMeshSDF): the ray clipped to the object's volume box, sphere traced
@@ -51,7 +63,8 @@ bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tSt
     const vec4 r2          = u_DFObjects[base + 2u];
     const vec4 extentScale = u_DFObjects[base + 3u];
     const uint assetIndex  = floatBitsToUint( u_DFObjects[base + 4u].x );
-    const bool foliage     = ( floatBitsToUint( u_DFObjects[base + 5u].x ) & uint( DF_OBJECT_FLAG_MOSTLY_TWO_SIDED ) ) != 0u;
+    const bool foliage     = ( floatBitsToUint( u_DFObjects[base + uint( DF_OBJECT_STRIDE - 1 )].x ) &
+                           uint( DF_OBJECT_FLAG_MOSTLY_TWO_SIDED ) ) != 0u;
     const uint numMips     = DFAssetNumMips( assetIndex );
     if ( numMips == 0u )
         return false;
@@ -120,19 +133,21 @@ GITraceResult GITraceRay( GITraceInput ray )
     const uint  seed     = ( o.x * 73856093u ) ^ ( o.y * 19349663u ) ^ ( o.z * 83492791u ) ^ ( d.x * 2654435761u ) ^
                       ( d.y * 2246822519u );
 
-    // The near field: every object of the origin's cell (each within DF_MESH_SDF_TRACE_DISTANCE of it), the closest
-    // hit. The cell's list holds every object the ray can reach before DF_MESH_SDF_TRACE_DISTANCE.
-    float      globalStart = ray.tMin;
-    const float nearEnd    = min( ray.tMax, DF_MESH_SDF_TRACE_DISTANCE );
-    const uint list        = ray.tMin < nearEnd ? GIMeshObjectList( ray.origin ) : 0u;
-    if ( list != 0u )
+    // The near field: the objects of the origin's froxel (each within DF_MESH_SDF_TRACE_DISTANCE of it, the closest
+    // first), the closest hit. The list holds every object the ray can reach before DF_MESH_SDF_TRACE_DISTANCE, up to
+    // the grid's cap.
+    float       globalStart = ray.tMin;
+    const float nearEnd     = min( ray.tMax, DF_MESH_SDF_TRACE_DISTANCE );
+    const int   list        = ray.tMin < nearEnd ? GIMeshObjectList( ray.origin ) : -1;
+    if ( list >= 0 )
     {
-        float      tHit       = nearEnd;
-        vec3       normal     = -ray.direction;
-        bool       hit        = false;
-        const uint count      = giTracerMeshObjectGridCells[list];
+        float      tHit   = nearEnd;
+        vec3       normal = -ray.direction;
+        bool       hit    = false;
+        const uint first  = uint( list );
+        const uint count  = giTracerMeshSDFGridCells[first];
         for ( uint i = 0u; i < count; ++i )
-            hit = GITraceMeshObject( giTracerMeshObjectGridCells[list + 1u + i], ray.origin, ray.direction, ray.tMin,
+            hit = GITraceMeshObject( giTracerMeshSDFGridCells[first + 1u + i], ray.origin, ray.direction, ray.tMin,
                                      tHit, dithered, seed, normal ) || hit;
         if ( hit )
         {
@@ -151,6 +166,9 @@ GITraceResult GITraceRay( GITraceInput ray )
         // SDF trace distance).
         globalStart = nearEnd;
     }
+    // Never before the far field's own offset is reached (GIRayBias.farOffset: a ray that left its surface by the
+    // near field's few cm would re-enter it in the coarse field).
+    globalStart = max( globalStart, ray.farTMin );
     if ( globalStart >= ray.tMax )
         return result;
 
@@ -181,11 +199,12 @@ GITraceResult GITraceRay( GITraceInput ray )
 }
 
 // Visibility only: 1 when nothing of the field lies between @p origin and @p maxT along @p direction.
-float GITraceVisibility( vec3 origin, vec3 direction, float maxT )
+float GITraceVisibility( vec3 origin, vec3 direction, float farTMin, float maxT )
 {
     GITraceInput ray;
     ray.origin    = origin;
     ray.tMin      = 0.0;
+    ray.farTMin   = farTMin;
     ray.direction = direction;
     ray.tMax      = maxT;
     ray.coneAngle = 0.0;
@@ -200,15 +219,37 @@ float GITraceVoxelAt( vec3 position )
     return level >= 0 ? GI_TRACE_GDF_LEVELS[level].w : GI_TRACE_GDF_LEVELS[GDF_NUM_CLIPMAPS - 1].w;
 }
 
-// The march stops on the EXPANDED field surface, up to half a voxel in front of the mesh: a secondary ray leaves a
-// voxel out so it does not re-enter the surface it starts on, and the view's pixel surface counts as the hit within
-// a voxel of it (UE's global-SDF surface bias, LumenTracingUtils.ush).
+// TWO OFFSETS, ONE PER FIELD. The global field's march stops on its EXPANDED surface, up to half a voxel in front of
+// the mesh: a ray continuing in it must be a voxel off the surface it starts on, and the view's pixel surface counts
+// as the hit within a voxel of it (UE's global-SDF surface bias, LumenTracingUtils.ush) - farOffset and
+// screenTolerance. Where the near field traces (the position in the froxel grid), a ray leaves the surface by the
+// near field's own precision instead - one voxel of the finest resident mip of the objects whose box holds the
+// position, at least DF_MESH_SDF_SURFACE_BIAS (UE starts its mesh-SDF rays a few cm off the surface) - nearOffset; it
+// is a voxel off it only by the time the global field takes over (GIFarFieldTMin). Outside the grid the global field
+// is the whole trace: both offsets are its voxel.
 GITraceBias GIRayBias( vec3 position, vec3 normal, vec3 direction )
 {
     const float voxel = GITraceVoxelAt( position );
     GITraceBias bias;
-    bias.normalOffset    = voxel;
+    bias.farOffset       = voxel;
     bias.screenTolerance = voxel;
+    bias.nearOffset      = voxel;
+    const int list = GIMeshObjectList( position );
+    if ( list < 0 )
+        return bias;
+    float      near  = DF_MESH_SDF_SURFACE_BIAS;
+    const uint first = uint( list );
+    const uint count = giTracerMeshSDFGridCells[first];
+    for ( uint i = 0u; i < count; ++i )
+    {
+        const uint object = giTracerMeshSDFGridCells[first + 1u + i];
+        const uint base   = object * uint( DF_OBJECT_STRIDE );
+        const vec3 lo     = u_DFObjects[base + uint( DF_OBJECT_ROW_BOUNDS_MIN )].xyz;
+        const vec3 hi     = u_DFObjects[base + uint( DF_OBJECT_ROW_BOUNDS_MAX )].xyz;
+        if ( all( greaterThanEqual( position, lo - near ) ) && all( lessThanEqual( position, hi + near ) ) )
+            near = max( near, GIMeshObjectVoxel( object ) );
+    }
+    bias.nearOffset = min( near, voxel );
     return bias;
 }
 

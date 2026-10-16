@@ -110,6 +110,7 @@ Shader "RadianceCacheTrace"
                 ray.tMax      = RC_PROBE_TRACE_DISTANCE;
                 ray.coneAngle = cone;
                 ray.flags     = 0u;
+                ray.farTMin   = 0.0; // a probe in free space leaves no surface
                 float      hitDistance;
                 const vec3 radiance = GIRayRadiance( ray, hitDistance );
                 vec4       value    = vec4( radiance, hitDistance );

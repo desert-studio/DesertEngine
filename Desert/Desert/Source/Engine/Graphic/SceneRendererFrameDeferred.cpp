@@ -724,9 +724,24 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", field.GetError() );
             return;
         }
-        textures.Transients.GlobalDistanceField       = field.GetValue().Clipmaps;
-        textures.Transients.GlobalDistanceFieldLevels = field.GetValue().Levels;
-        textures.Transients.MeshDistanceFields        = field.GetValue().MeshFields;
+        DistanceField::GlobalDistanceField::FrameField fieldFrame = field.GetValue();
+        // The near field's froxel grid over this view (the GI tracer's first metres).
+        const DistanceField::GlobalDistanceField::NearFieldView nearView{
+             .ViewProjection    = frame.ViewProjection,
+             .InvViewProjection = frame.InvViewProjection,
+             .Projection        = frame.Projection,
+             .CameraPosition    = frame.CameraPosition,
+             .Forward           = -glm::normalize( glm::vec3( frame.InvView[2] ) ),
+             .Extent            = glm::uvec2( frame.Split.Render.Width, frame.Split.Render.Height ) };
+        if ( const auto culled = m_GlobalDistanceField->AddNearFieldCullPasses( graph, fieldFrame, nearView );
+             !culled )
+        {
+            LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", culled.GetError() );
+            return;
+        }
+        textures.Transients.GlobalDistanceField       = fieldFrame.Clipmaps;
+        textures.Transients.GlobalDistanceFieldLevels = fieldFrame.Levels;
+        textures.Transients.MeshDistanceFields        = fieldFrame.MeshFields;
     }
 
 #if DESERT_DEV_INSTRUMENTS

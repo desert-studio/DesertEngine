@@ -118,11 +118,13 @@ Shader "ScreenProbeTrace"
             const vec2  o      = ( vec2( t ) + noise.xy ) / float( SP_RES ) * 2.0 - 1.0;
             const vec3  N      = state.normal.xyz;
             const vec3  dir    = SPProbeFrame( N ) * SPHemiOctDecode( o );
-            const vec3  origin = state.position.xyz + N * GIRayBias( state.position.xyz, N, dir ).normalOffset;
+            const GITraceBias bias   = GIRayBias( state.position.xyz, N, dir );
+            const vec3        origin = state.position.xyz + N * bias.nearOffset;
 
             GITraceInput ray;
             ray.origin    = origin;
             ray.tMin      = 0.0;
+            ray.farTMin   = GIFarFieldTMin( bias, N, dir );
             ray.direction = dir;
             ray.tMax      = SP_TRACE_DISTANCE;
             // The cone of one texel: the hemisphere's 2 pi over SP_RES^2 texels, as a cone's half angle.

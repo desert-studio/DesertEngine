@@ -41,11 +41,12 @@
 //   * the shader permutation — TracerVariant( Pipeline ): the one place Pipeline::Tracer becomes a define;
 //   * the tracer's graph reads — TracerFrame + DeclareTracerReads( block, frame ): a consumer pass declares its
 //     own reads and then this, never a distance-field texture or a TLAS by name;
-//   * the ray bias and the screen-match tolerance — GIRayBias( position, normal, direction ), defined by the
-//   tracer
-//     (UE: the SDF tracer's surface bias vs. the hardware tracer's RayBias), so the shared hit lighting knows no
-//     SDF;
-//   * visibility — GITraceVisibility( origin, direction, maxT ), declared in Common/GITracing.glslh.
+//   * the ray biases and the screen-match tolerance — GIRayBias( position, normal, direction ), defined by the
+//     tracer: a near offset (the ray's origin; the software walk's mesh-SDF near field: a few cm) and a far offset
+//     the ray must have risen to before the far field counts a hit (GIFarFieldTMin -> GITraceInput.farTMin; the
+//     global SDF's voxel) (UE: the mesh-SDF and global-SDF surface biases vs. the hardware tracer's RayBias for
+//     both), so the shared hit lighting knows no SDF;
+//   * visibility — GITraceVisibility( origin, direction, farTMin, maxT ), declared in Common/GITracing.glslh.
 // No consumer (C++ pass or shader) branches on the tracer.
 //
 // WHERE THIS DIFFERS FROM UE (for the owner): UE's surface-cache lighting of a hit is black where the hit has no
@@ -159,9 +160,9 @@ namespace Desert::Graphic::GlobalIllumination
     // itself.
     //   SoftwareDistanceField  the four global distance field clipmaps (GLOBAL-SDF) and their placement, a
     //                          buffer of four vec4 (centre.xyz cm, voxel cm; FrameField::Levels) then the
-    //                          near-field object grid's placement (TracerSoftwarePayload) — the walk's own
+    //                          near-field froxel grid's placement (TracerSoftwarePayload) — the walk's own
     //                          record, so the neutral GI frame (GIFramePayload) carries nothing of it — and the
-    //                          mesh fields with their object grid (the near field, UE r.Lumen.TraceMeshSDFs);
+    //                          mesh fields with the grid's cells (the near field, UE r.Lumen.TraceMeshSDFs);
     //   HardwareRayQuery       the scene TLAS — added with the ray-query tracer (GI-HWRT).
     struct TracerFrame
     {
@@ -174,10 +175,10 @@ namespace Desert::Graphic::GlobalIllumination
     // "GITracerSoftwareUB" — std430, must match the block in Common/GITracer.glslh.
     struct TracerSoftwarePayload
     {
-        std::array<glm::vec4, 4> GlobalDistanceFieldLevels{};
-        glm::vec4                MeshObjectGridPlacement{ 0.0f }; // MeshDistanceFieldReads::ObjectGridPlacement
+        std::array<glm::vec4, 4>            GlobalDistanceFieldLevels{};
+        DistanceField::MeshSDFGridPlacement MeshSDFGrid; // MeshDistanceFieldReads::NearFieldGridPlacement
     };
-    static_assert( sizeof( TracerSoftwarePayload ) == 80 );
+    static_assert( sizeof( TracerSoftwarePayload ) == 176 );
 
     // THE GI FRAME RECORD — what every GI pass knows of the frame, neutral to the tracer. std430 — must match
     // `struct GIFrame` in Common/GIFrame.glslh. 224 bytes. Uploaded once per frame by the frame's owner and bound

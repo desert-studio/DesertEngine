@@ -75,14 +75,6 @@ namespace Desert::Graphic::DistanceField
     // THE INCREMENTAL UPDATE OF ONE LEVEL (pure): the bricks of the window around @p centre that must be
     // recomposited - all of them without a previous window or after a jump of a window or more, otherwise the
     // ones that entered it plus the ones @p dirty (world boxes, already grown by the influence radius) touch.
-    // THE NEAR-FIELD OBJECT GRID (pure; UE's mesh SDF grid culling, LumenMeshSDFCulling):
-    // DF_MESH_SDF_GRID_RESOLUTION^3 cells of @p cell cm from @p minCell (in cells), each listing the objects whose
-    // world box grown by DF_MESH_SDF_TRACE_DISTANCE overlaps it - every object a ray starting in the cell can
-    // reach within its near field. Layout: one uint per cell (x fastest), 0 for no object or the offset of its
-    // list in the same array, the list's count first.
-    [[nodiscard]] std::vector<uint32_t> MeshObjectGrid( const glm::ivec3& minCell, float cell,
-                                                        const std::vector<Common::Math::AABB>& objectBounds );
-
     [[nodiscard]] std::vector<glm::ivec3> PlanClipmapUpdate( const std::optional<glm::ivec3>& previousCentre,
                                                              const glm::ivec3& centre, float voxelSize,
                                                              const std::vector<Common::Math::AABB>& dirty );
@@ -102,7 +94,8 @@ namespace Desert::Graphic::DistanceField
 
         // What a reader of this frame's field binds: the clipmaps as graph textures and their parameters,
         // (centre.xyz in cm, voxel size in cm) per level - GlobalDistanceField.glslh's GDFLevel - and the mesh
-        // fields it was composited from with the near-field object grid (a GI ray's first metres).
+        // fields it was composited from with, after AddNearFieldCullPasses, the view's near-field froxel grid (a
+        // GI ray's first metres).
         struct FrameField
         {
             std::array<RDG::TextureRef, kGlobalDistanceFieldClipmaps> Clipmaps;
@@ -116,6 +109,25 @@ namespace Desert::Graphic::DistanceField
         [[nodiscard]] Common::ResultStr<FrameField>
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
                          const std::vector<GlobalDistanceFieldObject>& objects, uint32_t poolMiB );
+
+        // The view a near-field grid is culled for: its unjittered matrices, its camera, its extent in pixels.
+        struct NearFieldView
+        {
+            glm::mat4  ViewProjection{ 1.0f };
+            glm::mat4  InvViewProjection{ 1.0f };
+            glm::mat4  Projection{ 1.0f };
+            glm::vec3  CameraPosition{ 0.0f };
+            glm::vec3  Forward{ 0.0f, 0.0f, -1.0f }; // world, unit
+            glm::uvec2 Extent{ 0u };
+        };
+
+        // THE NEAR FIELD'S FROXEL GRID (UE LumenMeshSDFCulling: CullMeshSDFObjectsForView, then
+        // CullMeshSDFObjectsToViewGrid - written from memory): two compute passes over @p field's objects, the
+        // ones near @p view's frustum, then per froxel of Common/MeshSDFGrid.glslh the closest
+        // DF_MESH_SDF_GRID_MAX_OBJECTS_PER_CELL within DF_MESH_SDF_TRACE_DISTANCE of it. Fills
+        // @p field.MeshFields' NearFieldGrid and NearFieldGridPlacement. An error names the bad input.
+        [[nodiscard]] Common::BoolResultStr AddNearFieldCullPasses( RDG::Builder& graph, FrameField& field,
+                                                                    const NearFieldView& view );
 
         // "Debug: Global Distance Field" over @p target (a full-screen sphere trace of the clipmaps).
         [[nodiscard]] Common::BoolResultStr AddDebugViewPass( RDG::Builder& graph, const FrameField& field,
@@ -160,17 +172,17 @@ namespace Desert::Graphic::DistanceField
         std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_UpdateBrickBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_BrickObjectBuffer;
-        std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectGridBuffer;
         // The graph's view of the buffers a trace reads (re-imported every frame: each frame in flight has its
         // own copy).
         RDG::ExternalBuffer m_AssetImport;
         RDG::ExternalBuffer m_IndirectionImport;
         RDG::ExternalBuffer m_ObjectImport;
-        RDG::ExternalBuffer m_ObjectGridImport;
-        // The near-field object grid (MeshObjectGrid) and what it was built for: its window's minimum cell and
-        // the placed objects in order - a difference rebuilds it.
-        std::vector<uint32_t>     m_ObjectGrid;
-        std::optional<glm::ivec3> m_ObjectGridMinCell;
-        uint64_t                  m_ObjectGridObjectsKey = 0;
+        // The near field's cull (AddNearFieldCullPasses).
+        std::shared_ptr<Shader>          m_CullObjectsShader;
+        std::shared_ptr<ComputePipeline> m_CullObjectsPipeline;
+        mutable ShaderBindingLayoutCache m_CullObjectsLayout;
+        std::shared_ptr<Shader>          m_CullGridShader;
+        std::shared_ptr<ComputePipeline> m_CullGridPipeline;
+        mutable ShaderBindingLayoutCache m_CullGridLayout;
     };
 } // namespace Desert::Graphic::DistanceField

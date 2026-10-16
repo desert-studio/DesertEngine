@@ -78,8 +78,9 @@ vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
     GIHitMaterial( hit, rayDirection, albedo, emissive );
 
     const vec3 N = hit.normal;
-    // Visibility rays leave the hit by the tracer's offset, so they do not re-enter the surface they start on.
-    const vec3 origin = hit.position + N * GIRayBias( hit.position, N, rayDirection ).normalOffset;
+    // Visibility rays leave the hit by the tracer's offsets, so they do not re-enter the surface they start on.
+    const GITraceBias bias   = GIRayBias( hit.position, N, rayDirection );
+    const vec3        origin = hit.position + N * bias.nearOffset;
 
     // Irradiance (cosine-weighted, not yet divided by pi) of the analytic lights.
     vec3 direct = vec3( 0.0 );
@@ -88,7 +89,7 @@ vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
         const vec3  L   = -giFrame.sunTravel.xyz;
         const float NoL = dot( N, L );
         if ( NoL > 0.0 )
-            direct += giFrame.sunRadiance.rgb * NoL * GITraceVisibility( origin, L, 1.0e6 );
+            direct += giFrame.sunRadiance.rgb * NoL * GITraceVisibility( origin, L, GIFarFieldTMin( bias, N, L ), 1.0e6 );
     }
     const LightGridWorldRange range = LightGridWorldLightsAt( lightGrid, hit.position );
     for ( uint k = 0u; k < range.count; ++k )
@@ -110,7 +111,8 @@ vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
         if ( NoL <= 0.0 || max( light.Radiance.r, max( light.Radiance.g, light.Radiance.b ) ) <= 0.0 )
             continue;
         const float toLight = distance( lightPosition, origin );
-        direct += light.Radiance * NoL * GITraceVisibility( origin, normalize( lightPosition - origin ), toLight );
+        const vec3  toward  = normalize( lightPosition - origin );
+        direct += light.Radiance * NoL * GITraceVisibility( origin, toward, GIFarFieldTMin( bias, N, toward ), toLight );
     }
 
     // The next bounce: last update's irradiance at the hit (already / pi).
