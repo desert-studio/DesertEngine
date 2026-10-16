@@ -106,7 +106,7 @@ namespace Desert::Graphic
     struct ReflectionCaptureLighting
     {
         std::optional<GlobalIllumination::RadianceCacheFrame> RadianceCache;
-        RDG::TextureRef                                       EnvIrradiance; // SceneViewInputs::EnvIrradiance
+        RDG::TextureRef                                       EnvIrradiance;   // SceneViewInputs::EnvIrradiance
         uint64_t                                              Environment = 0; // EnvironmentIdentity of that sky
         glm::vec4                                             SkyYawCosSin{ 1.0f, 0.0f, 0.0f, 0.0f }; // SkyLookGPU
         glm::vec4                                             SkyGain{ 1.0f };
@@ -275,7 +275,7 @@ namespace Desert::Graphic
         std::vector<bool>                   m_Captured; // written at least once: the lighting reads it
         std::vector<uint32_t>               m_Presence; // frames since the first cube was written (fade-in)
         std::vector<bool>                   m_Done;     // settled: not rendered again until something changes
-        uint64_t                            m_Signature         = 0; // the structure (see the class comment)
+        uint64_t                            m_Signature = 0; // the structure (see the class comment)
         // The lighting the captures were last triggered under: the exact part (the sky bake, the local lights)
         // and the suns, compared by ReflectionCaptureSunChanged.
         uint64_t                                            m_LightingSignature = 0;
@@ -296,7 +296,7 @@ namespace Desert::Graphic
         std::array<uint32_t, 6>         m_FaceRenders{};
         std::array<uint32_t, 6>         m_FaceHeld{};
         std::array<bool, 6>             m_FaceStreamed{}; // its last render drew textures still in flight
-        std::array<uint32_t, 6>         m_FaceSettle{}; // the held renders that settle it (its clouds or none)
+        std::array<uint32_t, 6>         m_FaceSettle{};   // the held renders that settle it (its clouds or none)
         std::array<uint64_t, 6>         m_FaceEnvironment{};
         uint32_t                        m_LastFace = 5u; // the face round's last face
         bool     m_WriteCapture  = false;                // all six settled this frame: AddCaptureUpdate writes it

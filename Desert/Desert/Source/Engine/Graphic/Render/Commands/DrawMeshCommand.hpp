@@ -39,15 +39,15 @@ namespace Desert::Graphic::Render
         bool  CastContactShadow = true; // StaticMeshComponent::CastContactShadow (UE bCastContactShadow)
 
         DrawStaticMeshCommand( uint32_t entity, Desert::Mesh* mesh, Graphic::MaterialSlotBindingPtr materialSlots,
-                               uint32_t sectionSlot, const glm::mat4& transform, bool outlined = false, uint64_t hiddenSubmeshes = 0,
-                               int forcedLOD = -1, int lodBias = 0, bool castShadows = true,
-                               bool receiveShadows = true, int translucencySortPriority = 0,
-                               float maxDrawDistance = 0.0f, uint32_t motionPart = 0,
-                               bool castContactShadow = true )
+                               uint32_t sectionSlot, const glm::mat4& transform, bool outlined = false,
+                               uint64_t hiddenSubmeshes = 0, int forcedLOD = -1, int lodBias = 0,
+                               bool castShadows = true, bool receiveShadows = true,
+                               int translucencySortPriority = 0, float maxDrawDistance = 0.0f,
+                               uint32_t motionPart = 0, bool castContactShadow = true )
              : Entity( entity ), MotionPart( motionPart ), Mesh( mesh ),
-               MaterialSlots( std::move( materialSlots ) ), SectionSlot( sectionSlot ), Transform( transform ), Outlined( outlined ),
-               HiddenSubmeshes( hiddenSubmeshes ), ForcedLOD( forcedLOD ), LODBias( lodBias ),
-               CastShadows( castShadows ), ReceiveShadows( receiveShadows ),
+               MaterialSlots( std::move( materialSlots ) ), SectionSlot( sectionSlot ), Transform( transform ),
+               Outlined( outlined ), HiddenSubmeshes( hiddenSubmeshes ), ForcedLOD( forcedLOD ),
+               LODBias( lodBias ), CastShadows( castShadows ), ReceiveShadows( receiveShadows ),
                TranslucencySortPriority( translucencySortPriority ), MaxDrawDistance( maxDrawDistance ),
                CastContactShadow( castContactShadow )
         {
@@ -87,7 +87,7 @@ namespace Desert::Graphic::Render
         InstanceWind                                  Wind;         // the foliage type's (FO-7); still = none
 
         DrawInstancedStaticMeshCommand( Desert::Mesh* mesh, Graphic::MaterialInstancePtr material,
-                                        uint64_t hiddenSubmeshes,
+                                        uint64_t                                      hiddenSubmeshes,
                                         std::shared_ptr<const std::vector<glm::mat4>> transforms, bool castShadows,
                                         bool castContactShadow, const InstanceCullDistance& cullDistance,
                                         const InstanceWind& wind )

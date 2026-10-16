@@ -731,7 +731,8 @@ namespace Desert::Graphic::System
                                 singles.push_back( bucket[i] );
                         continue;
                     }
-                    batches.push_back( ShadowBatch{ mesh, count, first, level, meshKey.second, InstanceWindPush{} } );
+                    batches.push_back(
+                         ShadowBatch{ mesh, count, first, level, meshKey.second, InstanceWindPush{} } );
                 }
             }
             else
@@ -827,12 +828,12 @@ namespace Desert::Graphic::System
         // Per-object path (singletons).
         for ( const auto* rd : singles )
         {
-            list.Add( { .Pipeline  = m_ShadowPipeline.get(),
-                        .Mesh      = rd->Mesh,
-                        .Transform = rd->Transform,
-                        .Material  = casterExecutor,
+            list.Add( { .Pipeline          = m_ShadowPipeline.get(),
+                        .Mesh              = rd->Mesh,
+                        .Transform         = rd->Transform,
+                        .Material          = casterExecutor,
                         .HiddenSubmeshMask = rd->HiddenSubmeshes,
-                        .LodLevel  = ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ) } );
+                        .LodLevel          = ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ) } );
         }
 
         // Meshes drawn with a data-driven material (shader graph, Shader Override, per-slot
@@ -860,12 +861,12 @@ namespace Desert::Graphic::System
             if ( drawStatic && g.Mesh != nullptr && g.CastShadows &&
                  IsVisibleInView( cascadeFrustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
             {
-                list.Add( { .Pipeline  = m_ShadowPipeline.get(),
-                            .Mesh      = g.Mesh,
-                            .Transform = g.Transform,
-                            .Material  = casterExecutor,
+                list.Add( { .Pipeline          = m_ShadowPipeline.get(),
+                            .Mesh              = g.Mesh,
+                            .Transform         = g.Transform,
+                            .Material          = casterExecutor,
                             .HiddenSubmeshMask = ~g.VisibleSubmeshMask,
-                            .LodLevel  = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ) } );
+                            .LodLevel          = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ) } );
             }
         }
 
@@ -916,13 +917,13 @@ namespace Desert::Graphic::System
                     }
                     auto&            set = maskedSetFor( caster );
                     MaskedCasterDraw draw;
-                    draw.Set               = &set;
-                    draw.Path              = MeshVertexPath::Skinned;
-                    draw.Mesh              = sd.Mesh;
-                    draw.Transform         = sd.Transform;
-                    draw.Instance          = section.Instance;
-                    draw.Row               = AppendRow( set.Rows, EffectiveRow( section.Material, section.Instance ) );
-                    draw.First             = static_cast<uint32_t>( set.Transforms.size() );
+                    draw.Set       = &set;
+                    draw.Path      = MeshVertexPath::Skinned;
+                    draw.Mesh      = sd.Mesh;
+                    draw.Transform = sd.Transform;
+                    draw.Instance  = section.Instance;
+                    draw.Row       = AppendRow( set.Rows, EffectiveRow( section.Material, section.Instance ) );
+                    draw.First     = static_cast<uint32_t>( set.Transforms.size() );
                     draw.HiddenSubmeshMask = section.HiddenSubmeshes;
                     set.Transforms.insert( set.Transforms.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );
                     m_ScratchMaskedDraws.push_back( draw );
@@ -961,15 +962,15 @@ namespace Desert::Graphic::System
             {
                 // The same wind the surface pass pushed for these instances, so the shadow
                 // sways with the plant (Common/FoliageWind.glslh is the one formula).
-                list.Add( { .Pipeline      = m_ShadowInstancedPipeline.get(),
-                            .Mesh          = b.Mesh,
-                            .Transform     = glm::mat4( 1.0f ),
-                            .Material      = instMat->GetMaterialExecutor(),
-                            .InstanceCount = b.Count,
-                            .FirstInstance = b.First,
+                list.Add( { .Pipeline          = m_ShadowInstancedPipeline.get(),
+                            .Mesh              = b.Mesh,
+                            .Transform         = glm::mat4( 1.0f ),
+                            .Material          = instMat->GetMaterialExecutor(),
+                            .InstanceCount     = b.Count,
+                            .FirstInstance     = b.First,
                             .HiddenSubmeshMask = b.HiddenSubmeshMask,
-                            .LodLevel      = b.LodLevel,
-                            .BindState     = [instMat, wind = b.Wind] { instMat->SetInstancedWind( wind ); } } );
+                            .LodLevel          = b.LodLevel,
+                            .BindState = [instMat, wind = b.Wind] { instMat->SetInstancedWind( wind ); } } );
             }
         }
 
@@ -1005,15 +1006,15 @@ namespace Desert::Graphic::System
         {
             DataDrivenMaterial* material  = draw.Set->Caster;
             const bool          instanced = draw.Path == MeshVertexPath::Instanced;
-            list.Add( { .Pipeline      = MaskedCasterPipeline( *material, draw.Path ),
-                        .Mesh          = draw.Mesh,
-                        .Transform     = draw.Transform,
-                        .Material      = material->GetMaterialExecutor(),
-                        .InstanceCount = instanced ? draw.Count : 1,
-                        .FirstInstance = instanced ? draw.First : 0,
+            list.Add( { .Pipeline          = MaskedCasterPipeline( *material, draw.Path ),
+                        .Mesh              = draw.Mesh,
+                        .Transform         = draw.Transform,
+                        .Material          = material->GetMaterialExecutor(),
+                        .InstanceCount     = instanced ? draw.Count : 1,
+                        .FirstInstance     = instanced ? draw.First : 0,
                         .HiddenSubmeshMask = draw.HiddenSubmeshMask,
-                        .LodLevel      = draw.LodLevel,
-                        .BindState     = [material, draw]
+                        .LodLevel          = draw.LodLevel,
+                        .BindState         = [material, draw]
                         {
                             material->SetPushMatrix( draw.Transform );
                             material->SetMaterialIndex( draw.Row );

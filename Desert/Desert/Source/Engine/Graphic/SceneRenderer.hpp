@@ -118,7 +118,7 @@ namespace Desert::Graphic
         {
             uint32_t               Entity = 0;   // owner of the draw: its MotionHistory key (velocity)
             uint32_t               MotionPart = 0;   // a stable part of the owner (MotionRecord::Part), 0 = none
-            uint32_t               SectionSlot = 0;  // static: the slot this draw's submeshes shade with
+            uint32_t               SectionSlot = 0;   // static: the slot this draw's submeshes shade with
             std::vector<glm::mat4> BoneMatrices; // optional
             // Skinned only: the entity's MorphComponent weights and their revision (empty = no morph).
             std::vector<float>     MorphWeights;

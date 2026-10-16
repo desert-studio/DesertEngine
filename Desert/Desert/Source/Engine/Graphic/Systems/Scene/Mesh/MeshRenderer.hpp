@@ -203,8 +203,8 @@ namespace Desert::Graphic::System
             // `.demat`, which is why nothing per-object may be stored on it: the pose is packed into a
             // per-frame buffer and named by a push constant instead.
             class Graphic::DataDrivenMaterial* Material = nullptr;
-            MaterialInstance* Instance = nullptr; // applied during Bind; owned by the entry's MaterialSlots
-            uint64_t          HiddenSubmeshes = 0; // every submesh of the other sections
+            MaterialInstance* Instance        = nullptr; // applied during Bind; owned by the entry's MaterialSlots
+            uint64_t          HiddenSubmeshes = 0;       // every submesh of the other sections
         };
 
         struct SkinnedMeshRenderData
@@ -238,7 +238,7 @@ namespace Desert::Graphic::System
             // A Mesh, not a StaticMesh: a primitive ISM carries a DynamicMesh, and so does one the
             // Foliage tool builds. See SceneRenderer::SubmitInstancedMesh for the cast this replaced.
             class Desert::Mesh*                           Mesh = nullptr;
-            MaterialInstancePtr                           Material;   // the section group's slot (a mesh cell)
+            MaterialInstancePtr                           Material; // the section group's slot (a mesh cell)
             uint64_t                                      HiddenSubmeshes = 0; // the other slots' sections
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
             bool                                          CastShadows = true;

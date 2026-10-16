@@ -535,6 +535,6 @@ namespace Desert::ECS
         std::unordered_set<entt::entity> m_RefusedColliders;
         std::unordered_map<Physics::BodyHandle, entt::entity> m_BodyEntities; // see PublishEvents
         std::unordered_set<entt::entity> m_RefusedCharacters;
-        bool                             m_ProfilesRefused = false;
+        bool                                                  m_ProfilesRefused = false;
     };
 } // namespace Desert::ECS

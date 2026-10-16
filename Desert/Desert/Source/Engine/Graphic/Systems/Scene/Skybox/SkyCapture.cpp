@@ -424,7 +424,7 @@ namespace Desert::Graphic::System
             ReleaseCapture();
             return std::nullopt;
         }
-        m_Next = m_RecordedEnd;
+        m_Next      = m_RecordedEnd;
         m_FaceSlice = m_RecordedFaceSlice;
         if ( m_Next != SkyCaptureStep::Done )
             return std::nullopt;

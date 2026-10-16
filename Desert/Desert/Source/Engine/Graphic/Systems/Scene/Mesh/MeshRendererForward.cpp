@@ -878,8 +878,7 @@ namespace Desert::Graphic::System
         {
             bool twoSided = mat->IsTwoSided();
             for ( const auto* obj : members )
-                if ( const auto* inst =
-                          SectionSurface( obj->MaterialSlots.get(), obj->SectionSlot ).Instance )
+                if ( const auto* inst = SectionSurface( obj->MaterialSlots.get(), obj->SectionSlot ).Instance )
                     twoSided = twoSided || inst->IsTwoSided();
             return cellDrawOf( mat, twoSided, /*perObject*/ true );
         };
@@ -1311,15 +1310,15 @@ namespace Desert::Graphic::System
                     const GraphicsPipeline* instancedDrawPipeline =
                          CullPermutation( CellPipeline( instancedPipeline, *set.Mat ),
                                           set.Inst != nullptr ? set.Inst->IsTwoSided() : set.Mat->IsTwoSided() );
-                    list.Add( { .Pipeline      = instancedDrawPipeline,
-                                .Mesh          = d.Mesh,
-                                .Transform     = unusedModelTransform,
-                                .Material      = set.Mat->GetMaterialExecutor(),
-                                .InstanceCount = d.InstanceCount,
-                                .FirstInstance = d.FirstInstance,
+                    list.Add( { .Pipeline          = instancedDrawPipeline,
+                                .Mesh              = d.Mesh,
+                                .Transform         = unusedModelTransform,
+                                .Material          = set.Mat->GetMaterialExecutor(),
+                                .InstanceCount     = d.InstanceCount,
+                                .FirstInstance     = d.FirstInstance,
                                 .HiddenSubmeshMask = d.HiddenSubmeshMask,
-                                .LodLevel      = d.LodLevel,
-                                .BindState     = [mat = &*set.Mat, inst = &*set.Inst, index = d.MaterialIndex,
+                                .LodLevel          = d.LodLevel,
+                                .BindState         = [mat = &*set.Mat, inst = &*set.Inst, index = d.MaterialIndex,
                                               wind = d.Wind, flags = d.PrimitiveFlags]
                                 {
                                     mat->SetMaterialIndex( index );

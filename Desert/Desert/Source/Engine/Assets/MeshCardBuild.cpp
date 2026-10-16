@@ -681,7 +681,7 @@ namespace Desert::Assets
                                                 const MeshCardsBuildData& cards, const uint32_t samples )
     {
         MeshCardsCoverage result;
-        const size_t triangleCount = input.Indices.size() / 3;
+        const size_t      triangleCount = input.Indices.size() / 3;
         if ( triangleCount == 0 || samples == 0 || input.TriangleTwoSided.size() != triangleCount )
             return result;
         std::vector<glm::dvec3> positions( input.Positions.begin(), input.Positions.end() );

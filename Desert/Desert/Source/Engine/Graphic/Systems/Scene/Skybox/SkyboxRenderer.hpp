@@ -381,8 +381,8 @@ namespace Desert::Graphic::System
         // BorrowEnvironment: this view lights with the environment it is handed and never captures one.
         bool                       m_BorrowsEnvironment = false;
         std::optional<Environment> m_BorrowedEnvironment;
-        bool                         m_BakeRequested    = false;
-        bool                         m_NoSkyLightLogged = false;
+        bool                       m_BakeRequested    = false;
+        bool                       m_NoSkyLightLogged = false;
 
         // The High-resolution memory report is emitted once per renderer, not once per bake: with the
         // time-of-day driver a bake can happen every few seconds, and a cost that is announced every time

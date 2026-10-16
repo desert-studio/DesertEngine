@@ -1185,8 +1185,8 @@ namespace Desert::Migration
             // CUT-OUT IS A BLEND MODE (MaterialMaskClipParam.hpp): a retired AlphaCutoff is re-stated as the
             // masked template's OpacityMaskClipValue (an opaque StandardSurface drops the mask) - on the text the
             // AO step left, so one run does both.
-            const std::string& afterAO = oneAO.GetValue() ? *oneAO.GetValue() : source;
-            const auto maskClip = Desert::Migration::MaterialWithMaskedTemplate( path.string(), afterAO );
+            const std::string& afterAO  = oneAO.GetValue() ? *oneAO.GetValue() : source;
+            const auto         maskClip = Desert::Migration::MaterialWithMaskedTemplate( path.string(), afterAO );
             if ( !maskClip )
             {
                 err << "FAIL   " << maskClip.GetError() << "\n";

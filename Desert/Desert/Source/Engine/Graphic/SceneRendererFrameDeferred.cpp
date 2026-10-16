@@ -363,7 +363,7 @@ namespace Desert::Graphic
         ReflectionCaptureLighting lighting;
         if ( tracedGI )
             lighting.RadianceCache = m_TracedFrameShared.RadianceCache;
-        lighting.EnvIrradiance = SceneViewInputsOf( textures.GraphRefs() ).EnvIrradiance;
+        lighting.EnvIrradiance               = SceneViewInputsOf( textures.GraphRefs() ).EnvIrradiance;
         const std::optional<Environment> env = GetEnvironment();
         lighting.Environment                 = EnvironmentIdentity( env );
         if ( env.has_value() )
@@ -440,15 +440,15 @@ namespace Desert::Graphic
         // refused by the consumers (SurfaceCacheFrameMissing), never traced against stale records.
         if ( m_SurfaceCacheFrame )
             inputs.SurfaceCache = m_SurfaceCacheFrame->Hits;
-        inputs.PointLights         = t.Lights.Point;
-        inputs.SpotLights          = t.Lights.Spot;
-        inputs.WorldGridParams     = t.Lights.WorldGridParams;
-        inputs.WorldGridCells      = t.Lights.WorldGridCells;
-        inputs.CameraPosition      = frame.CameraPosition;
+        inputs.PointLights     = t.Lights.Point;
+        inputs.SpotLights      = t.Lights.Spot;
+        inputs.WorldGridParams = t.Lights.WorldGridParams;
+        inputs.WorldGridCells  = t.Lights.WorldGridCells;
+        inputs.CameraPosition  = frame.CameraPosition;
         // The captures' points are readers of this cache too: their stored diffuse is measured from it.
         if ( m_FrameReflectionCaptures && ReadsReflectionCaptures() )
             inputs.MarkPoints = m_FrameReflectionCaptures->CapturePoints();
-        inputs.Extent              = glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height );
+        inputs.Extent = glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height );
 
         inputs.GIFrame              = AddFrameGIRecord( graph, frame, lightDir, lightColor, inputs.Extent );
         m_TracedFrameShared.GIFrame = inputs.GIFrame;

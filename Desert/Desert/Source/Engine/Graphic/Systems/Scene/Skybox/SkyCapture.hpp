@@ -115,9 +115,9 @@ namespace Desert::Graphic::System
         // slice binds it rather than the block of the view that began the capture, which may not record this
         // frame, or exist.
         ShaderResources::StorageBuffer* SkyParams = nullptr;
-        std::shared_ptr<Image2D> TransmittanceLut;
-        std::shared_ptr<Image2D> MultiScatterLut;
-        std::shared_ptr<Image2D> DistantSkyLight;
+        std::shared_ptr<Image2D>        TransmittanceLut;
+        std::shared_ptr<Image2D>        MultiScatterLut;
+        std::shared_ptr<Image2D>        DistantSkyLight;
     };
 
     /**

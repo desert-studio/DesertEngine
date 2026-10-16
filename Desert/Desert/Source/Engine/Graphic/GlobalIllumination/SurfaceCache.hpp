@@ -72,9 +72,9 @@ namespace Desert::Graphic::SurfaceCache
         Opacity,   // coverage: 0 where the card ray finds no surface (outside coverage)
         Normal,    // octahedral world normal
         Emissive,  // material emissive, linear radiance
-                  // the light the surface lets through to its far side (DesertSubsurfaceColor of a subsurface
-                  // model, e.g. TwoSidedFoliage), rgb; a = its subsurface opacity (the transmission shadow's
-                  // density). 0 = opaque.
+                   // the light the surface lets through to its far side (DesertSubsurfaceColor of a subsurface
+                   // model, e.g. TwoSidedFoliage), rgb; a = its subsurface opacity (the transmission shadow's
+                   // density). 0 = opaque.
         Subsurface,
         // ---- lit
         // every light with its shadow, as the diffuse radiance it leaves: albedo / PI x the front irradiance

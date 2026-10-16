@@ -508,10 +508,10 @@ namespace Desert::Graphic
         // and never wrote the capture.
         constexpr uint64_t kNoSkyEnvironment = ~uint64_t{ 0 };
         const uint64_t     faceEnvironment   = view.Renderer->GetSkyLightState() == SkyLightState::NoSky
-                                                   ? kNoSkyEnvironment
-                                                   : view.Renderer->GetEnvironmentIdentity();
-        const bool         streaming = Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0;
-        m_FaceStreamed[face]         = streaming;
+                                                    ? kNoSkyEnvironment
+                                                    : view.Renderer->GetEnvironmentIdentity();
+        const bool         streaming         = Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0;
+        m_FaceStreamed[face]                 = streaming;
         if ( !streaming && faceEnvironment != 0 && faceEnvironment == m_FaceEnvironment[face] )
             ++m_FaceHeld[face];
         else

@@ -833,7 +833,7 @@ namespace Desert::Graphic::System
         // buffer whose bytes were never set is uninitialised device memory behind a valid descriptor, and
         // the shader's gate is what stops it being read, not the absence of an upload.
         CloudBakeBinding cloudBinding;
-        m_CloudBakeSet                                     = 1u - m_CloudBakeSet;
+        m_CloudBakeSet                                                      = 1u - m_CloudBakeSet;
         const std::shared_ptr<ShaderResources::StorageBuffer>& bakeParams   = m_CloudBakeParams[m_CloudBakeSet];
         const std::shared_ptr<ShaderResources::StorageBuffer>& bakeAuthored = m_CloudBakeAuthored[m_CloudBakeSet];
         const std::shared_ptr<ShaderResources::StorageBuffer>& bakeMedium =
