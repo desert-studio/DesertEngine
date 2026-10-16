@@ -537,9 +537,9 @@ namespace Desert::Core
         // (Graphic::ExtensionPass). A repeated name replaces the earlier pass.
         void                                                RegisterExtensionPass( Graphic::ExtensionPass&& pass );
         void                                                UnregisterExtensionPass( const std::string& name );
-        // THE SCENE'S DEBUG DRAWING (UE: the world's line batchers): what DebugDraw:: calls and the DebugDraw script
-        // library add, and what every view of this scene draws (SceneRenderer::BeginScene). Aged at the top of
-        // OnUpdate, before the systems that draw into it.
+        // THE SCENE'S DEBUG DRAWING (UE: the world's line batchers): what DebugDraw:: calls and the DebugDraw
+        // script library add, and what every view of this scene draws (SceneRenderer::BeginScene). Aged at the top
+        // of OnUpdate, before the systems that draw into it.
         [[nodiscard]] DebugDrawWorld& GetDebugDraw()
         {
             return m_DebugDraw;
