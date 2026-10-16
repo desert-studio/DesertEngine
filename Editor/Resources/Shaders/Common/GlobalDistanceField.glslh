@@ -134,8 +134,8 @@ float GlobalDistanceFieldExcess(vec3 origin, vec3 direction, float t, vec4 level
     if (level < 0)
         return 1.0;
     const float voxel  = levels[level].w;
-    const vec2  sample = SampleGlobalDistanceFieldLevelCoverage(level, p, voxel);
-    return sample.x - GlobalDistanceFieldExpand(t, voxel, sample.y);
+    const vec2  field  = SampleGlobalDistanceFieldLevelCoverage(level, p, voxel);
+    return field.x - GlobalDistanceFieldExpand(t, voxel, field.y);
 }
 
 // A uniform number in [0, 1) per ray @p seed and step (PCG hash), the per-step noise of the dithered transparency.
@@ -165,9 +165,9 @@ GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, flo
         if (level < 0)
             break;
         const float voxel    = levels[level].w;
-        const vec2  sample   = SampleGlobalDistanceFieldLevelCoverage(level, p, voxel);
-        const float distance = sample.x;
-        const float coverage = sample.y;
+        const vec2  field    = SampleGlobalDistanceFieldLevelCoverage(level, p, voxel);
+        const float distance = field.x;
+        const float coverage = field.y;
         result.Steps = step + 1;
         const bool inBand = distance < GlobalDistanceFieldExpand(t, voxel, coverage);
         if (inBand && (!ditheredTransparency ||
