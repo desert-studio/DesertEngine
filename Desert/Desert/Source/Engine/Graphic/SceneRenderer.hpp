@@ -963,6 +963,15 @@ namespace Desert::Graphic
         // method): HardwareTraced walks the view's TLAS by ray query, SoftwareTraced the distance fields; hits lit
         // from the surface cache either way. Only meaningful when ReflectionsTraced().
         [[nodiscard]] GlobalIllumination::Pipeline ReflectionsTracer() const;
+        // Whether this frame's traced reflections are HIT-LIT (UE Lumen reflections, hit lighting): the effective
+        // method is HardwareTraced, the quality's Reflections.HitLighting is on and the device offers the ray
+        // tracing pipeline. A request the device cannot honour is reported once (m_ReportedHitLightingDevice) and
+        // the reflections stay on the surface cache.
+        [[nodiscard]] bool ReflectionsHitLit() const;
+        // GRAPH BUILD of a hit-lit frame: m_ReflectionHitGroups from the view's ray tracing scene - each segment's
+        // surface template and effective row (RayTracingHitGroupTable.hpp). An error: no default surface, or the
+        // two sides of the per-segment table disagree.
+        [[nodiscard]] Common::BoolResultStr BuildReflectionHitGroups();
         // This frame's TLAS custom index (GPU-scene row) -> surface cache instance-table row (contract B3), the
         // hardware tracer's GIInstanceSurfaceCacheRows: made by the first reader of the frame, kept in
         // m_TracedFrameShared. Invalid with no surface cache or no TLAS.
@@ -1155,6 +1164,12 @@ namespace Desert::Graphic
         RenderMethods           m_RenderMethods;
         // The view's TLAS (built when a resolved method traces rays; RT-SHADOWS reads GetFrame().Tlas).
         RayTracing::RayTracingSceneRenderer m_RayTracingScene;
+        // Hit-lit reflections: this frame's hit group table (BuildReflectionHitGroups; the pass reads it at exec,
+        // the next frame's build replaces it), the default surface's material for segments without a template,
+        // and whether a hit-lighting request the device cannot run was reported.
+        RayTracing::RayTracingHitGroupTable m_ReflectionHitGroups;
+        std::shared_ptr<DataDrivenMaterial> m_ReflectionDefaultSurface;
+        bool                                m_ReportedHitLightingDevice = false;
         // The view's landscape tiles in that TLAS (their BLAS at the view's raster LOD).
         RayTracing::LandscapeRayTracing m_LandscapeRayTracing;
 #if DESERT_DEV_INSTRUMENTS

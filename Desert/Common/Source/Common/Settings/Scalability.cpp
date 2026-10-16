@@ -160,6 +160,8 @@ namespace Common::Scalability
                16, CL::None, std::nullopt },
              { P::IrradianceFieldProbesPerFrame, G::GlobalIllumination,
                "GlobalIllumination.IrradianceFieldProbesPerFrame", 10, 2000, CL::None, std::nullopt },
+             { P::ReflectionsHitLighting, G::Reflections, "Reflections.HitLighting", 0, 1, CL::None,
+               "SceneRenderer::ReflectionsTracer -> SSR.shader \"HitLighting\" ray generation (Renderer::TraceRays)" },
         } };
     } // namespace
 

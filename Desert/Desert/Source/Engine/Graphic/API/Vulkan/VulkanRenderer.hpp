@@ -62,6 +62,9 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr DispatchComputeIndirect( const RDG::PassBindings& bindings,
                                                        const ComputePipeline& pipeline, RDG::BufferRef args,
                                                        uint64_t offset ) override;
+        Common::BoolResultStr TraceRays( const RDG::PassBindings& bindings, const RayTracingPipeline& pipeline,
+                                         const RayTracing::RayTracingHitGroupTable& hits, uint32_t width,
+                                         uint32_t height ) override;
         Common::BoolResultStr DrawProcedural( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                               const MaterialExecutor* material, uint32_t vertexCount,
                                               uint32_t instanceCount ) override;

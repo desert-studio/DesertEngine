@@ -63,6 +63,8 @@ vec3 GIMissRadiance( vec3 rayDirection )
                          giFrame.skyGain.rgb );
 }
 
+vec3 GIHitRadianceLit( GIHit hit, vec3 rayDirection, vec3 albedo, vec3 emissive );
+
 vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
 {
 #if !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
@@ -76,7 +78,13 @@ vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
     vec3 albedo;
     vec3 emissive;
     GIHitMaterial( hit, rayDirection, albedo, emissive );
+    return GIHitRadianceLit( hit, rayDirection, albedo, emissive );
+}
 
+// The in-place lighting of a hit whose material is known: @p albedo (diffuse) and @p emissive - GIHitMaterial's
+// guess above, or the hit's own material from a closest-hit shader (Common/SSRTrace.glslh, hit-lit reflections).
+vec3 GIHitRadianceLit( GIHit hit, vec3 rayDirection, vec3 albedo, vec3 emissive )
+{
     const vec3 N = hit.normal;
     // Visibility rays leave the hit by the tracer's offset, so they do not re-enter the surface they start on.
     const vec3 origin = hit.position + N * GIRayBias( hit.position, N, rayDirection ).normalOffset;

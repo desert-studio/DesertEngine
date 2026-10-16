@@ -1,9 +1,11 @@
 #include "ShaderService.hpp"
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Settings/Scalability.hpp>
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
+#include <algorithm>
 #include <format>
 
 namespace
@@ -134,8 +136,18 @@ namespace Desert::Runtime
         // (IsSurfaceDefaultCell), so its "<Template>/<Cell>" name answers the same object.
         const bool surfaceTemplate =
              Core::Preprocess::DShaderParser::MayDeclareSurface( shaderAsset->GetShaderContent() );
+        // Ray tracing passes exist on a device with the ray tracing pipeline alone (ShaderProgramMeta::
+        // RayTracingPassNames); elsewhere their names stay unregistered and a pass that asks for one refuses, naming
+        // the device (Graphic::RayTracingPipeline::Create).
+        const bool rayTracingPipeline = Common::Scalability::CapabilityCatalog::Offers(
+             Common::Scalability::QualityState::Catalog().RayTracingModes,
+             Common::Scalability::RayTracingMode::RayTracingPipeline );
+        const auto& rayTracingPasses = shader->GetProgramMeta().RayTracingPassNames;
         for ( const auto& passName : shader->GetProgramMeta().PassNames )
         {
+            if ( !rayTracingPipeline &&
+                 std::find( rayTracingPasses.begin(), rayTracingPasses.end(), passName ) != rayTracingPasses.end() )
+                continue;
             if ( Core::Preprocess::IsSurfaceDefaultCell( surfaceTemplate, passName ) )
             {
                 m_PassShaders[std::format( "{}/{}", shader->GetName(), passName )] = shader;

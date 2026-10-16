@@ -273,6 +273,18 @@ namespace Desert::Graphic::RayTracing
         {
             return m_Gather.Primitives;
         }
+        // This frame's ONE per-segment table, both sides (meaningful after a built AddPasses): the segment records
+        // (whose material each segment is) and their geometry records (record i of each is segment i, the row a
+        // TLAS instance's SBT offset + a hit's geometry index names). The hit-lighting SBT is built from these
+        // two (RayTracingHitGroupTable.hpp), so its hit record i is the same segment's.
+        [[nodiscard]] std::span<const RayTracingSegmentRecord> GetSegmentRecords() const
+        {
+            return m_Gather.SegmentRecords;
+        }
+        [[nodiscard]] std::span<const RayTracingGeometryRecord> GetGeometryRecords() const
+        {
+            return m_GeometryRecords;
+        }
 
     private:
         std::unique_ptr<RayTracingSceneTarget>      m_Target;
@@ -282,5 +294,6 @@ namespace Desert::Graphic::RayTracing
         RayTracingSceneStats                        m_Stats;
         RayTracingInstanceList                      m_Instances;
         RayTracingSceneFrame                        m_Frame;
+        std::vector<RayTracingGeometryRecord>       m_GeometryRecords; // this frame's, as uploaded (capacity kept)
     };
 } // namespace Desert::Graphic::RayTracing
