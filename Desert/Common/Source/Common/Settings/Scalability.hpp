@@ -105,10 +105,9 @@ namespace Common::Scalability
                             // off..32
         // COST knobs of passes whose LOOK is authored per scene (PostProcessSettings): they scale what the pass
         // spends (steps, taps, mips), never its intensity - UE sg.* semantics.
-        ReflectionMaxSteps,        // SSR HZB traversal iterations per ray (SSRRenderer push constant). 8..128
-        GlobalIlluminationSamples, // RSM GI gather taps per pixel (GIResolve.shader). 8..64
-        DistanceFieldPoolMiB,      // mesh distance-field brick atlas (DistanceFieldSceneData). 32..512 MiB
-        AmbientOcclusionSamples,   // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
+        ReflectionMaxSteps,      // SSR HZB traversal iterations per ray (SSRRenderer push constant). 8..128
+        DistanceFieldPoolMiB,    // mesh distance-field brick atlas (DistanceFieldSceneData). 32..512 MiB
+        AmbientOcclusionSamples, // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
         BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
         DepthOfFieldQuality,    // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
@@ -135,6 +134,32 @@ namespace Common::Scalability
         TemporalAAQuality,       // AntiAliasing: TAA/TAAU history quality 0..2 (Low/Medium/High); reader
                                  // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
         UpscalerSharpness,       // ResolutionScale: percent
+        // GlobalIllumination: the budgets of the surface cache and the world radiance cache (GI-CACHE-IFACE,
+        // Graphic/GlobalIllumination). Each gains its reader with the pass that spends it (GI-SURFACE-CACHE,
+        // GI-RADIANCE-CACHE, GI-HWRT); the per-level values are UE's BaseScalability.ini
+        // GlobalIlluminationQuality.
+        SurfaceCacheAtlasSize,                  // texels per side of the surface cache atlases (UE
+                                                // r.LumenScene.SurfaceCache.AtlasSize)
+        SurfaceCacheCardTexelDensity,           // card texels per world unit, percent (UE
+                                                // r.LumenScene.SurfaceCache.CardTexelDensityScale)
+        SurfaceCacheCardMinResolution,          // smallest card side in texels (UE
+                                                // r.LumenScene.SurfaceCache.CardMinResolution)
+        SurfaceCacheCardMaxResolution,          // largest card side in texels (UE
+                                                // r.LumenScene.SurfaceCache.CardMaxResolution)
+        SurfaceCacheDirectLightingUpdateFactor, // 1/N of the card texels relit per frame (UE
+                                                // r.LumenScene.DirectLighting.UpdateFactor)
+        SurfaceCacheRadiosityUpdateFactor,      // 1/N of the card texels re-gathered per frame (UE
+                                                // r.LumenScene.Radiosity.UpdateFactor)
+        SurfaceCacheRadiosityProbeSpacing,      // card texels between radiosity probes (UE
+                                                // r.LumenScene.Radiosity.ProbeSpacing)
+        SurfaceCacheRadiosityProbeResolution,   // radiosity hemisphere probe side (UE
+                                                // r.LumenScene.Radiosity.HemisphereProbeResolution)
+        RadianceCacheProbeResolution,           // octahedral radiance texels per probe side (UE
+                                                // r.Lumen.ScreenProbeGather.RadianceCache.ProbeResolution)
+        RadianceCacheProbesPerFrame,            // probes traced per frame (UE
+                                                // r.Lumen.ScreenProbeGather.RadianceCache.NumProbesToTraceBudget)
+        HitLightingAllowed,                     // 0/1: a hardware-traced hit may be lit in place (UE
+                                                // r.Lumen.HardwareRayTracing.HitLighting.Allowed)
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

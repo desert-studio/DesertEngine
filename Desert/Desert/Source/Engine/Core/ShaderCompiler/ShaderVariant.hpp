@@ -4,7 +4,7 @@
 // the caller instead of by the file system, and a set of preprocessor macros defined for the compile.
 //
 // THE MACROS ARE A PERMUTATION'S ONE SOURCE. A pass that draws the same program into a different target
-// (the reflective shadow map draws the G-buffer program, DESERT_GBUFFER_RSM) names its defines HERE and
+// (a GI consumer compiled per tracer, GlobalIllumination::TracerVariant) names its defines HERE and
 // nowhere else: ShaderCompiler hands each one to the compile (CompileOptions::AddMacroDefinition) and
 // Hash() mixes them into both cache keys, so two permutations are two artifacts. A pipeline built for the
 // permutation references the Shader compiled under it (GraphicsPipelineSpecification::Shader); it does

@@ -84,11 +84,11 @@ namespace
       "Cinematic": { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 30000, "Shadows.ContactShadowSteps": 24, "Shadows.Method": "Stochastic", "Shadows.LightGridPixelSize": 32, "Shadows.LightGridSlices": 64, "Shadows.LightGridMaxLightsPerCell": 64 }
     },
     "GlobalIllumination": {
-      "Low":       { "GlobalIllumination.Samples": 8,  "GlobalIllumination.DistanceFieldPoolMiB": 64, "GlobalIllumination.Method": "ScreenSpace" },
-      "Medium":    { "GlobalIllumination.Samples": 16, "GlobalIllumination.DistanceFieldPoolMiB": 128, "GlobalIllumination.Method": "ReflectiveShadowMaps" },
-      "High":      { "GlobalIllumination.Samples": 32, "GlobalIllumination.DistanceFieldPoolMiB": 384, "GlobalIllumination.Method": "HardwareTraced" },
-      "Epic":      { "GlobalIllumination.Samples": 48, "GlobalIllumination.DistanceFieldPoolMiB": 384, "GlobalIllumination.Method": "HardwareTraced" },
-      "Cinematic": { "GlobalIllumination.Samples": 64, "GlobalIllumination.DistanceFieldPoolMiB": 512, "GlobalIllumination.Method": "PathTraced" }
+      "Low":       { "GlobalIllumination.DistanceFieldPoolMiB": 64,  "GlobalIllumination.Method": "ScreenSpace", "GlobalIllumination.SurfaceCacheAtlasSize": 2048, "GlobalIllumination.CardTexelDensityScale": 50, "GlobalIllumination.CardMinResolution": 2, "GlobalIllumination.CardMaxResolution": 256, "GlobalIllumination.DirectLightingUpdateFactor": 128, "GlobalIllumination.RadiosityUpdateFactor": 128, "GlobalIllumination.RadiosityProbeSpacing": 4, "GlobalIllumination.RadiosityHemisphereProbeResolution": 3, "GlobalIllumination.RadianceCacheProbeResolution": 16, "GlobalIllumination.RadianceCacheProbesPerFrame": 100, "GlobalIllumination.HitLighting": 0 },
+      "Medium":    { "GlobalIllumination.DistanceFieldPoolMiB": 128, "GlobalIllumination.Method": "ProbeVolume", "GlobalIllumination.SurfaceCacheAtlasSize": 2048, "GlobalIllumination.CardTexelDensityScale": 50, "GlobalIllumination.CardMinResolution": 2, "GlobalIllumination.CardMaxResolution": 256, "GlobalIllumination.DirectLightingUpdateFactor": 128, "GlobalIllumination.RadiosityUpdateFactor": 128, "GlobalIllumination.RadiosityProbeSpacing": 4, "GlobalIllumination.RadiosityHemisphereProbeResolution": 3, "GlobalIllumination.RadianceCacheProbeResolution": 16, "GlobalIllumination.RadianceCacheProbesPerFrame": 100, "GlobalIllumination.HitLighting": 0 },
+      "High":      { "GlobalIllumination.DistanceFieldPoolMiB": 384, "GlobalIllumination.Method": "HardwareTraced", "GlobalIllumination.SurfaceCacheAtlasSize": 3584, "GlobalIllumination.CardTexelDensityScale": 100, "GlobalIllumination.CardMinResolution": 4, "GlobalIllumination.CardMaxResolution": 512, "GlobalIllumination.DirectLightingUpdateFactor": 64, "GlobalIllumination.RadiosityUpdateFactor": 128, "GlobalIllumination.RadiosityProbeSpacing": 8, "GlobalIllumination.RadiosityHemisphereProbeResolution": 3, "GlobalIllumination.RadianceCacheProbeResolution": 16, "GlobalIllumination.RadianceCacheProbesPerFrame": 100, "GlobalIllumination.HitLighting": 0 },
+      "Epic":      { "GlobalIllumination.DistanceFieldPoolMiB": 384, "GlobalIllumination.Method": "HardwareTraced", "GlobalIllumination.SurfaceCacheAtlasSize": 4096, "GlobalIllumination.CardTexelDensityScale": 100, "GlobalIllumination.CardMinResolution": 2, "GlobalIllumination.CardMaxResolution": 512, "GlobalIllumination.DirectLightingUpdateFactor": 32, "GlobalIllumination.RadiosityUpdateFactor": 64, "GlobalIllumination.RadiosityProbeSpacing": 4, "GlobalIllumination.RadiosityHemisphereProbeResolution": 4, "GlobalIllumination.RadianceCacheProbeResolution": 32, "GlobalIllumination.RadianceCacheProbesPerFrame": 150, "GlobalIllumination.HitLighting": 1 },
+      "Cinematic": { "GlobalIllumination.DistanceFieldPoolMiB": 512, "GlobalIllumination.Method": "PathTraced", "GlobalIllumination.SurfaceCacheAtlasSize": 4096, "GlobalIllumination.CardTexelDensityScale": 100, "GlobalIllumination.CardMinResolution": 2, "GlobalIllumination.CardMaxResolution": 512, "GlobalIllumination.DirectLightingUpdateFactor": 32, "GlobalIllumination.RadiosityUpdateFactor": 64, "GlobalIllumination.RadiosityProbeSpacing": 4, "GlobalIllumination.RadiosityHemisphereProbeResolution": 4, "GlobalIllumination.RadianceCacheProbeResolution": 32, "GlobalIllumination.RadianceCacheProbesPerFrame": 350, "GlobalIllumination.HitLighting": 1 }
     },
     "Reflections": {
       "Low":       { "Reflections.MaxSteps": 24, "Reflections.CaptureSize": 64, "Reflections.RaysPerPixel": 1, "Reflections.Method": "ScreenSpace" },
@@ -692,10 +692,9 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     constexpr ParameterValue kOldShadowMapSize  = 2048;
     constexpr ParameterValue kOldShadowDistance = 15000; // cm
     // SceneRendererFrameDeferred.cpp before S2: RecordTrace( ..., /*maxSteps*/ 32, ...), SSAO Record( ...,
-    // /*samples*/ 16 ); GIResolve.shader `const int SAMPLES = 32`; BloomRenderer::kMaxBloomMips = 6.
+    // /*samples*/ 16 ); BloomRenderer::kMaxBloomMips = 6.
     constexpr ParameterValue kOldSSRSteps  = 48; // HZB traversal iterations since SSR2 (was 32 linear march steps)
     constexpr ParameterValue kOldSSAOTaps  = 16;
-    constexpr ParameterValue kOldGITaps    = 32;
     constexpr ParameterValue kOldBloomMips = 6;
     constexpr ParameterValue kOldScale     = 100;
 
@@ -726,7 +725,6 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     EXPECT_EQ( high( Parameter::ShadowDistance ), kOldShadowDistance );
     EXPECT_EQ( high( Parameter::ReflectionMaxSteps ), kOldSSRSteps );
     EXPECT_EQ( high( Parameter::AmbientOcclusionSamples ), kOldSSAOTaps );
-    EXPECT_EQ( high( Parameter::GlobalIlluminationSamples ), kOldGITaps );
     EXPECT_EQ( high( Parameter::BloomMips ), kOldBloomMips );
 }
 

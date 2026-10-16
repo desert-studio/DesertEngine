@@ -7,6 +7,7 @@
 namespace Desert::Assets
 {
     class MeshDistanceFieldSlot;
+    class MeshCardsSlot;
 
     class StaticMeshAsset final : public MeshAsset
     {
@@ -74,6 +75,12 @@ namespace Desert::Assets
         {
             return m_DistanceField;
         }
+        // Where the mesh's cards land (MeshCardRepresentation.hpp): derived in the same queued job as the
+        // distance field, from the same triangles; null until ResolveDependencies.
+        [[nodiscard]] const std::shared_ptr<const MeshCardsSlot>& GetCards() const
+        {
+            return m_Cards;
+        }
 
     private:
         std::vector<Vertex>       m_Vertices;
@@ -87,6 +94,7 @@ namespace Desert::Assets
         uint64_t                                     m_RenderDataKey        = 0;
         bool                                         m_DependenciesResolved = false;
         std::shared_ptr<const MeshDistanceFieldSlot> m_DistanceField;
+        std::shared_ptr<const MeshCardsSlot>         m_Cards;
 
         bool m_IsReadyForUse = false;
     };

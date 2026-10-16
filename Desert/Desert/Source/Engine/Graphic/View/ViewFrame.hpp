@@ -13,8 +13,8 @@
 // frame: matrices, their previous-frame copies, the sub-pixel jitter and the two extents of the resolution split.
 //
 // Why it exists. Before TAA1 each temporal consumer kept its own previous matrix (SSRRenderer::m_PrevViewProj,
-// GIResolveRenderer::m_PrevViewProj, VolumetricCloudRenderer::m_PrevViewProj) and wrote it at its own point of the
-// frame. Three copies of one value drift: a renderer that skips a frame (GI off for one frame, clouds culled)
+// the RSM GI resolve's m_PrevViewProj, VolumetricCloudRenderer::m_PrevViewProj) and wrote it at its own point of
+// the frame. Three copies of one value drift: a renderer that skips a frame (GI off for one frame, clouds culled)
 // reprojects through a matrix two frames old, and a renderer shared by two views (the editor viewport and a
 // preview) reprojects one view's pixels through the other view's camera. TAA would be a fourth copy and the
 // velocity pass a fifth. Now: ONE previous-frame source per view (SceneViewState), ONE immutable product per frame

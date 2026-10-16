@@ -92,8 +92,16 @@ namespace Desert::Core
     // GlobalIlluminationMethod and EnableSSR is ReflectionsMethod, on the method ladders of
     // Common/Settings/RenderMethods.hpp (Tools/SceneMigrator, MigrateRenderMethodsV52ToV53). v54 (SCR-DETAILS): a
     // script slot's Props are only the values that differ from the script's declared defaults
-    // (Tools/SceneMigrator, MigrateScriptDefaultsV53ToV54).
-    inline constexpr int kSceneVersion = 54;
+    // (Tools/SceneMigrator, MigrateScriptDefaultsV53ToV54). v56 (LIGHT-UNITS): point / spot lights state
+    // IntensityUnits (UE ELightUnits) and the exposure range is EV100 (Tools/SceneMigrator,
+    // MigrateLightUnitsV55ToV56); v55 is the SourceAngle step. v57 (LIGHT-UNITS-2): the Physical Atmosphere
+    // sky takes its sun from the atmosphere sun light (UE) and manual exposure is EV100 (Tools/SceneMigrator,
+    // MigrateSkySunFromLightV56ToV57). v58 (TOD1): the TimeOfDay clock has UE SunPosition's calendar - date,
+    // longitude, time zone, daylight saving (Tools/SceneMigrator, MigrateSunCalendarV57ToV58). v59..v63 are
+    // Windows' steps. v64 (GI-METHOD-RENUMBER): GlobalIlluminationMethod is stated on today's ladder, which lost
+    // ReflectiveShadowMaps (3) - every method above it is one number lower (Tools/SceneMigrator,
+    // MigrateGIMethodLadderV63ToV64).
+    inline constexpr int kSceneVersion = 64;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

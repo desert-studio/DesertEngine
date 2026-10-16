@@ -1,0 +1,175 @@
+#ifndef SURFACE_CACHE_SAMPLING_GLSLH
+#define SURFACE_CACHE_SAMPLING_GLSLH
+
+// A TRACED HIT READ FROM THE SURFACE CACHE (GI-CARD-LOOKUP; UE LumenSurfaceCacheSampling.ush SampleLumenMeshCards /
+// EvaluateRayHitFromSurfaceCache). The C++ side is GlobalIllumination::SurfaceCacheFrame (GITracing.hpp) and the
+// records of Graphic/GlobalIllumination/SurfaceCache.hpp; the reads are declared here, at descriptor bindings
+// GI_SURFACE_CACHE_BINDING .. GI_SURFACE_CACHE_BINDING + 7, which the includer reserves and defines.
+//
+// WHICH CARDS (contract B3): a hit that names its instance row (the hardware tracer: the TLAS custom index) reads
+// that row of the instance table; a hit that does not (the software tracer: the global distance field has no
+// object identity) reads every row the object grid lists for its cell - UE's global SDF hits find their mesh
+// cards through the field's page object grid the same way. A row gives the instance's MeshCards record.
+//
+// WHICH TEXELS: per world axis of the hit normal (in the mesh's frame) the cards facing it (MeshCards.cardLookup),
+// weighted by the squared normal component (UE: the normal's projection weights). A card counts where the hit
+// lies inside its box, the capture saw a surface there (opacity) and the captured depth matches the hit's within
+// the tracer's tolerance (GIRayBias.screenTolerance, the hit's own precision) - UE's depth weight. The weighted mean
+// of the FinalLighting texels is the hit's radiance; a hit no card holds returns false and is lit in place.
+
+#include <Common/SurfaceCache.glslh>
+
+#ifndef GI_SURFACE_CACHE_BINDING
+#error "SurfaceCacheSampling.glslh: define GI_SURFACE_CACHE_BINDING (the first of the surface cache's eight bindings)"
+#endif
+
+layout( std430, binding = GI_SURFACE_CACHE_BINDING + 0 ) readonly buffer SurfaceCardBuffer
+{
+    SurfaceCard surfaceCards[];
+};
+layout( std430, binding = GI_SURFACE_CACHE_BINDING + 1 ) readonly buffer SurfaceCardPageBuffer
+{
+    SurfaceCardPage surfaceCardPages[];
+};
+layout( std430, binding = GI_SURFACE_CACHE_BINDING + 2 ) readonly buffer SurfaceMeshCardsBuffer
+{
+    MeshCards surfaceMeshCards[];
+};
+
+// std430 — must match SurfaceCache::InstanceRowPayload (48 bytes).
+struct SurfaceCacheInstance {
+    uvec4 cards;     // x = MeshCards index or GI_NO_MESH_CARDS, y = first page, z = page count
+    vec4  boundsMin; // world box of the instance's cards, cm
+    vec4  boundsMax;
+};
+layout( std430, binding = GI_SURFACE_CACHE_BINDING + 3 ) readonly buffer SurfaceCacheInstancesUB
+{
+    SurfaceCacheInstance surfaceCacheInstances[];
+};
+// SurfaceCache::kObjectGrid*: [0..2] origin (float bits), [3] cell (float bits), [4] dims, then the cells
+// (first << 8 | count), then the rows.
+layout( std430, binding = GI_SURFACE_CACHE_BINDING + 4 ) readonly buffer SurfaceCacheObjectGridUB
+{
+    uint surfaceCacheGrid[];
+};
+layout( binding = GI_SURFACE_CACHE_BINDING + 5 ) uniform sampler2D u_SurfaceCacheFinalLighting;
+layout( binding = GI_SURFACE_CACHE_BINDING + 6 ) uniform sampler2D u_SurfaceCacheDepth;
+layout( binding = GI_SURFACE_CACHE_BINDING + 7 ) uniform sampler2D u_SurfaceCacheOpacity;
+
+#define SURFACE_CACHE_GRID_HEADER 8u
+// Below this summed weight the cards hold too little of the hit to stand for it (UE: bValid needs a weight).
+#define SURFACE_CACHE_MIN_HIT_WEIGHT 0.05
+
+struct SurfaceCacheHitSample {
+    vec3  lighting; // weighted FinalLighting
+    float weight;
+};
+
+// The cards of one instance at the hit, accumulated into @p acc.
+void SurfaceCacheSampleMeshCards( uint meshCardsIndex, vec3 position, vec3 normal, float tolerance,
+                                  inout SurfaceCacheHitSample acc )
+{
+    const MeshCards mesh = surfaceMeshCards[meshCardsIndex];
+    // The hit normal in the mesh's frame: its axes pick the card directions.
+    const vec3 localNormal = vec3( dot( mesh.worldToLocal[0].xyz, normal ), dot( mesh.worldToLocal[1].xyz, normal ),
+                                   dot( mesh.worldToLocal[2].xyz, normal ) );
+    const vec2 atlasSize = vec2( textureSize( u_SurfaceCacheFinalLighting, 0 ) );
+    for ( uint axis = 0u; axis < 3u; ++axis )
+    {
+        const float axisWeight = localNormal[axis] * localNormal[axis];
+        if ( axisWeight < 0.01 )
+            continue;
+        // CardDirection: NegativeX, PositiveX, NegativeY, PositiveY, NegativeZ, PositiveZ.
+        const uint direction = axis * 2u + ( localNormal[axis] >= 0.0 ? 1u : 0u );
+        uint       mask      = MeshCardsFacing( mesh, direction );
+        while ( mask != 0u )
+        {
+            const uint bit = findLSB( mask );
+            mask &= mask - 1u;
+            const SurfaceCard card = surfaceCards[mesh.cards.x + bit];
+            if ( !SurfaceCardVisible( card ) )
+                continue;
+            const vec3 local  = SurfaceCardWorldToLocal( card, position );
+            const vec3 extent = card.localExtent.xyz;
+            if ( any( greaterThan( abs( local.xy ), extent.xy ) ) || abs( local.z ) > extent.z + tolerance )
+                continue;
+            const uvec2 res   = uvec2( 1u << ( card.info.x & 0xFFu ), 1u << ( ( card.info.x >> 8u ) & 0xFFu ) );
+            const uvec2 pages = uvec2( card.pages.x & 0xFFFFu, card.pages.x >> 16u );
+            // Card UV: u along the card's X, v down its Y (the capture's rows run top-down), as the copy wrote it.
+            const vec2  uv    = vec2( 0.5 + 0.5 * local.x / extent.x, 0.5 - 0.5 * local.y / extent.y );
+            const uvec2 texel = min( uvec2( uv * vec2( res ) ), res - 1u );
+            uvec2       page  = uvec2( 0u );
+            if ( res.x >= SURFACE_CACHE_PHYSICAL_PAGE_SIZE )
+                page.x = min( texel.x / SURFACE_CACHE_VIRTUAL_PAGE_SIZE, pages.x - 1u );
+            if ( res.y >= SURFACE_CACHE_PHYSICAL_PAGE_SIZE )
+                page.y = min( texel.y / SURFACE_CACHE_VIRTUAL_PAGE_SIZE, pages.y - 1u );
+            const SurfaceCardPage entry = surfaceCardPages[card.pages.y + page.y * max( pages.x, 1u ) + page.x];
+            const ivec2 atlasTexel = ivec2( entry.physicalAtlasUVRect.xy * atlasSize + 0.5 ) +
+                                     ivec2( texel - page * SURFACE_CACHE_VIRTUAL_PAGE_SIZE );
+            const float opacity = texelFetch( u_SurfaceCacheOpacity, atlasTexel, 0 ).r;
+            if ( opacity < 0.5 )
+                continue;
+            // Depth from the card plane (0) to the far side (1) of the box; the hit's own, the same way.
+            const float captured   = texelFetch( u_SurfaceCacheDepth, atlasTexel, 0 ).r * 2.0 * extent.z;
+            const float hitDepth   = extent.z - local.z;
+            const float texelSize  = card.localExtent.w;
+            const float depthRange = max( tolerance, 2.0 * texelSize );
+            const float depthWeight = clamp( 1.0 - abs( hitDepth - captured ) / depthRange, 0.0, 1.0 );
+            const float w           = axisWeight * depthWeight;
+            if ( w <= 0.0 )
+                continue;
+            acc.lighting += texelFetch( u_SurfaceCacheFinalLighting, atlasTexel, 0 ).rgb * w;
+            acc.weight += w;
+        }
+    }
+}
+
+void SurfaceCacheSampleRow( uint row, vec3 position, vec3 normal, float tolerance, inout SurfaceCacheHitSample acc )
+{
+    const SurfaceCacheInstance instance = surfaceCacheInstances[row];
+    if ( instance.cards.x == GI_NO_MESH_CARDS )
+        return;
+    if ( any( lessThan( position, instance.boundsMin.xyz - tolerance ) ) ||
+         any( greaterThan( position, instance.boundsMax.xyz + tolerance ) ) )
+        return;
+    SurfaceCacheSampleMeshCards( instance.cards.x, position, normal, tolerance, acc );
+}
+
+// The surface cache's radiance at @p hit (FinalLighting); false where no card holds the hit.
+bool SurfaceCacheHitLighting( GIHit hit, float tolerance, out vec3 lighting )
+{
+    SurfaceCacheHitSample acc;
+    acc.lighting = vec3( 0.0 );
+    acc.weight   = 0.0;
+    if ( hit.instance != GI_NO_INSTANCE )
+    {
+        if ( hit.instance < uint( surfaceCacheInstances.length() ) )
+            SurfaceCacheSampleRow( hit.instance, hit.position, hit.normal, tolerance, acc );
+    }
+    else
+    {
+        const vec3  origin = vec3( uintBitsToFloat( surfaceCacheGrid[0] ), uintBitsToFloat( surfaceCacheGrid[1] ),
+                                   uintBitsToFloat( surfaceCacheGrid[2] ) );
+        const float cell   = uintBitsToFloat( surfaceCacheGrid[3] );
+        const int   dims   = int( surfaceCacheGrid[4] );
+        const ivec3 c      = ivec3( floor( ( hit.position - origin ) / cell ) );
+        if ( dims > 0 && all( greaterThanEqual( c, ivec3( 0 ) ) ) && all( lessThan( c, ivec3( dims ) ) ) )
+        {
+            const uint cellIndex = uint( ( c.z * dims + c.y ) * dims + c.x );
+            const uint word      = surfaceCacheGrid[SURFACE_CACHE_GRID_HEADER + cellIndex];
+            const uint first     = SURFACE_CACHE_GRID_HEADER + uint( dims * dims * dims ) + ( word >> 8u );
+            const uint count     = word & 0xFFu;
+            for ( uint k = 0u; k < count; ++k )
+                SurfaceCacheSampleRow( surfaceCacheGrid[first + k], hit.position, hit.normal, tolerance, acc );
+        }
+    }
+    if ( acc.weight < SURFACE_CACHE_MIN_HIT_WEIGHT )
+    {
+        lighting = vec3( 0.0 );
+        return false;
+    }
+    lighting = acc.lighting / acc.weight;
+    return true;
+}
+
+#endif // SURFACE_CACHE_SAMPLING_GLSLH

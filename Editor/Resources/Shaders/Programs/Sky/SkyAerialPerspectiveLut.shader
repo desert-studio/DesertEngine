@@ -126,7 +126,7 @@ Shader "SkyAerialPerspectiveLut"
 
             // Outer-space sun illuminance: the authored sun colour times intensity — the same pair the
             // Sky-View fill integrates, so the two results are literally the same quantity.
-            vec3 sunIlluminance = UnpackSkyConfig(s).sunColor * UnpackSunIntensity(s);
+            vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
 
             // The art-direction tint that belongs INSIDE every scattering integration (UE's
             // SkyAndAerialPerspectiveLuminanceFactor). Applied on the stored value because the integral

@@ -5,8 +5,7 @@
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
 #include <Engine/Geometry/MeshAssetArrays.hpp>
-#include <Engine/Geometry/MeshCore/DynamicMesh/MeshNormals.hpp>
-#include <Engine/Geometry/MeshCore/DynamicMesh/MeshSimplification.hpp>
+#include <Engine/Geometry/MeshSimplifyOperation.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
@@ -230,15 +229,8 @@ namespace Desert::Core
             const int target =
                  std::max( 1, static_cast<int>( std::ceil( static_cast<double>( mesh.TriangleCount() ) *
                                                            request.TrianglePercent ) ) );
-            Geometry::QemSimplification simplifier( mesh );
-            simplifier.SimplifyToTriangleCount( target );
-            // The collapses moved vertices; the normals are the new surface's, not the old corners'.
-            if ( mesh.HasAttributes() && mesh.Attributes()->PrimaryNormals() != nullptr )
-            {
-                Geometry::MeshNormals normals( &mesh );
-                normals.RecomputeOverlayNormals( mesh.Attributes()->PrimaryNormals() );
-                normals.CopyToOverlay( mesh.Attributes()->PrimaryNormals() );
-            }
+            // Recomputes the normals too: the collapses moved vertices.
+            Geometry::SimplifyToTriangleCount( mesh, target );
         }
 
         Assets::StaticMeshComponentSer block;

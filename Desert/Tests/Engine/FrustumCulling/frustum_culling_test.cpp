@@ -257,10 +257,6 @@ TEST( FrustumCulling, EveryPassCullsWithTheMatrixItDrawsWith )
            "rasterizes from the SUN with the caster matrix (m_CascadeVP plus the depth bias, SHADOW-BIAS): "
            "the camera's frustum here would delete off-screen casters whose shadows land on screen. Its own "
            "cascade matrix is a finite ortho box, so this skips only what the rasterizer already clips" },
-         { "DeclareRSMDraws", false, nullptr,
-           "rasterizes from the SUN into the RSM, and every one of the 114 scenes in the tree is "
-           "GlobalIllumination=ScreenSpace, so this pass never runs: a change here could not be seen on "
-           "any frame this repository can take, and an unobservable change is not shipped" },
     };
 
     for ( const auto& row : rows )

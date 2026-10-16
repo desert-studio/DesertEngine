@@ -20,7 +20,7 @@ namespace Desert::Graphic
      *
      * WHY A PROFILE. A SceneRenderer is built for two different jobs: a viewport of a level, and a preview
      * (asset thumbnail, the Details material ball, a UI element hosting a world). Before this, the only
-     * per-view budget was the shadow quality; volumetric clouds, SSR and RSM-GI were gated by SCENE settings
+     * per-view budget was the shadow quality; volumetric clouds, SSR and GI were gated by SCENE settings
      * read every frame, so a preview whose scene enabled clouds paid the cloud trace/history targets like a
      * level viewport. The profile is asked at CONSTRUCTION — the same reason ShadowQuality is (see
      * kNoShadowQuality): allocations happen in Init/Ensure*, and a per-scene flag toggled later is read by
@@ -56,7 +56,7 @@ namespace Desert::Graphic
     // Shadows quality level's (kSceneShadowQuality until QualityState has published one — it is the High row).
     inline constexpr ViewProfile kSceneViewProfile{ kSceneShadowQuality, true, true, true, true, true };
 
-    // A live preview (Details ball, mesh preview, UI render texture): one 1024 cascade, no SSR and no RSM-GI.
+    // A live preview (Details ball, mesh preview, UI render texture): one 1024 cascade, no SSR and no traced GI.
     // Clouds stay ON: a cloud material's preview IS its clouds (RT1b: with them off, all 53 cloud-material
     // thumbnails rendered an empty sky), and the cloud targets are only built when the preview scene has
     // clouds, so a preview without them pays nothing for the flag.
@@ -384,25 +384,10 @@ namespace Desert::Graphic
         }
         if ( profile.GlobalIllumination )
         {
-            add( { "GI.Gather", "SceneRendererFrameDeferred.cpp", F::kGIResolve, width, height } );
-            // ScreenSpaceDenoiser::DenoiseDiffuseIndirect: reconstruction + output, the history pair.
-            add( { "SSD.Diffuse.Signal+Output", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height, 1,
-                   2 } );
-            add( { "SSD.Diffuse.History x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height, 1,
-                   2 } );
-            add( { "SSD.Diffuse.History.Count x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSampleCount, width,
-                   height, 1, 2 } );
-            // SceneRenderer::kRSMResolution = 512, one row per attachment WITH AN IMAGE: they mirror the
-            // G-buffer's formats, which need not all be the same. Colour slot 2 is an unused slot (no image, no
-            // row).
-            for ( ViewTarget rsm : { ViewTarget{ "RSM.Albedo", "SceneRenderer.cpp", F::kRSMAlbedo, 512, 512 },
-                                     ViewTarget{ "RSM.Normal", "SceneRenderer.cpp", F::kRSMNormal, 512, 512 },
-                                     ViewTarget{ "RSM.Emissive", "SceneRenderer.cpp", F::kRSMEmissive, 512, 512 },
-                                     ViewTarget{ "RSM.Depth", "SceneRenderer.cpp", F::kRSMDepth, 512, 512 } } )
-            {
-                rsm.ScalesWithView = false;
-                add( rsm );
-            }
+            // The traced GI's final gather (SoftwareTraced: the screen probes' history pairs; ProbeVolume's
+            // irradiance field gather writes graph transients of the same size and format instead).
+            add( { "ScreenProbes.Diffuse x2", "ScreenProbeGather.cpp", F::kGIFinalGather, width, height, 1, 2 } );
+            add( { "ScreenProbes.Specular x2", "ScreenProbeGather.cpp", F::kGIFinalGather, width, height, 1, 2 } );
         }
         if ( profile.Shadows.CascadeCount != 0 )
         {

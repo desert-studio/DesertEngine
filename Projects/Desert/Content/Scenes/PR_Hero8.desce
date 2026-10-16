@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "084185b6ad247ce22e218eb5d17b214d",
         "Versions": {
-            "SCNE": 54,
+            "SCNE": 64,
             "UNIT": 1
         },
         "Dependencies": ["026cd54cd26fb3e9c764e0a56c685166", "06a0c0947ebf0030ef14707968eb7df1", "2a0be059ed143f53ce10ee6467346a08", "45d579b03cc0d0a8df2e4cb025d6bea5", "5979b547a8b157ace96cf158ca11a136"]
@@ -235,6 +235,12 @@
                 "TimeOfDay": 12.0,
                 "DayLengthSeconds": 600.0,
                 "Latitude": 45.0,
+                "Longitude": 0.0,
+                "TimeZone": 0.0,
+                "DaylightSavingTime": false,
+                "Year": 2026,
+                "Month": 3,
+                "Day": 20,
                 "NorthOffset": 0.0
             },
             "VolumetricCloud": {
@@ -274,16 +280,22 @@
                 "AtmosphereSunLight": true,
                 "AtmosphereSunLightIndex": 0,
                 "AffectedByAtmosphereTransmittance": true,
+                "AtmosphereSunDiskColorScale": [1.0, 1.0, 1.0],
                 "LightShaftBloom": false,
                 "BloomScale": 0.25,
                 "BloomThreshold": 3.0,
                 "BloomMaxBrightness": 20.0,
                 "BloomTint": [1.0, 0.949999988079071, 0.8500000238418579],
                 "CastShadows": true,
+                "SourceAngle": 0.5357000231742859,
                 "ShadowBias": 1.0,
                 "ShadowSlopeBias": 2.0,
                 "ShadowCascadeBiasDistribution": 1.0,
-                "CascadeSplitLambda": 0.6000000238418579
+                "CascadeSplitLambda": 0.6000000238418579,
+                "ContactShadowLength": 0.0,
+                "ContactShadowLengthInWorldSpace": false,
+                "ContactShadowCastingIntensity": 1.0,
+                "ContactShadowNonCastingIntensity": 0.0
             }
         },
         {
@@ -323,14 +335,14 @@
                     "ContactShadows": false,
                     "DistanceFieldShadows": false,
                     "Tonemapper": 0,
-                    "Exposure": 0.25999999046325684,
+                    "ManualExposureEV100": 2.469485282897949,
                     "Gamma": 2.200000047683716,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
                     "AutoExposureKey": 0.18000000715255737,
                     "AutoExposureSpeed": 1.5,
-                    "AutoExposureMin": 0.019999999552965164,
-                    "AutoExposureMax": 8.0,
+                    "AutoExposureMinEV100": -2.6438562870025635,
+                    "AutoExposureMaxEV100": 6.0,
                     "EnableBloom": true,
                     "BloomThreshold": 1.0,
                     "BloomIntensity": 0.3499999940395355,

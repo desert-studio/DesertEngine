@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 struct ImGuiTextFilter;
@@ -128,9 +129,16 @@ namespace Desert::Editor
 
     // Reflected component: ZERO UI code — the panel is auto-built from the data block's REFLECT() metadata.
     // When several entities are selected, edits broadcast to all of them (multi-select Details).
+    //
+    // `postEdit` is UE's PostEditChangeProperty for the block: called after the Details draw with the block as it
+    // was before the draw and as it is now, once per edited entity (the selection's siblings included), so a
+    // field that depends on another (a light's Intensity on its Intensity Units) is re-stated in the same frame
+    // the edit lands. Empty = none.
     template <class ComponentT, class DataT>
-    ComponentEditorEntry MakeReflectedComponentEntry( std::string name, std::string dataTypeName,
-                                                      DataT ComponentT::*member, bool canRemove = true )
+    ComponentEditorEntry
+    MakeReflectedComponentEntry( std::string name, std::string dataTypeName, DataT ComponentT::*member,
+                                 bool canRemove                                                             = true,
+                                 std::type_identity_t<std::function<void( const DataT&, DataT& )>> postEdit = {} )
     {
         ComponentEditorEntry e;
         e.Name              = std::move( name );
@@ -140,8 +148,8 @@ namespace Desert::Editor
         e.Add               = []( ECS::Entity& en ) { en.AddComponent<ComponentT>(); };
         e.Remove            = []( ECS::Entity& en ) { en.RemoveComponent<ComponentT>(); };
         e.DataPtr = [member]( ECS::Entity& en ) -> void* { return &( en.GetComponent<ComponentT>().*member ); };
-        e.Draw    = [member, dataTypeName]( ECS::Entity& en, ::Desert::Core::Scene* scene,
-                                         const ComponentEditContext& ctx )
+        e.Draw              = [member, dataTypeName, postEdit]( ECS::Entity& en, ::Desert::Core::Scene* scene,
+                                                   const ComponentEditContext& ctx )
         {
             auto& comp = en.GetComponent<ComponentT>();
 
@@ -154,8 +162,25 @@ namespace Desert::Editor
                                                return &( other.GetComponent<ComponentT>().*member );
                                            } );
 
+            if ( !postEdit )
+            {
+                PropertyEditorBuilder::DrawMulti( &( comp.*member ), siblings, dataTypeName, ctx.AssetMgr(),
+                                                  ctx.UIHelper, ctx.FieldFilter );
+                return;
+            }
+
+            std::vector<DataT> before;
+            before.reserve( siblings.size() + 1 );
+            before.push_back( comp.*member );
+            for ( void* sibling : siblings )
+                before.push_back( *static_cast<DataT*>( sibling ) );
+
             PropertyEditorBuilder::DrawMulti( &( comp.*member ), siblings, dataTypeName, ctx.AssetMgr(),
                                               ctx.UIHelper, ctx.FieldFilter );
+
+            postEdit( before[0], comp.*member );
+            for ( std::size_t i = 0; i < siblings.size(); ++i )
+                postEdit( before[i + 1], *static_cast<DataT*>( siblings[i] ) );
         };
         return e;
     }
