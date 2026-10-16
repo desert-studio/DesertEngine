@@ -482,6 +482,7 @@ namespace Desert::Graphic
         gather.GIFrame            = inputs.GIFrame;
         gather.RadianceCache      = cache.GetValue();
         gather.Extent             = inputs.Extent;
+        gather.AdaptiveProbePercent = m_ScreenProbeAdaptivePercent;
         gather.PrevViewProjection = frame.PrevViewProjection;
         gather.PrevCameraPosition = frame.PrevCameraPosition;
         const auto gathered       = m_ScreenProbeGather->AddPasses( graph, import, gather );
