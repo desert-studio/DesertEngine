@@ -95,6 +95,9 @@ namespace Desert::Graphic
     class FrameTextures;
     struct FrameValues;
     class ReflectionCaptureRenderer;
+#if DESERT_DEV_INSTRUMENTS
+    class DebugDrawRenderer;
+#endif
 
     class SceneRenderer final
     {
@@ -933,6 +936,11 @@ namespace Desert::Graphic
         // The reflection captures of the scene BeginScene was handed (Core::Scene owns them, one set for all its
         // views): published into this view's graph by OnUpdate, cleared by EndScene.
         ReflectionCaptureRenderer* m_FrameReflectionCaptures = nullptr;
+#if DESERT_DEV_INSTRUMENTS
+        // The gameplay debug drawing of the scene BeginScene was handed (Core/DebugDraw.hpp): this view's lines
+        // and strings passes, fed the scene's store by BeginScene and emptied by EndScene. Made on first use.
+        std::unique_ptr<DebugDrawRenderer> m_DebugDraw;
+#endif
 
     public:
         // --- UI glass (backdrop blur) -----------------------------------------------------------

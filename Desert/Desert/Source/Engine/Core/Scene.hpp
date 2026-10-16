@@ -15,6 +15,7 @@
 #include "SceneEntityIndex.hpp"
 #include "SceneViewList.hpp"
 #include "WorldTime.hpp"
+#include "DebugDraw.hpp"
 #include "SceneGeneration.hpp"
 
 #include <Common/Core/ResultStr.hpp>
@@ -536,6 +537,18 @@ namespace Desert::Core
         // (Graphic::ExtensionPass). A repeated name replaces the earlier pass.
         void                                                RegisterExtensionPass( Graphic::ExtensionPass&& pass );
         void                                                UnregisterExtensionPass( const std::string& name );
+        // THE SCENE'S DEBUG DRAWING (UE: the world's line batchers): what DebugDraw:: calls and the DebugDraw script
+        // library add, and what every view of this scene draws (SceneRenderer::BeginScene). Aged at the top of
+        // OnUpdate, before the systems that draw into it.
+        [[nodiscard]] DebugDrawWorld& GetDebugDraw()
+        {
+            return m_DebugDraw;
+        }
+        [[nodiscard]] const DebugDrawWorld& GetDebugDraw() const
+        {
+            return m_DebugDraw;
+        }
+
         [[nodiscard]] const Graphic::ExtensionPassRegistry& GetExtensionPasses() const
         {
             return m_ExtensionPasses;
@@ -662,6 +675,9 @@ namespace Desert::Core
         // BeginScene and adds them at their points while it builds its frame, so a view opened later has them
         // and a renderer bound to another scene has that scene's, with nothing to replay or drop.
         Graphic::ExtensionPassRegistry m_ExtensionPasses;
+
+        // See GetDebugDraw.
+        DebugDrawWorld m_DebugDraw;
 
         // See GetReflectionCaptures. Never null: made by both constructors.
         std::unique_ptr<Graphic::ReflectionCaptureRenderer> m_ReflectionCaptures;

@@ -43,6 +43,7 @@
 #include <vector>
 
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Debug/DebugDrawRenderer.hpp>
 #include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
 
 namespace Desert::Graphic
@@ -718,6 +719,12 @@ namespace Desert::Graphic
         m_ScenePlaying = scene.IsPlaying(); // grid & other authoring aids hide while the game runs
         // The scene's extension passes, for AddExtensionPoint while OnUpdate builds this frame.
         m_FrameExtensions = &scene.GetExtensionPasses();
+#if DESERT_DEV_INSTRUMENTS
+        // The scene's debug lines and strings, for this frame's DebugDraw passes.
+        if ( !m_DebugDraw )
+            m_DebugDraw = std::make_unique<DebugDrawRenderer>( *this );
+        m_DebugDraw->SetWorld( &scene.GetDebugDraw() );
+#endif
         // The scene's reflection captures, published into this frame's graph (SceneViewInputs).
         m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
 
@@ -1313,6 +1320,15 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
             AddSystemRaster( graph, textures, mesh->DebugLinesPass(), overlay );
+        // The scene's gameplay debug drawing (Core/DebugDraw.hpp): its lines over the engine's, its strings over
+        // both. A reflection capture's face shows the game scene only, as for the extension passes.
+        if ( m_DebugDraw && !m_ViewProfile.SceneCapture )
+        {
+            if ( m_DebugDraw->HasLines() )
+                AddSystemRaster( graph, textures, m_DebugDraw->LinesPass(), overlay );
+            if ( m_DebugDraw->HasStrings() )
+                AddSystemRaster( graph, textures, m_DebugDraw->StringsPass(), overlay );
+        }
 #endif // DESERT_DEV_INSTRUMENTS
        // The editor's authoring overlays (colliders, cubemap preview) over the engine's debug lines.
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::Overlay, overlay );
@@ -1382,6 +1398,10 @@ namespace Desert::Graphic
         m_PointLightShadows.clear();
         m_SpotLightShadows.clear();
         m_FrameExtensions         = nullptr;
+#if DESERT_DEV_INSTRUMENTS
+        if ( m_DebugDraw )
+            m_DebugDraw->SetWorld( nullptr );
+#endif
         m_FrameReflectionCaptures = nullptr;
 
         return BOOLSUCCESS;

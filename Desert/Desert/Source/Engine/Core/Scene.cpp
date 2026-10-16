@@ -637,6 +637,12 @@ namespace Desert::Core
             World::Foliage::RealizePrefabFoliage( *this );
         }
 
+        // THE DEBUG DRAWING AGES before the systems draw this frame's (scripts run in them): last frame's one-frame
+        // items go unless the world is paused, timed items count down by the scene's time - the editor's step in
+        // Edit, gameplay's in Play, nothing while paused - as the effects clock below.
+        m_DebugDraw.Tick( m_State == SceneState::Edit ? ts.GetSeconds() : gameplayTs.GetSeconds(),
+                          m_State != SceneState::Paused || TicksGameplay() );
+
         {
             DESERT_PROFILE_SCOPE( "ECS Systems" );
             ExecuteSystems( gameplayTs );
