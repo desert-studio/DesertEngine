@@ -37,6 +37,7 @@
 
 #include <entt/entt.hpp>
 
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -122,5 +123,14 @@ namespace Desert::ECS
         std::unordered_set<entt::entity>               m_Refused;
         std::unordered_map<entt::entity, RuntimeState> m_Runtime;
         Destruction::RuntimeFractureQueue              m_Cuts;
+        // The frames that ran while a cut was queued or on a worker (wall time between Syncs), reported with each
+        // finished cut — the measure that the frame does not wait for it.
+        std::chrono::steady_clock::time_point m_LastSync{};
+        uint32_t                              m_FramesCutting = 0;
+        double                                m_CuttingMsSum  = 0.0;
+        double                                m_CuttingMsMax  = 0.0;
+        uint32_t                              m_FramesIdle    = 0; // and the frames with no cut, for comparison
+        double                                m_IdleMsSum     = 0.0;
+        [[nodiscard]] std::string             FramesWhileCutting();
     };
 } // namespace Desert::ECS

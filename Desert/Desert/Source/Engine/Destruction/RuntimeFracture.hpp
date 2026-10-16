@@ -79,7 +79,12 @@ namespace Desert::Destruction
 
         /// How many cuts may run on the workers at once: half the pool, at least one.
         [[nodiscard]] static uint32_t MaxConcurrent();
-        [[nodiscard]] uint32_t        Running() const
+        /// Cuts queued or on a worker.
+        [[nodiscard]] size_t Pending() const
+        {
+            return m_Queued.size() + m_Running.size();
+        }
+        [[nodiscard]] uint32_t Running() const
         {
             return static_cast<uint32_t>( m_Running.size() + m_Cancelled.size() );
         }

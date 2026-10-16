@@ -228,6 +228,23 @@ namespace Desert::ECS
     void DestructibleLifetime::Sync( entt::registry& registry, const FractureLookup& lookup,
                                      const MeshFileLookup& meshFile )
     {
+        const auto now = std::chrono::steady_clock::now();
+        if ( m_LastSync != std::chrono::steady_clock::time_point{} )
+        {
+            const double ms = std::chrono::duration<double, std::milli>( now - m_LastSync ).count();
+            if ( m_Cuts.Pending() > 0 )
+            {
+                ++m_FramesCutting;
+                m_CuttingMsSum += ms;
+                m_CuttingMsMax = std::max( m_CuttingMsMax, ms );
+            }
+            else
+            {
+                ++m_FramesIdle;
+                m_IdleMsSum += ms;
+            }
+        }
+        m_LastSync = now;
         SwapStruck( registry );
 
         auto view = registry.view<TransformComponent, DestructibleComponent>();
@@ -311,10 +328,10 @@ namespace Desert::ECS
                 if ( !cut.GetValue().Data )
                     continue; // still cutting: the frame does not wait
                 fracture = cut.GetValue().Data;
-                LOG_INFO( "[Destruction] entity {} {}: {} nodes cut on a worker in {:.2f} ms",
+                LOG_INFO( "[Destruction] entity {} {}: {} nodes cut on a worker in {:.2f} ms; {}",
                           static_cast<uint32_t>( entity ),
                           data.Source == FractureSource::OnLoad ? "On Load" : "At Impact (whole)",
-                          fracture->Nodes.size(), cut.GetValue().BakeMs );
+                          fracture->Nodes.size(), cut.GetValue().BakeMs, FramesWhileCutting() );
                 runtime.Ticket = 0;
                 runtime.Stage  = data.Source == FractureSource::OnLoad ? RuntimeState::StageKind::Done
                                                                        : RuntimeState::StageKind::Whole;
@@ -417,6 +434,22 @@ namespace Desert::ECS
         }
     }
 
+    std::string DestructibleLifetime::FramesWhileCutting()
+    {
+        const std::string said =
+             m_FramesCutting == 0
+                  ? std::string( "no frame ran while cutting" )
+                  : std::format( "{} frame(s) ran while cutting, {:.1f} ms average, {:.1f} ms longest",
+                                 m_FramesCutting, m_CuttingMsSum / m_FramesCutting, m_CuttingMsMax ) +
+                         ( m_FramesIdle == 0 ? std::string()
+                                             : std::format( " (frames with no cut so far: {:.1f} ms average)",
+                                                            m_IdleMsSum / m_FramesIdle ) );
+        m_FramesCutting = 0;
+        m_CuttingMsSum  = 0.0;
+        m_CuttingMsMax  = 0.0;
+        return said;
+    }
+
     void DestructibleLifetime::SwapStruck( entt::registry& registry )
     {
         for ( auto& [entity, runtime] : m_Runtime )
@@ -450,6 +483,7 @@ namespace Desert::ECS
             placed.LinearVelocity                = linear;
             placed.AngularVelocity               = angular;
 
+            const auto swapBegan = std::chrono::steady_clock::now();
             m_World->Remove( old );
             destructible.RuntimeObject = Destruction::kInvalidDestructible;
             destructible.RuntimeFracture.reset();
@@ -474,6 +508,13 @@ namespace Desert::ECS
             command.Type        = Destruction::FieldPhysicsType::ExternalStrain;
             command.Scalar      = strain;
             const uint32_t hits = m_World->ApplyField( command );
+            const double   swapMs =
+                 std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - swapBegan ).count();
+            LOG_INFO( "[Destruction] entity {} At Impact: swapped in on the main thread in {:.2f} ms at ({:.0f}, "
+                      "{:.0f}, "
+                      "{:.0f}) cm/s, ({:.2f}, {:.2f}, {:.2f}) rad/s; {}",
+                      static_cast<uint32_t>( entity ), swapMs, linear.x, linear.y, linear.z, angular.x, angular.y,
+                      angular.z, FramesWhileCutting() );
             LOG_INFO( "[Destruction] entity {} At Impact: {} nodes cut on a worker in {:.2f} ms, swapped in; the "
                       "hit's strain acted on {} bodies",
                       static_cast<uint32_t>( entity ), fracture->Nodes.size(), cut.GetValue().BakeMs, hits );

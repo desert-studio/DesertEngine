@@ -154,7 +154,7 @@ namespace Desert::Destruction
                 {
                     std::vector<glm::dvec3> sites =
                          level.Method == FractureMethod::Radial
-                              ? GenerateRadialSites( level.Radial, random )
+                              ? GenerateRadialSites( level.Radial, pieceBounds, random )
                               : GenerateClusteredSites( pieceBounds, level.Clusters, level.SitesPerCluster,
                                                         level.MinRadius, level.MaxRadius, random );
                     // A site the radius pushed past the cell box yields no cell (ComputeVoronoiCells); it is

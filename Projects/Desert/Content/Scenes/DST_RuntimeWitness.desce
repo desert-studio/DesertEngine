@@ -349,9 +349,9 @@
             "siblingIndex": 4,
             "Tag": "CrateOnLoadA",
             "Translation": [
-                -150.0,
+                -90.0,
                 250.0,
-                0.0
+                -70.0
             ],
             "Rotation": [
                 0.30000001192092896,
@@ -405,9 +405,9 @@
             "siblingIndex": 5,
             "Tag": "CrateOnLoadB",
             "Translation": [
-                0.0,
+                90.0,
                 250.0,
-                0.0
+                -70.0
             ],
             "Rotation": [
                 0.30000001192092896,
@@ -461,9 +461,9 @@
             "siblingIndex": 6,
             "Tag": "CrateAtImpact",
             "Translation": [
-                150.0,
+                0.0,
                 250.0,
-                0.0
+                90.0
             ],
             "Rotation": [
                 0.30000001192092896,

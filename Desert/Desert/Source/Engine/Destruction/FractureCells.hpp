@@ -87,10 +87,13 @@ namespace Desert::Destruction
         bool operator==( const RadialSettings& ) const = default;
     };
 
-    /// The sites of @p radial: shell k (0-based) at UE's radius (k + 0.5) * Radius / RadialSteps, its AngularSteps
-    /// sites a Fibonacci sphere turned by a random rotation per shell (so the shells' sites do not line up into
-    /// cones), each then offset by Variability * a random point in the unit ball.
-    std::vector<glm::dvec3> GenerateRadialSites( const RadialSettings& radial, FractureRandom& random );
+    /// The sites of @p radial: shell k (0-based) at UE's radius (k + 0.5) * Radius / RadialSteps, each site in a
+    /// uniformly drawn direction and offset by Variability * a random point in the unit ball. Unlike UE's rings,
+    /// a shell's AngularSteps sites are drawn INSIDE @p bounds (the piece being cut; up to 64 draws per site): a
+    /// hit on a corner, where most of a sphere is outside the object, is cut as finely as one mid-face. A shell
+    /// wholly outside the bounds gives no sites.
+    std::vector<glm::dvec3> GenerateRadialSites( const RadialSettings& radial, const CellBounds& bounds,
+                                                 FractureRandom& random );
 
     /// The Voronoi cells of `sites` clipped to `bounds` (voro++). A site the container cannot hold (outside
     /// the bounds, or on top of another) yields no cell; the result holds only computed cells, in site order.
