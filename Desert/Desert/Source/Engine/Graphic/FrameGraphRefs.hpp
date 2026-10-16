@@ -108,6 +108,7 @@ namespace Desert::Graphic
         // Global Distance Field"
         std::array<RDG::TextureRef, 4> GlobalDistanceField;
         std::array<glm::vec4, 4>       GlobalDistanceFieldLevels{};
+        RDG::TextureRef                GlobalDistanceFieldObjectGrid; // its object grid (GlobalDistanceField.hpp)
         // The traced GI's final gather of this frame (SceneRenderer::AddFrameTracedGI: the world radiance cache's
         // update, then GlobalIllumination::ScreenProbeGather under SoftwareTraced / HardwareTraced or
         // GlobalIllumination::IrradianceFieldGather under ProbeVolume): per pixel, the diffuse irradiance and the

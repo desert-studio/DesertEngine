@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <span>
 #include <unordered_set>
 
 namespace Desert::Graphic::DistanceField
@@ -45,13 +46,19 @@ namespace Desert::Graphic::DistanceField
         constexpr uint32_t kGdfObjectBinding      = 3;
         constexpr uint32_t kGdfUpdateBinding      = 4;
         constexpr uint32_t kGdfBrickListBinding   = 5;
+        constexpr uint32_t kGdfObjectRowBinding   = 7;
+
+        constexpr int kGdfGridCells = DFShared::GDF_OBJECT_GRID_RESOLUTION;
+        constexpr int kGdfGridSlots = DFShared::GDF_OBJECT_GRID_SLOTS;
+        static_assert( kGdfGridCells * DFShared::GDF_OBJECT_GRID_CELL_VOXELS == kGdfResolution );
+        static_assert( kGdfBrick % DFShared::GDF_OBJECT_GRID_CELL_VOXELS == 0, "a brick holds whole cells" );
 
         struct GdfCompositePush
         {
             uint32_t FirstBrick      = 0;
             float    VoxelSize       = 0.0f;
             float    InfluenceRadius = 0.0f;
-            uint32_t Pad             = 0;
+            uint32_t Level           = 0; // the object grid's slab (GlobalDistanceField.hpp)
         };
         struct GdfViewPush
         {
@@ -200,6 +207,24 @@ namespace Desert::Graphic::DistanceField
                 return Common::MakeFormattedError<bool>(
                      "global distance field: clipmap {} ({}^3 R32F) not created", level, kGdfResolution );
         }
+        // The object grid: every level's cells in one integer volume (GlobalDistanceField.hpp, THE OBJECT GRID).
+        {
+            const Core::Formats::Image3DSpecification spec{
+                 .Tag        = "GlobalDistanceField.ObjectGrid",
+                 .Width      = static_cast<uint32_t>( kGdfGridCells * kGdfGridSlots ),
+                 .Height     = static_cast<uint32_t>( kGdfGridCells ),
+                 .Depth      = static_cast<uint32_t>( kGdfGridCells * kGlobalDistanceFieldClipmaps ),
+                 .Format     = Core::Formats::ImageFormat::R32_UINT,
+                 .Data       = Core::Formats::EmptyPixelData{},
+                 .Properties = Core::Formats::Storage | Core::Formats::Sample,
+            };
+            m_ObjectGrid = Image3D::Create( spec );
+            if ( !m_ObjectGrid )
+                return Common::MakeFormattedError<bool>(
+                     "global distance field: the object grid ({}x{}x{} R32_UINT) "
+                     "was not created",
+                     spec.Width, spec.Height, spec.Depth );
+        }
         // Per-frame buffers (persistent = false): each frame in flight writes its own copy, and only a frame that
         // dispatches a composite writes at all.
         m_AssetBuffer = ShaderResources::StorageBuffer::Create( "DFAssetData", 16, kGdfAssetBinding, false );
@@ -210,8 +235,10 @@ namespace Desert::Graphic::DistanceField
              ShaderResources::StorageBuffer::Create( "GDFUpdateBricks", 16, kGdfUpdateBinding, false );
         m_BrickObjectBuffer =
              ShaderResources::StorageBuffer::Create( "GDFBrickObjects", 16, kGdfBrickListBinding, false );
+        m_ObjectRowBuffer =
+             ShaderResources::StorageBuffer::Create( "GDFObjectRows", 16, kGdfObjectRowBinding, false );
         if ( !m_AssetBuffer || !m_IndirectionBuffer || !m_ObjectBuffer || !m_UpdateBrickBuffer ||
-             !m_BrickObjectBuffer )
+             !m_BrickObjectBuffer || !m_ObjectRowBuffer )
             return Common::MakeError<bool>( "global distance field: a storage buffer could not be created" );
         return BOOLSUCCESS;
     }
@@ -256,12 +283,14 @@ namespace Desert::Graphic::DistanceField
             placed.push_back( { &object, *index.GetValue(), bounds, 0 } );
         }
         m_SceneData.Stream();
-        // An object is its field, its transform and how many of the field's mips are resident: a mip streaming in
-        // or out recomposites the object like a move does.
+        // An object is its field, its transform, how many of the field's mips are resident and the row the object
+        // grid lists it under: a mip streaming in or out, or the instance taking another row, recomposites the
+        // object like a move does.
         for ( auto& p : placed )
             p.Key = GdfObjectKey( *p.Object ) ^
                     ( static_cast<uint64_t>( m_SceneData.ResidentMips( p.Object->Field.get() ) ) *
-                      0xC2B2AE3D27D4EB4FULL );
+                      0xC2B2AE3D27D4EB4FULL ) ^
+                    ( ( static_cast<uint64_t>( p.Object->Row ) + 1u ) * 0x165667B19E3779F9ULL );
         if ( const auto flushed = m_SceneData.FlushUploads(); !flushed )
             return Common::MakeError<FrameField>( flushed.GetError() );
         LogStreaming();
@@ -287,8 +316,12 @@ namespace Desert::Graphic::DistanceField
         // The object buffer: world -> volume rows, the volume extent with the distance scale, the asset record.
         std::vector<glm::vec4> objectData;
         objectData.reserve( placed.size() * kGdfObjectStride );
+        // Beside it, each object's instance-table row (the object grid's entry).
+        std::vector<uint32_t> objectRows;
+        objectRows.reserve( placed.size() );
         for ( const auto& p : placed )
         {
+            objectRows.push_back( p.Object->Row );
             const auto&     field         = *p.Object->Field;
             const float     localToVolume = field.LocalToVolumeScale();
             const glm::vec3 centre = ( field.LocalSpaceMeshBounds.Min + field.LocalSpaceMeshBounds.Max ) * 0.5f;
@@ -310,6 +343,16 @@ namespace Desert::Graphic::DistanceField
             // smallest's.
             objectData.push_back( glm::vec4( std::bit_cast<float>( p.AssetIndex ), axisScale / localToVolume ) );
         }
+
+        if ( objectData != m_FrameObjectData || objectRows != m_FrameObjectRows )
+            ++m_FrameObjectsRevision;
+        m_FrameObjectData = objectData;
+        m_FrameObjectRows = objectRows;
+        m_FrameObjectBounds.clear();
+        m_FrameObjectBounds.reserve( placed.size() );
+        for ( const auto& p : placed )
+            m_FrameObjectBounds.push_back( p.Bounds );
+        m_HasFrame = true;
 
         // The plan of every level, and each update brick's object list (CPU cull, objects grown by the influence).
         FrameField                                                              frame;
@@ -372,6 +415,7 @@ namespace Desert::Graphic::DistanceField
         for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
             frame.Clipmaps[level] =
                  import( m_Clipmaps[level], std::format( "GlobalDistanceField.Clipmap{}", level ) );
+        frame.ObjectGrid = import( m_ObjectGrid, "GlobalDistanceField.ObjectGrid" );
         if ( updateBricks.empty() )
             return Common::MakeSuccess( frame );
 
@@ -385,6 +429,8 @@ namespace Desert::Graphic::DistanceField
             return Common::MakeError<FrameField>( r.GetError() );
         if ( auto r = GdfUpload( *m_BrickObjectBuffer, brickObjects, "brick object lists" ); !r )
             return Common::MakeError<FrameField>( r.GetError() );
+        if ( auto r = GdfUpload( *m_ObjectRowBuffer, objectRows, "object rows" ); !r )
+            return Common::MakeError<FrameField>( r.GetError() );
 
         const RDG::TextureRef atlas = import( m_SceneData.GetBrickAtlas(), "DistanceField.BrickAtlas" );
         for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
@@ -396,8 +442,10 @@ namespace Desert::Graphic::DistanceField
             push.FirstBrick                = first;
             push.VoxelSize                 = ClipmapVoxelSize( level );
             push.InfluenceRadius           = GdfInfluenceRadius( push.VoxelSize );
+            push.Level                     = static_cast<uint32_t>( level );
             ComputePipeline*      pipeline = m_CompositePipeline.get();
             const RDG::TextureRef clipmap  = frame.Clipmaps[level];
+            const RDG::TextureRef grid     = frame.ObjectGrid;
             graph.AddPass(
                  std::format( "GlobalDistanceField: Composite L{} ({} bricks)", level, count ),
                  RDG::PassFlags::Compute,
@@ -408,11 +456,13 @@ namespace Desert::Graphic::DistanceField
                      pipeline->SetStorageBuffer( kGdfObjectBinding, m_ObjectBuffer.get() );
                      pipeline->SetStorageBuffer( kGdfUpdateBinding, m_UpdateBrickBuffer.get() );
                      pipeline->SetStorageBuffer( kGdfBrickListBinding, m_BrickObjectBuffer.get() );
+                     pipeline->SetStorageBuffer( kGdfObjectRowBinding, m_ObjectRowBuffer.get() );
                      pass.Bindings( m_CompositeLayout.Get( m_CompositeShader ),
                                     Renderer::GetPipelineRouteFill( *pipeline ) )
                           .Sampled( "u_DFBrickAtlas", atlas, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
                           .Storage( "u_Clipmap", clipmap, RDG::Access::StorageWrite )
+                          .Storage( "u_ObjectGrid", grid, RDG::Access::StorageWrite )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( GdfCompositePush ) ) );
                  },
                  [pipeline, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -423,6 +473,83 @@ namespace Desert::Graphic::DistanceField
                  } );
         }
         return Common::MakeSuccess( frame );
+    }
+
+    Common::ResultStr<GlobalDistanceField::MeshSDFScene>
+    GlobalDistanceField::AddMeshSDFReads( RDG::Builder& graph, const ImportImage& import, const MeshSDFCull& cull )
+    {
+        if ( !m_HasFrame || !m_SceneData.GetBrickAtlas() )
+            return Common::MakeError<MeshSDFScene>( "mesh SDFs: the global distance field holds no frame yet" );
+        // The view cull (UE CullMeshSDFObjectsForViewCS): the box grown by the trace distance, in the frustum and
+        // within reach of a probe the near field still traces from.
+        std::vector<glm::vec4> culled( 1, glm::vec4( 0.0f ) );
+        const float            reach = cull.EndDistanceFromCamera + cull.TraceDistance;
+        uint32_t               count = 0;
+        for ( uint32_t o = 0; o < m_FrameObjectBounds.size(); ++o )
+        {
+            const Common::Math::AABB& box = m_FrameObjectBounds[o];
+            const glm::vec3 gap = glm::max( glm::max( box.Min - cull.Camera, cull.Camera - box.Max ), 0.0f );
+            if ( glm::length( gap ) > reach )
+                continue;
+            if ( !cull.View.Intersects( { box.Min - cull.TraceDistance, box.Max + cull.TraceDistance } ) )
+                continue;
+            culled.emplace_back( box.Min, std::bit_cast<float>( o ) );
+            culled.emplace_back( box.Max, 0.0f );
+            ++count;
+        }
+        culled[0] = glm::vec4( std::bit_cast<float>( count ), 0.0f, 0.0f, 0.0f );
+
+        // The records: the field's device copies, imported, written only when their revision moved (a buffer
+        // grown past its size is written whole).
+        const auto records =
+             [&graph]<typename T>( DeviceRecords& device, const std::vector<T>& data, const uint64_t revision,
+                                   const std::string_view name ) -> Common::ResultStr<RDG::BufferRef>
+        {
+            static const T                   zero{};
+            const std::span<const std::byte> bytes = data.empty() ? std::as_bytes( std::span<const T>( &zero, 1 ) )
+                                                                  : std::as_bytes( std::span<const T>( data ) );
+            if ( !device.Buffer || device.Buffer->GetSize() < bytes.size() )
+            {
+                const auto size = static_cast<uint32_t>( bytes.size() + bytes.size() / 2u );
+                device.Buffer   = ShaderResources::StorageBuffer::Create( name, size, 0, true );
+                if ( !device.Buffer )
+                    return Common::MakeFormattedError<RDG::BufferRef>( "mesh SDFs: {} ({} bytes) not created",
+                                                                       name, size );
+                device.Revision = ~0ull;
+            }
+            if ( const auto imported = Renderer::ImportBuffer( device.Buffer, device.Import ); !imported )
+                return Common::MakeFormattedError<RDG::BufferRef>( "mesh SDFs: {}: {}", name,
+                                                                   imported.GetError() );
+            const RDG::BufferRef buffer = graph.RegisterExternal( device.Import, name );
+            if ( device.Revision != revision )
+            {
+                graph.QueueBufferUpload( buffer, bytes );
+                device.Revision = revision;
+            }
+            return Common::MakeSuccess( buffer );
+        };
+        MeshSDFScene scene;
+        scene.BrickAtlas     = import( m_SceneData.GetBrickAtlas(), "DistanceField.BrickAtlas" );
+        const uint64_t field = m_SceneData.GetRevision();
+        const auto asset = records( m_MeshSDFAssetData, m_SceneData.GetAssetData(), field, "MeshSDF.AssetData" );
+        const auto indirection =
+             records( m_MeshSDFIndirection, m_SceneData.GetIndirection(), field, "MeshSDF.Indirection" );
+        const auto objects =
+             records( m_MeshSDFObjects, m_FrameObjectData, m_FrameObjectsRevision, "MeshSDF.Objects" );
+        const auto rows =
+             records( m_MeshSDFObjectRows, m_FrameObjectRows, m_FrameObjectsRevision, "MeshSDF.ObjectRows" );
+        for ( const auto* result : { &asset, &indirection, &objects, &rows } )
+            if ( !*result )
+                return Common::MakeError<MeshSDFScene>( result->GetError() );
+        scene.AssetData   = asset.GetValue();
+        scene.Indirection = indirection.GetValue();
+        scene.Objects     = objects.GetValue();
+        scene.ObjectRows  = rows.GetValue();
+        // The cull is this frame's own.
+        const auto culledBytes = std::as_bytes( std::span<const glm::vec4>( culled ) );
+        scene.Culled           = graph.CreateBuffer( RDG::BufferDesc{ culledBytes.size() }, "MeshSDF.Culled" );
+        graph.QueueBufferUpload( scene.Culled, culledBytes );
+        return Common::MakeSuccess( scene );
     }
 
     void GlobalDistanceField::LogStreaming()

@@ -70,6 +70,7 @@
 #include "Systems/Scene/Deferred/DepthExpandRenderer.hpp"
 #include "Systems/Scene/Deferred/HZBRenderer.hpp"
 #include "Systems/Scene/Deferred/SSRRenderer.hpp"
+#include "Systems/Scene/Deferred/SceneColorHistoryRenderer.hpp"
 #include "Systems/Scene/Particles/ParticleRenderer.hpp"
 #include "Systems/Scene/Clouds/VolumetricCloudRenderer.hpp"
 #include "Systems/Scene/Fog/HeightFogRenderer.hpp"
@@ -220,8 +221,9 @@ namespace Desert::Graphic
         [[nodiscard]] Common::BoolResultStr EndScene();
 
         // THE REFLECTION CAPTURES (ReflectionCaptures/ReflectionCaptureRenderer.hpp) are the scene's; a view only
-        // reads them. Whether this view's profile does (ViewProfile::ReflectionCaptures), and the identity of the
-        // sky bake it holds (0 before it has one) - the scene recaptures when it changes.
+        // reads them. Whether this view does (ViewProfile::ReflectionCaptures and a resolved reflection method of
+        // Captures or above), and the identity of the sky bake it holds (0 before it has one) - the scene
+        // recaptures when it changes.
         [[nodiscard]] bool     ReadsReflectionCaptures() const;
         [[nodiscard]] uint64_t GetEnvironmentIdentity();
         // The view's HDR scene colour as its last frame left it (the resolved image at MSAA > 1): what a
@@ -586,6 +588,17 @@ namespace Desert::Graphic
             GlobalIllumination::SurfaceCacheFrame            Hits;
         };
         std::optional<SurfaceCacheFrameRecord> m_SurfaceCacheFrame;
+        // The traced GI's records of this frame that the traced reflections read too: the GI frame record and the
+        // radiance cache's read (AddFrameTracedGI, when the GI traces) and the view-culled mesh SDFs
+        // (AddFrameMeshSDFReads, made once by whichever reader comes first). Reset by AddFrameTracedGI every
+        // frame.
+        struct TracedFrameShared
+        {
+            RDG::BufferRef                                                  GIFrame;
+            std::optional<GlobalIllumination::RadianceCacheFrame>           RadianceCache;
+            std::optional<DistanceField::GlobalDistanceField::MeshSDFScene> MeshSDFs;
+        };
+        TracedFrameShared m_TracedFrameShared;
         // The view's irradiance field gather (GIMethod::ProbeVolume: the radiance cache read per pixel, no screen
         // probes), made on first use.
         std::unique_ptr<GlobalIllumination::IrradianceFieldGather> m_IrradianceFieldGather;
@@ -818,9 +831,26 @@ namespace Desert::Graphic
         // Whether a node of this frame reads the global distance field: the GI tracer when it is the software walk
         // (GlobalIllumination::TracerReadsGlobalDistanceField), the debug view.
         [[nodiscard]] bool GlobalDistanceFieldRead() const;
-        // Whether this frame brings the surface cache up: the GI pipeline reads it (m_GIPipeline.SurfaceCache), or
-        // one of its view modes is on. Deferred only.
+        // Whether this frame brings the surface cache up: the GI pipeline reads it (m_GIPipeline.SurfaceCache),
+        // the traced reflections read it (ReflectionsTraced), or one of its view modes is on. Deferred only.
         [[nodiscard]] bool SurfaceCacheRuns() const;
+        // Whether this frame's reflections are ReflectionMethod::SoftwareTraced: SSR's pass in its traced
+        // permutation, over the tracer of SurfaceCacheTracer() (the GI's when it traces, otherwise the software
+        // walk), the surface cache, the global distance field and the world light grid. Deferred only.
+        [[nodiscard]] bool ReflectionsTraced() const;
+        // This frame's GI record (GlobalIllumination::GIFramePayload, "GIFrameUB") for a G-buffer of @p extent.
+        [[nodiscard]] RDG::BufferRef AddFrameGIRecord( RDG::Builder& graph, const ViewFrame& frame,
+                                                       const glm::vec4& lightDir, const glm::vec4& lightColor,
+                                                       glm::uvec2 extent );
+        // The mesh SDF near field's reads of this frame (UE LumenMeshSDFCulling over the view, the screen probes'
+        // distances), made by the first reader and kept in m_TracedFrameShared for the next.
+        [[nodiscard]] Common::ResultStr<DistanceField::GlobalDistanceField::MeshSDFScene>
+        AddFrameMeshSDFReads( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // The traced permutation's reads of SSR (System::SSRRenderer::TracedReads) for this frame; nullopt
+        // (logged): a read is missing and the frame reflects the screen alone.
+        [[nodiscard]] std::optional<System::SSRRenderer::TracedReads>
+        MakeTracedReflectionReads( RDG::Builder& graph, FrameTextures& textures, System::SSRRenderer& ssr,
+                                   const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
         // The tracer of the surface cache's shadow rays: the GI pipeline's when it traces, otherwise the software
         // walk.
         [[nodiscard]] GlobalIllumination::Pipeline SurfaceCacheTracer() const;
@@ -840,34 +870,50 @@ namespace Desert::Graphic
         // (GlobalIllumination::WorldRadianceCache), then the final gather that reads it — the screen probe gather
         // (GlobalIllumination::ScreenProbeGather) or, under ProbeVolume, the irradiance field gather
         // (GlobalIllumination::IrradianceFieldGather) — into FrameTransients::GIDiffuse / GISpecular.
-        void AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
-                               const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
-                               const glm::vec4& lightColor, const ViewFrame& frame );
+        // The screen traces' shared inputs of this frame (UE: the view's ClosestHZB and PrevSceneColor): the
+        // closest-depth hierarchy of the G-buffer depth and the view's scene colour history
+        // (SceneColorHistoryRenderer), imported; SceneHistoryReadable: whether it holds the previous frame. All
+        // invalid when no screen trace runs (EnsureScreenTraceResources failed or nobody asked).
+        struct FrameScreenTrace
+        {
+            RDG::TextureRef HZB;
+            RDG::TextureRef SceneHistory;
+            bool            SceneHistoryReadable = false;
+        };
+        FrameScreenTrace AddFrameScreenTrace( RDG::Builder& graph, FrameTextures& textures,
+                                              const ViewFrame& frame );
+        void             AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
+                                           const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
+                                           const glm::vec4& lightColor, const FrameScreenTrace& screenTrace,
+                                           const ViewFrame& frame );
+        // The pending reflection capture's cube, written in this view's graph with its capture point measured by
+        // the view's diffuse estimator (ReflectionCaptureLighting): the world radiance cache when @p tracedGI and
+        // this frame's AddFrameTracedGI produced one, otherwise the sky's irradiance cube.
+        void AddFrameReflectionCaptureUpdate( RDG::Builder& graph, FrameTextures& textures, bool tracedGI );
         void AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                 const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
                                 System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                 const glm::vec4& lightColor, const ViewFrame& frame );
         // The scene snapshot (UE: CreateTexture from the scene colour's desc, copied by a raster node): published
         // as FrameTransients::SceneColorCopy and returned; invalid when no copy was made (no copy system, no scene
-        // colour, its desc refused - logged). @p into: the imported image to copy into (SSR's scene colour
-        // history, which next frame's trace reads), or invalid for a per-frame transient; @p recorded runs in the
-        // copy's exec once the copy was recorded (the history's stamp), may be empty.
+        // colour, its desc refused - logged). @p into: the imported image to copy into (the view's scene
+        // colour history, which next frame's screen traces read), or invalid for a per-frame transient; @p
+        // recorded runs in the copy's exec once the copy was recorded (the history's stamp), may be empty.
         static RDG::TextureRef AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
                                                   const std::vector<RDG::TextureRef>& sceneColor,
                                                   System::CopyRenderer* copy, RDG::TextureRef into,
                                                   std::function<void()> recorded );
         // The closest-depth hierarchy of the G-buffer depth (HZBRenderer), invalid when it was not built.
         RDG::TextureRef AddFrameHZB( RDG::Builder& graph, FrameTextures& textures );
-        // SSR's HZB + trace + denoiser, before the lighting. Resolved: the reflection the lighting composes
-        // (u_SSR); SceneHistory: SSR's scene colour history as imported here (last frame's lit scene, which this
-        // frame's scene copy refills). Both invalid when SSR did not run.
+        // SSR's trace + denoiser over @p screenTrace, before the lighting. Resolved: the reflection the lighting
+        // composes (u_SSR); invalid when SSR did not run.
         struct FrameSSR
         {
             RDG::TextureRef Resolved;
-            RDG::TextureRef SceneHistory;
         };
         FrameSSR AddFrameSSR( RDG::Builder& graph, FrameTextures& textures, System::SSRRenderer& ssr,
-                              const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
+                              const std::vector<RDG::TextureRef>& gbuffer, const FrameScreenTrace& screenTrace,
+                              const ViewFrame& frame );
         void AddFrameParticlesSimulate( RDG::Builder& graph );
         // MESH-PB1: imports this frame's scene/view inputs (CSM cascades, the environment's cubes, the BRDF LUT)
         // into FrameTransients before any node is added; what is absent stays invalid (SceneViewInputsOf).
@@ -1018,6 +1064,11 @@ namespace Desert::Graphic
         // building them up front multiplied a lot of VRAM by the preview count. Return false when the feature is
         // unavailable; the failure is latched so it is not retried each frame.
         bool EnsureSSRResources();
+        // The screen traces' view resources (HZBRenderer, SceneColorHistoryRenderer) on first use by SSR or the
+        // screen probe gather's screen trace; latched like EnsureSSRResources.
+        bool EnsureScreenTraceResources();
+        bool m_ScreenTraceResourcesReady  = false;
+        bool m_ScreenTraceResourcesFailed = false;
         // Device can sample+blend RGBA32F colour attachments — SSR's precondition.
         bool                                                            HasFloatRenderTargetSupport() const;
         bool m_SSRResourcesReady  = false;

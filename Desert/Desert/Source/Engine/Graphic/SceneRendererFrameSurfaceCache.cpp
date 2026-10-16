@@ -21,7 +21,11 @@ namespace Desert::Graphic
     {
         if ( m_RenderPath != Core::RenderPath::Deferred )
             return false;
-        if ( m_GIPipeline.SurfaceCache )
+        // The GI's cards only where the view runs the GI (RadianceCacheRuns asks the same of its profile): a
+        // capture's six face views carry the scene's GI method but not the GI, and each brought up its own cards
+        // and their global distance field (384 MiB apiece) - 7 fields for one capture, past 6 GB on Starter
+        // (REFL-CAPTURE-NORM).
+        if ( ( m_GIPipeline.SurfaceCache && m_ViewProfile.GlobalIllumination ) || ReflectionsTraced() )
             return true;
 #if DESERT_DEV_INSTRUMENTS
         // Its views bring it up on their own (and light its cards) under any GI method.
@@ -49,8 +53,9 @@ namespace Desert::Graphic
                                     const GlobalIllumination::Pipeline& pipeline ) const
     {
         const FrameTransients&          t = textures.Transients;
-        GlobalIllumination::TracerFrame tracer{ .Pipeline            = pipeline,
-                                                .GlobalDistanceField = t.GlobalDistanceField };
+        GlobalIllumination::TracerFrame tracer{ .Pipeline                      = pipeline,
+                                                .GlobalDistanceField           = t.GlobalDistanceField,
+                                                .GlobalDistanceFieldObjectGrid = t.GlobalDistanceFieldObjectGrid };
         // The software walk's clipmap placement is its own record ("GITracerSoftwareUB").
         if ( GlobalIllumination::TracerReadsGlobalDistanceField( pipeline ) )
         {

@@ -24,7 +24,7 @@
 // spot rows (`pointLights[]`, `spotLights[]`), the world light grid (`lightGrid` + LIGHT_GRID_WORLD_CELLS, read
 // section included), the radiance cache read (Common/RadianceCache.glslh, read section included), samplers
 // u_EnvSpecularTex, u_GBufferDepth, u_GBufferA, u_GBufferEmissive, includes the tracer (Common/GITracer.glslh),
-// and defines GI_SURFACE_CACHE_BINDING (the surface cache's eight bindings). Nothing here knows which tracer that is.
+// and defines GI_SURFACE_CACHE_BINDING (the surface cache's seven bindings). Nothing here knows which tracer that is.
 
 #include <Common/SkyLook.glslh>
 #include <Common/ReconstructPosition.glslh>
