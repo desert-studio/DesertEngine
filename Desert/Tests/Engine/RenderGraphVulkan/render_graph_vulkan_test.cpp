@@ -188,6 +188,7 @@ namespace
 
             out.Rdg.Device        = out.Device.device;
             out.Rdg.Allocator     = out.Allocator;
+            out.Rdg.Limits        = out.Device.physical_device.properties.limits;
             out.Rdg.CmdBeginLabel = reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(
                  vkGetInstanceProcAddr( out.Instance.instance, "vkCmdBeginDebugUtilsLabelEXT" ) );
             out.Rdg.CmdEndLabel = reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(

@@ -42,6 +42,8 @@ namespace Desert::Graphic::API::Vulkan
         VmaAllocator Allocator = nullptr;
         // The packed depth+stencil format this device picked (ImageFormat::DEPTH24STENCIL8).
         VkFormat DepthStencilFormat = VK_FORMAT_UNDEFINED;
+        // The physical device's limits: a RenderArea pass is refused by name past its framebuffer / viewport size.
+        VkPhysicalDeviceLimits Limits{};
 
         // Debug labels exist only on an instance with VK_EXT_debug_utils; null means no labels.
         PFN_vkCmdBeginDebugUtilsLabelEXT CmdBeginLabel = nullptr;

@@ -1282,6 +1282,9 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgDevice.Allocator     = VulkanAllocator::GetVMAAllocator();
             m_RdgDevice.CmdBeginLabel = fpCmdBeginDebugUtilsLabelEXT;
             m_RdgDevice.CmdEndLabel   = fpCmdEndDebugUtilsLabelEXT;
+            VkPhysicalDeviceProperties properties{};
+            vkGetPhysicalDeviceProperties( device->GetPhysicalDevice()->GetVulkanPhysicalDevice(), &properties );
+            m_RdgDevice.Limits = properties.limits;
             m_RdgPool                 = std::make_unique<VulkanRdgPool>( m_RdgDevice, slots );
             m_RdgBackend              = std::make_unique<VulkanRdgBackend>( m_RdgDevice, *m_RdgPool );
             // B2: while a graph runs, every renderer's Record() goes through this API, so this API records
