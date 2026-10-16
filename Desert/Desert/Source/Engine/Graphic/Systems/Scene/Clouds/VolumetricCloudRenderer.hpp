@@ -19,12 +19,13 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Renderer.hpp>
-#include <Engine/Graphic/View/PassHistory.hpp>
+#include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <glm/glm.hpp>
 
 #include <atomic>
+#include <cstddef>
 #include <chrono>
 #include <cstdint>
 #include <future>
@@ -32,6 +33,11 @@
 #include <optional>
 #include <unordered_set>
 #include <vector>
+
+namespace Desert::Graphic
+{
+    class FrameTextures; // SceneRendererFrame.hpp
+}
 
 namespace Desert::Graphic::System
 {
@@ -54,33 +60,32 @@ namespace Desert::Graphic::System
      *   S2  RESOLVE    compute, RGBA16F at HALF the target's size. Unreal's VolumetricRenderTarget mode 0
      *                  reconstruction: a half-res pixel this frame traced is taken exactly, and one it did
      *                  not is reprojected from the previous frame's reconstruction through the guide's
-     *                  cloud front distance, validated, and blended. Ping-ponged between two history
-     *                  targets because it reads last frame's result while writing this frame's.
+     *                  cloud front distance, validated, and blended. It writes a TRANSIENT pair of the
+     *                  frame graph that is extracted into the VIEW (SceneViewState::Clouds, UE's
+     *                  FSceneViewState::VolumetricCloudRenderTarget) and registered back the next frame.
      *   SM  SHADOW MAP compute, RGBA32F, 512x512 at the reference quality tier and scaled with it,
      *                  marched down the SUN's direction rather than the eye's,
-     *                  and issued EARLY — before the render graph, because the deferred lighting pass
-     *                  reads it. Each texel holds (frontDepthKm, meanExtinctionPerKm, maxOpticalDepth),
-     *                  the triple that reconstructs a correct transmittance for a receiver at any depth
-     *                  inside or below the layer with one fetch. See Common/CloudShadowMap.glslh for the
-     *                  encoding and Engine/Graphic/Clouds/CloudShadowPayload.hpp for the projection.
-     *                  Independent of S1 and S2: it needs no scene depth and no view.
-     *   S3  COMPOSITE  a fullscreen triangle (CompositePass), added by SceneRenderer::AddFrameTranslucency
-     *                  right after the height fog apply and BEFORE everything else it composites, so
-     *                  particles land over the clouds rather than under them. It
-     *                  upsamples the HALF-resolution reconstruction, unchanged by mode 0.
+     *                  and declared EARLY in the frame graph, because the lit passes read it. A
+     *                  transient of the graph: its readers take the graph ref, no image outlives the frame. Each
+     * texel holds (frontDepthKm, meanExtinctionPerKm, maxOpticalDepth), the triple that reconstructs a correct
+     * transmittance for a receiver at any depth inside or below the layer with one fetch. See
+     * Common/CloudShadowMap.glslh for the encoding and Engine/Graphic/Clouds/CloudShadowPayload.hpp for the
+     * projection. Independent of S1 and S2: it needs no scene depth and no view. S3  COMPOSITE  a fullscreen
+     * triangle (CompositePass), added by SceneRenderer::AddFrameTranslucency right after the height fog apply and
+     * BEFORE everything else it composites, so particles land over the clouds rather than under them. It upsamples
+     * the HALF-resolution reconstruction, unchanged by mode 0.
      *
      * WHERE IT RUNS. S0, S1 and S2 are in-frame compute dispatches and must be issued OUTSIDE an open
      * render pass, after the scene depth is finished. SceneRenderer::ExecuteVolumetricClouds() calls
      * ExecuteInFrame() immediately after ExecuteAtmosphericFog(), so the depth a ray is cut at and the
      * atmosphere a cloud is lit by both belong to the camera this frame was drawn with.
      *
-     * PER-VIEW STATE, AND WHY IT IS SAFE. The history targets, the frame counter and the previous frame's
-     * view-projection are MEMBERS OF THIS OBJECT, and SceneRenderer constructs one VolumetricCloudRenderer
-     * per renderer. That is strictly stronger than the per (frame x renderer slot) rule in
-     * Docs/RENDERER_FRAME_STATE.md: an asset thumbnail's renderer cannot see the viewport's history
-     * because it does not own it. The one piece of state that lives in the shared shader-resource layer is
-     * the parameter buffer, which is created NON-PERSISTENT and therefore already carries a copy per
-     * (frame x slot).
+     * PER-VIEW STATE. The reconstruction history is the VIEW's (SceneViewState::Clouds), handed to
+     * DeclareFrameNodes by the SceneRenderer that owns the view; the previous view-projection is the view's
+     * ViewFrame. What stays here is per-renderer and SceneRenderer constructs one VolumetricCloudRenderer per
+     * view: the jitter counter and the content-keyed inputs. The one piece of state that lives in the shared
+     * shader-resource layer is the parameter buffer, which is created NON-PERSISTENT and therefore already carries
+     * a copy per (frame x slot).
      *
      * ZERO COST WHEN ABSENT. A scene with no cloud component, or the clouds disabled, or no atmosphere to
      * light them, dispatches nothing, allocates nothing and composites nothing: the frame is bit for bit
@@ -101,23 +106,14 @@ namespace Desert::Graphic::System
         // (SceneRenderer::AddFrameTranslucency). No target framebuffer when the system failed to initialize.
         SystemRasterPass CompositePass();
 
-        // Drops the temporal reconstruction's history — see IRenderSystem::OnSceneReplaced, kind 1. Every
-        // other cache in this system is content-keyed already (the modelling volume and the noise bakes
-        // compare their authored parameters, m_Present is pushed explicitly including the absent case), so
-        // the history is the whole of what a scene change invalidates here. It is otherwise dropped only on
-        // a resize; without this, the first executed cloud frame of the new scene reprojects the old one.
-        void OnSceneReplaced() override
-        {
-            m_History.Invalidate();
-        }
-
-        // Camera cut — see IRenderSystem::OnTemporalHistoryReset. The frame index is the jitter/noise seed
-        // and the history ping-pong parity, so it restarts with the history rather than carrying the count
-        // of whatever frames came before the cut.
+        // Camera cut — see IRenderSystem::OnTemporalHistoryReset. The frame index is the jitter/noise seed, so
+        // it restarts with the history rather than carrying the count of whatever frames came before the cut.
+        // The history itself is the view's: the cut reaches it as ViewFrame::HistoryValid() == false, and a
+        // scene replace the same way (the scene's generation is part of the camera identity), so neither hook
+        // has anything of it to drop here.
         void OnTemporalHistoryReset() override
         {
-            m_FrameIndex   = 0;
-            m_History.Invalidate();
+            m_FrameIndex = 0;
         }
 
         /**
@@ -143,34 +139,39 @@ namespace Desert::Graphic::System
                                const std::vector<HeroCloudInstance>& heroClouds );
 
         /**
-         * @brief Stages S0 and S1. Must be called outside any render pass, after the scene depth is final.
-         * The march's quarter-resolution pair (scatter + depth guide) lives one frame, so it is created here as
-         * two transients of @p graph; only the ping-ponged reconstruction (history) stays this renderer's.
+         * @brief Stages S0, S1 and S2 as compute nodes of @p graph, after the scene depth is final.
+         * The march's quarter-resolution pair (scatter + depth guide) lives one frame: two transients of
+         * @p graph. The reconstruction is the view's: last frame's pair is registered from @p history and this
+         * frame's is a transient pair @p history extracts for the next frame (VolumetricCloudHistory). The
+         * resolve is the LAST node returned — the writer the caller hands to history.SetWriterPass.
          */
         // @p frame: this view's frame (TAA1 step 3) — the march's and the resolve's matrices and camera position,
-        // and whether the history is the view's previous frame (PassHistoryStamp::ReadableIn).
-        std::vector<ComputeNodeDeclaration> DeclareFrameNodes( RDG::Builder& graph, const ViewFrame& frame );
-        // Graph-build state of DeclareFrameNodes, applied once the frame graph answered: @p accepted advances
-        // the history (resolved slot, frame index, the view frame that wrote it); a refusal records nothing, so it
-        // drops the history and the sky-occlusion volume rather than claim a resolve that never ran.
+        // and whether the view's previous frame may be reprojected at all (ViewFrame::HistoryValid).
+        std::vector<ComputeNodeDeclaration> DeclareFrameNodes( RDG::Builder& graph, const ViewFrame& frame,
+                                                               VolumetricCloudHistory& history );
+        // Graph-build state of DeclareFrameNodes, applied once the frame graph answered: @p accepted publishes
+        // the frame's reconstruction refs and advances the frame index; a refusal publishes none (the composite
+        // draws nothing) and drops the sky-occlusion volume rather than claim a resolve that never ran.
         void SettleFrameNodes( bool accepted );
 
-        // The reconstruction pair the composite samples this frame (the resolve's write slot), after
-        // SettleFrameNodes. Both null when the frame has none (clouds off, or the nodes were refused): the
-        // composite then draws nothing. SceneRenderer imports the pair into the frame graph
-        // (FrameTransients::CloudScatter / CloudGuide), and the composite binds those refs by shader name.
-        struct FrameResult
-        {
-            std::shared_ptr<Image2D> Scatter;
-            std::shared_ptr<Image2D> Guide;
-            uint32_t                 Slot = 0;
-        };
+        // The reconstruction pair the composite samples this frame (graph refs of the transient pair the resolve
+        // writes), after SettleFrameNodes. Both invalid when the frame has none (clouds off, or the nodes were
+        // refused): the composite then draws nothing.
+        using FrameResult = VolumetricCloudHistory::Refs;
         FrameResult GetFrameResult() const
         {
-            if ( !m_HasFrameResult || !m_HistoryImage[m_ResolvedIndex] || !m_HistoryGuideImage[m_ResolvedIndex] )
-                return {};
-            return { m_HistoryImage[m_ResolvedIndex], m_HistoryGuideImage[m_ResolvedIndex], m_ResolvedIndex };
+            return m_FrameResult;
         }
+
+        /**
+         * @brief The CPU-baked inputs (world weather map, painted layout pattern and mask) whose texels have not
+         *        reached their images yet, uploaded by passes of @p graph: a buffer upload and a copy into the
+         *        image, recorded on the frame's command buffer — no submit, no wait. Each image is imported
+         *        through @p textures, so every later reader of it in this graph is ordered after its upload.
+         *        Called by SceneRenderer before every group of cloud readers it adds (the sky capture, the shadow
+         *        map, the march); nothing pending -> nothing added. A lost upload re-bakes its input next frame.
+         */
+        void AddInputUploads( RDG::Builder& graph, FrameTextures& textures );
         // The cloud volumes a dispatch samples (modelling, authored atlas), declared SampledCompute.
         // The noise, modelling and atlas volumes as entries of a cloud compute node's block (shadow, sky
         // occlusion, march).
@@ -187,7 +188,7 @@ namespace Desert::Graphic::System
          * Costs exactly nothing when the layer is absent, disabled, not casting or at zero strength: the
          * image is not even allocated until all four are true.
          */
-        std::vector<ComputeNodeDeclaration> DeclareShadowMapNodes();
+        std::vector<ComputeNodeDeclaration> DeclareShadowMapNodes( RDG::Builder& graph );
         // HasShadowMap() becomes true only when the graph accepted the shadow-map node DeclareShadowMapNodes
         // built.
         void SettleShadowMapNodes( bool accepted );
@@ -200,15 +201,11 @@ namespace Desert::Graphic::System
             return m_ShadowMapValid;
         }
 
-        /// The map itself. Null unless HasShadowMap(). Borrowed — this renderer owns it.
-        Image2D* GetShadowMapImage() const
+        /// The map: a transient of the graph DeclareShadowMapNodes was given. Invalid unless HasShadowMap(); a
+        /// reader takes it through FrameTransients::CloudShadowMap (SceneViewInputsOf).
+        RDG::TextureRef GetShadowMap() const
         {
-            return m_ShadowMapImage.get();
-        }
-        /// The same map as the engine image the frame graph imports (a reader declares it through this).
-        const std::shared_ptr<Image2D>& GetShadowMap() const
-        {
-            return m_ShadowMapImage;
+            return m_ShadowMapValid ? m_ShadowMap : RDG::TextureRef{};
         }
 
         /// This frame's projection and its far depth, for a consumer that has to transform a world
@@ -284,14 +281,10 @@ namespace Desert::Graphic::System
 
     private:
         bool CreatePipelines();
-        // Allocates (or reallocates) all SIX images the pass owns: the quarter-resolution scatter and
-        // guide the march writes, and the two half-resolution scatter/guide pairs the resolve ping-pongs
-        // between. One function because they are one set — a size is a property of the view, and a guide
-        // that outlived a resized scatter, or a history that outlived a resized trace, would hand the next
-        // stage last frame's edges. Reallocating also invalidates the history, because the bytes in a
-        // freshly created image mean nothing. Returns false having logged the reason and latched the
-        // failure.
-        bool EnsureTraceTargets( uint32_t halfWidth, uint32_t halfHeight );
+        // Takes the view's half-resolution grid for this frame and announces the pass's memory when it changes.
+        // Every image of the pass is a transient of the frame graph (or the view's history, sized from the same
+        // grid), so nothing is allocated here and a resize has nothing to throw away.
+        void UpdateTraceExtent( uint32_t halfWidth, uint32_t halfHeight );
         /**
          * Fills m_NoiseVolume with the images the layer's FOUR species name, deduplicated, and
          * m_NoiseSlots with the mapping the packed block sends.
@@ -308,14 +301,6 @@ namespace Desert::Graphic::System
          */
         bool EnsureNoiseVolumes( const Assets::AssetHandle ( &handles )[kCloudSpeciesSlots],
                                  uint32_t speciesCount );
-        // Allocates the shadow map the first frame the layer actually casts, and REALLOCATES it when the
-        // quality tier changes its size. Separate from EnsureTraceTargets because its size is not a
-        // property of the view: a viewport resize must not throw it away, where every one of the four
-        // reconstruction targets IS the view's size and must. Returns false having logged the reason and latched
-        // the failure.
-        //
-        // @param resolution texels per side for THIS tier, from Graphic::CloudShadowResolutionForScale.
-        bool EnsureShadowMap( uint32_t resolution );
         // Allocates the sky-light occlusion volume the first frame a layer asks for it, and never again:
         // its extents are a fixed grid over the modelling volume's region, so neither a viewport resize
         // nor a quality tier can change them. Returns false having logged the reason and latched the
@@ -531,13 +516,6 @@ namespace Desert::Graphic::System
         std::shared_ptr<ShaderResources::StorageBuffer> m_ParamsBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ResolveParamsBuffer;
 
-        // The half-resolution reconstruction, ping-ponged. The resolve reads index 1 - write and writes
-        // index write, so one frame's result is the next frame's history; the composite always samples the
-        // one just written. Two images rather than one because a single target would be read and written
-        // by the same dispatch at different coordinates, which is a race with no defined answer.
-        std::shared_ptr<Image2D> m_HistoryImage[2];
-        std::shared_ptr<Image2D> m_HistoryGuideImage[2];
-
         // THE CLOUD SHADOW MAP and the parameter copy its dispatch reads.
         //
         // A SECOND PARAMETER BUFFER FOR THE SAME BYTES, and it is not duplicated state: both buffers are
@@ -545,15 +523,15 @@ namespace Desert::Graphic::System
         // frame. What forces two of them is the frame, not the data — this pass is issued before the
         // render graph and the march after it, and writing one non-persistent buffer twice between two
         // dispatches is a hazard whose only defence today is that the bytes happen to be equal.
-        std::shared_ptr<Image2D>                        m_ShadowMapImage;
+        // The map itself is a transient of the frame graph, this ref valid in the graph that declared it.
+        RDG::TextureRef                                 m_ShadowMap;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ShadowParamsBuffer;
 
         // This frame's projection, and whether it describes anything. Rebuilt every frame rather than
         // cached: it is a pure function of the camera, the sun and the snap, and a cached matrix is the
         // shape of state that survives a scene reload it should not have.
         CloudShadowMapView m_ShadowMapView{};
-        bool               m_ShadowMapValid  = false;
-        bool               m_ShadowMapFailed = false;
+        bool               m_ShadowMapValid = false;
 
         // THE SKY-LIGHT OCCLUSION VOLUME — 128 x 16 x 128 RGBA16F, 2.00 MiB, holding at every column and
         // altitude the diffuse transmittance of the cloud STANDING OVER it. It is what the march's ambient
@@ -661,6 +639,21 @@ namespace Desert::Graphic::System
         std::shared_ptr<Image2D> m_LayoutMaskTexture;
         uint32_t                 m_LayoutPatternHash = 0u;
         uint32_t                 m_LayoutMaskHash    = 0u;
+        // Set when an upload of these inputs was lost to a fault (AddInputUploads): the next Ensure re-bakes it.
+        bool m_FarWeatherStale = false;
+        bool m_LayoutStale     = false;
+
+        // The texels of an input image made this frame, waiting for AddInputUploads to put them into it on the
+        // frame graph. The image is created empty (sampled, a copy target) and holds nothing a reader may use
+        // until its upload pass ran; every reader in the same graph is ordered after that pass.
+        struct PendingUpload
+        {
+            std::shared_ptr<Image2D> Image;
+            std::vector<std::byte>   Texels;
+            const char*              Name  = "";
+            bool*                    Stale = nullptr;
+        };
+        std::vector<PendingUpload> m_PendingUploads;
 
         // WHAT THE VOLUME ON THE DEVICE WAS BAKED FROM. Two things, and both have to be asked about: the
         // PARAMETERS, which change when the artist moves a slider or drops a different type into a slot,
@@ -763,9 +756,8 @@ namespace Desert::Graphic::System
         bool                     m_Present = false;
 
         // This view's quality tier and the numbers it derives. The scale is held rather than re-derived at
-        // every use because EnsureShadowMap has to notice when it CHANGES — the map's size is a property
-        // of the tier, so switching tiers mid-session reallocates it, which is the one thing the old
-        // "allocated once and never again" comment on that function stopped being true about.
+        // every use because DeclareShadowMapNodes announces the map's size when it CHANGES — the size is a
+        // property of the tier, not of the view.
         Common::Settings::CloudQuality m_Quality             = Common::Settings::CloudQuality::High;
         float              m_ShadowMapScaleInUse = 0.0f;
 
@@ -775,9 +767,6 @@ namespace Desert::Graphic::System
         uint32_t m_HalfWidth  = 0;
         uint32_t m_HalfHeight = 0;
 
-        // Latched by EnsureTraceTargets and covering ALL FOUR reconstruction images: any one missing means the
-        // pass cannot run, and retrying an allocation that already failed once per frame only fills the log.
-        bool m_TargetsFailed = false;
         // Set by BuildProceduralParams (which is const, hence mutable) when either layout slot names a
         // painting whose read is in flight; read by EnsureModellingVolume, which is the level that can
         // refuse the frame. TWO MEMBERS rather than one because they answer different questions: one is
@@ -796,37 +785,16 @@ namespace Desert::Graphic::System
         bool m_NoiseWaiting = false;
 
         // Advances once per executed frame. It decides both the march's dither pattern and which of the
-        // four sub-pixels this frame traces, and it selects the history target written. Wrapping is
-        // harmless: only its low bits reach the hash, the sub-pixel walk and the ping-pong, and all three
-        // have a period that divides 2^32.
+        // four sub-pixels this frame traces. Wrapping is harmless: only its low bits reach the hash and the
+        // sub-pixel walk, and both have a period that divides 2^32.
         uint32_t m_FrameIndex = 0;
 
-        // WHICH VIEW FRAME WROTE the history (TAA1 step 3: the view's ViewFrame::PrevViewProjection is the one
-        // previous matrix; this renderer keeps no copy). Readable only when that frame is the view's previous
-        // one: a skipped pass (no component, no atmosphere, an allocation failure), a resize or a cut restarts
-        // the reconstruction instead of reprojecting a stale history. Unreadable, the resolve is handed the
-        // engine's fallback texture and told to ignore it: an unbound sampler would be an INVALID descriptor
-        // set, which this backend answers by skipping the whole dispatch.
-        PassHistoryStamp m_History;
-
-        // True while the last ExecuteInFrame actually produced a reconstruction. The composite draws
-        // nothing without it, rather than compositing a target from three frames ago over a scene that
-        // has since moved.
-        bool m_HasFrameResult = false;
-
-        // Which of the two history slots the last executed resolve wrote, and therefore the one the
-        // composite must sample. An index rather than a second shared_ptr, so each image has exactly one
-        // owner and a resize cannot leave the composite holding a released target.
-        uint32_t m_ResolvedIndex = 0;
-
-        // What DeclareFrameNodes' temporal resolve will have done once its node is recorded; applied by
+        // This frame's reconstruction refs once SettleFrameNodes accepted the nodes; invalid otherwise, and the
+        // composite then draws nothing rather than a pair nobody wrote.
+        FrameResult m_FrameResult;
+        // What DeclareFrameNodes' resolve will have written once its node is recorded; published by
         // SettleFrameNodes, never while the graph is still being built.
-        struct PendingResolve
-        {
-            uint32_t WriteIndex     = 0;
-            uint64_t ViewFrameIndex = 0; // ViewFrame::FrameIndex of the frame the resolve writes
-        };
-        std::optional<PendingResolve> m_PendingResolve;
-        bool                          m_ShadowMapPending = false;
+        std::optional<FrameResult> m_PendingResult;
+        bool                       m_ShadowMapPending = false;
     };
 } // namespace Desert::Graphic::System

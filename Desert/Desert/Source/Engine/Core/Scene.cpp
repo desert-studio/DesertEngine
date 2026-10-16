@@ -3,6 +3,7 @@
 
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Skybox/SceneSkyLight.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Math/Ray.hpp>
@@ -373,7 +374,9 @@ namespace Desert::Core
         return LiveSceneList();
     }
 
-    Scene::Scene() : m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>() )
+    Scene::Scene()
+         : m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>() ),
+           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>() )
     {
         LiveSceneList().push_back( this );
         m_Subsystems.Begin();
@@ -381,7 +384,8 @@ namespace Desert::Core
 
     Scene::Scene( std::string&& sceneName, Graphic::SceneRenderer* sceneRenderer )
          : m_SceneName( std::move( sceneName ) ),
-           m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>() )
+           m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>() ),
+           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>() )
     {
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();

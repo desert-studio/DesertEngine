@@ -16,6 +16,8 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <chrono>
+#include <cmath>
+#include <format>
 
 namespace Desert::Graphic::System
 {
@@ -116,14 +118,19 @@ namespace Desert::Graphic::System
             // rather than lazily so that "the scene has clouds" and "the bake can carry them" are never
             // two different answers: a scene that has none writes a zero payload it never reads, which is
             // 268 bytes per frame in flight and no dispatch at all.
-            m_CloudBakeParams = ShaderResources::StorageBuffer::Create(
-                 "SkyBakeCloudParams", kCloudPayloadBytes, kSkyBakeCloudParamsBinding, /*persistent=*/false );
-            m_CloudBakeAuthored = ShaderResources::StorageBuffer::Create(
-                 "SkyBakeCloudAuthored", static_cast<uint32_t>( sizeof( CloudAuthoredPayload ) ),
-                 kSkyBakeCloudAuthoredBinding, /*persistent=*/false );
-            m_CloudBakeMediumParams = ShaderResources::StorageBuffer::Create(
-                 "SkyBakeCloudMediumParams", Core::kCloudMediumParamsBytes, Core::kCloudMediumParamsBinding,
-                 /*persistent=*/false );
+            // Persistent and two sets: see the members' declaration (a time-sliced capture reads them over
+            // several frames).
+            for ( uint32_t set = 0; set < 2u; ++set )
+            {
+                m_CloudBakeParams[set] = ShaderResources::StorageBuffer::Create(
+                     "SkyBakeCloudParams", kCloudPayloadBytes, kSkyBakeCloudParamsBinding, /*persistent=*/true );
+                m_CloudBakeAuthored[set] = ShaderResources::StorageBuffer::Create(
+                     "SkyBakeCloudAuthored", static_cast<uint32_t>( sizeof( CloudAuthoredPayload ) ),
+                     kSkyBakeCloudAuthoredBinding, /*persistent=*/true );
+                m_CloudBakeMediumParams[set] = ShaderResources::StorageBuffer::Create(
+                     "SkyBakeCloudMediumParams", Core::kCloudMediumParamsBytes, Core::kCloudMediumParamsBinding,
+                     /*persistent=*/true );
+            }
 
             // The physical atmosphere's LUT pipelines. Built up front (they are two small compute
             // pipelines); the IMAGES stay lazy, so a scene on
@@ -404,14 +411,30 @@ namespace Desert::Graphic::System
         return renderer.DispatchCompute( bindings, *m_DistantLightPipeline, 1, 1, 1 );
     }
 
-    std::vector<ComputeNodeDeclaration> SkyboxRenderer::DeclareAtmosphereLutNodes()
+    RenderPassDeclaration::BlockDeclaration SkyboxRenderer::DeclareLutBlock( RenderPassDeclaration&    declared,
+                                                                             ComputePipeline*          pipeline,
+                                                                             ShaderBindingLayoutCache& layout,
+                                                                             const uint32_t            pushBytes )
+    {
+        // Each node's one binding block (block 0): the pipeline's shader layout and the push block its exec
+        // gives. Every LUT is a block entry naming the renderer's own image (imported by the graph, which orders,
+        // barriers and fault-isolates it; written as a storage image, sampled with the sampler the image carries
+        // as its own: GlobalTextureFilterSampler); the pipeline route carries only the sky payload buffer, set
+        // here in setup every frame.
+        pipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
+        auto block = declared.Bindings( layout.Get( pipeline->GetSpecification().Shader ),
+                                        Renderer::GetPipelineRouteFill( *pipeline ) );
+        block.PushConstantBytes( pushBytes );
+        return block;
+    }
+
+    std::vector<ComputeNodeDeclaration> SkyboxRenderer::DeclareAtmosphereCachedLutNodes()
     {
         // One Compute node per dispatch, each declaring the LUT it writes (StorageWrite) and the LUTs it samples
-        // (SampledCompute): the graph orders transmittance -> multi-scattering -> sky-view / aerial perspective /
-        // distant light and places every barrier. What runs is decided here, while the frame graph is built.
+        // (SampledCompute): the graph orders transmittance -> multi-scattering -> distant light and places every
+        // barrier. What runs is decided here, while the frame graph is built.
         std::vector<ComputeNodeDeclaration> nodes;
         m_LutBakePending.reset();
-        m_SkyViewLutFillPending = false;
         if ( !m_UseProceduralSky || m_Sky.Model != ECS::SkyModel::PhysicalAtmosphere )
             return nodes;
         if ( !m_TransmittanceLutPipeline || !m_MultiScatterLutPipeline || !m_SkyParams )
@@ -419,21 +442,9 @@ namespace Desert::Graphic::System
         if ( !EnsureAtmosphereLutResources() )
             return nodes;
 
-        // Each node's one binding block (block 0): the pipeline's shader layout and the push block its exec
-        // gives. Every LUT is a block entry naming the renderer's own image (imported by the graph, which orders,
-        // barriers and fault-isolates it; written as a storage image, sampled with the sampler the image carries
-        // as its own: GlobalTextureFilterSampler); the pipeline route carries only the sky payload buffer, set
-        // here in setup every frame.
         const auto declareBlock = [this]( RenderPassDeclaration& declared, ComputePipeline* pipeline,
                                           ShaderBindingLayoutCache& layout, const uint32_t pushBytes )
-        {
-            // @p layout is the one kept for @p pipeline (keyed on its shader, not re-derived per frame).
-            pipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
-            auto block = declared.Bindings( layout.Get( pipeline->GetSpecification().Shader ),
-                                            Renderer::GetPipelineRouteFill( *pipeline ) );
-            block.PushConstantBytes( pushBytes );
-            return block;
-        };
+        { return DeclareLutBlock( declared, pipeline, layout, pushBytes ); };
         const auto sampledLuts = [this]( RenderPassDeclaration::BlockDeclaration block )
         {
             block.Sampled( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::SampledCompute,
@@ -473,7 +484,7 @@ namespace Desert::Graphic::System
             nodes.push_back( std::move( multiScatter ) );
 
             // BUILD TIME: which nodes exist is decided here; the pair counts as baked once
-            // SettleAtmosphereLutNodes hears the graph accepted them.
+            // SettleAtmosphereCachedLutNodes hears the graph accepted them.
             m_LutBakePending = wanted;
         }
 
@@ -484,6 +495,66 @@ namespace Desert::Graphic::System
             m_Atmosphere.TransmittanceLutBottomRadiusKm = AtmosphereBottomRadiusKm( m_Sky );
             m_Atmosphere.TransmittanceLutTopRadiusKm    = AtmosphereTopRadiusKm( m_Sky );
         }
+
+        if ( m_DistantLightPipeline && EnsureDistantLightResources() )
+        {
+            ComputeNodeDeclaration distant;
+            distant.Name = "Sky: DistantSkyLight";
+            sampledLuts( declareBlock( distant.Access, m_DistantLightPipeline.get(), m_DistantLightLayout, 0 ) )
+                 .Storage( "u_DistantSkyLight", m_DistantLight, RDG::Access::StorageWrite, "Sky.DistantLight" );
+            distant.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+            {
+                DESERT_PROFILE_PASS( "Sky: DistantSkyLight" );
+                return DispatchDistantLight( context );
+            };
+            nodes.push_back( std::move( distant ) );
+
+            m_Atmosphere.DistantSkyLight = m_DistantLight;
+        }
+        return nodes;
+    }
+
+    void SkyboxRenderer::SettleAtmosphereCachedLutNodes( bool accepted )
+    {
+        const std::optional<AtmosphereLutFingerprint> pending = std::exchange( m_LutBakePending, std::nullopt );
+        if ( !accepted )
+        {
+            // Nothing was recorded: a pair that was about to be baked is not baked, so the next frame bakes it.
+            if ( pending )
+                m_LutsValid = false;
+            return;
+        }
+        if ( !pending )
+            return;
+        m_LutBaked  = *pending;
+        m_LutsValid = true;
+        LOG_INFO( "[SkyAtmosphere] Atmosphere LUTs dispatched (transmittance {}x{}, multi-scattering {}x{}) — the "
+                  "atmosphere parameter fingerprint changed.",
+                  kTransmittanceLutWidth, kTransmittanceLutHeight, kMultiScatterLutSize, kMultiScatterLutSize );
+    }
+
+    std::vector<ComputeNodeDeclaration> SkyboxRenderer::DeclareAtmosphereLutNodes()
+    {
+        // The per-view LUTs, the Sky-View LUT and the aerial-perspective volume, both following the camera. They
+        // sample the cached pair DeclareAtmosphereCachedLutNodes added at the head of this graph.
+        std::vector<ComputeNodeDeclaration> nodes;
+        m_SkyViewLutFillPending = false;
+        if ( !m_UseProceduralSky || m_Sky.Model != ECS::SkyModel::PhysicalAtmosphere )
+            return nodes;
+        if ( !m_SkyParams || !m_TransmittanceLut || !m_MultiScatterLut || !m_LutsValid )
+            return nodes;
+
+        const auto declareBlock = [this]( RenderPassDeclaration& declared, ComputePipeline* pipeline,
+                                          ShaderBindingLayoutCache& layout, const uint32_t pushBytes )
+        { return DeclareLutBlock( declared, pipeline, layout, pushBytes ); };
+        const auto sampledLuts = [this]( RenderPassDeclaration::BlockDeclaration block )
+        {
+            block.Sampled( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::SampledCompute,
+                           GlobalTextureFilterSampler(), "Sky.TransmittanceLut" )
+                 .Sampled( "u_MultiScatterLut", m_MultiScatterLut, RDG::Access::SampledCompute,
+                           GlobalTextureFilterSampler(), "Sky.MultiScatterLut" );
+            return block;
+        };
 
         if ( m_SkyViewLutPipeline && m_ActiveCamera && EnsureSkyViewLutResources() )
         {
@@ -523,49 +594,14 @@ namespace Desert::Graphic::System
             m_Atmosphere.AerialPerspectiveViewDistanceScale = m_Sky.AerialPerspectiveViewDistanceScale;
         }
 
-        if ( m_DistantLightPipeline && EnsureDistantLightResources() )
-        {
-            ComputeNodeDeclaration distant;
-            distant.Name = "Sky: DistantSkyLight";
-            sampledLuts( declareBlock( distant.Access, m_DistantLightPipeline.get(), m_DistantLightLayout, 0 ) )
-                 .Storage( "u_DistantSkyLight", m_DistantLight, RDG::Access::StorageWrite, "Sky.DistantLight" );
-            distant.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
-            {
-                DESERT_PROFILE_PASS( "Sky: DistantSkyLight" );
-                return DispatchDistantLight( context );
-            };
-            nodes.push_back( std::move( distant ) );
-
-            m_Atmosphere.DistantSkyLight = m_DistantLight;
-        }
         return nodes;
     }
 
     void SkyboxRenderer::SettleAtmosphereLutNodes( bool accepted )
     {
-        const std::optional<AtmosphereLutFingerprint> pending = std::exchange( m_LutBakePending, std::nullopt );
         // A refused sky-view node wrote nothing; a LUT an earlier accepted frame filled keeps that content.
         if ( std::exchange( m_SkyViewLutFillPending, false ) && accepted )
             m_SkyViewLutFilled = true;
-        if ( !accepted )
-        {
-            // Nothing was recorded: a pair that was about to be baked is not baked, so the next frame bakes it.
-            if ( pending )
-                m_LutsValid = false;
-            return;
-        }
-        if ( !pending )
-            return;
-        m_LutBaked  = *pending;
-        m_LutsValid = true;
-        LOG_INFO( "[SkyAtmosphere] Atmosphere LUTs dispatched (transmittance {}x{}, multi-scattering {}x{}) — the "
-                  "atmosphere parameter fingerprint changed.",
-                  kTransmittanceLutWidth, kTransmittanceLutHeight, kMultiScatterLutSize, kMultiScatterLutSize );
-    }
-
-    bool SkyboxRenderer::CachedLutsCurrent() const
-    {
-        return m_TransmittanceLut && m_MultiScatterLut && m_LutsValid && LutFingerprintOf( m_Sky ) == m_LutBaked;
     }
 
     void SkyboxRenderer::PrepareCamera( Core::Camera* camera )
@@ -687,35 +723,50 @@ namespace Desert::Graphic::System
         if ( !m_UseProceduralSky )
             return;
 
-        // How long the sun has held still. Compared by direction rather than by "did anything write it",
-        // because the time-of-day driver rewrites the same value every frame when it is paused.
-        const float dt = glm::max( deltaSeconds, 0.0f );
-        if ( glm::dot( m_LastSeenSunDir - m_SunDir, m_LastSeenSunDir - m_SunDir ) > 1e-12f )
+        // THE SCENE'S SKY LIGHT. Every view rendering a scene is handed it by BeginScene, so a view without one
+        // is a renderer driven outside a scene -- said once, and the view has no sky light.
+        const std::shared_ptr<SceneSkyLight> skyLight = m_SceneSkyLight.lock();
+        if ( !skyLight )
         {
-            m_LastSeenSunDir       = m_SunDir;
-            m_SecondsSinceSunMoved = 0.0f;
+            if ( !m_NoSkyLightLogged )
+                LOG_ERROR( "[SkyAtmosphere] this view renders a procedural sky without a scene's sky light "
+                           "(SceneRenderer::BeginScene hands it in); the view has no sky ambient." );
+            m_NoSkyLightLogged = true;
+            return;
         }
-        else
-        {
-            m_SecondsSinceSunMoved += dt;
-        }
+        // The Bake button's request is the scene's, whichever view's component asked.
+        if ( m_BakeRequested )
+            skyLight->RequestCapture();
+        m_BakeRequested = false;
 
-        // A BAKE STILL ON THE GPU is answered before anything else: it lands the frame its batch completes,
-        // and until then no second one starts — a request that arrives meanwhile stays in m_BakeRequested
-        // and is read once this one has landed.
-        if ( m_PendingBake && !LandPendingBake() )
+        // ONE CAPTURE PER SCENE: the first view of the frame decides (and records, AddSkyCapturePasses); the views
+        // after it read what it left.
+        const float dt = glm::max( deltaSeconds, 0.0f );
+        if ( !skyLight->ClaimFrame( this, m_SunDir, dt ) )
             return;
 
-        const bool explicitRequest = m_BakeRequested;
-        m_BakeRequested            = false;
+        // A CAPTURE STILL BEING RECORDED is answered before anything else: its slices run on the frames after
+        // it began, and until its last one no second capture starts -- a request that arrives meanwhile stays
+        // with the scene's sky light and is read once this one has completed.
+        if ( skyLight->IsCapturing() )
+            return;
+        if ( !skyLight->EnsurePrograms() )
+            return;
+
+        const bool explicitRequest = skyLight->TakeCaptureRequest();
+        const bool hasEnvironment  = skyLight->HasEnvironment();
 
         // THIS VIEW'S CLOUD LAYER, asked for BEFORE the trigger rather than after it, because it IS half
-        // of the trigger: the panorama carries the clouds now, so a sky whose sun has not moved can still
+        // of the trigger: the capture carries the clouds now, so a sky whose sun has not moved can still
         // be a different sky. The call resolves the layer's species and guarantees its volumes, which is
         // work the frame is about to do anyway a few lines later — and nothing at all in a scene with no
         // cloud component, which is what every asset thumbnail and mesh preview is.
         const CloudEnvironmentBake clouds = m_SceneRenderer->BuildCloudEnvironmentBake();
-        if ( SkyEnvironmentBakeWaitsForClouds( explicitRequest, clouds.InputsPending ) )
+        // ...but NEVER THE FIRST CAPTURE: a view without one has no sky light at all, and an ambient lit by the
+        // sky before its clouds arrive is far nearer the answer than a black one. The clouds landing changes the
+        // cloud fingerprint, which recaptures with them -- whole, in that one frame, being the first capture
+        // that carries them (SkyCaptureIsWhole).
+        if ( hasEnvironment && SkyEnvironmentBakeWaitsForClouds( explicitRequest, clouds.InputsPending ) )
             return;
 
         // THE SKY'S OWN INPUTS, as the bake will read them. Formed from the same PackSky the parameter
@@ -723,73 +774,74 @@ namespace Desert::Graphic::System
         const uint64_t skyFingerprint = SkyBakeFingerprint( PackSky( m_SunDir, m_Sky, m_SunInputs ),
                                                             static_cast<uint32_t>( m_Sky.EnvironmentResolution ) );
 
-        if ( !ShouldRebakeSkyEnvironment( m_BakedSunDir, m_SunDir, m_Sky.RebakeSunAngleThreshold,
-                                          m_Sky.AutoRebakeEnvironment, static_cast<bool>( m_ProceduralEnv ),
-                                          explicitRequest, m_BakedCloudFingerprint, clouds.Fingerprint,
-                                          m_BakedSkyFingerprint, skyFingerprint ) )
+        const SkyLightStamps& captured = skyLight->GetCaptured();
+        if ( !ShouldRebakeSkyEnvironment( captured.SunDir, m_SunDir, m_Sky.RebakeSunAngleThreshold,
+                                          m_Sky.AutoRebakeEnvironment, hasEnvironment, explicitRequest,
+                                          captured.CloudFingerprint, clouds.Fingerprint, captured.SkyFingerprint,
+                                          skyFingerprint ) )
         {
-            m_SecondsSinceStale = 0.0f;
+            skyLight->ClearStale();
             return;
         }
 
-        m_SecondsSinceStale += dt;
+        const float secondsSinceStale = skyLight->AccumulateStaleSeconds( dt );
 
         // The Bake button and the very first bake are answers to a question the user just asked, or the
         // difference between an ambient-lit world and an unlit one. Neither waits.
-        const bool immediate = explicitRequest || !m_ProceduralEnv;
-        if ( !immediate && !SkyEnvironmentRebakeMayRun( m_SecondsSinceSunMoved, m_SecondsSinceStale,
+        const bool immediate = explicitRequest || !hasEnvironment;
+        if ( !immediate && !SkyEnvironmentRebakeMayRun( skyLight->GetSecondsSinceSunMoved(), secondsSinceStale,
                                                         kSkyRebakeSettleSeconds, kSkyRebakeMaxDeferSeconds ) )
             return;
 
-        // The physical model's bake marches the cached LUTs, and those are written by the frame graph's
-        // SkyAtmosphereLuts nodes and nowhere else. Until a graph has written them for these parameters (the
-        // first frame of a physical sky, or an atmosphere edit), the bake waits: the nodes are declared by
-        // this frame's graph, which runs before the next frame's bake.
+        // The physical model's capture marches the cached LUTs, which this frame's graph writes ahead of it
+        // (DeclareAtmosphereCachedLutNodes): no frame of waiting for them. A LUT pipeline that never came up is
+        // the one case that stops the capture, said once.
         const bool physical = m_Sky.Model == ECS::SkyModel::PhysicalAtmosphere;
-        if ( physical && !CachedLutsCurrent() )
+        if ( physical && ( !m_TransmittanceLutPipeline || !m_MultiScatterLutPipeline || m_LutResourcesFailed ) )
         {
-            if ( !m_TransmittanceLutPipeline || !m_MultiScatterLutPipeline || m_LutResourcesFailed )
-            {
-                LOG_ERROR( "[SkyAtmosphere] Environment bake skipped: the physical model's atmosphere LUTs "
-                           "are unavailable (see the errors above). The previous environment is kept." );
-                return;
-            }
-            m_BakeRequested = m_BakeRequested || explicitRequest;
-            LOG_INFO( "[SkyAtmosphere] Environment bake waits one frame: this frame's graph writes the "
-                      "atmosphere LUTs the bake marches." );
+            if ( !m_CaptureLutsMissingLogged )
+                LOG_ERROR(
+                     "[SkyAtmosphere] the sky light is not captured: the physical model's atmosphere LUTs are "
+                     "unavailable (see the errors above). The previous environment, if any, is kept." );
+            m_CaptureLutsMissingLogged = true;
             return;
         }
 
-        m_SecondsSinceStale = 0.0f;
+        skyLight->ClearStale();
 
-        const SkyEnvironmentSize size = EnvironmentPanoramaSize( m_Sky.EnvironmentResolution );
+        const SkyEnvironmentSize size = EnvironmentCaptureSize( m_Sky.EnvironmentResolution );
 
         if ( m_Sky.EnvironmentResolution == ECS::SkyEnvironmentResolution::High && !m_HighResCostLogged )
         {
             const SkyEnvironmentCost cost = SkyEnvironmentBakeCost( m_Sky.EnvironmentResolution );
-            LOG_INFO( "[SkyAtmosphere] Environment bake at High ({}x{}): panorama {:.1f} MiB + "
-                      "radiance/irradiance/prefiltered cubes {:.1f} MiB = {:.1f} MiB — paid PER LIVE "
-                      "view (views: {}).",
-                      size.Width, size.Height, BytesToMiB( cost.PanoramaBytes ), BytesToMiB( cost.CubeBytes ),
-                      BytesToMiB( cost.TotalBytes ), SceneRenderer::DescribeLiveViews() );
+            LOG_INFO( "[SkyAtmosphere] Sky light captured at High ({} face): radiance cube {:.1f} MiB while it "
+                      "runs + irradiance/prefiltered cubes {:.1f} MiB = {:.1f} MiB, and the clouds are marched "
+                      "over four times Medium's texels on every recapture -- paid once per scene, whatever its "
+                      "views.",
+                      size.Face, BytesToMiB( cost.RadianceBytes ), BytesToMiB( cost.CubeBytes ),
+                      BytesToMiB( cost.TotalBytes ) );
             m_HighResCostLogged = true;
         }
 
-        // NO DEVICE IDLE. The bake is recorded into its own batch and only CREATES images; the environment
-        // it replaces is released when the new one lands, through the image service, whose destruction is
-        // deferred past the frames in flight (VulkanAllocator::RT_DestroyImage) — the same path every other
-        // released image takes. The wait that stood here was 0.5 s of the main thread per renderer created.
+        // NO DEVICE IDLE. The capture only CREATES images here; the environment it replaces is released when the
+        // new one completes, through the image service, whose destruction is deferred past the frames in flight
+        // (VulkanAllocator::RT_DestroyImage) -- the same path every other released image takes.
 
         // The cloud block goes onto THIS renderer's buffers here — see the members' declaration for why
         // they are not the cloud renderer's own. A layer that is not marched still writes: a storage
         // buffer whose bytes were never set is uninitialised device memory behind a valid descriptor, and
         // the shader's gate is what stops it being read, not the absence of an upload.
         CloudBakeBinding cloudBinding;
-        if ( m_CloudBakeParams && m_CloudBakeAuthored )
+        m_CloudBakeSet                                     = 1u - m_CloudBakeSet;
+        const std::shared_ptr<ShaderResources::StorageBuffer>& bakeParams   = m_CloudBakeParams[m_CloudBakeSet];
+        const std::shared_ptr<ShaderResources::StorageBuffer>& bakeAuthored = m_CloudBakeAuthored[m_CloudBakeSet];
+        const std::shared_ptr<ShaderResources::StorageBuffer>& bakeMedium =
+             m_CloudBakeMediumParams[m_CloudBakeSet];
+        if ( bakeParams && bakeAuthored )
         {
-            const auto params   = m_CloudBakeParams->SetData( &clouds.Params, kCloudPayloadBytes );
-            const auto authored = m_CloudBakeAuthored->SetData(
-                 &clouds.Authored, static_cast<uint32_t>( sizeof( clouds.Authored ) ) );
+            const auto params = bakeParams->SetData( &clouds.Params, kCloudPayloadBytes );
+            const auto authored =
+                 bakeAuthored->SetData( &clouds.Authored, static_cast<uint32_t>( sizeof( clouds.Authored ) ) );
 
             // BOTH, OR NEITHER IS BOUND — and the paragraph above is exactly why. It says a layer that
             // is not marched still WRITES, because uninitialised device memory behind a valid descriptor
@@ -798,8 +850,8 @@ namespace Desert::Graphic::System
             // without clouds rather than with a block it cannot vouch for.
             if ( params.IsSuccess() && authored.IsSuccess() )
             {
-                cloudBinding.Params   = m_CloudBakeParams.get();
-                cloudBinding.Authored = m_CloudBakeAuthored.get();
+                cloudBinding.Params   = bakeParams;
+                cloudBinding.Authored = bakeAuthored;
             }
             else
             {
@@ -817,9 +869,9 @@ namespace Desert::Graphic::System
         // applying no atmosphere to it.
         cloudBinding.PerSampleSunTransmittance = clouds.PerSampleSunTransmittance;
         // The atmosphere's own knob, carried because the bake INTEGRATES the air in front of a cloud
-        // instead of fetching the camera aerial-perspective volume the screen march reads — a panorama has
-        // no view frustum to froxelize. Without it a scene that pushes the haze out would still see it in
-        // its reflections.
+        // instead of fetching the camera aerial-perspective volume the screen march reads — that volume is the
+        // camera's froxels, and the capture is anchored at a fixed point, not at the camera. Without it a scene
+        // that pushes the haze out would still see it in its reflections.
         cloudBinding.AerialStartDepthKm = m_Sky.AerialPerspectiveStartDepthKm;
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
             cloudBinding.Noise[slot] = clouds.Noise[slot];
@@ -829,102 +881,87 @@ namespace Desert::Graphic::System
         cloudBinding.LayoutMask         = clouds.LayoutMask;
         cloudBinding.AuthoredAtlas      = clouds.AuthoredAtlas;
         cloudBinding.SkyOcclusionVolume = clouds.SkyOcclusionVolume;
-        cloudBinding.DistantSkyLight    = m_Atmosphere.DistantSkyLight.get();
 
         // THE AUTHORED MEDIUM'S OWN VALUES AND IMAGES. Uploaded onto this renderer's buffer for the reason
         // the two blocks above are, and bound ONLY when there are values: the medium's program declares
         // that block exactly when its schema has something in it, and this backend writes a descriptor for
         // any binding a caller names — including one the layout does not have.
-        if ( !clouds.MediumValues.empty() && m_CloudBakeMediumParams )
+        if ( !clouds.MediumValues.empty() && bakeMedium )
         {
-            const auto uploaded = m_CloudBakeMediumParams->SetData(
-                 clouds.MediumValues.data(),
-                 static_cast<uint32_t>( clouds.MediumValues.size() * sizeof( glm::vec4 ) ) );
+            const auto uploaded =
+                 bakeMedium->SetData( clouds.MediumValues.data(),
+                                      static_cast<uint32_t>( clouds.MediumValues.size() * sizeof( glm::vec4 ) ) );
             if ( uploaded.IsSuccess() )
             {
-                cloudBinding.MediumParams = m_CloudBakeMediumParams.get();
+                cloudBinding.MediumParams = bakeMedium;
             }
             else
             {
                 // NOT SILENT, AND NOT SUBSTITUTED. An unbound block here means the bake's dispatch is
-                // skipped for an invalid descriptor set — the environment then keeps the panorama it had,
+                // skipped for an invalid descriptor set — the environment then keeps the sky light it had,
                 // which is the honest outcome, but only if somebody can find out why.
                 LOG_ERROR( "[SkyAtmosphere] the authored medium's {} value(s) were not uploaded for the "
-                           "environment bake: {}. The panorama that lights this scene will not be rebuilt.",
+                           "environment bake: {}. The sky light of this scene will not be recaptured.",
                            clouds.MediumValues.size(), uploaded.GetError() );
             }
         }
         cloudBinding.MediumImages = clouds.MediumImages;
-        // THE AUTHORED MEDIUM, so the panorama that LIGHTS the scene is compiled under the same
-        // substitution the three on-screen cloud programs are. It points at `clouds`, which outlives the
-        // recording below — the variant is compiled while recording and the batch retains it.
+        // THE AUTHORED MEDIUM, so the capture that LIGHTS the scene is compiled under the same
+        // substitution the three on-screen cloud programs are. It points at `clouds`, which outlives Begin --
+        // the variant program is acquired there, and the capture keeps the program, not this pointer.
         cloudBinding.Medium = &clouds.Medium;
+        // The distant sky light is not part of the binding: this frame's graph writes it ahead of the faces,
+        // which declares it as a read (AddSkyCapturePasses).
 
-        // WALL TIME FROM SUBMIT TO LANDING, printed rather than assumed: the GPU's time for the chain plus at
-        // most a frame of polling. The cloud march is the only thing that has ever been added to it, so it is
-        // also the measurement of that feature.
-        m_PendingStarted = std::chrono::steady_clock::now();
-
-        m_PendingBake = EnvironmentManager::BeginProcedural(
-             size.Width, size.Height, m_SkyParams.get(), physical ? m_TransmittanceLut.get() : nullptr,
-             physical ? m_MultiScatterLut.get() : nullptr, cloudBinding );
-        if ( !m_PendingBake )
-        {
-            // Keep the previous environment and say why; the user can retry with the Bake button. Do NOT
-            // stamp m_BakedSunDir — a failed bake must not look like an up-to-date one.
-            LOG_ERROR( "[SkyAtmosphere] Environment bake at {}x{} failed — the previous environment is "
-                       "kept. The BakeProceduralSky compute shader is the usual cause.",
-                       size.Width, size.Height );
-            return;
-        }
-
-        m_PendingSunDir           = m_SunDir;
-        m_PendingCloudFingerprint = clouds.Fingerprint;
-        m_PendingSkyFingerprint   = skyFingerprint;
-        m_PendingSize             = size;
-        if ( !clouds.Marched )
-            m_PendingWhat = "sky only (this view has no cloud layer)";
-        else if ( cloudBinding.SkyOcclusion )
-            m_PendingWhat = "clouds marched into the panorama, sky-occlusion volume read";
-        else
-            m_PendingWhat = "clouds marched into the panorama, profile-driven ambient occlusion";
-
-        // A sky that has no environment yet lands this one in the same call when the GPU is already done —
-        // never by waiting for it.
-        LandPendingBake();
+        const char* what =
+             !clouds.Marched ? ( clouds.InputsPending ? "sky only (the cloud layer's inputs are still arriving)"
+                                                      : "sky only (this view has no cloud layer)" )
+             : cloudBinding.SkyOcclusion ? "clouds marched into the cube faces, sky-occlusion volume read"
+                                         : "clouds marched into the cube faces, profile-driven ambient "
+                                           "occlusion";
+        // WHICH KEY MOVED, for a recapture: the landing line says what was captured, this says why.
+        if ( hasEnvironment )
+            LOG_INFO( "[SkyAtmosphere] Sky light recapture begins: {}{}{}{}.",
+                      explicitRequest ? "requested; " : "",
+                      captured.CloudFingerprint != clouds.Fingerprint ? "the clouds changed; " : "",
+                      captured.SkyFingerprint != skyFingerprint ? "the sky's parameters changed; " : "",
+                      std::format( "the sun is {:.2f} deg from the captured one",
+                                   glm::degrees( std::acos( glm::clamp(
+                                        glm::dot( glm::normalize( captured.SunDir ), glm::normalize( m_SunDir ) ),
+                                        -1.0f, 1.0f ) ) ) ) );
+        // A refusal keeps the previous environment and says why (Begin logged it); the user can retry with the
+        // Bake button. Nothing is stamped -- a failed capture must not look like an up-to-date one.
+        (void)skyLight->Begin( size,
+                               System::SkyCaptureSource{
+                                    .SkyParams = m_SkyParams.get(), .Clouds = cloudBinding, .Physical = physical },
+                               SkyLightStamps{ .SunDir           = m_SunDir,
+                                               .CloudFingerprint = clouds.Fingerprint,
+                                               .SkyFingerprint   = skyFingerprint,
+                                               .CloudsMarched    = cloudBinding.Marched && cloudBinding.Params &&
+                                                                cloudBinding.Authored },
+                               what );
     }
 
-    bool SkyboxRenderer::LandPendingBake()
+    void SkyboxRenderer::AddSkyCapturePasses( RDG::Builder& graph, FrameTextures& textures )
     {
-        if ( !m_PendingBake->IsComplete() )
-            return false;
+        const std::shared_ptr<SceneSkyLight> skyLight = m_SceneSkyLight.lock();
+        if ( !m_UseProceduralSky || !skyLight || !skyLight->IsCapturing() )
+            return;
 
-        Environment baked = m_PendingBake->Finish();
-        m_PendingBake.reset();
-        if ( !baked )
-        {
-            LOG_ERROR( "[SkyAtmosphere] Environment bake at {}x{} came back empty — the previous environment "
-                       "is kept.",
-                       m_PendingSize.Width, m_PendingSize.Height );
-            return true;
-        }
+        // The physical march reads the cached pair this frame's graph has written (or an earlier one has, when
+        // it was current): never a pair that is neither. The capture waits, said by the LUT errors themselves.
+        const bool physical = m_Sky.Model == ECS::SkyModel::PhysicalAtmosphere;
+        if ( physical && !m_LutsValid )
+            return;
 
-        // The previous environment's cubes are released by the replacement (the image service owns them
-        // until unregistered); the last one is released when this renderer dies.
-        m_ProceduralEnv.Replace( *Runtime::ResourceRegistry::GetImageService(), std::move( baked ) );
-
-        m_BakedSunDir           = m_PendingSunDir;
-        m_BakedCloudFingerprint = m_PendingCloudFingerprint;
-        m_BakedSkyFingerprint   = m_PendingSkyFingerprint;
-
-        const double bakeMs =
-             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - m_PendingStarted )
-                  .count();
-        LOG_INFO( "[SkyAtmosphere] Environment baked at {}x{}, landed {:.1f} ms after submit — {}. The main "
-                  "thread did not wait for it; the trigger is still the sun, the clouds and the sky's own "
-                  "parameters and not the frame.",
-                  m_PendingSize.Width, m_PendingSize.Height, bakeMs, m_PendingWhat );
-        return true;
+        // Recorded only when this view claimed the frame (SceneSkyLight::AddPasses): the LUTs it reads are this
+        // view's, written ahead of it in this graph.
+        skyLight->AddPasses(
+             this, graph, textures,
+             System::SkyCaptureFrameReads{ .SkyParams        = m_SkyParams.get(),
+                                           .TransmittanceLut = physical ? m_TransmittanceLut : nullptr,
+                                           .MultiScatterLut  = physical ? m_MultiScatterLut : nullptr,
+                                           .DistantSkyLight  = m_Atmosphere.DistantSkyLight } );
     }
 
     SystemRasterPass SkyboxRenderer::SkyPass()

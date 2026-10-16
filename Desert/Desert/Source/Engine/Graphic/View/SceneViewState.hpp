@@ -202,6 +202,60 @@ namespace Desert::Graphic
     inline constexpr RDG::FaultDefault        kVelocityFaultDefault = RDG::FaultDefault::Black;
     inline constexpr RDG::ExternalFaultPolicy kHistoryFaultPolicy   = RDG::ExternalFaultPolicy::InvalidateHistory;
 
+    // ---- THE VIEW'S CLOUD RECONSTRUCTION (UE: FSceneViewState::VolumetricCloudRenderTarget) ----------------
+    // The volumetric clouds' temporal reconstruction (scatter + its depth guide, half the render extent) is a
+    // view history like the eye adaptation: owned by the view, never by the cloud pass (two scene views drawing
+    // one sky each reproject through their own previous frame). UE's protocol, the same one EyeAdaptationHistory
+    // follows: the previous frame's pair is REGISTERED into the graph, this frame's pair is a TRANSIENT of the
+    // graph (the resolve writes it, the composite samples its refs) and is EXTRACTED into the view at the end of
+    // the frame. Two extraction targets alternate for the reason EyeAdaptationHistory gives.
+    //
+    // UNLIKE the eye adaptation, a frame without the pass drops the history: the resolve reprojects through the
+    // view's previous matrices, which describe the frame just before, so a pair written two frames ago is not a
+    // previous frame of anything. EndFrame keeps the new pair only when the resolve ran and survived.
+    class VolumetricCloudHistory
+    {
+    public:
+        struct Refs
+        {
+            RDG::TextureRef Scatter; // premultiplied radiance .rgb, transmittance .a
+            RDG::TextureRef Guide;   // .x cloud front distance, .y scene distance (km)
+        };
+
+        // One texture of the pair at @p halfExtent: ViewTargetFormats::kCloudTrace (RGBA16F), storage + sampled.
+        [[nodiscard]] static RDG::TextureDesc Desc( ViewExtent halfExtent );
+
+        // Last frame's pair at @p halfExtent, registered into @p graph as "Clouds.History.Previous" and
+        // "Clouds.HistoryGuide.Previous"; both invalid when there is none (first frame, Reset, a frame without the
+        // resolve or with it lost to a fault, another extent). At most one call per graph, before CreateCurrent.
+        [[nodiscard]] Refs RegisterPrevious( RDG::Builder& graph, ViewExtent halfExtent );
+        // This frame's pair: two transients of @p graph ("Clouds.History", "Clouds.HistoryGuide") extracted into
+        // the view for the next frame. At most one call per graph.
+        [[nodiscard]] Refs CreateCurrent( RDG::Builder& graph, ViewExtent halfExtent );
+        // The AddPass index of the resolve that writes the pair (Builder::GetPassCount() before its AddPass),
+        // whose loss EndFrame checks. Not called -> the pair counts as unwritten.
+        void SetWriterPass( uint32_t writerPass );
+
+        // After Execute succeeded: the extracted pair becomes the previous one when its writer survived (@p
+        // report); otherwise, and when this frame created none, the next frame has no previous. A frame that never
+        // executed (FrameFault) never reaches it: the previous pair is untouched and still belongs to the last
+        // committed frame.
+        void EndFrame( const RDG::ExecuteReport& report );
+        void Reset();
+
+        [[nodiscard]] uint64_t HeldBytes() const;
+
+    private:
+        // [slot][0 scatter, 1 guide]
+        std::array<std::array<RDG::ExternalTexture, 2>, 2> m_Slots;
+        ViewExtent                                         m_PreviousExtent{};
+        ViewExtent                                         m_CurrentExtent{};
+        uint32_t                                           m_PreviousSlot = 0;
+        bool                                               m_HasPrevious  = false;
+        bool                                               m_Created      = false; // CreateCurrent ran this frame
+        uint32_t                                           m_WriterPass   = UINT32_MAX;
+    };
+
     // ---- Temporal history ------------------------------------------------------------------------------------
     //
     // The textures a temporal method carries from frame to frame, owned here as RDG externals and registered into
@@ -294,6 +348,8 @@ namespace Desert::Graphic
         [[nodiscard]] Common::ResultStr<ViewFrame> BeginFrame( const ViewInputs&        inputs,
                                                                const ITemporalUpscaler* upscaler );
 
+        [[nodiscard]] VolumetricCloudHistory&       Clouds();
+        [[nodiscard]] const VolumetricCloudHistory& Clouds() const; // HeldBytes: SceneRenderer::HeldBytes
         [[nodiscard]] TemporalHistory& History();
         [[nodiscard]] MotionHistory&   Motion();
 
@@ -310,6 +366,8 @@ namespace Desert::Graphic
         [[nodiscard]] uint64_t HeldBytes() const;
 
     private:
+        VolumetricCloudHistory m_Clouds;
+
         bool            m_HasCommitted = false;
         ViewFrame       m_Pending;                     // returned by the last BeginFrame, committed by EndFrame
         ViewFrame       m_Committed;                   // the previous frame

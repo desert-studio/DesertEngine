@@ -404,10 +404,9 @@ namespace Desert::Graphic
         // False for a view with no cloud layer, which is every mesh preview and every asset thumbnail.
         bool IsCloudVolumeBaking() const;
 
-        // "The sky's light is not final yet": a procedural sky whose environment bake is still on the GPU, or
-        // that has none. The bake is submitted, never waited for (SkyboxRenderer::EnsureProceduralEnvironment),
-        // so a capture of this view waits on this instead of the main thread waiting on the GPU.
-        bool IsEnvironmentSettling() const;
+        // Whether this view has a sky light (SkyLightState): no sky at all, or a sky whose light is captured in
+        // the frame graph from the view's first frame. What tells a defined black ambient (no sky) from a fault.
+        [[nodiscard]] SkyLightState GetSkyLightState() const;
 
         // How far that rebuild has got, 0..1. Meaningless unless IsCloudVolumeBaking(); see
         // System::VolumetricCloudRenderer::ModellingBakeProgress for why the wait is worth a number.
@@ -874,6 +873,10 @@ namespace Desert::Graphic
         // into FrameTransients before any node is added; what is absent stays invalid (SceneViewInputsOf).
         void ImportSceneViewTextures( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures );
+        // The sky light, at the head of the graph: the atmosphere nodes that depend on the sky alone (the cached
+        // LUT pair, the distant sky light), then this frame's slice of the sky capture, which marches them. Before
+        // ImportSceneViewTextures, so the environment it imports is the one this frame's capture completed.
+        void AddFrameSkyLight( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );

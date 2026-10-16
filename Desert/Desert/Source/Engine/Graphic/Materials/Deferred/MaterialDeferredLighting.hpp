@@ -77,6 +77,9 @@ namespace Desert::Graphic
         ImageCube* Prefiltered = nullptr; // GGX-prefiltered radiance, roughness across mips
         Image2D*   BrdfLut     = nullptr; // split-sum BRDF integration (cosLo, roughness)
         SkyLook    Look{};                // how the two cubes are read (Environment::Look)
+        // Whether there is a sky light. NoSky makes the two absent cubes the defined answer (zero sky ambient);
+        // Ready promises them.
+        SkyLightState Sky = SkyLightState::NoSky;
 
         bool IsComplete() const
         {

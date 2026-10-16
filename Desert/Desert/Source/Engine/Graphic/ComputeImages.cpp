@@ -33,219 +33,6 @@ namespace Desert::Graphic
         return nullptr;
     }
 
-    std::shared_ptr<Image2D>
-    ComputeImages::BakeProceduralPanorama( GpuBatch& batch, uint32_t width, uint32_t height,
-                                           ShaderResources::StorageBuffer* skyParams, Image2D* transmittanceLut,
-                                           Image2D* multiScatterLut, const CloudBakeBinding& clouds )
-    {
-        // THE FOURTH CONSUMER OF THE CLOUD MEDIUM, and the reason the medium is a compile-time include
-        // rather than a generated program: this is the SKY's program — atmosphere and clouds in one
-        // panorama, needed by scenes with no cloud layer — so it can never become a pass of a cloud
-        // material, and yet the light it puts into the world has to come from the same clouds the camera
-        // sees. Compiling the same file under the layer's variant is what makes those two the same
-        // clouds; a second analytic dome beside them is the shape that produced the grey-clouds defect.
-        //
-        // The variant program is held only for the duration of this bake, which is what its lifetime
-        // should be: the batch retains it below, and lets go once the GPU has run the dispatch.
-        std::shared_ptr<Shader> shader;
-        if ( clouds.Medium && !clouds.Medium->IsDefault() )
-        {
-            shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "BakeProceduralSky",
-                                                                                    *clouds.Medium );
-            if ( !shader )
-            {
-                // Named, then the shipped program: an authored medium that will not compile must not take
-                // the scene's lighting away with it.
-                LOG_ERROR( "[Sky] the authored cloud medium could not be compiled into BakeProceduralSky "
-                           "— the panorama that lights this scene falls back to the shipped medium, so "
-                           "the world is lit by a different sky than the one on screen." );
-            }
-        }
-        if ( !shader )
-            shader = GetComputeShader( "BakeProceduralSky" );
-        if ( !shader || !skyParams )
-            return nullptr;
-
-        Core::Formats::Image2DSpecification outputInfo = {
-             .Tag        = "ProceduralSkyPanorama",
-             .Width      = width,
-             .Height     = height,
-             .Format     = Core::Formats::ImageFormat::RGBA32F,
-             .Mips       = 1u,
-             .Usage      = Core::Formats::Image2DUsage::Image2D,
-             .Properties = Core::Formats::Storage | Core::Formats::Sample,
-        };
-        auto output = Image2D::Create( outputInfo );
-        if ( !output )
-            return nullptr;
-
-        const auto built = ComputePipeline::Create( { .Shader = shader, .DebugName = "BakeProceduralSky" } );
-        if ( !built )
-        {
-            // The panorama that lights the scene is not baked, and the caller reads a null image as
-            // "no environment" — the same outcome the shader-missing branch above produces, said with
-            // the reason rather than by falling over.
-            LOG_ERROR( "[ComputeImages] the procedural sky panorama was not baked: {}", built.GetError() );
-            return nullptr;
-        }
-        const auto& pipeline = built.GetValue();
-
-        pipeline->SetOutput( 0, output.get(), 0 );
-        // The bake reads the sky through the same std430 block the screen pass does — no second hand-packed
-        // mirror to keep in step. The binding is passed EXPLICITLY here while the graphics path uses the
-        // buffer's own binding number, so the two must be the same constant or the descriptor aliases
-        // something else entirely (that failure is a validation error, not a wrong picture).
-        pipeline->SetStorageBuffer( kSkyPayloadBinding, skyParams );
-
-        // The physical model's march reads the cached atmosphere LUTs; the gradient model never
-        // samples these bindings, but a compute binding nobody writes gets NO descriptor write at all
-        // (VulkanPipelineCompute only writes m_BoundInputs) — bind the fallbacks so both branches of
-        // the shader are always backed by SOMETHING valid.
-        //
-        // RGBA32F because the fallback TABLE only holds RGBA8F and RGBA32F (VulkanFallbackTextures.cpp),
-        // and RGBA32F is what VulkanMaterialBackend already substitutes for a declared-but-unbound
-        // Sampled2D — the identical situation. Asking for the LUTs' own RGBA16F threw std::out_of_range
-        // out of that table and killed every gradient scene at the bake. The format is irrelevant here
-        // anyway: a sampled descriptor only needs a valid 2D view, and the branch that would read it is
-        // not taken.
-        auto& fallbacks = FallbackTextures::Get();
-        pipeline->SetInput( kSkyTransmittanceLutBinding,
-                            transmittanceLut
-                                 ? transmittanceLut
-                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
-                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        pipeline->SetInput( kSkyMultiScatterLutBinding,
-                            multiScatterLut
-                                 ? multiScatterLut
-                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
-                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-
-        // ---- THE CLOUD LAYER -------------------------------------------------------------------------
-        //
-        // EVERY ONE OF THESE IS WRITTEN ON EVERY PATH, whether the layer exists or not. A declared
-        // descriptor that nobody writes makes the set INVALID, and VulkanPipelineCompute answers an
-        // invalid set by returning without dispatching — so a scene with no clouds would come back with an
-        // uninitialised panorama and a black environment, and nothing anywhere would say why. The gate is
-        // the push constant below and nothing else.
-        //
-        // The parameter buffers are the SKY renderer's: the cloud renderer's own are per-frame resources
-        // written by the passes inside the frame, and this bake is issued before them.
-        auto* volumeFallback = fallbacks.GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get();
-
-        // THE TWO BLOCKS ARE BOUND WHETHER OR NOT THERE ARE CLOUDS, and that is the whole content of this
-        // branch. A cloudless scene — two of the repository's fifty-one, plus every asset thumbnail and
-        // every mesh preview — still has these two descriptors declared by the shader, so leaving them
-        // unwritten would invalidate the set and cost that scene its ENTIRE environment, not its clouds.
-        // The caller creates both at initialization and uploads to them on every path, so a null here is a
-        // failed allocation and not a state: it is the one case that has to be said out loud.
-        if ( clouds.Params && clouds.Authored )
-        {
-            pipeline->SetStorageBuffer( kSkyBakeCloudParamsBinding, clouds.Params );
-            pipeline->SetStorageBuffer( kSkyBakeCloudAuthoredBinding, clouds.Authored );
-        }
-        else
-        {
-            LOG_ERROR( "[SkyAtmosphere] The environment bake has no cloud parameter buffer to bind "
-                       "(params={}, authored={}). Both are created with the sky's own, so this is an "
-                       "allocation failure — the dispatch below will be skipped for an invalid descriptor "
-                       "set and the environment will come back black.",
-                       clouds.Params != nullptr, clouds.Authored != nullptr );
-        }
-
-        const bool cloudsBound = clouds.Marched && clouds.Params != nullptr && clouds.Authored != nullptr;
-
-        for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
-        {
-            Image3D* noise = cloudsBound ? clouds.Noise[slot] : nullptr;
-            pipeline->SetInput( kSkyBakeCloudNoiseBindings[slot], noise != nullptr ? noise : volumeFallback,
-                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        }
-
-        pipeline->SetInput( kSkyBakeCloudModellingBinding,
-                            cloudsBound && clouds.Modelling != nullptr ? clouds.Modelling : volumeFallback,
-                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        pipeline->SetInput( kSkyBakeCloudFarWeatherBinding,
-                            cloudsBound && clouds.FarWeather != nullptr
-                                 ? clouds.FarWeather
-                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
-                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        pipeline->SetInput( kSkyBakeCloudLayoutPatternBinding,
-                            cloudsBound && clouds.LayoutPattern != nullptr
-                                 ? clouds.LayoutPattern
-                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
-                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        pipeline->SetInput( kSkyBakeCloudLayoutMaskBinding,
-                            cloudsBound && clouds.LayoutMask != nullptr
-                                 ? clouds.LayoutMask
-                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
-                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        pipeline->SetInput( kSkyBakeCloudAuthoredAtlasBinding,
-                            cloudsBound && clouds.AuthoredAtlas != nullptr ? clouds.AuthoredAtlas : volumeFallback,
-                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        pipeline->SetInput( kSkyBakeCloudSkyOcclusionBinding,
-                            cloudsBound && clouds.SkyOcclusion && clouds.SkyOcclusionVolume
-                                 ? clouds.SkyOcclusionVolume
-                                 : volumeFallback,
-                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        pipeline->SetInput( kSkyBakeDistantSkyLightBinding,
-                            clouds.DistantSkyLight
-                                 ? clouds.DistantSkyLight
-                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
-                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-
-        // ---- THE AUTHORED MEDIUM'S OWN RESOURCES -----------------------------------------------------
-        //
-        // THE FOURTH BINDING SITE OF THE SAME TWO THINGS, and the one that is easiest to forget because it
-        // is in another renderer's file. A medium that reached the march, the shadow map and the occlusion
-        // volume but not this pass would light the world from a sky judged by a different tint than the one
-        // on screen — the grey-clouds shape, arriving through the IBL.
-        //
-        // BOUND ONLY WHEN THE MEDIUM DECLARES THEM, and "declares" is not a guess: the emitter writes a
-        // block only for properties its five functions read and a sampler only per Texture2D property, so
-        // a non-empty MediumValues/MediumImages here means the program above has exactly those slots. The
-        // gate is not `Marched`: this is the medium's own layout, which exists whether or not the layer is
-        // marching this frame.
-        if ( clouds.MediumParams )
-            pipeline->SetStorageBuffer( Core::kCloudMediumParamsBinding, clouds.MediumParams );
-
-        // EVERY DECLARED SLOT IS WRITTEN, fallback included, for the reason the whole cloud block above is:
-        // a declared sampler left unwritten invalidates the set and this pass answers that by not
-        // dispatching, which costs the scene its entire environment rather than its clouds.
-        for ( std::size_t slot = 0; slot < clouds.MediumImages.size(); ++slot )
-            pipeline->SetInput( Core::kCloudMediumTextureFirst + static_cast<uint32_t>( slot ),
-                                clouds.MediumImages[slot] != nullptr
-                                     ? clouds.MediumImages[slot]
-                                     : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
-                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-
-        // x marches, y reads the sky-occlusion volume, z is the aerial perspective's start depth, w applies
-        // the atmosphere's transmittance at each cloud sample's own altitude. The last three are ANDed with
-        // the buffers above for the reason the march's own gates are: a layer whose flag is on but whose
-        // resource was not written must fall back rather than read an image nobody filled.
-        //
-        // w IS ALSO ANDed WITH transmittanceLut, and that is not belt and braces. The cloud renderer raised
-        // it because the SKY published a LUT; this function is the last place that can see whether the LUT
-        // it is BINDING is that one or the fallback texture, and a fallback read as an atmosphere is a
-        // transmittance of whatever colour the fallback happens to be.
-        const bool perSampleSun = cloudsBound && clouds.PerSampleSunTransmittance && transmittanceLut != nullptr;
-
-        const glm::vec4 cloudPush{ cloudsBound ? 1.0f : 0.0f,
-                                   cloudsBound && clouds.SkyOcclusion && clouds.SkyOcclusionVolume ? 1.0f : 0.0f,
-                                   std::max( clouds.AerialStartDepthKm, 0.0f ), perSampleSun ? 1.0f : 0.0f };
-        pipeline->SetPushConstants( &cloudPush, static_cast<uint32_t>( sizeof( cloudPush ) ) );
-
-        // RECORDED, NOT DISPATCHED: the panorama is the first command of the same batch the three cubes
-        // descend from, so the whole sky bake is one submit the caller polls instead of a fence the main
-        // thread sleeps on (419 ms of a thumbnail renderer's creation was this wait). The batch keeps the
-        // transient pipeline and the variant program alive until the GPU is done with them.
-        pipeline->Record( batch, std::max( 1u, width / kComputeImagesWorkGroupSize ),
-                          std::max( 1u, height / kComputeImagesWorkGroupSize ), 1u );
-        batch.Retain( pipeline );
-        batch.Retain( shader );
-
-        return output;
-    }
-
     std::shared_ptr<ImageCube> ComputeImages::ProccessForImageCube( GpuBatch&                         batch,
                                                                     const ComputeImagesSpecification& spec )
     {
@@ -350,12 +137,15 @@ namespace Desert::Graphic
         // mip (Common/ReflectionCaptureMip.glslh, the engine's one ramp, which the lighting reads back).
         struct PrefilterPush
         {
-            uint32_t Mip    = 0u;
-            uint32_t MaxMip = 0u;
+            uint32_t Mip      = 0u;
+            uint32_t MaxMip   = 0u;
+            uint32_t RealTime = 0u; // PrefilterEnvMap's sample count: 0 = UE's reference 1024
         };
         for ( uint32_t mip = 0; mip < mips; ++mip )
         {
-            const PrefilterPush push{ mip, mips - 1u };
+            // UE's reference sample count: this bake is a function of the file alone and is cached on disk, so it
+            // is paid once (the sky capture, which runs per sky change, takes the real-time count).
+            const PrefilterPush push{ mip, mips - 1u, 0u };
             // Dispatch over the FACE size at this mip (the shader writes per-face and clamps to imageSize).
             const uint32_t mipSize   = std::max( 1u, faceSize >> mip );
             const uint32_t groups    = DispatchGroupCount( mipSize, kComputeImagesWorkGroupSize );
@@ -365,6 +155,47 @@ namespace Desert::Graphic
             pipeline->SetPushConstants( &push, sizeof( push ) );
             pipeline->Record( batch, groups, groups, 6u );
         }
+        batch.Retain( pipeline );
+
+        return output;
+    }
+
+    std::shared_ptr<ImageCube> ComputeImages::IntegrateIrradianceCube( GpuBatch&                         batch,
+                                                                       const ComputeImagesSpecification& spec,
+                                                                       uint32_t sourceMip )
+    {
+        const auto shader = GetComputeShader( spec.ShaderName );
+        if ( !shader )
+            return nullptr;
+
+        Core::Formats::ImageCubeSpecification outputInfo = {
+             .Tag        = spec.Tag,
+             .FaceSize   = spec.FaceSize,
+             .Format     = Core::Formats::ImageFormat::RGBA32F,
+             .Mips       = 1u,
+             .Properties = Core::Formats::Storage | Core::Formats::Sample,
+        };
+        auto output = SP_CAST( ImageCube, ImageCube::Create( outputInfo, nullptr ) );
+
+        Image* radiance = ResolveInput( spec.InputHandle );
+        if ( !radiance || !output )
+            return output;
+
+        const auto built = ComputePipeline::Create( { .Shader = shader, .DebugName = spec.Tag } );
+        if ( !built )
+        {
+            LOG_ERROR( "[ComputeImages] '{}' was not integrated: {}", spec.Tag, built.GetError() );
+            return output;
+        }
+        const auto& pipeline = built.GetValue();
+
+        // The source is ONE mip (the shader sums every texel of what it is given), the output's mip 0.
+        // SkyCaptureIrradiance's LocalSize is 8x8, not kComputeImagesWorkGroupSize.
+        constexpr uint32_t kIrradianceGroupSize = 8u;
+        pipeline->SetInput( 0, radiance, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( sourceMip ) );
+        pipeline->SetOutput( 1, output.get(), 0 );
+        const uint32_t groups = DispatchGroupCount( spec.FaceSize, kIrradianceGroupSize );
+        pipeline->Record( batch, groups, groups, 6u );
         batch.Retain( pipeline );
 
         return output;

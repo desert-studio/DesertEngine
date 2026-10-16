@@ -42,6 +42,7 @@ namespace Desert::Graphic
 {
     class SceneRenderer;
     class ReflectionCaptureRenderer;
+    class SceneSkyLight;
     // `struct` and not `class`: the definition in Graphic/Environment/SceneEnvironment.hpp uses struct, and the
     // Microsoft C++ ABI encodes the class-key into the decorated name, so the mismatch is a Windows-only link
     // error waiting for the day this forward declaration is the one a caller sees first.
@@ -549,6 +550,14 @@ namespace Desert::Core
             return *m_ReflectionCaptures;
         }
 
+        // THE SCENE'S SKY LIGHT (UE: FScene's SkyLight and its real-time capture): one capture of the procedural
+        // sky's light, shared by every view of this scene and every face view of its reflection captures. Renderer
+        // state cached on the scene, like the captures above; a view holds it weakly (SkyboxRenderer).
+        [[nodiscard]] std::weak_ptr<Graphic::SceneSkyLight> GetSkyLight() const
+        {
+            return m_SkyLight;
+        }
+
         // VIEW 0's CAMERA. Returned BY VALUE, not by reference: the camera lives in the view list now, and
         // a reference into a vector that AddView/RemoveView reallocate is a dangling reference waiting
         // for the second viewport. Every existing `GetMainCamera().lock()` reads the same.
@@ -665,6 +674,8 @@ namespace Desert::Core
 
         // See GetReflectionCaptures. Never null: made by both constructors.
         std::unique_ptr<Graphic::ReflectionCaptureRenderer> m_ReflectionCaptures;
+        // See GetSkyLight. Never null: made by both constructors. Shared so a view can hold it weakly.
+        std::shared_ptr<Graphic::SceneSkyLight> m_SkyLight;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)

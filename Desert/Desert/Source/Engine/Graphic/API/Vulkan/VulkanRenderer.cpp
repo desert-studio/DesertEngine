@@ -2,6 +2,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
+#include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <span>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
@@ -1486,6 +1487,47 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdCopyImage( commands.GetValue(), fromImage.GetValue()->GetImage(),
                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, toImage.GetValue()->GetImage(),
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::CopyGraphBufferToTexture( const RDG::PassContext& context,
+                                                                       const RDG::BufferRef    source,
+                                                                       const RDG::TextureRef   target )
+    {
+        const auto commands = VulkanRdgBackend::CommandBufferOf( context );
+        if ( !commands )
+            return Common::MakeError( commands.GetError() );
+        const auto from = context.GetBuffer( source, RDG::Access::CopySrc );
+        if ( !from )
+            return Common::MakeError( from.GetError() );
+        const auto to = context.GetTexture( target, RDG::Access::CopyDst );
+        if ( !to )
+            return Common::MakeError( to.GetError() );
+        const auto fromBuffer = VulkanRdgBackend::BufferOf( from.GetValue() );
+        if ( !fromBuffer )
+            return Common::MakeError( fromBuffer.GetError() );
+        const auto toImage = VulkanRdgBackend::TextureOf( to.GetValue() );
+        if ( !toImage )
+            return Common::MakeError( toImage.GetError() );
+
+        const RDG::TextureDesc& dst = *to.GetValue().Desc;
+        const uint64_t bytes = Core::Formats::CalculateImageSize( dst.Size.Width, dst.Size.Height, dst.Format );
+        if ( dst.Dim != RDG::TextureDim::Tex2D || dst.Samples != 1 || from.GetValue().Desc->Bytes < bytes )
+            return Common::MakeError( std::format(
+                 "CopyGraphBufferToTexture: '{}' ({} bytes) into '{}' ({}x{}, {} sample(s), {} bytes at mip 0); a "
+                 "texel upload needs a single-sample 2D target and a buffer holding all of its mip 0",
+                 from.GetValue().Name, from.GetValue().Desc->Bytes, to.GetValue().Name, dst.Size.Width,
+                 dst.Size.Height, dst.Samples, bytes ) );
+
+        // The graph's Copy node put the buffer in TRANSFER_READ and the texture in TRANSFER_DST.
+        VkBufferImageCopy region{};
+        region.bufferOffset      = 0;
+        region.bufferRowLength   = 0; // tightly packed
+        region.bufferImageHeight = 0;
+        region.imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+        region.imageExtent       = { dst.Size.Width, dst.Size.Height, 1 };
+        vkCmdCopyBufferToImage( commands.GetValue(), fromBuffer.GetValue()->GetBuffer(),
+                                toImage.GetValue()->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
         return BOOLSUCCESS;
     }
 

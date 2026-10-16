@@ -64,12 +64,13 @@ namespace Desert::Graphic
         RDG::TextureRef SceneShadingWord;
         RDG::TextureRef BackdropBlur;   // BackdropBlurRenderer pyramid (all mips) -> UI glass (Render2D)
         RDG::TextureRef HeightFog;      // HeightFogRenderer evaluation (RGBA16F) -> HeightFogApply
-        // The clouds' reconstruction pair written this frame (VolumetricCloudRenderer::GetFrameResult, imported:
-        // the ping-pong is the renderer's own); invalid when the frame has none   -> CloudComposite
+        // The clouds' reconstruction pair written this frame (VolumetricCloudRenderer::GetFrameResult: transients
+        // the view extracts as its history, SceneViewState::Clouds); invalid when the frame has none ->
+        // CloudComposite
         RDG::TextureRef CloudScatter;
         RDG::TextureRef CloudGuide;
-        // The cloud layer's shadow map (VolumetricCloudRenderer::GetShadowMap, imported: the renderer owns it),
-        // set once its shadow node was accepted; invalid when the frame has none   -> Deferred: Composite
+        // The cloud layer's shadow map (VolumetricCloudRenderer::GetShadowMap, a transient of this graph), set
+        // once its shadow node was accepted; invalid when the frame has none   -> Deferred: Composite
         RDG::TextureRef CloudShadowMap;
         // The view's velocity (ViewRasterTargets.hpp CreateViewVelocity): one per view graph, the colour slot
         // every depth-writing node on the scene target / G-buffer writes, never on a light view   -> TAA

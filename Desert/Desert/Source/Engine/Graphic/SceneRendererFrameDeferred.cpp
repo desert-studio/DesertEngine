@@ -598,6 +598,7 @@ namespace Desert::Graphic
         DeferredEnvironmentInput environment;
         {
             auto* imageService = Runtime::ResourceRegistry::GetImageService();
+            environment.Sky    = GetSkyLightState();
             if ( const auto& env = GetEnvironment(); env.has_value() )
             {
                 environment.Look = env->Look;

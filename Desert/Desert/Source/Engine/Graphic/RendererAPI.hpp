@@ -203,6 +203,13 @@ namespace Desert::Graphic
         virtual Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context,
                                                              RDG::TextureRef source, RDG::TextureRef target,
                                                              uint32_t targetLayer ) = 0;
+        // Copy the tightly packed texels of the graph buffer @p source into mip 0, layer 0 of the colour graph
+        // texture @p target, inside the exec of the Copy node @p context that declared @p source CopySrc and
+        // @p target CopyDst (UE: a texture upload recorded on the graph's command list; no submit, no wait). The
+        // buffer must hold at least Width x Height texels of the target's format, else refused and named.
+        virtual Common::BoolResultStr CopyGraphBufferToTexture( const RDG::PassContext& context,
+                                                                RDG::BufferRef          source,
+                                                                RDG::TextureRef         target ) = 0;
 
         virtual void                         ResizeWindowEvent( uint32_t width, uint32_t height ) = 0;
         virtual void                         WaitDeviceIdle()                                     = 0;

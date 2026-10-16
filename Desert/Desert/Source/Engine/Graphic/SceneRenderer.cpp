@@ -637,7 +637,7 @@ namespace Desert::Graphic
     {
         return SumViewTargets( ViewTargetCensus( m_ViewProfile, m_ViewExtent.Width, m_ViewExtent.Height ) )
                     .Total() +
-               m_ViewResources.HeldBytes() + m_ViewState.HeldBytes();
+               m_ViewResources.HeldBytes() + m_ViewState.HeldBytes() + m_ViewState.Clouds().HeldBytes();
     }
 
     std::vector<Engine::ViewBudget::HeldView> SceneRenderer::LiveHoldings()
@@ -714,6 +714,8 @@ namespace Desert::Graphic
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
 
         skyboxSystem->PrepareCamera( m_SceneInfo.ActiveCamera );
+        // The scene's one sky light: this view reads it, and captures it when it is the frame's first view.
+        skyboxSystem->SetSceneSkyLight( scene.GetSkyLight() );
 
         m_ScenePlaying = scene.IsPlaying(); // grid & other authoring aids hide while the game runs
         // The scene's extension passes, for AddExtensionPoint while OnUpdate builds this frame.
@@ -995,8 +997,8 @@ namespace Desert::Graphic
             colorIntensity.z *= transmittance.z;
         }
 
-        // Bake/rebake the procedural-sky IBL if the sun moved (throttled). Done here — before the render
-        // graph records its command buffer — so the heavy compute + device idle stays at a safe boundary.
+        // Decide whether the procedural sky's light is (re)captured this frame and allocate the capture, before
+        // the render graph is built: its passes are recorded by AddFrameSkyLight at the head of the graph.
         {
             DESERT_PROFILE_PASS( "Sky: EnsureProceduralEnv" );
             skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.RealTimestep.GetSeconds() );
@@ -1131,6 +1133,7 @@ namespace Desert::Graphic
             return;
         }
         FrameTextures textures( graph );
+        AddFrameSkyLight( graph, textures );
         ImportSceneViewTextures( graph, textures );
         // The reflection captures, before any lit node reads them (SceneViewInputs).
         if ( m_FrameReflectionCaptures )
@@ -1732,14 +1735,14 @@ namespace Desert::Graphic
         return clouds && clouds->IsModellingVolumeBaking();
     }
 
-    bool SceneRenderer::IsEnvironmentSettling() const
+    SkyLightState SceneRenderer::GetSkyLightState() const
     {
         const auto it = m_RenderSystems.find( "SkyboxSystem" );
         if ( it == m_RenderSystems.end() )
-            return false;
+            return SkyLightState::NoSky;
 
         const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
-        return ( sky != nullptr ) && sky->IsEnvironmentSettling();
+        return sky ? sky->GetSkyLightState() : SkyLightState::NoSky;
     }
 
     float SceneRenderer::CloudVolumeBakeProgress() const
@@ -2047,7 +2050,7 @@ namespace Desert::Graphic
 
         const CloudShadowMapView& view = clouds->GetShadowMapView();
 
-        cloudShadow.HasMap     = clouds->GetShadowMapImage() != nullptr;
+        cloudShadow.HasMap     = clouds->GetShadowMap().IsValid();
         cloudShadow.WorldToMap = view.WorldToMap;
         cloudShadow.FarDepthKm = view.FarDepthKm;
         cloudShadow.Strength   = clouds->GetShadowStrength();

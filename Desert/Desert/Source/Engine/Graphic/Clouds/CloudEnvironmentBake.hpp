@@ -8,6 +8,7 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace Desert::ShaderResources
@@ -30,7 +31,7 @@ namespace Desert::Graphic
      * argument list.
      *
      * TWO STRUCTS AND NOT ONE, because they describe different things: what the cloud renderer KNOWS
-     * (CloudEnvironmentBake — bytes and borrowed images) and what the bake pass BINDS
+     * (CloudEnvironmentBake — bytes and shared images) and what the bake pass BINDS
      * (CloudBakeBinding — device buffers the sky renderer filled with those bytes). Collapsing them would
      * force the cloud renderer to own a buffer for a dispatch it does not issue.
      */
@@ -70,9 +71,12 @@ namespace Desert::Graphic
     /**
      * This view's cloud field, prepared for a bake that runs OUTSIDE the frame.
      *
-     * Every image here is BORROWED — the cloud renderer (or, for the noise volumes and the hero-cloud
-     * atlas, a Runtime service) owns them, and the bake is a synchronous submit-and-wait that finishes
-     * before this struct goes out of scope.
+     * Every image here is SHARED, not borrowed: the cloud renderer (or, for the noise volumes and the
+     * hero-cloud atlas, a Runtime service) owns them, and the sky light's capture that marches them is
+     * time-sliced over many frames (SkyCapture), during which the cloud renderer may reallocate a volume
+     * (a modelling clipmap rebuilt at a new size, an occlusion volume recreated, a noise asset swapped).
+     * The capture keeps these references until its last slice is recorded, so it always marches the field
+     * it began with and never a freed image.
      */
     struct CloudEnvironmentBake
     {
@@ -108,13 +112,13 @@ namespace Desert::Graphic
         CloudGpuPayload      Params{};
         CloudAuthoredPayload Authored{};
 
-        Image3D* Noise[kCloudSpeciesSlots] = {};
-        Image3D* Modelling                 = nullptr;
-        Image2D* FarWeather                = nullptr; // the world weather map the remap reads
-        Image2D* LayoutPattern             = nullptr; // the painted layout the cut reads (WX-PAINT)
-        Image2D* LayoutMask                = nullptr;
-        Image3D* AuthoredAtlas             = nullptr; // null in every scene with no hero cloud
-        Image3D* SkyOcclusionVolume        = nullptr;
+        std::shared_ptr<Image3D> Noise[kCloudSpeciesSlots];
+        std::shared_ptr<Image3D> Modelling;
+        std::shared_ptr<Image2D> FarWeather;    // the world weather map the remap reads
+        std::shared_ptr<Image2D> LayoutPattern; // the painted layout the cut reads (WX-PAINT)
+        std::shared_ptr<Image2D> LayoutMask;
+        std::shared_ptr<Image3D> AuthoredAtlas; // null in every scene with no hero cloud
+        std::shared_ptr<Image3D> SkyOcclusionVolume;
 
         /// The compile-time substitution the three IN-FRAME cloud programs were compiled under, carried
         /// so the panorama that LIGHTS the scene is compiled under the same one.
@@ -132,14 +136,14 @@ namespace Desert::Graphic
         /// shipped medium and for any medium that exposes nothing, and the bake then binds no such
         /// descriptor, because the medium it is compiled with declares none.
         ///
-        /// COPIED WHERE THE IMAGES BELOW ARE BORROWED, and the asymmetry is the ownership: these bytes are
-        /// the cloud renderer's own per-frame resolve and would be overwritten before the bake ran.
+        /// COPIED, as the images below are shared: these bytes are the cloud renderer's own per-frame
+        /// resolve and would be overwritten before the capture's slices ran.
         std::vector<glm::vec4> MediumValues;
 
         /// The authored medium's images, one per declared slot, null where the material assigned nothing.
-        /// Borrowed like every image here; the bake substitutes a fallback for a null so that a declared
+        /// Shared like every image here; the bake substitutes a fallback for a null so that a declared
         /// sampler is never left unwritten.
-        std::vector<Image2D*> MediumImages;
+        std::vector<std::shared_ptr<Image2D>> MediumImages;
 
         /// What the panorama on the device was baked from, on the cloud side. See
         /// CloudEnvironmentFingerprint.
@@ -152,6 +156,12 @@ namespace Desert::Graphic
      * Params and Authored are the SKY renderer's buffers, filled from CloudEnvironmentBake's bytes: the
      * cloud renderer's own parameter buffer is a per-frame resource written by the passes inside the
      * frame, and the bake is issued before them.
+     *
+     * HELD FOR THE WHOLE CAPTURE. SkyCapture keeps this pack from Begin until its last slice is recorded
+     * (or the capture is abandoned): the buffers and images bound to the faces' pipeline route at Begin
+     * are read by every face slice after it, over many frames, so they are co-owned here -- a volume the
+     * cloud renderer reallocates mid-capture, or the beginning view's renderer (whose buffers Params,
+     * Authored and MediumParams are) going away, cannot free what a later slice reads.
      */
     struct CloudBakeBinding
     {
@@ -168,32 +178,32 @@ namespace Desert::Graphic
         /// into the aerial-perspective volume; the bake integrates the air itself and so has to be told.
         float AerialStartDepthKm = 0.0f;
 
-        ShaderResources::StorageBuffer* Params   = nullptr;
-        ShaderResources::StorageBuffer* Authored = nullptr;
+        std::shared_ptr<ShaderResources::StorageBuffer> Params;
+        std::shared_ptr<ShaderResources::StorageBuffer> Authored;
 
-        Image3D* Noise[kCloudSpeciesSlots] = {};
-        Image3D* Modelling                 = nullptr;
-        Image2D* FarWeather                = nullptr;
-        Image2D* LayoutPattern             = nullptr;
-        Image2D* LayoutMask                = nullptr;
-        Image3D* AuthoredAtlas             = nullptr;
-        Image3D* SkyOcclusionVolume        = nullptr;
-        Image2D* DistantSkyLight           = nullptr;
+        std::shared_ptr<Image3D> Noise[kCloudSpeciesSlots];
+        std::shared_ptr<Image3D> Modelling;
+        std::shared_ptr<Image2D> FarWeather;
+        std::shared_ptr<Image2D> LayoutPattern;
+        std::shared_ptr<Image2D> LayoutMask;
+        std::shared_ptr<Image3D> AuthoredAtlas;
+        std::shared_ptr<Image3D> SkyOcclusionVolume;
 
         /// The authored medium the bake's own program has to be compiled under — see
-        /// CloudEnvironmentBake::Medium. Borrowed like every image here; null and default both mean the
-        /// shipped medium, which is the same thing and needs no branch of its own.
+        /// CloudEnvironmentBake::Medium. Borrowed for the Begin call only (the faces' program is acquired
+        /// there and kept by the capture); SkyCapture clears it before it keeps the pack. Null and default
+        /// both mean the shipped medium, which is the same thing and needs no branch of its own.
         const Core::ShaderVariant* Medium = nullptr;
 
         /// The medium's own parameter block, on the SKY renderer's buffer for the reason Params and
         /// Authored are on it: the cloud renderer's copies are per-frame resources written by the passes
         /// inside the frame, and the bake is issued before them. Null when the medium declares no values,
         /// which is when its program declares no such block either — the two are the same fact.
-        ShaderResources::StorageBuffer* MediumParams = nullptr;
+        std::shared_ptr<ShaderResources::StorageBuffer> MediumParams;
 
         /// One entry per image slot the medium declares, null where the material assigned nothing. The
         /// COUNT is what the bake binds: a declared sampler left unwritten invalidates the descriptor set.
-        std::vector<Image2D*> MediumImages;
+        std::vector<std::shared_ptr<Image2D>> MediumImages;
     };
 
     // ---------------------------------------------------------------------------------------------------
@@ -216,6 +226,14 @@ namespace Desert::Graphic
      *   * THE MODELLING REGION'S ORIGIN, for the same reason and one more: it follows the CAMERA, snapped
      *     to the lump lattice, so a fingerprint that included it would idle the device every time a player
      *     walked three kilometres.
+     *   * THE FAR PATH'S STATISTICS (FarPresence / FarProfile), for the origin's reason: they are measured
+     *     over the coarsest clip level's WINDOW, which follows the camera, and recomputed every time that
+     *     level scrolls -- the same field over a shifted window, equal to the last bits of a float sum or
+     *     to the lattice's sampling noise. In the key they started a whole time-sliced recapture of the sky
+     *     light at every scroll (measured on Clouds_Protocol: the camera placed at the shot's start moved
+     *     the window by 47 m, FarProfile changed in its last bit, and 54 frames of capture followed for a
+     *     ground that moved 0.06 grey levels). What decides the field they describe -- the procedural
+     *     parameters -- reaches the key as @p shapeGeneration.
      *
      * What IS in it is everything else the march reads — density, extinction, albedo, the phase, the
      * multiple-scattering series, the fades, the four species' materials, the layer's envelope and the
@@ -276,6 +294,10 @@ namespace Desert::Graphic
             level.x = 0.0f;
             level.y = 0.0f;
         }
+        for ( glm::vec4& band : key.FarPresence )
+            band = glm::vec4( 0.0f );
+        for ( glm::vec4& band : key.FarProfile )
+            band = glm::vec4( 0.0f );
 
         // FNV-1a over the block's bytes. The block is packed to exactly 268 bytes with no padding (the
         // static_asserts in CloudPayload.hpp pin every offset), so there are no uninitialised holes for
