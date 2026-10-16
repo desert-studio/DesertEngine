@@ -31,6 +31,7 @@
 #include <ImGui/imgui.h>
 
 #include <filesystem>
+#include <format>
 #include <optional>
 
 namespace Desert::Editor
@@ -313,9 +314,9 @@ namespace Desert::Editor
         {
             const auto stage = static_cast<CloudStage>( i );
 
-            std::string label    = std::to_string( i + 1 ) + "  " + CloudStageName( stage );
+            std::string label    = std::format( "{}  {}", i + 1, CloudStageName( stage ) );
             const bool  selected = ( stage == m_Stage );
-            if ( ImGui::Selectable( ( label + "##stage" + std::to_string( i ) ).c_str(), selected,
+            if ( ImGui::Selectable( std::format( "{}##stage{}", label, i ).c_str(), selected,
                                     ImGuiSelectableFlags_None, ImVec2( 0.0f, 34.0f ) ) )
             {
                 m_Stage              = stage;
@@ -400,11 +401,9 @@ namespace Desert::Editor
             {
                 if ( i != 0 )
                     ImGui::SameLine();
-                const std::string label = IsNull( chain.CloudTypes[i] )
-                                               ? "Slot " + std::to_string( i + 1 ) + ": empty"
-                                               : AssetLabel( chain.CloudTypes[i] );
-                if ( ImGui::RadioButton( ( label + "##typeslot" + std::to_string( i ) ).c_str(),
-                                         m_TypeSlot == i ) )
+                const std::string label = IsNull( chain.CloudTypes[i] ) ? std::format( "Slot {}: empty", i + 1 )
+                                                                        : AssetLabel( chain.CloudTypes[i] );
+                if ( ImGui::RadioButton( std::format( "{}##typeslot{}", label, i ).c_str(), m_TypeSlot == i ) )
                 {
                     m_TypeSlot           = i;
                     m_Requested          = SubjectId{};
@@ -423,9 +422,8 @@ namespace Desert::Editor
             {
                 if ( i != 0 )
                     ImGui::SameLine();
-                if ( ImGui::RadioButton(
-                          ( chain.HeroBodies[i].EntityName + "##hero" + std::to_string( i ) ).c_str(),
-                          m_Hero == i ) )
+                if ( ImGui::RadioButton( std::format( "{}##hero{}", chain.HeroBodies[i].EntityName, i ).c_str(),
+                                         m_Hero == i ) )
                 {
                     m_Hero               = i;
                     m_Requested          = SubjectId{};

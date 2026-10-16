@@ -26,6 +26,8 @@
 #include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/PakFile.hpp>
 #include <Common/Utilities/PeImports.hpp>
+#include <Editor/Core/TextList.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 
 #ifdef _WIN32
 #define popen _popen
@@ -40,6 +42,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <span>
 #include <sstream>
@@ -491,39 +494,35 @@ namespace Desert::Editor
         if ( !gathered )
             return "The asset registry could not be gathered: " + gathered.GetError();
 
-        std::string text;
-        if ( !refused.empty() )
+        // Each non-empty list is one section: its count and what is wrong, then one indented line per item.
+        static const ::Desert::Core::TextTemplate kSection(
+             "PackagedRegistryProblems",
+             "{{ items | length }} {{ what }}:{% for item in items %}\n  {{ item }}{% endfor %}" );
+        std::vector<std::string> sections;
+        const auto               section = [&]( const std::vector<std::string>& items, std::string_view what )
         {
-            text = std::to_string( refused.size() ) +
-                   " content file(s) on the disk this package is built from could not enter the asset registry, "
-                   "so the packaged game could not load them:";
-            for ( const std::string& refusal : refused )
-                text += "\n  " + refusal;
-        }
+            if ( items.empty() )
+                return;
+            sections.push_back( kSection.RenderOrLog(
+                 Common::Json::Value( Common::Json::ObjectBuilder()
+                                           .Set( "items", TextTemplates::StringList( items ) )
+                                           .Set( "what", what )
+                                           .Build() ) ) );
+        };
+        section( refused, "content file(s) on the disk this package is built from could not enter the asset "
+                          "registry, so the packaged game could not load them" );
         // T2.7: a noise volume, hero-cloud body or painted layout is created from its row by GUID when a scene
         // names it, so one reachable only by its path would ship as a reference nothing can resolve. (Checked
         // here since AF8: the packager is the one writer of the shipped registry.)
         const std::vector<std::string> pathOnly =
              Common::Content::PathOnlyOnDemandRows( Assets::ContentRegistry::Get() );
-        if ( !pathOnly.empty() )
-        {
-            text += ( text.empty() ? "" : "\n" ) + std::to_string( pathOnly.size() ) +
-                    " on-demand content file(s) state no GUID, so the packaged game could not create them:";
-            for ( const std::string& problem : pathOnly )
-                text += "\n  " + problem;
-        }
+        section( pathOnly, "on-demand content file(s) state no GUID, so the packaged game could not create them" );
         // A mesh cooked before its header stated its box would ship a row without one, and the game's world
         // partition would place it by its origin alone. The packager does not decode meshes (the standalone
         // tool does not link the mesh reader), so it names them instead of shipping them boxless.
-        if ( !unboxed.empty() )
-        {
-            text += ( text.empty() ? "" : "\n" ) + std::to_string( unboxed.size() ) +
-                    " mesh(es) state no box in their header — re-cook them in the editor (Assets > Rebuild "
-                    "Cooked Assets) before packaging:";
-            for ( const std::string& key : unboxed )
-                text += "\n  " + key;
-        }
-        return text;
+        section( unboxed, "mesh(es) state no box in their header — re-cook them in the editor (Assets > Rebuild "
+                          "Cooked Assets) before packaging" );
+        return TextTemplates::JoinList( sections, "\n" );
     }
 
     namespace
@@ -571,8 +570,8 @@ namespace Desert::Editor
         Common::BoolResultStr Run( const std::string& command )
         {
             if ( const CommandOutput done = RunCaptured( command ); done.Status != 0 )
-                return Common::MakeError( "'" + command + "' failed (status " + std::to_string( done.Status ) +
-                                          "): " + done.Text );
+                return Common::MakeError(
+                     std::format( "'{}' failed (status {}): {}", command, done.Status, done.Text ) );
             return Common::MakeSuccess( true );
         }
 

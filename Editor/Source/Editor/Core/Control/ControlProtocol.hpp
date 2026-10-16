@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
+#include <Editor/Core/TextList.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -194,14 +195,7 @@ namespace Desert::Editor::Control
 
     [[nodiscard]] inline std::string KnownSubjectList()
     {
-        std::string list;
-        for ( const SubjectSpec& spec : kSubjects )
-        {
-            if ( !list.empty() )
-                list += ", ";
-            list += spec.Name;
-        }
-        return list;
+        return TextTemplates::JoinList( kSubjects, ", ", []( const SubjectSpec& spec ) { return spec.Name; } );
     }
 
     struct Request
@@ -255,14 +249,7 @@ namespace Desert::Editor::Control
     /// so an operation added above appears here without anyone remembering to add it.
     [[nodiscard]] inline std::string KnownOpList()
     {
-        std::string list;
-        for ( const OpSpec& spec : kOps )
-        {
-            if ( !list.empty() )
-                list += ", ";
-            list += spec.Name;
-        }
-        return list;
+        return TextTemplates::JoinList( kOps, ", ", []( const OpSpec& spec ) { return spec.Name; } );
     }
 
     namespace ProtocolDetail

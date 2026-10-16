@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <Editor/Core/AssetPickerRows.hpp>
 
 namespace Desert::Editor
@@ -826,9 +827,9 @@ namespace Desert::Editor
         profile.Components = 1;
         profile.Settable   = false;
         profile.NotSettableReason =
-             "'Profile' is a curve of " + std::to_string( Graphic::kCloudProfileSamples ) +
-             " samples - the cloud's own silhouette, dragged in the panel. This channel carries at most "
-             "four numbers, so it cannot express one.";
+             std::format( "'Profile' is a curve of {} samples - the cloud's own silhouette, dragged in the panel. "
+                          "This channel carries at most four numbers, so it cannot express one.",
+                          Graphic::kCloudProfileSamples );
         properties.push_back( std::move( profile ) );
 
         return properties;

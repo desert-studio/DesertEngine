@@ -82,8 +82,9 @@ namespace CrashReporter
         report.formatVersion = std::atoi( line.substr( magicLength ).c_str() );
         if ( report.formatVersion != 1 )
         {
-            report.error = "unsupported DESERTCRASH format version " + std::to_string( report.formatVersion ) +
-                           " (this reporter reads version 1): " + inSourcePath;
+            report.error =
+                 std::format( "unsupported DESERTCRASH format version {} (this reporter reads version 1): {}",
+                              report.formatVersion, inSourcePath );
             return report;
         }
 
@@ -207,10 +208,10 @@ namespace CrashReporter
         {
             // Not fatal: the summary is still worth showing. But it is named, with a count, because
             // a stack that quietly lost frames is the one thing a reader would trust wrongly.
-            report.error = std::to_string( garbledStackLines ) +
-                           " [stack] line(s) did not carry the five pipe-separated fields the format "
-                           "requires and were dropped: " +
-                           inSourcePath;
+            report.error =
+                 std::format( "{} [stack] line(s) did not carry the five pipe-separated fields the format "
+                              "requires and were dropped: {}",
+                              garbledStackLines, inSourcePath );
         }
 
         report.valid = true;

@@ -52,12 +52,14 @@
 
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/ByteText.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Units.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 
 #include <glm/trigonometric.hpp>
 
@@ -77,19 +79,36 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace Desert::Migration
 {
     namespace
     {
+        // A scene refused over a list, in one line: "'<scene>': [<count> <what>: ]<items, '; '-separated>.
+        // Nothing was written." From one template (text built from a list is a template, owner 10-16). A
+        // template that fails is logged at ERROR and its error becomes the refusal: the scene is still refused.
+        std::string RefusedOver( const std::string& scene, std::string_view what,
+                                 const std::vector<std::string>& items )
+        {
+            static const Core::TextTemplate kRefusal(
+                 "SceneRefusal", "'{{ scene }}': {% if what %}{{ items | length }} {{ what }}: {% endif %}"
+                                 "{{ items | join(\"; \") }}. Nothing was written." );
+            Common::Json::Value::Array list;
+            list.reserve( items.size() );
+            for ( const std::string& item : items )
+                list.emplace_back( item );
+            Common::Json::ObjectBuilder model;
+            model.Set( "scene", scene ).Set( "items", Common::Json::Value( std::move( list ) ) );
+            if ( !what.empty() )
+                model.Set( "what", what );
+            return kRefusal.RenderOrLog( Common::Json::Value( model.Build() ) );
+        }
+
         // A step that refused entities refuses the whole scene: one line naming the scene and every refusal.
         std::string RefusedWhole( const std::string& scene, const std::vector<std::string>& refusals )
         {
-            std::string text = std::format( "'{}': ", scene );
-            for ( size_t i = 0; i < refusals.size(); ++i )
-                std::format_to( std::back_inserter( text ), "{}{}", i == 0 ? "" : "; ", refusals[i] );
-            text += ". Nothing was written.";
-            return text;
+            return RefusedOver( scene, {}, refusals );
         }
 
         // The offending value, spelled out. A warning that says "wrong type" without saying WHAT was in
@@ -105,7 +124,7 @@ namespace Desert::Migration
             if ( const auto s = g.to_string(); s.has_value() )
                 return "\"" + s.value() + "\"";
             if ( const auto a = g.to_array(); a.has_value() )
-                return "an array of " + std::to_string( a.value().size() ) + " element(s)";
+                return std::format( "an array of {} element(s)", a.value().size() );
             if ( g.to_object().has_value() )
                 return "an object";
             return "null";
@@ -252,9 +271,8 @@ namespace Desert::Migration
                 continue;
             auto& overrides = *entity.PrefabOverrides;
             for ( std::size_t i = 0; i < overrides.size(); ++i )
-                RaisePathOnlyMeshGuids( overrides[i].Components,
-                                        tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot,
-                                        report );
+                RaisePathOnlyMeshGuids( overrides[i].Components, std::format( "{} > PrefabOverrides[{}]", tag, i ),
+                                        assetsRoot, report );
         }
         return report;
     }
@@ -369,7 +387,7 @@ namespace Desert::Migration
         for ( std::size_t i = 0; i < entities.size(); ++i )
         {
             auto&             entity = entities[i];
-            const std::string who    = "entity #" + std::to_string( i ) + " '" + entity.Tag.value_or( "" ) + "'";
+            const std::string who    = std::format( "entity #{} '{}'", i, entity.Tag.value_or( "" ) );
             settle( entity.Components, who );
             if ( !entity.PrefabOverrides )
                 continue;
@@ -1501,9 +1519,9 @@ namespace Desert::Migration
                 if ( !layer.has_value() || layer.value().get( "Guid" ).has_value() )
                     continue;
                 const auto name = layer.value().get( "Name" );
-                inline_layers.push_back( tag + " > Landscape.Layers[" + std::to_string( i ) + "] = '" +
-                                         ( name.has_value() ? name.value().to_string().value_or( "?" ) : "?" ) +
-                                         "'" );
+                inline_layers.push_back( std::format( "{} > Landscape.Layers[{}] = '{}'", tag, i,
+                                                      name.has_value() ? name.value().to_string().value_or( "?" )
+                                                                       : std::string( "?" ) ) );
             }
         };
         for ( const auto& entity : entities )
@@ -1514,7 +1532,7 @@ namespace Desert::Migration
                 continue;
             const auto& overrides = *entity.PrefabOverrides;
             for ( std::size_t i = 0; i < overrides.size(); ++i )
-                scan( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]" );
+                scan( overrides[i].Components, std::format( "{} > PrefabOverrides[{}]", tag, i ) );
         }
         return inline_layers;
     }
@@ -1631,12 +1649,11 @@ namespace Desert::Migration
 
                 std::string relative;
                 // One file per distinct set of numbers and mesh within this scene.
-                std::string dataKey = std::to_string( data.Density ) + "|" + std::to_string( scaleMin ) + "|" +
-                                      std::to_string( scaleMax ) + "|" + std::to_string( zMin ) + "|" +
-                                      std::to_string( zMax ) + "|" + std::to_string( data.RandomPitchAngle ) +
-                                      "|" + std::to_string( slopeMin ) + "|" + std::to_string( slopeMax ) + "|" +
-                                      ( data.AlignToNormal ? "1" : "0" ) + ( data.RandomYaw ? "1" : "0" ) + "|" +
-                                      data.Mesh.Guid;
+                // `{:f}` is std::to_string's fixed six decimals: the key is unchanged from the one it replaced.
+                std::string dataKey =
+                     std::format( "{:f}|{:f}|{:f}|{:f}|{:f}|{:f}|{:f}|{:f}|{}{}|{}", data.Density, scaleMin,
+                                  scaleMax, zMin, zMax, data.RandomPitchAngle, slopeMin, slopeMax,
+                                  data.AlignToNormal ? "1" : "0", data.RandomYaw ? "1" : "0", data.Mesh.Guid );
                 if ( const auto it = Minted.find( dataKey ); it != Minted.end() )
                     relative = it->second;
                 else
@@ -3206,7 +3223,7 @@ namespace Desert::Migration
                 continue;
             auto& overrides = *entity.PrefabOverrides;
             for ( std::size_t i = 0; i < overrides.size(); ++i )
-                writer.Raise( overrides[i].Components, tag + "_Override" + std::to_string( i ) );
+                writer.Raise( overrides[i].Components, std::format( "{}_Override{}", tag, i ) );
         }
         return report;
     }
@@ -3231,13 +3248,9 @@ namespace Desert::Migration
                 report.PathOnlyMeshGuids       = MigratePathOnlyMeshGuidsV31ToV32( entities, assetsRoot );
                 if ( !report.PathOnlyMeshGuids.UnknownNames.empty() )
                 {
-                    std::string names;
-                    for ( const auto& unknown : report.PathOnlyMeshGuids.UnknownNames )
-                        names += ( names.empty() ? "" : "; " ) + unknown;
-                    report.Refused = "'" + name +
-                                     "': " + std::to_string( report.PathOnlyMeshGuids.UnknownNames.size() ) +
-                                     " path-only mesh reference(s) cannot be given a header GUID: " + names +
-                                     ". Nothing was written.";
+                    report.Refused =
+                         RefusedOver( name, "path-only mesh reference(s) cannot be given a header GUID",
+                                      report.PathOnlyMeshGuids.UnknownNames );
                     return;
                 }
             }
@@ -3249,12 +3262,8 @@ namespace Desert::Migration
                 report.FoliageTypes       = MigrateInlineFoliageV32ToV33( entities, name, assetsRoot );
                 if ( !report.FoliageTypes.UnknownNames.empty() )
                 {
-                    std::string names;
-                    for ( const auto& unknown : report.FoliageTypes.UnknownNames )
-                        names += ( names.empty() ? "" : "; " ) + unknown;
-                    report.Refused =
-                         "'" + name + "': " + std::to_string( report.FoliageTypes.UnknownNames.size() ) +
-                         " Foliage block(s) cannot become a foliage type: " + names + ". Nothing was written.";
+                    report.Refused = RefusedOver( name, "Foliage block(s) cannot become a foliage type",
+                                                  report.FoliageTypes.UnknownNames );
                     return;
                 }
             }
@@ -3266,13 +3275,11 @@ namespace Desert::Migration
                 const auto inline_layers        = MigrateLandscapeLayerRefsV33ToV34( entities );
                 if ( !inline_layers.empty() )
                 {
-                    std::string names;
-                    for ( const auto& layer : inline_layers )
-                        names += ( names.empty() ? "" : "; " ) + layer;
-                    report.Refused = "'" + name + "': " + std::to_string( inline_layers.size() ) +
-                                     " inline landscape layer(s) must become .delayerinfo assets first (create "
-                                     "them in the Landscape panel and re-link): " +
-                                     names + ". Nothing was written.";
+                    report.Refused =
+                         RefusedOver( name,
+                                      "inline landscape layer(s) must become .delayerinfo assets first "
+                                      "(create them in the Landscape panel and re-link)",
+                                      inline_layers );
                     return;
                 }
             }
@@ -3436,9 +3443,9 @@ namespace Desert::Migration
         std::string RefuseGeneration( const char* what, int statedSceneVersion, int statedUnitVersion,
                                       const char* why )
         {
-            return std::string( "states " ) + what + " schema v" + std::to_string( statedSceneVersion ) +
-                   " / world units v" + std::to_string( statedUnitVersion ) + ", and this tool raises files to v" +
-                   std::to_string( kSceneVersion ) + "/v" + std::to_string( kUnitVersion ) + ". " + why;
+            return std::format(
+                 "states {} schema v{} / world units v{}, and this tool raises files to v{}/v{}. {}", what,
+                 statedSceneVersion, statedUnitVersion, kSceneVersion, kUnitVersion, why );
         }
     } // namespace
 
@@ -3695,11 +3702,11 @@ namespace Desert::Migration
                 continue; // not an instance, or already states all three
             const std::string& prefabPath = *record.PrefabPath;
 
-            const std::string site =
-                 ( record.id.has_value()
-                        ? "Entities[id=" + std::to_string( static_cast<uint64_t>( *record.id ) ) + "]"
-                        : std::string( "Entities[?]" ) ) +
-                 " > '" + prefabPath + "'";
+            const std::string site = std::format(
+                 "{} > '{}'",
+                 record.id.has_value() ? std::format( "Entities[id={}]", static_cast<uint64_t>( *record.id ) )
+                                       : std::string( "Entities[?]" ),
+                 prefabPath );
 
             const auto located = LocateMeshFile( prefabPath, assetsRoot );
             if ( !located )
@@ -3851,10 +3858,10 @@ namespace Desert::Migration
             report.InstanceTransforms       = MigrateInstanceTransformsV36ToV37( scene.Entities, assetsRoot );
             if ( !report.InstanceTransforms.UnknownNames.empty() )
             {
-                report.Refused = "'" + scene.SceneName +
-                                 "': " + std::to_string( report.InstanceTransforms.UnknownNames.size() ) +
-                                 " prefab instance(s) whose root transform cannot be stated: " +
-                                 report.InstanceTransforms.UnknownNames.front();
+                report.Refused =
+                     std::format( "'{}': {} prefab instance(s) whose root transform cannot be stated: {}",
+                                  scene.SceneName, report.InstanceTransforms.UnknownNames.size(),
+                                  report.InstanceTransforms.UnknownNames.front() );
                 return report; // unstamped, as every refusal
             }
         }

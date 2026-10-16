@@ -36,6 +36,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <system_error>
 
 #if defined( __APPLE__ ) || defined( __unix__ )
@@ -479,10 +480,10 @@ namespace Desert::Editor
         if ( !CommandExists( prefs.PhotogrammetryCommand ) )
         {
             const std::string tok = FirstToken( prefs.PhotogrammetryCommand );
-            m_Status              = "Reconstruction tool '";
-            m_Status += tok;
-            m_Status += "' is not installed / not on PATH. Install a photogrammetry tool (Meshroom, COLMAP, "
-                        "RealityCapture) and pick it in Reconstruction settings. Nothing was run.";
+            m_Status      = std::format( "Reconstruction tool '{}' is not installed / not on PATH. Install a "
+                                              "photogrammetry tool (Meshroom, COLMAP, RealityCapture) and pick "
+                                              "it in Reconstruction settings. Nothing was run.",
+                                         tok );
             m_StatusError = true;
             PushLog( "[preflight] '" + tok + "' not found — is it installed and on PATH?" );
             return;
@@ -511,9 +512,8 @@ namespace Desert::Editor
                 m_Status = "Reconstruction was cancelled.";
             else
             {
-                m_Status = "The external tool exited with code ";
-                m_Status += std::to_string( m_ExitCode.load() );
-                m_Status += ". See the log below.";
+                m_Status =
+                     std::format( "The external tool exited with code {}. See the log below.", m_ExitCode.load() );
             }
             m_StatusError = true;
             return;

@@ -39,6 +39,7 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <format>
 #include <functional>
 #include <optional>
 #include <limits>
@@ -1056,8 +1057,7 @@ namespace Desert::Editor::Tools
                 for ( std::size_t i = unique.size(); i < out.size(); ++i )
                 {
                     const auto& cell  = out[i].Cell;
-                    auto&       field = scene.CreateNewEntity( tag + "_" + std::to_string( cell.X ) + "_" +
-                                                               std::to_string( cell.Z ) );
+                    auto&       field = scene.CreateNewEntity( std::format( "{}_{}_{}", tag, cell.X, cell.Z ) );
                     // NOLINTNEXTLINE(bugprone-unchecked-optional-access) cellSize is set: only a scatter adds
                     // fields
                     field.GetComponent<ECS::TransformComponent>().Translation =

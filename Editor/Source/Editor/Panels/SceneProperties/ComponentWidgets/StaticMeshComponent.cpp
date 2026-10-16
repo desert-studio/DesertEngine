@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <format>
 #include <Editor/Core/AssetPickerRows.hpp>
 
 namespace Desert::Editor
@@ -336,9 +337,8 @@ namespace Desert::Editor
         for ( int i = 0; i < static_cast<int>( bones.size() ); ++i )
         {
             ImGui::PushID( i );
-            std::string label = std::string( ICON_MDI_BONE "  " ) + bones[i].Name;
-            if ( bones[i].Parent < 0 )
-                label += "   (root)";
+            const std::string label =
+                 std::format( ICON_MDI_BONE "  {}{}", bones[i].Name, bones[i].Parent < 0 ? "   (root)" : "" );
             if ( ImGui::Selectable( label.c_str(), i == sel ) )
                 RigBuilder::SelectBone( i );
             ImGui::PopID();

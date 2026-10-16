@@ -18,6 +18,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <filesystem>
+#include <format>
 
 #include <Editor/Panels/Animation/AnimGraphPanel.hpp>
 #include <Editor/Core/SubjectOpenRequest.hpp>
@@ -499,7 +500,7 @@ namespace Desert::Editor
         std::filesystem::path path;
         for ( int i = 0; i < 256; ++i )
         {
-            const std::string candidate = i == 0 ? stem : stem + std::to_string( i );
+            const std::string candidate = i == 0 ? stem : std::format( "{}{}", stem, i );
             path                        = Common::Constants::Path::ANIM_GRAPH_PATH /
                    ( candidate + std::string( Animation::Graph::kAnimGraphExtension ) );
             if ( !std::filesystem::exists( path ) )

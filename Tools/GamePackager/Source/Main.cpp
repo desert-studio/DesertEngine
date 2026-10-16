@@ -34,6 +34,7 @@
 #include <ToolMain.hpp>
 #include <ToolEngineDir.hpp>
 
+#include <Editor/Core/TextList.hpp>
 #include <Editor/Packaging/GamePackager.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
@@ -99,14 +100,7 @@ namespace
 
     std::string KnownConfigs()
     {
-        std::string all;
-        for ( const char* known : Desert::Editor::kPackageConfigs )
-        {
-            if ( !all.empty() )
-                all += ", ";
-            all += known;
-        }
-        return all;
+        return Desert::Editor::TextTemplates::JoinList( Desert::Editor::kPackageConfigs, ", " );
     }
 } // namespace
 

@@ -51,7 +51,7 @@ namespace Desert::Editor
         const std::filesystem::path root( Common::DDC::BucketDir( "Thumbnails" ) );
         if ( !std::filesystem::exists( root, ec ) )
             return;
-        const std::string keep = "v" + std::to_string( ThumbnailKey::CacheVersion() );
+        const std::string keep = std::format( "v{}", ThumbnailKey::CacheVersion() );
         for ( const auto& entry : std::filesystem::directory_iterator( root, ec ) )
         {
             if ( entry.is_directory( ec ) && entry.path().filename() == keep )

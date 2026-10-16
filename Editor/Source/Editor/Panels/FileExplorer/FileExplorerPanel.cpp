@@ -602,7 +602,7 @@ namespace Desert::Editor
                 {
                     while ( shown.size() > 1 && ImGui::CalcTextSize( ( shown + "..." ).c_str() ).x > cellW )
                         shown.pop_back();
-                    shown += "...";
+                    shown = std::format( "{}...", shown );
                 }
                 const float tw = ImGui::CalcTextSize( shown.c_str() ).x;
                 ImGui::SetCursorPosX( ImGui::GetCursorPosX() + std::max( 0.0f, ( cellW - tw ) * 0.5f ) );

@@ -55,6 +55,7 @@
 #include <iostream>
 #include <iterator>
 #include <set>
+#include <stdexcept>
 #include <utility>
 #include <optional>
 #include <sstream>
@@ -67,6 +68,25 @@ namespace fs = std::filesystem;
 
 namespace
 {
+    // "A::B::C" from its non-empty parts, through the template engine the generated code is rendered with. A
+    // template that fails is a defect of this tool: it throws, and the entry point names it on stderr.
+    std::string QualifiedName( const std::vector<std::string>& parts )
+    {
+        static const auto kQualified = Common::Text::Compile( "{{ parts | join(\"::\") }}", "QualifiedName" );
+        if ( !kQualified.IsSuccess() )
+            throw std::runtime_error( kQualified.GetError() );
+        Common::Json::Value::Array names;
+        for ( const std::string& part : parts )
+            if ( !part.empty() )
+                names.emplace_back( part );
+        const Common::Json::Value model(
+             Common::Json::ObjectBuilder().Set( "parts", Common::Json::Value( std::move( names ) ) ).Build() );
+        auto rendered = Common::Text::Render( kQualified.GetValue(), Common::Json::Root( model ) );
+        if ( !rendered.IsSuccess() )
+            throw std::runtime_error( rendered.GetError() );
+        return rendered.ExtractValue();
+    }
+
     using Desert::HeaderTool::ComponentBlock;
     using Desert::HeaderTool::ExtractStringLiteral;
     using Desert::HeaderTool::ParenIdent;
@@ -372,13 +392,11 @@ namespace
                         ++i;
                         EnumDef def;
                         def.shortName = name;
-                        std::string prefix;
+                        std::vector<std::string> parts;
                         for ( const auto& [n, d] : scopes )
-                        {
-                            if ( !prefix.empty() ) prefix += "::";
-                            prefix += n;
-                        }
-                        def.fqn = prefix.empty() ? name : prefix + "::" + name;
+                            parts.push_back( n );
+                        parts.push_back( name );
+                        def.fqn = QualifiedName( parts );
 
                         long long   running = 0;
                         std::string cur;
@@ -713,14 +731,10 @@ namespace
 
     std::string JoinScopes( const std::vector<Scope>& scopes )
     {
-        std::string fqn;
+        std::vector<std::string> parts;
         for ( const auto& s : scopes )
-        {
-            if ( s.name.empty() ) continue;
-            if ( !fqn.empty() ) fqn += "::";
-            fqn += s.name;
-        }
-        return fqn;
+            parts.push_back( s.name );
+        return QualifiedName( parts );
     }
 
     void ParseFile( const fs::path& file, const fs::path& sourceRoot, std::vector<ReflectedType>& out,
