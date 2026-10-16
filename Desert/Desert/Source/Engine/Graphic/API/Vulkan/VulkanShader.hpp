@@ -44,6 +44,7 @@ namespace Desert::Graphic::API::Vulkan
         GetStorageBufferModels() const override; // flattened per call; read once per ShaderResourcesManager
         virtual const std::vector<ShaderResources::ShaderLayout::ImageCubeSampler> GetUniformImageCubeModels() const override;
         virtual const std::vector<ShaderResources::ShaderLayout::Image2DSampler>   GetUniformImage2DModels() const override;
+        [[nodiscard]] bool SamplesTexture( std::string_view name ) const override;
 
         virtual const Common::Filepath& GetFilepath() const override
         {

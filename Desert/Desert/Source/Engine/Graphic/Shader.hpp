@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string_view>
 #include <Engine/Graphic/RendererTypes.hpp>
 #include <Engine/Core/Formats/Shader.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
@@ -63,6 +64,9 @@ namespace Desert::Graphic
         GetUniformImageCubeModels() const = 0;
         virtual const std::vector<ShaderResources::ShaderLayout::Image2DSampler>
                                         GetUniformImage2DModels() const = 0;
+        // Whether a stage reads a separate texture (texture2D / texture2DArray / textureCube ..., outside the bindless
+        // set) of this name: what a pass binds a scene/view input to (the shadow cascades, the scene depth).
+        [[nodiscard]] virtual bool SamplesTexture( std::string_view name ) const = 0;
         // The substitution this program was COMPILED under — the one thing about a Shader object that
         // its name and its file do not say, and the thing two objects of the same name differ by.
         virtual const ShaderVariant&    GetVariant() const              = 0;

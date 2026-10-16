@@ -522,7 +522,7 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::ReadsSunShadowRayTraced( const Shader& shader, const bool opaque )
     {
-        return opaque && SceneViewDetail::Reflects2D( shader, kSceneViewShadowCascadesName );
+        return opaque && shader.SamplesTexture( kSceneViewShadowCascadesName );
     }
 
     bool MeshRenderer::SunCascadeReadersQueued() const
@@ -550,7 +550,7 @@ namespace Desert::Graphic::System
                 continue;
             const auto& state  = shader->GetProgramMeta().State;
             const bool  opaque = !state.Blend.value_or( false ) && state.DepthWrite.value_or( true );
-            if ( !opaque && SceneViewDetail::Reflects2D( *shader, kSceneViewShadowCascadesName ) )
+            if ( !opaque && shader->SamplesTexture( kSceneViewShadowCascadesName ) )
                 return true;
         }
         return false;

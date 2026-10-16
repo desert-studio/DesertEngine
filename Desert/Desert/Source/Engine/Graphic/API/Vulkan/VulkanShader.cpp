@@ -329,6 +329,15 @@ namespace Desert::Graphic::API::Vulkan
              m_ReflectionData, ShaderResources::ShaderLayout::SampledImageDimension::Cube );
     }
 
+    bool VulkanShader::SamplesTexture( const std::string_view name ) const
+    {
+        for ( const auto& [set, dSet] : m_ReflectionData.ShaderDescriptorSets )
+            for ( const auto& [binding, image] : dSet.SampledImages )
+                if ( image.Name == name )
+                    return true;
+        return false;
+    }
+
     const std::vector<ShaderResources::ShaderLayout::Image2DSampler> VulkanShader::GetUniformImage2DModels() const
     {
         return TextureModels<ShaderResources::ShaderLayout::Image2DSampler>(

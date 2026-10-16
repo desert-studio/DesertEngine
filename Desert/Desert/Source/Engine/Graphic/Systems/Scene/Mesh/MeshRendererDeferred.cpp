@@ -212,11 +212,15 @@ namespace Desert::Graphic::System
             const auto skinned              = m_SceneRenderer->GetPipelineCache().GetOrCreate( sspec );
             m_SkinnedGBufferUnownedMaterial = CreateCellMaterial( MeshVertexPath::Skinned, MeshPass::GBuffer );
             if ( !skinned )
+            {
                 LOG_ERROR( "[MeshRenderer] skinned meshes will not be drawn while the scene renders deferred: {}",
                            skinned.GetError() );
+            }
             else if ( !m_SkinnedGBufferUnownedMaterial )
+            {
                 LOG_ERROR( "[MeshRenderer] skinned meshes will not be drawn while the scene renders deferred: "
                            "the (Skinned x GBuffer) cell material was refused." );
+            }
             else
                 m_SkinnedGBufferPipeline = skinned.GetValue();
         }
