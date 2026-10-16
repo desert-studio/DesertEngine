@@ -664,6 +664,10 @@ namespace Desert::Graphic
                                                     const RDG::TextureRef array, const uint32_t forcedCube,
                                                     const ReflectionCaptureLighting& lighting )
     {
+        // The sky's irradiance answers everywhere and at once: a cube written under it is measured when written,
+        // and a re-measure would store the same value. Only the radiance cache can owe one.
+        if ( forcedCube == kNoCapture && !lighting.RadianceCache )
+            return;
         // The written cubes (a cube nothing captured is black and never read: its diffuse means nothing).
         std::vector<DiffusePointGpu> points;
         for ( const ReflectionCaptureEntry& capture : m_Captures )
