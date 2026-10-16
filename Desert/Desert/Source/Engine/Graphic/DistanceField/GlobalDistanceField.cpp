@@ -497,10 +497,10 @@ namespace Desert::Graphic::DistanceField
             return Common::MakeError<bool>( "near-field grid: the mesh fields of this frame were not imported" );
 
         constexpr uint32_t kPixels   = static_cast<uint32_t>( DFShared::DF_MESH_SDF_GRID_PIXEL_SIZE );
-        constexpr float    kLogScale = DFShared::DF_MESH_SDF_GRID_LOG_Z_SCALE;
-        constexpr float    kLogBias  = DFShared::DF_MESH_SDF_GRID_LOG_Z_OFFSET;
-        constexpr float    kZScale   = DFShared::DF_MESH_SDF_GRID_Z_SCALE;
-        constexpr float    kMaxDepth = DFShared::DF_MESH_SDF_GRID_MAX_DISTANCE;
+        const float        kLogScale = DFShared::DF_MESH_SDF_GRID_LOG_Z_SCALE;
+        const float        kLogBias  = DFShared::DF_MESH_SDF_GRID_LOG_Z_OFFSET;
+        const float        kZScale   = DFShared::DF_MESH_SDF_GRID_Z_SCALE;
+        const float        kMaxDepth = DFShared::DF_MESH_SDF_GRID_MAX_DISTANCE;
         constexpr uint32_t kStride = 1u + static_cast<uint32_t>( DFShared::DF_MESH_SDF_GRID_MAX_OBJECTS_PER_CELL );
         const uint32_t     slices =
              static_cast<uint32_t>( std::floor( std::log2( kMaxDepth * kLogScale + kLogBias ) * kZScale ) ) + 1u;
@@ -526,9 +526,11 @@ namespace Desert::Graphic::DistanceField
         const RDG::BufferRef params =
              graph.CreateBuffer( RDG::BufferDesc{ sizeof( cull ) }, "DistanceField.NearField.CullParams" );
         graph.QueueBufferUpload( params, std::as_bytes( std::span( &cull, 1 ) ) );
-        const RDG::BufferRef culled =
-             graph.CreateBuffer( RDG::BufferDesc{ ( 1ull + std::max( fields.NumObjects, 1u ) ) * 4ull },
-                                 "DistanceField.NearField.Culled" );
+        // The candidates' count starts at 0 (the cull appends through it).
+        const std::vector<uint32_t> culledInitial( 1u + std::max( fields.NumObjects, 1u ), 0u );
+        const RDG::BufferRef        culled = graph.CreateBuffer( RDG::BufferDesc{ culledInitial.size() * 4ull },
+                                                                 "DistanceField.NearField.Culled" );
+        graph.QueueBufferUpload( culled, std::as_bytes( std::span( culledInitial ) ) );
         const RDG::BufferRef grid = graph.CreateBuffer( RDG::BufferDesc{ uint64_t{ total } * kStride * 4ull },
                                                         "DistanceField.NearField.Grid" );
 
@@ -536,6 +538,7 @@ namespace Desert::Graphic::DistanceField
         constexpr RDG::Access kW = RDG::Access::StorageWrite;
         {
             ComputePipeline* const pipeline = m_CullObjectsPipeline.get();
+            const uint32_t         groups   = std::max( ( fields.NumObjects + 63u ) / 64u, 1u );
             graph.AddPass(
                  std::format( "DistanceField: Near-field cull ({} objects)", fields.NumObjects ),
                  RDG::PassFlags::Compute,
@@ -548,10 +551,10 @@ namespace Desert::Graphic::DistanceField
                           .Storage( "DFAssetData", fields.Assets, kR )
                           .Storage( "MeshSDFCulledObjectsUB", culled, kW );
                  },
-                 [pipeline]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     return Renderer::DispatchCompute( bindings, *pipeline, 1u, 1u, 1u );
+                     return Renderer::DispatchCompute( bindings, *pipeline, groups, 1u, 1u );
                  } );
         }
         {

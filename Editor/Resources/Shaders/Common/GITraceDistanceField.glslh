@@ -54,8 +54,11 @@ float GIMeshObjectVoxel( uint objectIndex )
 // expansion catches it. FOLIAGE (DF_OBJECT_FLAG_MOSTLY_TWO_SIDED, UE bMostlyTwoSided) stops a GI gather ray
 // (@p ditheredTransparency, UE bDitheredTransparency) at each sheet it enters with the global field's per-step
 // chance GDF_DITHERED_TRANSPARENCY_STEP_THRESHOLD, and steps through the sheet otherwise; a shadow ray stops on it.
+// A gather ray is a cone (@p tanConeAngle): in foliage its band is at least the cone's radius at t, so the leaves the
+// cone cannot tell apart are one sheet to it - entered once, stepped through at the cone's pace (cone tracing's
+// sample radius) rather than at the finest voxel's, which made a crown cost up to the step cap per leaf object.
 bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tStart, inout float tEnd,
-                        bool ditheredTransparency, uint seed, inout vec3 normal )
+                        bool ditheredTransparency, float tanConeAngle, uint seed, inout vec3 normal )
 {
     const uint base = objectIndex * uint( DF_OBJECT_STRIDE );
     const vec4 r0          = u_DFObjects[base + 0u];
@@ -97,7 +100,8 @@ bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tSt
     {
         const vec3  v        = clamp( vo + vd * t, -extent, extent );
         const float distance = DistanceToMeshSurfaceStandalone( v, assetIndex ) * volumeToWorld;
-        const bool  inBand   = distance < expand;
+        const float band     = foliage && ditheredTransparency ? max( expand, t * tanConeAngle ) : expand;
+        const bool  inBand   = distance < band;
         if ( inBand && ( !foliage || !ditheredTransparency ||
                          ( !previousInBand && GlobalDistanceFieldStepNoise( objectSeed, step ) <=
                                                   GDF_DITHERED_TRANSPARENCY_STEP_THRESHOLD ) ) )
@@ -116,7 +120,7 @@ bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tSt
         }
         previousInBand = inBand;
         // Through a sheet the ray passed: at least half the band per step, so it leaves the sheet in two.
-        t += max( abs( distance ), expand );
+        t += max( abs( distance ), band );
     }
     return false;
 }
@@ -145,10 +149,11 @@ GITraceResult GITraceRay( GITraceInput ray )
         vec3       normal = -ray.direction;
         bool       hit    = false;
         const uint first  = uint( list );
+        const float tanCone = tan( ray.coneAngle );
         const uint count  = giTracerMeshSDFGridCells[first];
         for ( uint i = 0u; i < count; ++i )
             hit = GITraceMeshObject( giTracerMeshSDFGridCells[first + 1u + i], ray.origin, ray.direction, ray.tMin,
-                                     tHit, dithered, seed, normal ) || hit;
+                                     tHit, dithered, tanCone, seed, normal ) || hit;
         if ( hit )
         {
             result.hit                  = true;
