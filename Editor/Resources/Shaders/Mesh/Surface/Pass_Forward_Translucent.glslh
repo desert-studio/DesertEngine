@@ -116,7 +116,7 @@ void main()
 
     // The reflection at grazing edges, of clear glass (a mirror: roughness 0, which a capture never normalises);
     // Fresnel mixes refraction (centre) into reflection (edge).
-    const DesertSurface surface = DesertMakeSurface( i.WorldPosition, N, V, s.BaseColor, 0.0, 0.0 );
+    const DesertSurface surface = DesertMakeSurface( i.WorldPosition, N, V, s.BaseColor, 0.0, 0.0, s.Specular );
     const vec3          envRefl = DesertSampleViewAmbient( surface, 1.0, gl_FragCoord.xy ).Prefiltered;
 
     oColor = vec4( mix( refracted, envRefl, fresnel ) + vec3( spec ) + s.Emissive, 1.0 );
