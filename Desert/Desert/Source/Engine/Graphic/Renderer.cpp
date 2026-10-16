@@ -251,6 +251,13 @@ namespace Desert::Graphic
         return s_RendererAPI->CopyGraphDepthToLayer( context, source, target, targetLayer );
     }
 
+    Common::BoolResultStr Renderer::CopyGraphBufferToTexture( const RDG::PassContext& context,
+                                                              const RDG::BufferRef    source,
+                                                              const RDG::TextureRef   target )
+    {
+        return s_RendererAPI->CopyGraphBufferToTexture( context, source, target );
+    }
+
     void Renderer::SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height )
     {
         s_RendererAPI->SetScissor( x, y, width, height );

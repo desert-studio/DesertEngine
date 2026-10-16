@@ -221,6 +221,13 @@ namespace Desert::Graphic::RDG
         // or a size that is not a multiple of 4 bytes (the transfer granularity every GPU API shares).
         void QueueBufferUpload( BufferRef buffer, std::span<const std::byte> bytes );
 
+        // The AddPass index the next AddPass gets: the index ExecuteReport::FaultCulled names that pass by, for an
+        // owner that must know after Execute whether its writer survived (a history it extracts).
+        [[nodiscard]] uint32_t GetPassCount() const
+        {
+            return static_cast<uint32_t>( m_Passes.size() );
+        }
+
         template <class Setup, class Exec>
         void AddPass( std::string_view name, PassFlags flags, Setup&& setup, Exec&& exec )
         {

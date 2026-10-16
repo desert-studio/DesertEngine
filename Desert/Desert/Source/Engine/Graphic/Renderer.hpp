@@ -153,6 +153,9 @@ namespace Desert::Graphic
         static Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context,
                                                             RDG::TextureRef source, RDG::TextureRef target,
                                                             uint32_t targetLayer );
+        // RendererAPI::CopyGraphBufferToTexture: a graph buffer's packed texels into mip 0 of a graph texture.
+        static Common::BoolResultStr CopyGraphBufferToTexture( const RDG::PassContext& context,
+                                                               RDG::BufferRef source, RDG::TextureRef target );
 
         // Set the scissor rect (framebuffer px, top-left origin). Used by the 2D batcher for UI clipping.
         void SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height );

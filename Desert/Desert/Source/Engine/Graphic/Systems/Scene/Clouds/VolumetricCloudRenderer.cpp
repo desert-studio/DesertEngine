@@ -12,6 +12,7 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RenderConfig.hpp> // GlobalTextureFilterSampler, VolumeSampler
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/SceneRendererFrame.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/JobSystem.hpp>
@@ -752,59 +753,6 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    bool VolumetricCloudRenderer::EnsureShadowMap( uint32_t resolution )
-    {
-        if ( m_ShadowMapFailed )
-            return false;
-
-        const float scale = CloudQualityFor( m_Quality ).ShadowMapScale;
-        if ( m_ShadowMapImage && m_ShadowMapScaleInUse == scale )
-            return true;
-
-        // ALLOCATED ON THE FIRST FRAME THE LAYER ACTUALLY CASTS, and reallocated only when the QUALITY
-        // TIER changes its size — never when the viewport does. That distinction is the whole reason this
-        // is not part of EnsureTraceTargets: the six trace targets ARE the view's size and a resize must
-        // throw them away, while this map is a world-space quantity and a resize must leave it standing.
-        //
-        // The old image may still be referenced by descriptors of frames in flight, exactly as in
-        // EnsureTraceTargets, so the device is idled before it is dropped. A tier switch is a rare,
-        // human-initiated event; paying a full idle for it is the cheap answer and the safe one.
-        if ( m_ShadowMapImage )
-            Renderer::GetInstance().WaitDeviceIdle();
-
-        const Core::Formats::Image2DSpecification spec{
-             .Tag        = "CloudShadowMap",
-             .Width      = resolution,
-             .Height     = resolution,
-             .Format     = Core::Formats::ImageFormat::RGBA32F,
-             .Mips       = 1u,
-             .Usage      = Core::Formats::Image2DUsage::Image2D,
-             .Properties = Core::Formats::Storage | Core::Formats::Sample,
-        };
-
-        m_ShadowMapImage = Image2D::Create( spec );
-        if ( !m_ShadowMapImage )
-        {
-            LOG_ERROR( "[Clouds] The {}x{} RGBA32F cloud shadow map could not be created on the device; "
-                       "the clouds will not shade the world for this view.",
-                       resolution, resolution );
-            m_ShadowMapFailed = true;
-            return false;
-        }
-
-        m_ShadowMapScaleInUse = scale;
-
-        const float extentKm = CloudShadowExtentKmForScale( scale );
-        LOG_INFO( "[Clouds] Cloud shadow map {}x{} RGBA32F ({:.2f} MiB) — {:.0f} km across the world, "
-                  "{:.1f} m per texel, snapped to a {:.0f} km grid, quality scale {:.2f}.",
-                  resolution, resolution,
-                  BytesToMiB( Core::Formats::CalculateImageSize( resolution, resolution,
-                                                                 Core::Formats::ImageFormat::RGBA32F ) ),
-                  2.0f * extentKm, 2.0f * extentKm * 1000.0f / static_cast<float>( resolution ),
-                  CloudShadowSnapKmForScale( scale ), scale );
-        return true;
-    }
-
     float VolumetricCloudRenderer::GetShadowStrength() const
     {
         // ZERO WHEN THE LAYER IS NOT CASTING, so a consumer that reads only this number cannot light the
@@ -857,35 +805,35 @@ namespace Desert::Graphic::System
         const uint32_t seed   = Assets::CloudFarWeatherSeed( m_ModellingParams );
         const float    tileKm = m_ModellingParams.PatchTileKm;
 
-        if ( m_FarWeatherMap && m_FarWeatherSeed == seed && m_FarWeatherTileKm == tileKm )
+        if ( m_FarWeatherMap && !m_FarWeatherStale && m_FarWeatherSeed == seed && m_FarWeatherTileKm == tileKm )
             return true;
 
         const std::vector<float> weather = Assets::BakeCloudFarWeatherMap( seed, tileKm );
 
         // RGBA16F WITH W IN .r: a half keeps W (|W| < 5) to 2e-3, a thousandth of the weather map W's sensitivity
         // band, and is filterable on every device this engine targets where R32F is not.
-        std::vector<unsigned char> texels( weather.size() * 4u * sizeof( uint16_t ), 0u );
+        std::vector<std::byte> texels( weather.size() * 4u * sizeof( uint16_t ), std::byte{ 0 } );
         for ( size_t i = 0; i < weather.size(); ++i )
         {
             const uint16_t half = static_cast<uint16_t>( glm::packHalf1x16( weather[i] ) );
             std::memcpy( texels.data() + i * 4u * sizeof( uint16_t ), &half, sizeof( half ) );
         }
 
+        // CREATED EMPTY: the texels reach it on the frame graph (AddInputUploads), recorded on the frame's own
+        // command buffer, so a seed change costs no submit-and-wait.
         const Core::Formats::Image2DSpecification spec{
              .Tag    = "CloudFarWeatherMap",
              .Width  = Assets::kCloudFarWeatherMapSide,
              .Height = Assets::kCloudFarWeatherMapSide,
              .Format = Core::Formats::ImageFormat::RGBA16F,
-             .Data   = std::move( texels ),
              .Usage  = Core::Formats::Image2DUsage::Image2D,
              // LINEAR ALWAYS: the weather map reads W between texels (1.95 km apart); under the user's "Nearest"
              // the cut would follow texel-block edges — straight walls in the sky.
              .Properties = Core::Formats::Sample | Core::Formats::AlgorithmicLinear,
         };
 
-        if ( m_FarWeatherMap )
-            Renderer::GetInstance().WaitDeviceIdle();
-
+        // NO DEVICE IDLE before dropping the old map: the allocator defers an image's destruction by frame index
+        // (VulkanAllocator::RT_DestroyImage), and a sky capture still marching it co-owns it (CloudBakeBinding).
         m_FarWeatherMap = Image2D::Create( spec );
         if ( !m_FarWeatherMap )
         {
@@ -897,6 +845,11 @@ namespace Desert::Graphic::System
 
         m_FarWeatherSeed   = seed;
         m_FarWeatherTileKm = tileKm;
+        m_FarWeatherStale  = false;
+        std::erase_if( m_PendingUploads, []( const PendingUpload& upload )
+                       { return std::string_view( upload.Name ) == "Clouds.FarWeather"; } );
+        m_PendingUploads.push_back(
+             PendingUpload{ m_FarWeatherMap, std::move( texels ), "Clouds.FarWeather", &m_FarWeatherStale } );
         return true;
     }
 
@@ -911,18 +864,18 @@ namespace Desert::Graphic::System
         const uint32_t                 patternHash = hasPattern ? pattern->ContentHash : 0u;
         const uint32_t                 maskHash    = hasMask ? mask->ContentHash : 0u;
 
-        if ( m_LayoutPatternTexture && m_LayoutMaskTexture && m_LayoutPatternHash == patternHash &&
-             m_LayoutMaskHash == maskHash )
+        if ( m_LayoutPatternTexture && m_LayoutMaskTexture && !m_LayoutStale &&
+             m_LayoutPatternHash == patternHash && m_LayoutMaskHash == maskHash )
             return true;
 
-        const auto upload = []( const char* tag, uint32_t side, std::vector<unsigned char> texels )
+        // CREATED EMPTY, like the weather map: the texels reach them on the frame graph (AddInputUploads).
+        const auto create = []( const char* tag, uint32_t side )
         {
             const Core::Formats::Image2DSpecification spec{
                  .Tag    = tag,
                  .Width  = side,
                  .Height = side,
                  .Format = Core::Formats::ImageFormat::RGBA8F,
-                 .Data   = std::move( texels ),
                  .Usage  = Core::Formats::Image2DUsage::Image2D,
                  // LINEAR ALWAYS and REPEAT: the CPU's BilinearWrapped is exactly this filter, and the
                  // painting tiles the region by construction.
@@ -944,13 +897,9 @@ namespace Desert::Graphic::System
         else
             maskTexels = { Assets::kCloudLayoutMaskNeutral, 0u, 0u, 0u };
 
-        if ( m_LayoutPatternTexture || m_LayoutMaskTexture )
-            Renderer::GetInstance().WaitDeviceIdle();
-
-        m_LayoutPatternTexture =
-             upload( "CloudLayoutPattern", hasPattern ? pattern->Resolution : 1u, std::move( patternTexels ) );
-        m_LayoutMaskTexture =
-             upload( "CloudLayoutMask", hasMask ? mask->Resolution : 1u, std::move( maskTexels ) );
+        // No device idle, for the reason EnsureFarWeatherMap gives.
+        m_LayoutPatternTexture = create( "CloudLayoutPattern", hasPattern ? pattern->Resolution : 1u );
+        m_LayoutMaskTexture    = create( "CloudLayoutMask", hasMask ? mask->Resolution : 1u );
         if ( !m_LayoutPatternTexture || !m_LayoutMaskTexture )
         {
             LOG_ERROR( "[Clouds] The painted layout's textures could not be created on the device; the clouds "
@@ -960,6 +909,23 @@ namespace Desert::Graphic::System
 
         m_LayoutPatternHash = patternHash;
         m_LayoutMaskHash    = maskHash;
+        m_LayoutStale       = false;
+        const auto bytes    = []( const std::vector<unsigned char>& texels )
+        {
+            std::vector<std::byte> out( texels.size() );
+            std::memcpy( out.data(), texels.data(), texels.size() );
+            return out;
+        };
+        std::erase_if( m_PendingUploads,
+                       []( const PendingUpload& upload )
+                       {
+                           const std::string_view name( upload.Name );
+                           return name == "Clouds.LayoutPattern" || name == "Clouds.LayoutMask";
+                       } );
+        m_PendingUploads.push_back( PendingUpload{ m_LayoutPatternTexture, bytes( patternTexels ),
+                                                   "Clouds.LayoutPattern", &m_LayoutStale } );
+        m_PendingUploads.push_back(
+             PendingUpload{ m_LayoutMaskTexture, bytes( maskTexels ), "Clouds.LayoutMask", &m_LayoutStale } );
         return true;
     }
 
@@ -1047,22 +1013,23 @@ namespace Desert::Graphic::System
         }
     } // namespace
 
-    std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareShadowMapNodes()
+    std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareShadowMapNodes( RDG::Builder& graph )
     {
         std::vector<ComputeNodeDeclaration> nodes;
         // Cleared FIRST and set only at the end, so every early return below leaves consumers with "no
         // cloud shadow this frame" rather than with the projection of a frame the sun has since left.
         m_ShadowMapValid   = false;
         m_ShadowMapPending = false;
+        m_ShadowMap        = {};
 
         if ( !m_ShadowMapPipeline || !m_ShadowParamsBuffer )
             return nodes;
 
         // THE ZERO-COST LADDER, and it is the same one the march has, plus the two fields this task
         // added. A scene with no cloud component, with the clouds off, with casting off or with the
-        // strength at zero dispatches nothing and — because the allocation is below this line and not
-        // above it — allocates nothing either. The editor builds a SceneRenderer for every asset
-        // thumbnail and every mesh preview, and none of them has a sky.
+        // strength at zero dispatches nothing and — because the transient is declared below this line and
+        // not above it — the graph places no memory for it either. The editor builds a SceneRenderer for every
+        // asset thumbnail and every mesh preview, and none of them has a sky.
         if ( GetShadowStrength() <= 0.0f )
             return nodes;
 
@@ -1083,12 +1050,28 @@ namespace Desert::Graphic::System
         const float             extentKm   = CloudShadowExtentKmForScale( quality.ShadowMapScale );
         const float             snapKm     = CloudShadowSnapKmForScale( quality.ShadowMapScale );
 
-        if ( !EnsureShadowMap( resolution ) )
-            return nodes;
-
         CloudGpuPayload payload{};
         if ( !BuildFieldPayload( payload ) )
             return nodes;
+
+        // A TRANSIENT OF THE FRAME GRAPH: written here, read by the lit passes of the same frame, never by a later
+        // one (the projection is rebuilt every frame). Its size is the tier's, not the view's; announced when the
+        // tier changes it.
+        if ( m_ShadowMapScaleInUse != quality.ShadowMapScale )
+        {
+            m_ShadowMapScaleInUse = quality.ShadowMapScale;
+            LOG_INFO( "[Clouds] Cloud shadow map {}x{} RGBA32F ({:.2f} MiB, a frame-graph transient) — {:.0f} km "
+                      "across the world, {:.1f} m per texel, snapped to a {:.0f} km grid, quality scale {:.2f}.",
+                      resolution, resolution,
+                      BytesToMiB( Core::Formats::CalculateImageSize( resolution, resolution,
+                                                                     Core::Formats::ImageFormat::RGBA32F ) ),
+                      2.0f * extentKm, 2.0f * extentKm * 1000.0f / static_cast<float>( resolution ), snapKm,
+                      quality.ShadowMapScale );
+        }
+        const RDG::TextureRef shadowMap = graph.CreateTexture(
+             RDG::TextureDesc{ .Size   = RDG::Extent3D{ .Width = resolution, .Height = resolution },
+                               .Format = Core::Formats::ImageFormat::RGBA32F },
+             "Clouds.ShadowMap" );
 
         // BUILD TIME: whether the node exists depends on these uploads, and they fill this frame's slot of the
         // buffers before the graph executes.
@@ -1142,7 +1125,7 @@ namespace Desert::Graphic::System
         SampledMedium(
              SampledVolumes( DeclareComputeBlock( shadow.Access, m_ShadowMapPipeline.get(), m_ShadowMapLayout,
                                                   static_cast<uint32_t>( sizeof( CloudShadowPush ) ) ) ) )
-             .Storage( "u_CloudShadowMap", m_ShadowMapImage, RDG::Access::StorageWrite, "Clouds.ShadowMap" );
+             .Storage( "u_CloudShadowMap", shadowMap, RDG::Access::StorageWrite );
         shadow.Record = [this, push, resolution]( RDG::PassContext& context,
                                                   const FrameGraphRefs& ) -> Common::BoolResultStr
         {
@@ -1155,6 +1138,7 @@ namespace Desert::Graphic::System
         };
         nodes.push_back( std::move( shadow ) );
 
+        m_ShadowMap        = shadowMap;
         m_ShadowMapPending = true;
         return nodes;
     }
@@ -1165,6 +1149,8 @@ namespace Desert::Graphic::System
         // map.
         m_ShadowMapValid   = m_ShadowMapPending && accepted;
         m_ShadowMapPending = false;
+        if ( !m_ShadowMapValid )
+            m_ShadowMap = {};
     }
 
     void VolumetricCloudRenderer::SetCloudSettings( bool present, const ECS::VolumetricCloudData& data,
@@ -1566,96 +1552,29 @@ namespace Desert::Graphic::System
         }
     }
 
-    bool VolumetricCloudRenderer::EnsureTraceTargets( uint32_t halfWidth, uint32_t halfHeight )
+    void VolumetricCloudRenderer::UpdateTraceExtent( uint32_t halfWidth, uint32_t halfHeight )
     {
-        if ( m_TargetsFailed )
-            return false;
-
-        const bool allocated =
-             m_HistoryImage[0] && m_HistoryImage[1] && m_HistoryGuideImage[0] && m_HistoryGuideImage[1];
-        if ( allocated && halfWidth == m_HalfWidth && halfHeight == m_HalfHeight )
-            return true;
-
-        // The old images may still be referenced by descriptors of frames in flight.
-        if ( m_HistoryImage[0] )
-            Renderer::GetInstance().WaitDeviceIdle();
-
-        const uint32_t traceWidth  = HalfExtent( halfWidth );
-        const uint32_t traceHeight = HalfExtent( halfHeight );
-
-        // One helper for all four, because the only thing that differs between them is a size and a name.
-        // Written as a lambda taking its parameters rather than capturing them: a parameter-less
-        // multi-line lambda is one of the constructs clang-format 18 and 22 disagree about, and the CI
-        // gate runs 18.
-        auto createTarget = []( const char* tag, uint32_t width, uint32_t height )
-        {
-            const Core::Formats::Image2DSpecification spec{
-                 .Tag        = tag,
-                 .Width      = width,
-                 .Height     = height,
-                 .Format     = ViewTargetFormats::kCloudTrace,
-                 .Mips       = 1u,
-                 .Usage      = Core::Formats::Image2DUsage::Image2D,
-                 .Properties = Core::Formats::Storage | Core::Formats::Sample,
-            };
-            return Image2D::Create( spec );
-        };
-
-        // The reconstruction pair, at HALF the view (the march's quarter-resolution pair is a transient of the
-        // frame graph, created by DeclareFrameNodes). RGBA16F for the scatter because radiance is pre-tonemap
-        // HDR; RGBA16F for the guide for a reason worth stating rather than discovering: the guide carries TWO
-        // meaningful channels and Core::Formats::ImageFormat offers no two-channel float format, so half of
-        // every texel is allocated and never written. Half a kilometre of distance resolves to about thirty
-        // metres at this precision, two orders finer than the tenth-of-the-distance threshold the composite
-        // compares against and three finer than the two-kilometre disocclusion threshold the reconstruction
-        // compares against.
-        for ( uint32_t i = 0; i < 2u; ++i )
-        {
-            m_HistoryImage[i]      = createTarget( "CloudReconstruction", halfWidth, halfHeight );
-            m_HistoryGuideImage[i] = createTarget( "CloudReconstructionGuide", halfWidth, halfHeight );
-        }
-
-        const double traceMiB = BytesToMiB(
-             Core::Formats::CalculateImageSize( traceWidth, traceHeight, ViewTargetFormats::kCloudTrace ) );
-        const double halfMiB = BytesToMiB(
-             Core::Formats::CalculateImageSize( halfWidth, halfHeight, ViewTargetFormats::kCloudTrace ) );
-
-        if ( !m_HistoryImage[0] || !m_HistoryImage[1] || !m_HistoryGuideImage[0] || !m_HistoryGuideImage[1] )
-        {
-            LOG_ERROR( "[Clouds] The reconstruction targets could not be created — history {}x{} ({:.2f} MiB "
-                       "each, scatter {}/{}, guide {}/{}); the clouds will not render for this view.",
-                       halfWidth, halfHeight, halfMiB, m_HistoryImage[0] != nullptr, m_HistoryImage[1] != nullptr,
-                       m_HistoryGuideImage[0] != nullptr, m_HistoryGuideImage[1] != nullptr );
-
-            // Released together rather than left half standing: the resolve writes all four or none, and a
-            // half-built ping-pong is a history nothing may reconstruct into.
-            for ( uint32_t i = 0; i < 2u; ++i )
-            {
-                m_HistoryImage[i].reset();
-                m_HistoryGuideImage[i].reset();
-            }
-            m_TargetsFailed = true;
-            return false;
-        }
-
+        if ( halfWidth == m_HalfWidth && halfHeight == m_HalfHeight )
+            return;
         m_HalfWidth  = halfWidth;
         m_HalfHeight = halfHeight;
 
-        // Every image is fresh, so whatever the resolve read last frame is gone. Saying so here rather
-        // than at the call site is what keeps the flag true to the memory it describes: a resize is the
-        // one event that invalidates the history without the camera moving at all.
-        m_History.Invalidate();
-
-        // The cost is announced once, on the allocation, not discovered in a memory graph later. All four
-        // are named and counted, because targets of the same size are exactly what a reader of a memory
-        // graph would otherwise take for one measured several times.
-        LOG_INFO( "[Clouds] Trace targets {}x{} RGBA16F ({:.2f} MiB each, scatter + guide) — a QUARTER of "
-                  "the {}x{} view, one jittered sub-pixel per frame.",
+        // The cost is announced once per size, not discovered in a memory graph later. Nothing is allocated here:
+        // the trace pair is a transient of the frame graph, the reconstruction pair a transient extracted into
+        // the view (SceneViewState::Clouds) that holds two of them across frames. RGBA16F for the guide because
+        // Core::Formats offers no two-channel float; half a kilometre resolves to about thirty metres.
+        const uint32_t traceWidth  = HalfExtent( halfWidth );
+        const uint32_t traceHeight = HalfExtent( halfHeight );
+        const double   traceMiB    = BytesToMiB(
+             Core::Formats::CalculateImageSize( traceWidth, traceHeight, ViewTargetFormats::kCloudTrace ) );
+        const double halfMiB = BytesToMiB(
+             Core::Formats::CalculateImageSize( halfWidth, halfHeight, ViewTargetFormats::kCloudTrace ) );
+        LOG_INFO( "[Clouds] Trace {}x{} RGBA16F ({:.2f} MiB each, scatter + guide, frame-graph transients) — a "
+                  "QUARTER of the {}x{} view, one jittered sub-pixel per frame.",
                   traceWidth, traceHeight, traceMiB, halfWidth * 2u, halfHeight * 2u );
-        LOG_INFO( "[Clouds] Reconstruction targets {}x{} RGBA16F ({:.2f} MiB each, scatter + guide, "
-                  "ping-ponged) — {:.2f} MiB total for the pass.",
-                  halfWidth, halfHeight, halfMiB, 2.0 * traceMiB + 4.0 * halfMiB );
-        return true;
+        LOG_INFO( "[Clouds] Reconstruction {}x{} RGBA16F ({:.2f} MiB each, scatter + guide) — the view's history: "
+                  "{:.2f} MiB held across frames, {:.2f} MiB with this frame's pair.",
+                  halfWidth, halfHeight, halfMiB, 2.0 * halfMiB, 4.0 * halfMiB );
     }
 
     bool VolumetricCloudRenderer::EnsureNoiseVolumes( const Assets::AssetHandle ( &handles )[kCloudSpeciesSlots],
@@ -1756,12 +1675,13 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareFrameNodes( RDG::Builder&    graph,
-                                                                                    const ViewFrame& frame )
+    std::vector<ComputeNodeDeclaration>
+    VolumetricCloudRenderer::DeclareFrameNodes( RDG::Builder& graph, const ViewFrame& frame,
+                                                VolumetricCloudHistory& history )
     {
         std::vector<ComputeNodeDeclaration> nodes;
-        m_HasFrameResult = false;
-        m_PendingResolve.reset();
+        m_FrameResult = {};
+        m_PendingResult.reset();
 
         // Cleared with it, and read by the NEXT frame's environment bake rather than by anything here: a
         // frame that skipped this pass must leave "there is no sky-occlusion volume to read" behind it,
@@ -1791,9 +1711,8 @@ namespace Desert::Graphic::System
         if ( !target || target->GetDepthAttachmentCount() == 0 )
             return nodes;
 
-        if ( !EnsureTraceTargets( HalfExtent( target->GetFramebufferWidth() ),
-                                  HalfExtent( target->GetFramebufferHeight() ) ) )
-            return nodes;
+        UpdateTraceExtent( HalfExtent( target->GetFramebufferWidth() ),
+                           HalfExtent( target->GetFramebufferHeight() ) );
 
         // RESOLVED AGAIN RATHER THAN CACHED FROM EnsureModellingVolume. Two hash-map probes per slot
         // against handles that have not moved is not worth a member that can disagree with the volume it
@@ -1998,13 +1917,13 @@ namespace Desert::Graphic::System
         };
         nodes.push_back( std::move( march ) );
 
-        // S2 — THE TEMPORAL RECONSTRUCTION. The slot written alternates with the frame index, so the one
-        // written last frame is still intact to be read. Both are real allocations from the first frame
-        // onwards; what changes is whether their CONTENT means anything, and that is m_History, decided here at
-        // build time.
-        bool           historyReadable = m_History.ReadableIn( frame );
-        const uint32_t writeIndex = m_FrameIndex & 1u;
-        const uint32_t readIndex  = 1u - writeIndex;
+        // S2 — THE TEMPORAL RECONSTRUCTION, through the VIEW's history (SceneViewState::Clouds): last frame's
+        // pair registered back into this graph, this frame's a transient pair extracted for the next. Readable
+        // only when the view says its previous frame may be reprojected at all (a cut, a scene change, a
+        // resize: ViewFrame::HistoryValid) and the view still holds the pair its previous frame resolved.
+        const ViewExtent                   halfExtent{ .Width = m_HalfWidth, .Height = m_HalfHeight };
+        const VolumetricCloudHistory::Refs previous = history.RegisterPrevious( graph, halfExtent );
+        bool historyReadable = frame.HistoryValid() && previous.Scatter.IsValid() && previous.Guide.IsValid();
 
         CloudResolveParams resolve{};
         resolve.InverseViewProjection = push.InverseViewProjection;
@@ -2018,14 +1937,9 @@ namespace Desert::Graphic::System
              m_ResolveParamsBuffer->SetData( &resolve, static_cast<uint32_t>( sizeof( resolve ) ) );
         if ( !resolveParams.IsSuccess() )
         {
-            // AND THE HISTORY IS INVALIDATED, which is the part that is not obvious. Skipping the
-            // reconstruction leaves m_HistoryImage[writeIndex] holding whatever it held before; next
-            // frame would reproject against it as though it were the previous frame's resolve, using a
-            // PrevViewProjection that never described it. That is a smear locked to the camera path —
-            // the hardest artefact in this subsystem to attribute to its cause. One un-reconstructed
-            // frame is visible for one frame; a poisoned history is visible until the camera stops.
-            historyReadable = false;
-            m_History.Invalidate();
+            // AND THE HISTORY GOES WITH IT: no pair is created this frame, so the view's EndFrame keeps none and
+            // the next frame restarts the reconstruction rather than reprojecting a pair its previous matrices
+            // never described.
             LOG_ERROR( "[Clouds] the temporal reconstruction is skipped and the history dropped; its "
                        "parameters were not uploaded: {}",
                        resolveParams.GetError() );
@@ -2040,26 +1954,21 @@ namespace Desert::Graphic::System
         // trace pair, last frame's history (or the fallback) and this frame's history slot are the block's
         // entries.
         m_ResolvePipeline->SetStorageBuffer( kCloudResolveParamsBinding, m_ResolveParamsBuffer.get() );
-        // THE HISTORY, OR SOMETHING REAL IN ITS PLACE. Before the first reconstruction the read slot has
-        // never been written, so its device memory is uninitialised AND its tracked layout is the one it
-        // was created in — binding it would be an invalid descriptor, and this backend answers an invalid
-        // set by skipping the whole dispatch, which loses the clouds with nothing in the log. The engine's
-        // fallback texture is bound instead and CloudResolveParams::HistoryValid tells the shader to
-        // ignore it. RGBA8F because FallbackTextures only provides RGBA8F and RGBA32F, and the sampler
-        // reads floats either way.
+        // THE HISTORY, OR SOMETHING REAL IN ITS PLACE. With no previous pair the sampler still needs an image
+        // (a declared sampler with no image is an invalid descriptor set, which this backend answers by
+        // skipping the whole dispatch): the engine's fallback, and CloudResolveParams::HistoryValid tells the
+        // shader to ignore it. RGBA8F because FallbackTextures only provides RGBA8F and RGBA32F, and the
+        // sampler reads floats either way.
         const std::shared_ptr<Image> fallback =
              FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F );
-        const std::shared_ptr<Image> historyScatter =
-             historyReadable ? std::shared_ptr<Image>( m_HistoryImage[readIndex] ) : fallback;
-        const std::shared_ptr<Image> historyGuide =
-             historyReadable ? std::shared_ptr<Image>( m_HistoryGuideImage[readIndex] ) : fallback;
-        const std::string historyName =
-             historyReadable ? std::format( "Clouds.History{}", readIndex ) : "Clouds.HistoryFallback";
-        const std::string historyGuideName =
-             historyReadable ? std::format( "Clouds.HistoryGuide{}", readIndex ) : "Clouds.HistoryFallback";
+        // This frame's pair, written by the resolve and sampled by the composite: transients of this graph that
+        // the view extracts for the next frame.
+        const VolumetricCloudHistory::Refs current = history.CreateCurrent( graph, halfExtent );
         // This frame's trace pair, by shader name. Linear + clamp: the reconstruction texelFetches the texel it
         // owns and bilinearly upsamples (texture(..., traceUv)) the ones it does not.
-        DeclareComputeBlock( temporal.Access, m_ResolvePipeline.get(), m_ResolveLayout, 0 )
+        RenderPassDeclaration::BlockDeclaration resolveBlock =
+             DeclareComputeBlock( temporal.Access, m_ResolvePipeline.get(), m_ResolveLayout, 0 );
+        resolveBlock
              .Sampled( "u_CloudTrace", trace, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
                        RDG::SamplerDesc::LinearClamp() )
              .Sampled( "u_CloudTraceGuide", traceGuide, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
@@ -2068,14 +1977,20 @@ namespace Desert::Graphic::System
              // than the one the jitter cycle's traced sub-pixel saw (CloudTemporalResolve.shader, u_SceneDepth).
              .Sampled( "u_SceneDepth", depth, RDG::Access::SampledCompute, GlobalTextureFilterSampler(),
                        "SceneDepth.Compute" )
-             .Sampled( "u_CloudHistory", historyScatter, RDG::Access::SampledCompute, GlobalTextureFilterSampler(),
-                       historyName )
-             .Sampled( "u_CloudHistoryGuide", historyGuide, RDG::Access::SampledCompute,
-                       GlobalTextureFilterSampler(), historyGuideName )
-             .Storage( "u_ReconstructedScatter", m_HistoryImage[writeIndex], RDG::Access::StorageWrite,
-                       std::format( "Clouds.History{}", writeIndex ) )
-             .Storage( "u_ReconstructedGuide", m_HistoryGuideImage[writeIndex], RDG::Access::StorageWrite,
-                       std::format( "Clouds.HistoryGuide{}", writeIndex ) );
+             .Storage( "u_ReconstructedScatter", current.Scatter, RDG::Access::StorageWrite )
+             .Storage( "u_ReconstructedGuide", current.Guide, RDG::Access::StorageWrite );
+        if ( historyReadable )
+            resolveBlock
+                 .Sampled( "u_CloudHistory", previous.Scatter, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All(), GlobalTextureFilterSampler() )
+                 .Sampled( "u_CloudHistoryGuide", previous.Guide, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All(), GlobalTextureFilterSampler() );
+        else
+            resolveBlock
+                 .Sampled( "u_CloudHistory", fallback, RDG::Access::SampledCompute, GlobalTextureFilterSampler(),
+                           "Clouds.HistoryFallback" )
+                 .Sampled( "u_CloudHistoryGuide", fallback, RDG::Access::SampledCompute,
+                           GlobalTextureFilterSampler(), "Clouds.HistoryFallback" );
         temporal.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             DESERT_PROFILE_PASS( "Clouds: TemporalResolve" );
@@ -2086,31 +2001,63 @@ namespace Desert::Graphic::System
         };
         nodes.push_back( std::move( temporal ) );
 
-        // BUILD TIME, deliberately: the write/read slots name the images these nodes declare, so they are fixed
-        // here. The advance itself waits for SettleFrameNodes, i.e. for the graph to accept the nodes.
-        m_PendingResolve = PendingResolve{ writeIndex, frame.FrameIndex };
+        // Published by SettleFrameNodes, i.e. once the graph accepted the nodes.
+        m_PendingResult = current;
         return nodes;
     }
 
     void VolumetricCloudRenderer::SettleFrameNodes( bool accepted )
     {
-        const std::optional<PendingResolve> pending = std::exchange( m_PendingResolve, std::nullopt );
+        const std::optional<FrameResult> pending = std::exchange( m_PendingResult, std::nullopt );
         if ( !accepted )
         {
-            // Nothing of this frame is recorded: no occlusion volume, no resolve, and the history slot the next
-            // frame would read was not written by the frame its matrix would describe.
+            // Nothing of this frame is recorded: no occlusion volume and no resolve. The view's pair has no
+            // writer (the caller sets none), so its EndFrame keeps no history of this frame.
             m_SkyOcclusionValid = false;
-            m_History.Invalidate();
-            m_HasFrameResult    = false;
+            m_FrameResult       = {};
             return;
         }
         if ( !pending )
             return;
-        // The history now holds the pixels of the view frame the resolve was built for.
-        m_History.Stamp( pending->ViewFrameIndex );
-        m_ResolvedIndex = pending->WriteIndex;
+        m_FrameResult = *pending;
         ++m_FrameIndex;
-        m_HasFrameResult = true;
+    }
+
+    void VolumetricCloudRenderer::AddInputUploads( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // UE: a texture upload recorded on the graph (QueueBufferUpload into a staging buffer, then a copy into
+        // the texture) — never a submit-and-wait. The image is imported through @p textures, the one registration
+        // of it this graph has, so the block entries and the sky capture that sample it later in the graph read
+        // the same graph texture and are ordered after this copy.
+        for ( PendingUpload& upload : m_PendingUploads )
+        {
+            const RDG::TextureRef target = textures.Import( upload.Image, upload.Name );
+            if ( !target.IsValid() )
+            {
+                // Import already said why; the input is re-baked next frame rather than sampled unwritten.
+                *upload.Stale = true;
+                continue;
+            }
+            const RDG::BufferRef staging = graph.CreateBuffer( RDG::BufferDesc{ .Bytes = upload.Texels.size() },
+                                                               std::format( "{}.Texels", upload.Name ) );
+            graph.QueueBufferUpload( staging, upload.Texels );
+            graph.AddPass(
+                 std::format( "Clouds: Upload {}", upload.Name ), RDG::PassFlags::Copy,
+                 [staging, target]( RDG::PassBuilder& pass )
+                 {
+                     pass.Read( staging, RDG::Access::CopySrc );
+                     pass.Write( target, RDG::Access::CopyDst );
+                 },
+                 [staging, target]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     DESERT_PROFILE_PASS( "Clouds: Upload" );
+                     return Renderer::CopyGraphBufferToTexture( context, staging, target );
+                 } );
+            // A fault that removes the copy leaves the image unwritten: its owner re-bakes it next frame.
+            bool* stale = upload.Stale;
+            textures.MarkHistory( target, [stale]() { *stale = true; } );
+        }
+        m_PendingUploads.clear();
     }
 
     RenderPassDeclaration::BlockDeclaration

@@ -637,7 +637,7 @@ namespace Desert::Graphic
     {
         return SumViewTargets( ViewTargetCensus( m_ViewProfile, m_ViewExtent.Width, m_ViewExtent.Height ) )
                     .Total() +
-               m_ViewResources.HeldBytes() + m_ViewState.HeldBytes();
+               m_ViewResources.HeldBytes() + m_ViewState.HeldBytes() + m_ViewState.Clouds().HeldBytes();
     }
 
     std::vector<Engine::ViewBudget::HeldView> SceneRenderer::LiveHoldings()
@@ -2050,7 +2050,7 @@ namespace Desert::Graphic
 
         const CloudShadowMapView& view = clouds->GetShadowMapView();
 
-        cloudShadow.HasMap     = clouds->GetShadowMapImage() != nullptr;
+        cloudShadow.HasMap     = clouds->GetShadowMap().IsValid();
         cloudShadow.WorldToMap = view.WorldToMap;
         cloudShadow.FarDepthKm = view.FarDepthKm;
         cloudShadow.Strength   = clouds->GetShadowStrength();
