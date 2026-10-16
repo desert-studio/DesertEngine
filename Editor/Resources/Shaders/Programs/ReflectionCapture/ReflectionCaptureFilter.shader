@@ -15,8 +15,9 @@ Shader "ReflectionCaptureFilter"
         // THE SAMPLE COUNT IS UE'S REAL-TIME ONE (ReflectionEnvironmentShaders.usf FilterCS, "General real time":
         // 32 below roughness 0.1, else 64), not the 1024 of its "Reference" branch this pass used to take: every
         // sample reads the radiance mip whose texel matches its solid angle (the mipLevel below), so the lobe is
-        // integrated over the mip chain's prefiltered texels, not point-sampled, and 1024 bought 7.2 ms per cube
-        // written on Bistro for noise the filtered reads already remove.
+        // integrated over the mip chain's prefiltered texels, not point-sampled. 1024 made the filter most of the
+        // 7.2 ms a cube's passes took on Bistro, and against 64 it moved 0.11 % of a Bistro frame's pixels by more
+        // than 8/255.
 
         const float PI = 3.141592;
         const float TwoPI = 2 * PI;
