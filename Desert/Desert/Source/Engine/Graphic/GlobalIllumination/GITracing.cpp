@@ -33,14 +33,14 @@ namespace Desert::Graphic::GlobalIllumination
         return "an unknown tracer";
     }
 
-    void DeclareTracerReads( RDG::BindingBlockBuilder& block, const TracerFrame& frame )
+    void DeclareTracerReads( RDG::BindingBlockBuilder& block, const TracerFrame& frame, const RDG::Access sampled )
     {
         switch ( frame.Pipeline.Tracer )
         {
             case Tracer::SoftwareDistanceField:
                 for ( uint32_t level = 0; level < frame.GlobalDistanceField.size(); ++level )
                     block.Texture( std::format( "u_GlobalDistanceField{}", level ),
-                                   frame.GlobalDistanceField[level], RDG::Access::SampledCompute,
+                                   frame.GlobalDistanceField[level], sampled,
                                    RDG::SubresourceRange::All() )
                          .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
                 block.Storage( "GITracerSoftwareUB", frame.GlobalDistanceFieldLevels, RDG::Access::StorageRead );
@@ -53,5 +53,30 @@ namespace Desert::Graphic::GlobalIllumination
                                RDG::Access::StorageRead );
                 return;
         }
+    }
+
+    std::string_view SurfaceCacheFrameMissing( const SurfaceCacheFrame& frame )
+    {
+        if ( !frame.Cards.IsValid() || !frame.Pages.IsValid() || !frame.MeshCards.IsValid() )
+            return "the surface cache's card records were not uploaded this frame";
+        if ( !frame.InstanceRows.IsValid() || !frame.ObjectGrid.IsValid() )
+            return "the surface cache's instance table was not uploaded this frame";
+        if ( !frame.FinalLighting.IsValid() || !frame.Depth.IsValid() || !frame.Opacity.IsValid() )
+            return "the surface cache's atlas layers were not imported this frame";
+        return {};
+    }
+
+    void DeclareSurfaceCacheReads( RDG::BindingBlockBuilder& block, const SurfaceCacheFrame& frame )
+    {
+        const auto all = RDG::SubresourceRange::All();
+        block.Storage( "SurfaceCardBuffer", frame.Cards, RDG::Access::StorageRead )
+             .Storage( "SurfaceCardPageBuffer", frame.Pages, RDG::Access::StorageRead )
+             .Storage( "SurfaceMeshCardsBuffer", frame.MeshCards, RDG::Access::StorageRead )
+             .Storage( "SurfaceCacheInstancesUB", frame.InstanceRows, RDG::Access::StorageRead )
+             .Storage( "SurfaceCacheObjectGridUB", frame.ObjectGrid, RDG::Access::StorageRead )
+             .Texture( "u_SurfaceCacheFinalLighting", frame.FinalLighting, RDG::Access::SampledCompute, all )
+             .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+             .Texture( "u_SurfaceCacheDepth", frame.Depth, RDG::Access::SampledCompute, all )
+             .Texture( "u_SurfaceCacheOpacity", frame.Opacity, RDG::Access::SampledCompute, all );
     }
 } // namespace Desert::Graphic::GlobalIllumination

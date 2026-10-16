@@ -11,6 +11,8 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
+#include <Engine/Graphic/SkyPayload.hpp>
 #include <Engine/Graphic/SkyRules.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
 #include <Engine/Graphic/SunLightFx.hpp>
@@ -50,6 +52,10 @@ namespace Desert::Graphic::System
         // inside the same evaluation everything else reads.
         void SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow, const SkySettings& sky,
                                const SunLightFx& fx );
+
+        // The physical sky's on-screen luminance ceiling for this view's exposure (Graphic::
+        // SkyLuminanceCeiling). Set from the post-process settings; re-uploads the block when it changes.
+        void SetSkyLuminanceCeiling( float ceiling );
 
         // Bakes / rebakes the procedural-sky IBL when the rule says so (see ShouldRebakeSkyEnvironment
         // for WHETHER, SkyEnvironmentRebakeMayRun for WHEN). Call once per frame from a
@@ -300,6 +306,12 @@ namespace Desert::Graphic::System
         glm::vec3     m_SunDir           = glm::vec3( 0.0f, 1.0f, 0.0f ); // TOWARD the sun, normalized
         SkySettings   m_Sky;
         AtmosphereEnv m_Atmosphere;
+
+        // The physical sky's sun as PackSky takes it: the atmosphere sun light's outer-space illuminance and
+        // disc scale (this frame's SunLightFx), and the exposure-derived ceiling.
+        SkySunInputs m_SunInputs{ .OuterSpaceIlluminance = glm::vec3( 0.0f ),
+                                  .DiskColorScale        = glm::vec3( 1.0f ),
+                                  .LuminanceCeiling      = kSkyExposedLuminanceCeiling };
 
         // THE CLOUD LAYER'S TWO BLOCKS, AS THE BAKE'S DISPATCH READS THEM.
         //

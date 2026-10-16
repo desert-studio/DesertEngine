@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Graphic/Materials/SceneResources.hpp>
+
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/TextureCubeProperty.hpp>
@@ -50,6 +52,43 @@ namespace Desert::Graphic
         // The view's contact shadows, packed into the same block (SceneResources::PackContactShadow).
         SceneResources::ContactShadowSettings Contact{};
     };
+
+    // PURE. The ShadowUB values of @p shadow (x the sun's angular radius tangent for the soft shadow; y enabled;
+    // z debug mode 0; w cascade count; the cascades' depth ranges and the contact shadow settings) - the deferred
+    // composite's and the surface-cache lighting's one packer.
+    [[nodiscard]] inline SceneResources::ShadowUBData PackDeferredShadow( const DeferredShadowInput& shadow )
+    {
+        constexpr uint32_t           kCascades = SceneResources::kMaxCascades;
+        SceneResources::ShadowUBData data{};
+        data.DebugParams = glm::vec4( 0.0f );
+        std::visit(
+             [&data]( const auto& sun )
+             {
+                 using Arm = std::decay_t<decltype( sun )>;
+                 if constexpr ( std::is_same_v<Arm, DeferredCascadeShadow> )
+                 {
+                     const uint32_t n = sun.Count < kCascades ? sun.Count : kCascades;
+                     for ( uint32_t i = 0; i < kCascades; ++i )
+                         data.LightViewProj[i] = ( i < n && sun.CascadeVP ) ? sun.CascadeVP[i] : glm::mat4( 1.0f );
+                     data.Params = glm::vec4( sun.SourceTanHalf, sun.Enabled ? 1.0f : 0.0f, 0.0f,
+                                              static_cast<float>( n ) );
+                     data.CascadeTexelWorld = sun.CascadeWorldPerTexel;
+                     data.CascadeDepthRange = sun.CascadeDepthRange;
+                 }
+                 else
+                 {
+                     // The mask program reads no cascade: the block keeps only its "enabled" word.
+                     for ( glm::mat4& viewProj : data.LightViewProj )
+                         viewProj = glm::mat4( 1.0f );
+                     data.Params            = glm::vec4( 0.0f, 1.0f, 0.0f, 0.0f );
+                     data.CascadeTexelWorld = glm::vec4( 1.0f );
+                     data.CascadeDepthRange = glm::vec4( 1.0f );
+                 }
+             },
+             shadow.Sun );
+        SceneResources::PackContactShadow( data, shadow.Contact );
+        return data;
+    }
 
     // CloudShadowInput — the cloud layer's shadow, a SECOND independent occluder of the same sun — used
     // to be declared right here, which is precisely why nothing but this pass ever received it. It now
@@ -118,8 +157,9 @@ namespace Desert::Graphic
             // ViewFrame::InvJitteredViewProjection, the view's one copy of that inverse.
             SetInvJitteredViewProjection( invJitteredViewProjection );
             // u_Params: x = debug mode, y = GI intensity (0 = off), z = SSAO enabled (else shader uses AO=1),
-            // w = GI mode (0 = off, 1 = screen-space gather, 2 = RSM buffer). Mode picks WHERE the indirect
-            // light comes from; intensity scales it (the RSM path pre-applies it in GIResolve).
+            // w = GI mode (0 = off, 1 = screen-space gather, 2 = the traced GI's final gather in place of the
+            // sky's two cubes). Mode picks WHERE the indirect light comes from; intensity scales the screen-space
+            // gather only.
             SetParams( glm::vec4( static_cast<float>( debugMode ), giIntensity, ssaoEnabled ? 1.0f : 0.0f,
                                   static_cast<float>( giMode ) ) );
 
@@ -152,39 +192,7 @@ namespace Desert::Graphic
         // DeferredLightingRenderer::Record) — mirrors Graphic::SceneShadowBind so the SAME sun shadows appear.
         void UploadShadow( const DeferredShadowInput& shadow )
         {
-            // THE ONE MIRROR of the block (SceneResources::ShadowUBData, asserted against the GLSL by
-            // Desert/Tests/Engine/SceneFrameBinding); a private copy here had to be kept in step by hand.
-            constexpr uint32_t           kCascades = SceneResources::kMaxCascades;
-            SceneResources::ShadowUBData data{};
-
-            data.DebugParams = glm::vec4( 0.0f );
-            std::visit(
-                 [&data]( const auto& sun )
-                 {
-                     using Arm = std::decay_t<decltype( sun )>;
-                     if constexpr ( std::is_same_v<Arm, DeferredCascadeShadow> )
-                     {
-                         const uint32_t n = sun.Count < kCascades ? sun.Count : kCascades;
-                         for ( uint32_t i = 0; i < kCascades; ++i )
-                             data.LightViewProj[i] =
-                                  ( i < n && sun.CascadeVP ) ? sun.CascadeVP[i] : glm::mat4( 1.0f );
-                         data.Params = glm::vec4( sun.SourceTanHalf, sun.Enabled ? 1.0f : 0.0f, 0.0f,
-                                                  static_cast<float>( n ) );
-                         data.CascadeTexelWorld = sun.CascadeWorldPerTexel;
-                         data.CascadeDepthRange = sun.CascadeDepthRange;
-                     }
-                     else
-                     {
-                         // The mask program reads no cascade: the block keeps only its "enabled" word.
-                         for ( glm::mat4& viewProj : data.LightViewProj )
-                             viewProj = glm::mat4( 1.0f );
-                         data.Params            = glm::vec4( 0.0f, 1.0f, 0.0f, 0.0f );
-                         data.CascadeTexelWorld = glm::vec4( 1.0f );
-                         data.CascadeDepthRange = glm::vec4( 1.0f );
-                     }
-                 },
-                 shadow.Sun );
-            SceneResources::PackContactShadow( data, shadow.Contact );
+            const SceneResources::ShadowUBData data = PackDeferredShadow( shadow );
 
             if ( auto* ub = Get<UniformBufferProperty>( "ShadowUB" ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );

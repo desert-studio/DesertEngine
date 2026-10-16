@@ -50,15 +50,12 @@ Shader "ProceduralSky"
         Uniform(3) texture2D u_SkyViewLut;       // per-view 192x104, refilled every frame
         #define u_SkyViewLut sampler2D(u_SkyViewLut, u_LinearClampSampler)
 
-        // Luminance ceiling of the physical path's ON-SCREEN pixels. The disc's true outer-space
-        // luminance (illuminance over its half-degree solid angle) is ~10^4 x the tonemapper's white
-        // point; unclamped it saturates every bloom box it touches (the Karis average only suppresses
-        // ISOLATED fireflies) and the frame gains a 25-degree white blob for a halo. 1000 keeps the
-        // disc two orders over white — still the brightest thing in any frame, still driving a
-        // visible glow — while the bloom chain stays proportionate. Raising this belongs to the
-        // deferred sun-perceptual-stack task (auto-exposure + lens flare tuned against the disc),
-        // not to the sky. The IBL bake is untouched: it excludes the disc entirely.
-        const float kSkyLuminanceClamp = 1000.0f;
+        // The physical path's ON-SCREEN luminance ceiling is UnpackSkyLuminanceCeiling (Graphic::
+        // SkyLuminanceCeiling, AutoExposureRules.hpp): the disc's true luminance (illuminance over its
+        // solid angle) is far beyond white, and unclamped it saturates every bloom box it touches. The
+        // ceiling used to be a fixed 1000 cd/m^2, which also cut the whole SKY of a 100 000 lux sun. It
+        // now follows the exposure — a fixed number of times display white — and stops at what the fp16
+        // scene target can hold. The IBL bake is untouched: it excludes the disc entirely.
 
         vec3 EvaluatePhysicalSky(SkyPacked s, vec3 dir)
         {
@@ -87,7 +84,7 @@ Shader "ProceduralSky"
             vec4 lut = texture(u_SkyViewLut, uv);
             vec3 sky = lut.rgb;
 
-            vec3 sunIlluminance = UnpackSkyConfig(s).sunColor * UnpackSunIntensity(s);
+            vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
 
             // BELOW THE HORIZON THIS PASS DRAWS ONLY AIR — never a lit ground, which is what it used to
             // do and what made the lower half of an empty scene a flat beige plate that no scene setting
@@ -126,13 +123,13 @@ Shader "ProceduralSky"
                                                                          atm.TopRadiusKm, viewHeight,
                                                                          viewZenithCos)).rgb;
 
-                    sky += sunIlluminance / max(solidAngle, 1e-7f) * viewT *
+                    sky += sunIlluminance * UnpackSunDiskColorScale(s) / max(solidAngle, 1e-7f) * viewT *
                            SkySunLimbDarkening(centerToEdge) * edge;
                 }
             }
 
-            // The on-screen-only art tint (UE's SkyLuminanceFactor), then the fp16 headroom clamp.
-            return min(sky * UnpackSkyLuminanceFactor(s), vec3(kSkyLuminanceClamp));
+            // The on-screen-only art tint (UE's SkyLuminanceFactor), then the exposure-relative ceiling.
+            return min(sky * UnpackSkyLuminanceFactor(s), vec3(UnpackSkyLuminanceCeiling(s)));
         }
 
         void main()

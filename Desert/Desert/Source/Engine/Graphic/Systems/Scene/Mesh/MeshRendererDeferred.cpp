@@ -88,56 +88,6 @@ namespace Desert::Graphic::System
         }
         m_StaticGBufferPipeline = gbufferPipeline.GetValue();
 
-        // The RSM renders the same shader, layout and attachment set from the sun's POV, with a DEDICATED
-        // material — but NOT the same pipeline, because it is drawn through a CASCADE matrix, and the
-        // cascades are standard-Z (SetupShadowPass says why). Sharing the G-buffer pipeline would test
-        // reversed-Z depth against standard-Z fragments, which is not "slightly wrong": it keeps the
-        // FARTHEST surface per texel, so every VPL would be a back face and the bounce light would come
-        // out of the wrong geometry. One extra pipeline is the price of the two conventions coexisting,
-        // and the cache hands back a shared object anyway if some other pass ever asks for the same state.
-        //
-        // And not the same PROGRAM: the RSM draws the G-buffer cell's DESERT_GBUFFER_RSM permutation, which writes
-        // no shading word (Pass_GBuffer.glslh) — GI takes VPL positions from the RSM depth. The define lives in
-        // this variant only; the pipeline references the program compiled under it and carries no define list.
-        // The macro also gates a BINDING: a light view has no previous frame, so the permutation's vertex stage
-        // reads no ObjectMotions rows (SurfaceTypes.glslh DESERT_SURFACE_VIEW_PASS). The RSM material below is
-        // therefore built over this permutation, not the cell by name - a material of the base cell fills
-        // ObjectMotions (binding 25), which this pipeline's set 0 does not have, and the pass fails every frame.
-        m_RSMShader = DefaultSurfaceProgramVariant( MeshVertexPath::Static, MeshPass::GBuffer,
-                                                    ShaderVariant{ .Defines = { "DESERT_GBUFFER_RSM" } } );
-        if ( !m_RSMShader )
-        {
-            LOG_ERROR( "[MeshRenderer] the deferred path is off, the forward one still draws: the G-buffer cell "
-                       "did not compile under DESERT_GBUFFER_RSM." );
-            return false;
-        }
-        GraphicsPipelineSpecification rsmSpec = spec;
-        rsmSpec.DebugName                     = "StaticMeshRSM";
-        rsmSpec.Shader                        = m_RSMShader;
-        // Built against the RSM's own colour slots, not the G-buffer framebuffer: its slot 2 is an UNUSED slot
-        // (VK_ATTACHMENT_UNUSED), which no render pass with an image in that slot is compatible with.
-        rsmSpec.Framebuffer.reset();
-        rsmSpec.TargetLayout = RenderTargetLayout{
-             .ColorFormats = std::vector<std::optional<Core::Formats::ImageFormat>>(
-                  ViewTargetFormats::kRSMColourSlots.begin(), ViewTargetFormats::kRSMColourSlots.end() ),
-             .DepthFormat = ViewTargetFormats::kRSMDepth };
-        rsmSpec.DepthCompareOp                = CompareOp::LessOrEqual;
-        const auto rsmPipeline                = m_SceneRenderer->GetPipelineCache().GetOrCreate( rsmSpec );
-        if ( !rsmPipeline )
-        {
-            LOG_ERROR( "[MeshRenderer] the deferred path is off, the forward one still draws: {}",
-                       rsmPipeline.GetError() );
-            return false;
-        }
-        m_RSMPipeline = rsmPipeline.GetValue();
-
-        // (Static x GBuffer): the RSM reuses the G-buffer shader and its pipeline, rasterized from the
-        // sun. A DEDICATED material (rather than the objects' own) because this pass writes a camera UB
-        // holding the SUN's matrices, and two writes to one per-frame UB in a frame is the hazard the
-        // glass pass was split out to avoid.
-        m_RSMMaterial = std::make_shared<DataDrivenMaterial>( m_RSMShader );
-        m_RSMInstance = m_RSMMaterial->CreateInstance();
-
         // (Static x GBuffer) for the meshes whose FORWARD material is not service-owned. There is exactly
         // one such material in the engine — MeshECSSystem::m_DefaultMaterial, which stands in for every
         // mesh whose slot does not resolve — and it has no `.demat`, so MaterialService has no sibling of
@@ -198,22 +148,25 @@ namespace Desert::Graphic::System
         }
 
         // (Skinned x GBuffer): skinned meshes are drawn in the base pass on the deferred path (BuildSkinnedDraws
-        // under m_DeferredGeometry), never forward over the composite. Optional like the instanced cell: a
-        // refusal costs skinned meshes in a deferred scene, said here.
-        if ( const auto skinnedShader = DefaultSurfaceProgram( MeshVertexPath::Skinned, MeshPass::GBuffer ) )
+        // under m_DeferredGeometry), never forward over the composite, and the surface cache captures a skinned
+        // mesh's cards with the same pass state. Optional like the instanced cell: a refusal costs skinned meshes in
+        // a deferred scene and in the surface cache, said here.
+        m_SkinnedGBufferShader = DefaultSurfaceProgram( MeshVertexPath::Skinned, MeshPass::GBuffer );
+        if ( m_SkinnedGBufferShader )
         {
             GraphicsPipelineSpecification sspec;
             sspec.DebugName                 = "SkinnedMeshGBuffer";
             sspec.Layout                    = MeshVertexLayout( MeshVertexPath::Skinned );
             sspec.DepthCompareOp            = DepthCompare::CloserOrEqual;
             sspec.CullMode                  = CullMode::Back;
-            sspec.Shader                    = skinnedShader;
+            sspec.Shader                    = m_SkinnedGBufferShader;
             sspec.TargetLayout              = GBufferLayout();
             const auto skinned              = m_SceneRenderer->GetPipelineCache().GetOrCreate( sspec );
             m_SkinnedGBufferUnownedMaterial = CreateCellMaterial( MeshVertexPath::Skinned, MeshPass::GBuffer );
             if ( !skinned )
             {
-                LOG_ERROR( "[MeshRenderer] skinned meshes will not be drawn while the scene renders deferred: {}",
+                LOG_ERROR( "[MeshRenderer] skinned meshes will not be drawn while the scene renders deferred, nor "
+                           "be in the surface cache: {}",
                            skinned.GetError() );
             }
             else if ( !m_SkinnedGBufferUnownedMaterial )
@@ -227,7 +180,7 @@ namespace Desert::Graphic::System
         else
         {
             LOG_ERROR( "[MeshRenderer] shader '{}' is missing; skinned meshes will not be drawn while the scene "
-                       "renders deferred.",
+                       "renders deferred, nor be in the surface cache.",
                        DefaultSurfaceShaderName( MeshVertexPath::Skinned, MeshPass::GBuffer ).value_or( "?" ) );
         }
         return true;

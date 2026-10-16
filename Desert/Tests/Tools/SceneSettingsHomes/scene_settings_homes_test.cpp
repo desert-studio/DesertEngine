@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <string>
 #include <string_view>
 
@@ -119,7 +120,7 @@ namespace
         d.Unbound              = unbound;
         d.Priority             = priority;
         d.BlendWeight          = weight;
-        d.Settings.Exposure    = exposure;
+        d.Settings.ManualExposureEV100 = exposure;
         d.Settings.EnableBloom = bloom;
         return d;
     }
@@ -156,7 +157,8 @@ TEST( SceneSettingsHomesMigration, GradeKeysLeaveForAnUnboundVolumeAndShadowKeys
     const auto data = Read<ECS::PostProcessVolumeData>( *volume, "PostProcessVolume", "PostProcessVolumeData" );
     EXPECT_TRUE( data.Unbound );
     EXPECT_EQ( data.BlendWeight, 1.0f );
-    EXPECT_EQ( data.Settings.Exposure, 2.5f );
+    // v57 re-states the multiplier 2.5 at the stated key 0.21 as EV100 log2(0.21 / 2.5) + 3.
+    EXPECT_NEAR( data.Settings.ManualExposureEV100, std::log2( 0.21 / 2.5 ) + 3.0, 1e-5 );
     EXPECT_EQ( data.Settings.Tonemapper, Core::TonemapOperator::Reinhard );
     EXPECT_EQ( data.Settings.LensFlareGhostCount, 6 );
 
@@ -213,7 +215,7 @@ TEST( SceneSettingsHomesMigration, EveryGradeFieldIsMovedAndResolvesToTheValueTh
     stated.EnableSSAO           = false;
     stated.GIIntensity          = 7.25f;
     stated.SSRIntensity         = 0.3f;
-    stated.AutoExposureMax      = 3.0f;
+    stated.WhitePoint           = 3.0f;
     stated.BloomThreshold       = 0.7f;
     stated.LensDispersion       = 1.1f;
     stated.LensFlareStreakAngle = 33.0f;
@@ -223,12 +225,24 @@ TEST( SceneSettingsHomesMigration, EveryGradeFieldIsMovedAndResolvesToTheValueTh
     const auto all          = Reflection::SerializeReflected( *type, &stated );
     // The grade fields born after SCNE 36 (Depth of Field, Motion Blur, the SCNE 53 render methods): no Settings
     // block ever stated them, so the step has no key for them (the methods replace GlobalIllumination/EnableSSR,
-    // which the step moves and SCNE 53 converts). A field added to the grade must be added to the step or named
+    // which the step moves and SCNE 53 converts; v56 / v57 re-state Exposure and AutoExposureMin / Max as
+    // the EV100 fields). A field added to the grade must be added to the step or named
     // here.
-    constexpr std::array<std::string_view, 12> kBornAfterTheStep = {
-         "DepthOfFieldFocalDistance", "DepthOfFieldFstop", "DepthOfFieldSensorWidth", "DepthOfFieldMaxBokehSize",
-         "MotionBlurAmount",          "MotionBlurMax",     "MotionBlurTargetFPS",     "GlobalIlluminationMethod",
-         "ReflectionsMethod",         "ShadowsMethod",     "ContactShadows",          "DistanceFieldShadows" };
+    constexpr std::array<std::string_view, 15> kBornAfterTheStep = { "DepthOfFieldFocalDistance",
+                                                                     "DepthOfFieldFstop",
+                                                                     "DepthOfFieldSensorWidth",
+                                                                     "DepthOfFieldMaxBokehSize",
+                                                                     "MotionBlurAmount",
+                                                                     "MotionBlurMax",
+                                                                     "MotionBlurTargetFPS",
+                                                                     "GlobalIlluminationMethod",
+                                                                     "ReflectionsMethod",
+                                                                     "ShadowsMethod",
+                                                                     "ContactShadows",
+                                                                     "DistanceFieldShadows",
+                                                                     "ManualExposureEV100",
+                                                                     "AutoExposureMinEV100",
+                                                                     "AutoExposureMaxEV100" };
     for ( const std::string_view key : kBornAfterTheStep )
         ASSERT_TRUE( all.get( std::string( key ) ).has_value() ) << key << " is no longer a grade field";
     rfl::Generic::Object block;
@@ -257,15 +271,16 @@ TEST( SceneSettingsHomesMigration, TheMigratedSceneResolvesToThePreviousValues )
     ASSERT_TRUE( Migration::MigrateScene( scene, "", "" ).Refused.empty() );
     const entt::registry reg = RegistryOf( scene );
     const auto           v   = Graphic::ResolveViewSettings( reg, std::nullopt );
-    EXPECT_EQ( v.Post.Exposure, 2.5f );
+    EXPECT_NEAR( v.Post.ManualExposureEV100, std::log2( 0.21 / 2.5 ) + 3.0, 1e-5 );
     EXPECT_EQ( v.Post.Gamma, 2.4f );
     EXPECT_EQ( v.Post.WhitePoint, 11.0f );
     EXPECT_EQ( v.Post.AutoExposureKey, 0.21f );
     EXPECT_EQ( v.Post.BloomIntensity, 1.3f );
     EXPECT_EQ( v.Post.SSRMaxDistance, 2500.0f );
     EXPECT_EQ( v.Post.LensFlareTint, glm::vec3( 0.5f, 0.25f, 1.0f ) );
-    // GIMode 2 (RSM) lifted at v36 and re-stated as the method at v52; EnableSSR true as the screen-space method.
-    EXPECT_EQ( v.Post.GlobalIlluminationMethod, Common::Scalability::GIMethod::ReflectiveShadowMaps );
+    // GIMode 2 (RSM) lifted at v36 and re-stated as the method at v52 — ProbeVolume, which replaced the reflective
+    // shadow maps (GI-PROBE-SW); EnableSSR true as the screen-space method.
+    EXPECT_EQ( v.Post.GlobalIlluminationMethod, Common::Scalability::GIMethod::ProbeVolume );
     EXPECT_EQ( v.Post.ReflectionsMethod, Common::Scalability::ReflectionMethod::ScreenSpace );
     EXPECT_TRUE( v.Post.EnableBloom );
     EXPECT_TRUE( v.Post.AutoExposure );
@@ -281,7 +296,7 @@ TEST( PostProcessVolume, NoVolumeIsTheDefaultGrade )
 {
     const entt::registry reg;
     const auto           v = Graphic::ResolveViewSettings( reg, glm::vec3( 0.0f ) );
-    EXPECT_EQ( v.Post.Exposure, Core::PostProcessSettings{}.Exposure );
+    EXPECT_EQ( v.Post.ManualExposureEV100, Core::PostProcessSettings{}.ManualExposureEV100 );
     EXPECT_FALSE( v.Post.EnableBloom );
     EXPECT_TRUE( v.Shadows.Enabled );
 }
@@ -290,8 +305,8 @@ TEST( PostProcessVolume, AnUnboundVolumeAppliesAnywhereAndWithoutACamera )
 {
     entt::registry reg;
     AddVolume( reg, glm::vec3( 0.0f ), Volume( true, 0.0f, 1.0f, 3.0f, true ) );
-    EXPECT_EQ( Graphic::ResolveViewSettings( reg, glm::vec3( 1.0e7f ) ).Post.Exposure, 3.0f );
-    EXPECT_EQ( Graphic::ResolveViewSettings( reg, std::nullopt ).Post.Exposure, 3.0f );
+    EXPECT_EQ( Graphic::ResolveViewSettings( reg, glm::vec3( 1.0e7f ) ).Post.ManualExposureEV100, 3.0f );
+    EXPECT_EQ( Graphic::ResolveViewSettings( reg, std::nullopt ).Post.ManualExposureEV100, 3.0f );
 }
 
 TEST( PostProcessVolume, TheHigherPriorityWinsWhateverTheRegistryOrder )
@@ -305,7 +320,7 @@ TEST( PostProcessVolume, TheHigherPriorityWinsWhateverTheRegistryOrder )
         if ( !highFirst )
             AddVolume( reg, glm::vec3( 0.0f ), Volume( true, 5.0f, 1.0f, 4.0f, false ) );
         const auto v = Graphic::ResolveViewSettings( reg, glm::vec3( 0.0f ) );
-        EXPECT_EQ( v.Post.Exposure, 4.0f ) << "highFirst=" << highFirst;
+        EXPECT_EQ( v.Post.ManualExposureEV100, 4.0f ) << "highFirst=" << highFirst;
         EXPECT_FALSE( v.Post.EnableBloom ) << "highFirst=" << highFirst;
     }
 }
@@ -316,7 +331,7 @@ TEST( PostProcessVolume, BlendWeightLerpsValuesAndTakesSwitchesWhole )
     AddVolume( reg, glm::vec3( 0.0f ), Volume( true, 0.0f, 1.0f, 2.0f, false ) );
     AddVolume( reg, glm::vec3( 0.0f ), Volume( true, 1.0f, 0.25f, 6.0f, true ) );
     const auto v = Graphic::ResolveViewSettings( reg, glm::vec3( 0.0f ) );
-    EXPECT_FLOAT_EQ( v.Post.Exposure, 3.0f ); // 2 * 0.75 + 6 * 0.25
+    EXPECT_FLOAT_EQ( v.Post.ManualExposureEV100, 3.0f ); // 2 * 0.75 + 6 * 0.25
     EXPECT_TRUE( v.Post.EnableBloom );
 
     entt::registry zero;
@@ -332,15 +347,16 @@ TEST( PostProcessVolume, ABoundedVolumeAppliesInsideFadesAcrossItsRadiusAndNotBe
     box.Extent                     = glm::vec3( 100.0f );
     box.BlendRadius                = 200.0f;
     AddVolume( reg, glm::vec3( 1000.0f, 0.0f, 0.0f ), box );
-    const float base = Core::PostProcessSettings{}.Exposure;
+    const float base = Core::PostProcessSettings{}.ManualExposureEV100;
 
-    EXPECT_EQ( Graphic::ResolveViewSettings( reg, glm::vec3( 1050.0f, 0.0f, 0.0f ) ).Post.Exposure, 5.0f );
+    EXPECT_EQ( Graphic::ResolveViewSettings( reg, glm::vec3( 1050.0f, 0.0f, 0.0f ) ).Post.ManualExposureEV100,
+               5.0f );
     const auto fringe = Graphic::ResolveViewSettings( reg, glm::vec3( 1200.0f, 0.0f, 0.0f ) ); // 100 cm out
-    EXPECT_FLOAT_EQ( fringe.Post.Exposure, base * 0.5f + 5.0f * 0.5f );
+    EXPECT_FLOAT_EQ( fringe.Post.ManualExposureEV100, base * 0.5f + 5.0f * 0.5f );
     const auto outside = Graphic::ResolveViewSettings( reg, glm::vec3( 1400.0f, 0.0f, 0.0f ) );
-    EXPECT_EQ( outside.Post.Exposure, base );
+    EXPECT_EQ( outside.Post.ManualExposureEV100, base );
     EXPECT_FALSE( outside.Post.EnableBloom );
-    EXPECT_EQ( Graphic::ResolveViewSettings( reg, std::nullopt ).Post.Exposure, base )
+    EXPECT_EQ( Graphic::ResolveViewSettings( reg, std::nullopt ).Post.ManualExposureEV100, base )
          << "a view with no camera has no position to be inside anything";
 }
 
@@ -356,7 +372,7 @@ TEST( PostProcessVolume, AHiddenVolumeAndAHiddenLightAreSkipped )
     reg.emplace<ECS::VisibilityComponent>( hidden ).Visible              = false;
 
     const auto r = Graphic::ResolveViewSettings( reg, glm::vec3( 0.0f ) );
-    EXPECT_EQ( r.Post.Exposure, Core::PostProcessSettings{}.Exposure );
+    EXPECT_EQ( r.Post.ManualExposureEV100, Core::PostProcessSettings{}.ManualExposureEV100 );
     EXPECT_TRUE( r.Shadows.Enabled );
 }
 

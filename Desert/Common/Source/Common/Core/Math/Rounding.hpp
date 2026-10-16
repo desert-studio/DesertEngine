@@ -60,4 +60,12 @@ namespace Common::Math
         }
         return static_cast<std::uint8_t>( std::lround( unit * 255.0F ) );
     }
+
+    /// @p value / @p by rounded UP: how many groups of @p by cover @p value (a compute dispatch's group count).
+    /// @p by must not be 0. One definition, because the renderer's passes each wrote it out by hand under
+    /// their own name, and two of the same name in one MSVC unity translation unit are a redefinition.
+    [[nodiscard]] constexpr std::uint32_t DivideRoundUp( std::uint32_t value, std::uint32_t by ) noexcept
+    {
+        return ( value + by - 1U ) / by;
+    }
 } // namespace Common::Math

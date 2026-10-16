@@ -382,27 +382,6 @@ namespace Desert::Graphic
              { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun ); } );
     }
 
-    void SceneRenderer::AddFrameRSM( RDG::Builder& graph, FrameTextures& textures,
-                                     System::MeshRenderer* meshRenderer, const glm::vec3& sunDir )
-    {
-        if ( glm::distance( sunDir, m_RSMLastSunDir ) > 1e-4f || m_RSMFrameCounter == 0 )
-        {
-            const auto targets = TargetsOf( textures, m_RSMBuffer, "RSM", "Deferred: RSM" );
-            if ( !targets || meshRenderer == nullptr )
-                return;
-            // Colour 0 = "no caster here" for the VPL gather. Standard-Z pass (drawn through a cascade matrix), so
-            // depth clears to 1 = far, not to the engine's reversed-Z clear.
-            AddRaster(
-                 graph, "Deferred: RSM", *targets,
-                 textures.ColorLoads( *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) ),
-                 RDG::LoadOp::ClearDepth( 1.0f ), {},
-                 [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return meshRenderer->RenderRSMManual( context ); },
-                 [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareRSMDraws( pass ); } );
-            m_RSMLastSunDir = sunDir;
-        }
-    }
-
     void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer, const RDG::TextureRef sunShadowMask )
     {

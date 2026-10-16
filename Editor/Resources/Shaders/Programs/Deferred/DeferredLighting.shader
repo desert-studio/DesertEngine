@@ -70,10 +70,6 @@ Shader "DeferredLighting"
         #define u_SSAO sampler2D(u_SSAO, u_LinearRepeatSampler)
         layout(set = 0, binding = 9) uniform texture2D u_GBufferEmissive; // rgb = HDR emissive, a = material AO
         #define u_GBufferEmissive sampler2D(u_GBufferEmissive, u_LinearRepeatSampler)
-        // RSM GI mode only: one-bounce indirect light PRE-RESOLVED into its own buffer by the GIResolve pass
-        // (already temporally denoised there). Unused — and left bound to its dummy — in the other GI modes.
-        layout(set = 0, binding = 10) uniform texture2D u_GI;
-        #define u_GI sampler2D(u_GI, u_LinearRepeatSampler)
 
         // THE BAKED ENVIRONMENT — the same trio the forward mesh shaders bind, and the whole point of
         // this pass having an ambient term at all. Until 2026-09-03 the deferred composite read NEITHER
@@ -83,7 +79,7 @@ Shader "DeferredLighting"
         // the sky. One material was shaded two ways depending on whether its mesh had a skeleton.
         //
         // New slots (17..19) rather than the forward path's 8..10: those three are already taken here by
-        // u_SSAO / u_GBufferEmissive / u_GI, and this pass shares no descriptor layout with the mesh
+        // u_SSAO / u_GBufferEmissive (and 10, once the RSM GI buffer), and this pass shares no descriptor layout with the mesh
         // shaders — it is a fullscreen triangle with its own material. Only the NAMES have to match, because
         // the material binds by name.
         layout(set = 0, binding = 17) uniform textureCube u_EnvIrradianceTex; // diffuse irradiance (cosine-convolved sky)
@@ -100,13 +96,14 @@ Shader "DeferredLighting"
             vec4 Gain;      // rgb = tint * intensity
         } skyLook;
 
-        // THE TRACED GI'S FINAL GATHER (u_Params.w == 3; Graphic/GlobalIllumination/ScreenProbeGather): per pixel,
-        // the irradiance (/ pi) and the specular radiance the screen probes integrated, in place of the sky's two
-        // cubes — the probes' rays saw the sky only where it is visible. Black in the other GI modes (unread).
-        Uniform(30) texture2D u_ScreenProbeDiffuse;
-        #define u_ScreenProbeDiffuse sampler2D(u_ScreenProbeDiffuse, u_PointClampSampler)
-        Uniform(31) texture2D u_ScreenProbeSpecular;
-        #define u_ScreenProbeSpecular sampler2D(u_ScreenProbeSpecular, u_PointClampSampler)
+        // THE TRACED GI'S FINAL GATHER (u_Params.w == 2): per pixel, the irradiance (/ pi) and the specular
+        // radiance of the screen probes (Graphic/GlobalIllumination/ScreenProbeGather, SoftwareTraced) or of the
+        // radiance cache read in place (IrradianceFieldGather, ProbeVolume), in place of the sky's two cubes —
+        // the rays saw the sky only where it is visible. Black in the other GI modes (unread).
+        Uniform(30) texture2D u_GIDiffuse;
+        #define u_GIDiffuse sampler2D(u_GIDiffuse, u_PointClampSampler)
+        Uniform(31) texture2D u_GISpecular;
+        #define u_GISpecular sampler2D(u_GISpecular, u_PointClampSampler)
 
         Out(0) vec4 oColor;
 
@@ -463,25 +460,14 @@ Shader "DeferredLighting"
         			result += ShadeGridLight(i, shadingModel, worldPos, N, subsurfaceOpacity, surface, payload);
         	}
 
-        	// One-bounce GI (D6). Two interchangeable sources, picked by u_Params.w:
-        	//  1 = SCREEN-SPACE: gather from sun-lit G-buffer neighbours. Cheap and self-contained, but only
-        	//      geometry currently ON SCREEN can bounce, and there is no denoiser.
-        	//  2 = RSM: read the GIResolve buffer, which bounced light from everything the SUN sees (off-screen
-        	//      included), denoised by the screen-space denoiser (ScreenSpaceDenoiser). Costs an extra
-        	//      shadow-style pass, the gather and the denoiser's passes. Its intensity is already applied in
-        	//      GIResolve, so it is NOT scaled again here.
+        	// One-bounce screen-space GI (D6, u_Params.w == 1): gather from sun-lit G-buffer neighbours. Cheap and
+        	// self-contained, but only geometry currently ON SCREEN can bounce, and there is no denoiser.
         	vec3  indirect    = vec3(0.0);
         	float giIntensity = u_Params.y;
         	int   giMode      = int(u_Params.w + 0.5);
         	if (giMode == 1 && giIntensity > 0.0)
         	{
         		indirect = GatherIndirectGI(v_TexCoord, worldPos, N, L, radiance) * giIntensity;
-        	}
-        	else if (giMode == 2)
-        	{
-        		// Already denoised (ScreenSpaceDenoiser, diffuse indirect: bilateral reconstruction, temporal
-        		// accumulation, history convolution) - a second, depth-blind blur here would bleed across edges.
-        		indirect = textureLod(u_GI, v_TexCoord, 0.0).rgb;
         	}
 
         	if (dbg == 6) { oColor = vec4(indirect, 1.0); return; } // Indirect GI only
@@ -491,16 +477,17 @@ Shader "DeferredLighting"
         	// forward mesh shaders call, so a scene rendered through either RenderingPath gets one ambient
         	// model. The only argument that differs there is `indirect`, which the forward path passes as
         	// zero because it has no bounce gather.
-        	// The specular radiance along the reflection is the traced one where SSR answered, the reflection
-        	// environment (captures, then sky) for the rest (UE ReflectionEnvironmentPixelShader: SSR over the
-        	// captures, then the split-sum Fresnel of both together).
+        	// The specular radiance along the reflection is the traced one where SSR answered, the indirect source's
+        	// for the rest: the traced GI's final gather (screen probes or the irradiance field), else the reflection
+        	// environment (captures, then sky) (UE ReflectionEnvironmentPixelShader: SSR over the rest, then the
+        	// split-sum Fresnel of both together).
         	DesertAmbient sampled = DesertSampleAmbient(surface, indirect, ao);
-        	if (giMode == 3)
+        	if (giMode == 2)
         	{
-        		// The screen probe gather at this pixel (one texel each, the G-buffer's extent): the diffuse irradiance
+        		// The traced final gather at this pixel (one texel each, the G-buffer's extent): the diffuse irradiance
         		// and the specular radiance replace both sky terms, so a closed room neither glows nor mirrors the sky.
-        		sampled.Irradiance  = texelFetch(u_ScreenProbeDiffuse, ivec2(gl_FragCoord.xy), 0).rgb;
-        		sampled.Prefiltered = texelFetch(u_ScreenProbeSpecular, ivec2(gl_FragCoord.xy), 0).rgb;
+        		sampled.Irradiance  = texelFetch(u_GIDiffuse, ivec2(gl_FragCoord.xy), 0).rgb;
+        		sampled.Prefiltered = texelFetch(u_GISpecular, ivec2(gl_FragCoord.xy), 0).rgb;
         	}
         	if (u_CameraPos.w > 0.5)
         		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), sampled.Prefiltered);

@@ -119,9 +119,15 @@ namespace Desert::Graphic::System
         m_LocalRedraws.clear();
         ++m_LocalFrame;
         for ( auto& point : points )
-            point.ShadowView = kNoLocalShadowView;
+        {
+            point.ShadowView   = kNoLocalShadowView;
+            point.ShadowCaster = 0;
+        }
         for ( auto& spot : spots )
-            spot.ShadowView = kNoLocalShadowView;
+        {
+            spot.ShadowView   = kNoLocalShadowView;
+            spot.ShadowCaster = 0;
+        }
 
         // A renderer with no shadow budget has no caster pipeline (SetupShadowPass), and a view with shadows off
         // draws none: the lights are then unshadowed, exactly as the sun is.
@@ -160,6 +166,8 @@ namespace Desert::Graphic::System
             const LocalLightShadowSettings& s = pointShadows[i];
             if ( !s.CastShadows || s.SourceId == 0 || points[i].Radius <= 0.0f || points[i].Intensity <= 0.0f )
                 continue;
+            // It casts in this view: a view refused below leaves it a caster the maps do not cover.
+            points[i].ShadowCaster = 1;
             const float r = screenRadius( points[i].Position, points[i].Radius );
             requests.push_back( { static_cast<uint64_t>( s.SourceId ) * 2u, false, i,
                                   LocalShadowTileSize( r, s.ResolutionScale, atlasSide / 8u ), r, &s } );
@@ -169,6 +177,7 @@ namespace Desert::Graphic::System
             const LocalLightShadowSettings& s = spotShadows[i];
             if ( !s.CastShadows || s.SourceId == 0 || spots[i].Range <= 0.0f || spots[i].Intensity <= 0.0f )
                 continue;
+            spots[i].ShadowCaster = 1;
             const float r = screenRadius( spots[i].Position, spots[i].Range );
             requests.push_back( { static_cast<uint64_t>( s.SourceId ) * 2u + 1u, true, i,
                                   LocalShadowTileSize( r, s.ResolutionScale, atlasSide / 4u ), r, &s } );

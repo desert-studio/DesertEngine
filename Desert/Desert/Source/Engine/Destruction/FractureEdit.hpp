@@ -15,8 +15,10 @@
 //
 // Every number is in centimetres.
 
+// GenerateFracture's source is the DynamicMesh3 that BakeFracture (the fracture operation, an allowed MeshCore
+// adapter) cuts; its type comes from there rather than from MeshCore directly.
+#include <Engine/Destruction/FractureBake.hpp>
 #include <Engine/Destruction/FractureFormat.hpp>
-#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

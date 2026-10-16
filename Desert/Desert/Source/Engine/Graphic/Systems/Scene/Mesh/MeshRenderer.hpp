@@ -25,6 +25,7 @@
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheScene.hpp>
 #include <Engine/Graphic/View/ObjectMotionRows.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
@@ -568,19 +569,22 @@ namespace Desert::Graphic::System
         // draw whose shader has slots for it); the exec records that list.
         void DeclareGenericDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
         [[nodiscard]] Common::BoolResultStr RenderGenericManual( const RDG::PassContext& context ) const;
-        // Reflective Shadow Map: the G-buffer rasterized from the SUN instead of the camera, into the scene
-        // renderer's RSM buffer. Every lit texel becomes a virtual point light for the RSM GI mode, which is
-        // what lets off-screen geometry bounce light. No-op unless the deferred pipeline exists. SETUP of the
-        // node "Deferred: RSM": builds its draw list (the bounce sources' Materials[] and the sun's frame state
-        // written here) and declares its binding block; the exec records that list.
-        void                                DeclareRSMDraws( RDG::PassBuilder& pass );
-        [[nodiscard]] Common::BoolResultStr RenderRSMManual( const RDG::PassContext& context ) const;
-        // World -> RSM clip for the pass above — the GI resolve needs it to project fragments into the
-        // sun's view. Valid after UpdateCascades(); identity before the first frame.
-        glm::mat4 GetRSMViewProj() const
-        {
-            return m_RSMViewProj;
-        }
+        // THE SURFACE CACHE'S CARD CAPTURE (GI-SURFACE-CACHE-2/3/5, UE LumenSceneCardCapture). Gather: this
+        // frame's static, instanced (ISM / foliage), generic (another template's slot material, a Shader Override)
+        // and skinned (bounds cards) mesh instances that carry cards, keyed stably (entity + part; mesh
+        // + material + instance index), each naming its row of this renderer's capture sources, with its surface's
+        // identity (a new material recaptures) and whether its G-buffer cell can draw yet (a card waits for its
+        // own material rather than being captured in the default surface). Declare: the view-pass G-buffer cell
+        // of the surface's OWN material (MaterialService::GetViewVariant - its textures, parameters and program,
+        // as the scene's G-buffer draws it) draws each capture's mesh through its card camera into its rectangle
+        // of the capture atlas (viewport + scissor per draw). One view copy per capture of a material in the
+        // frame: the camera block is the material's, so one card camera needs one material.
+        void GatherSurfaceCacheInstances( std::vector<SurfaceCache::SceneInstance>& out );
+        // The (path x GBuffer) pass state a card of that path is captured with; null when the renderer has none.
+        [[nodiscard]] GraphicsPipeline*     CardCapturePassState( MeshVertexPath path ) const;
+        void                                DeclareCardCaptureDraws( RDG::PassBuilder&                             pass,
+                                                                     const std::vector<SurfaceCache::CardCapture>& captures );
+        [[nodiscard]] Common::BoolResultStr RenderCardCaptureManual( const RDG::PassContext& context ) const;
 
         const std::shared_ptr<Framebuffer>& GetSilhouetteMaskFramebuffer() const
         {
@@ -817,6 +821,15 @@ namespace Desert::Graphic::System
             m_BoundingBoxLineWidth = bbLineWidth;
 #endif
         }
+        // The surface-cache card placement overlay (UE r.Lumen.Visualize.CardPlacement): every drawn static mesh's
+        // cards (Assets::MeshCardsBuildData) as wireframe boxes, coloured by the direction each faces. Drawn by
+        // the same debug line pipeline as the AABBs; accepted and dropped in a player's build.
+        void SetCardPlacementView( [[maybe_unused]] bool showCards )
+        {
+#if DESERT_DEV_INSTRUMENTS
+            m_ShowCardPlacement = showCards;
+#endif
+        }
 
     private:
         bool SetupGeometryPass();
@@ -901,7 +914,42 @@ namespace Desert::Graphic::System
         // binding block (after m_CascadeDraws[c]'s); the exec records exactly these.
         std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeCasters[kMaxCascades];
         MeshRendererDetail::MeshDrawList m_GlassDraws;      // "Deferred: Glass" (block 0 = the glass executor's)
-        MeshRendererDetail::MeshDrawList m_RSMDraws;        // "Deferred: RSM"
+        MeshRendererDetail::MeshDrawList m_CardCaptureDraws; // "SurfaceCache: Card Capture"
+        // This frame's gathered card instances (GatherSurfaceCacheInstances), by SceneInstance::Source.
+        struct CardCaptureSource
+        {
+            const Desert::Mesh* Mesh     = nullptr;
+            glm::mat4           World    = glm::mat4( 1.0f );
+            MaterialInstance*   Instance = nullptr;
+            // The surface's material: a static/generic slot's (Static x Forward), an ISM's, a skinned mesh's
+            // (Skinned x Forward). Null for a Shader Override draw (Generic below).
+            DataDrivenMaterial* Surface = nullptr;
+            uint64_t            Hidden  = 0;
+            // Static, generic and skinned: the view's ObjectMotions row (the view-pass cell's world, and the
+            // skinned cell's bone palette).
+            uint32_t MotionRow = 0;
+            // Static (static and generic draws: the static cell), Instanced (an ISM instance: the instanced cell,
+            // World as its one transform) or Skinned (the skinned cell, posed from the view's ObjectBones).
+            MeshVertexPath Path = MeshVertexPath::Static;
+            // A Shader Override draw (MaterialComponent: no `.demat`): its record of this frame's generic queue,
+            // and the (Static x GBuffer) cell of its template that captures it.
+            const GenericMeshRenderData* Generic = nullptr;
+            std::string                  OverrideCell;
+        };
+        std::vector<CardCaptureSource> m_CardCaptureSources;
+        // The renderer-owned surface (MeshECSSystem's default, no `.demat` and so no view copies): one cell
+        // material per capture of it in the frame, its camera in its block.
+        // By MeshVertexPath: the static, skinned and instanced cells.
+        std::vector<std::shared_ptr<DataDrivenMaterial>> m_CardCaptureMaterials[3];
+        std::vector<MaterialInstancePtr>                 m_CardCaptureInstances[3];
+        // Shader Override draws: one (template x Static x GBuffer) cell material per capture of the frame, by cell
+        // shader and texture set (GenericTextureKey: a sampler is the material's descriptor) - the same keying
+        // as the generic queue's shared materials.
+        std::unordered_map<std::string, std::vector<std::shared_ptr<DataDrivenMaterial>>> m_CardCaptureOverrides;
+        // A skinned mesh's cards (UE MeshCardRepresentation SetCardsFromBounds: skinned meshes have no card
+        // build of their own): six cards, one per direction, each the whole bind-pose box. By mesh, built once.
+        std::unordered_map<const Desert::Mesh*, std::shared_ptr<const Assets::MeshCardsBuildData>>
+                                         m_SkinnedBoundsCards;
         MeshRendererDetail::MeshDrawList m_SilhouetteDraws; // "MeshSilhouettePass": static + generic + skinned
         MeshRendererDetail::MeshDrawList m_OverdrawDraws;   // "Debug: Overdraw"
 
@@ -967,9 +1015,11 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>           m_InstancedGBufferShader;
         std::shared_ptr<GraphicsPipeline> m_InstancedGBufferPipeline;
         // (Skinned x GBuffer): the deferred path draws skinned meshes in the base pass (UE), bones from the view's
-        // ObjectBones, so the composite shades them and the ray-traced sun trace sees their depth and normal.
-        // Null if the cell is missing, and SetupGBufferPass says skinned meshes are then absent from a deferred
-        // scene. The unowned material is the skinned twin of m_GBufferUnownedMaterial (same reason).
+        // ObjectBones, so the composite shades them and the ray-traced sun trace sees their depth and normal; the
+        // surface cache captures a skinned mesh's cards with the same state. Null if the shader or the cell is
+        // missing, and SetupGBufferPass says skinned meshes are then absent from a deferred scene. The unowned
+        // material is the skinned twin of m_GBufferUnownedMaterial (same reason).
+        std::shared_ptr<Shader>             m_SkinnedGBufferShader;
         std::shared_ptr<GraphicsPipeline>   m_SkinnedGBufferPipeline;
         std::shared_ptr<DataDrivenMaterial> m_SkinnedGBufferUnownedMaterial;
         bool                              m_DeferredGeometry = false; // set true only while drawing the G-buffer pass
@@ -984,19 +1034,6 @@ namespace Desert::Graphic::System
             MaterialInstancePtr                 Instance;
         };
         std::unordered_map<std::string, std::unique_ptr<TranslucentDraw>> m_Translucent;
-
-        // Reflective Shadow Map (G-buffer from the sun) — the off-screen bounce source for the RSM GI mode.
-        // Its camera UB carries the SUN's matrices, so like glass it needs its OWN material: sharing one with
-        // the opaque passes would write the same per-frame UB twice in a frame. m_RSMViewProj/m_RSMEye come
-        // from cascade 1 in UpdateCascades(), so the pass draws through a STANDARD-Z matrix and needs its
-        // own pipeline (m_RSMPipeline) rather than the reversed-Z G-buffer one — see SetupDeferredPass.
-        // (Static x GBuffer) — the RSM is literally a G-buffer rasterized from the sun.
-        std::shared_ptr<DataDrivenMaterial> m_RSMMaterial;
-        MaterialInstancePtr                m_RSMInstance;
-        std::shared_ptr<Shader>             m_RSMShader; // the G-buffer cell under DESERT_GBUFFER_RSM
-        std::shared_ptr<GraphicsPipeline>  m_RSMPipeline;
-        glm::mat4                          m_RSMViewProj = glm::mat4( 1.0f );
-        glm::vec3                          m_RSMEye      = glm::vec3( 0.0f );
 
         // (Static x GBuffer) for meshes whose FORWARD material is not one MaterialService owns — in
         // practice only MeshECSSystem's default material, which stands in for a mesh whose slot did not
@@ -1021,7 +1058,7 @@ namespace Desert::Graphic::System
         MaterialInstancePtr                   m_StaticInstancedInstance;
         // The same pair for the G-buffer pass. A material is one shader's descriptor sets plus a payload,
         // so the pass that binds the (Instanced x GBuffer) pipeline has to bind sets allocated from that
-        // cell's own reflection -- the same reason m_RSMMaterial and m_GBufferUnownedMaterial exist for
+        // cell's own reflection -- the same reason m_GBufferUnownedMaterial exists for
         // the static path.
         std::shared_ptr<Graphic::DataDrivenMaterial> m_InstancedGBufferMaterial;
         MaterialInstancePtr                   m_InstancedGBufferInstance;
@@ -1175,6 +1212,7 @@ namespace Desert::Graphic::System
         bool      m_ShowBoundingBoxes    = false; // AABB wireframes via the debug line renderer below
         glm::vec3 m_BoundingBoxColor     = glm::vec3( 0.25f, 0.95f, 0.35f );
         float     m_BoundingBoxLineWidth = 1.5f;
+        bool      m_ShowCardPlacement    = false; // card wireframes, same pipeline (SetCardPlacementView)
 
         // Debug line renderer (AABB wireframes): Lines-topology pipeline + storage-buffer line verts.
         std::shared_ptr<GraphicsPipeline>  m_DebugLinePipeline;

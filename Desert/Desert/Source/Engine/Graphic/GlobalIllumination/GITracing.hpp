@@ -27,12 +27,14 @@
 // include, not a pass), kept because it traces inline: no ray buffer is written and re-read between passes.
 //
 // WHAT GIMethod RUNS ON THIS (Common/Settings/RenderMethods.hpp, resolved by Graphic::ResolveRenderMethods):
+//   ProbeVolume     — global SDF + surface cache + world radiance cache, read per pixel without screen probes
+//                     (IrradianceFieldGather.hpp; UE Lumen's irradiance field gather), traced less often.
 //   SoftwareTraced  — global SDF + surface cache + world radiance cache + screen probes. The path of every GPU
 //                     without ray tracing and of Mac; the main path for most players (owner 10-15).
 //   HardwareTraced  — ray query + the same caches; a hit is read from the surface cache, or lit IN PLACE with
 //                     its full material when the machine allows hit lighting (Scalability
 //                     GlobalIllumination.HitLighting; UE r.Lumen.HardwareRayTracing.HitLighting.Allowed, Epic+).
-//   Off / Lightmaps / ScreenSpace / ReflectiveShadowMaps / ProbeVolume / PathTraced — none of this runs.
+//   Off / Lightmaps / ScreenSpace / PathTraced — none of this runs.
 //
 // THE CONTRACT IS NEUTRAL TO THE TRACER (GI-TRACER-CONTRACT, agreed with the Windows side 10-15). What differs
 // between the walks lives behind four names and nowhere else:
@@ -88,8 +90,8 @@ namespace Desert::Graphic::GlobalIllumination
         // THE one statement of which tracer walks the rays: TracerVariant and TracerFrame read it, nothing else.
         GlobalIllumination::Tracer Tracer = GlobalIllumination::Tracer::SoftwareDistanceField;
         HitLighting                Hits   = HitLighting::SurfaceCache;
-        // The caches and the gather the traced methods share. Both traced methods need all three today; they are
-        // separate flags because GI-FINAL-GATHER's first step runs without screen probes (decision 1, 10-15).
+        // The caches and the gather the traced methods share. ProbeVolume runs the two caches without screen
+        // probes: its final gather is the radiance cache read per pixel (IrradianceFieldGather).
         bool SurfaceCache  = false;
         bool RadianceCache = false;
         bool ScreenProbes  = false;
@@ -107,14 +109,15 @@ namespace Desert::Graphic::GlobalIllumination
                                                   bool deviceRayQuery )
     {
         using Common::Scalability::GIMethod;
-        if ( method != GIMethod::SoftwareTraced && method != GIMethod::HardwareTraced )
+        if ( method != GIMethod::ProbeVolume && method != GIMethod::SoftwareTraced &&
+             method != GIMethod::HardwareTraced )
             return Pipeline{};
 
         Pipeline pipeline;
         pipeline.Traced        = true;
         pipeline.SurfaceCache  = true;
         pipeline.RadianceCache = true;
-        pipeline.ScreenProbes  = true;
+        pipeline.ScreenProbes  = method != GIMethod::ProbeVolume;
         if ( method == GIMethod::HardwareTraced && deviceRayQuery )
         {
             pipeline.Tracer = Tracer::HardwareRayQuery;
@@ -201,6 +204,32 @@ namespace Desert::Graphic::GlobalIllumination
     [[nodiscard]] std::string_view TracerFrameMissing( const TracerFrame& frame );
 
     // Declares the tracer's reads on a consumer pass's binding block, under the shader names the tracer include
-    // (Common/GITracer.glslh) declares. The consumer's program must be compiled with TracerVariant.
-    void DeclareTracerReads( RDG::BindingBlockBuilder& block, const TracerFrame& frame );
+    // (Common/GITracer.glslh) declares. The consumer's program must be compiled with TracerVariant. @p sampled =
+    // the stage the consumer samples in (a compute consumer, or a raster one: the surface cache's card lighting).
+    void DeclareTracerReads( RDG::BindingBlockBuilder& block, const TracerFrame& frame,
+                             RDG::Access sampled = RDG::Access::SampledCompute );
+
+    // THIS FRAME'S SURFACE CACHE AS A HIT READS IT (GIHitRadiance, Common/SurfaceCacheSampling.glslh): the card //
+    // records, the instance table and object grid of contract B3 (SurfaceCache.hpp), and the atlas layers a hit
+    // samples - FinalLighting (what the hit returns: direct + the indirect of the radiosity slot + emissive),
+    // Depth and Opacity (whether the card holds the hit). Filled by the frame's owner from the surface cache's
+    // update (SurfaceCacheRenderer::HitReads) before any tracing consumer runs.
+    struct SurfaceCacheFrame
+    {
+        RDG::BufferRef  Cards;        // "SurfaceCardBuffer"
+        RDG::BufferRef  Pages;        // "SurfaceCardPageBuffer"
+        RDG::BufferRef  MeshCards;    // "SurfaceMeshCardsBuffer"
+        RDG::BufferRef  InstanceRows; // "SurfaceCacheInstancesUB"
+        RDG::BufferRef  ObjectGrid;   // "SurfaceCacheObjectGridUB"
+        RDG::TextureRef FinalLighting;
+        RDG::TextureRef Depth;
+        RDG::TextureRef Opacity;
+    };
+
+    // Empty when @p frame holds every read; otherwise what is missing.
+    [[nodiscard]] std::string_view SurfaceCacheFrameMissing( const SurfaceCacheFrame& frame );
+
+    // Declares the surface cache's reads of GIHitRadiance on a tracing consumer's binding block, under the names
+    // // Common/SurfaceCacheSampling.glslh declares (at GI_SURFACE_CACHE_BINDING .. + 7).
+    void DeclareSurfaceCacheReads( RDG::BindingBlockBuilder& block, const SurfaceCacheFrame& frame );
 } // namespace Desert::Graphic::GlobalIllumination

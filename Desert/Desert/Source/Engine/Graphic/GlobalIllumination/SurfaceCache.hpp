@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Settings/Scalability.hpp>
+#include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 
 #include <glm/glm.hpp>
@@ -37,8 +38,6 @@
 //   * Positions are plain float (centimetres, world units). UE splits each card origin into a high/low pair for
 //     Large World Coordinates (DFHackToFloat, "LUMEN_LWC_TODO"); this engine's worlds are float-positioned
 //     everywhere else, so a split here would buy no precision the rest of the frame keeps.
-//   * The lighting layers are RGBA16F: ImageFormat has no R11G11B10 yet (UE PF_FloatR11G11B10). GI-SURFACE-CACHE
-//     adds the enumerator together with its producer and halves these layers then.
 namespace Desert::Graphic::SurfaceCache
 {
     // ---- Page geometry (LumenSurfaceCacheSampling.ush:80-86, Lumen::PhysicalPageSize et al.) ------------------
@@ -54,22 +53,13 @@ namespace Desert::Graphic::SurfaceCache
     static_assert( ( 1u << kMinResLevel ) == kMinCardResolution );
     static_assert( ( 1u << kSubAllocationResLevel ) == kPhysicalPageSize );
 
-    // The six directions a card faces, Lumen's AxisAlignedDirectionIndex order: axis = index / 2, sign = index % 2
-    // (0 = towards negative). A ray of direction d may be lit by the cards whose direction faces -d.
-    enum class CardDirection : uint32_t
-    {
-        NegativeX = 0,
-        PositiveX,
-        NegativeY,
-        PositiveY,
-        NegativeZ,
-        PositiveZ,
-        Count
-    };
-    inline constexpr uint32_t kCardDirections = static_cast<uint32_t>( CardDirection::Count );
-
-    // Cards of one mesh. A direction's coverage is a 32-bit mask over the mesh's cards (see the header note).
-    inline constexpr uint32_t kMaxCardsPerMesh = 32;
+    // The card directions, the per-mesh card limit and the built cards are the mesh asset's derived data
+    // (Assets/MeshCardRepresentation.hpp, the card build): one home, named here for the GPU side.
+    using Assets::CardBuildData;
+    using Assets::CardDirection;
+    using Assets::kCardDirections;
+    using Assets::kMaxCardsPerMesh;
+    using Assets::MeshCardsBuildData;
 
     // ---- The atlases (LumenSurfaceCacheSampling.ush:8-16; FLumenSceneData atlases) ----------------------------
     // Captured layers are written by the card capture (a raster of the mesh from the card's direction); lit layers
@@ -77,51 +67,30 @@ namespace Desert::Graphic::SurfaceCache
     enum class Layer : uint32_t
     {
         // ---- captured
-        Depth = 0, // card-space depth of the surface, 0 = card plane, 1 = far side of the card box
-        Albedo,    // diffuse albedo, rgb; a = 1
-        Opacity,   // coverage: 0 where the card ray finds no surface (outside coverage)
-        Normal,    // octahedral world normal
-        Emissive,  // material emissive, linear radiance
-                  // ---- lit
-        DirectLighting,             // every light with its shadow, as irradiance
-        IndirectLighting,           // radiosity: the card's hemisphere probes over the previous FinalLighting
-        FinalLighting,              // albedo × (direct + indirect) + emissive: what a traced hit reads
+        Depth = 0,        // card-space depth of the surface, 0 = card plane, 1 = far side of the card box
+        Albedo,           // diffuse albedo, rgb; a = 1
+        Opacity,          // coverage: 0 where the card ray finds no surface (outside coverage)
+        Normal,           // octahedral world normal
+        Emissive,         // material emissive, linear radiance
+                          // ---- lit
+        DirectLighting,   // every light with its shadow, as irradiance
+        IndirectLighting, // radiosity: the card's hemisphere probes over the previous FinalLighting
+        FinalLighting,    // albedo × (direct + indirect) + emissive: what a traced hit reads
         RadiosityFramesAccumulated, // temporal count of the radiosity accumulation (UE NumFramesAccumulated)
         Count
     };
     inline constexpr std::size_t kLayerCount = static_cast<std::size_t>( Layer::Count );
 
     inline constexpr std::array<Core::Formats::ImageFormat, kLayerCount> kLayerFormats{
-         Core::Formats::ImageFormat::R16_UNORM, // Depth           (UE PF_G16)
-         Core::Formats::ImageFormat::RGBA8F,    // Albedo          (UE PF_R8G8B8A8, BC7 when compressed)
-         Core::Formats::ImageFormat::R8_UNORM,  // Opacity         (UE PF_G8)
-         Core::Formats::ImageFormat::RG8_UNORM, // Normal          (UE PF_R8G8)
-         Core::Formats::ImageFormat::RGBA16F,   // Emissive        (UE PF_FloatR11G11B10)
-         Core::Formats::ImageFormat::RGBA16F,   // DirectLighting  (UE PF_FloatR11G11B10)
-         Core::Formats::ImageFormat::RGBA16F,   // IndirectLighting (UE PF_FloatR11G11B10)
-         Core::Formats::ImageFormat::RGBA16F,   // FinalLighting   (UE PF_FloatR11G11B10)
-         Core::Formats::ImageFormat::R8_UNORM,  // RadiosityFramesAccumulated (UE PF_G8)
-    };
-
-    // ---- What a mesh asset carries (UE FMeshCardsBuildData / FLumenCardBuildData) -----------------------------
-    // Built once per mesh with its derived data (GI-SURFACE-CACHE), mesh space, centimetres.
-    struct CardBuildData
-    {
-        glm::vec3     Center{ 0.0f }; // OBB centre
-        glm::vec3     Extent{ 0.0f }; // OBB half size along the mesh axes; the card faces Direction
-        CardDirection Direction = CardDirection::NegativeX;
-
-        bool operator==( const CardBuildData& ) const = default;
-    };
-
-    struct MeshCardsBuildData
-    {
-        glm::vec3                  BoundsMin{ 0.0f };
-        glm::vec3                  BoundsMax{ 0.0f };
-        std::vector<CardBuildData> Cards;                  // at most kMaxCardsPerMesh
-        bool                       MostlyTwoSided = false; // foliage: lit from both sides (UE bMostlyTwoSided)
-
-        bool operator==( const MeshCardsBuildData& ) const = default;
+         Core::Formats::ImageFormat::R16_UNORM,  // Depth           (UE PF_G16)
+         Core::Formats::ImageFormat::RGBA8F,     // Albedo          (UE PF_R8G8B8A8, BC7 when compressed)
+         Core::Formats::ImageFormat::R8_UNORM,   // Opacity         (UE PF_G8)
+         Core::Formats::ImageFormat::RG8_UNORM,  // Normal          (UE PF_R8G8)
+         Core::Formats::ImageFormat::R11G11B10F, // Emissive        (UE PF_FloatR11G11B10)
+         Core::Formats::ImageFormat::R11G11B10F, // DirectLighting  (UE PF_FloatR11G11B10)
+         Core::Formats::ImageFormat::R11G11B10F, // IndirectLighting (UE PF_FloatR11G11B10)
+         Core::Formats::ImageFormat::R11G11B10F, // FinalLighting   (UE PF_FloatR11G11B10)
+         Core::Formats::ImageFormat::R8_UNORM,   // RadiosityFramesAccumulated (UE PF_G8)
     };
 
     // ---- The GPU records (std430; must match Common/SurfaceCache.glslh) --------------------------------------
@@ -146,7 +115,8 @@ namespace Desert::Graphic::SurfaceCache
     // One page of a card mapped into the atlas (UE FLumenPageTableEntry / LUMEN_CARD_PAGE_DATA_STRIDE). 80 bytes.
     struct CardPagePayload
     {
-        // x = card index, y = mapped (0/1), z = ResLevelPageTableOffset, w = ResLevelSizeInTiles (x | y << 16)
+        // x = card index, y = mapped (0/1), z = 1 when the card is captured this frame (its lit layers are not its
+        // own yet), w = 0
         glm::uvec4 Card{ 0u };
         glm::vec4  CardUVRect{ 0.0f };          // the page's rectangle in card UV
         glm::vec4  PhysicalAtlasUVRect{ 0.0f }; // the same rectangle in atlas UV
@@ -171,6 +141,40 @@ namespace Desert::Graphic::SurfaceCache
         glm::vec4 FallbackAlbedo{ 0.0f };
     };
     static_assert( sizeof( MeshCardsPayload ) == 112 );
+
+    // ---- The instance table (contract B3, GI-TRACER-CONTRACT; agreed with the Windows side) ------------------
+    // Every instance of the Lumen scene (a static mesh part, each instance of an ISM/HISM batch) holds ONE ROW of
+    // this table for as long as it lives (SurfaceCacheScene: the row is allocated on add, freed on remove, reused
+    // by the next add): the number a traced hit carries to find its cards. The hardware tracer writes the row as
+    // the TLAS instance custom index (GIHit::instance); the software tracer, whose global distance field has no
+    // object identity, finds the rows around its hit in the object grid below. A row whose instance has no cards
+    // this frame (none built, none resident: small and far meshes) holds kNoMeshCards - the hit is lit in place.
+    inline constexpr uint32_t kNoMeshCards = 0xFFFFFFFFu; // Common/GITracing.glslh GI_NO_MESH_CARDS
+    inline constexpr uint32_t kNoInstance  = 0xFFFFFFFFu; // Common/GITracing.glslh GI_NO_INSTANCE
+
+    // One row (std430, Common/SurfaceCacheSampling.glslh SurfaceCacheInstance). 48 bytes.
+    struct InstanceRowPayload
+    {
+        // x = this frame's MeshCardsPayload index (the instance's card layout) or kNoMeshCards, y = the first
+        // CardPagePayload of the instance's cards, z = their page count, w = 0.
+        glm::uvec4 Cards{ kNoMeshCards, 0u, 0u, 0u };
+        glm::vec4  BoundsMin{ 0.0f }; // world box of the instance's cards, cm (xyz)
+        glm::vec4  BoundsMax{ 0.0f };
+    };
+    static_assert( sizeof( InstanceRowPayload ) == 48 );
+
+    // THE OBJECT GRID — which rows a software hit may belong to (UE: the global distance field's page object grid,
+    // r.LumenScene.GlobalSDF / GlobalDistanceFieldPageObjectGridBuffer, read by Lumen's global SDF hits to sample
+    // the surface cache). A camera-centred grid of kObjectGridDims³ cells of kObjectGridCellSize cm, each listing
+    // the rows whose card box overlaps it. One uint array (Common/SurfaceCacheSampling.glslh surfaceCacheGrid[]):
+    //   [0..2]  the grid origin (cm, float bits), [3] the cell size (cm, float bits), [4] dims, [5..7] 0;
+    //   [8 .. 8 + dims³)  per cell: first entry << 8 | entry count (count clamped to 255);
+    //   then the entries: rows.
+    // A hit outside the grid finds no row and is lit in place.
+    inline constexpr uint32_t kObjectGridDims       = 64;
+    inline constexpr float    kObjectGridCellSize   = 256.0f; // cm: the grid spans 164 m around the camera
+    inline constexpr uint32_t kObjectGridHeader     = 8;
+    inline constexpr uint32_t kObjectGridMaxPerCell = 255;
 
     // ---- The budget (Scalability, GlobalIllumination group: UE sg.GlobalIlluminationQuality) -----------------
     struct SurfaceCacheBudget

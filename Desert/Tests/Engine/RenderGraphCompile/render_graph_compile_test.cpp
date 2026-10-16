@@ -2378,8 +2378,6 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // SSR2: the view's HZB the trace marches, built before it.
          "temporal[hzb]",
          "Deferred: SSR",
-         "Deferred: RSM",
-         "Deferred: GIResolve",
          "Deferred: Composite",
          "Deferred: Generic",
          "Deferred: SceneCopy",
@@ -2539,7 +2537,6 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     }
     // The exposure dispatch covers the texture it reads, not the scene target's image.
     declares( "AddFrameAutoExposure", { "graph.GetTextureDesc(scene)" } );
-    declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "gi->Denoise(graph,gather," } );
     declares( "AddFrameComposite", { "PassFlags::Raster", "deferred->DeclareCompositeBindings(pass,inputs,lights)",
                                      "LoadTarget(pass,target,loads)" } );
     declares( "AddFrameSceneCopy", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,sceneCopy" } );
@@ -2568,10 +2565,10 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
              declaration( "SSRRenderer.hpp" ).find( ".Storage(\"u_Trace\",trace,RDG::Access::StorageWrite)" ),
              std::string::npos );
         EXPECT_NE( declaration( "SSAORenderer.hpp" )
-                        .find( ".Sampled(\"u_GBufferDepth\",depth,RDG::Access::SampledGraphics" ),
+                        .find( ".Texture(\"u_GBufferDepth\",depth,RDG::Access::SampledGraphics" ),
                    std::string::npos );
         EXPECT_NE( declaration( "DeferredLightingRenderer.hpp" )
-                        .find( ".Sampled(\"u_SSAO\",inputs.SSAO,RDG::Access::SampledGraphics" ),
+                        .find( ".Texture(\"u_SSAO\",inputs.SSAO,kRead,kWhole)" ),
                    std::string::npos );
     }
 }
@@ -3178,9 +3175,8 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
     for ( const char c : frame )
         if ( !std::isspace( static_cast<unsigned char>( c ) ) )
             collapsed.push_back( c );
-    for ( const char* node : { "\"Deferred: GBuffer\"", "\"TerrainGBuffer\"", "\"Deferred: RSM\"",
-                               "\"Deferred: Generic\"", "\"Deferred: Glass\"",
-                               "\"Debug: Overdraw\"", "\"Debug: Overdraw Resolve\"" } )
+    for ( const char* node : { "\"Deferred: GBuffer\"", "\"TerrainGBuffer\"", "\"Deferred: Generic\"",
+                               "\"Deferred: Glass\"", "\"Debug: Overdraw\"", "\"Debug: Overdraw Resolve\"" } )
     {
         std::string call = std::format( "AddRaster(graph,{}", node );
         std::erase_if( call, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
@@ -3202,7 +3198,6 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
            "RenderGBufferManual" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.cpp",
            "RenderGBufferManual" },
-         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp", "RenderRSMManual" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
            "RenderGenericManual" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp", "RenderGlassManual" },
@@ -3766,10 +3761,10 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
     const std::pair<const char*, const char*> declared[] = {
          // The procedural sky's LUTs are entries of the SkyboxPass's block (DeclareSkyDraw), each the read.
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
-           ".Sampled(\"u_SkyViewLut\",refs.Transients.SkyViewLut.IsValid()?refs.Transients.SkyViewLut:white,"
+           ".Texture(\"u_SkyViewLut\",refs.Transients.SkyViewLut.IsValid()?refs.Transients.SkyViewLut:white,"
            "RDG::Access::SampledGraphics" },
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
-           ".Sampled(\"u_TransmittanceLut\",refs.Transients.SkyTransmittanceLut.IsValid()?refs.Transients."
+           ".Texture(\"u_TransmittanceLut\",refs.Transients.SkyTransmittanceLut.IsValid()?refs.Transients."
            "SkyTransmittanceLut:white,RDG::Access::SampledGraphics" },
          // The forward mesh node's scene/view inputs are bound per material block of the draw list its Declare
          // builds (MeshDrawList::Declare -> BindSceneViewInputs), so the graph sees each sampled input as a
@@ -3786,12 +3781,12 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
            ".Storage(\"AttributeFloats\",ve.FloatsRef,RDG::Access::StorageRead)" },
          // The fog apply's image: the entry of its block (no material route), the read.
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
-           ".Sampled(\"u_FogApply\",refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
+           ".Texture(\"u_FogApply\",refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
          // The cloud composite's pair: entries of its block (the material route + both halves), each the read.
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-           ".Sampled(\"u_CloudScatter\",scatter,RDG::Access::SampledGraphics" },
+           ".Texture(\"u_CloudScatter\",scatter,RDG::Access::SampledGraphics" },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-           ".Sampled(\"u_CloudGuide\",guide,RDG::Access::SampledGraphics" },
+           ".Texture(\"u_CloudGuide\",guide,RDG::Access::SampledGraphics" },
          // The cascades and the cloud shadow map are imported once per frame as scene-view inputs, and every lit
          // node binds them through BindSceneViewInputs (the block entry is the read; RDG-FAULT1).
          { "SceneRendererFrameDeferred.cpp", "view.ShadowCascades=mesh->AcquireCascadeMaps(graph);" },
@@ -3885,22 +3880,24 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
            // Block 0's entries: the fog image it writes, the depth and the sky's two images it samples, each
            // with the sampler the image carried as its own.
            { "block.Storage(\"u_FogApply\",fogImage,RDG::Access::StorageWrite)",
-             ".Sampled(\"u_SceneDepth\",depth,RDG::Access::SampledCompute,GlobalTextureFilterSampler()",
-             ".Sampled(\"u_AerialPerspective\",aerialPerspective,RDG::Access::SampledCompute,VolumeSampler()",
-             R"(.Sampled("u_DistantSkyLight",distantSkyLight,RDG::Access::SampledCompute,GlobalTextureFilterSampler())",
+             ".Texture(\"u_SceneDepth\",depth,RDG::Access::SampledCompute,\"SceneDepth.Compute\").Sampler(\"u_"
+             "GlobalFilterSampler\",GlobalTextureFilterSampler())",
+             ".Texture(\"u_AerialPerspective\",aerialPerspective,RDG::Access::SampledCompute,",
+             R"(.Texture("u_DistantSkyLight",distantSkyLight,RDG::Access::SampledCompute,)",
              "graph.CreateTexture(fogDesc,\"HeightFog.Fog\")", "transients.HeightFog=fogImage" } },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            "VolumetricCloudRenderer::DeclareFrameNodes(",
            { "Storage(\"u_CloudSkyOcclusion\",m_SkyOcclusionVolume,RDG::Access::StorageWrite",
-             "Sampled(\"u_SceneDepth\",depth,RDG::Access::SampledCompute,GlobalTextureFilterSampler()",
+             "Texture(\"u_SceneDepth\",depth,RDG::Access::SampledCompute,\"SceneDepth.Compute\").Sampler(\"u_"
+             "GlobalFilterSampler\",GlobalTextureFilterSampler())",
              "SampledMedium(SampledVolumes(DeclareComputeBlock(march.Access,m_MarchPipeline.get(),m_MarchLayout,",
              // The sky's three images are entries of the march with the sampler each carried as its own.
-             R"(.Sampled("u_DistantSkyLight",distantSkyLight,RDG::Access::SampledCompute,GlobalTextureFilterSampler())",
-             ".Sampled(\"u_CloudAerialPerspective\",aerialPerspective,RDG::Access::SampledCompute,VolumeSampler()",
-             R"(.Sampled("u_CloudSunTransmittanceLut",sunTransmittanceLut,RDG::Access::SampledCompute,GlobalTextureFilterSampler())",
+             R"(.Texture("u_DistantSkyLight",distantSkyLight,RDG::Access::SampledCompute,)",
+             ".Texture(\"u_CloudAerialPerspective\",aerialPerspective,RDG::Access::SampledCompute,",
+             R"(.Texture("u_CloudSunTransmittanceLut",sunTransmittanceLut,RDG::Access::SampledCompute,)",
              // The trace pair: block entries of the march (written) and of the resolve (sampled).
              ".Storage(\"u_CloudScatter\",trace,RDG::Access::StorageWrite)",
-             ".Sampled(\"u_CloudTrace\",trace,RDG::Access::SampledCompute",
+             ".Texture(\"u_CloudTrace\",trace,RDG::Access::SampledCompute",
              "graph.CreateTexture(traceDesc,\"Clouds.Trace\")",
              "Storage(\"u_ReconstructedScatter\",m_HistoryImage[writeIndex],RDG::Access::StorageWrite" } } };
     for ( const Declares& d : declares )
@@ -4038,12 +4035,9 @@ TEST( RenderGraphCompile, MeshPassBodiesReturnTheirDrawResult )
                std::string::npos )
          << "the cascade's setup no longer lets the non-mesh casters declare their blocks";
     // The cascade's draw list (singles / generic / skinned / instanced, built in its Declare by
-    // BuildShadowCascadeDraws) and the RSM's (DeclareRSMDraws), whose Record returns the first refused draw
-    // (MeshDrawList::Record).
+    // BuildShadowCascadeDraws), whose Record returns the first refused draw (MeshDrawList::Record).
     EXPECT_GE( count( shadow, "!drawn.IsSuccess())returndrawn;" ), 1u )
          << "a shadow draw's refusal is no longer returned by its body";
-    EXPECT_NE( shadow.find( "returnm_RSMDraws.Record(context);" ), std::string::npos )
-         << "the RSM body drops its draw list's result";
     EXPECT_NE( shadow.find( "if(autodrawn=m_CascadeDraws[c].Record(context);!drawn.IsSuccess())returndrawn;" ),
                std::string::npos )
          << "the cascade body drops its draw list's result";
@@ -4361,8 +4355,9 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     for ( const char* fill :
           { "SetRawData(", "SetPushMatrix(", "SetMaterialIndex(", "PushConstant(&m_Projection" } )
         EXPECT_EQ( flush.find( fill ), std::string::npos ) << "Flush fills an executor: " << fill;
-    EXPECT_NE( setup.find( ".Sampled(\"u_Backdrop\",backdrop,RDG::Access::SampledGraphics,RDG::SubresourceRange::"
-                           "All(),RDG::SamplerDesc::LinearClamp()).PushConstantBytes(static_cast<uint32_t>(sizeof("
+    EXPECT_NE( setup.find( ".Texture(\"u_Backdrop\",backdrop,RDG::Access::SampledGraphics,RDG::SubresourceRange::"
+                           "All()).Sampler(\"u_LinearClampSampler\",RDG::SamplerDesc::LinearClamp())."
+                           "PushConstantBytes(static_cast<uint32_t>(sizeof("
                            "GlassPush)));" ),
                std::string::npos );
     EXPECT_NE( flush.find( "uint32_tblock=firstBlock;" ), std::string::npos );
@@ -4564,9 +4559,9 @@ TEST( RenderGraphCompile, RuntimePresentIsAGraphNode )
     EXPECT_NE( runtime.find( "pass.ColorTarget(0,target," ), std::string::npos );
     // The blit's block is declared in the node's setup (RDG-FAULT1 C3b) with the sampler it had: LinearClamp.
     EXPECT_NE( runtime.find( "pass.Bindings(m_BlitLayout.Get(m_BlitPipeline->GetSpecification().Shader),"
-                             "m_BlitExecutor->GetRouteFill()).Sampled(\"u_Texture\",sceneRef,"
-                             "Graphic::RDG::Access::SampledGraphics,Graphic::RDG::SubresourceRange::All(),"
-                             "Graphic::RDG::SamplerDesc::LinearClamp());" ),
+                             "m_BlitExecutor->GetRouteFill()).Texture(\"u_Texture\",sceneRef,"
+                             "Graphic::RDG::Access::SampledGraphics,Graphic::RDG::SubresourceRange::All())."
+                             "Sampler(\"u_LinearClampSampler\",Graphic::RDG::SamplerDesc::LinearClamp());" ),
                std::string::npos );
     // The ref the graph extracts is the imported back buffer itself, not the node's target: under
     // --render-movie the node composes into the movie target and the back buffer is only cleared.

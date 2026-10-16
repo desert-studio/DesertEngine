@@ -2076,11 +2076,11 @@ namespace Desert::Editor
             // preview an artist cannot tune against. Same range as the level's own Exposure in Scene
             // Settings, so the number typed here is the number typed there.
             ImGui::SetNextItemWidth( -FLT_MIN );
-            ImGui::SliderFloat( "Exposure", &setup.Exposure, 0.0f, 10.0f, "%.2f" );
+            ImGui::SliderFloat( "Manual EV100", &setup.ExposureEV100, -15.0f, 25.0f, "%.2f" );
             if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "The Exposure this pane grades through - the same field a level carries "
-                                   "in Scene Settings. A cloud material opens at 0.26, which is what 50 of "
-                                   "the 51 cloud scenes in this project author; set it to your level's "
+                ImGui::SetTooltip( "The Manual EV100 this pane grades through - the same field a level's Post "
+                                   "Process Volume carries. A cloud material opens at 2.47, which is what 50 "
+                                   "of the 51 cloud scenes in this project author; set it to your level's "
                                    "value if that level disagrees." );
 
             // THE HDR ENVIRONMENT, as UE's Preview Scene Settings: one editor-wide choice shared by every

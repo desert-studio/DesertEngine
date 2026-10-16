@@ -16,8 +16,12 @@
 #if defined( DESERT_GI_TRACER_SOFTWARE )
 // The clipmaps are separate texture3Ds read through the shared repeat state (UE shared samplers), which the tracer
 // declares itself (numbered by the program build, ShaderMapBuild.cpp AssignSharedSamplerBindings) and
-// DeclareTracerReads binds with them: an includer of the software walk does not declare u_LinearRepeatSampler.
+// DeclareTracerReads binds with them. A program that reads its own inputs through the same state declares it under
+// the same guard before this include (SurfaceCacheDirectLighting.shader): one sampler is one declaration.
+#ifndef DESERT_SHARED_LINEAR_REPEAT_SAMPLER
+#define DESERT_SHARED_LINEAR_REPEAT_SAMPLER
 Uniform sampler u_LinearRepeatSampler;
+#endif
 layout( binding = GI_TRACER_BINDING + 0 ) uniform texture3D u_GlobalDistanceField0;
 #define u_GlobalDistanceField0 sampler3D(u_GlobalDistanceField0, u_LinearRepeatSampler)
 layout( binding = GI_TRACER_BINDING + 1 ) uniform texture3D u_GlobalDistanceField1;

@@ -39,13 +39,13 @@ namespace Desert::Graphic::System
         RDG::TextureRef GBufferDepth;       // device depth: world position is reconstructed from it
         RDG::TextureRef GBufferEmissive; // HDR emissive
         RDG::TextureRef SSAO;            // FrameTransients::SSAO, or System.White (AO = 1)
-        RDG::TextureRef GI;              // RSM-GI accumulation, or System.Black (no indirect)
         RDG::TextureRef SunShadowMask; // "Shadows: Ray Traced Sun" (DeferredScreenShadowMask); bound by its program only
         RDG::TextureRef SSR; // SSR's resolved reflection (rgb, a = coverage), or System.Black (the environment's)
-        // The screen probe gather's per-pixel diffuse irradiance and specular radiance (a traced GI method,
-        // SceneRenderer::AddFrameTracedGI), or System.Black (unread in the other GI modes).
-        RDG::TextureRef ScreenProbeDiffuse;
-        RDG::TextureRef ScreenProbeSpecular;
+        // The traced GI's final gather, per pixel: diffuse irradiance and specular radiance (FrameTransients::
+        // GIDiffuse / GISpecular, SceneRenderer::AddFrameTracedGI), or System.Black (unread in the other GI
+        // modes).
+        RDG::TextureRef GIDiffuse;
+        RDG::TextureRef GISpecular;
         // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
         SceneViewInputs View;
     };
@@ -256,7 +256,7 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
         // material whose route fill the setup validates is filled before the validation reads it, never in the
         // exec). lightDir.xyz = the direction the sun travels; lightColor.rgb/.a = colour/intensity; cameraPos.xyz
         // = camera world position; debugMode selects a raw channel (0 = lit); giMode picks the indirect-light
-        // source (0 = off, 1 = screen-space, 2 = RSM).
+        // source (0 = off, 1 = screen-space, 2 = the traced final gather: GIDiffuse / GISpecular).
         void FillMaterial( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
                            const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
                            uint32_t spotCount, const DeferredShadowInput& shadow, float giIntensity,
@@ -276,7 +276,7 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
 
         // SETUP of "Deferred: Composite", after FillMaterial: the node's one block (block 0). UE's shared-sampler
         // form: every input is a separate texture and the shader reads each through one of three sampler states
-        // the pass binds once (the G-buffer, AO and GI linear REPEAT, as the material route sampled them; the
+        // the pass binds once (the G-buffer and AO linear REPEAT, as the material route sampled them; the
         // integer shading word and depth point-clamped; the LUT, the cubes and the reflection captures
         // linear-clamped). One combined sampler per input was 17 in the fragment stage, over MoltenVK's 16
         // (maxPerStageDescriptorSamplers), and the device refused the program. Then the two light buffers as
@@ -300,15 +300,14 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
                  .Texture( "u_GBufferDepth", inputs.GBufferDepth, kRead, kWhole )
                  .Texture( "u_GBufferEmissive", inputs.GBufferEmissive, kRead, kWhole )
                  .Texture( "u_SSAO", inputs.SSAO, kRead, kWhole )
-                 .Texture( "u_GI", inputs.GI, kRead, kWhole )
                  // The resolved reflections, read through the clamped state (UE: the SSR composite input).
                  .Texture( "u_SSR", inputs.SSR, kRead, kWhole )
                  .Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
                  .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
                  .Storage( kLocalShadowViewsBlockName, lights.ShadowViews, RDG::Access::StorageRead )
                  // One texel per pixel, read through the point-clamped state like the depth.
-                 .Texture( "u_ScreenProbeDiffuse", inputs.ScreenProbeDiffuse, kRead, kWhole )
-                 .Texture( "u_ScreenProbeSpecular", inputs.ScreenProbeSpecular, kRead, kWhole );
+                 .Texture( "u_GIDiffuse", inputs.GIDiffuse, kRead, kWhole )
+                 .Texture( "u_GISpecular", inputs.GISpecular, kRead, kWhole );
             if ( m_Active == kRayTracedSunProgram )
                 block.Texture( "u_ScreenShadowMask", inputs.SunShadowMask, kRead, kWhole );
             if ( layout )

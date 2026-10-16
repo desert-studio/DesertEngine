@@ -113,8 +113,8 @@ namespace Desert::Graphic
     {
         const auto depthOf = [&view]( const glm::vec3& p ) { return -( view * glm::vec4( p, 1.0f ) ).z; };
 
-        // The near edge of slice 1 is near * (far/near)^(1/slices); a near plane at or under 1 cm would give the
-        // first slices a sliver of the view each, so the grid's own near is never under a centimetre.
+        // The near edge of slice 1 is zNear * (zFar/zNear)^(1/slices); a near plane at or under 1 cm would give
+        // the first slices a sliver of the view each, so the grid's own near is never under a centimetre.
         const float zNear = std::max( nearPlane, 1.0f );
         float       zFar  = zNear * 2.0f;
         for ( const auto& light : points.PointLights )

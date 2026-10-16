@@ -82,8 +82,35 @@
 
 // Directional light is a CUSTOM entry: the reflected fields PLUS a sun dial, because the sun's direction
 // is not a field — it hides in TransformComponent.Translation. See MakeDirectionalLightEntry.
-DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PointLightComponent, Data, "PointLightData", "Point Light" )
-DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::SpotLightComponent, Data, "SpotLightData", "Spot Light" )
+// Point / spot light: the reflected fields, plus UE ULocalLightComponent::PostEditChangeProperty - a change of
+// Intensity Units re-states Intensity in the new units, so the light keeps its brightness (LightPhotometry).
+namespace
+{
+    const int _desert_pointlight_component_reg = ::Desert::Editor::ComponentWidgetRegistry::Get().Register(
+         ::Desert::Editor::MakeReflectedComponentEntry<::Desert::ECS::PointLightComponent>(
+              "Point Light", "PointLightData", &::Desert::ECS::PointLightComponent::Data, true,
+              []( const ::Desert::ECS::PointLightData& before, ::Desert::ECS::PointLightData& after )
+              {
+                  if ( before.IntensityUnits == after.IntensityUnits )
+                      return;
+                  after.Intensity = ::Desert::ECS::LightPhotometry::ConvertIntensity(
+                       before.Intensity, before.IntensityUnits, after.IntensityUnits, after.Falloff,
+                       after.MinRadius, ::Desert::ECS::LightPhotometry::kPointLightCosHalfCone );
+              } ) );
+
+    const int _desert_spotlight_component_reg = ::Desert::Editor::ComponentWidgetRegistry::Get().Register(
+         ::Desert::Editor::MakeReflectedComponentEntry<::Desert::ECS::SpotLightComponent>(
+              "Spot Light", "SpotLightData", &::Desert::ECS::SpotLightComponent::Data, true,
+              []( const ::Desert::ECS::SpotLightData& before, ::Desert::ECS::SpotLightData& after )
+              {
+                  if ( before.IntensityUnits == after.IntensityUnits )
+                      return;
+                  // The spot's falloff has no Min Radius: 0, as SpotLightSystem hands the renderer.
+                  after.Intensity = ::Desert::ECS::LightPhotometry::ConvertIntensity(
+                       before.Intensity, before.IntensityUnits, after.IntensityUnits, after.Falloff, 0.0f,
+                       std::cos( glm::radians( after.OuterConeAngle ) ) );
+              } ) );
+} // namespace
 // Camera is a CUSTOM entry: reflected fields + a focal-length readout and "look through". See MakeCameraEntry.
 // Landscape Material is a CUSTOM entry: the landscape's MATERIAL ROW (an asset field and an Edit button — the
 // material itself is authored in the Material Editor window, like every other). See MakeLandscapeMaterialEntry

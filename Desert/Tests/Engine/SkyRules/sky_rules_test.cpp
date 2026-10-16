@@ -13,6 +13,7 @@
 #include <Engine/Graphic/SkyPayload.hpp>
 #include <Engine/Graphic/SkyRules.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
+#include <Engine/Graphic/SunPosition.hpp>
 
 #include <Common/Core/Units.hpp>
 
@@ -56,7 +57,22 @@ using Desert::Graphic::SkyEnvironmentRebakeMayRun;
 using Desert::Graphic::SkyGpuPayload;
 using Desert::Graphic::SkyMode;
 using Desert::Graphic::SkySettings;
-using Desert::Graphic::SunDirectionFromTimeOfDay;
+
+namespace
+{
+    // The calendar these cases were written against: the March 2026 equinox at longitude 0 in UTC, the
+    // closest calendar to the equinox path the clock ran before v58 (Graphic::SunPositionAt).
+    glm::vec3 SunDirectionFromTimeOfDay( float hours, float latitudeDeg, float northOffsetDeg )
+    {
+        Desert::Graphic::SunCalendar calendar;
+        calendar.Year           = 2026;
+        calendar.Month          = 3;
+        calendar.Day            = 20;
+        calendar.LatitudeDeg    = latitudeDeg;
+        calendar.NorthOffsetDeg = northOffsetDeg;
+        return Desert::Graphic::SunPositionAt( calendar, hours ).Travel;
+    }
+} // namespace
 
 // ---------------------------------------------------------------------------------------------------
 // Time of day -> sun direction. The return value is the direction the light TRAVELS (sun -> scene), so
@@ -118,15 +134,15 @@ TEST( TimeOfDay, NorthOffsetRotatesTheAzimuthAboutWorldY )
 TEST( TimeOfDay, ClockAdvancesWrapsAndFreezes )
 {
     // A 600-second day: one real second is 0.04 h.
-    EXPECT_NEAR( AdvanceTimeOfDay( 12.0f, 1.0f, 600.0f ), 12.04f, 1e-4f );
+    EXPECT_NEAR( AdvanceTimeOfDay( 12.0f, 1.0f, 600.0f ).Hours, 12.04f, 1e-4f );
 
     // Wraps at 24 rather than running off to 25.
-    EXPECT_NEAR( AdvanceTimeOfDay( 23.99f, 1.0f, 600.0f ), 0.03f, 1e-3f );
+    EXPECT_NEAR( AdvanceTimeOfDay( 23.99f, 1.0f, 600.0f ).Hours, 0.03f, 1e-3f );
 
     // DayLengthSeconds == 0 freezes the sun at the authored hour — that is what makes the feature usable
     // as a posing tool and not only as an animation.
-    EXPECT_FLOAT_EQ( AdvanceTimeOfDay( 7.5f, 1.0f, 0.0f ), 7.5f );
-    EXPECT_FLOAT_EQ( AdvanceTimeOfDay( 7.5f, 1000.0f, 0.0f ), 7.5f );
+    EXPECT_FLOAT_EQ( AdvanceTimeOfDay( 7.5f, 1.0f, 0.0f ).Hours, 7.5f );
+    EXPECT_FLOAT_EQ( AdvanceTimeOfDay( 7.5f, 1000.0f, 0.0f ).Hours, 7.5f );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -449,7 +465,7 @@ TEST( SkyPayloadLayout, EveryAuthoredValueLandsWhereTheShaderReadsIt )
     data.SkyAndAerialPerspectiveLuminanceFactor = { 0.24f, 0.25f, 0.26f };
 
     const glm::vec3     toward = glm::normalize( glm::vec3( 0.3f, 0.9f, 0.3f ) );
-    const SkyGpuPayload p      = PackSky( toward, MakeSkySettings( data ) );
+    const SkyGpuPayload p      = PackSky( toward, MakeSkySettings( data ), Desert::Graphic::SkySunInputs{} );
 
     const auto* lanes = reinterpret_cast<const glm::vec4*>( &p );
 
@@ -496,7 +512,7 @@ TEST( SkyPayloadLayout, EveryAuthoredValueLandsWhereTheShaderReadsIt )
     EXPECT_FLOAT_EQ( lanes[14].w, 0.0f ) << "reserved lane";
 
     data.Model                        = Desert::ECS::SkyModel::PhysicalAtmosphere;
-    const SkyGpuPayload physical      = PackSky( toward, MakeSkySettings( data ) );
+    const SkyGpuPayload physical = PackSky( toward, MakeSkySettings( data ), Desert::Graphic::SkySunInputs{} );
     const auto*         physicalLanes = reinterpret_cast<const glm::vec4*>( &physical );
     EXPECT_FLOAT_EQ( physicalLanes[13].w, 1.0f ) << "PhysicalAtmosphere packs 1";
 }

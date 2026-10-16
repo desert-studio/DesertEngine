@@ -12,7 +12,6 @@
 // shader name at the reflected offset (UploadRegisteredProperties + FlushFieldFilledUniformBuffers), so member
 // order on either side is free by design; the census there is the name + type set (mutation: a member renamed,
 // dropped or retyped on one side -> red).
-#include <Engine/Graphic/Materials/Deferred/MaterialGIResolve.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialSSAO.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
@@ -102,21 +101,6 @@ TEST( UniformBlockLayout, SSAOUBIsTheSSAOMaterialsStruct )
                 },
                 sizeof( T ) );
     EXPECT_EQ( sizeof( T ), 160u );
-}
-
-TEST( UniformBlockLayout, GIResolveUBIsTheGatherMaterialsStruct )
-{
-    using T = Desert::Graphic::MaterialGIResolve::GIResolveUBData;
-    ExpectTwin( "GIResolve.shader", "GIResolveUB",
-                {
-                     { "u_RSMViewProj", offsetof( T, RSMViewProj ) },
-                     { "u_InvRSMViewProj", offsetof( T, InvRSMViewProj ) },
-                     { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
-                     { "u_SunColor", offsetof( T, SunColor ) },
-                     { "u_Params", offsetof( T, Params ) },
-                },
-                sizeof( T ) );
-    EXPECT_EQ( sizeof( T ), 224u );
 }
 
 TEST( UniformBlockLayout, DeferredUBHasExactlyTheDeferredLightingMaterialsProperties )

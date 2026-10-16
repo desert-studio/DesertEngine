@@ -71,6 +71,13 @@ namespace Desert::Graphic::System
         std::shared_ptr<DataDrivenMaterial> CreateCellMaterial( MeshVertexPath path,
                                                                 MeshPass       pass = MeshPass::Forward );
         std::string                         MeshPathOwnBufferName( MeshVertexPath path );
+        // Defined in MeshRendererForward.cpp. A Shader Override draw's material: the texture half of its identity
+        // (two draws share a material only with the same textures), and its overrides written into it. @p logRefused:
+        // false for a program that declares only what it reads (the deferred depth-normal slice), where a texture the
+        // program lacks is no refusal.
+        std::string GenericTextureKey( const MeshRenderer::GenericMeshRenderData& g );
+        void ApplyGenericOverrides( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,
+                                    std::string_view shaderName, bool logRefused );
 
         static_assert( SceneResources::kMaxCascades == kSceneViewShadowCascades,
                        "the lit materials' cascade count is the scene/view inputs' cascade count" );
@@ -101,11 +108,14 @@ namespace Desert::Graphic::System
     using MeshRendererDetail::MeshDrawList;
 
     using MeshRendererDetail::AppendRow;
+    using MeshRendererDetail::ApplyGenericOverrides;
     using MeshRendererDetail::CreateCellMaterial;
     using MeshRendererDetail::DefaultSurfaceProgram;
     using MeshRendererDetail::DefaultSurfaceProgramVariant;
     using MeshRendererDetail::DefaultSurfaceShaderName;
     using MeshRendererDetail::EffectiveRow;
+    using MeshRendererDetail::FirstSurfaceSlot;
+    using MeshRendererDetail::GenericTextureKey;
     using MeshRendererDetail::IsTranslucent;
     using MeshRendererDetail::MeshPathOwnBufferName;
     using MeshRendererDetail::SectionSurface;

@@ -1,4 +1,6 @@
 #include "SkyboxViewerDocument.hpp"
+#include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
+#include <Engine/Core/PostProcessSettings.hpp>
 
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/PreviewViewpoints.hpp>
@@ -187,7 +189,11 @@ namespace Desert::Editor
         // Level, projection and rotation are sampled inside the resolver, where the render gate cannot see
         // them; the fingerprint is how a change to any of them asks for a frame.
         m_Preview->SetContentFingerprint( SkyboxView::Fingerprint( m_View ) );
-        m_Preview->Setup().Exposure = SkyboxView::ExposureFromEV( m_View.ExposureEV );
+        // The viewer's EV is a scale (2^EV); the pane grades in Manual EV100 at the volume's default key, so it is
+        // stated as the EV100 whose Graphic::ManualExposureScale is that scale.
+        m_Preview->Setup().ExposureEV100 =
+             Graphic::LuminanceToEV100( ::Desert::Core::PostProcessSettings{}.AutoExposureKey /
+                                        SkyboxView::ExposureFromEV( m_View.ExposureEV ) );
         m_Preview->Update( m_RenderSize.x, m_RenderSize.y );
     }
 

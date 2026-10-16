@@ -274,11 +274,13 @@ namespace Desert::Migration
 
     //  53 - A VIEW STATES ITS RENDER METHODS (RMODE-IFACE, RENDER-ARCH). PostProcessSettings.GlobalIllumination
     //       (GIMode: 0 Off, 1 ScreenSpace, 2 RSM) is GlobalIlluminationMethod (Common::Scalability::GIMethod, the
-    //       method ladder: Off 0, ScreenSpace 2, ReflectiveShadowMaps 3) and EnableSSR (bool) is ReflectionsMethod
-    //       (ReflectionMethod: false -> Off 0, true -> ScreenSpace 2); ShadowsMethod, ContactShadows and
-    //       DistanceFieldShadows are new keys with their defaults (MigrateRenderMethodsV52ToV53). Both the record's
-    //       volume and a prefab override's delta are renamed: the key is gone from the type either way. A value
-    //       outside the old type is refused, naming the entity. Scenes and prefabs alike.
+    //       method ladder of v53: Off 0, ScreenSpace 2, ReflectiveShadowMaps 3 — RSM is ProbeVolume 3 on today's
+    //       ladder, which kSceneVersionGIMethodLadder re-states every number of) and EnableSSR
+    //       (bool) is ReflectionsMethod (ReflectionMethod: false -> Off 0, true -> ScreenSpace 2); ShadowsMethod,
+    //       ContactShadows and DistanceFieldShadows are new keys with their defaults
+    //       (MigrateRenderMethodsV52ToV53). Both the record's volume and a prefab override's delta are renamed:
+    //       the key is gone from the type either way. A value outside the old type is refused, naming the entity.
+    //       Scenes and prefabs alike.
     inline constexpr int kSceneVersionRenderMethods = 53;
 
     //  54 - A SCRIPT SLOT HOLDS ONLY WHAT DIFFERS FROM THE SCRIPT (SCR-DETAILS, UE's delta against the CDO). Every
@@ -297,7 +299,50 @@ namespace Desert::Migration
     //       is a delta and is left alone. Scenes and prefabs alike.
     inline constexpr int kSceneVersionSourceAngle = 55;
 
-    static_assert( kSceneVersionSourceAngle == kSceneVersion,
+    //  56 - LIGHTS STATE THEIR UNITS; THE EXPOSURE RANGE IS EV100 (LIGHT-UNITS, UE ELightUnits). PointLight /
+    //       SpotLight gained IntensityUnits (Unitless 0, Candelas 1, Lumens 2, EV100 3) and their defaults became
+    //       UE's (8 cd, InverseSquare): every block states IntensityUnits Unitless - the meaning every older value
+    //       had - and a record that stated no Falloff / Intensity states the old defaults (Quadratic, 1). The
+    //       volume's AutoExposureMin / Max (luminance clamps, default 0.02 / 8) are AutoExposureMinEV100 /
+    //       MaxEV100 = log2(L) + 3, the same clamp (defaults now UE's -10 / 20). A DirectionLight's Intensity was
+    //       always the illuminance the BRDF integrates: it is lux now by name, the number is kept. An override
+    //       (a delta) only gains the units and has its stated exposure keys renamed (MigrateLightUnitsV55ToV56).
+    //       v55 is SourceAngle (Windows); scenes and prefabs alike.
+    inline constexpr int kSceneVersionLightUnits = 56;
+
+    //  57 - THE PHYSICAL SKY'S SUN IS THE LIGHT; MANUAL EXPOSURE IS EV100 (LIGHT-UNITS-2, UE). The Physical
+    //       Atmosphere sky stopped reading SkyAtmosphere SunColor x SunIntensity: it scatters the atmosphere sun
+    //       light's Color x Intensity (lux), as UE. A scene whose physical sky had its own sun keeps its picture
+    //       by UE's factors: r = SunColor*SunIntensity / (light Color*Intensity), per channel, multiplies the
+    //       sky's SkyAndAerialPerspectiveLuminanceFactor (LUTs, aerial perspective, distant light, bake) and
+    //       becomes the light's AtmosphereSunDiskColorScale (the disc). The volume's manual Exposure (a
+    //       multiplier m, default 1) is ManualExposureEV100 = log2(key / m) + 3 at the volume's AutoExposureKey
+    //       (default 0.18) - the same scale through Graphic::ManualExposureScale. A physical sky with no
+    //       atmosphere sun light, or a light of zero illuminance under a lit sky, is refused
+    //       (MigrateSkySunFromLightV56ToV57). Scenes and prefabs alike.
+    inline constexpr int kSceneVersionSkySunFromLight = 57;
+
+    //  58 - THE CLOCK HAS A CALENDAR (TOD1, UE SunPosition). TimeOfDay gained Longitude, TimeZone,
+    //       DaylightSavingTime, Year, Month, Day, and the sun is NOAA's / UE's solar position for that date and
+    //       place instead of the equinox path in solar time. Every TimeOfDay block in a record states the
+    //       calendar closest to that path - 2026-03-20 at longitude 0 in UTC, no daylight saving - so an old
+    //       clock keeps its sun to within the equation of time (minutes) and the equinox declination (under a
+    //       degree); a block that already states a calendar key is left alone, and an override (a delta) is
+    //       not touched (MigrateSunCalendarV57ToV58). Scenes and prefabs alike.
+    inline constexpr int kSceneVersionSunCalendar = 58;
+
+    //  64 - THE GI METHOD LADDER LOST A RUNG (GI-METHOD-RENUMBER). GI-PROBE-SW removed ReflectiveShadowMaps from
+    //       Common::Scalability::GIMethod and every method above it moved down one number: the ladder a v53..v63
+    //       file was written on is Off 0, Lightmaps 1, ScreenSpace 2, ReflectiveShadowMaps 3, ProbeVolume 4,
+    //       SoftwareTraced 5, HardwareTraced 6, PathTraced 7; today's is Off 0, Lightmaps 1, ScreenSpace 2,
+    //       ProbeVolume 3, SoftwareTraced 4, HardwareTraced 5, PathTraced 6. Every stated
+    //       PostProcessVolume.Settings.GlobalIlluminationMethod - a record's and a prefab override's delta - is
+    //       re-stated by that table; ReflectiveShadowMaps 3 becomes ProbeVolume 3 (the off-screen bounce that
+    //       replaced it), the number unchanged. A value outside the old ladder is refused, naming the entity
+    //       (MigrateGIMethodLadderV63ToV64). v59..v63 are Windows' steps. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionGIMethodLadder = 64;
+
+    static_assert( kSceneVersionGIMethodLadder == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -581,6 +626,52 @@ namespace Desert::Migration
     ScriptDefaultsReport MigrateScriptDefaultsV53ToV54( std::vector<Assets::EntityData>& entities,
                                                         const std::filesystem::path&     assetsRoot );
 
+    // What MigrateLightUnitsV55ToV56 did to one file.
+    struct LightUnitsReport
+    {
+        std::size_t              Lights  = 0; // PointLight / SpotLight blocks that now state IntensityUnits
+        std::size_t              Volumes = 0; // PostProcessVolume Settings re-stated in EV100
+        std::vector<std::string> Refused;     // a Settings / exposure value that is not the old shape
+    };
+
+    // Raises PointLight / SpotLight and PostProcessVolume blocks to the rule kSceneVersionLightUnits states, in
+    // the record and in every prefab override. PURE.
+    LightUnitsReport MigrateLightUnitsV55ToV56( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateSkySunFromLightV56ToV57 did to one file.
+    struct SkySunFromLightReport
+    {
+        std::size_t              Skies   = 0; // physical skies whose sun ratio was folded into UE's factors
+        std::size_t              Volumes = 0; // PostProcessVolume Settings whose Exposure is now EV100
+        std::vector<std::string> Refused;
+    };
+
+    // Raises SkyAtmosphere / DirectionLight / PostProcessVolume blocks to the rule kSceneVersionSkySunFromLight
+    // states, in the record and in every prefab override (an override only has its stated Exposure re-stated).
+    // PURE.
+    SkySunFromLightReport MigrateSkySunFromLightV56ToV57( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateSunCalendarV57ToV58 did to one file.
+    struct SunCalendarReport
+    {
+        std::size_t Clocks = 0; // TimeOfDay blocks that now state the equinox calendar
+    };
+
+    // States the calendar kSceneVersionSunCalendar names on every record's TimeOfDay block that states none.
+    // PURE.
+    SunCalendarReport MigrateSunCalendarV57ToV58( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateGIMethodLadderV63ToV64 did to one file.
+    struct GIMethodLadderReport
+    {
+        std::size_t              Restated = 0; // GlobalIlluminationMethod values whose number changed
+        std::vector<std::string> Refused;      // a Settings block or a value that is not on the old ladder
+    };
+
+    // Re-states every PostProcessVolume.Settings.GlobalIlluminationMethod by the old -> new table
+    // kSceneVersionGIMethodLadder states, in the record and in every prefab override. PURE.
+    GIMethodLadderReport MigrateGIMethodLadderV63ToV64( std::vector<Assets::EntityData>& entities );
+
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
     bool MigrateHLODLayersV49ToV50( SceneSerialized& scene );
@@ -854,6 +945,18 @@ namespace Desert::Migration
         bool        SourceAngleRaised  = false; // below kSceneVersionSourceAngle
         std::size_t SourceAnglesStated = 0;
 
+        bool             LightUnitsRaised = false; // below kSceneVersionLightUnits
+        LightUnitsReport LightUnits;
+
+        bool                  SkySunFromLightRaised = false; // below kSceneVersionSkySunFromLight
+        SkySunFromLightReport SkySunFromLight;
+
+        bool              SunCalendarRaised = false; // below kSceneVersionSunCalendar
+        SunCalendarReport SunCalendar;
+
+        bool                 GIMethodLadderRaised = false; // below kSceneVersionGIMethodLadder
+        GIMethodLadderReport GIMethodLadder;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -867,7 +970,8 @@ namespace Desert::Migration
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
-                   RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised;
+                   RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
+                   SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised;
         }
     };
 

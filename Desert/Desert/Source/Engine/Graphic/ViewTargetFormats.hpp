@@ -64,7 +64,7 @@ namespace Desert::Graphic::ViewTargetFormats
     // VolumetricCloudRenderer::EnsureTraceTargets.
     inline constexpr ImageFormat kCloudTrace = ImageFormat::RGBA16F;
 
-    // Screen-space reflections and RSM global illumination.
+    // Screen-space reflections.
     inline constexpr ImageFormat kSSRTrace  = ImageFormat::RGBA16F;
     // The trace texel's ray (SSR.shader u_TraceRay): xyz = the WORLD point it hit (centimetres: half floats step
     // by 4 cm at 50 m, too coarse to re-aim a mirror's ray from a neighbour), w = log2 of its pdf.
@@ -75,26 +75,16 @@ namespace Desert::Graphic::ViewTargetFormats
     // The closest-depth hierarchy (HZBRenderer): one 32-bit float per texel, the reversed-Z device depth exactly
     // as the depth attachment stores it (a 16-bit depth would quantise the far half of the scene into a few
     // hundred values).
-    inline constexpr ImageFormat kHZB       = ImageFormat::R32F;
-    inline constexpr ImageFormat kGIResolve = ImageFormat::RGBA16F;
+    inline constexpr ImageFormat kHZB = ImageFormat::R32F;
     // The screen-space denoiser (System::ScreenSpaceDenoiser), every signal: the reconstructed signal, its
     // accumulation history and its output (premultiplied / straight rgb + coverage); the history's sample count,
     // one 32-bit float (R32F: the single-channel storage format every device writes).
     inline constexpr ImageFormat kDenoiserSignal      = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kDenoiserSampleCount = ImageFormat::R32F;
-    // The RSM draws the G-buffer program (its DESERT_GBUFFER_RSM permutation) with the G-buffer's output
-    // locations, so its attachments are the G-buffer's formats by construction rather than a second spelling of
-    // them.
-    inline constexpr ImageFormat kRSMAlbedo   = kGBufferA;
-    inline constexpr ImageFormat kRSMNormal   = kGBufferB;
-    inline constexpr ImageFormat kRSMEmissive = kGBufferEmissive;
-    inline constexpr ImageFormat kRSMDepth    = kGBufferDepth;
-    // The RSM's colour slots, by location — read by the framebuffer (SceneRenderer::EnsureGIResources) AND by the
-    // RSM pipeline's target layout (MeshRenderer::SetupGBufferPass). Slot 2 is an UNUSED colour slot
-    // (std::nullopt; FramebufferAttachment::UnusedColourSlot): the permutation writes no shading word and GI reads
-    // VPL positions from kRSMDepth, so it has no image.
-    inline constexpr std::array<std::optional<ImageFormat>, 4> kRSMColourSlots = { kRSMAlbedo, kRSMNormal,
-                                                                                   std::nullopt, kRSMEmissive };
+    // The traced GI's final gather, per pixel: diffuse irradiance and specular radiance (rgb), written by the
+    // screen probe gather (GlobalIllumination::ScreenProbeGather, a history pair each) or the irradiance field
+    // gather (GlobalIllumination::IrradianceFieldGather, graph transients), read by the deferred composite.
+    inline constexpr ImageFormat kGIFinalGather = ImageFormat::RGBA16F;
 
     // EVERY SHADOW MAP IS ONE DEPTH-ONLY D32F IMAGE (UE: the shadow depth pass writes depth and nothing else,
     // ShadowDepthPixelShader.usf). The cascades (two per cascade: the sampled map and its cache of static casters,

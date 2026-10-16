@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "9072d755d005afb36804094fd5773882",
         "Versions": {
-            "SCNE": 55,
+            "SCNE": 64,
             "UNIT": 1
         },
         "Dependencies": ["732b2b6a48f6b68a5c5ab22f00719633", "b33524f57b8f411039fb457c1c34be51"]
@@ -88,6 +88,12 @@
                 "TimeOfDay": 12.0,
                 "DayLengthSeconds": 600.0,
                 "Latitude": 45.0,
+                "Longitude": 0.0,
+                "TimeZone": 0.0,
+                "DaylightSavingTime": false,
+                "Year": 2026,
+                "Month": 3,
+                "Day": 20,
                 "NorthOffset": 0.0
             },
             "VolumetricCloud": {
@@ -127,6 +133,7 @@
                 "AtmosphereSunLight": true,
                 "AtmosphereSunLightIndex": 0,
                 "AffectedByAtmosphereTransmittance": true,
+                "AtmosphereSunDiskColorScale": [1.0, 1.0, 1.0],
                 "LightShaftBloom": false,
                 "BloomScale": 0.25,
                 "BloomThreshold": 3.0,
@@ -233,14 +240,14 @@
                     "ContactShadows": false,
                     "DistanceFieldShadows": false,
                     "Tonemapper": 0,
-                    "Exposure": 0.25999999046325684,
+                    "ManualExposureEV100": 2.469485282897949,
                     "Gamma": 2.200000047683716,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
                     "AutoExposureKey": 0.18000000715255737,
                     "AutoExposureSpeed": 1.5,
-                    "AutoExposureMin": 0.019999999552965164,
-                    "AutoExposureMax": 8.0,
+                    "AutoExposureMinEV100": -2.6438562870025635,
+                    "AutoExposureMaxEV100": 6.0,
                     "EnableBloom": true,
                     "BloomThreshold": 2.5,
                     "BloomIntensity": 0.3499999940395355,

@@ -97,7 +97,7 @@ Shader "SkyDistantLight"
             vec3  sunDir       = vec3(sunZenithSin, sunZenithCos, 0.0f);
 
             // Outer-space sun illuminance — the same pair every other physical pass reads.
-            vec3 sunIlluminance = UnpackSkyConfig(s).sunColor * UnpackSunIntensity(s);
+            vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
 
             vec3 direction = SkyDistantLightDirection(int(index));
 

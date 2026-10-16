@@ -114,7 +114,7 @@ void main()
         skinnedBitangent = skin3 * a_Bitangent;
     }
 #else
-    // Light view (shadow depth, RSM): the cached pose when the push block names streams, else the pass's palette.
+    // Light view (shadow depth): the cached pose when the push block names streams, else the pass's palette.
     const mat4 model = m_PushConstants.Transform;
     vec3       posed;
     vec3       casterNormal; // the posed normal the caster's slope bias reads (object space)

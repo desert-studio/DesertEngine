@@ -17,7 +17,10 @@ namespace Desert::Graphic::System
     namespace
     {
         constexpr std::string_view kGenericMeshNameFormat = "GenericMesh_{}";
+    } // namespace
 
+    namespace MeshRendererDetail
+    {
         // The texture half of a shared generic material's identity.
         //
         // Parameters became per-draw rows; SAMPLERS did not and cannot, because a sampler is a descriptor
@@ -46,7 +49,40 @@ namespace Desert::Graphic::System
                 std::format_to( std::back_inserter( key ), "|{}", part );
             return key;
         }
-    } // namespace
+
+        void ApplyGenericOverrides( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,
+                                    const std::string_view shaderName, const bool logRefused )
+        {
+            material.ApplyDefaults();
+            for ( const auto& [name, value] : g.Overrides.Params )
+                material.SetParamRaw( name, value );
+
+            // Texture overrides: resolve asset handle -> runtime Image2D and bind by sampler name.
+            // Unset samplers keep the backend fallback texture, so this is purely additive. Bound on
+            // the material and not per draw, because the key above guarantees every draw sharing
+            // this material asked for the same set.
+            for ( const auto& [name, handle] : g.Overrides.Textures )
+            {
+                if ( handle == 0 )
+                    continue;
+                auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
+                if ( tex == nullptr )
+                    continue;
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact
+                // type
+                auto* img = static_cast<Image2D*>(
+                     Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
+                if ( img != nullptr && !material.SetTexture( name, img ) && logRefused )
+                    LogRefusedTextureOverride( shaderName, name );
+            }
+
+            // Runtime-owned texture (no asset handle) bound straight to its sampler — the text
+            // SDF atlas takes this path.
+            if ( g.DirectTexture != nullptr && !g.DirectTextureSampler.empty() &&
+                 !material.SetTexture( g.DirectTextureSampler, g.DirectTexture ) && logRefused )
+                LogRefusedTextureOverride( shaderName, g.DirectTextureSampler );
+        }
+    } // namespace MeshRendererDetail
 
     void MeshRenderer::BuildGenericDraws( MeshDrawList& list, const GenericSlice slice )
     {
@@ -377,39 +413,8 @@ namespace Desert::Graphic::System
             // colours of every draw recorded before it, and three spheres differing only in a graph
             // parameter rendered as one (MAT_ProbeSharedBlock.desce).
             if ( g.SlotMaterial == nullptr && !standIn )
-            {
-                material->ApplyDefaults();
-                for ( const auto& [name, value] : g.Overrides.Params )
-                    material->SetParamRaw( name, value );
-
-                // Texture overrides: resolve asset handle -> runtime Image2D and bind by sampler name.
-                // Unset samplers keep the backend fallback texture, so this is purely additive. Bound on
-                // the material and not per draw, because the key above guarantees every draw sharing
-                // this material asked for the same set.
-                for ( const auto& [name, handle] : g.Overrides.Textures )
-                {
-                    if ( handle == 0 )
-                        continue;
-                    auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
-                    if ( tex == nullptr )
-                        continue;
-                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact
-                    // type
-                    auto* img = static_cast<Image2D*>(
-                         Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
-                    // The depth-normal program declares only what it reads: a texture it lacks is no refusal.
-                    if ( img != nullptr && !material->SetTexture( name, img ) &&
-                         slice != GenericSlice::DeferredDepthNormal )
-                        LogRefusedTextureOverride( shaderName, name );
-                }
-
-                // Runtime-owned texture (no asset handle) bound straight to its sampler — the text
-                // SDF atlas takes this path.
-                if ( g.DirectTexture != nullptr && !g.DirectTextureSampler.empty() &&
-                     !material->SetTexture( g.DirectTextureSampler, g.DirectTexture ) &&
-                     slice != GenericSlice::DeferredDepthNormal )
-                    LogRefusedTextureOverride( shaderName, g.DirectTextureSampler );
-            }
+                // The depth-normal program declares only what it reads: a texture it lacks is no refusal.
+                ApplyGenericOverrides( *material, g, shaderName, slice != GenericSlice::DeferredDepthNormal );
 
             auto&       rows = rowsFor( material );
             GenericDraw draw;

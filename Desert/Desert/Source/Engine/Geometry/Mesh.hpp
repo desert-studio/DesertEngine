@@ -8,6 +8,7 @@
 #include <Engine/Geometry/LODSelection.hpp>
 
 #include <Common/Core/ResultWithCodes.hpp>
+#include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 
 #include <memory>
@@ -99,6 +100,16 @@ namespace Desert
         {
             m_DistanceField = std::move( slot );
         }
+        // The mesh's surface-cache cards (Assets::MeshCardsBuildData), derived beside its distance field; null
+        // before they land and for a mesh that has none.
+        [[nodiscard]] std::shared_ptr<const Assets::MeshCardsBuildData> GetCards() const
+        {
+            return m_Cards ? m_Cards->Get() : nullptr;
+        }
+        void SetCards( std::shared_ptr<const Assets::MeshCardsSlot> slot )
+        {
+            m_Cards = std::move( slot );
+        }
 
         // THE GPU BUFFERS ARE THE RENDERER'S COPY OF THE CPU GEOMETRY, BUILT WHERE A RENDERER EXISTS. A mesh
         // whose data was set or edited without a device (headless, server, tests, a game-thread write) only
@@ -159,5 +170,6 @@ namespace Desert
         std::vector<std::vector<TriangleCache>> m_TriangleCache;
         std::vector<Submesh>                    m_Submeshes;
         std::shared_ptr<const Assets::MeshDistanceFieldSlot> m_DistanceField;
+        std::shared_ptr<const Assets::MeshCardsSlot>         m_Cards;
     };
 } // namespace Desert
