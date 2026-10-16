@@ -415,12 +415,12 @@ namespace Desert::Graphic::System
             hash.Add( rd.HiddenSubmeshes );
             hash.Add( rd.ForcedLOD );
             hash.Add( rd.LODBias );
-            // The material decides the caster cell (opaque or masked) and a masked one's clip.
-            const SurfaceSlot slot = rd.MaterialSlots != nullptr
-                                          ? FirstSurfaceSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
-                                          : SurfaceSlot{};
-            hash.Add( slot.Surface );
-            hash.Add( slot.Instance );
+            // The entry's section material decides the caster cell (opaque or masked) and a masked one's clip
+            // (ShadingOf: the same answer the casters draw with).
+            const SectionShading shading = ShadingOf( rd );
+            hash.Add( rd.SectionSlot );
+            hash.Add( shading.Surface );
+            hash.Add( shading.Instance );
         }
         for ( const auto& g : m_GenericQueue )
         {
