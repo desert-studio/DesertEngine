@@ -160,4 +160,45 @@ namespace Desert::Graphic
         return output;
     }
 
+    std::shared_ptr<ImageCube> ComputeImages::IntegrateIrradianceCube( GpuBatch&                         batch,
+                                                                       const ComputeImagesSpecification& spec,
+                                                                       uint32_t sourceMip )
+    {
+        const auto shader = GetComputeShader( spec.ShaderName );
+        if ( !shader )
+            return nullptr;
+
+        Core::Formats::ImageCubeSpecification outputInfo = {
+             .Tag        = spec.Tag,
+             .FaceSize   = spec.FaceSize,
+             .Format     = Core::Formats::ImageFormat::RGBA32F,
+             .Mips       = 1u,
+             .Properties = Core::Formats::Storage | Core::Formats::Sample,
+        };
+        auto output = SP_CAST( ImageCube, ImageCube::Create( outputInfo, nullptr ) );
+
+        Image* radiance = ResolveInput( spec.InputHandle );
+        if ( !radiance || !output )
+            return output;
+
+        const auto built = ComputePipeline::Create( { .Shader = shader, .DebugName = spec.Tag } );
+        if ( !built )
+        {
+            LOG_ERROR( "[ComputeImages] '{}' was not integrated: {}", spec.Tag, built.GetError() );
+            return output;
+        }
+        const auto& pipeline = built.GetValue();
+
+        // The source is ONE mip (the shader sums every texel of what it is given), the output's mip 0.
+        // SkyCaptureIrradiance's LocalSize is 8x8, not kComputeImagesWorkGroupSize.
+        constexpr uint32_t kIrradianceGroupSize = 8u;
+        pipeline->SetInput( 0, radiance, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( sourceMip ) );
+        pipeline->SetOutput( 1, output.get(), 0 );
+        const uint32_t groups = DispatchGroupCount( spec.FaceSize, kIrradianceGroupSize );
+        pipeline->Record( batch, groups, groups, 6u );
+        batch.Retain( pipeline );
+
+        return output;
+    }
+
 } // namespace Desert::Graphic

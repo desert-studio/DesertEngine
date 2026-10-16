@@ -219,8 +219,10 @@ namespace Desert::Graphic
      * RebakeSunAngleThreshold exists to prevent. The sun is judged by ANGLE and everything else by
      * EQUALITY. The `w` of that vec4 is the sun's INTENSITY, is not a direction, has no threshold of its
      * own, and is included — as is the atmosphere sun light's illuminance (vec4 15), which the physical bake
-     * integrates. The luminance ceiling in its `w` is not read by the bake; a changed exposure costs one
-     * bake that was not needed, which is the price of fingerprinting the block rather than a field list.
+     * integrates. The luminance ceiling in its `w` is the second exclusion: it is the VIEW's exposure, not the
+     * sky, and the bake does not read it. The sky light is captured once per scene for every view
+     * (SceneSkyLight), so two views with different exposures would otherwise each see "a different sky" in the
+     * other's capture and recapture it on every frame.
      *
      * @param panoramaSizeKey the bake's one input that is NOT in the block — SkySettings::
      *        EnvironmentResolution, which picks the panorama's extent. Without it, changing the
@@ -239,7 +241,9 @@ namespace Desert::Graphic
             hash *= 1099511628211ull;
         };
 
-        const auto* bytes = reinterpret_cast<const unsigned char*>( &payload );
+        SkyGpuPayload bakeInput     = payload;
+        bakeInput.AtmosphereLight.w = 0.0f; // the view's luminance ceiling, see above
+        const auto* bytes           = reinterpret_cast<const unsigned char*>( &bakeInput );
         for ( size_t i = kSkyBakeFingerprintSkippedFloats * sizeof( float ); i < sizeof( SkyGpuPayload ); ++i )
             mixByte( bytes[i] );
 

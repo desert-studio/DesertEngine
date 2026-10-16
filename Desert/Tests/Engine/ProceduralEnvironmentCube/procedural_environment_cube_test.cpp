@@ -202,14 +202,16 @@ TEST( ProceduralEnvironmentCube, TheProceduralBakeFreesTheRadianceCubeAndKeepsNo
     EXPECT_EQ( capture.find( "Register( std::move( m_RadianceImage )" ), std::string::npos )
          << "the capture registers its radiance cube in the ImageService, where it would outlive the capture";
 
-    const std::string skybox = StripComments(
+    const std::string skyLight = StripComments(
          ReadAll( ( std::filesystem::path( root ) / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/"
-                                                    "SkyboxRenderer.cpp" )
+                                                    "SceneSkyLight.cpp" )
                        .string() ) );
-    const std::string add = BodyOf( skybox, "void SkyboxRenderer::AddSkyCapturePasses" );
-    ASSERT_FALSE( add.empty() ) << "SkyboxRenderer::AddSkyCapturePasses is not where this suite expects it";
+    const std::string add = BodyOf( skyLight, "void SceneSkyLight::AddPasses" );
+    ASSERT_FALSE( add.empty() ) << "SceneSkyLight::AddPasses is not where this suite expects it";
     EXPECT_NE( add.find( "m_Capture.Settle(" ), std::string::npos )
-         << "the renderer takes its procedural environment from somewhere other than SkyCapture::Settle";
+         << "the scene's sky light takes its environment from somewhere other than SkyCapture::Settle";
+    EXPECT_NE( add.find( "m_Environment.Replace(" ), std::string::npos )
+         << "the completed capture is not handed to the environment every view of the scene reads";
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -517,14 +519,14 @@ TEST( ProceduralEnvironmentCube, ARebakeReleasesThePreviousEnvironmentAndKeepsTh
     EXPECT_EQ( service.Resolve( owned.Get().PreFilteredMap ), expected );
 }
 
-TEST( ProceduralEnvironmentCube, TheSkyboxRendererOwnsItsEnvironmentRatherThanCopyingHandles )
+TEST( ProceduralEnvironmentCube, TheSceneSkyLightOwnsItsEnvironmentRatherThanCopyingHandles )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
     const std::string header = StripComments(
-         ReadAll( root + "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp" ) );
-    EXPECT_NE( header.find( "OwnedEnvironment m_ProceduralEnv;" ), std::string::npos )
-         << "SkyboxRenderer holds its procedural environment as bare handles again. The cubes live in the "
-            "process-wide ImageService and nothing unregisters the last bake when the view closes: the "
-            "8.16 MiB-per-view leak RT2k measured.";
+         ReadAll( root + "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SceneSkyLight.hpp" ) );
+    EXPECT_NE( header.find( "OwnedEnvironment m_Environment;" ), std::string::npos )
+         << "SceneSkyLight holds the procedural environment as bare handles again. The cubes live in the "
+            "process-wide ImageService and nothing unregisters the last capture when the scene closes: the "
+            "8.16 MiB-per-view leak RT2k measured, now per scene.";
 }

@@ -26,17 +26,6 @@ namespace Desert::Graphic::System
         // PrefilterEnvMap are 32x32 (kComputeImagesWorkGroupSize).
         constexpr uint32_t kSmallGroupSize = 8u;
 
-        // The radiance mip the irradiance is summed over, exactly (SkyCaptureIrradiance.shader says why): a
-        // 16-texel face, 1 536 texels per irradiance texel.
-        constexpr uint32_t kIrradianceSourceFace = 16u;
-        constexpr uint32_t kIrradianceSourceMip  = static_cast<uint32_t>(
-             std::countr_zero( kSkyEnvCubeFaceSize ) - std::countr_zero( kIrradianceSourceFace ) );
-        static_assert( std::has_single_bit( kSkyEnvCubeFaceSize ) &&
-                            std::has_single_bit( kIrradianceSourceFace ) &&
-                            kIrradianceSourceFace <= kSkyEnvCubeFaceSize &&
-                            kIrradianceSourceMip < kSkyEnvRadianceMips,
-                       "the irradiance's source mip must be a mip the radiance cube has" );
-
         struct PrefilterPush
         {
             uint32_t Mip    = 0u;
@@ -109,9 +98,9 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr SkyCapture::Initialize()
     {
-        // PanoramaToCubemap and PrefilterEnvMap are the .hdr path's too (EnvironmentManager::Create), the
-        // prefilter at UE's real-time sample count here; the irradiance is the exact sum over a coarse radiance
-        // mip (SkyCaptureIrradiance), which a capture in the frame can pay and the Monte Carlo integral cannot.
+        // All but the downsample are the .hdr path's too (EnvironmentManager::Create): the panorama resample, the
+        // irradiance -- the exact sum over a coarse radiance mip (SkyCaptureIrradiance), one estimator for both
+        // -- and the prefilter, at UE's real-time sample count here and the reference count for the cached file.
         // Every program is attempted, so each missing one is named in the log, not only the first.
         bool made = MakeProgram( m_PanoramaToCube, "PanoramaToCubemap" );
         made      = MakeProgram( m_Downsample, "SkyCaptureDownsample" ) && made;
@@ -481,6 +470,7 @@ namespace Desert::Graphic::System
                  },
                  [pipeline = m_Downsample.Pipeline, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
+                     DESERT_PROFILE_PASS( "Sky Capture: Radiance mip" );
                      const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      const uint32_t          groups =
                           DispatchGroupCount( std::max( 1u, kSkyEnvCubeFaceSize >> mip ), kSmallGroupSize );
@@ -502,7 +492,7 @@ namespace Desert::Graphic::System
                  pass.Bindings( m_Irradiance.Layout.Get( m_Irradiance.Pipeline->GetSpecification().Shader ),
                                 Renderer::GetPipelineRouteFill( *m_Irradiance.Pipeline ) )
                       .Sampled( "u_Radiance", radiance, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::Mip( kIrradianceSourceMip ),
+                                RDG::SubresourceRange::Mip( kSkyEnvIrradianceSourceMip ),
                                 RDG::SamplerDesc::PointClamp() )
                       .Storage( "u_Output", irradiance, RDG::Access::StorageWrite, 0 );
              },

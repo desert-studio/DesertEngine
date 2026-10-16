@@ -174,6 +174,7 @@ namespace Desert::Graphic
     // asset layer stages the cubes on a worker and must not include the renderer to learn their shape.
     using Assets::kSkyEnvCubeFaceSize;
     using Assets::kSkyEnvIrradianceFaceSize;
+    using Assets::kSkyEnvIrradianceSourceMip;
     using Assets::kSkyEnvPrefilterFaceSize;
     using Assets::kSkyEnvPrefilterMips;
     using Assets::kSkyEnvRadianceMips;

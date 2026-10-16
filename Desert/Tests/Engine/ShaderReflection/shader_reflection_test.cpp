@@ -257,7 +257,7 @@ void main() { o_Color = texture(u_Textures[1], vec2(0.5)); }
 
 // Storage 2D and storage cube deliberately share one bucket — a storage binding is written from a mip
 // view that already carries its own view type. Asserted so the sharing stays a decision, not a
-// leftover: the IBL compute chain (PanoramaToCubemap, DiffuseIrradiance, PrefilterEnvMap) depends on
+// leftover: the IBL compute chain (PanoramaToCubemap, SkyCaptureIrradiance, PrefilterEnvMap) depends on
 // an `imageCube` output continuing to land exactly where it lands today.
 TEST( ShaderReflection, StorageCubeSharesTheStorage2DBucket )
 {

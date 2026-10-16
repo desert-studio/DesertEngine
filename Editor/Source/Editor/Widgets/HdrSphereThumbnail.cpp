@@ -16,7 +16,7 @@ namespace Desert::Editor::HdrSphereThumbnail
     namespace
     {
         // THE SHADER'S OWN TEXT, NOT A PARAPHRASE OF IT. `PanoramaSampleUV` is the one mapping the
-        // PanoramaToCubemap and DiffuseIrradiance bakes read an equirectangular file with; compiling the
+        // PanoramaToCubemap bake reads an equirectangular file with; compiling the
         // same file here means a change to the convention moves the ball and the skybox together, instead
         // of leaving a C++ copy that reads correct alone. `TonemapACES` is likewise the viewport's own film
         // curve (SceneComposite includes the same file), so the ball is graded as the frame is. Included by a path

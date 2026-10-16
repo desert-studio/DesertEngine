@@ -84,8 +84,9 @@ namespace Desert::Graphic
         static std::shared_ptr<ImageCube> ConvertPanoramaToRadianceCube( GpuBatch&                   batch,
                                                                          const Runtime::ImageHandle& panorama );
 
+        // The diffuse irradiance, summed exactly over the radiance cube's 16-face mip (SkyCaptureIrradiance).
         static std::shared_ptr<ImageCube> CreateDiffuseIrradiance( GpuBatch&                   batch,
-                                                                   const Runtime::ImageHandle& panorama );
+                                                                   const Runtime::ImageHandle& radianceCube );
 
         // GGX-prefilters an already-built radiance cubemap (per-mip roughness).
         static std::shared_ptr<ImageCube> CreatePrefilteredMap( GpuBatch&                   batch,

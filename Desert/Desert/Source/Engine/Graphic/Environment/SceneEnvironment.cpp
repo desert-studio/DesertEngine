@@ -150,8 +150,9 @@ namespace Desert::Graphic
         const auto radianceHandle =
              imageService->Register( std::move( radianceCube ), Runtime::ImageHandle::Type::ImageCube );
 
-        // 2) Diffuse irradiance (from the panorama directly).
-        auto diffuseIrradiance = CreateDiffuseIrradiance( *batch, imagePanorama->GetImageHandle() );
+        // 2) Diffuse irradiance, summed exactly over the radiance cube's 16-face mip (the procedural capture's
+        //    estimator, SkyCaptureIrradiance).
+        auto diffuseIrradiance = CreateDiffuseIrradiance( *batch, radianceHandle );
         batch->Retain( diffuseIrradiance );
         const auto diffuseIrradianceHandle =
              imageService->Register( std::move( diffuseIrradiance ), Runtime::ImageHandle::Type::ImageCube );
@@ -263,17 +264,19 @@ namespace Desert::Graphic
     }
 
     std::shared_ptr<Desert::Graphic::ImageCube>
-    EnvironmentManager::CreateDiffuseIrradiance( GpuBatch& batch, const Runtime::ImageHandle& panorama )
+    EnvironmentManager::CreateDiffuseIrradiance( GpuBatch& batch, const Runtime::ImageHandle& radianceCube )
     {
+        // ONE ESTIMATOR FOR BOTH PRODUCERS: the exact sum over the radiance cube's 16-face mip, the program the
+        // procedural sky's capture records (SkyCapture::AddIrradiance). It replaced a 65 536-sample Monte Carlo
+        // over the panorama (DiffuseIrradiance, 301.8 ms of this bake), whose noise the cached file kept.
         ComputeImagesSpecification processingInfo;
-        processingInfo.InputHandle = panorama;
-        processingInfo.ShaderName  = "DiffuseIrradiance";
-        // Names the 301.8 ms stage of the bake — see the note in ConvertPanoramaToRadianceCube.
-        processingInfo.Tag       = "EnvDiffuseIrradiance";
-        processingInfo.FaceSize  = kSkyEnvIrradianceFaceSize;
-        processingInfo.MipLevels = 1u;
+        processingInfo.InputHandle = radianceCube;
+        processingInfo.ShaderName  = "SkyCaptureIrradiance";
+        processingInfo.Tag         = "EnvDiffuseIrradiance";
+        processingInfo.FaceSize    = kSkyEnvIrradianceFaceSize;
+        processingInfo.MipLevels   = 1u;
 
-        return ComputeImages::ProccessForImageCube( batch, processingInfo );
+        return ComputeImages::IntegrateIrradianceCube( batch, processingInfo, kSkyEnvIrradianceSourceMip );
     }
 
     std::shared_ptr<ImageCube> EnvironmentManager::CreatePrefilteredMap( GpuBatch&                   batch,

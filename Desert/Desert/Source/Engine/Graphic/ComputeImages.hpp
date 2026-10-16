@@ -55,6 +55,11 @@ namespace Desert::Graphic
         // into a mipped output cube. Returns the prefiltered cube.
         static std::shared_ptr<ImageCube> ProccessForImageCubeMips( GpuBatch&                         batch,
                                                                     const ComputeImagesSpecification& spec );
+        // Diffuse irradiance: the exact cosine-weighted sum over one mip of spec.InputHandle (a radiance cube
+        // with its chain), @p sourceMip, into a one-mip cube of spec.FaceSize -- SkyCaptureIrradiance, the same
+        // program and source mip the procedural sky's capture records in the frame graph.
+        static std::shared_ptr<ImageCube>
+        IntegrateIrradianceCube( GpuBatch& batch, const ComputeImagesSpecification& spec, uint32_t sourceMip );
     };
 
 } // namespace Desert::Graphic

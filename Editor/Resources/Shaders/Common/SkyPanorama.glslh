@@ -2,12 +2,12 @@
 
 // THE ONE PLACE AN EQUIRECTANGULAR SKY IS READ.
 //
-// WHY THIS IS A SHARED TEXT AND NOT TWO COPIES. The HDR environment is built from ONE panorama by TWO
-// compute programs that must agree pixel for pixel about what that panorama says in a direction:
-// PanoramaToCubemap writes the radiance cube the background is drawn from and the GGX prefilter
-// convolves, and DiffuseIrradiance integrates the SAME panorama into the irradiance cube every lit
-// surface reads. Two copies of one mapping is the middle-link-drops-a-property shape this engine has
-// paid for repeatedly, and the copies cannot be kept honest by review, because each reads correct alone.
+// WHY THIS IS A SHARED TEXT AND NOT A COPY. The HDR environment is built from ONE panorama, read by ONE
+// compute program: PanoramaToCubemap writes the radiance cube the background is drawn from, the GGX
+// prefilter convolves and the irradiance is summed from (SkyCaptureIrradiance reads a mip of that cube,
+// never the panorama). The editor's HDR sphere thumbnail compiles this same text, so the ball and the
+// skybox read a direction the same way; a second copy of one mapping is the middle-link-drops-a-property
+// shape this engine has paid for repeatedly, and copies cannot be kept honest by review.
 //
 // THE SKY'S AUTHORED LOOK IS NOT APPLIED HERE ANY MORE. It turned and scaled the panorama at the bake,
 // which made every rotation value a new bake; it is now applied where the cubes are sampled

@@ -125,15 +125,6 @@ namespace Desert::Graphic::System
                  "SkyBakeCloudMediumParams", Core::kCloudMediumParamsBytes, Core::kCloudMediumParamsBinding,
                  /*persistent=*/false );
 
-            // The sky light's capture programs. A missing one is the scene's whole sky light, so it is said with
-            // the reason, and the sky itself still draws.
-            if ( const Common::BoolResultStr capture = m_Capture.Initialize(); !capture )
-            {
-                LOG_ERROR( "[SkyAtmosphere] this view's procedural sky gives no sky light: {}",
-                           capture.GetError() );
-                m_CaptureProgramsFailed = true;
-            }
-
             // The physical atmosphere's LUT pipelines. Built up front (they are two small compute
             // pipelines); the IMAGES stay lazy, so a scene on
             // the artistic gradient allocates nothing.
@@ -725,29 +716,38 @@ namespace Desert::Graphic::System
         if ( !m_UseProceduralSky )
             return;
 
-        // How long the sun has held still. Compared by direction rather than by "did anything write it",
-        // because the time-of-day driver rewrites the same value every frame when it is paused.
+        // THE SCENE'S SKY LIGHT. Every view rendering a scene is handed it by BeginScene, so a view without one
+        // is a renderer driven outside a scene -- said once, and the view has no sky light.
+        const std::shared_ptr<SceneSkyLight> skyLight = m_SceneSkyLight.lock();
+        if ( !skyLight )
+        {
+            if ( !m_NoSkyLightLogged )
+                LOG_ERROR( "[SkyAtmosphere] this view renders a procedural sky without a scene's sky light "
+                           "(SceneRenderer::BeginScene hands it in); the view has no sky ambient." );
+            m_NoSkyLightLogged = true;
+            return;
+        }
+        // The Bake button's request is the scene's, whichever view's component asked.
+        if ( m_BakeRequested )
+            skyLight->RequestCapture();
+        m_BakeRequested = false;
+
+        // ONE CAPTURE PER SCENE: the first view of the frame decides (and records, AddSkyCapturePasses); the views
+        // after it read what it left.
         const float dt = glm::max( deltaSeconds, 0.0f );
-        if ( glm::dot( m_LastSeenSunDir - m_SunDir, m_LastSeenSunDir - m_SunDir ) > 1e-12f )
-        {
-            m_LastSeenSunDir       = m_SunDir;
-            m_SecondsSinceSunMoved = 0.0f;
-        }
-        else
-        {
-            m_SecondsSinceSunMoved += dt;
-        }
+        if ( !skyLight->ClaimFrame( this, m_SunDir, dt ) )
+            return;
 
         // A CAPTURE STILL BEING RECORDED is answered before anything else: its slices run on the frames after
-        // it began, and until its last one no second capture starts -- a request that arrives meanwhile stays in
-        // m_BakeRequested and is read once this one has completed.
-        if ( m_Capture.IsCapturing() )
+        // it began, and until its last one no second capture starts -- a request that arrives meanwhile stays
+        // with the scene's sky light and is read once this one has completed.
+        if ( skyLight->IsCapturing() )
             return;
-        if ( m_CaptureProgramsFailed )
+        if ( !skyLight->EnsurePrograms() )
             return;
 
-        const bool explicitRequest = m_BakeRequested;
-        m_BakeRequested            = false;
+        const bool explicitRequest = skyLight->TakeCaptureRequest();
+        const bool hasEnvironment  = skyLight->HasEnvironment();
 
         // THIS VIEW'S CLOUD LAYER, asked for BEFORE the trigger rather than after it, because it IS half
         // of the trigger: the panorama carries the clouds now, so a sky whose sun has not moved can still
@@ -758,7 +758,7 @@ namespace Desert::Graphic::System
         // ...but NEVER THE FIRST CAPTURE: a view without one has no sky light at all, and an ambient lit by the
         // sky before its clouds arrive is far nearer the answer than a black one. The clouds landing changes the
         // cloud fingerprint, which recaptures (time-sliced) with them.
-        if ( m_ProceduralEnv && SkyEnvironmentBakeWaitsForClouds( explicitRequest, clouds.InputsPending ) )
+        if ( hasEnvironment && SkyEnvironmentBakeWaitsForClouds( explicitRequest, clouds.InputsPending ) )
             return;
 
         // THE SKY'S OWN INPUTS, as the bake will read them. Formed from the same PackSky the parameter
@@ -766,21 +766,22 @@ namespace Desert::Graphic::System
         const uint64_t skyFingerprint = SkyBakeFingerprint( PackSky( m_SunDir, m_Sky, m_SunInputs ),
                                                             static_cast<uint32_t>( m_Sky.EnvironmentResolution ) );
 
-        if ( !ShouldRebakeSkyEnvironment( m_BakedSunDir, m_SunDir, m_Sky.RebakeSunAngleThreshold,
-                                          m_Sky.AutoRebakeEnvironment, static_cast<bool>( m_ProceduralEnv ),
-                                          explicitRequest, m_BakedCloudFingerprint, clouds.Fingerprint,
-                                          m_BakedSkyFingerprint, skyFingerprint ) )
+        const SkyLightStamps& captured = skyLight->GetCaptured();
+        if ( !ShouldRebakeSkyEnvironment( captured.SunDir, m_SunDir, m_Sky.RebakeSunAngleThreshold,
+                                          m_Sky.AutoRebakeEnvironment, hasEnvironment, explicitRequest,
+                                          captured.CloudFingerprint, clouds.Fingerprint, captured.SkyFingerprint,
+                                          skyFingerprint ) )
         {
-            m_SecondsSinceStale = 0.0f;
+            skyLight->ClearStale();
             return;
         }
 
-        m_SecondsSinceStale += dt;
+        const float secondsSinceStale = skyLight->AccumulateStaleSeconds( dt );
 
         // The Bake button and the very first bake are answers to a question the user just asked, or the
         // difference between an ambient-lit world and an unlit one. Neither waits.
-        const bool immediate = explicitRequest || !m_ProceduralEnv;
-        if ( !immediate && !SkyEnvironmentRebakeMayRun( m_SecondsSinceSunMoved, m_SecondsSinceStale,
+        const bool immediate = explicitRequest || !hasEnvironment;
+        if ( !immediate && !SkyEnvironmentRebakeMayRun( skyLight->GetSecondsSinceSunMoved(), secondsSinceStale,
                                                         kSkyRebakeSettleSeconds, kSkyRebakeMaxDeferSeconds ) )
             return;
 
@@ -798,7 +799,7 @@ namespace Desert::Graphic::System
             return;
         }
 
-        m_SecondsSinceStale = 0.0f;
+        skyLight->ClearStale();
 
         const SkyEnvironmentSize size = EnvironmentPanoramaSize( m_Sky.EnvironmentResolution );
 
@@ -806,10 +807,10 @@ namespace Desert::Graphic::System
         {
             const SkyEnvironmentCost cost = SkyEnvironmentBakeCost( m_Sky.EnvironmentResolution );
             LOG_INFO( "[SkyAtmosphere] Environment bake at High ({}x{}): panorama {:.1f} MiB + "
-                      "radiance/irradiance/prefiltered cubes {:.1f} MiB = {:.1f} MiB — paid PER LIVE "
-                      "view (views: {}).",
+                      "radiance/irradiance/prefiltered cubes {:.1f} MiB = {:.1f} MiB — paid once per "
+                      "scene, whatever its views.",
                       size.Width, size.Height, BytesToMiB( cost.PanoramaBytes ), BytesToMiB( cost.CubeBytes ),
-                      BytesToMiB( cost.TotalBytes ), SceneRenderer::DescribeLiveViews() );
+                      BytesToMiB( cost.TotalBytes ) );
             m_HighResCostLogged = true;
         }
 
@@ -898,39 +899,26 @@ namespace Desert::Graphic::System
         // The distant sky light is not part of the binding: this frame's graph writes it ahead of the panorama,
         // which declares it as a read (AddSkyCapturePasses).
 
-        // WALL TIME FROM BEGIN TO COMPLETION, printed rather than assumed: a whole capture completes in the frame
-        // that begins it; a sliced one spans one frame per step.
-        m_PendingStarted = std::chrono::steady_clock::now();
-        m_PendingFrames  = 0;
-
-        // The first capture of a view is WHOLE, so the frame that opens it is lit by its sky; every later one is
-        // time-sliced while the previous environment lights the scene (SkyCapture).
-        const SkyCapturePace pace = m_ProceduralEnv ? SkyCapturePace::TimeSliced : SkyCapturePace::Whole;
-        if ( !m_Capture.Begin( size, pace,
-                               SkyCaptureSource{ .SkyParams = m_SkyParams.get(),
-                                                 .Clouds    = cloudBinding,
-                                                 .Physical  = physical } ) )
-        {
-            // Keep the previous environment and say why (Begin logged it); the user can retry with the Bake
-            // button. Do NOT stamp m_BakedSunDir -- a failed capture must not look like an up-to-date one.
-            return;
-        }
-
-        m_PendingSunDir           = m_SunDir;
-        m_PendingCloudFingerprint = clouds.Fingerprint;
-        m_PendingSkyFingerprint   = skyFingerprint;
-        m_PendingSize             = size;
-        if ( !clouds.Marched )
-            m_PendingWhat = "sky only (this view has no cloud layer)";
-        else if ( cloudBinding.SkyOcclusion )
-            m_PendingWhat = "clouds marched into the panorama, sky-occlusion volume read";
-        else
-            m_PendingWhat = "clouds marched into the panorama, profile-driven ambient occlusion";
+        const char* what = !clouds.Marched ? "sky only (this view has no cloud layer)"
+                           : cloudBinding.SkyOcclusion
+                                ? "clouds marched into the panorama, sky-occlusion volume read"
+                                : "clouds marched into the panorama, profile-driven ambient "
+                                  "occlusion";
+        // A refusal keeps the previous environment and says why (Begin logged it); the user can retry with the
+        // Bake button. Nothing is stamped -- a failed capture must not look like an up-to-date one.
+        (void)skyLight->Begin( size,
+                               System::SkyCaptureSource{
+                                    .SkyParams = m_SkyParams.get(), .Clouds = cloudBinding, .Physical = physical },
+                               SkyLightStamps{ .SunDir           = m_SunDir,
+                                               .CloudFingerprint = clouds.Fingerprint,
+                                               .SkyFingerprint   = skyFingerprint },
+                               what );
     }
 
     void SkyboxRenderer::AddSkyCapturePasses( RDG::Builder& graph, FrameTextures& textures )
     {
-        if ( !m_Capture.IsCapturing() )
+        const std::shared_ptr<SceneSkyLight> skyLight = m_SceneSkyLight.lock();
+        if ( !m_UseProceduralSky || !skyLight || !skyLight->IsCapturing() )
             return;
 
         // The physical march reads the cached pair this frame's graph has written (or an earlier one has, when
@@ -939,30 +927,13 @@ namespace Desert::Graphic::System
         if ( physical && !m_LutsValid )
             return;
 
-        const SkyCaptureFrameReads reads{ .TransmittanceLut = physical ? m_TransmittanceLut : nullptr,
-                                          .MultiScatterLut  = physical ? m_MultiScatterLut : nullptr,
-                                          .DistantSkyLight  = m_Atmosphere.DistantSkyLight };
-        ++m_PendingFrames;
-        std::optional<Environment> captured = m_Capture.Settle( m_Capture.AddPasses( graph, textures, reads ) );
-        if ( !captured )
-            return;
-
-        // The previous environment's cubes are released by the replacement (the image service owns them until
-        // unregistered); the last one is released when this renderer dies. From here on GetEnvironment answers
-        // the new cubes -- and this frame's ImportSceneViewTextures, which comes after this, imports them.
-        m_ProceduralEnv.Replace( *Runtime::ResourceRegistry::GetImageService(), std::move( *captured ) );
-
-        m_BakedSunDir           = m_PendingSunDir;
-        m_BakedCloudFingerprint = m_PendingCloudFingerprint;
-        m_BakedSkyFingerprint   = m_PendingSkyFingerprint;
-
-        const double spanMs =
-             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - m_PendingStarted )
-                  .count();
-        LOG_INFO(
-             "[SkyAtmosphere] Sky light captured at {}x{} in the frame graph over {} frame(s) ({:.1f} ms of wall "
-             "time from its begin) -- {}. The trigger is the sun, the clouds and the sky's own parameters.",
-             m_PendingSize.Width, m_PendingSize.Height, m_PendingFrames, spanMs, m_PendingWhat );
+        // Recorded only when this view claimed the frame (SceneSkyLight::AddPasses): the LUTs it reads are this
+        // view's, written ahead of it in this graph.
+        skyLight->AddPasses(
+             this, graph, textures,
+             System::SkyCaptureFrameReads{ .TransmittanceLut = physical ? m_TransmittanceLut : nullptr,
+                                           .MultiScatterLut  = physical ? m_MultiScatterLut : nullptr,
+                                           .DistantSkyLight  = m_Atmosphere.DistantSkyLight } );
     }
 
     SystemRasterPass SkyboxRenderer::SkyPass()

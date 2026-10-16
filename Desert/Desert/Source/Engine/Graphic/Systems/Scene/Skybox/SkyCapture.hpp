@@ -92,12 +92,13 @@ namespace Desert::Graphic::System
      * passes that read the cubes, after the LUT nodes they march -- the graph orders and barriers them.
      *
      * TWO SETS, NEVER A GAP. The cubes a capture writes are not the ones the scene reads: the environment the
-     * SkyboxRenderer publishes stays the previous capture's until this one's last step is recorded, and is then
-     * replaced in the same frame (SkyboxRenderer::AddSkyCapturePasses), before ImportSceneViewTextures imports
-     * it. UE does the same with its two convolved sky targets and their ready index.
+     * scene's sky light (SceneSkyLight) publishes stays the previous capture's until this one's last step is
+     * recorded, and is then replaced in the same frame (SceneSkyLight::AddPasses), before ImportSceneViewTextures
+     * imports it. UE does the same with its two convolved sky targets and their ready index.
      *
-     * One capture at a time; the SkyboxRenderer decides WHEN (SkyRules: the sun, the clouds, the sky's own
-     * parameters) and this object only HOW.
+     * One capture at a time, one per scene: SceneSkyLight owns it and the environment it publishes, the claiming
+     * view's SkyboxRenderer decides WHEN (SkyRules: the sun, the clouds, the sky's own parameters), and this
+     * object only HOW.
      */
     class SkyCapture
     {

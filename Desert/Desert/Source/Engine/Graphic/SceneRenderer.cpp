@@ -714,6 +714,8 @@ namespace Desert::Graphic
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
 
         skyboxSystem->PrepareCamera( m_SceneInfo.ActiveCamera );
+        // The scene's one sky light: this view reads it, and captures it when it is the frame's first view.
+        skyboxSystem->SetSceneSkyLight( scene.GetSkyLight() );
 
         m_ScenePlaying = scene.IsPlaying(); // grid & other authoring aids hide while the game runs
         // The scene's extension passes, for AddExtensionPoint while OnUpdate builds this frame.
