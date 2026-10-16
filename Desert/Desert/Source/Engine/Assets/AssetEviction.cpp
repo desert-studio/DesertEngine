@@ -7,31 +7,55 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
 
+#include <Engine/Core/TextTemplate.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <Common/Core/Logger.hpp>
 
+#include <string_view>
+#include <vector>
+
 namespace Desert::Assets
 {
+    namespace
+    {
+        // The sweep's report: one summary sentence, then a line per refusal, kept texture and built mesh left.
+        constexpr std::string_view kEvictionReportText =
+             "swept {{ registered }} registered asset(s): {{ roots }} root(s) expanded to {{ reachable }} "
+             "reachable; released {{ released }}, already cold {{ alreadyCold }}, refused {{ refused }}, "
+             "project-scoped {{ projectScoped }}. Dropped {{ meshesDropped }} built mesh(es) and "
+             "{{ materialsDropped }} built material(s) and {{ texturesDropped }} built texture(s). GPU rows "
+             "{{ rowsBefore }} -> {{ rowsAfter }}."
+             "{% for line in refusals %}\n  refused: {{ line }}{% endfor %}"
+             "{% for line in keptTextures %}\n  kept texture: {{ line }}{% endfor %}"
+             "{% for line in builtMeshesLeft %}\n  built mesh left: {{ line }}{% endfor %}";
+
+        Common::Json::Value Lines( const std::vector<std::string>& lines )
+        {
+            return Common::Json::Value( Common::Json::Value::Array( lines.begin(), lines.end() ) );
+        }
+    } // namespace
+
     std::string EvictionOutcome::Describe() const
     {
-        std::string text;
-        text += "swept " + std::to_string( Registered ) + " registered asset(s): " + std::to_string( Roots ) +
-                " root(s) expanded to " + std::to_string( Reachable ) + " reachable; released " +
-                std::to_string( Released ) + ", already cold " + std::to_string( AlreadyCold ) + ", refused " +
-                std::to_string( Refused ) + ", project-scoped " + std::to_string( ProjectScoped ) + ". Dropped " +
-                std::to_string( MeshesDropped ) + " built mesh(es) and " + std::to_string( MaterialsDropped ) +
-                " built material(s) and " + std::to_string( TexturesDropped ) + " built texture(s). GPU rows " +
-                std::to_string( LedgerRowsBefore ) + " -> " + std::to_string( LedgerRowsAfter ) + ".";
-
-        for ( const std::string& refusal : Refusals )
-            text += "\n  refused: " + refusal;
-        for ( const std::string& kept : KeptTextures )
-            text += "\n  kept texture: " + kept;
-        for ( const std::string& built : BuiltMeshesLeft )
-            text += "\n  built mesh left: " + built;
-
-        return text;
+        static const Desert::Core::TextTemplate kReport( "EvictionReport", kEvictionReportText );
+        Common::Json::ObjectBuilder             model;
+        model.Set( "registered", Registered )
+             .Set( "roots", Roots )
+             .Set( "reachable", Reachable )
+             .Set( "released", Released )
+             .Set( "alreadyCold", AlreadyCold )
+             .Set( "refused", Refused )
+             .Set( "projectScoped", ProjectScoped )
+             .Set( "meshesDropped", MeshesDropped )
+             .Set( "materialsDropped", MaterialsDropped )
+             .Set( "texturesDropped", TexturesDropped )
+             .Set( "rowsBefore", LedgerRowsBefore )
+             .Set( "rowsAfter", LedgerRowsAfter )
+             .Set( "refusals", Lines( Refusals ) )
+             .Set( "keptTextures", Lines( KeptTextures ) )
+             .Set( "builtMeshesLeft", Lines( BuiltMeshesLeft ) );
+        return kReport.RenderOrLog( Common::Json::Value( model.Build() ) );
     }
 
     void AssetEviction::EdgesOf( AssetManager& manager, const Common::AssetHandle& handle,

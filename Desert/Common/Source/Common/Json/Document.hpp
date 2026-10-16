@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <format>
 #include <limits>
 #include <optional>
 #include <string>
@@ -405,8 +406,8 @@ namespace Common::Json
             if ( fits )
                 out = static_cast<U>( v.GetValue() );
             else
-                Report( issues, "integer in [" + std::to_string( std::numeric_limits<U>::min() ) + ", " +
-                                     std::to_string( std::numeric_limits<U>::max() ) + "]" );
+                Report( issues, std::format( "integer in [{}, {}]", std::numeric_limits<U>::min(),
+                                             std::numeric_limits<U>::max() ) );
         }
         else if constexpr ( std::is_floating_point_v<U> )
         {
@@ -446,7 +447,7 @@ namespace Common::Json
             if ( ok )
                 out = read;
             else
-                Report( issues, "array of " + std::to_string( U::length() ) + " numbers" );
+                Report( issues, std::format( "array of {} numbers", U::length() ) );
         }
         else
         {

@@ -532,16 +532,16 @@ namespace Desert::VFX
         std::string body = "#include <Common/VFXParticleContract.glslh>\n\nstruct ParticleCtx\n{\n";
         for ( const VFXAttributeLayout& a : compiled.Layout.Attributes )
             std::format_to( std::back_inserter( body ), "    {} {};\n", GlslTypeName( a.Type ), a.Name );
-        body += "};\n";
+        std::format_to( std::back_inserter( body ), "}};\n" );
         for ( const std::string& ref : moduleOrder )
         {
             const ResolvedModule& resolved = modules.at( ref );
-            std::format_to( std::back_inserter( body ), "\n// {}\nstruct {}\n{{\n", ref, resolved.Inputs );
-            body += "    uint VFXModuleKey;\n";
+            std::format_to( std::back_inserter( body ), "\n// {}\nstruct {}\n{{\n    uint VFXModuleKey;\n", ref,
+                            resolved.Inputs );
             for ( const VFXModuleDecl& d : resolved.Module.Inputs )
                 std::format_to( std::back_inserter( body ), "    {} {};\n", GlslTypeName( d.Type ), d.Name );
-            body += "};\n";
-            body += RenameModuleSymbols( resolved.Module.Body, resolved.Function, resolved.Inputs );
+            std::format_to( std::back_inserter( body ), "}};\n{}",
+                            RenameModuleSymbols( resolved.Module.Body, resolved.Function, resolved.Inputs ) );
             if ( !body.ends_with( '\n' ) )
                 body += '\n';
         }

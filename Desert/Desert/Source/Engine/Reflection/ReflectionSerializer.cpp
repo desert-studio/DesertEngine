@@ -247,8 +247,8 @@ namespace Desert::Reflection
         LOG_ERROR( "[ComponentRegistry] {0} names GUID {1}, but its locator '{2}' {3} - the reference stays "
                    "empty",
                    what, text, path,
-                   located == 0 ? std::string( "loads no " ) + type
-                                : "holds a different asset (handle " + std::to_string( located ) + ")" );
+                   located == 0 ? std::format( "loads no {}", type )
+                                : std::format( "holds a different asset (handle {})", located ) );
         return 0;
     }
 
@@ -342,8 +342,7 @@ namespace Desert::Reflection
                             WriteIntBySize( p, field.Size, v.GetValue() );
                     }
                     else
-                        g.Report( issues,
-                                  "integer enumerator of a " + std::to_string( field.Size ) + "-byte enum" );
+                        g.Report( issues, std::format( "integer enumerator of a {}-byte enum", field.Size ) );
                     break;
                 }
                 case FieldType::AssetHandle:

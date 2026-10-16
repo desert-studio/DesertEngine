@@ -1,7 +1,10 @@
 #include "MemoryReadout.hpp"
 
+#include <Engine/Core/TextTemplate.hpp>
+
 #include <atomic>
 #include <cstdio>
+#include <string_view>
 
 namespace Desert::Graphic
 {
@@ -39,40 +42,45 @@ namespace Desert::Graphic
         }
     } // namespace
 
+    namespace
+    {
+        // 1. The device, as the driver sees it. 2. The ledger: the total AND its coverage, because a subtotal
+        // presented as a total is the defect this whole type exists because of. 3. The process: every byte,
+        // and the one number that saw the world scene.
+        constexpr std::string_view kReadoutText =
+             "{% if budgetKnown %}device-local usage={{ deviceUsage }} of budget={{ deviceBudget }}"
+             "{% else %}device=unknown (VK_EXT_memory_budget not enabled){% endif %} over {{ heaps }} heap(s)"
+             "\n  ledger: {{ ledgerBytes }} over {{ knownFor }} of {{ live }} live objects"
+             "{% if unsized > 0 %} ({{ unsized }} report no size, so this total is a FLOOR){% endif %}"
+             "\n  {{ process }}{% if processKnown %} = resident {{ resident }}, peak {{ peak }}{% endif %}";
+
+        // Both unknowns are SAID: both zero means the platform never answered, and "grew 0 B" would be read
+        // as a process that did not grow.
+        constexpr std::string_view kWatchText =
+             "watch over {{ frames }} frame(s):"
+             "\n  process resident: {% if residentKnown %}baseline {{ baseResident }} -> peak {{ peakResident }}, "
+             "grew {{ residentGrowth }}{% else %}unknown (the platform query never answered){% endif %}"
+             "\n  device-local usage: {% if deviceKnown %}baseline {{ baseDevice }} -> peak {{ peakDevice }}, "
+             "grew {{ deviceGrowth }}{% else %}unknown (no budget extension, or nothing device-local){% endif %}";
+    } // namespace
+
     std::string MemoryReadout::Report() const
     {
-        std::string text;
-
-        // 1. The device, as the driver sees it.
-        if ( !Device.BudgetKnown )
-        {
-            text += "device=unknown (VK_EXT_memory_budget not enabled)";
-        }
-        else
-        {
-            text += "device-local usage=" + Bytes( Device.DeviceLocalUsage() ) +
-                    " of budget=" + Bytes( Device.DeviceLocalBudget() );
-        }
-        text += " over " + std::to_string( Device.Heaps.size() ) + " heap(s)";
-
-        // 2. The ledger — the total AND its coverage, because a subtotal presented as a total is the
-        // defect this whole type exists because of.
-        text += "\n  ledger: " + Bytes( Ledger.Bytes ) + " over " + std::to_string( Ledger.BytesKnownFor ) +
-                " of " + std::to_string( Ledger.Live ) + " live objects";
-        if ( Ledger.Live > Ledger.BytesKnownFor )
-        {
-            text += " (" + std::to_string( Ledger.Live - Ledger.BytesKnownFor ) +
-                    " report no size, so this total is a FLOOR)";
-        }
-
-        // 3. The process — every byte, and the one number that saw the world scene.
-        text += "\n  " + Process.Describe();
-        if ( Process.Known )
-        {
-            text += " = resident " + Bytes( Process.Resident ) + ", peak " + Bytes( Process.Peak );
-        }
-
-        return text;
+        static const Desert::Core::TextTemplate kReadout( "MemoryReadout", kReadoutText );
+        Common::Json::ObjectBuilder             model;
+        model.Set( "budgetKnown", Device.BudgetKnown )
+             .Set( "deviceUsage", Device.BudgetKnown ? Bytes( Device.DeviceLocalUsage() ) : std::string() )
+             .Set( "deviceBudget", Device.BudgetKnown ? Bytes( Device.DeviceLocalBudget() ) : std::string() )
+             .Set( "heaps", Device.Heaps.size() )
+             .Set( "ledgerBytes", Bytes( Ledger.Bytes ) )
+             .Set( "knownFor", Ledger.BytesKnownFor )
+             .Set( "live", Ledger.Live )
+             .Set( "unsized", Ledger.Live > Ledger.BytesKnownFor ? Ledger.Live - Ledger.BytesKnownFor : 0 )
+             .Set( "process", Process.Describe() )
+             .Set( "processKnown", Process.Known )
+             .Set( "resident", Bytes( Process.Resident ) )
+             .Set( "peak", Bytes( Process.Peak ) );
+        return kReadout.RenderOrLog( Common::Json::Value( model.Build() ) );
     }
 
     void MemoryWatch::SampleFrame( const MemoryReadout& readout )
@@ -133,28 +141,18 @@ namespace Desert::Graphic
         const uint64_t baseDevice   = BaselineDeviceLocalUsage();
         const uint64_t peakDevice   = PeakDeviceLocalUsage();
 
-        std::string text = "watch over " + std::to_string( frames ) + " frame(s):";
-        if ( baseResident == 0 && peakResident == 0 )
-        {
-            // Same rule as the device line below: both zero means the platform never answered, and
-            // "grew 0 B" would be read as a process that did not grow.
-            text += "\n  process resident: unknown (the platform query never answered)";
-        }
-        else
-        {
-            text += "\n  process resident: baseline " + Bytes( baseResident ) + " -> peak " +
-                    Bytes( peakResident ) + ", grew " + Bytes( peakResident - baseResident );
-        }
-        if ( peakDevice == 0 && baseDevice == 0 )
-        {
-            text += "\n  device-local usage: unknown (no budget extension, or nothing device-local)";
-        }
-        else
-        {
-            text += "\n  device-local usage: baseline " + Bytes( baseDevice ) + " -> peak " + Bytes( peakDevice ) +
-                    ", grew " + Bytes( peakDevice - baseDevice );
-        }
-        return text;
+        static const Desert::Core::TextTemplate kWatch( "MemoryWatch", kWatchText );
+        Common::Json::ObjectBuilder             model;
+        model.Set( "frames", frames )
+             .Set( "residentKnown", baseResident != 0 || peakResident != 0 )
+             .Set( "baseResident", Bytes( baseResident ) )
+             .Set( "peakResident", Bytes( peakResident ) )
+             .Set( "residentGrowth", Bytes( peakResident - baseResident ) )
+             .Set( "deviceKnown", baseDevice != 0 || peakDevice != 0 )
+             .Set( "baseDevice", Bytes( baseDevice ) )
+             .Set( "peakDevice", Bytes( peakDevice ) )
+             .Set( "deviceGrowth", Bytes( peakDevice - baseDevice ) );
+        return kWatch.RenderOrLog( Common::Json::Value( model.Build() ) );
     }
 
     void MemoryWatch::ResetForTest()

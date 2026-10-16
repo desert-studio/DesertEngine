@@ -24,6 +24,7 @@
 #include <mach/task.h>
 #elif defined( __linux__ )
 #include <cstdio>
+#include <format>
 #endif
 
 namespace Common::Utils
@@ -34,7 +35,7 @@ namespace Common::Utils
         {
             return "process=unknown (the platform query failed)";
         }
-        return "process resident=" + std::to_string( Resident ) + " peak=" + std::to_string( Peak );
+        return std::format( "process resident={} peak={}", Resident, Peak );
     }
 
     ProcessFootprint ReadProcessFootprint()

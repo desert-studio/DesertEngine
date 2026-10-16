@@ -615,7 +615,7 @@ namespace Desert::Graphic
                 kind = "preview";
             else if ( profile == kThumbnailViewProfile )
                 kind = "thumbnail";
-            return std::string( kind ) + " #" + std::to_string( number );
+            return std::format( "{} #{}", kind, number );
         }
 
         // Every live renderer, so the view budget can name what each holds. Guarded: views are built and
