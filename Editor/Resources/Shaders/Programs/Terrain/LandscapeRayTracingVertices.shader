@@ -23,9 +23,15 @@ Shader "LandscapeRayTracingVertices"
         {
             TerrainInstance u_Terrains[];
         };
-        Uniform(1) sampler2D u_Heightmap;
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
+        // AssignSharedSamplerBindings).
+        Uniform sampler u_PointClampSampler;
+        Uniform(1) texture2D u_Heightmap;
+        #define u_Heightmap sampler2D(u_Heightmap, u_PointClampSampler)
         // The tile's RGBA8 weight pages (LandscapeWeightDraw); the engine fallback when it has none (u_Tile.w = 0).
-        Uniform(2) sampler2D u_Weightmap;
+        Uniform(2) texture2D u_Weightmap;
+        #define u_Weightmap sampler2D(u_Weightmap, u_PointClampSampler)
 
         Buffer(3) LandscapeRayTracingVertexData
         {

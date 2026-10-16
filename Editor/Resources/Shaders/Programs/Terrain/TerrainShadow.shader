@@ -50,7 +50,11 @@ Shader "TerrainShadow"
 
         // The tile's weightmap, as TerrainSurface.glslh reads it; bound only when the tile has layers
         // (Params2.y > 0), the backend's white fallback otherwise.
-        Uniform(10) sampler2D u_Weightmap;
+        // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
+        // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
+        Uniform(10) texture2D u_Weightmap;
+        Uniform(12) sampler u_WeightmapSampler;
+        #define u_Weightmap sampler2D(u_Weightmap, u_WeightmapSampler)
 
         #include <Common/LandscapeWeights.glslh>
 

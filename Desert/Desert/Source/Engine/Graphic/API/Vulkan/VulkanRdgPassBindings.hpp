@@ -19,6 +19,8 @@ namespace Desert::Graphic::API::Vulkan
     {
         uint32_t Set     = 0;
         uint32_t Binding = 0;
+        // The descriptor of an arrayed binding (a separate texture2D u_X[N]: slot "u_X[e]" is element e); 0 else.
+        uint32_t Element = 0;
 
         friend bool operator==( const RdgSlotKey&, const RdgSlotKey& ) = default;
     };
@@ -28,7 +30,7 @@ namespace Desert::Graphic::API::Vulkan
     struct RdgResolvedEntry
     {
         RdgSlotKey               Slot;
-        RDG::ShaderResourceKind  Kind    = RDG::ShaderResourceKind::SampledTexture;
+        RDG::ShaderResourceKind  Kind    = RDG::ShaderResourceKind::Texture;
         const RDG::BoundTexture* Texture = nullptr; // set for the texture kinds
         const RDG::BoundBuffer*  Buffer  = nullptr; // set for the buffer kinds
     };

@@ -147,8 +147,8 @@ namespace Desert::Graphic::System
         // The shader reads texels with texelFetch: no filtering or addressing applies, PointClamp states that.
         pass.Bindings( m_HistogramLayout.Get( m_HistogramPipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_HistogramPipeline ) )
-             .Sampled( "u_Scene", scene, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::PointClamp() )
+             .Texture( "u_Scene", scene, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
              .Storage( "Histogram", histogram, RDG::Access::StorageWrite )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( HistogramPush ) ) );
     }
@@ -174,8 +174,8 @@ namespace Desert::Graphic::System
         pass.Bindings( m_AverageLayout.Get( m_AveragePipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_AveragePipeline ) )
              .Storage( "Histogram", histogram, RDG::Access::StorageRead )
-             .Sampled( "u_PrevLum", previous, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::PointClamp() )
+             .Texture( "u_PrevLum", previous, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
              .Storage( "u_OutLum", adapted, RDG::Access::StorageWrite, 0 )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( AveragePush ) ) );
     }

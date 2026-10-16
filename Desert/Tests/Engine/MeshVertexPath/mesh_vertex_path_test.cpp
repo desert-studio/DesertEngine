@@ -239,11 +239,7 @@ namespace
             out[binding] = resource.Name;
         for ( const auto& [binding, resource] : set.StorageBuffers )
             out[binding] = resource.Name;
-        for ( const auto& [binding, resource] : set.Image2DSamplers )
-            out[binding] = resource.Name;
-        for ( const auto& [binding, resource] : set.ImageCubeSamplers )
-            out[binding] = resource.Name;
-        for ( const auto& [binding, resource] : set.Image3DSamplers )
+        for ( const auto& [binding, resource] : set.SampledImages )
             out[binding] = resource.Name;
         return out;
     }

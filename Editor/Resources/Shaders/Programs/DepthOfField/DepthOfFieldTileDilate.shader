@@ -8,7 +8,11 @@ Shader "DepthOfFieldTileDilate"
         // reach this tile, so a pixel's gather kernel covers every disc that lands on it.
         LocalSize(8, 8, 1);
 
-        Uniform(0) sampler2D u_Tiles; // x foreground radius, y background radius; tile extent
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(3) sampler u_PointClampSampler;
+        Uniform(0) texture2D u_Tiles; // x foreground radius, y background radius; tile extent
+        #define u_Tiles sampler2D(u_Tiles, u_PointClampSampler)
         layout(binding = 1, rg16f) restrict writeonly uniform image2D u_Dilated;
 
         // The C++ side is Graphic::DofParams (View/DepthOfField.hpp), offsets pinned by static_asserts.

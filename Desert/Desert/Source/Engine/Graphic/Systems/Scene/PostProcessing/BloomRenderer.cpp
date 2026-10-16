@@ -95,11 +95,11 @@ namespace Desert::Graphic::System
         auto block = pass.Bindings( m_DownsampleLayout.Get( m_DownsamplePipeline->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_DownsamplePipeline ) );
         if ( mip == 0 )
-            block.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::LinearClamp() );
+            block.Texture( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
         else
-            block.Sampled( "u_Source", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ),
-                           RDG::SamplerDesc::LinearClamp() );
+            block.Texture( "u_Source", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) )
+                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
         block.Storage( "u_Output", chain, RDG::Access::StorageWrite, mip )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( DownsamplePush ) ) );
     }
@@ -147,8 +147,8 @@ namespace Desert::Graphic::System
             return; // RecordUpsample refuses both by name
         pass.Bindings( m_UpsampleLayout.Get( m_UpsamplePipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_UpsamplePipeline ) )
-             .Sampled( "u_Source", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ),
-                       RDG::SamplerDesc::LinearClamp() )
+             .Texture( "u_Source", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ) )
+             .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
              .Storage( "u_Output", chain, RDG::Access::StorageWrite, mip - 1 )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( UpsamplePush ) ) );
     }

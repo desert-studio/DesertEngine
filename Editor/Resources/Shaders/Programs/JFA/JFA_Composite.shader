@@ -20,7 +20,9 @@ Shader "JFA_Composite"
 
         Out(0) vec4 o_Color;
 
-        Uniform(0, 0) sampler2D u_OutlineResult;
+        Uniform(0, 0) texture2D u_OutlineResult;
+        Uniform(1, 0) sampler u_LinearClampSampler;
+        #define u_OutlineResult sampler2D(u_OutlineResult, u_LinearClampSampler)
 
         void main()
         {

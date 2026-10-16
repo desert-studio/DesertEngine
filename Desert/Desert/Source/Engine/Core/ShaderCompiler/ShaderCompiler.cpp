@@ -117,12 +117,13 @@ namespace Desert::Core
                 const std::string_view value = ShaderDefineValue( define );
                 options.AddMacroDefinition( name.data(), name.size(), value.data(), value.size() );
             }
-            // Every stage, not only those that include BindlessTextures.glslh: the define is the engine's set index
-            // (BindlessSetIndex.hpp), and the cache key mixes it in (ShaderCacheKey.cpp OptionsFingerprint).
+            // Every stage, not only those that include BindlessTextures.glslh: the defines are the engine's table
+            // layout (BindlessSetIndex.hpp), and the cache key mixes them in (ShaderCacheKey.cpp
+            // MixCompileOptions).
+            for ( const BindlessShaderDefine& define : kBindlessShaderDefines )
             {
-                const std::string bindlessSet = std::to_string( kBindlessSetIndex );
-                options.AddMacroDefinition( kBindlessSetDefine.data(), kBindlessSetDefine.size(), bindlessSet.data(),
-                                            bindlessSet.size() );
+                const std::string value = std::to_string( define.Value );
+                options.AddMacroDefinition( define.Name.data(), define.Name.size(), value.data(), value.size() );
             }
             // The oldest accepted device's version (ShaderTarget.hpp), never a literal here.
             options.SetTargetEnvironment( shaderc_target_env_vulkan, kShaderTargetEnvVersion );

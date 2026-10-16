@@ -829,8 +829,9 @@ namespace Desert::Graphic::System
              [sceneCopy]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& layout )
              {
                  if ( SceneViewDetail::LayoutSamples( layout, "u_SceneColor" ) )
-                     block.Sampled( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() );
+                     block.Texture( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
              } );
     }
 

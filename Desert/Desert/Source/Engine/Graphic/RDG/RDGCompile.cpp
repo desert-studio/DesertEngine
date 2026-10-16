@@ -429,12 +429,15 @@ namespace Desert::Graphic::RDG
                                      std::vector<RdgSubUse>& uses, std::string& error ) const
     {
         const ResourceRecord& record   = m_Resources[use.Resource];
-        const AccessState     state    = GetAccessState( use.Usage );
+        AccessState           state    = GetAccessState( use.Usage );
         bool                  consumes = true;
         if ( use.Attachment >= 0 )
         {
-            const LoadAction load = pass.Attachments[static_cast<size_t>( use.Attachment )].Load.Action;
-            consumes              = load == LoadAction::Load;
+            const AttachmentRecord& attachment = pass.Attachments[static_cast<size_t>( use.Attachment )];
+            consumes                           = attachment.Load.Action == LoadAction::Load;
+            // The render pass's store op writes the attachment, a read-only depth one too (AttachmentAccessState):
+            // the barrier after this pass must make that write available.
+            state = AttachmentAccessState( use.Usage, attachment.IsDepth );
         }
         for ( uint32_t layer = use.Range.BaseLayer; layer < use.Range.BaseLayer + use.Range.LayerCount; ++layer )
         {
@@ -495,26 +498,6 @@ namespace Desert::Graphic::RDG
                 FoldUse( m_Passes[p], use, slot, uses, conflict );
                 if ( !conflict.empty() )
                     break;
-            }
-            // A read-only attachment (the only one is a DepthRead depth) is still stored by its render pass: the
-            // pass's state on it carries the storeOp's write, so the barrier after the pass waits on it. Folded
-            // last, after every declaration of the subresource (a DepthRead + SampledGraphics pair) has merged.
-            for ( const ResourceUse& use : m_Passes[p].Uses )
-            {
-                if ( !conflict.empty() || use.Attachment < 0 || IsWriteAccess( use.Usage ) )
-                    continue;
-                const ResourceRecord& record = m_Resources[use.Resource];
-                for ( uint32_t layer = use.Range.BaseLayer; layer < use.Range.BaseLayer + use.Range.LayerCount;
-                      ++layer )
-                {
-                    for ( uint32_t mip = use.Range.BaseMip; mip < use.Range.BaseMip + use.Range.MipCount; ++mip )
-                    {
-                        const int32_t at =
-                             slot[m_SubBase[use.Resource] + record.Texture.SubresourceIndex( mip, layer )];
-                        RdgSubUse& folded = uses[static_cast<size_t>( at )];
-                        folded.State      = ReadOnlyAttachmentStoreState( folded.State );
-                    }
-                }
             }
             for ( const RdgSubUse& use : uses )
                 slot[use.Sub] = -1;

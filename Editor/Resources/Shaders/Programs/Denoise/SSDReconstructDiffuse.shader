@@ -11,11 +11,16 @@ Shader "SSDReconstructDiffuse"
 
     Compute
     {
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound once by the pass by name and numbered by the program build (SharedSamplerBinding.hpp).
+        // Declared before Common/ScreenSpaceDenoise.glslh, whose SSDLoadSceneInfo reads the G-buffer through u_PointClampSampler.
+        Uniform sampler u_PointClampSampler;
         #include <Common/ScreenSpaceDenoise.glslh>
 
-        Uniform(1) sampler2D u_GBufferNormal;   // rgb = world normal, a = roughness
-        Uniform(2) sampler2D u_GBufferDepth;    // device depth (nearest)
-        Uniform(3) sampler2D u_Input;           // the gather: rgb = bounce light, a = 1 where it gathered
+        Uniform(1) texture2D u_GBufferNormal;   // rgb = world normal, a = roughness
+        Uniform(2) texture2D u_GBufferDepth;    // device depth (nearest)
+        Uniform(3) texture2D u_Input;           // the gather: rgb = bounce light, a = 1 where it gathered
+        #define u_Input sampler2D(u_Input, u_PointClampSampler)
         layout(binding = 6, rgba16f) writeonly uniform image2D u_Signal; // premultiplied (rgb * a, a)
 
         // ScreenSpaceDenoiser::ViewUniforms (std140).
@@ -30,11 +35,11 @@ Shader "SSDReconstructDiffuse"
 
         void main()
         {
-        	const ivec2 viewSize = textureSize(u_GBufferNormal, 0);
+        	const ivec2 viewSize = textureSize(sampler2D(u_GBufferNormal, u_PointClampSampler), 0);
         	const ivec2 pixel    = ivec2(gl_GlobalInvocationID.xy);
         	if (pixel.x >= viewSize.x || pixel.y >= viewSize.y)
         		return;
-        	if (!SSDPixelHasSignal(kSSDSignalDiffuseIndirect, texelFetch(u_GBufferNormal, pixel, 0)))
+        	if (!SSDPixelHasSignal(kSSDSignalDiffuseIndirect, texelFetch(sampler2D(u_GBufferNormal, u_PointClampSampler), pixel, 0)))
         	{
         		imageStore(u_Signal, pixel, vec4(0.0));
         		return;
@@ -44,7 +49,7 @@ Shader "SSDReconstructDiffuse"
         	const SSDSceneInfo ref  = SSDLoadSceneInfo(u_GBufferNormal, u_GBufferDepth, u_InvJitteredViewProjection,
         	                                           pixel, size);
         	// The farthest tap is 2 * sqrt(2) pixels away (UE WorldBluringRadiusToBilateralWorldDistance).
-        	const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(u_GBufferDepth, pixel, 0).r, ref.Position,
+        	const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(sampler2D(u_GBufferDepth, u_PointClampSampler), pixel, 0).r, ref.Position,
         	                                              1.0 / size, u_InvJitteredViewProjection);
         	const float maxPlaneDistance = max(pixelRadius * 2.0 * 2.0 * sqrt(2.0), 1e-3);
 

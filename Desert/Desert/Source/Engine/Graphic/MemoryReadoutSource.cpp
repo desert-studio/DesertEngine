@@ -5,6 +5,19 @@
 
 namespace Desert::Graphic
 {
+    namespace
+    {
+        // Two counters on the device's table, no walk and no lock beyond the table's own: cheap enough for the
+        // per-frame sample, which is what puts the line on the viewport HUD.
+        std::optional<BindlessOccupancy> ReadBindless()
+        {
+            const BindlessTextureTable* bindless = TryGetBindlessTextureTable();
+            if ( bindless == nullptr )
+                return std::nullopt;
+            return BindlessOccupancy{ .Live = bindless->LiveSlots(), .Capacity = bindless->Capacity() };
+        }
+    } // namespace
+
     // WHY `Take()` IS IN ITS OWN TRANSLATION UNIT, AWAY FROM THE REST OF THE TYPE.
     //
     // It is the only impure part of the readout: it asks the device, and reaching the device means
@@ -32,12 +45,7 @@ namespace Desert::Graphic
 
         out.Ledger  = ResourceLedger::Take();
         out.Process = Common::Utils::ReadProcessFootprint();
-        if ( const BindlessTextureTable* bindless = TryGetBindlessTextureTable() )
-        {
-            out.BindlessKnown    = true;
-            out.BindlessLive     = bindless->LiveSlots();
-            out.BindlessCapacity = bindless->Capacity();
-        }
+        out.Bindless = ReadBindless();
 
         return out;
     }
@@ -50,7 +58,8 @@ namespace Desert::Graphic
         {
             out.Device = device->QueryMemory();
         }
-        out.Process = Common::Utils::ReadProcessFootprint();
+        out.Process  = Common::Utils::ReadProcessFootprint();
+        out.Bindless = ReadBindless();
 
         // AND NO `ResourceLedger::Take()` HERE, ON PURPOSE. See the declaration: a locked walk over
         // every live device object, once a frame, for two fields the watch does not track.

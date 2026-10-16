@@ -181,17 +181,21 @@ namespace Desert::Graphic
     const std::shared_ptr<const RDG::ShaderBindingLayout>& DofSetupLayout()
     {
         using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeDofLayout( kDofKernelShaders[0], { { "u_SceneColor", Kind::SampledTexture },
-                                                                          { "u_SceneDepth", Kind::SampledTexture },
-                                                                          { "u_Half", Kind::StorageTexture } } );
+        static const auto layout =
+             MakeDofLayout( kDofKernelShaders[0], { { "u_SceneColor", Kind::Texture },
+                                                    { "u_SceneDepth", Kind::Texture },
+                                                    { "u_LinearClampSampler", Kind::Sampler },
+                                                    { "u_PointClampSampler", Kind::Sampler },
+                                                    { "u_Half", Kind::StorageTexture } } );
         return layout;
     }
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& DofTileFlattenLayout()
     {
         using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeDofLayout(
-             kDofKernelShaders[1], { { "u_Half", Kind::SampledTexture }, { "u_Tiles", Kind::StorageTexture } } );
+        static const auto layout = MakeDofLayout( kDofKernelShaders[1], { { "u_Half", Kind::Texture },
+                                                                          { "u_PointClampSampler", Kind::Sampler },
+                                                                          { "u_Tiles", Kind::StorageTexture } } );
         return layout;
     }
 
@@ -199,8 +203,9 @@ namespace Desert::Graphic
     {
         using Kind = RDG::ShaderResourceKind;
         static const auto layout =
-             MakeDofLayout( kDofKernelShaders[2],
-                            { { "u_Tiles", Kind::SampledTexture }, { "u_Dilated", Kind::StorageTexture } } );
+             MakeDofLayout( kDofKernelShaders[2], { { "u_Tiles", Kind::Texture },
+                                                    { "u_PointClampSampler", Kind::Sampler },
+                                                    { "u_Dilated", Kind::StorageTexture } } );
         return layout;
     }
 
@@ -209,8 +214,10 @@ namespace Desert::Graphic
         std::shared_ptr<const RDG::ShaderBindingLayout> MakeGatherLayout( const char* shader )
         {
             using Kind = RDG::ShaderResourceKind;
-            return MakeDofLayout( shader, { { "u_Half", Kind::SampledTexture },
-                                            { "u_Dilated", Kind::SampledTexture },
+            return MakeDofLayout( shader, { { "u_Half", Kind::Texture },
+                                            { "u_Dilated", Kind::Texture },
+                                            { "u_LinearClampSampler", Kind::Sampler },
+                                            { "u_PointClampSampler", Kind::Sampler },
                                             { "u_Layer", Kind::StorageTexture } } );
         }
     } // namespace
@@ -230,11 +237,14 @@ namespace Desert::Graphic
     const std::shared_ptr<const RDG::ShaderBindingLayout>& DofRecombineLayout()
     {
         using Kind               = RDG::ShaderResourceKind;
-        static const auto layout = MakeDofLayout( kDofKernelShaders[5], { { "u_SceneColor", Kind::SampledTexture },
-                                                                          { "u_SceneDepth", Kind::SampledTexture },
-                                                                          { "u_Foreground", Kind::SampledTexture },
-                                                                          { "u_Background", Kind::SampledTexture },
-                                                                          { "u_Output", Kind::StorageTexture } } );
+        static const auto layout =
+             MakeDofLayout( kDofKernelShaders[5], { { "u_SceneColor", Kind::Texture },
+                                                    { "u_SceneDepth", Kind::Texture },
+                                                    { "u_Foreground", Kind::Texture },
+                                                    { "u_Background", Kind::Texture },
+                                                    { "u_LinearClampSampler", Kind::Sampler },
+                                                    { "u_PointClampSampler", Kind::Sampler },
+                                                    { "u_Output", Kind::StorageTexture } } );
         return layout;
     }
 
@@ -312,8 +322,10 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( DofSetupLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute, all, linear )
-                      .Sampled( "u_SceneDepth", inputs.SceneDepth, RDG::Access::SampledCompute, all, point )
+                      .Texture( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute, all )
+                      .Sampler( "u_LinearClampSampler", linear )
+                      .Texture( "u_SceneDepth", inputs.SceneDepth, RDG::Access::SampledCompute, all )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_Half", halfColor, RDG::Access::StorageWrite, 0 )
                       .Storage( "DepthOfFieldBuffer", buffer, RDG::Access::StorageRead );
              },
@@ -324,7 +336,8 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( DofTileFlattenLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_Half", halfColor, RDG::Access::SampledCompute, all, point )
+                      .Texture( "u_Half", halfColor, RDG::Access::SampledCompute, all )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_Tiles", tiles, RDG::Access::StorageWrite, 0 )
                       .Storage( "DepthOfFieldBuffer", buffer, RDG::Access::StorageRead );
              },
@@ -335,7 +348,8 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( DofTileDilateLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_Tiles", tiles, RDG::Access::SampledCompute, all, point )
+                      .Texture( "u_Tiles", tiles, RDG::Access::SampledCompute, all )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_Dilated", dilated, RDG::Access::StorageWrite, 0 )
                       .Storage( "DepthOfFieldBuffer", buffer, RDG::Access::StorageRead );
              },
@@ -350,8 +364,10 @@ namespace Desert::Graphic
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( layout, RDG::OtherRouteFill{} )
-                          .Sampled( "u_Half", halfColor, RDG::Access::SampledCompute, all, linear )
-                          .Sampled( "u_Dilated", dilated, RDG::Access::SampledCompute, all, point )
+                          .Texture( "u_Half", halfColor, RDG::Access::SampledCompute, all )
+                          .Sampler( "u_LinearClampSampler", linear )
+                          .Texture( "u_Dilated", dilated, RDG::Access::SampledCompute, all )
+                          .Sampler( "u_PointClampSampler", point )
                           .Storage( "u_Layer", layer, RDG::Access::StorageWrite, 0 )
                           .Storage( "DepthOfFieldBuffer", buffer, RDG::Access::StorageRead );
                  },
@@ -365,10 +381,14 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( DofRecombineLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute, all, point )
-                      .Sampled( "u_SceneDepth", inputs.SceneDepth, RDG::Access::SampledCompute, all, point )
-                      .Sampled( "u_Foreground", foreground, RDG::Access::SampledCompute, all, linear )
-                      .Sampled( "u_Background", background, RDG::Access::SampledCompute, all, linear )
+                      .Texture( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute, all )
+                      .Sampler( "u_PointClampSampler", point )
+                      .Texture( "u_SceneDepth", inputs.SceneDepth, RDG::Access::SampledCompute, all )
+                      .Sampler( "u_PointClampSampler", point )
+                      .Texture( "u_Foreground", foreground, RDG::Access::SampledCompute, all )
+                      .Sampler( "u_LinearClampSampler", linear )
+                      .Texture( "u_Background", background, RDG::Access::SampledCompute, all )
+                      .Sampler( "u_LinearClampSampler", linear )
                       .Storage( "u_Output", result, RDG::Access::StorageWrite, 0 )
                       .Storage( "DepthOfFieldBuffer", buffer, RDG::Access::StorageRead );
              },

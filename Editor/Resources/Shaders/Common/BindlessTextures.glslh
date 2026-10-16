@@ -4,28 +4,42 @@
 // THE GLOBAL BINDLESS TEXTURE TABLE (Engine/Graphic/BindlessTextureTable.hpp, VulkanBindlessTextureTable.hpp).
 // Every texture created from uploaded pixels has a slot for its GPU life; slot 0 is the magenta "missing" texture.
 // Sampled images and samplers are separate arrays: the sampler is the material slot's state, picked from a FIXED
-// set of 18 (one per wrap U x wrap V x filter), never one per texture.
+// set (one per wrap U x wrap V x filter), never one per texture.
 //
-// The set index is the engine's (kBindlessSetIndex), handed to every compile as DESERT_BINDLESS_SET, so the shader
-// and the pipeline layout cannot disagree. The binding numbers mirror kBindlessSamplerBinding / kBindlessTextureBinding:
-// the variable-count image array must be the highest binding.
+// The set index, both binding numbers and the sampler count are the engine's constants
+// (Core/ShaderCompiler/BindlessSetIndex.hpp kBindlessShaderDefines), handed to every compile as defines, so the
+// shader and the pipeline layout cannot disagree.
 
 #extension GL_EXT_nonuniform_qualifier : require
 
-#ifndef DESERT_BINDLESS_SET
-#error "DESERT_BINDLESS_SET is defined by the shader compiler (kBindlessSetIndex); this shader was compiled without it"
+#if !defined( DESERT_BINDLESS_SET ) || !defined( DESERT_BINDLESS_SAMPLER_BINDING )
+#error "the bindless defines come from the shader compiler (kBindlessShaderDefines); this shader was compiled without them"
+#endif
+#if !defined( DESERT_BINDLESS_TEXTURE_BINDING ) || !defined( DESERT_BINDLESS_SAMPLER_COUNT )
+#error "the bindless defines come from the shader compiler (kBindlessShaderDefines); this shader was compiled without them"
+#endif
+#ifndef DESERT_BINDLESS_SAMPLER_WRAP_COUNT
+#error "the bindless defines come from the shader compiler (kBindlessShaderDefines); this shader was compiled without them"
 #endif
 
-layout( set = DESERT_BINDLESS_SET, binding = 0 ) uniform sampler u_BindlessSamplers[18];
-layout( set = DESERT_BINDLESS_SET, binding = 1 ) uniform texture2D u_BindlessTextures[];
+layout( set = DESERT_BINDLESS_SET, binding = DESERT_BINDLESS_SAMPLER_BINDING ) uniform sampler
+     u_BindlessSamplers[DESERT_BINDLESS_SAMPLER_COUNT];
+layout( set = DESERT_BINDLESS_SET, binding = DESERT_BINDLESS_TEXTURE_BINDING ) uniform texture2D u_BindlessTextures[];
 
-// Sampler indices: wrapU + 3 * wrapV + 9 * filter, with wrap Repeat 0 / Clamp 1 / Mirror 2 and filter Linear 0 /
-// Nearest 1 (BindlessSamplerFor in BindlessTextureTable.hpp).
-#define BINDLESS_SAMPLER_LINEAR_REPEAT  0u
-#define BINDLESS_SAMPLER_LINEAR_CLAMP   4u
-#define BINDLESS_SAMPLER_LINEAR_MIRROR  8u
-#define BINDLESS_SAMPLER_NEAREST_REPEAT 9u
-#define BINDLESS_SAMPLER_NEAREST_CLAMP  13u
+// Sampler indices: wrapU + W * wrapV + W * W * filter with W = DESERT_BINDLESS_SAMPLER_WRAP_COUNT, wrap Repeat 0 /
+// Clamp 1 / Mirror 2 and filter Linear 0 / Nearest 1 (BindlessSamplerFor in BindlessTextureTable.hpp).
+const uint BINDLESS_SAMPLER_WRAP_COUNT = uint( DESERT_BINDLESS_SAMPLER_WRAP_COUNT );
+
+uint BindlessSamplerIndex( uint wrapU, uint wrapV, uint filterMode )
+{
+    return wrapU + BINDLESS_SAMPLER_WRAP_COUNT * wrapV + BINDLESS_SAMPLER_WRAP_COUNT * BINDLESS_SAMPLER_WRAP_COUNT * filterMode;
+}
+
+const uint BINDLESS_SAMPLER_LINEAR_REPEAT  = 0u;
+const uint BINDLESS_SAMPLER_LINEAR_CLAMP   = 1u + BINDLESS_SAMPLER_WRAP_COUNT * 1u;
+const uint BINDLESS_SAMPLER_LINEAR_MIRROR  = 2u + BINDLESS_SAMPLER_WRAP_COUNT * 2u;
+const uint BINDLESS_SAMPLER_NEAREST_REPEAT = BINDLESS_SAMPLER_WRAP_COUNT * BINDLESS_SAMPLER_WRAP_COUNT;
+const uint BINDLESS_SAMPLER_NEAREST_CLAMP  = 1u + BINDLESS_SAMPLER_WRAP_COUNT * 1u + BINDLESS_SAMPLER_NEAREST_REPEAT;
 
 // Both indices are nonuniformEXT: a ray hit or a material record diverges across a subgroup, and an index that
 // is not dynamically uniform without the qualifier is undefined behaviour.
@@ -34,6 +48,44 @@ vec4 SampleBindless( uint textureSlot, uint samplerSlot, vec2 uv, float lod )
     return textureLod( sampler2D( u_BindlessTextures[nonuniformEXT( textureSlot )],
                                   u_BindlessSamplers[nonuniformEXT( samplerSlot )] ),
                        uv, lod );
+}
+
+// A material texture as the material row carries it (Core::Formats::MaterialLayout, kMaterialTextureGlslType): the
+// table slot and the sampler index, written by Graphic::DataDrivenMaterial::GetParamRow from the material's
+// Texture2DProperty. Exactly one 16-byte row slot; the two reserved words are the slot's remainder.
+struct BindlessTexture
+{
+    uint Texture;
+    uint Sampler;
+    uint Reserved0;
+    uint Reserved1;
+};
+
+vec4 SampleBindless( BindlessTexture t, vec2 uv )
+{
+    return texture( sampler2D( u_BindlessTextures[nonuniformEXT( t.Texture )],
+                               u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
+                    uv );
+}
+
+// Fragment stage only, as GLSL's own bias form.
+vec4 SampleBindlessBias( BindlessTexture t, vec2 uv, float bias )
+{
+    return texture( sampler2D( u_BindlessTextures[nonuniformEXT( t.Texture )],
+                               u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
+                    uv, bias );
+}
+
+vec4 SampleBindlessLod( BindlessTexture t, vec2 uv, float lod )
+{
+    return SampleBindless( t.Texture, t.Sampler, uv, lod );
+}
+
+ivec2 BindlessTextureSize( BindlessTexture t, int lod )
+{
+    return textureSize( sampler2D( u_BindlessTextures[nonuniformEXT( t.Texture )],
+                                   u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
+                        lod );
 }
 
 #endif

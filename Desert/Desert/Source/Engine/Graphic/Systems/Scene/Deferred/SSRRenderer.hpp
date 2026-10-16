@@ -168,8 +168,9 @@ namespace Desert::Graphic::System
         }
 
         // SETUP of the "Deferred: SSR" compute node: declares its one block (block 0) - the G-buffer normal/depth,
-        // @p sceneHistory and @p hzb (all mips, point) sampled with the sampler the pipeline-setter route sampled
-        // them with (the images' own: linear, REPEAT; the deferred composite reads the same G-buffer with it), @p
+        // @p sceneHistory, @p hzb (all mips) and the velocity as separate textures read through the pass's shared
+        // sampler states (the normal linear REPEAT, as the deferred composite reads it; the scene history linear
+        // clamped; depth, HZB and velocity point-clamped: SSR.shader names each one's state), @p
         // trace / @p tiles as storage writes, @p uniforms (UploadTraceUniforms) as SSRTraceUB, the TracePush
         // bytes; the pipeline's own setters are the other route. Not prepared: nothing.
         void DeclareTraceBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef traceRay,
@@ -180,16 +181,17 @@ namespace Desert::Graphic::System
             if ( !m_TracePipeline )
                 return;
             pass.Bindings( m_TraceLayout.Get( m_TraceShader ), Renderer::GetPipelineRouteFill( *m_TracePipeline ) )
-                 .Sampled( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
-                           RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
-                 .Sampled( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::PointClamp() )
-                 .Sampled( "u_SceneColor", sceneHistory, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::LinearClamp() )
-                 .Sampled( "u_HZB", hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::PointClamp() )
-                 .Sampled( "u_Velocity", velocity, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::PointClamp() )
+                 .Texture( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
+                 .Texture( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Texture( "u_SceneColor", sceneHistory, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                 .Texture( "u_HZB", hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Texture( "u_Velocity", velocity, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                  .Storage( "u_Trace", trace, RDG::Access::StorageWrite )
                  .Storage( "u_TraceRay", traceRay, RDG::Access::StorageWrite )
                  .Storage( "u_TileMask", tiles, RDG::Access::StorageWrite )

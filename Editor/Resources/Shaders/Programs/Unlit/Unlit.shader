@@ -35,11 +35,10 @@ Shader "Unlit"
 
     Surface
     {
-        layout( binding = 11 ) uniform sampler2D u_AlbedoTexture;
 
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
-            const vec4 colour = texture( u_AlbedoTexture, i.UV0 ) * u_Material.Color;
+            const vec4 colour = SampleBindless( u_Material.u_AlbedoTexture, i.UV0 ) * u_Material.Color;
             SurfaceOutput s   = DefaultSurfaceOutput();
             s.BaseColor       = vec3( 0.0 );
             s.Emissive        = colour.rgb;

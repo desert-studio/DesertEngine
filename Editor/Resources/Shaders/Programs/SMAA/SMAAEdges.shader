@@ -4,10 +4,12 @@ Shader "SMAAEdges"
     Fragment
     {
         // SMAA pass 1: luma edge detection. Reads the tonemapped LDR color; writes 2-channel edges into .rg.
+        // The one sampler state of every input below (separate textures); Common/SMAA.glslh samples through it.
+        Uniform(3) sampler u_LinearClampSampler;
         #include <Common/SMAA.glslh>
 
         In(0)  vec2 v_TexCoord;
-        Uniform(2) sampler2D u_ColorTex;
+        Uniform(2) texture2D u_ColorTex;
         Out(0) vec4 oColor;
 
         void main()

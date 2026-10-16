@@ -14,8 +14,14 @@ Shader "RayTracedSunShadow"
         #define RAY_QUERY_VISIBILITY_MATERIALS_BINDING 4
         #include <Common/RayQueryVisibility.glslh>
 
-        Uniform(1) sampler2D u_GBufferDepth;  // device depth, reversed-Z (0 = far: no surface)
-        Uniform(2) sampler2D u_GBufferNormal; // rgb = world normal, a = roughness
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
+        // AssignSharedSamplerBindings).
+        Uniform sampler u_PointClampSampler;
+        Uniform(1) texture2D u_GBufferDepth;  // device depth, reversed-Z (0 = far: no surface)
+        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
+        Uniform(2) texture2D u_GBufferNormal; // rgb = world normal, a = roughness
+        #define u_GBufferNormal sampler2D(u_GBufferNormal, u_PointClampSampler)
         layout(binding = 5, rgba16f) writeonly uniform image2D u_ShadowMask;       // r = visibility, 1 = lit
         layout(binding = 6, rgba16f) writeonly uniform image2D u_ShadowOccluder; // r = closest occluder, cm; -1 = none
 

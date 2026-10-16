@@ -36,14 +36,16 @@ struct SSDSceneInfo
 	float Roughness;
 };
 
-SSDSceneInfo SSDLoadSceneInfo(sampler2D gbufferNormal, sampler2D gbufferDepth, mat4 invJitteredViewProjection,
+// The G-buffer comes in as separate textures and is read through the includer's u_PointClampSampler (declared
+// BEFORE including this file): a constructed sampler2D only at a lookup, never as a function argument.
+SSDSceneInfo SSDLoadSceneInfo(texture2D gbufferNormal, texture2D gbufferDepth, mat4 invJitteredViewProjection,
                               ivec2 pixel, vec2 viewSize)
 {
-	const vec4   gb = texelFetch(gbufferNormal, pixel, 0);
+	const vec4   gb = texelFetch(sampler2D(gbufferNormal, u_PointClampSampler), pixel, 0);
 	SSDSceneInfo info;
 	info.Normal    = dot(gb.rgb, gb.rgb) > 0.0 ? normalize(gb.rgb) : vec3(0.0);
 	info.Roughness = gb.a;
-	info.Position  = ReconstructWorldPosition((vec2(pixel) + 0.5) / viewSize, texelFetch(gbufferDepth, pixel, 0).r,
+	info.Position  = ReconstructWorldPosition((vec2(pixel) + 0.5) / viewSize, texelFetch(sampler2D(gbufferDepth, u_PointClampSampler), pixel, 0).r,
 	                                          invJitteredViewProjection);
 	return info;
 }

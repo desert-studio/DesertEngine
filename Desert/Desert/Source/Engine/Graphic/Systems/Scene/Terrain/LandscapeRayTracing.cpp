@@ -213,11 +213,15 @@ namespace Desert::Graphic::RayTracing
             vertices.Access.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Pipeline ) )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::uvec4 ) ) )
                  .Storage( "LandscapeRayTracingRows", rowBuffer, RDG::Access::StorageRead )
-                 .Sampled( "u_Heightmap", job.Heightmap, RDG::Access::SampledCompute, RDG::SamplerDesc{},
+                 // Both maps are read only by texelFetch (Common/LandscapeHeight.glslh decodes the exact R16
+                 // integer; the weights are fetched per vertex): separate textures through the point-clamped
+                 // shared state.
+                 .Texture( "u_Heightmap", job.Heightmap, RDG::Access::SampledCompute,
                            std::format( "Landscape.Heightmap.{}", job.Entity ) )
-                 .Sampled( "u_Weightmap", job.Weightmap, RDG::Access::SampledCompute, RDG::SamplerDesc{},
+                 .Texture( "u_Weightmap", job.Weightmap, RDG::Access::SampledCompute,
                            job.HasWeightmap ? std::format( "Landscape.Weightmap.{}", job.Entity )
                                             : std::string( "Landscape.RayTracing.WeightmapFallback" ) )
+                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                  .Storage( "LandscapeRayTracingVertexData", job.Vertices, RDG::Access::StorageWrite )
                  .Storage( "LandscapeRayTracingIndexData", job.Indices, RDG::Access::StorageWrite );
         }

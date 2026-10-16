@@ -17,6 +17,13 @@ namespace Desert::ShaderResources
 
         virtual uint32_t GetBinding() const = 0;
 
+        // The binding of this texture's own sampler state (`<name>Sampler`), which the material writes from the
+        // property's state; empty when the shader declares none (the texture is then a pass's input).
+        [[nodiscard]] std::optional<uint32_t> GetSamplerBinding() const
+        {
+            return m_SamplerBinding;
+        }
+
         // @p declared is the access the image is read under (Texture2DProperty::SetImage): the descriptor names
         // the layout that access leaves the image in (as ComputePipeline::SetInput does), never the layout the
         // image recorded before the graph ran.
@@ -28,6 +35,8 @@ namespace Desert::ShaderResources
 
     private:
         static std::shared_ptr<UniformImage2D> Create( const std::string_view debugName, uint32_t binding );
+
+        std::optional<uint32_t> m_SamplerBinding;
 
         friend class ShaderResourcesManager;
     };

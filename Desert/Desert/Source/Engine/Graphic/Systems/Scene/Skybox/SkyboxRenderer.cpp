@@ -437,10 +437,11 @@ namespace Desert::Graphic::System
         };
         const auto sampledLuts = [this]( RenderPassDeclaration::BlockDeclaration block )
         {
-            block.Sampled( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::SampledCompute,
-                           GlobalTextureFilterSampler(), "Sky.TransmittanceLut" )
-                 .Sampled( "u_MultiScatterLut", m_MultiScatterLut, RDG::Access::SampledCompute,
-                           GlobalTextureFilterSampler(), "Sky.MultiScatterLut" );
+            block.Texture( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::SampledCompute,
+                           "Sky.TransmittanceLut" )
+                 .Sampler( "u_GlobalFilterSampler", GlobalTextureFilterSampler() )
+                 .Texture( "u_MultiScatterLut", m_MultiScatterLut, RDG::Access::SampledCompute,
+                           "Sky.MultiScatterLut" );
             return block;
         };
 
@@ -464,8 +465,9 @@ namespace Desert::Graphic::System
             ComputeNodeDeclaration multiScatter;
             multiScatter.Name = "Sky: MultiScatterLut";
             declareBlock( multiScatter.Access, m_MultiScatterLutPipeline.get(), m_MultiScatterLutLayout, 0 )
-                 .Sampled( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::SampledCompute,
-                           GlobalTextureFilterSampler(), "Sky.TransmittanceLut" )
+                 .Texture( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::SampledCompute,
+                           "Sky.TransmittanceLut" )
+                 .Sampler( "u_GlobalFilterSampler", GlobalTextureFilterSampler() )
                  .Storage( "u_MultiScatterLut", m_MultiScatterLut, RDG::Access::StorageWrite,
                            "Sky.MultiScatterLut" );
             multiScatter.Record = [this]( RDG::PassContext& context,
@@ -936,14 +938,14 @@ namespace Desert::Graphic::System
             declared
                  .Bindings( m_ProceduralLayout.Get( m_ProceduralPipeline->GetSpecification().Shader ),
                             executor->GetRouteFill() )
-                 .Sampled(
-                      "u_TransmittanceLut",
-                      refs.Transients.SkyTransmittanceLut.IsValid() ? refs.Transients.SkyTransmittanceLut : white,
-                      RDG::Access::SampledGraphics, RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
-                 .Sampled( "u_SkyViewLut",
+                 .Texture( "u_TransmittanceLut",
+                           refs.Transients.SkyTransmittanceLut.IsValid() ? refs.Transients.SkyTransmittanceLut
+                                                                         : white,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                 .Texture( "u_SkyViewLut",
                            refs.Transients.SkyViewLut.IsValid() ? refs.Transients.SkyViewLut : white,
-                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::LinearClamp() );
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
             m_SkyDraw = { .Pipeline = m_ProceduralPipeline.get(), .Executor = executor };
             return;
         }

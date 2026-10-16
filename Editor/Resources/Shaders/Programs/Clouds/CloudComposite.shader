@@ -69,12 +69,17 @@ Shader "CloudComposite"
 
         Out(0) vec4 o_Color;
 
-        Uniform(0) sampler2D u_CloudScatter;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(2) sampler u_LinearRepeatSampler;
+        Uniform(0) texture2D u_CloudScatter;
+        #define u_CloudScatter sampler2D(u_CloudScatter, u_LinearRepeatSampler)
 
         // The guide, same size as the scatter: .x = cloud front distance (km), .y = scene
         // distance (km). Point-fetched, never filtered — a filtered depth across a silhouette averages
         // near and far into a distance where nothing is, which is the artefact this pass exists to undo.
-        Uniform(1) sampler2D u_CloudGuide;
+        Uniform(1) texture2D u_CloudGuide;
+        #define u_CloudGuide sampler2D(u_CloudGuide, u_LinearRepeatSampler)
 
         // Unreal's coherence threshold: a tenth of the reference distance. Relative rather than absolute
         // because a kilometre of disagreement is a silhouette at three kilometres and nothing at fifty.

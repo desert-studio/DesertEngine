@@ -29,7 +29,11 @@ Shader "Skybox"
     {
         Out(0) vec4 oColor;
 
-        Uniform(1) samplerCube samplerCubeMap;
+        // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
+        // which the material writes from the property (VulkanMaterialBackend::ApplyTextureCube).
+        Uniform(1) textureCube samplerCubeMap;
+        Uniform(3) sampler samplerCubeMapSampler;
+        #define samplerCubeMap samplerCube(samplerCubeMap, samplerCubeMapSampler)
         Uniform(2) SkyLookUB
         {
             vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU

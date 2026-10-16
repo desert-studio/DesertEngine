@@ -32,12 +32,17 @@ namespace Desert::Core
         // that hashes a stage without that header; the fingerprint names the language version outright.
         // The target environment is ShaderTarget.hpp's (the oldest accepted device), named from that constant so
         // raising the minimum moves every key without a hand edit here.
-        // v3 (BINDLESS-TEX): every stage is compiled with DESERT_BINDLESS_SET defined; its value is mixed in
-        // right after the fingerprint (MixCompileOptions), so moving the set index moves every key.
+        // v3 (BINDLESS-TEX): every stage is compiled with DESERT_BINDLESS_SET defined.
+        // v4 (BINDLESS-TEX): every stage gets all of kBindlessShaderDefines (set, both bindings, sampler count and
+        // wrap count); their values are mixed in right after the fingerprint (MixCompileOptions), so moving any
+        // of them moves every key.
+        // v5 (MAT-BINDLESS): the parser's generated row changed without the authored text changing: every row
+        // carries Common/BindlessTextures.glslh, and a template's 2D textures are BindlessTexture row members
+        // instead of samplers (Core::Formats::IsRowTexture).
         const std::string& OptionsFingerprint()
         {
             static const std::string fingerprint =
-                 std::format( "vulkan{}.{}|glsl460|v3", VK_API_VERSION_MAJOR( kShaderTargetApiVersion ),
+                 std::format( "vulkan{}.{}|glsl460|v5", VK_API_VERSION_MAJOR( kShaderTargetApiVersion ),
                               VK_API_VERSION_MINOR( kShaderTargetApiVersion ) );
             return fingerprint;
         }
@@ -55,7 +60,8 @@ namespace Desert::Core
         void MixCompileOptions( uint64_t& key )
         {
             FnvMix( key, OptionsFingerprint() );
-            FnvMix( key, std::format( "|{}={}", kBindlessSetDefine, kBindlessSetIndex ) );
+            for ( const BindlessShaderDefine& define : kBindlessShaderDefines )
+                FnvMix( key, std::format( "|{}={}", define.Name, define.Value ) );
         }
 
         // The include walk, shared by the collector and the hash. `visited` carries across the whole

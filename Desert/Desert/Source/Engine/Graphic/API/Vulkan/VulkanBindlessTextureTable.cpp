@@ -10,9 +10,6 @@
 
 namespace Desert::Graphic::API::Vulkan
 {
-    static_assert( kBindlessSamplerStateCount == kBindlessSamplerCount,
-                   "the device check (DeviceCaps) and the table must agree on the fixed sampler set" );
-
     VulkanBindlessTextureTable::VulkanBindlessTextureTable( VkDevice device, uint32_t maxCapacity,
                                                             SamplerSource samplers )
          : m_Device( device ), m_MaxCapacity( maxCapacity ), m_SamplerSource( std::move( samplers ) ),

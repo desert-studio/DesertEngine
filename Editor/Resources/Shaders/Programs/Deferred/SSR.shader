@@ -29,13 +29,24 @@ Shader "SSR"
         #include <Common/SSRGate.glslh>
         #include <Common/ReconstructPosition.glslh>
 
-        Uniform(1) sampler2D u_GBufferNormal;   // rgb = world normal, a = roughness
-        Uniform(2) sampler2D u_GBufferDepth;    // device depth (nearest): world position via SSRTraceUB's inverse
-        Uniform(3) sampler2D u_SceneColor;      // LAST frame's lit opaque scene (SSRRenderer's scene colour history)
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass and numbered by the program build (SharedSamplerBinding.hpp); a
+        // same-name macro after each texture keeps the sampled form.
+        Uniform sampler u_LinearRepeatSampler;
+        Uniform sampler u_LinearClampSampler;
+        Uniform sampler u_PointClampSampler;
+        Uniform(1) texture2D u_GBufferNormal;   // rgb = world normal, a = roughness
+        #define u_GBufferNormal sampler2D(u_GBufferNormal, u_LinearRepeatSampler)
+        Uniform(2) texture2D u_GBufferDepth;    // device depth (nearest): world position via SSRTraceUB's inverse
+        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
+        Uniform(3) texture2D u_SceneColor;      // LAST frame's lit opaque scene (SSRRenderer's scene colour history)
+        #define u_SceneColor sampler2D(u_SceneColor, u_LinearClampSampler)
         layout(binding = 4, rgba16f) writeonly uniform image2D u_Trace;    // half resolution
         layout(binding = 5, rgba8) writeonly uniform image2D u_TileMask;   // one texel per tile
-        Uniform(7) sampler2D u_HZB;             // closest-depth hierarchy of this frame's depth (HZB.shader)
-        Uniform(8) sampler2D u_Velocity;        // NDC current - previous per pixel (View/Velocity.hpp), unjittered
+        Uniform(7) texture2D u_HZB;             // closest-depth hierarchy of this frame's depth (HZB.shader)
+        #define u_HZB sampler2D(u_HZB, u_PointClampSampler)
+        Uniform(8) texture2D u_Velocity;        // NDC current - previous per pixel (View/Velocity.hpp), unjittered
+        #define u_Velocity sampler2D(u_Velocity, u_PointClampSampler)
         // The traced texel's ray, for the reconstruction's neighbour reuse (Denoise/SSDReconstructReflections.shader,
         // UE SSRT): xyz = the WORLD point the texel's estimate was reflected from (a neighbour re-aims its own ray at it), w = log2 of
         // the VNDF pdf with which this texel drew that direction. RGBA32F: ViewTargetFormats::kSSRTraceRay.

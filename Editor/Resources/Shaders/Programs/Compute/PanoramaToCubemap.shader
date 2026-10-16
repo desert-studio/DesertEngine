@@ -6,7 +6,11 @@ Shader "PanoramaToCubemap"
         const float PI = 3.141592;
         const float TWOPI = 2 * PI;
 
-        Uniform(0, 0) sampler2D inputTexture;
+        // The source is a separate texture read through the bake's one shared state
+        // (Graphic::kComputeImagesSamplerBinding).
+        Uniform(0, 0) texture2D inputTexture;
+        Uniform(0, 2) sampler u_LinearRepeatSampler;
+        #define inputTexture sampler2D(inputTexture, u_LinearRepeatSampler)
         layout(set=0, binding=1, rgba32f) restrict writeonly uniform imageCube outputTexture;
 
         // NO LOOK HERE. The cube is the panorama as authored; the scene's rotation and gain are applied

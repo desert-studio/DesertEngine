@@ -2,6 +2,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Core/Formats/SamplerState.hpp>
+#include <Engine/Core/ShaderCompiler/BindlessSetIndex.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -43,10 +44,11 @@ namespace Desert::Graphic
         bool     operator==( const BindlessSamplerSlot& ) const = default;
     };
 
-    inline constexpr uint32_t kBindlessSamplerWrapCount   = 3; // Core::Formats::SamplerWrap: Repeat, Clamp, Mirror
-    inline constexpr uint32_t kBindlessSamplerFilterCount = 2; // Core::Formats::SamplerFilter: Linear, Nearest
-    inline constexpr uint32_t kBindlessSamplerStateCount =
-         kBindlessSamplerWrapCount * kBindlessSamplerWrapCount * kBindlessSamplerFilterCount;
+    // The sampler set's size is shader-visible (DESERT_BINDLESS_SAMPLER_COUNT), so it lives with the other shader
+    // defines (Core/ShaderCompiler/BindlessSetIndex.hpp).
+    using ::Desert::Core::kBindlessSamplerFilterCount;
+    using ::Desert::Core::kBindlessSamplerStateCount;
+    using ::Desert::Core::kBindlessSamplerWrapCount;
 
     // The sampler-array index of @p state; the shader header spells the same numbering (BINDLESS_SAMPLER_*).
     [[nodiscard]] constexpr BindlessSamplerSlot BindlessSamplerFor( const Core::Formats::SamplerState& state )

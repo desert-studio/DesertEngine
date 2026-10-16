@@ -40,18 +40,40 @@ Shader "DeferredLighting"
 
         In(0) vec2 v_TexCoord;
 
+        // SHARED SAMPLER STATES (UE's shared samplers). Every input of this pass is a SEPARATE texture read
+        // through one of these three, bound once by the pass (DeferredLightingRenderer::DeclareCompositeBindings).
+        // A combined sampler per input put 17 samplers in this fragment stage, over MoltenVK's
+        // maxPerStageDescriptorSamplers of 16, and the device refused the program; now the stage holds 3.
+        // Numbered by the program build after the last slot of set 0 (SharedSamplerBinding.hpp); 28 up is the
+        // shader graph's window, and set 0 ends at 24 (u_SSR), so they land on 25..27.
+        //
+        // Each input keeps the name the C++ binds and the shared includes read (Mesh/CascadedShadow.glslh,
+        // Mesh/AmbientIBL.glslh, ...): right after its declaration a macro of the SAME name turns every later use
+        // into the combined form `sampler2D(texture, sampler)`. The preprocessor never re-expands a macro inside
+        // its own expansion, so the inner name is the texture itself.
+        Uniform sampler u_LinearRepeatSampler;
+        Uniform sampler u_LinearClampSampler;
+        Uniform sampler u_PointClampSampler;
+
         // The G-buffer's layout and the shading-model ids it carries (the shading word, Emissive.a).
         // The shading word (ShadingModels/ShadingModelContract.glslh): an RG32_UINT target, read ONLY by texelFetch.
-        Uniform(1) usampler2D u_GBufferShadingWord;
+        layout(set = 0, binding = 1) uniform utexture2D u_GBufferShadingWord;
+        #define u_GBufferShadingWord usampler2D(u_GBufferShadingWord, u_PointClampSampler)
         // Device depth (nearest sampler: DEPTH32F is not filtered); world position = ReconstructWorldPosition.
-        Uniform(21) sampler2D u_GBufferDepth;
-        Uniform(2) sampler2D u_GBufferA; // rgb = albedo, a = metallic
-        Uniform(3) sampler2D u_GBufferB; // rgb = world normal, a = roughness
-        Uniform(8) sampler2D u_SSAO;     // r = ambient-occlusion factor (1 = lit)
-        Uniform(9) sampler2D u_GBufferEmissive; // rgb = HDR emissive (added below), a = material AO
+        layout(set = 0, binding = 21) uniform texture2D u_GBufferDepth;
+        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
+        layout(set = 0, binding = 2) uniform texture2D u_GBufferA; // rgb = albedo, a = metallic
+        #define u_GBufferA sampler2D(u_GBufferA, u_LinearRepeatSampler)
+        layout(set = 0, binding = 3) uniform texture2D u_GBufferB; // rgb = world normal, a = roughness
+        #define u_GBufferB sampler2D(u_GBufferB, u_LinearRepeatSampler)
+        layout(set = 0, binding = 8) uniform texture2D u_SSAO; // r = ambient-occlusion factor (1 = lit)
+        #define u_SSAO sampler2D(u_SSAO, u_LinearRepeatSampler)
+        layout(set = 0, binding = 9) uniform texture2D u_GBufferEmissive; // rgb = HDR emissive, a = material AO
+        #define u_GBufferEmissive sampler2D(u_GBufferEmissive, u_LinearRepeatSampler)
         // RSM GI mode only: one-bounce indirect light PRE-RESOLVED into its own buffer by the GIResolve pass
         // (already temporally denoised there). Unused — and left bound to its dummy — in the other GI modes.
-        Uniform(10) sampler2D u_GI;
+        layout(set = 0, binding = 10) uniform texture2D u_GI;
+        #define u_GI sampler2D(u_GI, u_LinearRepeatSampler)
 
         // THE BAKED ENVIRONMENT — the same trio the forward mesh shaders bind, and the whole point of
         // this pass having an ambient term at all. Until 2026-09-03 the deferred composite read NEITHER
@@ -64,9 +86,12 @@ Shader "DeferredLighting"
         // u_SSAO / u_GBufferEmissive / u_GI, and this pass shares no descriptor layout with the mesh
         // shaders — it is a fullscreen triangle with its own material. Only the NAMES have to match, because
         // the material binds by name.
-        Uniform(17) samplerCube u_EnvIrradianceTex; // diffuse irradiance (cosine-convolved sky)
-        Uniform(18) samplerCube u_EnvSpecularTex;   // GGX-prefiltered radiance, roughness across mips
-        Uniform(19) sampler2D   u_BRDFLUTTexture;   // split-sum BRDF integration (cosLo, roughness)
+        layout(set = 0, binding = 17) uniform textureCube u_EnvIrradianceTex; // diffuse irradiance (cosine-convolved sky)
+        #define u_EnvIrradianceTex samplerCube(u_EnvIrradianceTex, u_LinearClampSampler)
+        layout(set = 0, binding = 18) uniform textureCube u_EnvSpecularTex; // GGX-prefiltered radiance, roughness across mips
+        #define u_EnvSpecularTex samplerCube(u_EnvSpecularTex, u_LinearClampSampler)
+        layout(set = 0, binding = 19) uniform texture2D u_BRDFLUTTexture; // split-sum BRDF integration (cosLo, roughness)
+        #define u_BRDFLUTTexture sampler2D(u_BRDFLUTTexture, u_LinearClampSampler)
         // The sky's look — how the two cubes above are read (Common/SkyLook.glslh). Slot 20: the
         // first free one in this layout.
         Uniform(20) SkyLookUB
@@ -78,8 +103,10 @@ Shader "DeferredLighting"
         // THE TRACED GI'S FINAL GATHER (u_Params.w == 3; Graphic/GlobalIllumination/ScreenProbeGather): per pixel,
         // the irradiance (/ pi) and the specular radiance the screen probes integrated, in place of the sky's two
         // cubes — the probes' rays saw the sky only where it is visible. Black in the other GI modes (unread).
-        Uniform(30) sampler2D u_ScreenProbeDiffuse;
-        Uniform(31) sampler2D u_ScreenProbeSpecular;
+        Uniform(30) texture2D u_ScreenProbeDiffuse;
+        #define u_ScreenProbeDiffuse sampler2D(u_ScreenProbeDiffuse, u_PointClampSampler)
+        Uniform(31) texture2D u_ScreenProbeSpecular;
+        #define u_ScreenProbeSpecular sampler2D(u_ScreenProbeSpecular, u_PointClampSampler)
 
         Out(0) vec4 oColor;
 
@@ -103,11 +130,13 @@ Shader "DeferredLighting"
             uvec4                u_ReflectionCaptureHeader; // x = capture count
             ReflectionCaptureGpu u_ReflectionCaptures[];
         };
-        Uniform(1, 1) samplerCubeArray u_ReflectionCaptureCubes;
+        layout(set = 1, binding = 1) uniform textureCubeArray u_ReflectionCaptureCubes;
+        #define u_ReflectionCaptureCubes samplerCubeArray(u_ReflectionCaptureCubes, u_LinearClampSampler)
         // The screen-space reflection of this frame (SSRRenderer's resolved trace, full resolution): rgb = the traced
         // radiance, a = the share of the specular lobe the trace answered. When SSR is off it is System.Black (opaque)
         // and u_CameraPos.w = 0: nothing is read, the environment answers the whole lobe.
-        Uniform(24) sampler2D u_SSR;
+        layout(set = 0, binding = 24) uniform texture2D u_SSR;
+        #define u_SSR sampler2D(u_SSR, u_LinearClampSampler)
         #include <Mesh/AmbientIBL.glslh>
         #include <Mesh/LightSources.glslh>
         // THE lighting of this pass: the texel's shading model through the dispatch the registry generates. The
@@ -211,9 +240,12 @@ Shader "DeferredLighting"
         // DESERT_SUN_SHADOW_RAY_QUERY (DeferredLightingRenderer's second program, "Shadows: Ray Traced Sun"): the
         // sun's visibility is the denoised screen mask, and the cascades are compiled out.
         #ifdef DESERT_SUN_SHADOW_RAY_QUERY
-        Uniform(5) sampler2D u_ScreenShadowMask; // r = visibility, 1 = lit (render extent = this target's)
+        Uniform(5) texture2D u_ScreenShadowMask; // r = visibility, 1 = lit (render extent = this target's)
+        #define u_ScreenShadowMask sampler2D(u_ScreenShadowMask, u_PointClampSampler)
         #else
-        Uniform(5) sampler2DArray u_ShadowCascades; // one layer per cascade
+        // The four cascades are ONE array texture (layer c = cascade c), read through the shared repeat state.
+        Uniform(5) texture2DArray u_ShadowCascades;
+        #define u_ShadowCascades sampler2DArray(u_ShadowCascades, u_LinearRepeatSampler)
         #endif
         Uniform(7) ShadowUB {
         	mat4 u_LightViewProj[4];
@@ -246,7 +278,8 @@ Shader "DeferredLighting"
         // Declared here, evaluated by the shared receiver text below: the wrapper used to live in this
         // file and this file ALONE, which is exactly why no forward-shaded surface in the engine ever
         // received a cloud shadow. See Common/CloudShadowReceiver.glslh.
-        Uniform(11) sampler2D u_CloudShadowMap;
+        layout(set = 0, binding = 11) uniform texture2D u_CloudShadowMap;
+        #define u_CloudShadowMap sampler2D(u_CloudShadowMap, u_LinearRepeatSampler)
         Uniform(12) CloudShadowUB {
         	mat4 u_CloudShadowWorldToMap;
         	// x = the kilometres the map's clip z spans, y = 1 when the map is real and must be read,
@@ -262,7 +295,8 @@ Shader "DeferredLighting"
         // (Graphic/LocalShadows.hpp; MeshRenderer::UpdateLocalShadows writes both, and each light's shadowView).
         // The row struct first, then the two bindings, then the reader, which names them.
         #include <Mesh/LocalLightShadowView.glslh>
-        Uniform(13) sampler2D u_LocalShadowAtlas; // 13/14: freed by the cascade array
+        Uniform(13) texture2D u_LocalShadowAtlas; // 13/14: freed by the cascade array
+        #define u_LocalShadowAtlas sampler2D(u_LocalShadowAtlas, u_PointClampSampler)
         ReadBuffer(14) LocalShadowViewsUB
         {
         	LocalShadowView localShadowViews[];

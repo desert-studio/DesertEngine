@@ -857,7 +857,7 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
-    Common::ResultStr<VkSampler> VulkanRdgPassDescriptors::GetSampler( const RDG::SamplerDesc& desc )
+    VkSamplerCreateInfo RdgSamplerCreateInfo( const RDG::SamplerDesc& desc )
     {
         VkSamplerCreateInfo info{};
         info.sType             = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -871,17 +871,21 @@ namespace Desert::Graphic::API::Vulkan
         info.minLod            = 0.0f;
         info.maxLod            = VK_LOD_CLAMP_NONE;
         info.borderColor       = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
-        return m_SamplerCache.Acquire( info );
+        return info;
+    }
+
+    Common::ResultStr<VkSampler> VulkanRdgPassDescriptors::GetSampler( const RDG::SamplerDesc& desc )
+    {
+        return m_SamplerCache.Acquire( RdgSamplerCreateInfo( desc ) );
     }
 
     Common::ResultStr<VkDescriptorPool> VulkanRdgPassDescriptors::AddPool( SlotPools& slot )
     {
         // One pool shape for every pass: a full pool is followed by another, never enlarged in place.
         constexpr uint32_t                        kSets = 256;
-        const std::array<VkDescriptorPoolSize, 7> sizes = {
+        const std::array<VkDescriptorPoolSize, 6> sizes = {
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kSets * 4 },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kSets * 4 },
-             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSets * 4 },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, kSets },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kSets * 2 },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kSets * 2 },
@@ -944,31 +948,43 @@ namespace Desert::Graphic::API::Vulkan
                                                                   VkDescriptorType           type,
                                                                   const RDG::TextureBinding& texture,
                                                                   RDG::SubresourceRange      range,
-                                                                  VkImageLayout layout, VkSampler sampler )
+                                                                  VkImageLayout layout, uint32_t element )
     {
-        const bool combined = type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        if ( type != VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE && type != VK_DESCRIPTOR_TYPE_STORAGE_IMAGE && !combined )
-            return Common::MakeFormattedError( "texture '{}': descriptor type {} is not an image type",
-                                               texture.Name, static_cast<int>( type ) );
-        if ( combined != ( sampler != VK_NULL_HANDLE ) )
-            return Common::MakeFormattedError( "texture '{}': a sampler goes with COMBINED_IMAGE_SAMPLER only",
-                                               texture.Name );
+        if ( type != VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE && type != VK_DESCRIPTOR_TYPE_STORAGE_IMAGE )
+            return Common::MakeFormattedError(
+                 "texture '{}': descriptor type {} is not a separate or storage image "
+                 "type (a pass binds no combined sampler)",
+                 texture.Name, static_cast<int>( type ) );
         const Common::ResultStr<VulkanRdgTexture*> physical = VulkanRdgBackend::TextureOf( texture );
         if ( !physical )
             return Common::MakeError( physical.GetError() );
         const Common::ResultStr<VkImageView> view = physical.GetValue()->GetView( range, false );
         if ( !view )
             return Common::MakeFormattedError( "texture '{}': {}", texture.Name, view.GetError() );
-        const VkDescriptorImageInfo image{ sampler, view.GetValue(), layout };
+        const VkDescriptorImageInfo image{ VK_NULL_HANDLE, view.GetValue(), layout };
         VkWriteDescriptorSet        write{};
         write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write.dstSet          = set;
         write.dstBinding      = binding;
+        write.dstArrayElement = element;
         write.descriptorCount = 1;
         write.descriptorType  = type;
         write.pImageInfo      = &image;
         vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
         return Common::MakeSuccess( true );
+    }
+
+    void VulkanRdgPassDescriptors::WriteSampler( VkDescriptorSet set, uint32_t binding, VkSampler sampler )
+    {
+        const VkDescriptorImageInfo image{ sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED };
+        VkWriteDescriptorSet        write{};
+        write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet          = set;
+        write.dstBinding      = binding;
+        write.descriptorCount = 1;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_SAMPLER;
+        write.pImageInfo      = &image;
+        vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
     }
 
     Common::BoolResultStr VulkanRdgPassDescriptors::WriteBuffer( VkDescriptorSet set, uint32_t binding,

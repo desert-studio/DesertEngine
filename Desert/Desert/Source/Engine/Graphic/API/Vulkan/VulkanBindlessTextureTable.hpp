@@ -20,13 +20,12 @@ namespace Desert::Graphic::API::Vulkan
     // The set index every pipeline layout that reflects u_BindlessTextures uses for the table (one constant shared
     // with the DESERT_BINDLESS_SET define, Core/ShaderCompiler/BindlessSetIndex.hpp). A gap below it in a pipeline
     // layout is filled with an empty layout (VulkanShader).
-    using Core::kBindlessSetIndex;
+    using ::Desert::Core::kBindlessSetIndex;
 
-    // Binding numbers inside the set. The sampled-image array is the variable-count binding and so must be the
-    // highest binding (VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-pBindingFlags-03004); the samplers come
-    // first.
-    inline constexpr uint32_t kBindlessSamplerBinding = 0;
-    inline constexpr uint32_t kBindlessTextureBinding = 1;
+    // Binding numbers inside the set: the same constants the shaders get as DESERT_BINDLESS_SAMPLER_BINDING /
+    // DESERT_BINDLESS_TEXTURE_BINDING (BindlessSetIndex.hpp says why samplers come first).
+    using ::Desert::Core::kBindlessSamplerBinding;
+    using ::Desert::Core::kBindlessTextureBinding;
 
     struct BindlessBindingFlags
     {
@@ -123,5 +122,6 @@ namespace Desert::Graphic::API::Vulkan
     // The device's table when @p layouts (a pipeline's, set order) holds its layout at kBindlessSetIndex — the
     // shader reflected the table (VulkanShader::CreateDescriptorsLayout) — else null. The one test every consumer
     // of pipeline layouts uses to tell the table's set from a set it allocates itself.
-    [[nodiscard]] VulkanBindlessTextureTable* BindlessTableIn( const std::vector<DescriptorSetLayoutRef>& layouts );
+    [[nodiscard]] VulkanBindlessTextureTable*
+    BindlessTableIn( const std::vector<DescriptorSetLayoutRef>& layouts );
 } // namespace Desert::Graphic::API::Vulkan

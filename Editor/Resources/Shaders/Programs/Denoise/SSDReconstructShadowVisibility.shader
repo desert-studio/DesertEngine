@@ -14,12 +14,19 @@ Shader "SSDReconstructShadowVisibility"
 
     Compute
     {
+        // Shared sampler state (UE shared samplers): each input below is a separate texture read through it, bound
+        // once by the pass by name and numbered by the program build (ShaderMapBuild.cpp AssignSharedSamplerBindings).
+        // Declared before Common/ScreenSpaceDenoise.glslh, whose SSDLoadSceneInfo reads the G-buffer through it.
+        Uniform sampler u_PointClampSampler;
         #include <Common/ScreenSpaceDenoise.glslh>
 
-        Uniform(1) sampler2D u_GBufferNormal;   // rgb = world normal, a = roughness
-        Uniform(2) sampler2D u_GBufferDepth;    // device depth (nearest)
-        Uniform(3) sampler2D u_Mask;            // r = visibility estimate, 0 = shadowed, 1 = lit
-        Uniform(4) sampler2D u_ClosestOccluder; // r = distance to the closest occluder hit, cm; <= 0 = no hit
+        // The G-buffer stays a bare texture2D: SSDLoadSceneInfo takes the textures and constructs at the lookup.
+        Uniform(1) texture2D u_GBufferNormal;   // rgb = world normal, a = roughness
+        Uniform(2) texture2D u_GBufferDepth;    // device depth (nearest)
+        Uniform(3) texture2D u_Mask;            // r = visibility estimate, 0 = shadowed, 1 = lit
+        #define u_Mask sampler2D(u_Mask, u_PointClampSampler)
+        Uniform(4) texture2D u_ClosestOccluder; // r = distance to the closest occluder hit, cm; <= 0 = no hit
+        #define u_ClosestOccluder sampler2D(u_ClosestOccluder, u_PointClampSampler)
         layout(binding = 6, rgba16f) writeonly uniform image2D u_Signal; // premultiplied (v, v, v, 1)
 
         // ScreenSpaceDenoiser::ViewUniforms (std140).
@@ -43,11 +50,11 @@ Shader "SSDReconstructShadowVisibility"
 
         void main()
         {
-        	const ivec2 viewSize = textureSize(u_GBufferNormal, 0);
+        	const ivec2 viewSize = textureSize(sampler2D(u_GBufferNormal, u_PointClampSampler), 0);
         	const ivec2 pixel    = ivec2(gl_GlobalInvocationID.xy);
         	if (pixel.x >= viewSize.x || pixel.y >= viewSize.y)
         		return;
-        	if (!SSDPixelHasSignal(kSSDSignalShadowVisibility, texelFetch(u_GBufferNormal, pixel, 0)))
+        	if (!SSDPixelHasSignal(kSSDSignalShadowVisibility, texelFetch(sampler2D(u_GBufferNormal, u_PointClampSampler), pixel, 0)))
         	{
         		imageStore(u_Signal, pixel, vec4(0.0));
         		return;
@@ -56,7 +63,7 @@ Shader "SSDReconstructShadowVisibility"
         	const vec2         uv   = (vec2(pixel) + 0.5) / size;
         	const SSDSceneInfo ref  = SSDLoadSceneInfo(u_GBufferNormal, u_GBufferDepth, u_InvJitteredViewProjection,
         	                                           pixel, size);
-        	const float pixelRadius = max(SSDPixelWorldRadius(uv, texelFetch(u_GBufferDepth, pixel, 0).r,
+        	const float pixelRadius = max(SSDPixelWorldRadius(uv, texelFetch(sampler2D(u_GBufferDepth, u_PointClampSampler), pixel, 0).r,
         	                                                  ref.Position, 1.0 / size, u_InvJitteredViewProjection),
         	                              1e-4);
 

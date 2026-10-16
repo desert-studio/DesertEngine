@@ -82,19 +82,19 @@ TEST( ShaderReflection, FiveImageKindsLandInFiveDistinctBuckets )
     ASSERT_EQ( data.ShaderDescriptorSets.size(), 1u );
     const auto& set0 = data.ShaderDescriptorSets.at( 0 );
 
-    ASSERT_EQ( set0.Image2DSamplers.size(), 1u );
-    ASSERT_EQ( set0.Image3DSamplers.size(), 1u );
-    ASSERT_EQ( set0.ImageCubeSamplers.size(), 1u );
+    ASSERT_EQ( set0.SampledImages.size(), 1u );
+    ASSERT_EQ( set0.SampledImages.size(), 1u );
+    ASSERT_EQ( set0.SampledImages.size(), 1u );
     ASSERT_EQ( set0.StorageImage2DSamplers.size(), 1u );
     ASSERT_EQ( set0.StorageImage3DSamplers.size(), 1u );
 
-    EXPECT_EQ( set0.Image2DSamplers.at( 0 ).Name, "u_EnvNoise" );
-    EXPECT_EQ( set0.Image3DSamplers.at( 1 ).Name, "u_ShapeNoise" );
-    EXPECT_EQ( set0.ImageCubeSamplers.at( 2 ).Name, "u_Radiance" );
+    EXPECT_EQ( set0.SampledImages.at( 0 ).Name, "u_EnvNoise" );
+    EXPECT_EQ( set0.SampledImages.at( 1 ).Name, "u_ShapeNoise" );
+    EXPECT_EQ( set0.SampledImages.at( 2 ).Name, "u_Radiance" );
     EXPECT_EQ( set0.StorageImage2DSamplers.at( 3 ).Name, "u_OutSlice" );
     EXPECT_EQ( set0.StorageImage3DSamplers.at( 4 ).Name, "u_OutVolume" );
 
-    EXPECT_EQ( set0.Image3DSamplers.at( 1 ).BindingPoint, 1u );
+    EXPECT_EQ( set0.SampledImages.at( 1 ).BindingPoint, 1u );
     EXPECT_EQ( set0.StorageImage3DSamplers.at( 4 ).BindingPoint, 4u );
 }
 
@@ -148,10 +148,10 @@ void main()
     ASSERT_TRUE( diagnostics.empty() ) << FirstOr( diagnostics, "" );
 
     const auto& set0 = data.ShaderDescriptorSets.at( 0 );
-    ASSERT_EQ( set0.Image2DSamplers.size(), 1u );
-    ASSERT_EQ( set0.ImageCubeSamplers.size(), 1u );
-    EXPECT_EQ( set0.Image2DSamplers.at( 0 ).Name, "u_EnvCubeMap" );
-    EXPECT_EQ( set0.ImageCubeSamplers.at( 1 ).Name, "u_Density" );
+    ASSERT_EQ( set0.SampledImages.size(), 1u );
+    ASSERT_EQ( set0.SampledImages.size(), 1u );
+    EXPECT_EQ( set0.SampledImages.at( 0 ).Name, "u_EnvCubeMap" );
+    EXPECT_EQ( set0.SampledImages.at( 1 ).Name, "u_Density" );
 }
 
 // A stage that declares an image the engine cannot bind must be reported by name and type, and must
@@ -175,20 +175,22 @@ void main() { o_Color = texture(u_Slices, vec2(0.5)); }
 
     for ( const auto& [set, descriptorSet] : data.ShaderDescriptorSets )
     {
-        EXPECT_TRUE( descriptorSet.Image2DSamplers.empty() ) << "set " << set;
-        EXPECT_TRUE( descriptorSet.Image3DSamplers.empty() ) << "set " << set;
-        EXPECT_TRUE( descriptorSet.ImageCubeSamplers.empty() ) << "set " << set;
+        EXPECT_TRUE( descriptorSet.SampledImages.empty() ) << "set " << set;
+        EXPECT_TRUE( descriptorSet.SampledImages.empty() ) << "set " << set;
+        EXPECT_TRUE( descriptorSet.SampledImages.empty() ) << "set " << set;
     }
 }
 
-// sampler2DArray is the sun's shadow cascades (one layer each): the render graph's Tex2DArray texture hands it a
-// 2D_ARRAY view at every layer count, so it shares the Image2D bucket with no diagnostic.
-TEST( ShaderReflection, BindsSampler2DArrayThroughTheImage2DBucket )
+// texture2DArray is the sun's shadow cascades (one layer each): the render graph's Tex2DArray texture hands it a
+// 2D_ARRAY view at every layer count. It is a separate texture of its own dimension, so it is never mistaken for a
+// material's 2D texture property (GetUniformImage2DModels).
+TEST( ShaderReflection, ReflectsTexture2DArrayAsItsOwnDimension )
 {
     const char* kArrayed = R"(#version 450
-layout(binding = 0) uniform sampler2DArray u_ShadowCascades;
+layout(binding = 0) uniform texture2DArray u_ShadowCascades;
+layout(binding = 1) uniform sampler u_LinearRepeatSampler;
 layout(location = 0) out vec4 o_Color;
-void main() { o_Color = texture(u_ShadowCascades, vec3(0.5)); }
+void main() { o_Color = texture(sampler2DArray(u_ShadowCascades, u_LinearRepeatSampler), vec3(0.5)); }
 )";
 
     const auto spirv = Compile( kArrayed, shaderc_glsl_fragment_shader );
@@ -200,7 +202,12 @@ void main() { o_Color = texture(u_ShadowCascades, vec3(0.5)); }
 
     size_t found = 0;
     for ( const auto& [set, descriptorSet] : data.ShaderDescriptorSets )
-        found += descriptorSet.Image2DSamplers.size();
+        for ( const auto& [binding, image] : descriptorSet.SampledImages )
+        {
+            EXPECT_EQ( image.Dimension,
+                       Desert::ShaderResources::ShaderLayout::SampledImageDimension::Texture2DArray );
+            ++found;
+        }
     EXPECT_EQ( found, 1u );
 }
 
@@ -221,8 +228,8 @@ void main() { gl_FragDepth = texelFetch(u_Depth, ivec2(gl_FragCoord.xy), 0).r; }
 
     EXPECT_TRUE( diagnostics.empty() ) << ( diagnostics.empty() ? "" : diagnostics.front() );
     const auto& set0 = data.ShaderDescriptorSets[0];
-    ASSERT_EQ( set0.Image2DSamplers.size(), 1u );
-    EXPECT_EQ( set0.Image2DSamplers.at( 1 ).Name, "u_Depth" );
+    ASSERT_EQ( set0.SampledImages.size(), 1u );
+    EXPECT_EQ( set0.SampledImages.at( 1 ).Name, "u_Depth" );
 
     spirv_cross::CompilerGLSL compiler( spirv );
     const auto                resources = compiler.get_shader_resources();
@@ -286,9 +293,9 @@ void main()
 
     // ...while the sampled cube DOES move: `inputTexture` names neither "Env" nor "Cube", so the old
     // rule filed this real samplerCube as a 2D sampler. This is PrefilterEnvMap.shader, verbatim.
-    ASSERT_EQ( set0.ImageCubeSamplers.size(), 1u );
-    EXPECT_EQ( set0.ImageCubeSamplers.at( 0 ).Name, "inputTexture" );
-    EXPECT_TRUE( set0.Image2DSamplers.empty() );
+    ASSERT_EQ( set0.SampledImages.size(), 1u );
+    EXPECT_EQ( set0.SampledImages.at( 0 ).Name, "inputTexture" );
+    EXPECT_TRUE( set0.SampledImages.empty() );
 }
 
 TEST( ShaderReflection, MergesStageMasksAcrossStages )
@@ -312,9 +319,9 @@ void main() { o_Color = texture(u_Shared, vec2(0.5)); }
                       .empty() );
 
     const auto& set0 = data.ShaderDescriptorSets.at( 0 );
-    ASSERT_EQ( set0.Image2DSamplers.size(), 1u ); // one descriptor, not one per stage
+    ASSERT_EQ( set0.SampledImages.size(), 1u ); // one descriptor, not one per stage
 
-    const uint32_t stages = (uint32_t)set0.Image2DSamplers.at( 0 ).ShaderStage;
+    const uint32_t stages = (uint32_t)set0.SampledImages.at( 0 ).ShaderStage;
     EXPECT_TRUE( stages & (uint32_t)ShaderStage::Vertex );
     EXPECT_TRUE( stages & (uint32_t)ShaderStage::Fragment );
 }

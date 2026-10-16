@@ -189,11 +189,24 @@ namespace Desert::Graphic::API::Vulkan
             VkPhysicalDeviceProperties2 properties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &indexing };
             vkGetPhysicalDeviceProperties2( device.physical_device, &properties );
             DescriptorIndexingLimits limits;
-            limits.MaxPerStageUpdateAfterBindSampledImages = indexing.maxPerStageDescriptorUpdateAfterBindSampledImages;
-            limits.MaxSetUpdateAfterBindSampledImages      = indexing.maxDescriptorSetUpdateAfterBindSampledImages;
-            limits.MaxPerStageUpdateAfterBindSamplers      = indexing.maxPerStageDescriptorUpdateAfterBindSamplers;
-            limits.MaxSetUpdateAfterBindSamplers           = indexing.maxDescriptorSetUpdateAfterBindSamplers;
+            limits.MaxPerStageUpdateAfterBindSampledImages =
+                 indexing.maxPerStageDescriptorUpdateAfterBindSampledImages;
+            limits.MaxSetUpdateAfterBindSampledImages  = indexing.maxDescriptorSetUpdateAfterBindSampledImages;
+            limits.MaxPerStageUpdateAfterBindSamplers  = indexing.maxPerStageDescriptorUpdateAfterBindSamplers;
+            limits.MaxSetUpdateAfterBindSamplers       = indexing.maxDescriptorSetUpdateAfterBindSamplers;
+            limits.MaxPerStageUpdateAfterBindResources = indexing.maxPerStageUpdateAfterBindResources;
             return limits;
+        }
+
+        PerStageDescriptorLimits PerStageDescriptorLimitsOf( const vkb::PhysicalDevice& device )
+        {
+            const VkPhysicalDeviceLimits& limits = device.properties.limits;
+            return PerStageDescriptorLimits{ .MaxSamplers       = limits.maxPerStageDescriptorSamplers,
+                                             .MaxSampledImages  = limits.maxPerStageDescriptorSampledImages,
+                                             .MaxUniformBuffers = limits.maxPerStageDescriptorUniformBuffers,
+                                             .MaxStorageBuffers = limits.maxPerStageDescriptorStorageBuffers,
+                                             .MaxStorageImages  = limits.maxPerStageDescriptorStorageImages,
+                                             .MaxResources      = limits.maxPerStageResources };
         }
 
         ProbedDevice Probe( const vkb::PhysicalDevice& candidate )
@@ -219,6 +232,7 @@ namespace Desert::Graphic::API::Vulkan
             }
             if ( probed.Caps.Has( Capability::DescriptorIndexing ) )
                 probed.Caps.DescriptorIndexing = DescriptorIndexingLimitsOf( device );
+            probed.Caps.PerStage = PerStageDescriptorLimitsOf( device );
             return probed;
         }
 

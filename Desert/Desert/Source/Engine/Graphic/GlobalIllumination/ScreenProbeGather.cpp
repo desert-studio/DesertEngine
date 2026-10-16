@@ -167,8 +167,9 @@ namespace Desert::Graphic::GlobalIllumination
         const auto            all  = RDG::SubresourceRange::All();
         const auto            gbuf = [&]( RDG::BindingBlockBuilder& block )
         {
-            block.Sampled( "u_GBufferDepth", inputs.GBufferDepth, kS, all, RDG::SamplerDesc::PointClamp() )
-                 .Sampled( "u_GBufferB", inputs.GBufferB, kS, all, RDG::SamplerDesc::PointClamp() );
+            block.Texture( "u_GBufferDepth", inputs.GBufferDepth, kS, all )
+                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                 .Texture( "u_GBufferB", inputs.GBufferB, kS, all );
         };
 
         // Place: level 0 (uniform), then the two adaptive levels, each reading the coarser ones.
@@ -220,19 +221,15 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "RadianceCacheIndirectionUB", inputs.RadianceCache.Indirection, kR )
                           .Storage( "RadianceCacheProbesUB", inputs.RadianceCache.Probes, kR );
                      DeclareTracerReads( block, inputs.Tracer );
-                     block.Sampled( "u_EnvSpecularTex", inputs.EnvSpecular, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
-                          .Sampled( "u_GBufferDepth", inputs.GBufferDepth, kS, all,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_GBufferA", inputs.GBufferA, kS, all, RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_GBufferEmissive", inputs.GBufferEmissive, kS, all,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_RadianceCacheIrradiance", inputs.RadianceCache.Irradiance, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
-                          .Sampled( "u_RadianceCacheDepth", inputs.RadianceCache.Depth, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
-                          .Sampled( "u_RadianceCacheRadianceAtlas", inputs.RadianceCache.Radiance, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
+                     block.Texture( "u_EnvSpecularTex", inputs.EnvSpecular, kS, all )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_GBufferDepth", inputs.GBufferDepth, kS, all )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_GBufferA", inputs.GBufferA, kS, all )
+                          .Texture( "u_GBufferEmissive", inputs.GBufferEmissive, kS, all )
+                          .Texture( "u_RadianceCacheIrradiance", inputs.RadianceCache.Irradiance, kS, all )
+                          .Texture( "u_RadianceCacheDepth", inputs.RadianceCache.Depth, kS, all )
+                          .Texture( "u_RadianceCacheRadianceAtlas", inputs.RadianceCache.Radiance, kS, all )
                           .Storage( "u_ScreenProbeTraced", traced, kW );
                  },
                  [pipeline, probeGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -253,7 +250,8 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "ScreenProbeIndexUB", index, kR )
                           .Storage( "ScreenProbesUB", probes, kR )
                           .Storage( "GIFrameUB", inputs.GIFrame, kR )
-                          .Sampled( "u_ScreenProbeTraced", traced, kS, all, RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_ScreenProbeTraced", traced, kS, all )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                           .Storage( "u_ScreenProbeFiltered", filtered, kW )
                           .Storage( "ScreenProbeSHUB", sh, kW );
                  },
@@ -277,11 +275,10 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "ScreenProbesUB", probes, kR )
                           .Storage( "GIFrameUB", inputs.GIFrame, kR )
                           .Storage( "ScreenProbeSHUB", sh, kR )
-                          .Sampled( "u_ScreenProbeFiltered", filtered, kS, all, RDG::SamplerDesc::LinearClamp() )
-                          .Sampled( "u_ScreenProbeDiffuseHistory", diffuseHistory, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
-                          .Sampled( "u_ScreenProbeSpecularHistory", specularHistory, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_ScreenProbeFiltered", filtered, kS, all )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_ScreenProbeDiffuseHistory", diffuseHistory, kS, all )
+                          .Texture( "u_ScreenProbeSpecularHistory", specularHistory, kS, all )
                           .Storage( "u_ScreenProbeDiffuseOut", diffuse, kW )
                           .Storage( "u_ScreenProbeSpecularOut", specular, kW );
                      gbuf( block );

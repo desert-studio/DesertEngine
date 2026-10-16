@@ -10,7 +10,11 @@ Shader "GlobalDistanceFieldComposite"
     {
         LocalSize(8, 8, 8);
 
-        Uniform(0) sampler3D u_DFBrickAtlas;
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound once by the pass by name and numbered by the program build (SharedSamplerBinding.hpp).
+        Uniform sampler u_LinearRepeatSampler;
+        Uniform(0) texture3D u_DFBrickAtlas;
+        #define u_DFBrickAtlas sampler3D(u_DFBrickAtlas, u_LinearRepeatSampler)
         ReadBuffer(1) DFAssetData
         {
             vec4 u_DFAssetData[];

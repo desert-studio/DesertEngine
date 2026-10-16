@@ -366,8 +366,10 @@ namespace Desert::Graphic
                  auto bindings = pass.Bindings( m_AssembleLayout.Get( m_Assemble->GetSpecification().Shader ),
                                                 Renderer::GetPipelineRouteFill( *m_Assemble ) );
                  for ( size_t f = 0; f < faces.size(); ++f )
-                     bindings.Sampled( kFaceNames[f], faces[f], RDG::Access::SampledCompute,
-                                       RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
+                     bindings
+                          .Texture( kFaceNames[f], faces[f], RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
                  bindings.Storage( "ReflectionCaptureFacesUB", facesBuffer, RDG::Access::StorageRead )
                       .Storage( "u_Output", radiance, RDG::Access::StorageWrite, 0 );
              },
@@ -385,8 +387,9 @@ namespace Desert::Graphic
                  {
                      pass.Bindings( m_DownsampleLayout.Get( m_Downsample->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_Downsample ) )
-                          .Sampled( "u_Source", radiance, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::Mip( mip - 1 ), RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_Source", radiance, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::Mip( mip - 1 ) )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
                           .Storage( "u_Output", radiance, RDG::Access::StorageWrite, mip );
                  },
                  [pipeline = m_Downsample, mip, faceSize]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -404,8 +407,9 @@ namespace Desert::Graphic
                  {
                      pass.Bindings( m_FilterLayout.Get( m_Filter->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_Filter ) )
-                          .Sampled( "u_Radiance", radiance, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_Radiance", radiance, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
                           .Storage( "u_Output", array, RDG::Access::StorageWrite, mip )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( FilterPush ) ) );
                  },

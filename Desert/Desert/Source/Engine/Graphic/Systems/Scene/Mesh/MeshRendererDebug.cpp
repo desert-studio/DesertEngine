@@ -256,8 +256,8 @@ namespace Desert::Graphic::System
         const MaterialExecutor& executor = *m_OverdrawResolveMaterial->GetMaterialExecutor();
         pass.Bindings( m_OverdrawResolveLayout.Get( m_OverdrawResolvePipeline->GetSpecification().Shader ),
                        executor.GetRouteFill() )
-             .Sampled( "u_Overdraw", overdraw, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::LinearRepeat() );
+             .Texture( "u_Overdraw", overdraw, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
     }
 
     Common::BoolResultStr MeshRenderer::RecordOverdrawResolve( const RDG::PassContext& context ) const

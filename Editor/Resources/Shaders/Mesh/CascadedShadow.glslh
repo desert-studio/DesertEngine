@@ -33,7 +33,8 @@
 // mesh shaders' 8/9/10), the mesh shaders share one layout with the G-buffer pass, and a shader-graph
 // material's layout is generated. The includer must declare, at whatever slots are free in ITS layout:
 //
-//     Uniform(a) sampler2DArray u_ShadowCascades; // layer c = cascade c
+//     Uniform(a) texture2DArray u_ShadowCascades; // layer c = cascade c
+//     #define u_ShadowCascades sampler2DArray(u_ShadowCascades, u_LinearRepeatSampler) // a shared state of the pass
 //     Uniform(e) ShadowUB {
 //         mat4 u_LightViewProj[4];
 //         vec4 u_ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count

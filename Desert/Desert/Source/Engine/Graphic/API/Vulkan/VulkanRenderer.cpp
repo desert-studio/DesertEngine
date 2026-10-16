@@ -487,26 +487,33 @@ namespace Desert::Graphic::API::Vulkan
                          entry.Slot.Set, entry.Slot.Binding );
                 VkDescriptorSet       set     = sets[entry.Slot.Set];
                 Common::BoolResultStr written = Common::MakeSuccess( true );
-                if ( entry.Texture != nullptr )
+                if ( entry.Kind == RDG::ShaderResourceKind::Sampler )
+                {
+                    // A shared sampler state: no image, written as VK_DESCRIPTOR_TYPE_SAMPLER.
+                    if ( binding->descriptorType != VK_DESCRIPTOR_TYPE_SAMPLER || !entry.Texture->Sampler )
+                        return Common::MakeFormattedError<Sets>(
+                             "{}: '{}' is bound as a sampler into a slot of descriptor type {}", pass, name,
+                             static_cast<int>( binding->descriptorType ) );
+                    const Common::ResultStr<VkSampler> made = descriptors.GetSampler( *entry.Texture->Sampler );
+                    if ( !made )
+                        return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, made.GetError() );
+                    descriptors.WriteSampler( set, entry.Slot.Binding, made.GetValue() );
+                }
+                else if ( entry.Texture != nullptr )
                 {
                     const RDG::BoundTexture& texture = *entry.Texture;
                     const bool               storage = entry.Kind == RDG::ShaderResourceKind::StorageTexture;
                     const VkImageLayout      layout =
                          storage ? VK_IMAGE_LAYOUT_GENERAL
                                       : RdgVulkanLayout( RDG::GetAccessState( texture.Declared ).Layout );
-                    VkSampler sampler = VK_NULL_HANDLE;
-                    if ( binding->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER )
-                    {
-                        if ( !texture.Sampler )
-                            return Common::MakeFormattedError<Sets>( "{}: '{}' is sampled but names no sampler",
-                                                                     pass, name );
-                        const Common::ResultStr<VkSampler> made = descriptors.GetSampler( *texture.Sampler );
-                        if ( !made )
-                            return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, made.GetError() );
-                        sampler = made.GetValue();
-                    }
-                    written = descriptors.WriteTexture( set, entry.Slot.Binding, binding->descriptorType,
-                                                        texture.Texture, texture.Range, layout, sampler );
+                    if ( texture.Sampler )
+                        return Common::MakeFormattedError<Sets>(
+                             "{}: '{}' carries a sampler but its slot has none (descriptor type {}); a separate "
+                             "texture is read through a Sampler slot of the pass",
+                             pass, name, static_cast<int>( binding->descriptorType ) );
+                    written =
+                         descriptors.WriteTexture( set, entry.Slot.Binding, binding->descriptorType,
+                                                   texture.Texture, texture.Range, layout, entry.Slot.Element );
                 }
                 else if ( entry.Kind == RDG::ShaderResourceKind::AccelerationStructure )
                 {

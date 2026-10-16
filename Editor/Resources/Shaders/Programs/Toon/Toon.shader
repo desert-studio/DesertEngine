@@ -52,11 +52,6 @@ Shader "Toon"
     // The surface maps: the template declares its own samplers (the cells add no material textures).
     Surface
     {
-        layout( binding = 11 ) uniform sampler2D u_AlbedoTexture;
-        layout( binding = 12 ) uniform sampler2D u_NormalTexture;
-        layout( binding = 18 ) uniform sampler2D u_OpacityTexture;
-        layout( binding = 23 ) uniform sampler2D u_ORMTexture;
-        layout( binding = 24 ) uniform sampler2D u_EmissiveTexture;
 
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
@@ -66,29 +61,29 @@ Shader "Toon"
             if ( tiling.y <= 0.0 ) tiling.y = 1.0;
             const vec2 uv = SurfaceTransformUV( SurfaceSelectUV( i.UV0, i.UV0, 0 ), u_Material.UVOffset, tiling,
                                             u_Material.UVRotation );
-            const float mask = texture( u_OpacityTexture, uv )[int( u_Material.OpacityChannel )];
+            const float mask = SampleBindless( u_Material.u_OpacityTexture, uv )[int( u_Material.OpacityChannel )];
             if ( u_Material.AlphaCutoff > 0.0 && mask < u_Material.AlphaCutoff )
                 discard;
             s.BaseColor = SurfaceBaseColor( u_Material.AlbedoColor.rgb,
-                                        texture( u_AlbedoTexture, uv ).rgb, vec3( 1.0 ) );
-            const ivec2 normalSize = textureSize( u_NormalTexture, 0 );
+                                        SampleBindless( u_Material.u_AlbedoTexture, uv ).rgb, vec3( 1.0 ) );
+            const ivec2 normalSize = BindlessTextureSize( u_Material.u_NormalTexture, 0 );
             if ( normalSize.x > 1 && normalSize.y > 1 )
-                s.Normal = SurfaceScaleTangentNormal( SampleTangentNormal( u_NormalTexture, uv ), u_Material.NormalScale );
-            const vec3 orm = SurfaceResolveORM( texture( u_ORMTexture, uv ).rgb, u_Material.AOStrength,
+                s.Normal = SurfaceScaleTangentNormal( DecodeTangentNormal( SampleBindless( u_Material.u_NormalTexture, uv ).rg ), u_Material.NormalScale );
+            const vec3 orm = SurfaceResolveORM( SampleBindless( u_Material.u_ORMTexture, uv ).rgb, u_Material.AOStrength,
                                             u_Material.RoughnessFactor, u_Material.MetallicFactor );
             s.Metallic          = orm.z;
             s.Roughness         = orm.y;
             s.AmbientOcclusion  = orm.x;
-            s.Emissive          = SurfaceEmission( texture( u_EmissiveTexture, uv ).rgb,
+            s.Emissive          = SurfaceEmission( SampleBindless( u_Material.u_EmissiveTexture, uv ).rgb,
                                                u_Material.EmissiveColor.rgb, u_Material.EmissiveIntensity );
             // The renderer zeroes this row field for objects that must not take the sun's shadow.
             s.ReceiveSunShadows = u_Material.ReceiveSunShadows;
             s.CustomData0       = u_Material.Bands;
             s.CustomData1       = u_Material.RimWidth;
-            s.SampledTextureCount = float( int( textureSize( u_AlbedoTexture, 0 ).x > 1 ) + int( normalSize.x > 1 ) +
-                                           int( textureSize( u_OpacityTexture, 0 ).x > 1 ) +
-                                           int( textureSize( u_ORMTexture, 0 ).x > 1 ) +
-                                           int( textureSize( u_EmissiveTexture, 0 ).x > 1 ) );
+            s.SampledTextureCount = float( int( BindlessTextureSize( u_Material.u_AlbedoTexture, 0 ).x > 1 ) + int( normalSize.x > 1 ) +
+                                           int( BindlessTextureSize( u_Material.u_OpacityTexture, 0 ).x > 1 ) +
+                                           int( BindlessTextureSize( u_Material.u_ORMTexture, 0 ).x > 1 ) +
+                                           int( BindlessTextureSize( u_Material.u_EmissiveTexture, 0 ).x > 1 ) );
             return s;
         }
     }

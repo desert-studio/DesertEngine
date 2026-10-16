@@ -62,8 +62,15 @@ namespace Desert::Graphic
 
         // The bytes one draw reads, in schema order. The renderer copies this into the shared
         // `Materials[]` buffer at the row it then names on the push constant.
+        //
+        // The texture slots are written HERE, from each row texture's property, at the moment the row is copied:
+        // the table slot of the image the property draws now (the schema default while nothing is assigned or
+        // the texture is still Pending) and the sampler of its slot state. A texture assigned, a default restored
+        // or a sampler state changed (MaterialService writes the property directly) reaches the next copy with no
+        // write path of its own to forget.
         const Core::Formats::MaterialParamRow& GetParamRow() const
         {
+            WriteTextureSlots();
             return m_Row;
         }
 
@@ -92,10 +99,11 @@ namespace Desert::Graphic
         // now means the shader's own `Properties … = "white"` default, which is what an empty slot looks
         // like by the shader author's definition.
         //
-        // TEXTURES ARE NOT ROW BYTES and cannot be: a sampler is a descriptor, and a descriptor set is
-        // shared by every draw the material records. Two objects that want different textures therefore
-        // need two materials, and it is the RENDERER that keys them apart (MeshRenderer::DrawGenericMeshes
-        // keys its shared override materials by shader AND texture set for exactly this reason).
+        // A ROW texture (Core::Formats::IsRowTexture: every 2D texture of a template with a row and no
+        // TextureBinding) is a row slot read through the bindless table, so it is per draw like any value. A
+        // TextureBinding template's texture is still a descriptor of the material's set, shared by every draw
+        // the material records; for those the RENDERER keys materials apart by texture set
+        // (MeshRenderer::DrawGenericMeshes).
         //
         // @return false only when @p name is not a Texture2D of this shader at all.
         bool SetTexture( const std::string& name, const Image2D* image )
@@ -118,8 +126,42 @@ namespace Desert::Graphic
         }
 
     private:
+        void WriteTextureSlots() const
+        {
+            for ( const auto& p : GetMaterialLayout().Params )
+            {
+                if ( !p.IsTexture )
+                    continue;
+                const uint32_t           slot    = p.Offset / Core::Formats::kMaterialParamSlotSize;
+                const Texture2DProperty* texture = Get<Texture2DProperty>( p.Name );
+                if ( slot >= m_Row.size() || texture == nullptr )
+                    continue;
+                const BindlessTextureSlot image = texture->GetBindlessSlot();
+                // Slot 0 is the table's magenta "missing" texture: an image with no slot (a render target, a
+                // storage image, a multisampled one) or one sampled through its stored encoding is not
+                // something the table holds, and the surface shows it rather than something plausible.
+                if ( ( !image.IsValid() || texture->SamplesEncoded() ) && !m_ReportedTextureSlot )
+                {
+                    m_ReportedTextureSlot = true;
+                    LOG_ERROR(
+                         "[Materials] a material of shader '{}': row texture '{}' {}; it draws the "
+                         "bindless table's missing texture (reported once per material)",
+                         m_ShaderName, p.Name,
+                         texture->SamplesEncoded()
+                              ? "asks for the image's stored encoding, which the bindless table does not hold"
+                              : "has no bindless slot: only sampled (Image2DUsage::Image2D), single-sample, "
+                                "non-storage images are in the table" );
+                }
+                m_Row[slot] = glm::vec4( glm::uintBitsToFloat( image.Index ),
+                                         glm::uintBitsToFloat( texture->GetBindlessSampler().Index ), 0.0f, 0.0f );
+            }
+        }
+
         std::string                      m_ShaderName;
         Core::Formats::ShaderProgramMeta m_Schema;
-        Core::Formats::MaterialParamRow  m_Row;
+        // Mutable for the texture slots only: they are a projection of the texture properties, refreshed each
+        // time the row is read (GetParamRow).
+        mutable Core::Formats::MaterialParamRow m_Row;
+        mutable bool                            m_ReportedTextureSlot = false;
     };
 } // namespace Desert::Graphic

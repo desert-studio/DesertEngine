@@ -3,6 +3,7 @@
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
+#include <Engine/Core/ShaderCompiler/SharedSamplerBinding.hpp>
 
 #include <algorithm>
 #include <array>
@@ -1022,12 +1023,17 @@ namespace Desert::Core::Preprocess
 
             if ( layout.RowBinding )
             {
+                // The table header first: it enables GL_EXT_nonuniform_qualifier, which has to precede every
+                // declaration, and every row may carry a BindlessTexture. Always, not only for a row with a
+                // texture: the surface contract's material fetch (Mesh/Surface/SurfaceTypes.glslh) takes one.
+                out << "#include <" << kParserInjectedIncludes[1] << ">\n";
                 out << "#include <" << kParserInjectedIncludes[0] << ">\n";
                 out << "struct MaterialParams\n{\n";
                 uint32_t slot = 0;
                 for ( const auto& p : layout.Params )
                 {
-                    out << "    " << MaterialLayoutGlslType( p.Type ) << " " << p.Name << ";\n";
+                    out << "    " << ( p.IsTexture ? kMaterialTextureGlslType : MaterialLayoutGlslType( p.Type ) )
+                        << " " << p.Name << ";\n";
                     // The pad is a float ARRAY (std430 stride 4), so the value plus its pad is exactly one
                     // 16-byte slot whatever the value's own type is (see Core/Formats/MaterialParamRow.hpp).
                     if ( const uint32_t pad = ( kMaterialParamSlotSize - p.Size ) / 4; pad > 0 )
@@ -1040,9 +1046,18 @@ namespace Desert::Core::Preprocess
                 out << "#define u_Material u_Materials[m_PushConstants.MaterialIndex]\n";
             }
 
+            // A bound texture is a separate texture plus its own sampler state; the define keeps every read in
+            // the template's source spelled `texture( <Name>, uv )`.
             for ( const auto& t : layout.Textures )
-                out << "layout( binding = " << t.Binding << " ) uniform "
-                    << ( t.IsCube ? "samplerCube" : "sampler2D" ) << " " << t.Name << ";\n";
+            {
+                const std::string_view textureType  = t.IsCube ? "textureCube" : "texture2D";
+                const std::string_view combinedType = t.IsCube ? "samplerCube" : "sampler2D";
+                out << std::format( "layout( binding = {0} ) uniform {1} {2};\n"
+                                    "layout( binding = {3} ) uniform sampler {2}{4};\n"
+                                    "#define {2} {5}({2}, {2}{4})\n",
+                                    t.Binding, textureType, t.Name, t.SamplerBinding,
+                                    kMaterialTextureSamplerSuffix, combinedType );
+            }
 
             return out.str();
         }
@@ -1343,6 +1358,10 @@ namespace Desert::Core::Preprocess
             static const std::regex kAutoOut( R"(\bOut\b(?!\s*\())" );
             // One combined pattern over the four binding keywords so they share ONE binding space in text order.
             static const std::regex kAutoBinding( R"(\b(Uniform|ReadBuffer|WriteBuffer|Buffer)\b(?!\s*\())" );
+            // `Uniform sampler <name>;` is a SHARED SAMPLER STATE: it takes no number from this text (which is
+            // blind to the other stages, the included headers and every macro-spelled binding) but the marker the
+            // program build renumbers once every stage is compiled (SharedSamplerBinding.hpp).
+            static const std::regex kSharedSampler( R"(^\s+sampler\b)" );
 
             std::string out;
             for ( auto& run : runs )
@@ -1362,8 +1381,13 @@ namespace Desert::Core::Preprocess
                         replaceFirst( run.Text, kAutoBinding,
                                       [&]( const std::smatch& m )
                                       {
-                                          const int         n  = alloc( usedBind );
                                           const std::string kw = m[1].str();
+                                          if ( kw == "Uniform" &&
+                                               std::regex_search( m.suffix().first, m.suffix().second,
+                                                                  kSharedSampler ) )
+                                              return std::format( "layout(binding = {}) uniform",
+                                                                  kAutoSamplerBinding );
+                                          const int n = alloc( usedBind );
                                           if ( kw == "Uniform" )
                                               return "layout(binding = " + std::to_string( n ) + ") uniform";
                                           if ( kw == "ReadBuffer" )
@@ -1462,8 +1486,9 @@ namespace Desert::Core::Preprocess
         }
 
         // THE GENERATED OPACITY MASK of a Masked template: the GLSL of its `OpacityMask` line, placed after the
-        // surface block (which declares the mask's sampler) and before the pass header, whose DESERT_SURFACE_CLIP
-        // calls it. A tiling component <= 0 reads as 1 (the templates' own guard on UVTiling); the channel
+        // surface block and before the pass header, whose DESERT_SURFACE_CLIP calls it. The mask texture is a
+        // BindlessTexture member of the material row (Core::Formats::IsRowTexture), read as the surface block
+        // reads its maps. A tiling component <= 0 reads as 1 (the templates' own guard on UVTiling); the channel
         // parameter is clamped to 0..3.
         std::string OpacityMaskFunction( const Formats::SurfaceOpacityMask& mask )
         {
@@ -1483,7 +1508,7 @@ namespace Desert::Core::Preprocess
                       ? std::to_string( mask.Channel )
                       : std::format( "clamp( int( u_Material.{} ), 0, 3 )", mask.ChannelParam );
             return std::format( "float DesertSurfaceOpacityMask( SurfaceInput i )\n{{\n{}"
-                                "    return SurfaceSampleMaterial( {}, {} )[{}];\n}}\n",
+                                "    return SurfaceSampleMaterial( u_Material.{}, {} )[{}];\n}}\n",
                                 transform, mask.Texture, uv, channel );
         }
 
@@ -2205,16 +2230,18 @@ namespace Desert::Core::Preprocess
             return fail();
         }
         for ( const auto& texture : result.Layout.Textures )
-            if ( Core::IsSceneReadBinding( texture.Binding ) )
-            {
-                err = { c.Line,
-                        std::format( "texture property '{}' lands on binding {}, inside the reserved scene-read "
-                                     "range [{}, {}) (ObjectMotions / ObjectBones); move TextureBinding() so the "
-                                     "run of texture properties stays clear of it",
-                                     texture.Name, texture.Binding, Core::kSceneReadBindingFirst,
-                                     Core::kSceneReadBindingFirst + Core::kSceneReadBindingCount ) };
-                return fail();
-            }
+            for ( const uint32_t binding : { texture.Binding, texture.SamplerBinding } )
+                if ( Core::IsSceneReadBinding( binding ) )
+                {
+                    err = { c.Line,
+                            std::format(
+                                 "texture property '{}' (or its sampler state) lands on binding {}, inside "
+                                 "the reserved scene-read range [{}, {}) (ObjectMotions / ObjectBones); move "
+                                 "TextureBinding() so the run of textures and their samplers stays clear of it",
+                                 texture.Name, binding, Core::kSceneReadBindingFirst,
+                                 Core::kSceneReadBindingFirst + Core::kSceneReadBindingCount ) };
+                    return fail();
+                }
         const std::string autoDecls = BuildAutoDeclarations( result.Layout );
 
         const auto assemblePass = [&]( const PendingPass& pending, const ShaderRenderState& state )

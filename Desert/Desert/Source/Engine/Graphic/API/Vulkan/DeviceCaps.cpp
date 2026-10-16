@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
+#include <Engine/Core/ShaderCompiler/BindlessSetIndex.hpp>
 
 #include <algorithm>
 #include <format>
@@ -187,12 +188,13 @@ namespace Desert::Graphic::API::Vulkan
                                         limits.MaxPerStageUpdateAfterBindSampledImages,
                                         limits.MaxSetUpdateAfterBindSampledImages );
             }
-            if ( limits.SamplerCeiling() < kBindlessSamplerCount )
+            if ( limits.SamplerCeiling() < ::Desert::Core::kBindlessSamplerStateCount )
             {
                 if ( !missing.empty() )
                     missing += ", ";
                 missing += std::format( "{} update-after-bind samplers (per stage {}, per set {})",
-                                        kBindlessSamplerCount, limits.MaxPerStageUpdateAfterBindSamplers,
+                                        ::Desert::Core::kBindlessSamplerStateCount,
+                                        limits.MaxPerStageUpdateAfterBindSamplers,
                                         limits.MaxSetUpdateAfterBindSamplers );
             }
         }
@@ -221,5 +223,22 @@ namespace Desert::Graphic::API::Vulkan
             line += std::format( " {}{}={}", need, spec.Name, how );
         }
         return line;
+    }
+
+    std::string FormatDescriptorLimits( const DeviceCaps& caps )
+    {
+        const PerStageDescriptorLimits& stage = caps.PerStage;
+        const DescriptorIndexingLimits& uab   = caps.DescriptorIndexing;
+        // descriptorBindingSampledImageUpdateAfterBind is enabled with the descriptorIndexing row, never alone.
+        return std::format(
+             "per-stage limits: samplers {}, sampled images {}, uniform buffers {}, storage buffers "
+             "{}, storage images {}, resources {} | update-after-bind (sampledImageUpdateAfterBind="
+             "{}): per stage samplers {}, sampled images {}, resources {}; per set samplers {}, "
+             "sampled images {}",
+             stage.MaxSamplers, stage.MaxSampledImages, stage.MaxUniformBuffers, stage.MaxStorageBuffers,
+             stage.MaxStorageImages, stage.MaxResources, caps.Has( Capability::DescriptorIndexing ) ? "yes" : "no",
+             uab.MaxPerStageUpdateAfterBindSamplers, uab.MaxPerStageUpdateAfterBindSampledImages,
+             uab.MaxPerStageUpdateAfterBindResources, uab.MaxSetUpdateAfterBindSamplers,
+             uab.MaxSetUpdateAfterBindSampledImages );
     }
 } // namespace Desert::Graphic::API::Vulkan

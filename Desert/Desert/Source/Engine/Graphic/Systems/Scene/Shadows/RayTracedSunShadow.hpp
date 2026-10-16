@@ -132,10 +132,11 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_Layout.Get( m_Shader ), Renderer::GetPipelineRouteFill( *m_Pipeline ) )
                           .AccelerationStructure( "u_SceneTLAS", in.Tlas )
-                          .Sampled( "u_GBufferDepth", in.Depth, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_GBufferNormal", in.Normal, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_GBufferDepth", in.Depth, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_GBufferNormal", in.Normal, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
                           .Storage( "RayTracingGeometryRecords", in.Metadata.Geometry, RDG::Access::StorageRead )
                           .Storage( "RayTracingMaterialRecords", in.Metadata.Materials, RDG::Access::StorageRead )
                           .Storage( "u_ShadowMask", out.Mask, RDG::Access::StorageWrite )

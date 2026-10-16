@@ -8,7 +8,11 @@ Shader "LightShaftBlur"
         // run three times with the reach growing N-fold per pass, the effective kernel is N^3 samples
         // long — a full-screen streak for the price of 3 x N taps.
 
-        Uniform(0) sampler2D u_Source;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(2) sampler u_LinearClampSampler;
+        Uniform(0) texture2D u_Source;
+        #define u_Source sampler2D(u_Source, u_LinearClampSampler)
         layout(binding = 1, rgba16f) restrict writeonly uniform image2D u_Output;
 
         PushConstant ShaftBlurPush

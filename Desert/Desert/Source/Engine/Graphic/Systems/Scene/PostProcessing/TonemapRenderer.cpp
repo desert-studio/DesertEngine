@@ -61,16 +61,18 @@ namespace Desert::Graphic::System
         // (RenderGraphCompile TwoBlockEntriesReadingOneImageInOneState...).
         pass.Bindings( m_BindingLayout.Get( m_Pipeline->GetSpecification().Shader ),
                        m_MaterialTonemap->GetMaterialExecutor()->GetRouteFill() )
-             .Sampled( "u_GeometryTexture", inputs.Source, RDG::Access::SampledGraphics,
-                       RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
-             .Sampled( "u_AvgLuminance", inputs.AvgLuminance, RDG::Access::SampledGraphics,
-                       RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
-             .Sampled( "u_BloomTexture", inputs.Bloom, RDG::Access::SampledGraphics,
-                       RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() )
-             .Sampled( "u_LightShaftTexture", inputs.LightShafts, RDG::Access::SampledGraphics,
-                       RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() )
-             .Sampled( "u_LensFlareTexture", inputs.LensFlare, RDG::Access::SampledGraphics,
-                       RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() );
+             .Texture( "u_GeometryTexture", inputs.Source, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All() )
+             .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
+             .Texture( "u_AvgLuminance", inputs.AvgLuminance, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All() )
+             .Texture( "u_BloomTexture", inputs.Bloom, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::Mip( 0 ) )
+             .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+             .Texture( "u_LightShaftTexture", inputs.LightShafts, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::Mip( 0 ) )
+             .Texture( "u_LensFlareTexture", inputs.LensFlare, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::Mip( 0 ) );
     }
 
     void TonemapRenderer::FillMaterial( const GraphInputs& inputs )

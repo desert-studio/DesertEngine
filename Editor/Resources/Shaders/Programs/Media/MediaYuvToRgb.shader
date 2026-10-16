@@ -11,9 +11,15 @@ Shader "MediaYuvToRgb"
 
         LocalSize(16, 16, 1);
 
-        Uniform(0) sampler2D u_PlaneY;
-        Uniform(1) sampler2D u_PlaneU; // bound to Y when the frame is luma-only (u_Params.w == 1)
-        Uniform(2) sampler2D u_PlaneV;
+        // Separate textures read by texelFetch only; the shared state at 4 exists because GLSL fetches through a
+        // sampler (MediaTexture binds PointClamp there).
+        Uniform(0) texture2D u_PlaneY;
+        Uniform(1) texture2D u_PlaneU; // bound to Y when the frame is luma-only (u_Params.w == 1)
+        Uniform(2) texture2D u_PlaneV;
+        Uniform(4) sampler u_PointClampSampler;
+        #define u_PlaneY sampler2D(u_PlaneY, u_PointClampSampler)
+        #define u_PlaneU sampler2D(u_PlaneU, u_PointClampSampler)
+        #define u_PlaneV sampler2D(u_PlaneV, u_PointClampSampler)
         layout(binding = 3, rgba8) writeonly uniform image2D u_Output;
 
         PushConstant PushConstants

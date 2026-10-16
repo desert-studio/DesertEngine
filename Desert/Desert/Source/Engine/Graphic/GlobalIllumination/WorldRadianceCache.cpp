@@ -231,9 +231,9 @@ namespace Desert::Graphic::GlobalIllumination
                      if ( pass == Mark || pass == Allocate || pass == Trace )
                          block.Storage( "GIFrameUB", frame, kR );
                      if ( pass == Mark )
-                         block.Sampled( "u_GBufferDepth", inputs.GBufferDepth, kS, all,
-                                        RDG::SamplerDesc::PointClamp() )
-                              .Sampled( "u_GBufferB", inputs.GBufferB, kS, all, RDG::SamplerDesc::PointClamp() );
+                         block.Texture( "u_GBufferDepth", inputs.GBufferDepth, kS, all )
+                              .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                              .Texture( "u_GBufferB", inputs.GBufferB, kS, all );
                      if ( pass == Allocate || pass == Trace )
                          block.Storage( "PointLightsUB", inputs.PointLights, kR )
                               .Storage( "SpotLightsUB", inputs.SpotLights, kR )
@@ -242,16 +242,14 @@ namespace Desert::Graphic::GlobalIllumination
                      if ( pass == Trace )
                      {
                          DeclareTracerReads( block, inputs.Tracer );
-                         block.Sampled( "u_EnvSpecularTex", inputs.EnvSpecular, kS, all,
-                                        RDG::SamplerDesc::LinearClamp() )
-                              .Sampled( "u_GBufferDepth", inputs.GBufferDepth, kS, all,
-                                        RDG::SamplerDesc::PointClamp() )
-                              .Sampled( "u_GBufferA", inputs.GBufferA, kS, all, RDG::SamplerDesc::PointClamp() )
-                              .Sampled( "u_GBufferEmissive", inputs.GBufferEmissive, kS, all,
-                                        RDG::SamplerDesc::PointClamp() )
-                              .Sampled( "u_RadianceCacheIrradiance", irradiance, kS, all,
-                                        RDG::SamplerDesc::LinearClamp() )
-                              .Sampled( "u_RadianceCacheDepth", depth, kS, all, RDG::SamplerDesc::LinearClamp() )
+                         block.Texture( "u_EnvSpecularTex", inputs.EnvSpecular, kS, all )
+                              .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                              .Texture( "u_GBufferDepth", inputs.GBufferDepth, kS, all )
+                              .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                              .Texture( "u_GBufferA", inputs.GBufferA, kS, all )
+                              .Texture( "u_GBufferEmissive", inputs.GBufferEmissive, kS, all )
+                              .Texture( "u_RadianceCacheIrradiance", irradiance, kS, all )
+                              .Texture( "u_RadianceCacheDepth", depth, kS, all )
                               .Storage( "u_RadianceCacheRadiance", radiance, kRW );
                      }
                      if ( pass == Filter )
