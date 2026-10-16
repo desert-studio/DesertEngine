@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "23e83d23f9f87b1a6d231428dcf92b9d",
         "Versions": {
-            "SCNE": 54,
+            "SCNE": 55,
             "UNIT": 1
         },
         "Dependencies": ["2025ba58183936d3ece25958990b0cca", "badbadbadbadbadbadbadbadbadbad00"]
@@ -29,10 +29,15 @@
                 "BloomMaxBrightness": 100.0,
                 "BloomTint": [1.0, 1.0, 1.0],
                 "CastShadows": true,
+                "SourceAngle": 0.5357000231742859,
                 "ShadowBias": 1.0,
                 "ShadowSlopeBias": 2.0,
                 "ShadowCascadeBiasDistribution": 1.0,
-                "CascadeSplitLambda": 0.6000000238418579
+                "CascadeSplitLambda": 0.6000000238418579,
+                "ContactShadowLength": 0.0,
+                "ContactShadowLengthInWorldSpace": false,
+                "ContactShadowCastingIntensity": 1.0,
+                "ContactShadowNonCastingIntensity": 0.0
             }
         },
         {

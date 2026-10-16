@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "2da2387a87064ed6bd33c61d6d5a7fc7",
         "Versions": {
-            "SCNE": 54,
+            "SCNE": 55,
             "UNIT": 1
         },
         "Dependencies": [
@@ -299,10 +299,15 @@
                 "BloomMaxBrightness": 100.0,
                 "BloomTint": [1.0, 1.0, 1.0],
                 "CastShadows": true,
+                "SourceAngle": 0.5357000231742859,
                 "ShadowBias": 1.0,
                 "ShadowSlopeBias": 2.0,
                 "ShadowCascadeBiasDistribution": 1.0,
-                "CascadeSplitLambda": 0.6000000238418579
+                "CascadeSplitLambda": 0.6000000238418579,
+                "ContactShadowLength": 0.0,
+                "ContactShadowLengthInWorldSpace": false,
+                "ContactShadowCastingIntensity": 1.0,
+                "ContactShadowNonCastingIntensity": 0.0
             }
         },
         {
@@ -414,7 +419,11 @@
                 "CastShadows": true,
                 "ShadowBias": 0.5,
                 "ShadowSlopeBias": 0.5,
-                "ShadowResolutionScale": 1.0
+                "ShadowResolutionScale": 1.0,
+                "ContactShadowLength": 0.0,
+                "ContactShadowLengthInWorldSpace": false,
+                "ContactShadowCastingIntensity": 1.0,
+                "ContactShadowNonCastingIntensity": 0.0
             }
         },
         {
@@ -434,7 +443,11 @@
                 "CastShadows": true,
                 "ShadowBias": 0.5,
                 "ShadowSlopeBias": 0.5,
-                "ShadowResolutionScale": 1.0
+                "ShadowResolutionScale": 1.0,
+                "ContactShadowLength": 0.0,
+                "ContactShadowLengthInWorldSpace": false,
+                "ContactShadowCastingIntensity": 1.0,
+                "ContactShadowNonCastingIntensity": 0.0
             }
         },
         {
