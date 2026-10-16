@@ -696,6 +696,11 @@ namespace Desert::Graphic
             LOG_ERROR( "[Resources] {} closed but {} ledger rows ({} bytes) still carry it: a view member's "
                        "device object outlived the view.",
                        ResourceOwnerInstanceName( Instance ), left.Live, left.Bytes );
+            // Each by kind, claiming owner and size: the row names no object, these find its holder.
+            for ( const ResourceRowSummary& row : ResourceLedger::RowsOf( Instance ) )
+                LOG_ERROR( "[Resources]   row #{}: {} claimed by {}, {}", row.Id, ResourceKindName( row.Kind ),
+                           ResourceOwnerName( row.Owner ),
+                           row.BytesKnown ? std::format( "{} bytes", row.Bytes ) : std::string( "size unknown" ) );
         }
     }
     DESERT_DESTRUCTOR_GUARD( "~SceneRenderer::LedgerView" )
