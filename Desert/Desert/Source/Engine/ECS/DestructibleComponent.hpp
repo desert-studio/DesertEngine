@@ -14,20 +14,69 @@
 #include <glm/vec3.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <vector>
 
+namespace Desert::Destruction
+{
+    struct FractureData;
+}
+
 namespace Desert::ECS
 {
+    /// Where a destructible's pieces come from (DST-RUNTIME, owner decision 10-13). One fragment format and one
+    /// simulation for all three; UE has only the first (a Geometry Collection fractured in the editor).
+    enum class FractureSource
+    {
+        Baked,    ///< The `.dfrac` in Rest Collection, cut in the Fracture mode (key objects, an artist's edit)
+        OnLoad,   ///< Cut in the background when Play meets the object, its own seed per instance; no file
+        AtImpact, ///< Whole until a hit reaches its damage threshold, then cut fine at the hit, coarse away
+    };
+
     struct DestructibleData
     {
         REFLECT()
 
+        PROPERTY( DisplayName( "Fracture Source" ), Category( "Destructible" ), Summary,
+                  Tooltip( "Baked: the .dfrac in Rest Collection. On Load: the entity's static mesh is cut in the "
+                           "background when Play starts, with a seed of its own (identical objects break "
+                           "differently; no file). At Impact: the object stays whole until a hit reaches its "
+                           "level-1 damage threshold, then is cut around the hit point (small pieces there, large "
+                           "ones away). Both run-time sources leave the object whole for the frame or two the cut "
+                           "takes." ) )
+        FractureSource Source = FractureSource::Baked;
+
         PROPERTY( DisplayName( "Rest Collection" ), Category( "Destructible" ), Summary, Asset<FractureAsset>,
                   Tooltip( "The baked fracture this object is (UE RestCollection) — drag a .dfrac from the "
-                           "Content Browser. An empty slot is refused at Play by name, not simulated as "
-                           "nothing." ) )
+                           "Content Browser. Read when Fracture Source is Baked; an empty slot is refused at Play "
+                           "by name, not simulated as nothing." ) )
         Assets::AssetHandle Fracture;
+
+        PROPERTY( DisplayName( "Sites" ), Category( "Runtime Fracture" ), Range( 1, 128 ),
+                  Tooltip( "On Load: the Voronoi sites the static mesh is cut with (UE Uniform Voronoi), about "
+                           "one piece each." ) )
+        int32_t RuntimeSites = 12;
+
+        PROPERTY( DisplayName( "Impact Radius" ), Category( "Runtime Fracture" ), Range( 1.0f, 1000.0f ),
+                  Units( "cm" ),
+                  Tooltip( "At Impact: how far from the hit the shells of sites reach (UE Radial Radius); "
+                           "beyond it the pieces are as large as the outer shell's cells." ) )
+        float ImpactRadius = 50.0f;
+
+        PROPERTY( DisplayName( "Impact Shells" ), Category( "Runtime Fracture" ), Range( 1, 8 ),
+                  Tooltip( "At Impact: shells of sites around the hit (UE Radial Steps); each shell's cells are "
+                           "larger than the one inside it." ) )
+        int32_t ImpactShells = 3;
+
+        PROPERTY( DisplayName( "Impact Sites Per Shell" ), Category( "Runtime Fracture" ), Range( 1, 16 ),
+                  Tooltip( "At Impact: sites on each shell (UE Angular Steps)." ) )
+        int32_t ImpactSitesPerShell = 8;
+
+        PROPERTY( DisplayName( "Interior Material" ), Category( "Runtime Fracture" ), Asset<MaterialAsset>,
+                  Tooltip( "On Load and At Impact: what the cut faces draw with (the Fracture mode's Internal "
+                           "Material for a baked .dfrac). Empty, they draw with the default surface." ) )
+        Assets::AssetHandle InteriorMaterial;
 
         PROPERTY( DisplayName( "Damage Threshold" ), Category( "Damage" ),
                   Tooltip( "Per level of the hierarchy (UE DamageThreshold): entry L is the strain a level-L "
@@ -122,6 +171,10 @@ namespace Desert::ECS
         COMPONENT( Key( "Destructible" ), Block( Data ), Run( SkyAndAtmosphere ) )
         DestructibleData Data;
 
+        // Transient: the fracture the DestructionWorld simulates for this entity when it was made at run time
+        // (Source On Load / At Impact; the whole first, then the cut, At Impact). Written by DestructibleLifetime,
+        // drawn by the piece draw (FracturePieceDraw); null for Baked and while not simulated.
+        std::shared_ptr<const Destruction::FractureData> RuntimeFracture;
         // Transient: the object in the scene's DestructionWorld (Destruction::DestructibleHandle; created on
         // Play, gone on Stop). Not reflected/serialized.
         uint32_t RuntimeObject = 0xFFFFFFFFu;

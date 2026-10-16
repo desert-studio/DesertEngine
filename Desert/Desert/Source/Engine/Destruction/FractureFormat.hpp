@@ -5,7 +5,8 @@
 // sits in its envelope (CloudModellingVolume.cpp). The envelope carries the identity (GUID); the payload
 // carries everything else, little-endian, with no padding:
 //
-//   source mesh GUID (Hi, Lo u64), settings (seed, levels, auto-cluster, interior UV scale),
+//   source mesh GUID (Hi, Lo u64), settings (seed, levels — each ending in its Radial settings since v3 —,
+//   auto-cluster, interior UV scale),
 //   interior material ID, interior material GUID (v2), node count, then per node: parent, level, kind, damage
 //   threshold, volume, centre of mass, the leaf mesh in the saved mesh form (SavedMeshForm.hpp, the scene's own
 //   form), and the hull (vertices, polygons).
@@ -25,7 +26,7 @@
 namespace Desert::Destruction
 {
     inline constexpr uint32_t    kFractureSubsystemTag  = Common::Content::FourCC( "DFRC" );
-    inline constexpr uint32_t    kFractureFormatVersion = 2; // 2: the interior material GUID
+    inline constexpr uint32_t    kFractureFormatVersion = 3; // 2: the interior material GUID; 3: Radial
     inline constexpr const char* kFractureExtension     = ".dfrac";
 
     struct FractureData

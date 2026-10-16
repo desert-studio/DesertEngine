@@ -144,8 +144,15 @@ namespace Desert::ECS
             m_Landscape->Attach( registry );
             m_Destructibles->Attach( registry );
             m_Ragdolls->Attach( registry );
-            m_Destructibles->Sync( registry, []( const Assets::AssetHandle& fracture )
-                                   { return Runtime::ResourceRegistry::GetFractureService()->Get( fracture ); } );
+            m_Destructibles->Sync(
+                 registry, []( const Assets::AssetHandle& fracture )
+                 { return Runtime::ResourceRegistry::GetFractureService()->Get( fracture ); },
+                 []( const Assets::AssetHandle& mesh )
+                 {
+                     // The file a run-time fracture cuts (DST-RUNTIME): the static mesh asset the entity draws.
+                     const auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( mesh );
+                     return asset ? asset->GetMetadata().Filepath : std::filesystem::path();
+                 } );
             // Refused tiles get no body; LandscapeECSSystem reports them (it applies the same test).
             m_Landscape->Sync( DrawableLandscapeTiles( registry ).Tiles );
 
@@ -289,6 +296,8 @@ namespace Desert::ECS
             m_World->Step( ts.GetSeconds() );
             m_World->SetPreStepCallback( {} );
             m_Ragdolls->WriteBackAfterStep( registry );
+            // At Impact destructibles hit hard enough are sent to be cut around the hit (DST-RUNTIME).
+            m_Destructibles->CutOnImpact( registry );
             // Every simulated destructible's piece poses from its bodies (DST-06), what its pieces draw at.
             m_Destructibles->WritePoses( registry );
             PublishEvents( registry );

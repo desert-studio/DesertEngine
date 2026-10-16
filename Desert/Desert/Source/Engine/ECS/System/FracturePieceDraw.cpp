@@ -212,6 +212,13 @@ namespace Desert::ECS
             if ( drawn.contains( entity ) )
                 continue;
             const auto& destructible = registry.get<DestructibleComponent>( entity );
+            // A run-time source (DST-RUNTIME) draws the fracture the simulation holds, once it has one; until
+            // then (Edit, or the first cut still on a worker) the entity's static mesh draws it whole.
+            if ( destructible.Data.Source != FractureSource::Baked )
+            {
+                record( entity, destructible.RuntimeFracture, destructible.SimulatedNodeWorld, {} );
+                continue;
+            }
             if ( destructible.Data.Fracture.IsNull() )
                 continue;
             record( entity, services.Fracture( destructible.Data.Fracture ), destructible.SimulatedNodeWorld, {} );

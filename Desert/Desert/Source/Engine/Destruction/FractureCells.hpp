@@ -72,6 +72,26 @@ namespace Desert::Destruction
     std::vector<glm::dvec3> GenerateClusteredSites( const CellBounds& bounds, int clusters, int sitesPerCluster,
                                                     double minRadius, double maxRadius, FractureRandom& random );
 
+    /// UE Fracture Mode "Radial" (FractureToolRadial.cpp GenerateVoronoiSites), made three-dimensional: UE lays
+    /// AngularSteps sites on each of RadialSteps RINGS in the plane of a normal, so its cells are wedges through
+    /// the whole object; here each ring is a SHELL (a sphere) around the centre, so the cells are small at the
+    /// centre and grow outward in every direction — what a hit does to a solid (the At Impact cut, DST-RUNTIME).
+    struct RadialSettings
+    {
+        glm::dvec3 Center{ 0.0 };    // cm, in the space of the mesh being cut
+        double     Radius = 50.0;    // cm: the outermost shell sits at Radius * (RadialSteps - 0.5) / RadialSteps
+        int        RadialSteps  = 4; // shells, UE RadialSteps
+        int        AngularSteps = 8; // sites per shell, UE AngularSteps
+        double     Variability  = 0.0; // cm: each site moves by up to this in a random direction (UE Variability)
+
+        bool operator==( const RadialSettings& ) const = default;
+    };
+
+    /// The sites of @p radial: shell k (0-based) at UE's radius (k + 0.5) * Radius / RadialSteps, its AngularSteps
+    /// sites a Fibonacci sphere turned by a random rotation per shell (so the shells' sites do not line up into
+    /// cones), each then offset by Variability * a random point in the unit ball.
+    std::vector<glm::dvec3> GenerateRadialSites( const RadialSettings& radial, FractureRandom& random );
+
     /// The Voronoi cells of `sites` clipped to `bounds` (voro++). A site the container cannot hold (outside
     /// the bounds, or on top of another) yields no cell; the result holds only computed cells, in site order.
     std::vector<ConvexCell> ComputeVoronoiCells( const std::vector<glm::dvec3>& sites, const CellBounds& bounds );

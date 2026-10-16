@@ -1,5 +1,6 @@
 #include <Engine/Destruction/FractureCells.hpp>
 
+#include <glm/gtc/quaternion.hpp>
 #include <voro++.hh>
 
 #include <algorithm>
@@ -116,6 +117,40 @@ namespace Desert::Destruction
                 const glm::dvec3 direction = UnitDirection( random );
                 const double     distance  = random.Range( minRadius, maxRadius );
                 sites.push_back( glm::clamp( centre + direction * distance, bounds.Min, bounds.Max ) );
+            }
+        }
+        return sites;
+    }
+
+    std::vector<glm::dvec3> GenerateRadialSites( const RadialSettings& radial, FractureRandom& random )
+    {
+        std::vector<glm::dvec3> sites;
+        const double            step   = radial.Radius / static_cast<double>( radial.RadialSteps );
+        const double            golden = std::numbers::pi * ( 3.0 - std::sqrt( 5.0 ) );
+        for ( int shell = 0; shell < radial.RadialSteps; ++shell )
+        {
+            const double length = step * ( static_cast<double>( shell ) + 0.5 );
+            // A uniformly random rotation (Shoemake's quaternion from three draws).
+            const double     u1 = random.Unit();
+            const double     u2 = random.Range( 0.0, 2.0 * std::numbers::pi );
+            const double     u3 = random.Range( 0.0, 2.0 * std::numbers::pi );
+            const double     a  = std::sqrt( 1.0 - u1 );
+            const double     b  = std::sqrt( u1 );
+            const glm::dquat turn( a * std::cos( u2 ), a * std::sin( u2 ), b * std::sin( u3 ),
+                                   b * std::cos( u3 ) );
+            for ( int i = 0; i < radial.AngularSteps; ++i )
+            {
+                // Fibonacci sphere: AngularSteps directions spread evenly over the sphere.
+                const double     z   = radial.AngularSteps == 1 ? 1.0
+                                                                : 1.0 - 2.0 * ( static_cast<double>( i ) + 0.5 ) /
+                                                                       static_cast<double>( radial.AngularSteps );
+                const double     r   = std::sqrt( std::max( 0.0, 1.0 - z * z ) );
+                const double     phi = golden * static_cast<double>( i );
+                const glm::dvec3 direction =
+                     glm::normalize( turn ) * glm::dvec3( r * std::cos( phi ), r * std::sin( phi ), z );
+                const glm::dvec3 jitter =
+                     UnitDirection( random ) * std::cbrt( random.Unit() ) * radial.Variability;
+                sites.push_back( radial.Center + direction * length + jitter );
             }
         }
         return sites;
