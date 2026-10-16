@@ -125,6 +125,15 @@ namespace Desert::Graphic::API::Vulkan
                                             const std::string_view                     shaderName,
                                             std::unique_ptr<IViewDescriptorSetCopy>&   out )
     {
+        // Material sets are allocated per material and view; the bindless table's set is one per device and is
+        // bound only by render-graph passes (VulkanRenderer WriteRdgPassSets). Raster materials keep their own
+        // descriptors (BINDLESS-TEX), so a material shader that samples the table is refused by name rather than
+        // allocated a private, never-written copy of it.
+        if ( BindlessTableIn( layouts ) != nullptr )
+            return Common::MakeFormattedError(
+                 "Shader '{}' declares the bindless texture table (set {}); material descriptor sets do not carry "
+                 "it — sample it from a render-graph pass",
+                 shaderName, kBindlessSetIndex );
         ViewResources&       view = ViewResourceRegistry::Active();
         ViewPoolChainFactory factory;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): ChainKey names this exact type

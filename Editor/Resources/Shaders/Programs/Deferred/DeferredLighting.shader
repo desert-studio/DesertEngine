@@ -75,6 +75,12 @@ Shader "DeferredLighting"
             vec4 Gain;      // rgb = tint * intensity
         } skyLook;
 
+        // THE TRACED GI'S FINAL GATHER (u_Params.w == 3; Graphic/GlobalIllumination/ScreenProbeGather): per pixel,
+        // the irradiance (/ pi) and the specular radiance the screen probes integrated, in place of the sky's two
+        // cubes — the probes' rays saw the sky only where it is visible. Black in the other GI modes (unread).
+        Uniform(30) sampler2D u_ScreenProbeDiffuse;
+        Uniform(31) sampler2D u_ScreenProbeSpecular;
+
         Out(0) vec4 oColor;
 
         const vec3 Fdielectric = vec3(0.04); // base reflectance for dielectrics (matches Lit.glsl.frag)
@@ -202,7 +208,13 @@ Shader "DeferredLighting"
         // The cascaded shadow's two bindings, at slots free in THIS layout. The text that reads them is
         // one file for every shader in the engine that shades a surface with the sun —
         // Mesh/CascadedShadow.glslh, included right below because it names what is declared here.
+        // DESERT_SUN_SHADOW_RAY_QUERY (DeferredLightingRenderer's second program, "Shadows: Ray Traced Sun"): the
+        // sun's visibility is the denoised screen mask, and the cascades are compiled out.
+        #ifdef DESERT_SUN_SHADOW_RAY_QUERY
+        Uniform(5) sampler2D u_ScreenShadowMask; // r = visibility, 1 = lit (render extent = this target's)
+        #else
         Uniform(5) sampler2DArray u_ShadowCascades; // one layer per cascade
+        #endif
         Uniform(7) ShadowUB {
         	mat4 u_LightViewProj[4];
         	vec4 u_ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
@@ -214,7 +226,12 @@ Shader "DeferredLighting"
         	                          // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
         };
 
+        #ifdef DESERT_SUN_SHADOW_RAY_QUERY
+        #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) texelFetch(u_ScreenShadowMask, ivec2(gl_FragCoord.xy), 0).r
+        #else
         #include <Mesh/CascadedShadow.glslh>
+        #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) ShadowFactor(worldPos, N, L, cascade)
+        #endif
 
         // THE CONTACT SHADOWS (UE ContactShadowLength): a short screen-space ray toward each light through
         // u_GBufferDepth. Included after ShadowUB, which carries the march's view values; Mesh/LocalLightShadow.glslh
@@ -382,7 +399,7 @@ Shader "DeferredLighting"
         	// contact shadows fade with the hit distance.
         	const float subsurfaceOpacity = DesertSubsurfaceOpacity(shadingModel, payload);
         	float shadow   = DesertReceivesSunShadows(word)
-        	                     ? ShadowFactor(worldPos, N, L, cascade) *
+        	                     ? DESERT_SUN_SHADOW(worldPos, N, L, cascade) *
         	                           ContactShadowFactor(worldPos, N, L, u_SunContactShadow, subsurfaceOpacity)
         	                     : 1.0;
         	shadow        *= CloudShadowFactor(worldPos);
@@ -444,6 +461,13 @@ Shader "DeferredLighting"
         	// environment (captures, then sky) for the rest (UE ReflectionEnvironmentPixelShader: SSR over the
         	// captures, then the split-sum Fresnel of both together).
         	DesertAmbient sampled = DesertSampleAmbient(surface, indirect, ao);
+        	if (giMode == 3)
+        	{
+        		// The screen probe gather at this pixel (one texel each, the G-buffer's extent): the diffuse irradiance
+        		// and the specular radiance replace both sky terms, so a closed room neither glows nor mirrors the sky.
+        		sampled.Irradiance  = texelFetch(u_ScreenProbeDiffuse, ivec2(gl_FragCoord.xy), 0).rgb;
+        		sampled.Prefiltered = texelFetch(u_ScreenProbeSpecular, ivec2(gl_FragCoord.xy), 0).rgb;
+        	}
         	if (u_CameraPos.w > 0.5)
         		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), sampled.Prefiltered);
         	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, sampled, surface, payload);

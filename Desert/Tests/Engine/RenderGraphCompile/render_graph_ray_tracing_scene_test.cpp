@@ -69,6 +69,10 @@ namespace
         {
             return 0xABCD0000ull;
         }
+        [[nodiscard]] RayTracingGeometryLayout GetMetadataLayout() const override
+        {
+            return {};
+        }
         [[nodiscard]] uint64_t GetMemoryBytes() const override
         {
             return 4096;

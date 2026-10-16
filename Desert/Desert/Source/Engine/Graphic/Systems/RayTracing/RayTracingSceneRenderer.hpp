@@ -7,6 +7,7 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneMetadata.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneTarget.hpp>
 
 #include <cstddef>
@@ -62,6 +63,10 @@ namespace Desert::Graphic::RayTracing
         uint64_t InstanceBytes          = 0;
         uint64_t PrimitiveInstanceBytes = 0;
         uint64_t ScratchBytes           = 0;
+        // The GPU side of the frame's segment records (RayTracingGatherResult::SegmentRecords, one row each),
+        // which the TLAS rows' SBT offsets index (a ray query's hit -> its vertex/index streams and alpha-test
+        // material). Valid exactly when Built.
+        RayTracingMetadataFrame Metadata;
     };
 
     // The rows of VkAccelerationStructureInstanceKHR (= D3D12_RAYTRACING_INSTANCE_DESC): a row-major 3x4
@@ -193,6 +198,9 @@ namespace Desert::Graphic::RayTracing
         uint64_t TlasScratchBytes        = 0; // this frame's TLAS build scratch (transient)
         uint64_t DynamicScratchBytes     = 0; // this frame's RayTracingScene.DynamicGeometry scratch (transient)
         uint32_t SkinCacheEntries        = 0; // the scene's skin-cache entries (skinned primitives it holds)
+        // Alpha-tested segments (Opaque = false) whose material has no opacity source in the ray-tracing
+        // metadata yet: a ray query confirms their candidates as hits (RayTracingMetadataBuild).
+        uint32_t SegmentsWithoutOpacity = 0;
         // The landscape tiles (RayTracingExternalPrimitives): built / refit this frame, their vertex + index
         // buffers and their BLAS storage (also counted in TracedBlasBytes, as the variants are).
         uint32_t LandscapeBuilt       = 0;

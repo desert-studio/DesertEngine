@@ -125,7 +125,7 @@ namespace Desert::Graphic::System
 
         // A renderer with no shadow budget has no caster pipeline (SetupShadowPass), and a view with shadows off
         // draws none: the lights are then unshadowed, exactly as the sun is.
-        const uint32_t atlasSide = LocalShadowAtlasSize( m_Shadow.ShadowMapSize );
+        const uint32_t atlasSide = LocalShadowAtlasSize( m_Shadow.LocalShadowMapSize );
         if ( !m_ShadowsEnabled || !m_ShadowPipeline || atlasSide < kMinLocalShadowTile )
             return;
 

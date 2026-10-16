@@ -121,6 +121,16 @@ namespace Desert::Graphic::RayTracing
         for ( std::size_t reason = 0; reason < m_Instances.Skipped.size(); ++reason )
             m_Instances.Skipped[reason] += m_Gather.Skipped[reason];
 
+        // The GPU twin of the segment records: record i of SegmentRecords becomes geometry record i, the row an
+        // instance's SBT offset (its FirstSegmentRecord) + a hit's geometry index names. No material declares an
+        // opacity source the metadata can read yet (REMAINDER RT-UNIFY): every alpha-tested segment is counted in
+        // SegmentsWithoutOpacity, and its candidates are confirmed as hits.
+        const Common::ResultStr<RayTracingMetadataBuild> metadata = BuildRayTracingMetadata(
+             m_Gather.Primitives, m_Gather.SegmentRecords,
+             []( const RayTracingSegmentRecord& ) -> std::optional<RayTracingMaterialRecord> { return std::nullopt; } );
+        if ( !metadata )
+            return Common::MakeError( metadata.GetError() );
+
         if ( !m_Target )
             m_Target = CreateRayTracingSceneTarget();
         const Common::ResultStr<RayTracingSceneFrame> frame =
@@ -128,6 +138,8 @@ namespace Desert::Graphic::RayTracing
         if ( !frame )
             return Common::MakeError( frame.GetError() );
         m_Frame = frame.GetValue();
+        if ( m_Frame.Built )
+            m_Frame.Metadata = AddRayTracingMetadataUpload( graph, metadata.GetValue().Metadata );
 
         m_Stats.Built           = m_Frame.Built;
         m_Stats.InstancesByKind = m_Instances.InstancesByKind;
@@ -146,6 +158,7 @@ namespace Desert::Graphic::RayTracing
         m_Stats.TlasInstanceBytes                   = m_Frame.InstanceBytes;
         m_Stats.PrimitiveInstanceBytes              = m_Frame.PrimitiveInstanceBytes;
         m_Stats.TlasScratchBytes                    = m_Frame.ScratchBytes;
+        m_Stats.SegmentsWithoutOpacity              = metadata.GetValue().SegmentsWithoutOpacity;
         m_Stats.DynamicScratchBytes                 = dynamicScratch.GetValue();
         m_Stats.SkinCacheEntries     = static_cast<uint32_t>( cache.GetSkinCache().GetEntryCount() );
         m_Stats.LandscapeBuilt       = external.Built;

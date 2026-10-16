@@ -48,6 +48,8 @@ namespace Desert::Editor
                                          RayTracingSkipName( static_cast<RayTracingSkip>( r ) ),
                                          Localization::FormatInteger( locale, stats.SkippedByReason[r] ) ) );
         const std::size_t endSkip = rows.size();
+        rows.push_back( std::format( "  Alpha-tested segments without opacity: {}",
+                                     Localization::FormatInteger( locale, stats.SegmentsWithoutOpacity ) ) );
         rows.push_back( std::format( "  Traced BLAS: {}", FormatMiB( locale, stats.TracedBlasBytes ) ) );
         rows.push_back( std::format( "  Variant BLAS: {}", FormatMiB( locale, stats.VariantBlasBytes ) ) );
         rows.push_back( std::format( "  Procedural BLAS: {}", FormatMiB( locale, stats.ProceduralBlasBytes ) ) );

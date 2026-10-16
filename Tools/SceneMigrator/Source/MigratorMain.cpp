@@ -508,6 +508,11 @@ namespace
                 out << "; kept " << kept;
             out << ")";
         }
+        if ( report.SourceAngleRaised && report.SourceAnglesStated > 0 )
+            out << std::format( " scene v{}->v{} ({} DirectionLight block(s) given SourceAngle {})",
+                                Desert::Migration::kSceneVersionScriptDefaults,
+                                Desert::Migration::kSceneVersionSourceAngle, report.SourceAnglesStated,
+                                Desert::Migration::kSourceAngleDefault );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

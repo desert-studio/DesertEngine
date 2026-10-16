@@ -739,7 +739,9 @@ namespace Desert::Graphic
 
         // A level's viewport is BUILT at the machine's Shadows level, so a Low machine never allocates the High
         // maps only to re-allocate them on the first frame. Later level changes: BeginScene.
-        if ( const auto budget = ShadowReallocation( m_ViewProfile, m_Quality ) )
+        // Built for the cascaded sun: the Shadows method is resolved by the first BeginScene; the first frame that
+        // draws a ray-traced sun re-budgets to the low-detail cascades (OnUpdate, RebudgetShadowsFor).
+        if ( const auto budget = ShadowReallocation( m_ViewProfile, m_Quality, /*sunRayTraced*/ false ) )
             m_ViewProfile.Shadows = *budget;
         m_ShadowBudgetGeneration = m_Quality.Generation;
 
@@ -859,8 +861,14 @@ namespace Desert::Graphic
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
-        // device, each lowered axis logged once.
-        m_RenderMethods = ResolveRenderMethods( post, quality, Common::Scalability::QualityState::Catalog() );
+        // device x render path, each lowered axis logged once. m_RenderPath (set above, a debug view may force
+        // forward) is what the frame graph branches on, so a method that needs the G-buffer is lowered exactly when
+        // the deferred block will not run - under forward, ray-traced sun shadows resolve to CascadedMaps and the
+        // cascades are drawn for the forward meshes that read them (UE's forward renderer does the same).
+        m_RenderMethods = ResolveRenderMethods( post, quality, Common::Scalability::QualityState::Catalog(),
+                                                m_RenderPath == Core::RenderPath::Deferred && m_GBuffer );
+        m_GIPipeline    = GlobalIllumination::PipelineFor( m_RenderMethods.GlobalIllumination.Effective, quality,
+                                                           Common::Scalability::QualityState::Catalog() );
         ReportRenderMethods( m_RenderMethods );
         m_GIIntensity    = post.GIIntensity;
         m_SSRIntensity   = post.SSRIntensity;
@@ -871,6 +879,9 @@ namespace Desert::Graphic
         m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
         m_ContactShadowSteps                  = quality.As<int>( Parameter::ShadowContactSteps );
+        m_RayTracedShadowSamples =
+             static_cast<uint32_t>( quality.As<int>( Parameter::ShadowRayTracedSamplesPerPixel ) );
+        m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
         m_SunContactShadowLengthInWorldSpace  = shadows.ContactShadowLengthInWorldSpace;
         m_SunContactShadowCastingIntensity    = shadows.ContactShadowCastingIntensity;
@@ -879,24 +890,11 @@ namespace Desert::Graphic
              LightGridQuality{ .TilePixels       = quality.As<uint32_t>( Parameter::LightGridPixelSize ),
                                .Slices           = quality.As<uint32_t>( Parameter::LightGridSlices ),
                                .MaxLightsPerCell = quality.As<uint32_t>( Parameter::LightGridMaxLightsPerCell ) };
+        m_RadianceCacheInputs = RadianceCache::MakeRadianceCacheInputs( quality );
 
-        // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL (UE re-creates its shadow depth targets on r.Shadow.*).
-        // Asked only when the quality generation moved — a level change, never per frame — and the maps are
-        // re-allocated only when the budget really differs (ShadowReallocation, ViewMemory.hpp). The profile is
-        // updated with them so the view's memory census keeps describing what is allocated.
-        if ( m_Quality.Generation != m_ShadowBudgetGeneration )
-        {
-            m_ShadowBudgetGeneration = m_Quality.Generation;
-            if ( const auto budget = ShadowReallocation( m_ViewProfile, quality ) )
-            {
-                m_ViewProfile.Shadows = *budget;
-                if ( !UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-                           ->RebudgetShadows( *budget ) )
-                    LOG_ERROR( "[Shadows] view '{}': the shadow pass could not be set up at {} cascades of {} px; "
-                               "nothing casts a shadow in this view.",
-                               m_ViewResources.GetName(), budget->CascadeCount, budget->ShadowMapSize );
-            }
-        }
+        // THE SHADOW BUDGET is not taken here: it follows the FRAME's sun-shadow path, which OnUpdate decides
+        // after the view's TLAS (LowerShadowsForFrame) - RebudgetShadowsFor, called there before the maps are
+        // imported.
 
         // GPU particles: snapshot the scene's emitters (CPU) here; the compute sim is dispatched in OnUpdate
         // before the render graph, and the billboard pass draws in AddFrameTranslucency.
@@ -1020,6 +1018,30 @@ namespace Desert::Graphic
              ->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
 
         return BOOLSUCCESS;
+    }
+
+    // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL AND THE FRAME'S SUN PATH (UE re-creates its shadow depth targets on
+    // r.Shadow.*). Asked when the quality generation or the sun path the budget was taken for moved - a level change
+    // or a sun that starts/stops being ray traced, never per frame otherwise - and the maps are re-allocated only when
+    // the budget really differs (ShadowReallocation, ViewMemory.hpp). The profile is updated with them so the view's
+    // memory census keeps describing what is allocated. The sun path is part of the budget (ShadowQualityOf): a
+    // ray-traced sun keeps only the low-detail cascades; a frame that fell back to CascadedMaps gets the full ones.
+    void SceneRenderer::RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality,
+                                            const bool                                  sunRayTraced )
+    {
+        if ( quality.Generation == m_ShadowBudgetGeneration && sunRayTraced == m_ShadowBudgetSunRayTraced )
+            return;
+        m_ShadowBudgetGeneration   = quality.Generation;
+        m_ShadowBudgetSunRayTraced = sunRayTraced;
+        const auto budget          = ShadowReallocation( m_ViewProfile, quality, sunRayTraced );
+        if ( !budget )
+            return;
+        m_ViewProfile.Shadows = *budget;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( !UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->RebudgetShadows( *budget ) )
+            LOG_ERROR( "[Shadows] view '{}': the shadow pass could not be set up at {} cascades of {} px; nothing "
+                       "casts a shadow in this view.",
+                       m_ViewResources.GetName(), budget->CascadeCount, budget->ShadowMapSize );
     }
 
     void SceneRenderer::OnUpdate( const UpdateInfo& sceneRenderInfo )
@@ -1371,6 +1393,33 @@ namespace Desert::Graphic
                           FormatViewLedgerMemory( TakeLedgerMemory() ) );
             }
 #endif
+
+            // THE FRAME'S SUN-SHADOW PATH, decided here ONCE, before any pass that reads it is declared: a ray-traced
+            // sun whose frame has no traceable scene (TLAS not built - m_RayTracingScene's frame is only this
+            // frame's when AddPasses succeeded - or the trace resources could not be created) resolves to
+            // CascadedMaps for the whole frame (LowerShadowsForFrame: the overlay row and one log line name it).
+            // Every reader - the cascades below, the depth/normal prepass, the trace, the composite, "Deferred:
+            // Generic" - asks SunShadowIsRayTraced(), which reads this resolution.
+            const bool sunTraced = SunShadowIsRayTraced();
+            LowerShadowsForFrame( m_RenderMethods, !sunTraced || ( tlas && m_RayTracingScene.GetFrame().Built &&
+                                                                   EnsureRayTracedShadowResources() ) );
+            ReportRenderMethods( m_RenderMethods );
+            // The cascade budget follows the FRAME's answer: a frame that fell back to CascadedMaps draws the full
+            // ShadowQuality cascades, the low-detail Shadows.RayTracedTranslucency* ones only while the sun is
+            // ray traced. Then the maps are imported at that budget, before any pass reads them.
+            RebudgetShadowsFor( m_Quality, SunShadowIsRayTraced() );
+            ImportViewShadowMaps( graph, textures );
+            // The sun's cascades this frame: always under CascadedMaps; under a ray-traced sun only when a program
+            // of this frame samples them (MeshRenderer::SunCascadeReadersQueued: blended draws whose program
+            // declares u_ShadowCascades - the low-detail sun CSM, budgeted by the Shadows.RayTracedTranslucency*
+            // rows). Not drawn -> the view binds the far-plane stand-in, never last drawn frame's maps; drawn after
+            // a gap -> every cascade's static cache is redrawn (it went stale while nothing drew it).
+            m_FrameSunCascades = meshes != nullptr && ( !SunShadowIsRayTraced() || meshes->SunCascadeReadersQueued() );
+            if ( !m_FrameSunCascades )
+                textures.Transients.ShadowCascades = AddFrameNoSunCascades( graph );
+            else if ( !m_SunCascadesDrawnLastFrame )
+                meshes->InvalidateCascadeCaches();
+            m_SunCascadesDrawnLastFrame = m_FrameSunCascades;
         }
 
         AddFrameParticlesSimulate( graph );
@@ -1383,6 +1432,10 @@ namespace Desert::Graphic
         // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
         // deferred composite, the glass).
         AddFrameLightGrid( graph, textures, frame );
+        if ( WorldLightGridRead() )
+            AddFrameLightGridWorld( graph, textures, frame );
+        if ( GlobalDistanceFieldRead() )
+            AddFrameGlobalDistanceField( graph, textures, frame );
         AddFrameBasePass( graph, textures );
         AddFrameSilhouette( graph, textures );
 
@@ -1395,6 +1448,7 @@ namespace Desert::Graphic
 
             AddFrameGBuffer( graph, textures, meshRenderer );
             AddFrameTerrainGBuffer( graph, textures );
+            AddFrameForwardDepthNormal( graph, textures, meshRenderer );
             AddFrameDepthResolve( graph, textures );
 
             glm::vec4 lightDir( 0.0f, -1.0f, 0.0f, 0.0f );
@@ -1405,6 +1459,7 @@ namespace Desert::Graphic
                 lightColor = dl[0].ColorIntensity;
             }
             AddFrameSSAO( graph, textures, gbuffer, frame );
+            AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, frame );
 
             // SSR before the lighting, which composes it over the reflection environment (UE: SSR, then the
             // reflection environment pass). The trace reflects LAST frame's lit scene - SSR's scene colour
@@ -1433,10 +1488,15 @@ namespace Desert::Graphic
 
             // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
             // with their neutral defaults), not as a second, separately resolved read list.
-            AddFrameComposite( graph, textures, gbuffer, giAccum, ssrFrame.Resolved, meshRenderer, lightDir,
-                               lightColor, frame );
-            AddFrameGeneric( graph, textures, meshRenderer );
-            AddFrameSkinned( graph, textures, meshRenderer );
+            // "Shadows: Ray Traced Sun" in place of the cascades (SunShadowIsRayTraced): the composite's
+            // DESERT_SUN_SHADOW_RAY_QUERY permutation reads this mask.
+            const RDG::TextureRef sunShadowMask =
+                 SunShadowIsRayTraced()
+                      ? AddFrameRayTracedSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
+                      : RDG::TextureRef{};
+            AddFrameComposite( graph, textures, gbuffer, giAccum, ssrFrame.Resolved, sunShadowMask, meshRenderer,
+                               lightDir, lightColor, frame );
+            AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask );
 
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
@@ -1491,6 +1551,8 @@ namespace Desert::Graphic
              overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
 #if DESERT_DEV_INSTRUMENTS
         AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+        AddFrameLightGridWorldView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front(),
+                                    frame );
         AddFrameGlobalDistanceFieldView( graph, textures, frame,
                                          postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 #endif // DESERT_DEV_INSTRUMENTS
@@ -1659,6 +1721,80 @@ namespace Desert::Graphic
 
         m_GIResourcesReady = true;
         return true;
+    }
+
+    bool SceneRenderer::SunShadowIsRayTraced() const
+    {
+        return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::HardwareTraced;
+    }
+
+    bool SceneRenderer::EnsureRayTracedShadowResources()
+    {
+        if ( m_RayTracedShadowReady )
+            return true;
+        if ( m_RayTracedShadowFailed )
+            return false;
+        Common::BoolResultStr initialized = m_RayTracedSunShadow.Initialize();
+        if ( initialized )
+            initialized = m_SunShadowDenoiser.Initialize();
+        if ( !initialized )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: Shadows: Ray Traced Sun could not be created; the sun casts no shadow "
+                       "while the method resolves to HardwareTraced: {}",
+                       m_ViewResources.GetName(), initialized.GetError() );
+            m_RayTracedShadowFailed = true;
+            return false;
+        }
+        m_RayTracedShadowReady = true;
+        return true;
+    }
+
+    RDG::TextureRef SceneRenderer::AddFrameRayTracedSunShadow( RDG::Builder& graph, FrameTextures& textures,
+                                                               const std::vector<RDG::TextureRef>& gbuffer,
+                                                               const glm::vec3&                    directionToSun,
+                                                               const ViewFrame&                    frame )
+    {
+        // The frame resolved to a ray-traced sun only with this frame's TLAS built (OnUpdate, LowerShadowsForFrame).
+        const RayTracing::RayTracingSceneFrame& scene = m_RayTracingScene.GetFrame();
+        const uint32_t                       width  = frame.Split.Render.Width;
+        const uint32_t                       height = frame.Split.Render.Height;
+        const RDG::TextureRef                depth  = textures.Depth( m_GBuffer, "GBuffer" );
+        const System::ScreenShadowMaskInputs inputs{ .Depth                     = depth,
+                                                     .Normal                    = gbuffer[1],
+                                                     .Tlas                      = scene.Tlas,
+                                                     .Metadata                  = scene.Metadata,
+                                                     .InvJitteredViewProjection = frame.InvJitteredViewProjection,
+                                                     .Width                     = width,
+                                                     .Height                    = height };
+        const System::RayTracedSunShadowParams params = System::MakeRayTracedSunShadowParams(
+             m_SunSourceAngleDegrees, directionToSun, m_RayTracedShadowSamples,
+             System::kRayTracedSunShadowMaxDistance, frame.FrameIndex );
+        const Common::ResultStr<System::RayTracedSunShadowOutputs> traced =
+             m_RayTracedSunShadow.AddPass( graph, inputs, params );
+        if ( !traced )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
+                       traced.GetError() );
+            return {};
+        }
+        const RDG::TextureRef velocity = textures.Transients.Velocity;
+        if ( !velocity.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: Shadows: Ray Traced Sun: the denoiser reprojects its history through "
+                       "the view's velocity, the frame has none; the undenoised mask is shaded",
+                       m_ViewResources.GetName() );
+            return traced.GetValue().Mask;
+        }
+        return m_SunShadowDenoiser.DenoiseShadowVisibility(
+             graph,
+             System::ShadowVisibilityDenoiserInputs{ .Mask                    = traced.GetValue().Mask,
+                                                     .ClosestOccluder         = traced.GetValue().ClosestOccluder,
+                                                     .LightSourceAngleRadians = params.SourceAngleRadians },
+             System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
+                                            .GBufferDepth  = depth,
+                                            .Velocity      = velocity,
+                                            .Black         = textures.GraphRefs().System.Black },
+             frame, width, height );
     }
 
     bool SceneRenderer::EnsureSSRResources()

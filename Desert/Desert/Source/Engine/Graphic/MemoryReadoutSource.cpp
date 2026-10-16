@@ -1,6 +1,7 @@
 #include "MemoryReadout.hpp"
 
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/BindlessTextureTable.hpp>
 
 namespace Desert::Graphic
 {
@@ -31,6 +32,12 @@ namespace Desert::Graphic
 
         out.Ledger  = ResourceLedger::Take();
         out.Process = Common::Utils::ReadProcessFootprint();
+        if ( const BindlessTextureTable* bindless = TryGetBindlessTextureTable() )
+        {
+            out.BindlessKnown    = true;
+            out.BindlessLive     = bindless->LiveSlots();
+            out.BindlessCapacity = bindless->Capacity();
+        }
 
         return out;
     }

@@ -46,6 +46,9 @@ namespace Desert::Graphic::API::Vulkan
 
         auto geometry       = std::make_shared<VulkanRayTracingGeometry>();
         geometry->m_Destroy = functions.DestroyAccelerationStructure;
+        geometry->m_Segments      = segments;
+        geometry->m_VertexAddress = functions.BufferAddress( device, vertexBuffer->GetVulkanBuffer() );
+        geometry->m_IndexAddress  = functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() );
 
         const auto storage = allocator->RT_AllocateBuffer(
              "BLAS",

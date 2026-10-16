@@ -150,7 +150,9 @@ namespace Desert::Graphic::API::Vulkan
                     return Common::MakeFormattedError<Plan>(
                          "vkGetAccelerationStructureDeviceAddressKHR answered 0 for a {} BLAS", m_Name );
                 }
-                m_Layout = layout;
+                m_Layout        = layout;
+                m_VertexAddress = BufferAddress( functions, device, m_Vertices.Buffer );
+                m_IndexAddress  = BufferAddress( functions, device, m_Indices.Buffer );
 
                 MakeExternal( m_VerticesExternal, m_Vertices, VK_NULL_HANDLE );
                 MakeExternal( m_IndicesExternal, m_Indices, VK_NULL_HANDLE );
@@ -218,6 +220,11 @@ namespace Desert::Graphic::API::Vulkan
             return BOOLSUCCESS;
         }
 
+        // The tile's own Desert::Vertex buffer is both the BLAS input and the hit's attribute stream.
+        [[nodiscard]] RayTracing::RayTracingGeometryLayout GetMetadataLayout() const override
+        {
+            return RayTracing::MeshAttributeLayout( m_VertexAddress, m_IndexAddress, m_Layout.Segments, false );
+        }
         // Both read the buffers' ledger rows: the one statement of what the tile holds on the device.
         [[nodiscard]] uint64_t GetMemoryBytes() const override
         {
@@ -282,6 +289,8 @@ namespace Desert::Graphic::API::Vulkan
             }
             m_Handle           = VK_NULL_HANDLE;
             m_DeviceAddress    = 0;
+            m_VertexAddress    = 0;
+            m_IndexAddress     = 0;
             m_Update           = false;
             m_Layout           = {};
             m_VerticesExternal = RDG::ExternalBuffer{};
@@ -293,6 +302,8 @@ namespace Desert::Graphic::API::Vulkan
         VkAccelerationStructureKHR              m_Handle        = VK_NULL_HANDLE;
         PFN_vkDestroyAccelerationStructureKHR   m_Destroy       = nullptr;
         uint64_t                                m_DeviceAddress = 0;
+        uint64_t                                m_VertexAddress = 0; // m_Vertices' device address (GetMetadataLayout)
+        uint64_t                                m_IndexAddress  = 0; // m_Indices' device address
         bool                                    m_Update        = false; // the last Prepare's plan
         RayTracing::RayTracingDynamicMeshLayout m_Layout;
         OwnedBuffer                             m_Vertices;

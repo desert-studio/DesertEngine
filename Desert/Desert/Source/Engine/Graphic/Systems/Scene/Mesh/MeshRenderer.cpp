@@ -384,7 +384,7 @@ namespace Desert::Graphic::System
                 return;
             BuildStaticDraws( m_ForwardDraws );
             BuildSkinnedDraws( m_ForwardDraws );
-            BuildGenericDraws( m_ForwardDraws );
+            BuildGenericDraws( m_ForwardDraws, GenericSlice::Forward );
             m_ForwardDraws.Declare( declared, SceneViewInputsOf( refs ) );
         };
 

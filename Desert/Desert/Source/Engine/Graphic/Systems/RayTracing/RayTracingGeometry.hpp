@@ -50,7 +50,8 @@ namespace Desert::Graphic::RayTracing
         // segment's position, because a hidden submesh contributes no segment and shifts the ones after it.
         uint32_t SubmeshIndex = 0;
         // OPAQUE: a hit is final (no any-hit). Not opaque: every candidate goes to the alpha test, once per
-        // primitive (NO_DUPLICATE_ANY_HIT) - a landscape tile's cells that touch a hole.
+        // primitive (NO_DUPLICATE_ANY_HIT) - a Masked section material (UE !bForceOpaque) or a landscape tile's cells
+        // that touch a hole; ray queries alpha-test its candidates (RayQueryVisibility.glslh).
         bool Opaque                                               = true;
         bool operator==( const RayTracingGeometrySegment& ) const = default;
     };
@@ -187,6 +188,39 @@ namespace Desert::Graphic::RayTracing
         return ResourceOwnership::Take( kind, bytes );
     }
 
+    inline constexpr uint32_t kNoMetadataRecord = ~0u;
+
+    // A built BLAS as a ray query's hit sees it (RayTracingSceneMetadata.hpp): the vertex stream the attribute
+    // fetch reads (normal, UV), the index buffer the BLAS was built from, and its segments in BLAS geometry order.
+    // The attribute stream is the mesh's own vertex buffer (Desert::Vertex) for every kind: a deformed mesh's
+    // BLAS reads the skin cache's packed positions, which carry no UV, so its hits read UVs from the mesh's
+    // bind-pose stream through the same index buffer (UV does not deform), and state no normal (the bind-pose
+    // normal is not the deformed one).
+    struct RayTracingGeometryLayout
+    {
+        uint64_t                                   VertexAddress = 0; // the attribute stream
+        uint64_t                                   IndexAddress  = 0;
+        uint32_t                                   VertexStride  = 0; // bytes between two attribute-stream vertices
+        uint32_t                                   NormalOffset  = kNoMetadataRecord; // none = no normal
+        uint32_t                                   UvOffset      = kNoMetadataRecord; // none = no UV
+        std::span<const RayTracingGeometrySegment> Segments;
+    };
+
+    // The layout of a BLAS built over a mesh's own buffers: @p deformed = its positions came from the skin cache.
+    [[nodiscard]] inline RayTracingGeometryLayout
+    MeshAttributeLayout( const uint64_t vertexAddress, const uint64_t indexAddress,
+                         std::span<const RayTracingGeometrySegment> segments, const bool deformed )
+    {
+        RayTracingGeometryLayout layout;
+        layout.VertexAddress = vertexAddress;
+        layout.IndexAddress  = indexAddress;
+        layout.VertexStride  = static_cast<uint32_t>( sizeof( Vertex ) );
+        layout.NormalOffset  = deformed ? kNoMetadataRecord : static_cast<uint32_t>( offsetof( Vertex, Normal ) );
+        layout.UvOffset      = static_cast<uint32_t>( offsetof( Vertex, TexCoord ) );
+        layout.Segments      = segments;
+        return layout;
+    }
+
     // A built BLAS as the renderer sees it: the address a TLAS instance row points at. The API object behind it
     // (VulkanRayTracingGeometry) owns the acceleration structure and its storage and releases them on the
     // frame-retire rule when the last mesh reference drops.
@@ -200,5 +234,8 @@ namespace Desert::Graphic::RayTracing
         // Bytes of the acceleration-structure storage this resource owns (the RT scene stats overlay; the
         // ledger row of the same allocation is the census).
         [[nodiscard]] virtual uint64_t GetMemoryBytes() const = 0;
+        // The buffers and segments this BLAS was built from (the metadata's geometry records). Valid while the
+        // resource holds its build; a resource with no build answers no segments.
+        [[nodiscard]] virtual RayTracingGeometryLayout GetMetadataLayout() const = 0;
     };
 } // namespace Desert::Graphic::RayTracing

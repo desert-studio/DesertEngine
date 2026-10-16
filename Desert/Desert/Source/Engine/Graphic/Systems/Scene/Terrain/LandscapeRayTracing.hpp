@@ -111,8 +111,9 @@ namespace Desert::Graphic::RayTracing
         // The storage of the tiles' BLASes built in an earlier frame and unchanged: the TLAS pass reads them.
         std::vector<RDG::BufferRef>              Resident;
         std::vector<LandscapeRayTracingMaterial> Materials; // by tile, in Primitives order
-        // The one segment-record run every tile shares (RayTracingSegmentRecord, no material: the tile's surface
-        // is its Materials row); each primitive's FirstSegmentRecord indexes this list.
+        // One segment-record run per tile, in Primitives order (RayTracingSegmentRecord, no material: the tile's
+        // surface is its Materials row); each primitive's FirstSegmentRecord indexes this list. Not shared: the
+        // GPU record of a segment carries its tile's own vertex and index buffers (RayTracingSceneMetadata.hpp).
         std::vector<RayTracingSegmentRecord> SegmentRecords;
         uint32_t                             Built       = 0;
         uint32_t                             Refit       = 0;

@@ -1,6 +1,8 @@
 #include "MemoryReadout.hpp"
 
 #include <atomic>
+#include <format>
+#include <iterator>
 #include <cstdio>
 
 namespace Desert::Graphic
@@ -71,6 +73,12 @@ namespace Desert::Graphic
         {
             text += " = resident " + Bytes( Process.Resident ) + ", peak " + Bytes( Process.Peak );
         }
+
+        // 4. The bindless texture table: one slot per uploaded texture, so live tracks the textures resident.
+        if ( BindlessKnown )
+            std::format_to( std::back_inserter( text ), "
+  Bindless: {} live / {}", BindlessLive,
+                            BindlessCapacity );
 
         return text;
     }

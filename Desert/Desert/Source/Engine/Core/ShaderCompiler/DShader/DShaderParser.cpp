@@ -2362,6 +2362,19 @@ namespace Desert::Core::Preprocess
             result.Meta.PassNames.push_back( pass.Name );
         }
 
+        // An OPAQUE mesh-path template without a Surface block is drawn forward on the deferred path, after the
+        // screen-space readers of the G-buffer (the ray-traced sun's mask, SSAO, SSR); they see it only through
+        // its depth-normal pass, so it must declare one (no silent hole in their depth). A blended one (text,
+        // ZWrite off) writes no depth and is exempt, as UE's translucency is from the depth prepass.
+        if ( result.Surface.Cells.empty() && Formats::DrawnByMeshPath( result.Meta.Domain ) &&
+             !defaultPass.State.Blend.value_or( false ) && defaultPass.State.DepthWrite.value_or( true ) &&
+             result.FindPass( std::string( kGenericDepthNormalPass ) ) == nullptr )
+            return Common::MakeFormattedError<DShaderParseResult>(
+                 "DShader '{}': an opaque Domain {} program without a Surface block declares no '{}' pass - the "
+                 "deferred path's depth/normal prepass draws it (write depth and DesertWriteDepthNormal, "
+                 "Mesh/Generic/DepthNormal.glslh)",
+                 result.Name, Formats::ShaderDomainName( result.Meta.Domain ), kGenericDepthNormalPass );
+
         // A surface template's default program is NAMED, never positional: kSurfaceDefaultCell. A template
         // whose cell set lost it is refused here by name, rather than having some other cell stand in for it.
         if ( !result.Surface.Cells.empty() )

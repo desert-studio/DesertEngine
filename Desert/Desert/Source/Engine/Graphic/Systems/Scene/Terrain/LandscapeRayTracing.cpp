@@ -172,16 +172,17 @@ namespace Desert::Graphic::RayTracing
                 work.back().Storage = storage;
             else
                 m_Frame.Resident.push_back( storage );
-            if ( m_Frame.SegmentRecords.empty() )
-                for ( uint32_t geometry = 0; geometry < kLandscapeRayTracingSegments; ++geometry )
-                    m_Frame.SegmentRecords.push_back(
-                         { .SubmeshIndex = geometry, .Opaque = IsLandscapeSegmentOpaque( geometry ) } );
+            // The tile's own run: its geometry records carry the tile's own vertex and index buffers.
+            const auto firstSegmentRecord = static_cast<uint32_t>( m_Frame.SegmentRecords.size() );
+            for ( uint32_t geometry = 0; geometry < kLandscapeRayTracingSegments; ++geometry )
+                m_Frame.SegmentRecords.push_back(
+                     { .SubmeshIndex = geometry, .Opaque = IsLandscapeSegmentOpaque( geometry ) } );
             m_Frame.Primitives.push_back(
                  { .Geometry           = static_cast<const RayTracingGeometryResource*>( state.Target.get() ),
                    .World              = glm::mat4( 1.0f ), // the vertices are written in world space
                    .GpuSceneRow        = tile.GpuSceneRow,
                    .CastShadows        = tile.CastShadows,
-                   .FirstSegmentRecord = 0,
+                   .FirstSegmentRecord = firstSegmentRecord,
                    .SegmentRecordCount = kLandscapeRayTracingSegments,
                    .Kind               = RayTracingPrimitiveKind::Landscape } );
             m_Frame.Materials.push_back( { .GpuSceneRow = tile.GpuSceneRow, .Weights = tile.Weights } );

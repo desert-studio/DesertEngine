@@ -1,0 +1,101 @@
+// DesertAsset {"Kind":"Shader","Guid":"4be1c07a9d2f4e6b8a35f0c19e7d2a61","Versions":{"SHDR":1},"Dependencies":[]}
+Shader "RayTracedSunShadow"
+{
+    // "Shadows: Ray Traced Sun" (UE RayTracingShadows.cpp / RayTracingOcclusionRGS.usf, an inline ray query instead
+    // of a ray-generation shader): every G-buffer pixel traces SamplesPerPixel rays toward the sun, each inside the
+    // sun's cone (UE GetLightSourceDirection over the light's angular diameter SourceAngle), and writes the fraction
+    // that reached the sky into the screen shadow mask (UE FScreenShadowMaskTexture) plus the closest occluder
+    // distance the ShadowVisibility denoiser sizes its penumbra kernel with. Angle 0 = one direction, a hard shadow.
+
+    Compute
+    {
+        #define RAY_QUERY_VISIBILITY_TLAS_BINDING      0
+        #define RAY_QUERY_VISIBILITY_GEOMETRY_BINDING  3
+        #define RAY_QUERY_VISIBILITY_MATERIALS_BINDING 4
+        #include <Common/RayQueryVisibility.glslh>
+
+        Uniform(1) sampler2D u_GBufferDepth;  // device depth, reversed-Z (0 = far: no surface)
+        Uniform(2) sampler2D u_GBufferNormal; // rgb = world normal, a = roughness
+        layout(binding = 5, rgba16f) writeonly uniform image2D u_ShadowMask;       // r = visibility, 1 = lit
+        layout(binding = 6, rgba16f) writeonly uniform image2D u_ShadowOccluder; // r = closest occluder, cm; -1 = none
+
+        // RayTracedSunShadowPush (RayTracedSunShadow.hpp): the view's inverse + RayTracedSunShadowParams.
+        PushConstant PushConstants
+        {
+        	mat4 u_InvJitteredViewProjection;
+        	vec4 u_DirectionToSun; // xyz = toward the sun, w = SourceAngle in radians
+        	vec4 u_TraceParams;    // x = normal bias cm, y = samples per pixel, z = max distance cm, w = frame index
+        };
+
+        LocalSize(8, 8, 1);
+
+        uint Pcg( uint v )
+        {
+            const uint state = v * 747796405u + 2891336453u;
+            const uint word  = ( ( state >> ( ( state >> 28u ) + 4u ) ) ^ state ) * 277803737u;
+            return ( word >> 22u ) ^ word;
+        }
+
+        vec2 Random2( uvec2 pixel, uint frame, uint sampleIndex )
+        {
+            const uint first  = Pcg( pixel.x + Pcg( pixel.y + Pcg( frame * 16u + sampleIndex ) ) );
+            const uint second = Pcg( first );
+            return vec2( float( first ), float( second ) ) * ( 1.0 / 4294967296.0 );
+        }
+
+        // A direction inside the cone of half-angle @p halfAngle around @p axis, uniform over its solid angle.
+        vec3 ConeDirection( vec3 axis, float halfAngle, vec2 u )
+        {
+            const float cosTheta  = mix( 1.0, cos( halfAngle ), u.x );
+            const float sinTheta  = sqrt( max( 0.0, 1.0 - cosTheta * cosTheta ) );
+            const float phi       = 6.28318530718 * u.y;
+            const vec3  helper    = abs( axis.z ) < 0.999 ? vec3( 0.0, 0.0, 1.0 ) : vec3( 1.0, 0.0, 0.0 );
+            const vec3  tangent   = normalize( cross( helper, axis ) );
+            const vec3  bitangent = cross( axis, tangent );
+            return normalize( tangent * ( cos( phi ) * sinTheta ) + bitangent * ( sin( phi ) * sinTheta ) +
+                              axis * cosTheta );
+        }
+
+        void main()
+        {
+            const ivec2 pixel = ivec2( gl_GlobalInvocationID.xy );
+            const ivec2 size  = imageSize( u_ShadowMask );
+            if ( pixel.x >= size.x || pixel.y >= size.y )
+                return;
+
+            const float depth = texelFetch( u_GBufferDepth, pixel, 0 ).r;
+            if ( depth <= 0.0 )
+            {
+                imageStore( u_ShadowMask, pixel, vec4( 1.0 ) );
+                imageStore( u_ShadowOccluder, pixel, vec4( -1.0 ) );
+                return;
+            }
+            const vec2 uv       = ( vec2( pixel ) + 0.5 ) / vec2( size );
+            const vec4 world    = u_InvJitteredViewProjection * vec4( uv * 2.0 - 1.0, depth, 1.0 );
+            const vec3 position = world.xyz / world.w;
+            const vec3 normal   = normalize( texelFetch( u_GBufferNormal, pixel, 0 ).rgb );
+            const vec3 toSun    = normalize( u_DirectionToSun.xyz );
+            // UE r.RayTracing.NormalBias: off the surface along its normal, on the side facing the light.
+            const vec3 origin = position + normal * ( dot( normal, toSun ) >= 0.0 ? 1.0 : -1.0 ) * u_TraceParams.x;
+
+            const uint  samples   = max( uint( u_TraceParams.y ), 1u );
+            const float halfAngle = 0.5 * u_DirectionToSun.w;
+            float       visible   = 0.0;
+            float       occluder  = -1.0;
+            for ( uint s = 0u; s < samples; ++s )
+            {
+                vec3 dir = toSun;
+                if ( halfAngle > 0.0 )
+                    dir = ConeDirection( toSun, halfAngle, Random2( uvec2( pixel ), uint( u_TraceParams.w ), s ) );
+                float       hitT = u_TraceParams.z;
+                const float v =
+                     RayQueryVisibilityHit( origin, dir, u_TraceParams.z, RAY_TRACING_MASK_SHADOW_CASTER, hitT );
+                visible += v;
+                if ( v == 0.0 )
+                    occluder = occluder < 0.0 ? hitT : min( occluder, hitT );
+            }
+            imageStore( u_ShadowMask, pixel, vec4( visible / float( samples ) ) );
+            imageStore( u_ShadowOccluder, pixel, vec4( occluder ) );
+        }
+    }
+}

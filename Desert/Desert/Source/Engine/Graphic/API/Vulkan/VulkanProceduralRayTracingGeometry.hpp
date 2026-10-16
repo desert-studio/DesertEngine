@@ -44,6 +44,10 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_DeviceAddress;
         }
+        [[nodiscard]] RayTracing::RayTracingGeometryLayout GetMetadataLayout() const override
+        {
+            return RayTracing::MeshAttributeLayout( m_VertexAddress, m_IndexAddress, m_Segments, false );
+        }
         // The storage's ledger row is the one statement of what this BLAS costs (ResourceOwnership::GetBytes).
         [[nodiscard]] uint64_t GetMemoryBytes() const override
         {
@@ -57,6 +61,7 @@ namespace Desert::Graphic::API::Vulkan
         std::shared_ptr<VertexBuffer>                      m_SourceVertices;
         std::shared_ptr<IndexBuffer>                       m_Indices; // held: the build reads it by address
         std::vector<RayTracing::RayTracingGeometrySegment> m_Segments;
+        VkDeviceAddress m_VertexAddress = 0; // the mesh's own vertex buffer: the hit's attribute stream
         VkDeviceAddress                                    m_IndexAddress = 0;
         VkDeviceSize                                       m_BuildScratch = 0;
         bool                                               m_Built        = false;

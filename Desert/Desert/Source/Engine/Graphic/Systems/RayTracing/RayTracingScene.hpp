@@ -53,7 +53,8 @@ namespace Desert::Graphic::RayTracing
     // FirstSegmentRecord and holds one record per segment of its BLAS, in segment order. Its TLAS instance carries
     // that start as the instance's SBT record offset, so an inline ray query names the record of a hit as
     //   rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT + rayQueryGetIntersectionGeometryIndexEXT
-    // with no table of its own. The instances of one ISM share their mesh's run.
+    // and reads geometry record [that index] (RayTracingSceneMetadata.hpp: record i is built from segment record i,
+    // the one table on both sides). The instances of one ISM share their mesh's run.
     struct RayTracingSegmentRecord
     {
         // The section's slot instance (static, ISM, skinned: the instance the raster binds for that section).
