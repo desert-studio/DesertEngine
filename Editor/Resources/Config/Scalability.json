@@ -157,7 +157,11 @@
                 "Shadows.VirtualMaxPhysicalPages": 1024,
                 "Shadows.VirtualResolutionLodBias": 10,
                 "Shadows.VirtualSMRTRayCount": 0,
-                "Shadows.VirtualSMRTSamplesPerRay": 2
+                "Shadows.VirtualSMRTSamplesPerRay": 2,
+                "Shadows.MegaLightsSamplesPerPixel": 1,
+                "Shadows.MegaLightsSpatialSamples": 0,
+                "Shadows.MegaLightsMaxHistory": 0,
+                "Shadows.MegaLightsDenoiserRadius": 1
             },
             "Medium": {
                 "Shadows.Cascades": 3,
@@ -177,7 +181,11 @@
                 "Shadows.VirtualMaxPhysicalPages": 2048,
                 "Shadows.VirtualResolutionLodBias": 5,
                 "Shadows.VirtualSMRTRayCount": 4,
-                "Shadows.VirtualSMRTSamplesPerRay": 2
+                "Shadows.VirtualSMRTSamplesPerRay": 2,
+                "Shadows.MegaLightsSamplesPerPixel": 1,
+                "Shadows.MegaLightsSpatialSamples": 2,
+                "Shadows.MegaLightsMaxHistory": 8,
+                "Shadows.MegaLightsDenoiserRadius": 2
             },
             "High": {
                 "Shadows.Cascades": 4,
@@ -197,7 +205,11 @@
                 "Shadows.VirtualMaxPhysicalPages": 2048,
                 "Shadows.VirtualResolutionLodBias": 0,
                 "Shadows.VirtualSMRTRayCount": 8,
-                "Shadows.VirtualSMRTSamplesPerRay": 4
+                "Shadows.VirtualSMRTSamplesPerRay": 4,
+                "Shadows.MegaLightsSamplesPerPixel": 2,
+                "Shadows.MegaLightsSpatialSamples": 3,
+                "Shadows.MegaLightsMaxHistory": 16,
+                "Shadows.MegaLightsDenoiserRadius": 2
             },
             "Epic": {
                 "Shadows.Cascades": 4,
@@ -217,14 +229,18 @@
                 "Shadows.VirtualMaxPhysicalPages": 4096,
                 "Shadows.VirtualResolutionLodBias": -15,
                 "Shadows.VirtualSMRTRayCount": 8,
-                "Shadows.VirtualSMRTSamplesPerRay": 4
+                "Shadows.VirtualSMRTSamplesPerRay": 4,
+                "Shadows.MegaLightsSamplesPerPixel": 2,
+                "Shadows.MegaLightsSpatialSamples": 4,
+                "Shadows.MegaLightsMaxHistory": 20,
+                "Shadows.MegaLightsDenoiserRadius": 2
             },
             "Cinematic": {
                 "Shadows.Cascades": 4,
                 "Shadows.MapSize": 4096,
                 "Shadows.Distance": 30000,
                 "Shadows.ContactShadowSteps": 24,
-                "Shadows.Method": "HardwareTraced",
+                "Shadows.Method": "Stochastic",
                 "Shadows.LightGridPixelSize": 32,
                 "Shadows.LightGridSlices": 64,
                 "Shadows.LightGridMaxLightsPerCell": 64,
@@ -237,7 +253,11 @@
                 "Shadows.VirtualMaxPhysicalPages": 8192,
                 "Shadows.VirtualResolutionLodBias": -20,
                 "Shadows.VirtualSMRTRayCount": 16,
-                "Shadows.VirtualSMRTSamplesPerRay": 8
+                "Shadows.VirtualSMRTSamplesPerRay": 8,
+                "Shadows.MegaLightsSamplesPerPixel": 4,
+                "Shadows.MegaLightsSpatialSamples": 6,
+                "Shadows.MegaLightsMaxHistory": 30,
+                "Shadows.MegaLightsDenoiserRadius": 3
             }
         },
         "GlobalIllumination": {

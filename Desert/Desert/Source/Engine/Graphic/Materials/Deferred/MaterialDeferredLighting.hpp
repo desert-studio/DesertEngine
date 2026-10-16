@@ -49,6 +49,9 @@ namespace Desert::Graphic
     struct DeferredShadowInput
     {
         std::variant<DeferredCascadeShadow, DeferredScreenShadowMask> Sun;
+        // Shadows Stochastic: the local lights are MegaLights' (DeferredCompositeInputs::MegaLights) and the
+        // composite draws its MegaLights program (the Sun arm is then the screen mask).
+        bool MegaLightsLocalLights = false;
         // The view's contact shadows, packed into the same block (SceneResources::PackContactShadow).
         SceneResources::ContactShadowSettings Contact{};
         // The sun's PCSS taps (SceneResources::PackShadowFilter); read by the cascade program only.
