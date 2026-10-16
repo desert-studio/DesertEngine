@@ -423,6 +423,8 @@ namespace Desert::Scripting
         const auto held = std::chrono::steady_clock::now() - start;
 
         ReleaseContainers();
+        if ( m_Host != nullptr )
+            m_Host->OnResumed( held );
         m_StoppedThread       = nullptr;
         lua_State* const main = lua_mainthread( L );
         for ( const LuauDebugTarget& target : m_Targets )
@@ -563,10 +565,19 @@ namespace Desert::Scripting
                 break;
             }
             case LUA_TTABLE:
-                variable.Value = std::format( "table [{}]", lua_objlen( L, -1 ) );
+            {
+                int entries = 0; // the array part AND the keyed part: lua_objlen counts only the first
+                lua_pushnil( L );
+                while ( lua_next( L, -2 ) != 0 )
+                {
+                    ++entries;
+                    lua_pop( L, 1 );
+                }
+                variable.Value = std::format( "table ({} entries)", entries );
                 variable.Reference =
                      AddContainer( { .Of = Container::Kind::Value, .Level = 0, .Ref = lua_ref( L, -1 ) } );
                 break;
+            }
             default:
                 // A function, an engine object (userdata), a thread, a buffer: no __tostring is called — that
                 // would run script code while the world is stopped inside a script.

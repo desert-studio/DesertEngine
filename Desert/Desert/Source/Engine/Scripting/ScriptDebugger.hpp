@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <filesystem>
 #include <span>
 #include <string>
@@ -79,6 +80,9 @@ namespace Desert::Scripting
         /// One turn of the stopped loop: service the client (it may call Resume / Abort / StackTrace ...), keep
         /// the window responsive. Must not tick a world or run a script.
         virtual void WhileStopped() = 0;
+
+        /// The stopped script resumes; it was held `held` (wall time that was no frame's).
+        virtual void OnResumed( std::chrono::steady_clock::duration held ) = 0;
 
         /// A breakpoint of `file` bound (or moved) because a script with that file loaded or reloaded.
         virtual void OnBreakpointsBound( const std::filesystem::path&        file,

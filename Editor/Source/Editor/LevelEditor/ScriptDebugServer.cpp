@@ -333,6 +333,13 @@ namespace Desert::Editor
         std::this_thread::sleep_for( kStoppedTurn );
     }
 
+    void ScriptDebugServer::OnResumed( std::chrono::steady_clock::duration held )
+    {
+        // The frame that stopped resumes now; the next one must not age the world by the stop.
+        if ( m_App != nullptr )
+            m_App->ExcludeFromNextTimestep( std::chrono::duration<float>( held ).count() );
+    }
+
     void ScriptDebugServer::OnBreakpointsBound( const std::filesystem::path&                   file,
                                                 const std::vector<Scripting::DebugBreakpoint>& breakpoints )
     {

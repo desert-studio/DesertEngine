@@ -57,6 +57,7 @@ namespace Desert::Editor
         // ---- IScriptDebugHost ----
         void OnStopped( Scripting::DebugStopReason reason, const std::string& description ) override;
         void WhileStopped() override;
+        void OnResumed( std::chrono::steady_clock::duration held ) override;
         void OnBreakpointsBound( const std::filesystem::path&                   file,
                                  const std::vector<Scripting::DebugBreakpoint>& breakpoints ) override;
 

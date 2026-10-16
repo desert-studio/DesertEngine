@@ -99,18 +99,19 @@ namespace Desert::Scripting
         m_Impl->Context = Core::WorldContext{ scene, assetManager, &m_Impl->Timers, &m_Impl->PlayerInput, this };
 
         Impl* host      = m_Impl.get();
-        m_Impl->Runtime = std::make_unique<LuauRuntime>( LuauLimits{},
-                                                         [host]( lua_State* L )
-                                                         {
-                                                             lua_pushlightuserdata( L, host );
-                                                             lua_setfield( L, LUA_REGISTRYINDEX, kHost );
-                                                             lua_newtable( L );
-                                                             host->WorldVars = lua_ref( L, -1 );
-                                                             lua_pop( L, 1 );
+        m_Impl->Runtime = std::make_unique<LuauRuntime>(
+             LuauLimits{},
+             [host]( lua_State* L )
+             {
+                 lua_pushlightuserdata( L, host );
+                 lua_setfield( L, LUA_REGISTRYINDEX, kHost );
+                 lua_newtable( L );
+                 host->WorldVars = lua_ref( L, -1 );
+                 lua_pop( L, 1 );
 
-                                                             RegisterHostNatives( L );
-                                                         },
-                                                         LuauDebugging::Attachable );
+                 RegisterHostNatives( L );
+             },
+             LuauDebugging::Attachable );
     }
 
     ScriptEngine::~ScriptEngine() = default;

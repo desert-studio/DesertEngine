@@ -82,7 +82,7 @@ namespace Desert::Scripting
         bool                                    Debuggable = false;
         // How long calls of this runtime were held at debugger stops: the watchdog's clock leaves it out, so a
         // call resumed after a minute at a breakpoint still has the budget it had when it stopped.
-        Clock::duration Held{};
+        Clock::duration                         Held{};
         std::unordered_map<std::string, Script> Scripts;
         std::unordered_map<LuauSlot, Slot>      Slots;
         LuauSlot                                NextSlot     = 1;
@@ -297,7 +297,8 @@ namespace Desert::Scripting
                       [&impl]( const std::function<void( const LuauLoadedScript& )>& visit )
                  {
                      for ( const auto& [name, script] : impl.Scripts )
-                         visit( LuauLoadedScript{ .Script = name, .Prototype = script.Prototype, .Lines = script.Lines } );
+                         visit( LuauLoadedScript{
+                              .Script = name, .Prototype = script.Prototype, .Lines = script.Lines } );
                  },
                  .Held = [&impl]( Clock::duration held ) { impl.Held += held; } } );
     }
