@@ -471,7 +471,7 @@ def main():
                  f"его забьёт. Сначала освободи место (build/ влитых деревьев), потом запускай.", data, "lead")
         running = lead_running_agents()
         if _dt.date.today() > NO_AGENT_CAP_THROUGH and len(running) >= MAX_WORKING_AGENTS:
-            deny(f"[agent_guard] Тимлид: лимит владельца 09-30 — не более {MAX_WORKING_AGENTS} агентов одновременно; идут: "
+            deny(f"[agent_guard] Тимлид: лимит владельца 10-16 — не более {MAX_WORKING_AGENTS} агентов одновременно; идут: "
                  f"{', '.join(running)}. Дождись сдачи (ledger + process_event done|wip), потом запускай.", data, "lead")
     # Owner 10-05 («можно дать гарантию, что не повторится?»): three of four agents that day hit the 60-call cap with
     # 4-6-item briefs (VIDEO-1, MEDIA-3, VIDEO-2a: done 25 % vs 59 % baseline) and the next agent re-read the same files.
