@@ -80,6 +80,8 @@ layout( binding = 7 ) uniform ShadowUB
 #include <Common/ContactShadow.glslh>
 
 #include <Mesh/Surface/ViewIndirect.glslh>
+// The split-sum's Fresnel (Mesh/AmbientIBL.glslh EvaluateAmbientIBL) is the BRDF's.
+#include <Mesh/BRDF.glslh>
 #include <Mesh/AmbientIBL.glslh>
 
 void main()

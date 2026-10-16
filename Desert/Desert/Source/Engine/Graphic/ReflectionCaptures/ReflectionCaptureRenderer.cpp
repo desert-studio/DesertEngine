@@ -40,10 +40,13 @@ namespace Desert::Graphic
         constexpr std::array<std::string_view, 6> kFaceNames   = { "u_FacePosX", "u_FaceNegX", "u_FacePosY",
                                                                    "u_FaceNegY", "u_FacePosZ", "u_FaceNegZ" };
 
-        // A face view has settled once it held one sky environment for this many consecutive renders of its own.
-        // The sky is the scene's (lent, never baked by the face), but the face's clouds reproject a history and
-        // its sky-view LUT is a frame late: the first frames of a freshly aimed face view are the cloudless
-        // picture, and a cube written from there would keep it.
+        // A face view has settled once it held one sky environment for this many consecutive renders of its own
+        // after its first. The sky is the scene's (lent, never baked by the face), so what is left to converge is
+        // the face's own: its sky-view LUT is filled for the NEXT render (SkyboxRenderer: the first render of a
+        // view draws a black sky), so one render after the first is a whole picture...
+        constexpr uint32_t kCaptureSettleFramesStill = 1u;
+        // ...unless the face draws a cloud layer, which reprojects a history: the first frames of a freshly aimed
+        // face are the cloudless picture, and a cube written from there would keep it.
         constexpr uint32_t kCaptureSettleFrames = 8u;
         // ...and after this many renders whatever its sky does: a sky that re-bakes while the face renders (the
         // face views follow the scene's sky) would otherwise hold the one-face-per-frame budget on one capture
@@ -420,13 +423,14 @@ namespace Desert::Graphic
             m_PendingRelit = false;
             m_FaceRenders.fill( 0u );
             m_FaceHeld.fill( 0u );
+            m_FaceSettle.fill( kCaptureSettleFrames );
             m_FaceEnvironment.fill( 0u );
             m_LastFace = static_cast<uint32_t>( m_Faces.size() - 1u );
         }
 
         // ONE FACE THIS FRAME: the next one after the last that has not settled.
         const auto settled = [this]( size_t f )
-        { return m_FaceHeld[f] >= kCaptureSettleFrames || m_FaceRenders[f] >= kCaptureFrameBudget; };
+        { return m_FaceHeld[f] >= m_FaceSettle[f] || m_FaceRenders[f] >= kCaptureFrameBudget; };
         size_t face = m_Faces.size();
         for ( size_t step = 1; step <= m_Faces.size() && face == m_Faces.size(); ++step )
         {
@@ -481,6 +485,8 @@ namespace Desert::Graphic
         else
             m_FaceHeld[face] = 0;
         m_FaceEnvironment[face] = faceEnvironment;
+        m_FaceSettle[face] =
+             view.Renderer->DrawsVolumetricClouds() ? kCaptureSettleFrames : kCaptureSettleFramesStill;
 
         bool all = true;
         for ( size_t f = 0; f < m_Faces.size(); ++f )

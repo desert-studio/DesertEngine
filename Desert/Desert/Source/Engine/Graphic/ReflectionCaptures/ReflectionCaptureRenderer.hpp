@@ -147,8 +147,9 @@ namespace Desert::Graphic
      * r.SkyLight.RealTimeReflectionCapture.TimeSlice, applied to the scene's captures): the capture under update
      * renders one of its six face views each frame, round-robin over the faces that have not settled, under the
      * sun as it was when that capture started (its six faces are one lighting instant, not six). A face has
-     * settled when it held one sky environment for kCaptureSettleFrames of its own renders, or after
-     * kCaptureFrameBudget renders whatever its sky does. Only when all six have settled is the cube written -
+     * settled when it held one sky environment for one render after its first (its sky-view LUT is a frame late)
+     * - kCaptureSettleFrames when it draws a cloud layer, whose history converges - or after kCaptureFrameBudget
+     * renders whatever its sky does. Only when all six have settled is the cube written -
      * assembled, mipped, filtered with UE's real-time sample counts - in one frame, so the array holds either the
      * previous cube or the new one, never a half-written mix. Captures are taken round-robin from the one after
      * the last, so a lighting that keeps changing refreshes every capture in turn.
@@ -262,6 +263,7 @@ namespace Desert::Graphic
         bool                            m_PendingRelit = false; // relit while rendered: still stale once written
         std::array<uint32_t, 6>         m_FaceRenders{};
         std::array<uint32_t, 6>         m_FaceHeld{};
+        std::array<uint32_t, 6>         m_FaceSettle{}; // the held renders that settle it (its clouds or none)
         std::array<uint64_t, 6>         m_FaceEnvironment{};
         uint32_t                        m_LastFace = 5u; // the face round's last face
         bool     m_WriteCapture  = false;                // all six settled this frame: AddCaptureUpdate writes it

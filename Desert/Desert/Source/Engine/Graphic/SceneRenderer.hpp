@@ -410,6 +410,10 @@ namespace Desert::Graphic
         // False for a view with no cloud layer, which is every mesh preview and every asset thumbnail.
         bool IsCloudVolumeBaking() const;
 
+        // Whether this view draws a cloud layer: a picture that reprojects a history and converges over frames (a
+        // reflection capture's face waits for it: ReflectionCaptureRenderer).
+        [[nodiscard]] bool DrawsVolumetricClouds() const;
+
         // "The sky's light is not final yet": a procedural sky whose environment bake is still on the GPU, or
         // that has none. The bake is submitted, never waited for (SkyboxRenderer::EnsureProceduralEnvironment),
         // so a capture of this view waits on this instead of the main thread waiting on the GPU.

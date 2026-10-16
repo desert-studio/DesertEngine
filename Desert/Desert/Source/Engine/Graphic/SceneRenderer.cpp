@@ -1798,6 +1798,14 @@ namespace Desert::Graphic
              ->BuildEnvironmentBake();
     }
 
+    bool SceneRenderer::DrawsVolumetricClouds() const
+    {
+        const auto it = m_RenderSystems.find( "VolumetricCloudSystem" );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        return it != m_RenderSystems.end() &&
+               UNIQUE_GET_AS( System::VolumetricCloudRenderer, it->second )->IsPresent();
+    }
+
     bool SceneRenderer::IsCloudVolumeBaking() const
     {
         // `find` rather than `operator[]`, exactly as GetCloudShadowInput does it: this is a const observer
