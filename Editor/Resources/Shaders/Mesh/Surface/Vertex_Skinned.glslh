@@ -117,6 +117,7 @@ void main()
     // Light view (shadow depth, RSM): the cached pose when the push block names streams, else the pass's palette.
     const mat4 model = m_PushConstants.Transform;
     vec3       posed;
+    vec3       casterNormal; // the posed normal the caster's slope bias reads (object space)
 #ifdef DESERT_SURFACE_HAS_VARYINGS
     vec3 skinnedNormal;
     vec3 skinnedTangent;
@@ -139,6 +140,7 @@ void main()
         SkinCacheStreams       streams = DesertSkinCacheStreams( cacheAddrLo, cacheAddrHi );
         const uint             vertex  = uint( gl_VertexIndex );
         posed                          = DesertSkinCachePosition( streams, vertex );
+        casterNormal                   = DesertSkinCacheFrame( streams, cacheCount, vertex, 0u );
 #ifdef DESERT_SURFACE_HAS_VARYINGS
         skinnedNormal    = DesertSkinCacheFrame( streams, cacheCount, vertex, 0u );
         skinnedTangent   = DesertSkinCacheFrame( streams, cacheCount, vertex, 1u );
@@ -153,6 +155,7 @@ void main()
                           DESERT_SKIN_MATRIX( b, a_BoneIndices.z ) * a_BoneWeights.z +
                           DESERT_SKIN_MATRIX( b, a_BoneIndices.w ) * a_BoneWeights.w;
         posed           = ( skin * vec4( a_Position, 1.0 ) ).xyz;
+        casterNormal    = mat3( skin ) * a_Normal;
 #ifdef DESERT_SURFACE_HAS_VARYINGS
         const mat3 skin3 = mat3( skin );
         skinnedNormal    = skin3 * a_Normal;
@@ -187,7 +190,7 @@ void main()
 #ifdef DESERT_SURFACE_PASS_ShadowDepth
     // The caster's slope depth bias, from the skinned vertex normal (UE: ShadowDepthVertexShader.usf).
     gl_Position = ShadowCasterSlopeBias( gl_Position, cameraUB.JitteredViewProjection,
-                                         transpose( inverse( mat3( model ) ) ) * ( mat3( skin ) * a_Normal ),
+                                         transpose( inverse( mat3( model ) ) ) * casterNormal,
                                          cameraUB.ShadowSlopeBias, cameraUB.ShadowSlopeClamp );
 #endif
 }
