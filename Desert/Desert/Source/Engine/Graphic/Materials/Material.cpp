@@ -60,6 +60,11 @@ namespace Desert::Graphic
         WritePushField( "WindB", &wind.B, sizeof( glm::vec4 ) );
     }
 
+    void Material::SetPrimitiveFlags( const uint32_t flags )
+    {
+        WritePushField( "PrimitiveFlags", &flags, sizeof( uint32_t ) );
+    }
+
     void Material::SetShadowSlopeBias( const float slopeBias, const float slopeClamp )
     {
         const glm::vec2 slope( slopeBias, slopeClamp );
@@ -93,6 +98,15 @@ namespace Desert::Graphic
            // expensive row in it: on the Vulkan backend one carries its own VkDescriptorPool, a
            // frames x slots grid of descriptor sets, and one uniform/storage buffer object per block its
            // shader declares, each of which is itself frames x slots VkBuffers.
+           m_Accounting( ResourceOwnership::Take( ResourceKind::Material ) )
+    {
+        CachePropertyNames();
+    }
+
+    Material::Material( std::string&& debugName, const std::shared_ptr<Shader>& shader,
+                        const Core::Formats::ShaderProgramMeta* parameterSchema )
+         : m_MaterialExecutor(
+                Graphic::MaterialExecutor::Create( std::move( debugName ), shader, parameterSchema ) ),
            m_Accounting( ResourceOwnership::Take( ResourceKind::Material ) )
     {
         CachePropertyNames();
@@ -217,6 +231,12 @@ namespace Desert::Graphic
 
     void Material::ApplyInstanceOverrides( const MaterialInstance* instance )
     {
+        // No instance means the material drawn with its own values (Bind's parameter is a pointer for exactly
+        // that case): there is nothing to lay on top, and the defaults were already uploaded by Bind.
+        if ( instance == nullptr )
+        {
+            return;
+        }
         const auto& props = instance->GetPropertySet();
         for ( const auto& [name, prop] : props.GetProperties() )
         {

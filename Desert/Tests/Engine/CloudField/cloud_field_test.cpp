@@ -2745,19 +2745,22 @@ TEST( CloudFieldCut, TheShadersWeatherRemapIsTheCpus )
     EXPECT_LT( kept, body ) << "the weather removed nothing, so the comparison is vacuous";
 }
 
-// THE TWO INVARIANTS OF THE CUT, made in the bake per cluster and in the march per column (CUT-AT-BAKE):
-// zero at Coverage 0 (no cluster is baked) and GPU = CPU for the one remap both halves make.
+// THE TWO INVARIANTS OF THE CUT, the bake's Coverage threshold and the march's weather remap
+// (COVERAGE-FIELD): zero at Coverage 0 (no field is baked), the field itself at Coverage 1, and GPU = CPU for
+// the weather remap the march and the census share.
 // MUTATION: replace `( profile - ( 1.0f - g ) ) / g` by `profile` in CloudCoverRemap (Common/CloudField.glslh)
-// and the GPU = CPU rows go red; drop `if ( run <= 0.0f ) return 0.0f;` in CloudProceduralClusterReach and the
-// Coverage-0 rows go red.
+// and the GPU = CPU rows go red; drop `coverage <= 0.0f` in CloudProceduralCoverageRemap and the Coverage-0
+// rows go red.
 TEST( CloudFieldCut, NothingIsBakedAtCoverageZeroAndTheRemapIsOneOnBothSides )
 {
     using namespace Desert::Tests::CloudFieldRef;
 
-    for ( float rank : { 0.0f, 0.3f, 0.99f } )
-        EXPECT_EQ( Desert::Assets::CloudProceduralClusterReach( rank, 0.0f, 0.25f ), 0.0f )
-             << "rank " << rank << " was baked at Coverage 0";
-    EXPECT_EQ( Desert::Assets::CloudProceduralClusterReach( 0.0f, 1.0f, 0.25f ), 1.0f );
+    for ( float field : { 0.3f, 0.99f, 1.0f } )
+    {
+        EXPECT_EQ( Desert::Assets::CloudProceduralCoverageRemap( field, 0.0f ), 0.0f )
+             << "a field of " << field << " was baked at Coverage 0";
+        EXPECT_FLOAT_EQ( Desert::Assets::CloudProceduralCoverageRemap( field, 1.0f ), field );
+    }
 
     for ( float reach : { 0.0f, 0.1f, 0.5f, 1.0f, 1.5f } )
         for ( float profile : { 0.0f, 0.2f, 0.6f, 0.95f, 1.0f } )

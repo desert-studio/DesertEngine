@@ -1,0 +1,87 @@
+// WHERE A LANDSCAPE VERTEX IS — one statement shared by the raster vertex stage (TerrainVertex.glslh) and the
+// ray-tracing vertex compute (LandscapeRayTracingVertices.shader), so the BLAS a ray hits is the surface the
+// camera drew: same grid, same LOD, same morph, same height decode (UE evaluates its landscape vertex factory for
+// ray tracing the same way, FLandscapeRayTracingImpl). The includer declares `u_T` (its TerrainInstance row) and
+// `u_Heightmap` and includes LandscapeHeight.glslh and LandscapeLod.glslh first.
+#ifndef LANDSCAPE_VERTEX_EVAL_GLSLH
+#define LANDSCAPE_VERTEX_EVAL_GLSLH
+
+// One sample of this tile in centimetres above the root's base, x and z in [-1, last + 1]. The heightmap carries
+// a one-sample ring from the four neighbouring tiles (LandscapeBorderedSamples in LandscapeData.hpp), so texel
+// (x + 1, z + 1) is sample (x, z).
+float TileHeightCm( int x, int z )
+{
+    return LandscapeHeightCmFromSample( LandscapeSampleFromUnorm( texelFetch( u_Heightmap, ivec2( x + 1, z + 1 ), 0 ).r ),
+                                        u_T.LandscapeTile.w );
+}
+
+// 1 when this tile's neighbour on a side is loaded (its row is in the ring), 0 on the landscape's own edge.
+// Params2.w is LandscapeNeighbourMask: West, East, South, North in bits 0..3.
+float NeighbourPresent( int bit )
+{
+    return float( ( int( u_T.Params2.w + 0.5 ) >> bit ) & 1 );
+}
+
+// dh/dx, dh/dz at a sample — the CPU's GradientAt (LandscapeData.cpp), the same .glslh functions on the same
+// bordered samples. Central on a seam, so both tiles give it the same bits.
+vec2 TileGradient( int x, int z )
+{
+    float last    = u_T.LandscapeTile.z;
+    float xa      = LandscapeGradientLow( float( x ), NeighbourPresent( 0 ) );
+    float xb      = LandscapeGradientHigh( float( x ), last, NeighbourPresent( 1 ) );
+    float za      = LandscapeGradientLow( float( z ), NeighbourPresent( 2 ) );
+    float zb      = LandscapeGradientHigh( float( z ), last, NeighbourPresent( 3 ) );
+    float spacing = u_T.LandscapeFrame.w;
+    return vec2( LandscapeGradient( TileHeightCm( int( xa ), z ), TileHeightCm( int( xb ), z ), xb - xa, spacing ),
+                 LandscapeGradient( TileHeightCm( x, int( za ) ), TileHeightCm( x, int( zb ) ), zb - za, spacing ) );
+}
+
+// A grid vertex after its geomorph: the two grid samples it blends, by how much, and where it lands.
+struct LandscapeMorphedVertex
+{
+    int   X0;
+    int   Z0;
+    int   X1;
+    int   Z1;
+    float Morph;
+    vec2  Local;    // the sample coordinate within the tile (what the hole test and the weightmap read)
+    vec3  WorldPos; // cm
+};
+
+// The vertex at tile-local grid coordinate (ix, iz) of the tile's LOD grid. Everything that decides a vertex on
+// a shared tile edge is exact and symmetric: the tile-local coordinate is an integer, the edge's LOD is the same
+// max() on both sides, the snap keeps the last sample, the far column of one tile is the near column of the next.
+// So both tiles place the vertex at the same bits, and no crack can open between LODs either.
+LandscapeMorphedVertex LandscapeEvaluateVertex( int ix, int iz )
+{
+    int   iquads = int( u_T.LandscapeTile.z + 0.5 );
+    float lod    = LandscapeCalcLod( float( ix ), float( iz ), float( iquads ), u_T.Params.y, u_T.LodEdges,
+                                     u_T.LodCorners, u_T.Params2.x );
+    int   lodLo  = int( floor( lod ) );
+    int   stride = LandscapeLodStride( lodLo );
+
+    LandscapeMorphedVertex v;
+    v.Morph = lod - float( lodLo );
+    v.X0    = LandscapeLodSnap( ix, stride, iquads );
+    v.Z0    = LandscapeLodSnap( iz, stride, iquads );
+    v.X1    = LandscapeLodSnap( ix, stride * 2, iquads );
+    v.Z1    = LandscapeLodSnap( iz, stride * 2, iquads );
+    // Morph toward the next LOD's vertex. At morph 0 this is the sample itself, bit for bit — the vertex Jolt's
+    // heightfield has there.
+    float h = LandscapeLodMorph( TileHeightCm( v.X0, v.Z0 ), TileHeightCm( v.X1, v.Z1 ), v.Morph );
+    v.Local = vec2( LandscapeLodMorph( float( v.X0 ), float( v.X1 ), v.Morph ),
+                    LandscapeLodMorph( float( v.Z0 ), float( v.Z1 ), v.Morph ) );
+    vec2 worldXZ = u_T.LandscapeFrame.xz + ( u_T.LandscapeTile.xy + v.Local ) * u_T.LandscapeFrame.w;
+    v.WorldPos   = vec3( worldXZ.x, u_T.LandscapeFrame.y + h, worldXZ.y );
+    return v;
+}
+
+// dh/dx, dh/dz of the morphed vertex: the two grid samples' gradients, morphed like the position.
+vec2 LandscapeVertexGradient( LandscapeMorphedVertex v )
+{
+    vec2 d0 = TileGradient( v.X0, v.Z0 );
+    vec2 d1 = TileGradient( v.X1, v.Z1 );
+    return vec2( LandscapeLodMorph( d0.x, d1.x, v.Morph ), LandscapeLodMorph( d0.y, d1.y, v.Morph ) );
+}
+
+#endif // LANDSCAPE_VERTEX_EVAL_GLSLH

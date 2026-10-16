@@ -1,5 +1,6 @@
 #include "ReflectionCaptureRenderer.hpp"
 
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -176,7 +177,9 @@ namespace Desert::Graphic
         Camera                         View;
     };
 
-    ReflectionCaptureRenderer::ReflectionCaptureRenderer() = default;
+    ReflectionCaptureRenderer::ReflectionCaptureRenderer( const ResourceOwnerInstance scene ) : m_Scene( scene )
+    {
+    }
 
     ReflectionCaptureRenderer::~ReflectionCaptureRenderer() = default;
 
@@ -200,6 +203,9 @@ namespace Desert::Graphic
                                                         uint64_t                               environment )
     {
         m_FacesRenderedThisFrame = false;
+
+        const auto& frames = Engine::FrameManager::GetInstance();
+        m_RetiringFaces.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
 
         const uint32_t faceSize = ReflectionCaptureFaceSize();
         if ( !std::has_single_bit( faceSize ) )
@@ -255,9 +261,11 @@ namespace Desert::Graphic
                 // recaptures kept six views' worth of targets alive for nothing (measured on Bistro: the atlas,
                 // the cascades and the sky bake x7 instead of x1, 1.4 GB). UE's capture renderers are transient
                 // the same way. A recapture builds them again; their GPU objects go through the device's
-                // deferred deletion, so a frame still in flight that read a face keeps it until it retires.
+                // deferred deletion, but a view's pipelines are destroyed with it: the views are parked until every
+                // frame that can have recorded their passes has retired.
                 for ( std::unique_ptr<FaceView>& face : m_Faces )
-                    face.reset();
+                    if ( face )
+                        m_RetiringFaces.Park( std::move( face ), frames.GetAbsoluteFrameCount() );
                 return;
             }
             m_Pending            = static_cast<uint32_t>( next - m_Done.begin() );
@@ -272,8 +280,10 @@ namespace Desert::Graphic
             if ( !m_Faces[f] )
             {
                 m_Faces[f]           = std::make_unique<FaceView>();
+                // The face views render the SCENE's captures, not a viewer's picture: their rows are the scene's
+                // ("scene #N", RT-LEDGER-4), so a capture is in the scene's budget entry and in no view's.
                 m_Faces[f]->Renderer = std::make_unique<SceneRenderer>( ViewExtent{ faceSize, faceSize },
-                                                                        kReflectionCaptureViewProfile );
+                                                                        kReflectionCaptureViewProfile, m_Scene );
                 m_Faces[f]->Renderer->Init();
                 m_Faces[f]->Renderer->Resize( faceSize, faceSize );
             }
@@ -430,7 +440,12 @@ namespace Desert::Graphic
                                                     .Layers = 6u * cubes,
                                                     .Dim    = RDG::TextureDim::CubeArray },
                                   name );
-        graph.Extract( created, array.Texture, RDG::Access::SampledGraphics );
+        {
+            // THE ARRAY IS THE SCENE'S, whichever view's graph creates it: the extraction is attributed to the
+            // scene, and the backend's pool opens the array's ledger row under it (RDG::Builder::Extract).
+            const ResourceAttributionScope sceneScope( ResourceOwner::SceneRenderer, m_Scene );
+            graph.Extract( created, array.Texture, RDG::Access::SampledGraphics );
+        }
         array.Cubes    = cubes;
         array.FaceSize = faceSize;
         array.Built    = true;

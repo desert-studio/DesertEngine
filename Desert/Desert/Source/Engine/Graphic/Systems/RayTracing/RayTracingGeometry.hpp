@@ -5,8 +5,15 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <vector>
+
+namespace Desert::Graphic
+{
+    class IndexBuffer;
+    class VertexBuffer;
+} // namespace Desert::Graphic
 
 // THE BLAS BUILD INPUT OF A STATIC MESH (UE FRayTracingGeometryInitializer + its segments), device-free. One
 // geometry per submesh, all reading the mesh's ONE vertex buffer and ONE index buffer — the same buffers the
@@ -42,6 +49,11 @@ namespace Desert::Graphic::RayTracing
         // The submesh this geometry is: what a hit's geometry index maps back to (its material slot). Not the
         // segment's position, because a hidden submesh contributes no segment and shifts the ones after it.
         uint32_t SubmeshIndex = 0;
+        // OPAQUE: a hit is final (no any-hit). Not opaque: every candidate goes to the alpha test, once per
+        // primitive (NO_DUPLICATE_ANY_HIT) - a Masked section material (UE !bForceOpaque) or a landscape tile's cells
+        // that touch a hole; ray queries alpha-test its candidates (RayQueryVisibility.glslh).
+        bool Opaque                                               = true;
+        bool operator==( const RayTracingGeometrySegment& ) const = default;
     };
 
     // Is submesh @p index hidden by @p hiddenSubmeshes (MeshComponent::HiddenSubmeshes: bit i = submesh i hidden)?
@@ -49,6 +61,28 @@ namespace Desert::Graphic::RayTracing
     [[nodiscard]] constexpr bool IsSubmeshHidden( const uint64_t hiddenSubmeshes, const std::size_t index )
     {
         return index < 64u && ( hiddenSubmeshes >> index & 1ull ) != 0;
+    }
+
+    // WHAT A BLAS OF A MESH IS BUILT FROM BESIDES THE MESH (UE: the sections' bVisibleInRayTracing and each
+    // section material's blend mode, both baked into FRayTracingGeometry segments). Two BLASes of one mesh with
+    // equal masks are the same BLAS, so this is the key of every BLAS cache (variants, procedural, skin cache):
+    // a section whose material turns masked changes NonOpaque and so gets a BLAS built with that segment
+    // non-opaque. A submesh past the 64th is visible and opaque, as at draw.
+    struct RayTracingSubmeshMasks
+    {
+        uint64_t Hidden    = 0; // bit i = submesh i has no segment (MeshComponent::HiddenSubmeshes, other slots)
+        uint64_t NonOpaque = 0; // bit i = submesh i's segment runs the alpha test (its section material is Masked)
+
+        bool operator==( const RayTracingSubmeshMasks& ) const = default;
+    };
+
+    // Does @p submesh contribute a segment at all: at least one LOD-0 triangle and a vertex range. The one rule
+    // DescribeMeshGeometry and the gather's per-segment records both apply, so a hit's geometry index and its
+    // record agree.
+    [[nodiscard]] inline bool HasRayTracingSegment( const Submesh& submesh )
+    {
+        const uint32_t indexCount = submesh.LODs.empty() ? submesh.IndexCount : submesh.LODs[0].IndexCount;
+        return indexCount / 3u > 0 && submesh.VertexCount > 0;
     }
 
     // Every submesh with at least one triangle at LOD 0 that @p hiddenSubmeshes does not hide, in submesh order
@@ -71,21 +105,19 @@ namespace Desert::Graphic::RayTracing
                                                                      0u };
 
     [[nodiscard]] inline std::vector<RayTracingGeometrySegment>
-    DescribeMeshGeometry( std::span<const Submesh> submeshes, const uint64_t hiddenSubmeshes,
+    DescribeMeshGeometry( std::span<const Submesh> submeshes, const RayTracingSubmeshMasks& masks,
                           const RayTracingVertexLayout layout )
     {
         std::vector<RayTracingGeometrySegment> segments;
         segments.reserve( submeshes.size() );
         for ( std::size_t index = 0; index < submeshes.size(); ++index )
         {
-            if ( IsSubmeshHidden( hiddenSubmeshes, index ) )
+            const Submesh& submesh = submeshes[index];
+            if ( IsSubmeshHidden( masks.Hidden, index ) || !HasRayTracingSegment( submesh ) )
                 continue;
-            const Submesh& submesh     = submeshes[index];
             const uint32_t indexOffset = submesh.LODs.empty() ? submesh.IndexOffset : submesh.LODs[0].IndexOffset;
             const uint32_t indexCount  = submesh.LODs.empty() ? submesh.IndexCount : submesh.LODs[0].IndexCount;
             const uint32_t triangles   = indexCount / 3u;
-            if ( triangles == 0 || submesh.VertexCount == 0 )
-                continue;
 
             RayTracingGeometrySegment segment;
             segment.VertexFormat    = RayTracingVertexFormat::Float3;
@@ -97,25 +129,42 @@ namespace Desert::Graphic::RayTracing
             segment.IndexByteOffset = indexOffset * static_cast<uint32_t>( sizeof( uint32_t ) );
             segment.PrimitiveCount  = triangles;
             segment.SubmeshIndex    = static_cast<uint32_t>( index );
+            segment.Opaque          = !IsSubmeshHidden( masks.NonOpaque, index );
             segments.push_back( segment );
         }
         return segments;
     }
 
     [[nodiscard]] inline std::vector<RayTracingGeometrySegment>
-    DescribeStaticMeshGeometry( std::span<const Submesh> submeshes, const uint64_t hiddenSubmeshes )
+    DescribeStaticMeshGeometry( std::span<const Submesh> submeshes, const RayTracingSubmeshMasks& masks )
     {
-        return DescribeMeshGeometry( submeshes, hiddenSubmeshes, kStaticMeshVertexLayout );
+        return DescribeMeshGeometry( submeshes, masks, kStaticMeshVertexLayout );
     }
 
     // A skinned mesh's per-frame BLAS input (UE dynamic geometry): the same submesh rule over the skin pass's
     // packed positions, with the instance's own hidden mask — the BLAS is the instance's, so it can leave out what
-    // that instance hides.
+    // that instance hides and with its own sections' opacity.
     [[nodiscard]] inline std::vector<RayTracingGeometrySegment>
-    DescribeDeformedMeshGeometry( std::span<const Submesh> submeshes, const uint64_t hiddenSubmeshes )
+    DescribeDeformedMeshGeometry( std::span<const Submesh> submeshes, const RayTracingSubmeshMasks& masks )
     {
-        return DescribeMeshGeometry( submeshes, hiddenSubmeshes, kDeformedPositionLayout );
+        return DescribeMeshGeometry( submeshes, masks, kDeformedPositionLayout );
     }
+
+    // THE DEVICE-LEVEL BLAS INPUT OF ONE MESH (UE FRayTracingGeometryInitializer): the buffers a build reads and
+    // the segments over them (vertex stride, position offset and format, index type, per-segment ranges, opaque).
+    // The RenderCore builders take this and nothing above it; the side that knows the mesh fills it
+    // (Engine/Graphic/Render/RayTracingMeshInput.hpp), so the API layer never includes Mesh or SkinnedMesh.
+    struct RayTracingMeshInput
+    {
+        // The mesh's vertex buffer: what a static / procedural BLAS reads positions from, and what the skin pass
+        // reads for a deformed one (its BLAS reads the cached positions instead).
+        std::shared_ptr<VertexBuffer> Vertices;
+        std::shared_ptr<IndexBuffer>  Indices;
+        // Vertices in Vertices: a deformed BLAS sizes its cached positions by it (a static input leaves it 0).
+        uint32_t VertexCount = 0;
+        // Empty: nothing to build (no visible triangle, or a skinned mesh asked for a static BLAS).
+        std::vector<RayTracingGeometrySegment> Segments;
+    };
 
     // Which level an acceleration structure is. The ledger keeps the two under their own kinds (a mesh BLAS and a
     // view TLAS answer different questions), and this is the one place the level picks the kind.
@@ -139,6 +188,39 @@ namespace Desert::Graphic::RayTracing
         return ResourceOwnership::Take( kind, bytes );
     }
 
+    inline constexpr uint32_t kNoMetadataRecord = ~0u;
+
+    // A built BLAS as a ray query's hit sees it (RayTracingSceneMetadata.hpp): the vertex stream the attribute
+    // fetch reads (normal, UV), the index buffer the BLAS was built from, and its segments in BLAS geometry order.
+    // The attribute stream is the mesh's own vertex buffer (Desert::Vertex) for every kind: a deformed mesh's
+    // BLAS reads the skin cache's packed positions, which carry no UV, so its hits read UVs from the mesh's
+    // bind-pose stream through the same index buffer (UV does not deform), and state no normal (the bind-pose
+    // normal is not the deformed one).
+    struct RayTracingGeometryLayout
+    {
+        uint64_t                                   VertexAddress = 0; // the attribute stream
+        uint64_t                                   IndexAddress  = 0;
+        uint32_t                                   VertexStride  = 0; // bytes between two attribute-stream vertices
+        uint32_t                                   NormalOffset  = kNoMetadataRecord; // none = no normal
+        uint32_t                                   UvOffset      = kNoMetadataRecord; // none = no UV
+        std::span<const RayTracingGeometrySegment> Segments;
+    };
+
+    // The layout of a BLAS built over a mesh's own buffers: @p deformed = its positions came from the skin cache.
+    [[nodiscard]] inline RayTracingGeometryLayout
+    MeshAttributeLayout( const uint64_t vertexAddress, const uint64_t indexAddress,
+                         std::span<const RayTracingGeometrySegment> segments, const bool deformed )
+    {
+        RayTracingGeometryLayout layout;
+        layout.VertexAddress = vertexAddress;
+        layout.IndexAddress  = indexAddress;
+        layout.VertexStride  = static_cast<uint32_t>( sizeof( Vertex ) );
+        layout.NormalOffset  = deformed ? kNoMetadataRecord : static_cast<uint32_t>( offsetof( Vertex, Normal ) );
+        layout.UvOffset      = static_cast<uint32_t>( offsetof( Vertex, TexCoord ) );
+        layout.Segments      = segments;
+        return layout;
+    }
+
     // A built BLAS as the renderer sees it: the address a TLAS instance row points at. The API object behind it
     // (VulkanRayTracingGeometry) owns the acceleration structure and its storage and releases them on the
     // frame-retire rule when the last mesh reference drops.
@@ -149,5 +231,11 @@ namespace Desert::Graphic::RayTracing
 
         // VkAccelerationStructureInstanceKHR::accelerationStructureReference. Never 0 for a built resource.
         [[nodiscard]] virtual uint64_t GetDeviceAddress() const = 0;
+        // Bytes of the acceleration-structure storage this resource owns (the RT scene stats overlay; the
+        // ledger row of the same allocation is the census).
+        [[nodiscard]] virtual uint64_t GetMemoryBytes() const = 0;
+        // The buffers and segments this BLAS was built from (the metadata's geometry records). Valid while the
+        // resource holds its build; a resource with no build answers no segments.
+        [[nodiscard]] virtual RayTracingGeometryLayout GetMetadataLayout() const = 0;
     };
 } // namespace Desert::Graphic::RayTracing

@@ -43,8 +43,10 @@ TEST( ViewMemory, MainViewBytesPerPixelIsPinned )
 {
     // 56 scene targets (GBUF1: the shading word R32UI replaced the RGBA32F world position, -12; BISTRO-LOOK-3:
     // the word is RG32UI for UE's four CustomData floats, +4) + 4 velocity (TAA1, RG16F) + 72 post stack + 17.8
-    // half/quarter chains and fog + 9 clouds + 24 SSR + 24 GI.
-    EXPECT_NEAR( ViewBytesPerPixel( kSceneViewProfile, kW, kH ), 206.83, 0.01 );
+    // half/quarter chains and fog + 9 clouds + 46 SSR (SSR2: the trace and its hit points at half resolution, 2 +
+    // 4; DENOISE-CORE: the screen-space denoiser's reconstruction + output, 16, its history pair, 16, and their
+    // sample counts, 8) + 48 GI (the gather, 8, and the same denoiser, 40).
+    EXPECT_NEAR( ViewBytesPerPixel( kSceneViewProfile, kW, kH ), 252.83, 0.01 );
     // Four 2048 cascades (R32F + D24S8, 128 MiB) and the 512 RSM (6 MiB: its slot 2 is an unused colour slot with
     // no image — the DESERT_GBUFFER_RSM permutation writes no shading word — there is no RGBA32F position and no
     // velocity).
@@ -64,8 +66,10 @@ TEST( ViewMemory, PreviewIsSmallerThanMainByTheMeasuredAmount )
     const uint64_t preview = SumViewTargets( ViewTargetCensus( kPreviewViewProfile, kW, kH ) ).Total();
     ASSERT_GT( main, preview );
     // 96 B/px (SSR 48, GI 48) over 1920x1080 + (128 MiB - 8 MiB) of cascades + the 6 MiB RSM (the G-buffer's -12
-    // B/px is in both).
-    EXPECT_EQ( main - preview, 231653376u ) << "main " << main << " preview " << preview;
+    // B/px is in both), less SSR2's 2 B/px (the trace went from full to half resolution, 8 -> 2; its RGBA32F hit
+    // points joined it, 4), plus DENOISE-CORE's 48 B/px (SSR and GI each: the denoiser's 40 in place of a 16 B/px
+    // accumulation pair).
+    EXPECT_EQ( main - preview, 327038976u ) << "main " << main << " preview " << preview;
 }
 
 TEST( ViewMemory, ShadowRowsAgreeWithTheShadowBudgetSpelling )
@@ -314,10 +318,10 @@ namespace
 TEST( ShadowReallocation, ALevelViewportReallocatesOnlyWhenTheShadowsLevelChangesItsBudget )
 {
     // High is the budget the viewport is built with: nothing to re-allocate.
-    EXPECT_EQ( ShadowReallocation( kSceneViewProfile, ShadowLevel( 4, 2048, 15000, 1 ) ), std::nullopt );
+    EXPECT_EQ( ShadowReallocation( kSceneViewProfile, ShadowLevel( 4, 2048, 15000, 1 ), /*sunRayTraced*/ false ), std::nullopt );
 
     // Low: two cascades of 1024 over 60 m — exactly that budget, in centimetres.
-    const auto low = ShadowReallocation( kSceneViewProfile, ShadowLevel( 2, 1024, 6000, 2 ) );
+    const auto low = ShadowReallocation( kSceneViewProfile, ShadowLevel( 2, 1024, 6000, 2 ), /*sunRayTraced*/ false );
     if ( !low.has_value() )
         FAIL() << "the Low budget asks for no reallocation";
     EXPECT_EQ( low->CascadeCount, 2u );
@@ -327,18 +331,46 @@ TEST( ShadowReallocation, ALevelViewportReallocatesOnlyWhenTheShadowsLevelChange
     // Once the view holds Low, the same resolution asks for nothing more.
     ViewProfile held = kSceneViewProfile;
     held.Shadows     = *low;
-    EXPECT_EQ( ShadowReallocation( held, ShadowLevel( 2, 1024, 6000, 3 ) ), std::nullopt );
+    EXPECT_EQ( ShadowReallocation( held, ShadowLevel( 2, 1024, 6000, 3 ), /*sunRayTraced*/ false ), std::nullopt );
 }
 
 TEST( ShadowReallocation, APreviewAThumbnailAndAnUnpublishedQualityNeverReallocate )
 {
     const auto low = ShadowLevel( 2, 1024, 6000, 2 );
-    EXPECT_EQ( ShadowReallocation( kPreviewViewProfile, low ), std::nullopt );
-    EXPECT_EQ( ShadowReallocation( kThumbnailViewProfile, low ), std::nullopt );
+    EXPECT_EQ( ShadowReallocation( kPreviewViewProfile, low, /*sunRayTraced*/ false ), std::nullopt );
+    EXPECT_EQ( ShadowReallocation( kThumbnailViewProfile, low, /*sunRayTraced*/ false ), std::nullopt );
     // Generation 0: QualityState never published (a tool or a test host) — the view keeps its own budget,
     // not the all-zero values of an empty resolution.
-    EXPECT_EQ( ShadowReallocation( kSceneViewProfile, ShadowLevel( 0, 0, 0, 0 ) ), std::nullopt );
+    EXPECT_EQ( ShadowReallocation( kSceneViewProfile, ShadowLevel( 0, 0, 0, 0 ), /*sunRayTraced*/ false ), std::nullopt );
     EXPECT_TRUE( kSceneViewProfile.ShadowsFollowQuality );
     EXPECT_FALSE( kPreviewViewProfile.ShadowsFollowQuality );
     EXPECT_FALSE( kThumbnailViewProfile.ShadowsFollowQuality );
+}
+
+// THE SUN PATH IS PART OF THE BUDGET: a ray-traced sun keeps only the low-detail cascades (the
+// Shadows.RayTracedTranslucency* rows), a sun drawn with CascadedMaps - also a frame that fell back from the ray-traced
+// sun - the full Shadows rows; the local lights' atlas keeps Shadows.MapSize either way.
+TEST( ShadowReallocation, ARayTracedSunTakesTheLowDetailCascadesAndCascadedMapsTheFullOnes )
+{
+    using Common::Scalability::Parameter;
+    auto q = ShadowLevel( 4, 2048, 15000, 1 );
+    q.Values[static_cast<std::size_t>( Parameter::ShadowRayTracedTranslucencyCascades )] = 2;
+    q.Values[static_cast<std::size_t>( Parameter::ShadowRayTracedTranslucencyMapSize )]  = 1024;
+
+    EXPECT_EQ( ShadowReallocation( kSceneViewProfile, q, /*sunRayTraced*/ false ), std::nullopt );
+    const auto traced = ShadowReallocation( kSceneViewProfile, q, /*sunRayTraced*/ true );
+    if ( !traced.has_value() )
+        FAIL() << "a ray-traced sun keeps the full cascades";
+    EXPECT_EQ( traced->CascadeCount, 2u );
+    EXPECT_EQ( traced->ShadowMapSize, 1024u );
+    EXPECT_EQ( traced->LocalShadowMapSize, 2048u );
+
+    // Back to CascadedMaps from the low-detail budget: the full cascades again.
+    ViewProfile held = kSceneViewProfile;
+    held.Shadows     = *traced;
+    const auto full  = ShadowReallocation( held, q, /*sunRayTraced*/ false );
+    if ( !full.has_value() )
+        FAIL() << "a sun back on CascadedMaps keeps the low-detail cascades";
+    EXPECT_EQ( full->CascadeCount, 4u );
+    EXPECT_EQ( full->ShadowMapSize, 2048u );
 }

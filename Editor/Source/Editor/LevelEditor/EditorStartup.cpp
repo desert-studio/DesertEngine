@@ -30,6 +30,7 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Core/SceneAssetRoots.hpp>
@@ -224,6 +225,8 @@ namespace Desert::Editor
                    // has no builder.
                    Assets::SetTexturePlatformDataBuilder( &TextureImporter::BuildPlatformData );
                    Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
+                   // A mesh's distance field (UE: built beside the render data on a DDC miss, editor only).
+                   Assets::SetMeshDistanceFieldBuilder( &Assets::BuildMeshDistanceFieldBytes );
                    (void)m_ImportManager->ImportLooseTextures( SplashItems() );
                },
                kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); }, nullptr, 0 } );

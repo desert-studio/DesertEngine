@@ -8,13 +8,16 @@
 //
 // The payload is UE's: SubsurfaceColor.rgb in CustomData0..2, stored as its square root (UE
 // EncodeSubsurfaceColor / ExtractSubsurfaceColor, DeferredShadingCommon.ush) so the 8-bit field spends its steps
-// on the dark colours leaves are. The template writes sqrt(colour); the body squares it back.
+// on the dark colours leaves are. The template writes sqrt(colour); the body squares it back. CustomData3 is UE's
+// CustomData.a, the material's Opacity: the subsurface density a light's contact shadow fades with on a leaf
+// (UE GetShadowTerms, IsSubsurfaceModel; Common/ContactShadow.glslh).
 Guid 2293810725695897285;
 Payload
 {
     CustomData0 SubsurfaceColorR; // sqrt( SubsurfaceColor.r )
     CustomData1 SubsurfaceColorG; // sqrt( SubsurfaceColor.g )
     CustomData2 SubsurfaceColorB; // sqrt( SubsurfaceColor.b )
+    CustomData3 SubsurfaceOpacity; // UE CustomData.a = Opacity (1 = densest; 0 = the leaf takes no contact shadow)
 }
 Inputs
 {
@@ -22,6 +25,7 @@ Inputs
     Metallic;
     Roughness;
 }
+SubsurfaceOpacity CustomData3;
 
 #include <Mesh/BRDF.glslh>
 #include <Mesh/DirectLighting.glslh>

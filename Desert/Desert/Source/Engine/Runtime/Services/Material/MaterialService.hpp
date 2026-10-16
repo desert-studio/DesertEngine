@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetRootPin.hpp>
@@ -37,9 +38,13 @@ namespace Desert::Runtime
     // (Graphic::MeshShaderFor). Every template, the shipped lit surface included, is built the same way:
     // a DataDrivenMaterial of that cell, its row and textures applied from the asset. Null when the asset
     // has no template or the template has no such cell — logged with the material's name.
+    // @p permutation is the cell program's define set (a renderer-chosen axis, e.g. the ray-traced sun shadow):
+    // the material is built over ShaderService::AcquireVariant of the cell, so its descriptor sets are allocated
+    // from THAT program's reflection. Empty = the cell as registered.
     std::shared_ptr<Graphic::DataDrivenMaterial> CreateSurfaceMaterial( const Assets::MaterialAsset* asset,
                                                                         Graphic::MeshVertexPath      path,
-                                                                        Graphic::MeshPass            pass );
+                                                                        Graphic::MeshPass            pass,
+                                                                        const Core::ShaderVariant& permutation = {} );
 
     // (Re)apply a surface asset's parameters and textures onto a live runtime material built from it —
     // CreateSurfaceMaterial's own body, and what the editor and hot reload call on an edit.
@@ -158,6 +163,15 @@ namespace Desert::Runtime
         // GetVariant.
         Graphic::DataDrivenMaterial* GetViewVariant( const Graphic::Material* built, Graphic::MeshVertexPath path,
                                                      Graphic::MeshPass pass, uint32_t view ) const;
+
+        // The same cell as GetVariant, in a PERMUTATION of its program: the third axis of a sibling, keyed by
+        // (path, pass, defines). A renderer picks the permutation per frame (the ray-traced sun shadow reads a
+        // screen mask in place of the cascades, Pass_Forward DESERT_SUN_SHADOW_RAY_QUERY), and a permutation
+        // declares different resources, so it needs descriptor sets of its own — built on miss from the asset
+        // exactly as GetVariant's sibling is, owned beside it, edited and retired with it. A permutation with no
+        // defines IS GetVariant. Null on GetVariant's terms, or when the permutation does not compile (logged).
+        Graphic::DataDrivenMaterial* GetVariant( const Graphic::Material* built, Graphic::MeshVertexPath path,
+                                                 Graphic::MeshPass pass, const Core::ShaderVariant& permutation ) const;
 
         // Whether this runtime material came from a `.demat` this service holds. FALSE for a material a
         // renderer built for itself — the glass pass, the RSM pass, the instanced batch material, and
@@ -349,13 +363,20 @@ namespace Desert::Runtime
 
         mutable uint32_t                                              m_InvalidationVersion = 0;
         mutable std::unordered_map<Assets::AssetHandle, PathVariants> m_Materials;
-        // GetViewVariant's materials: per asset, one per (cell slot x view), built on first ask.
+        // GetViewVariant's and the permutation GetVariant's materials: per asset, one per (cell slot x view x
+        // defines), built on first ask. A permutation sibling is shared by every view (kEveryView).
+        static constexpr uint32_t kEveryView = ~0u;
         struct ViewVariant
         {
             size_t                                       Slot = 0;
-            uint32_t                                     View = 0;
+            uint32_t                                     View = kEveryView;
+            std::vector<std::string>                     Defines;
             std::shared_ptr<Graphic::DataDrivenMaterial> Material;
         };
+        // The one find-or-build behind GetViewVariant and the permutation GetVariant.
+        Graphic::DataDrivenMaterial* SiblingOf( const Graphic::Material* built, Graphic::MeshVertexPath path,
+                                                Graphic::MeshPass pass, uint32_t view,
+                                                const Core::ShaderVariant& permutation ) const;
         mutable std::unordered_map<Assets::AssetHandle, std::vector<ViewVariant>> m_ViewMaterials;
         // Mutable: discovery on a miss fills these from const lookups (Get, ShaderHandleOf, ...), which is a
         // cache fill, not a change of what the service answers.

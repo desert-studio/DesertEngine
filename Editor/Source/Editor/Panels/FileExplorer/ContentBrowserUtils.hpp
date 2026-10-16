@@ -21,6 +21,11 @@ namespace Desert::Editor::ContentBrowserUtils
     /// Opens @p path with the OS's default application (no-op on an unsupported platform).
     void ShellOpenDefault( const std::string& path );
 
+    /// Opens the text file @p path in the code editor at @p line (1-based; 0 = the top): VS Code when it is
+    /// installed (true), else the OS's default application for the file (false, so the caller can say the line
+    /// was not reached).
+    bool ShellOpenInCodeEditor( const std::string& path, int line );
+
     /// Opens Explorer/Finder with @p path selected in its parent (no-op on an unsupported platform).
     void ShellRevealInExplorer( const std::string& path );
 

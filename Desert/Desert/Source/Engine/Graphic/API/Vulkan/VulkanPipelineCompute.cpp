@@ -5,6 +5,7 @@
 
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
@@ -213,6 +214,13 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipeline );
         vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipelineLayout, 0, 1,
                                  &descriptorSet, 0, nullptr );
+        // The bindless table's set is the table's one live set, never one of this pipeline's (see EnsureBatchRing).
+        if ( const VulkanBindlessTextureTable* bindless = BindlessTableIn( m_Layouts ) )
+        {
+            const VkDescriptorSet table = bindless->GetDescriptorSet();
+            vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipelineLayout, kBindlessSetIndex,
+                                     1, &table, 0, nullptr );
+        }
 
         if ( !m_BoundPushConstants.empty() )
             vkCmdPushConstants( cmd, m_ComputePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
@@ -299,10 +307,13 @@ namespace Desert::Graphic::API::Vulkan
         // Pool sized from the CAPTURED layout's own bindings — the same contract the sets below are
         // allocated from — rather than from the shader's current reflection, which a recompile may have
         // moved on from since this pipeline was built.
+        // The bindless table's layout is left out: its set is the table's own (RecordDescriptorsAndDispatch),
+        // and its update-after-bind array would size this pool at the table's whole capacity.
+        const VulkanBindlessTextureTable* bindless = BindlessTableIn( m_Layouts );
         std::unordered_map<int, uint32_t> countsByType;
         for ( const auto& layout : m_Layouts )
         {
-            if ( !layout )
+            if ( !layout || ( bindless != nullptr && layout == bindless->GetLayout() ) )
                 continue;
             for ( const auto& binding : layout->Bindings() )
                 countsByType[static_cast<int>( binding.descriptorType )] += binding.descriptorCount;

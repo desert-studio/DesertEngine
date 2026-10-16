@@ -99,7 +99,7 @@ namespace Desert::Graphic
         // one zeroed row (LightPayloadBytes, the rule the deferred composite's upload follows too). The consumer
         // loops 0..count with the count below, so the row is never read; skipping the write instead left the
         // buffer unfilled by either route, and a lit forward pass with no point light in the scene
-        // ("Deferred: Skinned" over StandardSurface/Skinned.Forward) was refused at setup.
+        // (the skinned forward draw over StandardSurface/Skinned.Forward) was refused at setup.
         if ( auto* sb =
                   material->Get<StorageBufferProperty>( Desert::Graphic::ShaderProtocols::PointLight::Name ) )
         {
@@ -129,12 +129,17 @@ namespace Desert::Graphic
             ub->SetRawData( reinterpret_cast<const std::byte*>( &counts ), sizeof( counts ) );
     }
 
-    /// The cascaded directional shadow maps (R32F light-space depth) and their per-cascade light
-    /// view-projections, enable flag and debug switches — the `ShadowUB` block plus u_ShadowMap0..3. No depth
-    /// bias: the casters wrote it into the maps (Graphic::CascadeCasterBias), so Params.x is reserved, 0.
+    /// The cascaded directional shadow maps (D32F light-space depth) and their per-cascade light
+    /// view-projections, enable flag and debug switches — the `ShadowUB` block plus the u_ShadowCascades array. No
+    /// depth bias: the casters wrote it into the maps (Graphic::CascadeCasterBias). Params.x is the sun's
+    /// tan(SourceAngle / 2) and CascadeDepthRange each cascade's depth span: the soft shadow's penumbra
+    /// (Mesh/CascadedShadow.glslh). The same block carries the view's contact shadows
+    /// (Common/ContactShadow.glslh).
     inline void SceneShadowBind( Material* material, const glm::mat4* cascadeViewProj, uint32_t numCascades,
                                  bool enabled, int debugMode, bool showNormals,
-                                 const glm::vec4& cascadeWorldPerTexel, bool lightingDebug )
+                                 const glm::vec4& cascadeWorldPerTexel, const glm::vec4& cascadeDepthRange,
+                                 float sourceTanHalf, bool lightingDebug,
+                                 const SceneResources::ContactShadowSettings& contact )
     {
         if ( material == nullptr || cascadeViewProj == nullptr )
             return;
@@ -151,10 +156,12 @@ namespace Desert::Graphic
         const uint32_t n = numCascades < kMaxCascades ? numCascades : kMaxCascades;
         for ( uint32_t i = 0; i < kMaxCascades; ++i )
             data.LightViewProj[i] = ( i < n ) ? cascadeViewProj[i] : glm::mat4( 1.0f );
-        data.Params =
-             glm::vec4( 0.0f, enabled ? 1.0f : 0.0f, static_cast<float>( debugMode ), static_cast<float>( n ) );
+        data.Params            = glm::vec4( sourceTanHalf, enabled ? 1.0f : 0.0f, static_cast<float>( debugMode ),
+                                            static_cast<float>( n ) );
         data.DebugParams       = glm::vec4( showNormals ? 1.0f : 0.0f, lightingDebug ? 1.0f : 0.0f, 0.0f, 0.0f );
         data.CascadeTexelWorld = cascadeWorldPerTexel;
+        data.CascadeDepthRange = cascadeDepthRange;
+        SceneResources::PackContactShadow( data, contact );
 
         if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kShadowBlockName ) )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );

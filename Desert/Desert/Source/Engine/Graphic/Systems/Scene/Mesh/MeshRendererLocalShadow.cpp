@@ -8,29 +8,10 @@
 
 namespace Desert::Graphic::System
 {
+    using MeshRendererDetail::SignatureHash;
+
     namespace
     {
-        // FNV-1a over raw bytes: the cache key only has to change when what was drawn changes.
-        struct SignatureHash
-        {
-            uint64_t Value = 1469598103934665603ull;
-
-            void Bytes( const void* data, const std::size_t size )
-            {
-                const auto* bytes = static_cast<const unsigned char*>( data );
-                for ( std::size_t i = 0; i < size; ++i )
-                {
-                    Value ^= bytes[i];
-                    Value *= 1099511628211ull;
-                }
-            }
-            template <typename T>
-            void Add( const T& value )
-            {
-                Bytes( &value, sizeof( T ) );
-            }
-        };
-
         // Does the world box of a caster reach into the sphere?
         [[nodiscard]] bool BoxInSphere( const Common::Math::AABB& box, const glm::vec3& centre,
                                         const float radius )
@@ -83,6 +64,9 @@ namespace Desert::Graphic::System
                 continue;
             hash.Add( rd.Mesh );
             hash.Add( rd.Transform );
+            // One entry per section material: which submeshes it casts, and through which slot's route.
+            hash.Add( rd.HiddenSubmeshes );
+            hash.Add( rd.SectionSlot );
         }
         for ( const auto& g : m_GenericQueue )
         {
@@ -116,7 +100,10 @@ namespace Desert::Graphic::System
                 any = true;
             }
             if ( any )
+            {
                 hash.Add( ism.Mesh );
+                hash.Add( ism.HiddenSubmeshes );
+            }
         }
         return hash.Value;
     }
@@ -138,7 +125,7 @@ namespace Desert::Graphic::System
 
         // A renderer with no shadow budget has no caster pipeline (SetupShadowPass), and a view with shadows off
         // draws none: the lights are then unshadowed, exactly as the sun is.
-        const uint32_t atlasSide = LocalShadowAtlasSize( m_Shadow.ShadowMapSize );
+        const uint32_t atlasSide = LocalShadowAtlasSize( m_Shadow.LocalShadowMapSize );
         if ( !m_ShadowsEnabled || !m_ShadowPipeline || atlasSide < kMinLocalShadowTile )
             return;
 
@@ -214,16 +201,14 @@ namespace Desert::Graphic::System
         {
             FramebufferSpecification spec;
             spec.DebugName = "LocalShadowAtlas";
-            spec.Attachments.Attachments.emplace_back( ViewTargetFormats::kShadowColor );
+            // Depth only, like the cascades: the receivers sample the D32F attachment itself.
             spec.Attachments.Attachments.emplace_back( ViewTargetFormats::kShadowDepth );
             m_LocalAtlasFB = Graphic::Framebuffer::Create( spec );
             m_LocalAtlasFB->Resize( atlasSide, atlasSide );
             m_LocalAtlas.Reset( atlasSide );
-            LOG_INFO(
-                 "[Shadows] local-light shadow atlas {}x{}: {} MiB (R32F depth + D24S8)", atlasSide, atlasSide,
-                 ( Core::Formats::CalculateImageSize( atlasSide, atlasSide, ViewTargetFormats::kShadowColor ) +
-                   Core::Formats::CalculateImageSize( atlasSide, atlasSide, ViewTargetFormats::kShadowDepth ) ) /
-                      ( 1024ull * 1024ull ) );
+            LOG_INFO( "[Shadows] local-light shadow atlas {}x{}: {} MiB (D32F depth)", atlasSide, atlasSide,
+                      Core::Formats::CalculateImageSize( atlasSide, atlasSide, ViewTargetFormats::kShadowDepth ) /
+                           ( 1024ull * 1024ull ) );
         }
 
         uint32_t refused = 0;

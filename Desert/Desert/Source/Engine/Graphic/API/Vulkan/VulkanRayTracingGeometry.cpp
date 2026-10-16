@@ -2,7 +2,6 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingGeometry.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
-#include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
@@ -13,25 +12,23 @@ namespace Desert::Graphic::API::Vulkan
 {
 
     Common::ResultStr<std::shared_ptr<VulkanRayTracingGeometry>>
-    VulkanRayTracingGeometry::BuildStatic( Mesh& mesh, const uint64_t hiddenSubmeshes )
+    VulkanRayTracingGeometry::BuildStatic( const RayTracing::RayTracingMeshInput& input )
     {
 
         const auto logical = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
         if ( !logical )
             return Common::MakeError<std::shared_ptr<VulkanRayTracingGeometry>>( "BLAS build: no Vulkan device" );
         const RayTracingDeviceFunctions& functions = logical->GetRayTracingFunctions();
-        if ( !functions.Complete() || mesh.IsSkinned() )
+        if ( !functions.Complete() || input.Segments.empty() )
             return Common::MakeSuccess( std::shared_ptr<VulkanRayTracingGeometry>{} );
 
-        const auto vertexBuffer = SP_CAST( VulkanVertexBuffer, mesh.GetVertexBuffer() );
-        const auto indexBuffer  = SP_CAST( VulkanIndexBuffer, mesh.GetIndexBuffer() );
+        const auto vertexBuffer = SP_CAST( VulkanVertexBuffer, input.Vertices );
+        const auto indexBuffer  = SP_CAST( VulkanIndexBuffer, input.Indices );
         if ( !vertexBuffer || !indexBuffer || vertexBuffer->GetVulkanBuffer() == VK_NULL_HANDLE ||
              indexBuffer->GetVulkanBuffer() == VK_NULL_HANDLE )
             return Common::MakeSuccess( std::shared_ptr<VulkanRayTracingGeometry>{} );
 
-        const auto segments = RayTracing::DescribeStaticMeshGeometry( mesh.GetSubmeshes(), hiddenSubmeshes );
-        if ( segments.empty() )
-            return Common::MakeSuccess( std::shared_ptr<VulkanRayTracingGeometry>{} );
+        const std::vector<RayTracing::RayTracingGeometrySegment>& segments = input.Segments;
 
         const VkDevice             device = logical->GetVulkanLogicalDevice();
         const VulkanBlasBuildInput input =
@@ -49,6 +46,9 @@ namespace Desert::Graphic::API::Vulkan
 
         auto geometry       = std::make_shared<VulkanRayTracingGeometry>();
         geometry->m_Destroy = functions.DestroyAccelerationStructure;
+        geometry->m_Segments      = segments;
+        geometry->m_VertexAddress = functions.BufferAddress( device, vertexBuffer->GetVulkanBuffer() );
+        geometry->m_IndexAddress  = functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() );
 
         const auto storage = allocator->RT_AllocateBuffer(
              "BLAS",

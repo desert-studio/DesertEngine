@@ -47,6 +47,10 @@ namespace
         {
             return m_Storage;
         }
+        uint64_t GetMemoryBytes() const override
+        {
+            return m_Storage.Desc.Bytes;
+        }
         Common::BoolResultStr RecordBuild( const PassContext&, const BufferBinding&, const BufferBinding&,
                                            uint32_t ) override
         {
@@ -64,6 +68,14 @@ namespace
         [[nodiscard]] uint64_t GetDeviceAddress() const override
         {
             return 0xABCD0000ull;
+        }
+        [[nodiscard]] RayTracingGeometryLayout GetMetadataLayout() const override
+        {
+            return {};
+        }
+        [[nodiscard]] uint64_t GetMemoryBytes() const override
+        {
+            return 4096;
         }
     };
 
@@ -91,7 +103,7 @@ TEST( RayTracingScenePass, GateOffDeclaresNothing )
     const FakeGeometry geometry;
     FakeTarget         target;
     Builder            graph( "RayTracingScene.Off" );
-    const auto         frame = AddRayTracingScenePass( graph, false, OneInstance( geometry ), target );
+    const auto         frame = AddRayTracingScenePass( graph, false, OneInstance( geometry ), target, {} );
     ASSERT_TRUE( frame.IsSuccess() ) << frame.GetError();
     EXPECT_FALSE( frame.GetValue().Built );
     EXPECT_EQ( target.PreparedFor, ~0u );
@@ -107,7 +119,7 @@ TEST( RayTracingScenePass, GateOnWritesTheTlasAndLivesWithAReader )
     const FakeGeometry geometry;
     FakeTarget         target;
     Builder            graph( "RayTracingScene.On" );
-    const auto         frame = AddRayTracingScenePass( graph, true, OneInstance( geometry ), target );
+    const auto         frame = AddRayTracingScenePass( graph, true, OneInstance( geometry ), target, {} );
     ASSERT_TRUE( frame.IsSuccess() ) << frame.GetError();
     ASSERT_TRUE( frame.GetValue().Built );
     EXPECT_EQ( target.PreparedFor, 1u );

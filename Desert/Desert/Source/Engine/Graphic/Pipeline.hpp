@@ -66,8 +66,12 @@ namespace Desert::Graphic
         // below because a `VkPipeline` from a graphics pass and one from a compute dispatch are different
         // populations to both consumers (eviction never touches either; device-loss recovery rebuilds them
         // by different routes).
+        // DEVICE-OWNED AT CREATION (RT-LEDGER-4): a VkPipeline is compiled device state keyed by its
+        // shader and pass, shared by whatever draws with it; a view scope open around a lazy build must not
+        // make it that view's row. It carries no bytes, so no view's budget loses anything by this.
         explicit IPipeline( const ResourceKind kind ) : m_Accounting( ResourceOwnership::Take( kind ) )
         {
+            m_Accounting.Claim( ResourceOwner::Device );
         }
 
         // EVERY BUILT PIPELINE IS FINDABLE (RebuildPipelinesBehindTheirShader): a pipeline a renderer built once

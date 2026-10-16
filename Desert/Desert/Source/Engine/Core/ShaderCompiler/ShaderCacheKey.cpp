@@ -3,6 +3,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <Engine/Core/ShaderCompiler/BindlessSetIndex.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderTarget.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
@@ -31,10 +32,12 @@ namespace Desert::Core
         // that hashes a stage without that header; the fingerprint names the language version outright.
         // The target environment is ShaderTarget.hpp's (the oldest accepted device), named from that constant so
         // raising the minimum moves every key without a hand edit here.
+        // v3 (BINDLESS-TEX): every stage is compiled with DESERT_BINDLESS_SET defined; its value is mixed in
+        // right after the fingerprint (MixCompileOptions), so moving the set index moves every key.
         const std::string& OptionsFingerprint()
         {
             static const std::string fingerprint =
-                 std::format( "vulkan{}.{}|glsl460|v2", VK_API_VERSION_MAJOR( kShaderTargetApiVersion ),
+                 std::format( "vulkan{}.{}|glsl460|v3", VK_API_VERSION_MAJOR( kShaderTargetApiVersion ),
                               VK_API_VERSION_MINOR( kShaderTargetApiVersion ) );
             return fingerprint;
         }
@@ -46,6 +49,13 @@ namespace Desert::Core
                 h ^= c;
                 h *= kFnvPrime;
             }
+        }
+
+        // The compile options every stage shares: the fingerprint and the engine-wide defines ShaderCompiler adds.
+        void MixCompileOptions( uint64_t& key )
+        {
+            FnvMix( key, OptionsFingerprint() );
+            FnvMix( key, std::format( "|{}={}", kBindlessSetDefine, kBindlessSetIndex ) );
         }
 
         // The include walk, shared by the collector and the hash. `visited` carries across the whole
@@ -275,7 +285,7 @@ namespace Desert::Core
                                               const ShaderVariant& variant )
     {
         uint64_t key = kFnvOffset;
-        FnvMix( key, OptionsFingerprint() );
+        MixCompileOptions( key );
         if ( spirvDebugInfo )
         {
             FnvMix( key, "|debuginfo" ); // debug info changes the binary — keep configs apart
@@ -322,7 +332,7 @@ namespace Desert::Core
         (void)ShadingModels::ShaderRootShadingModels(); // writes the generated include before the walk reads it
         uint64_t key = kFnvOffset;
         FnvMix( key, "shadermap|" );
-        FnvMix( key, OptionsFingerprint() );
+        MixCompileOptions( key );
         FnvMix( key, spirvDebugInfo ? "|debuginfo" : "|nodebuginfo" );
         FnvMix( key, "|pass:" );
         // ONE KEY PER CELL: a surface template's default cell and its default program are one program

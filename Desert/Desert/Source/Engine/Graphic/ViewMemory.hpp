@@ -69,14 +69,21 @@ namespace Desert::Graphic
     inline constexpr ViewProfile kReflectionCaptureViewProfile{
          kPreviewShadowQuality, true, false, false, false, false, true };
 
-    // THE SHADOW BUDGET OF A QUALITY RESOLUTION — the three Shadows rows of the Scalability table, in the units
-    // ShadowQuality holds them (centimetres for the distance, like the table).
-    [[nodiscard]] inline ShadowQuality ShadowQualityOf( const Common::Scalability::ResolvedQuality& quality )
+    // THE SHADOW BUDGET OF A QUALITY RESOLUTION — the Shadows rows of the Scalability table, in the units
+    // ShadowQuality holds them (centimetres for the distance, like the table). `sunRayTraced` = the view's Shadows
+    // method resolves to HardwareTraced: the sun's cascades are then only the low-detail ones the blended
+    // programs sample (Shadows.RayTracedTranslucencyCascades / .RayTracedTranslucencyMapSize); the local lights'
+    // atlas keeps Shadows.MapSize either way.
+    [[nodiscard]] inline ShadowQuality ShadowQualityOf( const Common::Scalability::ResolvedQuality& quality,
+                                                        const bool                                  sunRayTraced )
     {
         using Common::Scalability::Parameter;
-        return ShadowQuality{ quality.As<uint32_t>( Parameter::ShadowCascades ),
-                              quality.As<uint32_t>( Parameter::ShadowMapSize ),
-                              quality.As<float>( Parameter::ShadowDistance ) };
+        const auto mapSize = quality.As<uint32_t>( Parameter::ShadowMapSize );
+        return ShadowQuality{ sunRayTraced ? quality.As<uint32_t>( Parameter::ShadowRayTracedTranslucencyCascades )
+                                           : quality.As<uint32_t>( Parameter::ShadowCascades ),
+                              sunRayTraced ? quality.As<uint32_t>( Parameter::ShadowRayTracedTranslucencyMapSize )
+                                           : mapSize,
+                              quality.As<float>( Parameter::ShadowDistance ), mapSize };
     }
 
     // THE RE-ALLOCATION RULE (UE re-creates its shadow depth targets when r.Shadow.* changes): the budget a
@@ -85,11 +92,12 @@ namespace Desert::Graphic
     // (Generation 0: a tool or test host that did not initialise it) is not a level, so the view keeps its own.
     // Pure, so the rule is tested without a device; SceneRenderer calls it when the quality generation moves.
     [[nodiscard]] inline std::optional<ShadowQuality>
-    ShadowReallocation( const ViewProfile& profile, const Common::Scalability::ResolvedQuality& quality )
+    ShadowReallocation( const ViewProfile& profile, const Common::Scalability::ResolvedQuality& quality,
+                        const bool sunRayTraced )
     {
         if ( !profile.ShadowsFollowQuality || quality.Generation == 0 )
             return std::nullopt;
-        const ShadowQuality wanted = ShadowQualityOf( quality );
+        const ShadowQuality wanted = ShadowQualityOf( quality, sunRayTraced );
         if ( wanted == profile.Shadows )
             return std::nullopt;
         return wanted;
@@ -232,7 +240,7 @@ namespace Desert::Graphic
     // constructs, and every scene system and panel between Init and the first frame reaches those systems,
     // so "not built yet" would become a state all of them had to handle. 64 keeps every derived target
     // non-empty with room to spare (the smallest divisor in the census is 1/4 and
-    // bloom's 6-level chain starts at 32 px) for 0.8 MiB of view-scaled targets.
+    // bloom's 6-level chain starts at 32 px) for 0.99 MiB of view-scaled targets.
     inline constexpr ViewExtent kUnsizedViewExtent{ 64, 64 };
 
     struct ViewTarget
@@ -371,13 +379,27 @@ namespace Desert::Graphic
         }
         if ( profile.ScreenSpaceReflections )
         {
-            add( { "SSR.Trace", "SceneRenderer.cpp", F::kSSRTrace, width, height } );
-            add( { "SSR.Accum x2", "SSRRenderer.hpp", F::kSSRAccum, width, height, 1, 2 } );
+            add( { "SSR.Trace", "SSRRenderer.hpp", F::kSSRTrace, Div( width, 2 ), Div( height, 2 ) } );
+            add( { "SSR.TraceRay", "SSRRenderer.hpp", F::kSSRTraceRay, Div( width, 2 ), Div( height, 2 ) } );
+            // ScreenSpaceDenoiser::DenoiseReflections: reconstruction + output (transients), the
+            // history pair (accumulation + sample count, two slots).
+            add( { "SSD.Reflections.Signal+Output", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height,
+                   1, 2 } );
+            add( { "SSD.Reflections.History x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height, 1,
+                   2 } );
+            add( { "SSD.Reflections.History.Count x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSampleCount, width,
+                   height, 1, 2 } );
         }
         if ( profile.GlobalIllumination )
         {
             add( { "GI.Gather", "SceneRendererFrameDeferred.cpp", F::kGIResolve, width, height } );
-            add( { "GI.Accum x2", "GIResolveRenderer.hpp", F::kGIAccum, width, height, 1, 2 } );
+            // ScreenSpaceDenoiser::DenoiseDiffuseIndirect: reconstruction + output, the history pair.
+            add( { "SSD.Diffuse.Signal+Output", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height, 1,
+                   2 } );
+            add( { "SSD.Diffuse.History x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height, 1,
+                   2 } );
+            add( { "SSD.Diffuse.History.Count x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSampleCount, width,
+                   height, 1, 2 } );
             // SceneRenderer::kRSMResolution = 512, one row per attachment WITH AN IMAGE: they mirror the
             // G-buffer's formats, which need not all be the same. Colour slot 2 is an unused slot (no image, no
             // row).
@@ -395,11 +417,11 @@ namespace Desert::Graphic
             // MeshRenderer::SetupShadowPass — see ShadowAttachmentBytes.
             const uint32_t s = profile.Shadows.ShadowMapSize;
             const uint32_t n = profile.Shadows.CascadeCount;
-            ViewTarget     color{ "ShadowCascades.Color", "MeshRenderer.cpp", F::kShadowColor, s, s, 1, n };
             ViewTarget     depth{ "ShadowCascades.Depth", "MeshRenderer.cpp", F::kShadowDepth, s, s, 1, n };
-            color.ScalesWithView = depth.ScalesWithView = false;
-            add( color );
+            ViewTarget     cache{ "ShadowCascades.StaticCache", "MeshRenderer.cpp", F::kShadowDepth, s, s, 1, n };
+            depth.ScalesWithView = cache.ScalesWithView = false;
             add( depth );
+            add( cache );
         }
         return rows;
     }
@@ -430,7 +452,8 @@ namespace Desert::Graphic
         return static_cast<double>( totals.ViewScaledBytes ) / ( static_cast<double>( width ) * height );
     }
 
-    /// The census as a table, largest first — what the suite prints and the renderer logs once per build.
+    /// The FORECAST as a table, largest first — what the ViewMemory suite prints. The renderer logs the view's
+    /// MEASURED ledger rows instead (FormatViewLedgerMemory, RT-LEDGER-3); this forecast only admits a new view.
     [[nodiscard]] inline std::string FormatViewTargetCensus( std::vector<ViewTarget> rows, const uint32_t width,
                                                              const uint32_t height )
     {

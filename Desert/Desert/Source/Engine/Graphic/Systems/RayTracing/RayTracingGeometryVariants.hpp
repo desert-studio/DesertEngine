@@ -14,12 +14,16 @@ namespace Desert
     class Mesh;
 }
 
-// THE BLAS OF A MESH THAT HIDES SOME SUBMESHES. UE keeps one BLAS per LOD and hides sections per instance through
-// the hit group; an inline ray query has no hit group to ignore a segment, so the exact equivalent is a BLAS built
-// without the hidden segments (DescribeStaticMeshGeometry already leaves them out). One variant per (mesh, hidden
-// mask), built on the first frame a row asks for it and shared by every row with that mask; a variant no row
-// asked for this frame is dropped at EndFrame. Dropping is safe while a frame in flight still traces it: the API
-// object releases its acceleration structure and storage on the frame-retire ring (~VulkanRayTracingGeometry).
+// THE BLAS OF A MESH THAT HIDES SOME SUBMESHES OR HAS A MASKED SECTION. UE keeps one BLAS per LOD and hides
+// sections per instance through the hit group; an inline ray query has no hit group to ignore a segment, so the
+// exact equivalent is a BLAS built without the hidden segments (DescribeStaticMeshGeometry already leaves them
+// out). A segment's opacity is a BLAS build flag (UE bakes each section's blend mode into its segment the same
+// way), and the uploader builds the mesh's own BLAS all opaque, so a row whose section material is Masked traces a
+// variant too. One variant per (mesh, RayTracingSubmeshMasks), built on the first frame a row asks for it and
+// shared by every row with those masks: a section whose material changes blend mode changes the key and so gets
+// its own build. A variant no row asked for this frame is dropped at EndFrame. Dropping is safe while a frame in
+// flight still traces it: the API object releases its acceleration structure and storage on the frame-retire ring
+// (~VulkanRayTracingGeometry).
 //
 // A variant exists only for a mesh that has its own BLAS (Mesh::GetRayTracingGeometry): a mesh with none (not
 // resident, no ray-tracing device, a kind the uploader builds none for) traces nothing, hidden or not.
@@ -28,21 +32,22 @@ namespace Desert::Graphic::RayTracing
     class RayTracingGeometryVariants
     {
     public:
-        // Builds the BLAS of @p mesh without the @p hiddenMask submeshes. Null value: no BLAS by design (the
-        // device traces no ray, nothing left to build). Tests inject a fake; production is MakeVariantBuild().
-        using BuildFn =
-             std::function<Common::ResultStr<std::shared_ptr<RayTracingGeometryResource>>( Mesh&, uint64_t )>;
+        // Builds the BLAS of @p mesh without the masks' hidden submeshes and with their non-opaque segments. Null
+        // value: no BLAS by design (the device traces no ray, nothing left to build). Tests inject a fake;
+        // production is MakeVariantBuild().
+        using BuildFn = std::function<Common::ResultStr<std::shared_ptr<RayTracingGeometryResource>>(
+             Mesh&, const RayTracingSubmeshMasks& )>;
 
         explicit RayTracingGeometryVariants( BuildFn build ) : m_Build( std::move( build ) )
         {
         }
 
-        // Mask 0: the mesh's own BLAS. Otherwise the (mesh, mask) variant of the mesh's CURRENT buffers (a
+        // No mask set: the mesh's own BLAS. Otherwise the (mesh, masks) variant of the mesh's CURRENT buffers (a
         // re-uploaded mesh gets a new variant, never the old one). Null value: the mesh has no BLAS. Error: the
         // build failed — answered once; the variant then stays empty (null) until the mesh's buffers change, so
-        // the caller logs one line per (mesh, mask) and counts the row as NoGeometry every frame.
-        [[nodiscard]] Common::ResultStr<const RayTracingGeometryResource*> Resolve( Mesh&    mesh,
-                                                                                    uint64_t hiddenMask );
+        // the caller logs one line per (mesh, masks) and counts the row as NoGeometry every frame.
+        [[nodiscard]] Common::ResultStr<const RayTracingGeometryResource*>
+        Resolve( Mesh& mesh, const RayTracingSubmeshMasks& masks );
 
         // Drops every variant no Resolve asked for since the previous EndFrame.
         void EndFrame();
@@ -51,12 +56,21 @@ namespace Desert::Graphic::RayTracing
         {
             return m_Variants.size();
         }
+        // Storage bytes of the live variants (stats overlay).
+        [[nodiscard]] uint64_t GetMemoryBytes() const
+        {
+            uint64_t bytes = 0;
+            for ( const auto& item : m_Variants )
+                if ( item.second.Geometry )
+                    bytes += item.second.Geometry->GetMemoryBytes();
+            return bytes;
+        }
 
     private:
         struct Key
         {
-            const Mesh* MeshPtr = nullptr;
-            uint64_t    Hidden  = 0;
+            const Mesh*            MeshPtr = nullptr;
+            RayTracingSubmeshMasks Masks;
 
             bool operator==( const Key& ) const = default;
         };
@@ -65,7 +79,8 @@ namespace Desert::Graphic::RayTracing
             std::size_t operator()( const Key& key ) const noexcept
             {
                 return std::hash<const void*>{}( key.MeshPtr ) ^
-                       ( std::hash<uint64_t>{}( key.Hidden ) * 0x9E3779B97F4A7C15ull );
+                       ( std::hash<uint64_t>{}( key.Masks.Hidden ) * 0x9E3779B97F4A7C15ull ) ^
+                       ( std::hash<uint64_t>{}( key.Masks.NonOpaque ) * 0xC2B2AE3D27D4EB4Full );
             }
         };
         struct Variant
@@ -83,7 +98,7 @@ namespace Desert::Graphic::RayTracing
     };
 
     // The production build: the API's blocking BLAS build of the mesh's resident buffers
-    // (VulkanRayTracingGeometry:: BuildStatic with the hidden mask). Defined with the API object
+    // (VulkanRayTracingGeometry::BuildStatic with the masks). Defined with the API object
     // (RayTracingSceneRenderer.cpp).
     [[nodiscard]] RayTracingGeometryVariants::BuildFn MakeVariantBuild();
 } // namespace Desert::Graphic::RayTracing

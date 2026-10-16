@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingBuildInput.hpp>
-#include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
+#include <Engine/Graphic/Systems/RayTracing/SkinnedRayTracingGeometry.hpp>
 
 #include <VulkanAllocator/vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -20,7 +20,7 @@ namespace Desert::Graphic
 // across frames; the BLAS is recreated only when the mesh's buffers or the hidden mask change, and every other frame the BLAS is REFIT in place (UE
 // FRayTracingDynamicGeometryUpdateParams with bAllowUpdate: ALLOW_UPDATE + PREFER_FAST_BUILD, MODE_UPDATE with
 // src == dst). The build is recorded by the graph pass "RayTracingScene.DynamicGeometry"
-// (RayTracingSkinCache.cpp).
+// (RayTracingDynamicGeometry.hpp).
 namespace Desert::Graphic::API::Vulkan
 {
     // One entry's streams buffer (RayTracingSkinCache.hpp layout, kSkinCacheFloatsPerVertex floats per vertex):
@@ -42,6 +42,10 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] uint64_t GetDeviceAddress() const override
         {
             return m_Address;
+        }
+        [[nodiscard]] uint64_t GetBytes() const override
+        {
+            return m_Ledger.GetBytes();
         }
 
     private:
@@ -65,18 +69,28 @@ namespace Desert::Graphic::API::Vulkan
         VulkanSkinnedRayTracingGeometry& operator=( const VulkanSkinnedRayTracingGeometry& ) = delete;
 
         [[nodiscard]] Common::ResultStr<RayTracing::SkinnedBlasPrepared>
-                                           Prepare( const SkinnedMesh& mesh, uint64_t hiddenSubmeshes ) override;
+                                           Prepare( const RayTracing::RayTracingMeshInput& input ) override;
         [[nodiscard]] RDG::ExternalBuffer& GetStorage() override
         {
             return m_StorageExternal;
         }
         [[nodiscard]] Common::BoolResultStr RecordBuild( const RDG::PassContext&   context,
                                                          const RDG::BufferBinding& positions,
+                                                         const RDG::BufferBinding* indices,
                                                          const RDG::BufferBinding& scratch,
                                                          uint64_t                  scratchOffset ) override;
         [[nodiscard]] uint64_t              GetDeviceAddress() const override
         {
             return m_DeviceAddress;
+        }
+        [[nodiscard]] RayTracing::RayTracingGeometryLayout GetMetadataLayout() const override
+        {
+            return RayTracing::MeshAttributeLayout( m_VertexAddress, m_IndexAddress, m_Segments, true );
+        }
+        // The storage's ledger row is the one statement of what this BLAS costs (ResourceOwnership::GetBytes).
+        [[nodiscard]] uint64_t GetMemoryBytes() const override
+        {
+            return m_StorageLedger.GetBytes();
         }
 
     private:
@@ -85,10 +99,10 @@ namespace Desert::Graphic::API::Vulkan
         // What the current storage was built for: a change of any of them is a full build of a new BLAS.
         std::shared_ptr<VertexBuffer> m_SourceVertices;
         std::shared_ptr<IndexBuffer>  m_Indices; // held: the BLAS build reads it by address
-        uint64_t                      m_HiddenSubmeshes = 0;
-        uint32_t                      m_VertexCount     = 0;
+        uint32_t                      m_VertexCount = 0;
 
         std::vector<RayTracing::RayTracingGeometrySegment> m_Segments;
+        VkDeviceAddress m_VertexAddress = 0; // the mesh's own vertex buffer: the hit's attribute stream
         VkDeviceAddress                                    m_IndexAddress  = 0;
         VkDeviceSize                                       m_BuildScratch  = 0;
         VkDeviceSize                                       m_UpdateScratch = 0;

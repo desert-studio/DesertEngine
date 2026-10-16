@@ -1,0 +1,103 @@
+// DesertAsset {"Kind":"Shader","Guid":"dd75641c0956448db3367ad572bec97e","Versions":{"SHDR":1},"Dependencies":[]}
+Shader "SSDReconstructShadowVisibility"
+{
+    // The screen-space denoiser's RECONSTRUCTION of the shadow-visibility signal (UE ScreenSpaceDenoiser, shadow
+    // visibility mask: SSDSpatialAccumulation.usf STAGE_RECONSTRUCTION with SIGNAL_PROCESSING_SHADOW_VISIBILITY_MASK,
+    // SSDSignalShadowVisibilityMask). The producer hands a penumbra mask (one stochastic visibility estimate per
+    // pixel) and the distance to the closest occluder its rays hit; whatever produced them does not matter here.
+    // The penumbra of a light of angular diameter theta behind an occluder at distance d is d * tan(theta / 2)
+    // wide in the world (UE GetSignalWorldBluringRadius for shadows): that is the kernel's world radius, turned into
+    // pixels through the pixel's world footprint. A 5x5 tent kernel spread over that radius, every tap weighed by the
+    // BILATERAL weight of its surface (UE BILATERAL_POSITION_BASED(2) + BILATERAL_NORMAL) - a penumbra does not
+    // cross a depth edge or a crease. The signal travels as (v, v, v, 1): visibility in rgb, every surface pixel
+    // answered (a = 1), so the shared temporal and convolution passes treat it as a diffuse-style signal.
+
+    Compute
+    {
+        #include <Common/ScreenSpaceDenoise.glslh>
+
+        Uniform(1) sampler2D u_GBufferNormal;   // rgb = world normal, a = roughness
+        Uniform(2) sampler2D u_GBufferDepth;    // device depth (nearest)
+        Uniform(3) sampler2D u_Mask;            // r = visibility estimate, 0 = shadowed, 1 = lit
+        Uniform(4) sampler2D u_ClosestOccluder; // r = distance to the closest occluder hit, cm; <= 0 = no hit
+        layout(binding = 6, rgba16f) writeonly uniform image2D u_Signal; // premultiplied (v, v, v, 1)
+
+        // ScreenSpaceDenoiser::ViewUniforms (std140).
+        Uniform(0) DenoiserViewUB
+        {
+        	mat4 u_ViewProjection;
+        	mat4 u_PrevViewProjection;
+        	mat4 u_InvJitteredViewProjection;
+        };
+
+        PushConstant PushConstants
+        {
+        	vec4 u_Params; // x = tan(light source angle / 2), yzw unused
+        };
+
+        LocalSize(8, 8, 1);
+
+        // The widest kernel, in pixels (UE's reconstruction kernel spans at most this many pixels per side for
+        // shadows: beyond it the temporal accumulation and the history convolution do the rest).
+        const float kMaxKernelPixels = 16.0;
+
+        void main()
+        {
+        	const ivec2 viewSize = textureSize(u_GBufferNormal, 0);
+        	const ivec2 pixel    = ivec2(gl_GlobalInvocationID.xy);
+        	if (pixel.x >= viewSize.x || pixel.y >= viewSize.y)
+        		return;
+        	if (!SSDPixelHasSignal(kSSDSignalShadowVisibility, texelFetch(u_GBufferNormal, pixel, 0)))
+        	{
+        		imageStore(u_Signal, pixel, vec4(0.0));
+        		return;
+        	}
+        	const vec2         size = vec2(viewSize);
+        	const vec2         uv   = (vec2(pixel) + 0.5) / size;
+        	const SSDSceneInfo ref  = SSDLoadSceneInfo(u_GBufferNormal, u_GBufferDepth, u_InvJitteredViewProjection,
+        	                                           pixel, size);
+        	const float pixelRadius = max(SSDPixelWorldRadius(uv, texelFetch(u_GBufferDepth, pixel, 0).r,
+        	                                                  ref.Position, 1.0 / size, u_InvJitteredViewProjection),
+        	                              1e-4);
+
+        	// The closest occluder around the pixel: a lit pixel next to a penumbra has no hit of its own but lies
+        	// inside the penumbra its neighbours' occluder casts.
+        	float occluder = 0.0;
+        	for (int y = -1; y <= 1; ++y)
+        		for (int x = -1; x <= 1; ++x)
+        		{
+        			const float d = texelFetch(u_ClosestOccluder, clamp(pixel + ivec2(x, y), ivec2(0), viewSize - 1), 0).r;
+        			if (d > 0.0)
+        				occluder = occluder > 0.0 ? min(occluder, d) : d;
+        		}
+        	const float kernelPixels = clamp(occluder * u_Params.x / pixelRadius, 0.0, kMaxKernelPixels);
+        	if (kernelPixels < 0.5)
+        	{
+        		const float v = texelFetch(u_Mask, pixel, 0).r;
+        		imageStore(u_Signal, pixel, vec4(v, v, v, 1.0));
+        		return;
+        	}
+
+        	const float maxPlaneDistance = max(pixelRadius * kernelPixels * 2.0, 1e-3);
+        	const float stride           = kernelPixels * 0.5; // the 5x5 taps span +-2 strides = the radius
+        	float       sum              = 0.0;
+        	float       weightSum        = 0.0;
+        	for (int y = -2; y <= 2; ++y)
+        		for (int x = -2; x <= 2; ++x)
+        		{
+        			const ivec2 p = clamp(pixel + ivec2(round(vec2(x, y) * stride)), ivec2(0), viewSize - 1);
+        			const SSDSceneInfo other = SSDLoadSceneInfo(u_GBufferNormal, u_GBufferDepth,
+        			                                            u_InvJitteredViewProjection, p, size);
+        			if (dot(other.Normal, other.Normal) <= 0.0)
+        				continue; // sky
+        			const float w = (3.0 - abs(float(x))) * (3.0 - abs(float(y))) *
+        			                SSDPlaneWeight(ref, other.Position, maxPlaneDistance) *
+        			                SSDNormalWeight(ref.Normal, other.Normal);
+        			sum       += texelFetch(u_Mask, p, 0).r * w;
+        			weightSum += w;
+        		}
+        	const float v = weightSum > 0.0 ? sum / weightSum : texelFetch(u_Mask, pixel, 0).r;
+        	imageStore(u_Signal, pixel, vec4(v, v, v, 1.0));
+        }
+    }
+}

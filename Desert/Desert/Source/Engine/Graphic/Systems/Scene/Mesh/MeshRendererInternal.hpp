@@ -44,7 +44,7 @@ namespace Desert::Graphic::System
     namespace MeshRendererDetail
     {
         // The slot a batched path draws, AND its surface: the one cast is asked here, so no caller downcasts
-        // the parent again on the promise that FirstSurfaceSlot already checked it.
+        // the parent again on the promise that SectionSurface already checked it.
         struct SurfaceSlot
         {
             MaterialInstance*   Instance = nullptr;
@@ -60,7 +60,10 @@ namespace Desert::Graphic::System
                                                       MaterialInstance*         instance );
         bool                            IsTranslucent( const DataDrivenMaterial* material );
         uint32_t AppendRow( std::vector<glm::vec4>& rows, const Core::Formats::MaterialParamRow& row );
-        SurfaceSlot FirstSurfaceSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path );
+        // A static draw's section material (UE: the section's MaterialIndex): slot @p sectionSlot of @p slots when
+        // it holds a Static mesh-cell material, else empty. Every pass that draws a StaticMeshRenderData shades it
+        // with this, so lit, G-buffer, translucency and the casters agree per section.
+        SurfaceSlot SectionSurface( const MaterialSlotBinding* slots, uint32_t sectionSlot );
         std::optional<std::string>          DefaultSurfaceShaderName( MeshVertexPath path, MeshPass pass );
         std::shared_ptr<Shader>             DefaultSurfaceProgram( MeshVertexPath path, MeshPass pass );
         std::shared_ptr<Shader>             DefaultSurfaceProgramVariant( MeshVertexPath path, MeshPass pass,
@@ -72,6 +75,27 @@ namespace Desert::Graphic::System
         static_assert( SceneResources::kMaxCascades == kSceneViewShadowCascades,
                        "the lit materials' cascade count is the scene/view inputs' cascade count" );
 
+        // FNV-1a over raw bytes: a shadow cache key (local views, the cascades' static layer) only has to change
+        // when what was drawn changes.
+        struct SignatureHash
+        {
+            uint64_t Value = 1469598103934665603ull;
+
+            void Bytes( const void* data, const std::size_t size )
+            {
+                const auto* bytes = static_cast<const unsigned char*>( data );
+                for ( std::size_t i = 0; i < size; ++i )
+                {
+                    Value ^= bytes[i];
+                    Value *= 1099511628211ull;
+                }
+            }
+            template <typename T>
+            void Add( const T& value )
+            {
+                Bytes( &value, sizeof( T ) );
+            }
+        };
     } // namespace MeshRendererDetail
 
     using MeshRendererDetail::MeshDrawList;
@@ -82,8 +106,8 @@ namespace Desert::Graphic::System
     using MeshRendererDetail::DefaultSurfaceProgramVariant;
     using MeshRendererDetail::DefaultSurfaceShaderName;
     using MeshRendererDetail::EffectiveRow;
-    using MeshRendererDetail::FirstSurfaceSlot;
     using MeshRendererDetail::IsTranslucent;
     using MeshRendererDetail::MeshPathOwnBufferName;
+    using MeshRendererDetail::SectionSurface;
     using MeshRendererDetail::SurfaceSlot;
 } // namespace Desert::Graphic::System

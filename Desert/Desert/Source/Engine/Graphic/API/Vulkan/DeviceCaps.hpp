@@ -37,6 +37,8 @@ namespace Desert::Graphic::API::Vulkan
         PortabilitySubset,
         MemoryBudget,
         // Vulkan 1.2 / 1.3 — asked for and recorded; VKF2 makes them required when it starts using them.
+        // DescriptorIndexing is already required: the global bindless texture table (BindlessTextureTable.hpp)
+        // is the one way a shader reaches a texture by index, and there is no second, non-bindless path.
         TimelineSemaphore,
         DescriptorIndexing,
         BufferDeviceAddress,
@@ -104,6 +106,38 @@ namespace Desert::Graphic::API::Vulkan
         bool            Present = false; ///< probed on the route AND enabled on the logical device
     };
 
+    // The update-after-bind limits the bindless table is sized against (VkPhysicalDeviceDescriptorIndexingProperties).
+    // Read by the probe only when DescriptorIndexing is present; zero otherwise.
+    struct DescriptorIndexingLimits
+    {
+        uint32_t MaxPerStageUpdateAfterBindSampledImages = 0;
+        uint32_t MaxSetUpdateAfterBindSampledImages      = 0;
+        uint32_t MaxPerStageUpdateAfterBindSamplers      = 0;
+        uint32_t MaxSetUpdateAfterBindSamplers           = 0;
+
+        // The largest sampled-image table one set may hold and one stage may see: the table's growth ceiling.
+        [[nodiscard]] uint32_t SampledImageCeiling() const
+        {
+            return MaxPerStageUpdateAfterBindSampledImages < MaxSetUpdateAfterBindSampledImages
+                        ? MaxPerStageUpdateAfterBindSampledImages
+                        : MaxSetUpdateAfterBindSampledImages;
+        }
+        [[nodiscard]] uint32_t SamplerCeiling() const
+        {
+            return MaxPerStageUpdateAfterBindSamplers < MaxSetUpdateAfterBindSamplers
+                        ? MaxPerStageUpdateAfterBindSamplers
+                        : MaxSetUpdateAfterBindSamplers;
+        }
+    };
+
+    // What the bindless table needs from DescriptorIndexingLimits; a device below either is refused by
+    // CheckRequired with both numbers. Owned here (not by the table) so this header stays pure.
+    // The capacity doubles from here up to SampledImageCeiling() (BindlessTextureTable).
+    inline constexpr uint32_t kBindlessInitialTextureCapacity = 16384;
+    // The fixed sampler set: one sampler per Core::Formats::SamplerState (3 wraps U x 3 wraps V x 2 filters),
+    // so every material's state has its exact sampler (BindlessSamplerIndex in BindlessTextureTable.hpp).
+    inline constexpr uint32_t kBindlessSamplerCount = 18;
+
     struct DeviceCaps
     {
         std::string DeviceName;
@@ -112,6 +146,7 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t    UsedApiVersion   = 0;
 
         std::array<CapabilityRow, kCapabilityCount> Rows{};
+        DescriptorIndexingLimits                    DescriptorIndexing{};
 
         [[nodiscard]] bool Has( Capability capability ) const
         {
@@ -133,7 +168,8 @@ namespace Desert::Graphic::API::Vulkan
     [[nodiscard]] bool DependenciesPresent( const DeviceCaps& caps, Capability capability );
 
     // Step 3, pure: the refusal. Success, or an error naming the device, its version against the
-    // minimum, and every required row it misses — all of them, not the first.
+    // minimum, every required row it misses — all of them, not the first — and, when descriptor indexing is
+    // present, any update-after-bind limit below what the bindless table starts with (need and limits named).
     [[nodiscard]] Common::BoolResultStr CheckRequired( const DeviceCaps& caps );
 
     // The start-up log line: device | driver | version | every row as name=core/ext/no.

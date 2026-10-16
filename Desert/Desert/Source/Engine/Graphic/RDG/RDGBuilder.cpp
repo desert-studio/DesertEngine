@@ -247,6 +247,7 @@ namespace Desert::Graphic::RDG
         record.ExtractTex     = &into;
         record.HasFinalAccess = true;
         record.FinalAccess    = final;
+        record.ExtractOwner   = CurrentResourceAttribution();
     }
 
     void Builder::Extract( BufferRef buffer, ExternalBuffer& into, Access final )
@@ -279,6 +280,7 @@ namespace Desert::Graphic::RDG
         record.ExtractBuf     = &into;
         record.HasFinalAccess = true;
         record.FinalAccess    = final;
+        record.ExtractOwner   = CurrentResourceAttribution();
     }
 
     PassBuilder Builder::BeginPass( std::string_view name, PassFlags flags )
@@ -915,6 +917,7 @@ namespace Desert::Graphic::RDG
             view.ExternalTex             = record.ExternalTex;
             view.ExternalBuf             = record.ExternalBuf;
             view.Extracted               = record.IsExtracted() && !record.IsExternal();
+            view.ExtractOwner            = record.ExtractOwner;
             anyFaultDefault              = anyFaultDefault || record.Default != FaultDefault::None;
         }
         for ( const DerivedUsage& usage : result.Usages )
@@ -925,6 +928,18 @@ namespace Desert::Graphic::RDG
             for ( const ResourceUse& use : m_Passes[compiledPass.Pass].Uses )
                 views[use.Resource].Used =
                      views[use.Resource].Used || !substituted( compiledPass.Pass, use.Resource );
+        }
+        // UE (FRDGBuilder::Execute, the epilogue's BeginResourceRHI of every extracted texture): an extraction or
+        // a final access is a use at the end of the graph, so the resource has a physical image even when no
+        // executed pass touched it (its producers were never added - an empty scene - or were removed by a
+        // fault). CollectFinalBarriers transitions it to its final access, and the extraction hands it out.
+        for ( uint32_t r = 0; r < m_Resources.size(); ++r )
+        {
+            const ResourceRecord& record = m_Resources[r];
+            if ( !record.IsExtracted() || views[r].Used )
+                continue;
+            views[r].Used = true;
+            views[r].AccessMask |= 1u << static_cast<uint32_t>( record.FinalAccess );
         }
         // A LATE fault substitutes through PassContext at record time, so the system textures are bound whenever
         // a FaultDefault exists, not only when Compile already substituted one.

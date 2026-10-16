@@ -1,3 +1,4 @@
+#include <Common/Core/Core.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingScene.hpp>
 
@@ -54,7 +55,6 @@ namespace Desert::Graphic::API::Vulkan
             return sizes;
         }
 
-
         std::shared_ptr<VulkanLogicalDevice> LogicalDevice()
         {
             return SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
@@ -96,7 +96,7 @@ namespace Desert::Graphic::API::Vulkan
             m_StorageBytes  = storageSizes.accelerationStructureSize;
             m_Ledger        = RayTracing::RecordAccelerationStructureMemory(
                  RayTracing::AccelerationStructureLevel::Top, VulkanAllocator::AllocationSize( m_StorageMemory ) );
-            m_Destroy       = functions.DestroyAccelerationStructure;
+            m_Destroy = functions.DestroyAccelerationStructure;
 
             VkAccelerationStructureCreateInfoKHR create{
                  VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
@@ -114,7 +114,7 @@ namespace Desert::Graphic::API::Vulkan
             m_Capacity = capacity;
 
             // A new storage buffer starts untouched; each graph hands back the state it leaves the buffer in.
-            m_External          = RDG::ExternalBuffer( RDG::BufferDesc{ m_StorageBytes }, RDG::Access::None );
+            m_External = RDG::ExternalBuffer( RDG::BufferDesc{ m_StorageBytes }, RDG::Access::None );
             m_External.Physical =
                  VulkanRdgBuffer::WrapAccelerationStructure( m_Storage, m_StorageBytes, m_Handle );
             m_External.RecordFinalState = [this]( const RDG::AccessState& state ) -> Common::BoolResultStr
@@ -187,3 +187,11 @@ namespace Desert::Graphic::API::Vulkan
     }
     DESERT_DESTRUCTOR_GUARD( "~VulkanRayTracingScene" )
 } // namespace Desert::Graphic::API::Vulkan
+
+namespace Desert::Graphic::RayTracing
+{
+    std::unique_ptr<RayTracingSceneTarget> CreateRayTracingSceneTarget()
+    {
+        return std::make_unique<API::Vulkan::VulkanRayTracingScene>();
+    }
+} // namespace Desert::Graphic::RayTracing

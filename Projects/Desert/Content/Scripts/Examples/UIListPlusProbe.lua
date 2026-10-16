@@ -6,7 +6,7 @@
 -- A tree record's `children` field is the KEY of another collection; only expanded rows' children are read.
 
 Properties = {
-    InventorySize = 300,
+    InventorySize = Property.Int( 300 ),
 }
 
 local names = { "Iron Ore", "Draught", "Arrow", "Coin", "Rope", "Oil", "Bread", "Map Scrap" }

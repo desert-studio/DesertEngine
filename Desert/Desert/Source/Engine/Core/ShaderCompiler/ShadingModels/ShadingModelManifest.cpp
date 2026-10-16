@@ -148,6 +148,21 @@ namespace Desert::Core::ShadingModels
         for ( auto& line : inputs )
             manifest.Inputs.push_back( std::move( line[0] ) );
 
+        // The optional `SubsurfaceOpacity <pin>;` line. Anything else is the body, which starts where it did.
+        const std::size_t bodyStart = c.Pos;
+        if ( c.Word() == "SubsurfaceOpacity" )
+        {
+            const std::string_view pin = c.Word();
+            if ( std::ranges::find( manifest.Payload, pin, &PayloadSlot::Pin ) == manifest.Payload.end() )
+                return Refuse( sourcePath,
+                               std::format( "SubsurfaceOpacity pin '{}' is not one of the Payload's", pin ) );
+            if ( !c.Punct( ';' ) )
+                return Refuse( sourcePath, "expected ';' after the SubsurfaceOpacity pin" );
+            manifest.SubsurfaceOpacityPin = std::string( pin );
+        }
+        else
+            c.Pos = bodyStart;
+
         manifest.Body = std::string( text.substr( c.Pos ) );
         return Common::MakeSuccess( std::move( manifest ) );
     }

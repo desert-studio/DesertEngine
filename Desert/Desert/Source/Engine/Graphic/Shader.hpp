@@ -31,8 +31,12 @@ namespace Desert::Graphic
     public:
         // The ledger row — see Engine/Graphic/ResourceLedger.hpp. One row per Shader object, which on the
         // Vulkan backend is N `VkShaderModule` plus its descriptor set layouts and pools.
+        // DEVICE-OWNED AT CREATION (RT-LEDGER-4): a shader is shared by every view that draws with it and
+        // outlives any of them, so a view scope open around a lazy build must not make it that view's row
+        // (closing the view would report it as a leak). The service that loaded it re-claims it for its asset.
         Shader() : m_Accounting( ResourceOwnership::Take( ResourceKind::Shader ) )
         {
+            m_Accounting.Claim( ResourceOwner::Device );
         }
 
         virtual ~Shader() = default;

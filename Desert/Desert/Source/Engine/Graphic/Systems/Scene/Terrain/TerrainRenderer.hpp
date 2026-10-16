@@ -11,6 +11,7 @@
 
 #include <glm/glm.hpp>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -29,7 +30,7 @@ namespace Desert::Graphic::System
     {
         // The tile's R16 heightmap (LandscapeECSSystem's GPU copy of the tile's samples), and where the tile
         // sits in its root's frame.
-        Image2D*          Heightmap = nullptr;
+        std::shared_ptr<Image2D> Heightmap;
         LandscapeTileDraw Landscape;
 
         // The tile's ground and painted weight layers (LayerCount 0 = none painted).
@@ -81,6 +82,10 @@ namespace Desert::Graphic::System
         void                                DeclareGBufferDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context );
 
+        [[nodiscard]] bool CastsShadowThisFrame() const override
+        {
+            return !m_Queue.empty();
+        }
         [[nodiscard]] uint32_t DeclareShadowCascade( RenderPassDeclaration& declared, uint32_t cascade ) override;
         [[nodiscard]] Common::BoolResultStr RecordShadowCascade( const RDG::PassContext& context, uint32_t cascade,
                                                                  uint32_t                 firstBlock,
@@ -92,9 +97,21 @@ namespace Desert::Graphic::System
             m_Queue.push_back( data );
         }
 
+        // This frame's tiles and, parallel to them, the row PrepareFrame packed for each (LOD, borders, frame):
+        // what the view's ray-tracing landscape (LandscapeRayTracing) builds its BLAS from.
+        [[nodiscard]] std::span<const TerrainDrawData> GetQueue() const
+        {
+            return m_Queue;
+        }
+        [[nodiscard]] std::span<const TerrainInstance> GetFrameInstances() const
+        {
+            return m_FrameInstances;
+        }
+
         void ClearQueue()
         {
             m_Queue.clear();
+            m_FrameInstances.clear();
             m_FrameGroups.clear();
             m_FrameDraws.clear();
         }
@@ -147,6 +164,7 @@ namespace Desert::Graphic::System
         std::unordered_map<std::string, ProgramMaterials> m_Materials;
 
         std::vector<TerrainDrawData> m_Queue;
+        std::vector<TerrainInstance> m_FrameInstances; // parallel to m_Queue after PrepareFrame
         std::vector<FrameGroup>      m_FrameGroups;
         std::vector<FrameDraw>       m_FrameDraws;
     };

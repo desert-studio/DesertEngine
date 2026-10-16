@@ -4,6 +4,7 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
+#include <Engine/Graphic/Environment/SceneSkyEnvironment.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Math/Ray.hpp>
@@ -375,8 +376,9 @@ namespace Desert::Core
     }
 
     Scene::Scene()
-         : m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>() ),
-           m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>() )
+         : m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance ) ),
+           m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
+           m_SkyEnvironment( std::make_shared<Graphic::SceneSkyEnvironment>( m_LedgerInstance ) )
     {
         LiveSceneList().push_back( this );
         m_Subsystems.Begin();
@@ -384,8 +386,9 @@ namespace Desert::Core
 
     Scene::Scene( std::string&& sceneName, Graphic::SceneRenderer* sceneRenderer )
          : m_SceneName( std::move( sceneName ) ),
-           m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>() ),
-           m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>() )
+           m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance ) ),
+           m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
+           m_SkyEnvironment( std::make_shared<Graphic::SceneSkyEnvironment>( m_LedgerInstance ) )
     {
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();

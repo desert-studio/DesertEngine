@@ -496,6 +496,23 @@ namespace
                 << Desert::Migration::kSceneVersionParticleEmittersToVFX << " ("
                 << report.ParticleEmittersToVFX.Emitters << " ParticleEmitter block(s) now play a .dfx; "
                 << report.ParticleEmittersToVFX.NewSystems.size() << " system file(s) written)";
+        if ( report.ScriptDefaultsRaised &&
+             ( report.ScriptDefaults.Dropped > 0 || report.ScriptDefaults.Retyped > 0 ||
+               !report.ScriptDefaults.Kept.empty() ) )
+        {
+            out << " scene v" << Desert::Migration::kSceneVersionRenderMethods << "->v"
+                << Desert::Migration::kSceneVersionScriptDefaults << " (" << report.ScriptDefaults.Dropped
+                << " script value(s) equal to the script's default dropped, " << report.ScriptDefaults.Retyped
+                << " re-stated Int, " << report.ScriptDefaults.Kept.size() << " kept";
+            for ( const std::string& kept : report.ScriptDefaults.Kept )
+                out << "; kept " << kept;
+            out << ")";
+        }
+        if ( report.SourceAngleRaised && report.SourceAnglesStated > 0 )
+            out << std::format( " scene v{}->v{} ({} DirectionLight block(s) given SourceAngle {})",
+                                Desert::Migration::kSceneVersionScriptDefaults,
+                                Desert::Migration::kSceneVersionSourceAngle, report.SourceAnglesStated,
+                                Desert::Migration::kSourceAngleDefault );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

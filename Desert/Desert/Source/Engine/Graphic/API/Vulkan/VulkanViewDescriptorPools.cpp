@@ -42,15 +42,10 @@ namespace Desert::Graphic::API::Vulkan
         class ViewPoolChain final : public IViewResourceCopy
         {
         public:
-            DescriptorPoolChain<ViewPoolBlock> Chain;
-
             // A descriptor pool's storage is allocated by the driver, which Vulkan never reports in bytes
-            // (VkDescriptorPoolCreateInfo carries counts, not a size), and it is not in the device-local heap
-            // the budget reads. Any number here would be a guess presented as a measurement.
-            [[nodiscard]] uint64_t HeldBytes() const noexcept override
-            {
-                return 0;
-            }
+            // (VkDescriptorPoolCreateInfo carries counts, not a size): it opens no ledger row and the view's
+            // budget (the view's ledger rows) does not guess one.
+            DescriptorPoolChain<ViewPoolBlock> Chain;
         };
 
         class ViewPoolChainFactory final : public IViewResourceCopyFactory
@@ -130,6 +125,15 @@ namespace Desert::Graphic::API::Vulkan
                                             const std::string_view                     shaderName,
                                             std::unique_ptr<IViewDescriptorSetCopy>&   out )
     {
+        // Material sets are allocated per material and view; the bindless table's set is one per device and is
+        // bound only by render-graph passes (VulkanRenderer WriteRdgPassSets). Raster materials keep their own
+        // descriptors (BINDLESS-TEX), so a material shader that samples the table is refused by name rather than
+        // allocated a private, never-written copy of it.
+        if ( BindlessTableIn( layouts ) != nullptr )
+            return Common::MakeFormattedError(
+                 "Shader '{}' declares the bindless texture table (set {}); material descriptor sets do not carry "
+                 "it — sample it from a render-graph pass",
+                 shaderName, kBindlessSetIndex );
         ViewResources&       view = ViewResourceRegistry::Active();
         ViewPoolChainFactory factory;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): ChainKey names this exact type

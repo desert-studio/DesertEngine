@@ -31,7 +31,7 @@ Shader "FoliageSurface"
         "gltf.emissiveFactor"           -> EmissiveColor
         "gltf.emissiveTexture"          -> u_EmissiveTexture
         "gltf.emissiveStrength"         -> EmissiveIntensity
-        "gltf.alphaCutoff"              -> AlphaCutoff
+        "gltf.alphaCutoff"              -> OpacityMaskClipValue
         "gltf.alphaMask"                -> u_OpacityTexture
         "gltf.alphaMask"                -> OpacityChannel
         "gltf.uvOffset"                 -> UVOffset
@@ -54,7 +54,7 @@ Shader "FoliageSurface"
         "fbx.AmbientOcclusion"          -> u_ORMTexture.r
         "fbx.OcclusionRoughnessMetallic" -> u_ORMTexture.rgb
         "fbx.RoughnessMetallic"         -> u_ORMTexture.gb
-        "fbx.alphaCutoff"               -> AlphaCutoff
+        "fbx.alphaCutoff"               -> OpacityMaskClipValue
         "fbx.alphaMask"                 -> u_OpacityTexture
         "fbx.alphaMask"                 -> OpacityChannel
     }
@@ -69,7 +69,8 @@ Shader "FoliageSurface"
         Float       AOStrength ("Ambient Occlusion", Range(0,1), Category("Surface")) = 1
         Color       EmissiveColor ("Emissive", Category("Surface")) = (0, 0, 0, 1)
         Float       EmissiveIntensity ("Emissive Intensity", Range(0,100), Category("Surface")) = 1
-        Float       AlphaCutoff ("Alpha Cutoff", Range(0,1), Category("Surface")) = 0
+        // UE's Opacity Mask Clip Value (default 0.3333): a texel whose mask is below it is cut in every pass.
+        Float       OpacityMaskClipValue ("Opacity Mask Clip Value", Range(0,1), Category("Surface")) = 0.3333
         Vec2        UVTiling ("UV Tiling", Category("Surface")) = (1, 1)
         Vec2        UVOffset ("UV Offset", Category("Surface")) = (0, 0)
         Float       UVRotation ("UV Rotation", Range(-3.14159,3.14159), Category("Surface")) = 0
@@ -100,6 +101,10 @@ Shader "FoliageSurface"
     }
 
     ShadingModel TwoSidedFoliage
+    // A leaf card is cut out (UE: foliage materials are BlendMode Masked): every cell clips with the generated mask,
+    // and the card casts through its own ShadowDepth cell in the cascades and the local lights' atlas.
+    BlendMode Masked
+    OpacityMask u_OpacityTexture Channel(OpacityChannel) UV(0) Transform(UVTiling, UVOffset, UVRotation)
 
     // The surface maps: the template declares its own samplers (the cells add no material textures).
     Surface
@@ -118,9 +123,6 @@ Shader "FoliageSurface"
             if ( tiling.y <= 0.0 ) tiling.y = 1.0;
             const vec2 uv = SurfaceTransformUV( SurfaceSelectUV( i.UV0, i.UV0, 0 ), u_Material.UVOffset, tiling,
                                             u_Material.UVRotation );
-            const float mask = SurfaceSampleMaterial( u_OpacityTexture, uv )[int( u_Material.OpacityChannel )];
-            if ( u_Material.AlphaCutoff > 0.0 && mask < u_Material.AlphaCutoff )
-                discard;
             s.BaseColor = SurfaceBaseColor( u_Material.AlbedoColor.rgb,
                                         SurfaceSampleMaterial( u_AlbedoTexture, uv ).rgb, vec3( 1.0 ) );
             const ivec2 normalSize = textureSize( u_NormalTexture, 0 );
@@ -141,6 +143,9 @@ Shader "FoliageSurface"
             s.CustomData0       = subsurface.r;
             s.CustomData1       = subsurface.g;
             s.CustomData2       = subsurface.b;
+            // UE CustomData.a = the material's Opacity, the leaf's subsurface density for the contact shadows (the
+            // mask above discards; what survives is opaque, UE's Opacity default 1).
+            s.CustomData3       = s.Opacity;
             s.SampledTextureCount = float( int( textureSize( u_AlbedoTexture, 0 ).x > 1 ) + int( normalSize.x > 1 ) +
                                            int( textureSize( u_OpacityTexture, 0 ).x > 1 ) +
                                            int( textureSize( u_ORMTexture, 0 ).x > 1 ) +

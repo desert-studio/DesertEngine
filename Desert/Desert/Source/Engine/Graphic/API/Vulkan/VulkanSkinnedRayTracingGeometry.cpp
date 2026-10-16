@@ -1,8 +1,8 @@
+#include <Common/Core/Core.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSkinnedRayTracingGeometry.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
-#include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanIndexBuffer.hpp>
@@ -111,8 +111,8 @@ namespace Desert::Graphic::API::Vulkan
     }
     DESERT_DESTRUCTOR_GUARD( "~VulkanSkinCacheStreams" )
 
-    Common::ResultStr<Prepared> VulkanSkinnedRayTracingGeometry::Prepare( const SkinnedMesh& mesh,
-                                                                          const uint64_t     hiddenSubmeshes )
+    Common::ResultStr<Prepared>
+    VulkanSkinnedRayTracingGeometry::Prepare( const RayTracing::RayTracingMeshInput& input )
     {
         const auto logical = LogicalDevice();
         if ( !logical )
@@ -123,42 +123,43 @@ namespace Desert::Graphic::API::Vulkan
                  "SkinCache: the device has no acceleration-structure functions, but "
                  "a resolved method traces rays" );
 
-        const auto vertices     = mesh.GetVertexBuffer();
-        const auto indices      = mesh.GetIndexBuffer();
-        const auto vertexBuffer = SP_CAST( VulkanVertexBuffer, vertices );
-        const auto indexBuffer  = SP_CAST( VulkanIndexBuffer, indices );
+        const auto& vertices     = input.Vertices;
+        const auto& indices      = input.Indices;
+        const auto  vertexBuffer = SP_CAST( VulkanVertexBuffer, vertices );
+        const auto  indexBuffer  = SP_CAST( VulkanIndexBuffer, indices );
         if ( !vertexBuffer || !indexBuffer || vertexBuffer->GetVulkanBuffer() == VK_NULL_HANDLE ||
              indexBuffer->GetVulkanBuffer() == VK_NULL_HANDLE )
             return Common::MakeError<Prepared>(
                  "SkinCache: the skinned mesh has no resident vertex/index buffer" );
 
-        const uint32_t vertexCount = mesh.GetVertexCount();
+        const uint32_t vertexCount = input.VertexCount;
         if ( m_Handle != VK_NULL_HANDLE && vertices == m_SourceVertices && indices == m_Indices &&
-             hiddenSubmeshes == m_HiddenSubmeshes && vertexCount == m_VertexCount )
+             input.Segments == m_Segments && vertexCount == m_VertexCount )
             return Common::MakeSuccess( Prepared{ ( m_Built ? m_UpdateScratch : m_BuildScratch ) +
                                                        kMaxAccelerationStructureScratchAlignment,
                                                   m_Built } );
 
         Release();
-        m_Segments = RayTracing::DescribeDeformedMeshGeometry( mesh.GetSubmeshes(), hiddenSubmeshes );
-        if ( m_Segments.empty() || vertexCount == 0 )
+        if ( input.Segments.empty() || vertexCount == 0 )
             return Common::MakeFormattedError<Prepared>(
-                 "SkinCache: the skinned mesh has no visible triangle ({} vertices, hidden mask {:#x})",
-                 vertexCount, hiddenSubmeshes );
+                 "SkinCache: the skinned mesh has no visible triangle ({} vertices, {} segments)", vertexCount,
+                 input.Segments.size() );
+        m_Segments = input.Segments;
 
         const VkDevice device = logical->GetVulkanLogicalDevice();
         const auto&    allocator =
              SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
 
         m_IndexAddress = functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() );
-        const VulkanBlasBuildInput input =
-             TranslateBlasGeometry( m_Segments, 0, m_IndexAddress ); // sizes ignore addresses; RecordBuild passes the streams'
-        VkAccelerationStructureBuildGeometryInfoKHR build = MakeBlasBuildInfo( input );
+        m_VertexAddress = functions.BufferAddress( device, vertexBuffer->GetVulkanBuffer() );
+        // The sizes ignore the vertex address: RecordBuild passes the streams' (the positions SkinFrame wrote).
+        const VulkanBlasBuildInput sizing = TranslateBlasGeometry( m_Segments, 0, m_IndexAddress );
+        VkAccelerationStructureBuildGeometryInfoKHR build = MakeBlasBuildInfo( sizing );
         build.flags                                       = kSkinnedBlasFlags;
         VkAccelerationStructureBuildSizesInfoKHR sizes{
              VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
         functions.GetAccelerationStructureBuildSizes( device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
-                                                      &build, input.MaxPrimitiveCounts.data(), &sizes );
+                                                      &build, sizing.MaxPrimitiveCounts.data(), &sizes );
         m_BuildScratch  = sizes.buildScratchSize;
         m_UpdateScratch = sizes.updateScratchSize;
 
@@ -202,10 +203,9 @@ namespace Desert::Graphic::API::Vulkan
                                                 "skinned BLAS" );
         }
 
-        m_SourceVertices  = vertices;
-        m_Indices         = indices;
-        m_HiddenSubmeshes = hiddenSubmeshes;
-        m_VertexCount     = vertexCount;
+        m_SourceVertices = vertices;
+        m_Indices        = indices;
+        m_VertexCount    = vertexCount;
 
         // Starts untouched; each graph hands back the state it leaves it in.
         m_StorageExternal = RDG::ExternalBuffer( RDG::BufferDesc{ m_StorageBytes }, RDG::Access::None );
@@ -225,6 +225,7 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanSkinnedRayTracingGeometry::RecordBuild( const RDG::PassContext&   context,
                                                                         const RDG::BufferBinding& positions,
+                                                                        const RDG::BufferBinding* /*indices*/,
                                                                         const RDG::BufferBinding& scratch,
                                                                         const uint64_t            scratchOffset )
     {
@@ -280,12 +281,12 @@ namespace Desert::Graphic::API::Vulkan
         m_SourceVertices.reset();
         m_Indices.reset();
         m_Segments.clear();
-        m_HiddenSubmeshes = 0;
-        m_VertexCount     = 0;
-        m_IndexAddress    = 0;
-        m_BuildScratch    = 0;
-        m_UpdateScratch   = 0;
-        m_Built           = false;
+        m_VertexCount   = 0;
+        m_IndexAddress  = 0;
+        m_VertexAddress = 0;
+        m_BuildScratch  = 0;
+        m_UpdateScratch = 0;
+        m_Built         = false;
     }
 
     VulkanSkinnedRayTracingGeometry::~VulkanSkinnedRayTracingGeometry()
@@ -295,3 +296,16 @@ namespace Desert::Graphic::API::Vulkan
     }
     DESERT_DESTRUCTOR_GUARD( "~VulkanSkinnedRayTracingGeometry" )
 } // namespace Desert::Graphic::API::Vulkan
+
+namespace Desert::Graphic::RayTracing
+{
+    std::unique_ptr<SkinCacheStreams> CreateSkinCacheStreams()
+    {
+        return std::make_unique<API::Vulkan::VulkanSkinCacheStreams>();
+    }
+
+    std::unique_ptr<SkinnedRayTracingGeometry> CreateSkinnedRayTracingGeometry()
+    {
+        return std::make_unique<API::Vulkan::VulkanSkinnedRayTracingGeometry>();
+    }
+} // namespace Desert::Graphic::RayTracing

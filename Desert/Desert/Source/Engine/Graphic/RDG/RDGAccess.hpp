@@ -284,6 +284,18 @@ namespace Desert::Graphic::RDG
         return accessMask == kPair;
     }
 
+    // The state a render pass leaves a READ-ONLY attachment in. The pass only tests (DepthRead), but the render
+    // pass's storeOp - STORE or DONT_CARE alike - is a write of the whole attachment at the end of the subpass
+    // (Vulkan spec "Load and Store Operations": a depth/stencil store is a DEPTH_STENCIL_ATTACHMENT_WRITE in
+    // LATE_FRAGMENT_TESTS). So the next use of the image is after a write: its barrier must make that write
+    // available (WAW / RAW), never merge with the read as if nothing had been written. A writable attachment's
+    // state already carries its write.
+    constexpr AccessState ReadOnlyAttachmentStoreState( const AccessState& state )
+    {
+        return AccessState{ state.Stages | PipelineStage_LateFragmentTests,
+                            state.Memory | MemoryAccess_DepthStencilWrite, state.Layout };
+    }
+
     // True when a resource already in @p current needs no barrier to be used in @p next: both are
     // read-only, share a layout, and everything @p next reads was already made visible to @p current's
     // stages and accesses by the barrier that entered @p current.

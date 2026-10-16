@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneTarget.hpp>
 
 #include <VulkanAllocator/vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -24,6 +24,10 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] RDG::ExternalBuffer&                          GetStorage() override
         {
             return m_External;
+        }
+        [[nodiscard]] uint64_t GetMemoryBytes() const override
+        {
+            return m_Ledger.GetBytes();
         }
         [[nodiscard]] Common::BoolResultStr RecordBuild( const RDG::PassContext&   context,
                                                          const RDG::BufferBinding& instances,

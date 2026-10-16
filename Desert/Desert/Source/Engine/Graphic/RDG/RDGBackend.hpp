@@ -5,6 +5,7 @@
 #include <Engine/Graphic/RDG/RDGFault.hpp>
 #include <Engine/Graphic/RDG/RDGCompileResult.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -59,6 +60,9 @@ namespace Desert::Graphic::RDG
         bool               Extracted   = false; // a transient that must outlive the graph
         bool               Used        = false; // touched by an executed pass
         uint32_t           AccessMask  = 0;     // DerivedUsage of a used transient
+        // Extracted only: who holds it (the scope Builder::Extract was called in). The backend opens or claims the
+        // resource's ledger row with it; an idle pooled resource is the device's.
+        ResourceAttribution ExtractOwner;
     };
 
     struct GraphView

@@ -268,6 +268,13 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanImage2D::Release()
     {
         DropGraphTexture(); // its views name the VkImage released below
+        if ( m_BindlessSlot.IsValid() )
+        {
+            // The slot names the view released below; the table reuses it only after the frames in flight.
+            if ( BindlessTextureTable* table = TryGetBindlessTextureTable() )
+                table->Release( m_BindlessSlot );
+            m_BindlessSlot = {};
+        }
         if ( !m_Resource.Image ) return BOOLSUCCESS;
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
         if ( m_EncodedView != VK_NULL_HANDLE )
@@ -715,6 +722,18 @@ namespace Desert::Graphic::API::Vulkan
 
         m_IsLoaded           = true;
         m_ResourceGeneration = NextResourceGeneration();
+
+        // An image made from uploaded pixels is a texture: it gets its bindless slot now, for its GPU life.
+        // Attachments, storage and multisampled images never do (the graph writes them; BindlessTextureTable).
+        if ( Core::Formats::HasData( m_Specification.Data ) &&
+             m_Specification.Usage != Core::Formats::Image2DUsage::Attachment &&
+             ( m_Specification.Properties & Core::Formats::Storage ) == 0 && m_Specification.Samples <= 1 )
+        {
+            const auto slot = GetBindlessTextureTable().Register( *this );
+            if ( !slot.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "image '{}': {}", m_Specification.Tag, slot.GetError() );
+            m_BindlessSlot = slot.GetValue();
+        }
         return Common::MakeSuccess( true );
     }
 

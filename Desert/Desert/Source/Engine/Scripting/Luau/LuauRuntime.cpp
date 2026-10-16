@@ -3,6 +3,7 @@
 #include <Common/Core/Logger.hpp>
 #include <Engine/Reflection/ReflectionTypes.hpp>
 #include <Engine/Scripting/Luau/LuauBinder.hpp>
+#include <Engine/Scripting/Luau/LuauProperties.hpp>
 
 #include <cstdlib>
 #include <memory>
@@ -52,6 +53,8 @@ namespace Desert::Scripting
             lua_State*               Thread    = nullptr;
             int                      ThreadRef = LUA_NOREF;
             std::vector<LuauBinding> Bindings;
+            // What its `Properties` table declared (LuauProperties::Settle), read when its top level ran.
+            std::vector<ScriptPropertyDecl> Declarations;
         };
 
         /// The watchdog's state for the call in flight. Saved and restored around a call, so an engine
@@ -198,6 +201,7 @@ namespace Desert::Scripting
             const int  threadRef = lua_ref( L, -1 );
             lua_pop( L, 1 );
             luaL_sandboxthread( thread );
+            LuauProperties::WatchPropertiesLine( thread );
             lua_setmemcat( thread, code.Category );
 
             for ( const LuauBinding& binding : bindings )
@@ -214,8 +218,18 @@ namespace Desert::Scripting
                 lua_unref( L, threadRef );
                 return Common::MakeError<Slot>( ran.GetError() );
             }
-            return Common::MakeSuccess( Slot{
-                 .Script = script, .Thread = thread, .ThreadRef = threadRef, .Bindings = std::move( bindings ) } );
+            // The declarations become the values the script reads, before anything else calls into it.
+            Common::ResultStr<std::vector<ScriptPropertyDecl>> declared = LuauProperties::Settle( thread, script );
+            if ( !declared.IsSuccess() )
+            {
+                lua_unref( L, threadRef );
+                return Common::MakeError<Slot>( declared.GetError() );
+            }
+            return Common::MakeSuccess( Slot{ .Script       = script,
+                                              .Thread       = thread,
+                                              .ThreadRef    = threadRef,
+                                              .Bindings     = std::move( bindings ),
+                                              .Declarations = declared.ExtractValue() } );
         }
     };
 
@@ -239,6 +253,7 @@ namespace Desert::Scripting
         lua_pushcfunction( impl.L, &Impl::Print, "print" );
         lua_setglobal( impl.L, "print" );
         LuauBinder::Install( impl.L );
+        LuauProperties::Install( impl.L );
         if ( install )
             install( impl.L );
         luaL_sandbox( impl.L );
@@ -451,6 +466,50 @@ namespace Desert::Scripting
         LuauBinder::PushValue( thread, value );
         lua_setfield( thread, -2, key.c_str() );
         lua_pop( thread, 1 );
+    }
+
+    const std::vector<ScriptPropertyDecl>* LuauRuntime::Declarations( LuauSlot slot ) const
+    {
+        auto found = m_Impl->Slots.find( slot );
+        return found == m_Impl->Slots.end() ? nullptr : &found->second.Declarations;
+    }
+
+    void LuauRuntime::SetProperty( LuauSlot slot, const ScriptProperty& property, const LuauPropertyWorld& world )
+    {
+        auto found = m_Impl->Slots.find( slot );
+        if ( found == m_Impl->Slots.end() )
+            return;
+        lua_State* thread = found->second.Thread;
+        lua_getglobal( thread, "Properties" );
+        if ( !lua_istable( thread, -1 ) )
+        {
+            lua_pop( thread, 1 );
+            lua_newtable( thread );
+            lua_pushvalue( thread, -1 );
+            lua_setglobal( thread, "Properties" );
+        }
+        LuauProperties::PushProperty( thread, property, world );
+        lua_setfield( thread, -2, property.Name.c_str() );
+        lua_pop( thread, 1 );
+    }
+
+    bool LuauRuntime::ReadProperty( LuauSlot slot, const std::string& name, PropertyType type,
+                                    ScriptValue& out ) const
+    {
+        auto found = m_Impl->Slots.find( slot );
+        if ( found == m_Impl->Slots.end() )
+            return false;
+        lua_State* thread = found->second.Thread;
+        lua_getglobal( thread, "Properties" );
+        bool read = false;
+        if ( lua_istable( thread, -1 ) )
+        {
+            lua_getfield( thread, -1, name.c_str() );
+            read = LuauProperties::ReadScalar( thread, -1, type, out );
+            lua_pop( thread, 1 );
+        }
+        lua_pop( thread, 1 );
+        return read;
     }
 
     std::vector<LuauTableEntry> LuauRuntime::ReadTable( LuauSlot slot, const char* table ) const

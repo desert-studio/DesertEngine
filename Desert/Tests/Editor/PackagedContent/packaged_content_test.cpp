@@ -398,7 +398,7 @@ TEST( PackagedContent, AScriptReferenceResolvesToTheSameFileLooseAndPackaged )
     const fs::path proj = base / "proj";
     const fs::path pkg  = base / "pkg";
 
-    const std::string body = "-- MoveAlongX\nProperties = { Speed = 3 }\n";
+    const std::string body = "-- MoveAlongX\nProperties = { Speed = Property.Float( 3 ) }\n";
     WriteFile( proj / "GameAssets" / "Scripts" / "Examples" / "MoveAlongX.lua", body );
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );

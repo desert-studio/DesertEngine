@@ -343,14 +343,11 @@ TEST_F( MeshVertexPathShaderRoot, EveryVertexPathThatCanBeDrawnCanAlsoCastAShado
 // inherits the question.
 TEST_F( MeshVertexPathShaderRoot, EveryVertexPathDrawnINTOTheGBufferHasACellForIt )
 {
-    // The exception, and why it is one: a skinned mesh is not rasterized into the G-buffer at all. It is
-    // drawn FORWARD over the deferred composite (MeshRenderer::RenderSkinnedManual), so a (Skinned x
-    // GBuffer) cell would be a shader nothing binds.
-    const auto drawnIntoTheGBuffer = []( MeshVertexPath path ) { return path != MeshVertexPath::Skinned; };
-
+    // No exception: the skinned mesh is drawn in the G-buffer too (UE's base pass; MeshRenderer::BuildSkinnedDraws
+    // under the G-buffer node), not forward over the deferred composite.
     for ( const auto path : kAllPaths )
     {
-        if ( TableShader( path, MeshPass::Forward ) == nullptr || !drawnIntoTheGBuffer( path ) )
+        if ( TableShader( path, MeshPass::Forward ) == nullptr )
         {
             continue;
         }

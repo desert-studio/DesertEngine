@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -53,6 +54,14 @@ namespace Desert::Graphic::API::Vulkan
             RDG::TransientHeapDesc Desc; // what was allocated (Bytes / Alignment may exceed the plan's)
             VmaAllocation          Memory     = nullptr;
             uint32_t               MemoryType = 0;
+            // The heap's ledger row (TransientHeap, owner Device): opened with the memory, closed when it is
+            // freed — a retired heap carries its row into RetiredHeap until its slot frees it.
+            ResourceOwnership Ledger;
+        };
+        struct RetiredHeap
+        {
+            VmaAllocation     Memory = nullptr;
+            ResourceOwnership Ledger;
         };
         struct PlacedTexture
         {
@@ -86,7 +95,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             std::vector<GraphHeaps> Graphs;
             // Grown-out heaps and the resources bound to them, destroyed at this slot's next BeginFrameSlot.
-            std::vector<VmaAllocation>                     RetiredHeaps;
+            std::vector<RetiredHeap>                       RetiredHeaps;
             std::vector<std::shared_ptr<VulkanRdgTexture>> RetiredTextures;
             std::vector<std::shared_ptr<VulkanRdgBuffer>>  RetiredBuffers;
         };
@@ -94,7 +103,8 @@ namespace Desert::Graphic::API::Vulkan
         static void                           Retire( Slot& slot, GraphHeaps& graph, uint32_t heap );
         void                                  Destroy( GraphHeaps& graph ) const;
         static void                           DestroyRetired( VmaAllocator allocator, Slot& slot );
-        [[nodiscard]] Common::ResultStr<Heap> AllocateHeap( const RDG::TransientHeapDesc& desc ) const;
+        // Fills @p out (a heap is move-only: it holds its ledger row).
+        [[nodiscard]] Common::BoolResultStr AllocateHeap( const RDG::TransientHeapDesc& desc, Heap& out ) const;
         [[nodiscard]] Common::ResultStr<const Heap*>
         OpenHeap( const RDG::Allocation& allocation, RDG::MemoryClass memoryClass, std::string_view name ) const;
 

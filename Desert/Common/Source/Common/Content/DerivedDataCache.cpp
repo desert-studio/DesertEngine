@@ -40,6 +40,9 @@ namespace Common::DDC
             std::string Error;
         };
 
+        std::mutex                         s_RetireHooksMutex;
+        std::vector<std::function<void()>> s_RetireHooks;
+
         std::mutex                                                         s_FlightsMutex;
         std::unordered_map<std::string, std::shared_future<FlightOutcome>> s_Flights;
 
@@ -190,11 +193,16 @@ namespace Common::DDC
         FlightOutcome outcome;
         try
         {
+            // The root this flight derives for: a build that outlives it (the root moved without RetireRoot)
+            // returns its bytes but writes nothing - into the new root it was not asked for, or the old one.
+            const std::filesystem::path root = Root();
             // A flight that finished between our miss and our registration has already written the entry.
             if ( auto hit = Get( deriver, key ); hit.has_value() )
                 outcome = { true, std::move( *hit ), {} };
             else if ( auto built = build(); !built.IsSuccess() )
                 outcome.Error = built.GetError();
+            else if ( Root() != root )
+                outcome = { true, built.ExtractValue(), {} };
             else if ( auto put = Put( deriver, key, built.GetValue() ); !put.IsSuccess() )
                 outcome.Error = std::format( "built but not cached under DDC key {:016x} ({}): {}", key,
                                              RelativePath( deriver, key ).generic_string(), put.GetError() );
@@ -210,6 +218,23 @@ namespace Common::DDC
         promise.set_value( outcome );
         EndFlight( flightId );
         return FromOutcome( outcome );
+    }
+
+    void AddRootRetireHook( std::function<void()> hook )
+    {
+        const std::lock_guard<std::mutex> lock( s_RetireHooksMutex );
+        s_RetireHooks.push_back( std::move( hook ) );
+    }
+
+    void RetireRoot()
+    {
+        std::vector<std::function<void()>> hooks;
+        {
+            const std::lock_guard<std::mutex> lock( s_RetireHooksMutex );
+            hooks = s_RetireHooks;
+        }
+        for ( const auto& hook : hooks )
+            hook();
     }
 
     std::filesystem::path PackagedPath( const std::filesystem::path& loosePath )

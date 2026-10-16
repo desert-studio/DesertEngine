@@ -16,6 +16,9 @@ layout( location = 8 ) in vec2 a_TexCoord1;
 #endif
 
 #include <Common/CameraUB.glslh>
+#ifdef DESERT_SURFACE_PASS_ShadowDepth
+#include <Common/ShadowCasterBias.glslh>
+#endif
 #ifdef DESERT_SURFACE_VIEW_PASS
 #define DESERT_OBJECT_MOTION_ROWS 1 // this stage reads its object's row
 #endif
@@ -69,4 +72,10 @@ void main()
     // Raster with the JITTERED matrix (CameraUB.glslh: raster geometry = JitteredViewProjection); Clip/PrevClip above stay
     // unjittered for velocity. An unjittered gl_Position leaves TAA/TAAU nothing to accumulate.
     gl_Position = cameraUB.JitteredViewProjection * worldPos;
+#ifdef DESERT_SURFACE_PASS_ShadowDepth
+    // The caster's slope depth bias, from the vertex normal (UE: ShadowDepthVertexShader.usf).
+    gl_Position = ShadowCasterSlopeBias( gl_Position, cameraUB.JitteredViewProjection,
+                                         transpose( inverse( mat3( world ) ) ) * a_Normal, cameraUB.ShadowSlopeBias,
+                                         cameraUB.ShadowSlopeClamp );
+#endif
 }

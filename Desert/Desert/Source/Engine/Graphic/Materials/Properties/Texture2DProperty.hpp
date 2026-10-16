@@ -130,6 +130,19 @@ namespace Desert::Graphic
         {
             return m_SamplesEncoded;
         }
+        /// The bindless slot of what this property draws NOW: the bound image's, or — while the texture is
+        /// Pending (AM2) and nothing is bound — the schema default's, the same image raster binds. The material is
+        /// on RebuildWhenReady, so its rebuild re-reads the real slot once the texture is resident.
+        [[nodiscard]] BindlessTextureSlot GetBindlessSlot() const
+        {
+            const Image2D* image = m_Texture != nullptr ? m_Texture : DefaultTextures::Get().Resolve( m_Default );
+            return image != nullptr ? image->GetBindlessSlot() : BindlessTextureSlot{};
+        }
+        [[nodiscard]] BindlessSamplerSlot GetBindlessSampler() const
+        {
+            return BindlessSamplerFor( GetSamplerState() );
+        }
+
         [[nodiscard]] const Image2D* GetImage() const noexcept
         {
             return m_Texture;

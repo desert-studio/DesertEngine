@@ -58,6 +58,10 @@ namespace Common::Content
     {
         std::string                  Role;
         bool                         DefaultSurface = false;
+        // The template's Surface setting `TwoSided` (DShaderParser: SurfaceTemplateInfo::TwoSided): the default
+        // sidedness of every material drawing with it, read where the GPU schema is not at hand (a mesh's
+        // distance field build resolves its materials' sidedness on the loader thread).
+        bool                         TwoSided       = false;
         bool                         DeclaresImport = false; // an `Import` block is present (even an empty one)
         std::vector<std::string>     ImportRequires;
         std::vector<ShaderImportRow> Import;
@@ -78,6 +82,9 @@ namespace Common::Content
     // the world cook knows a material's backend without loading the shader (WorldCells::CustomShaderFrom).
     inline constexpr std::string_view kStandardSurfaceRole =
          "StandardSurface";                                              // the batched lit backend (until MAT1a)
+    // The standard surface cut out (BlendMode Masked): what a writer that knows only "this card cuts out" states
+    // (the Collections cook); an importer reaches it through its Import contract instead.
+    inline constexpr std::string_view kStandardSurfaceMaskedRole = "StandardSurfaceMasked";
     inline constexpr std::string_view kDebugColorRole    = "DebugColor"; // the scripting flat-colour material
     inline constexpr std::string_view kTerrainRole       = "Terrain";    // a new landscape material's template
     inline constexpr std::string_view kCloudMaterialRole = "CloudMaterial"; // a new cloud material's template

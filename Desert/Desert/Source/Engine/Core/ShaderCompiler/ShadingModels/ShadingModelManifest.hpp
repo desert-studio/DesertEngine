@@ -109,15 +109,17 @@ namespace Desert::Core::ShadingModels
 
     inline constexpr std::uint8_t kShadingWordBits = 64;
 
-    inline constexpr std::array<ShadingWordField, 7> kShadingWordFields{ {
-         { "INDEX", 0, 4 },           // shading-model index, 0..15
-         { "TEXTURES", 4, 4 },        // sampled-texture count (Material Complexity), clamped to 15
-         { "PAYLOAD0", 8, 8 },        // CustomData0, unorm8
-         { "PAYLOAD1", 16, 8 },       // CustomData1, unorm8
-         { "NO_SUN_SHADOWS", 24, 1 }, // set = the sun's cascades do not shadow the surface
-                                      // (SurfaceOutput.ReceiveSunShadows < 0.5); 0, the clear value, receives
-         { "PAYLOAD2", 32, 8 },       // CustomData2, unorm8 (.y)
-         { "PAYLOAD3", 40, 8 }        // CustomData3, unorm8 (.y)
+    inline constexpr std::array<ShadingWordField, 8> kShadingWordFields{ {
+         { "INDEX", 0, 4 },              // shading-model index, 0..15
+         { "TEXTURES", 4, 4 },           // sampled-texture count (Material Complexity), clamped to 15
+         { "PAYLOAD0", 8, 8 },           // CustomData0, unorm8
+         { "PAYLOAD1", 16, 8 },          // CustomData1, unorm8
+         { "NO_SUN_SHADOWS", 24, 1 },    // set = the sun's cascades do not shadow the surface
+                                         // (SurfaceOutput.ReceiveSunShadows < 0.5); 0, the clear value, receives
+         { "NO_CONTACT_SHADOW", 25, 1 }, // set = the primitive casts no contact shadow (UE !bCastContactShadow,
+                                         // the push PrimitiveFlags); 0, the clear value, casts
+         { "PAYLOAD2", 32, 8 },          // CustomData2, unorm8 (.y)
+         { "PAYLOAD3", 40, 8 }           // CustomData3, unorm8 (.y)
     } };
 
     // The value the shading-word target clears to: Unlit, no payload, receives sun shadows.
@@ -136,6 +138,11 @@ namespace Desert::Core::ShadingModels
         std::string              Name;    // the file stem
         std::vector<PayloadSlot> Payload; // <= kMaxPayloadFloats
         std::vector<std::string> Inputs;  // SurfaceOutput field names, as written
+        // UE IsSubsurfaceModel + its CustomData.a opacity: the optional `SubsurfaceOpacity <pin>;` line after
+        // Inputs names the payload pin that holds the model's subsurface opacity (one of Payload's). Set = the
+        // model is subsurface: a light's contact shadow on it fades with the hit distance by the density that
+        // opacity stands for (Common/ContactShadow.glslh, DesertSubsurfaceOpacity). Empty = not subsurface.
+        std::string              SubsurfaceOpacityPin;
         std::string              Body;    // the GLSL after the Inputs block
         std::filesystem::path    SourcePath;
     };

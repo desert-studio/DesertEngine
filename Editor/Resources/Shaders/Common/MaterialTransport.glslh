@@ -31,10 +31,17 @@ PushConstant PushConstants
                          // view pass Transform is then the submesh's transform RELATIVE TO that row's World.
     vec4 WindA;         // offset 80 — instanced vertex only: Graphic::kInstancedWindPushOffset (FoliageWind.glslh)
     vec4 WindB;         // offset 96
-    vec2 ShadowSlope;   // offset 112 — terrain light-view cell only (Programs/Terrain/TerrainShadow.shader,
+    vec2 ShadowSlope;   // offset 112 — terrain light-view vertex stage only (Programs/Terrain/TerrainShadow.shader,
                         // Material::SetShadowSlopeBias): Graphic::CascadeCasterBias SlopeBias / SlopeClamp
-                        // of the cascade being drawn. Block size 120, inside the 128 every device guarantees.
+                        // of the cascade being drawn.
+    uint PrimitiveFlags; // offset 120 — G-buffer fragment stage only (Mesh/Surface/Pass_GBuffer.glslh,
+                         // Material::SetPrimitiveFlags): the draw's per-primitive bits, Graphic::PrimitiveFlag
+                         // (bit 0 = NO_CONTACT_SHADOW, UE !bCastContactShadow). 0 = every default. Block size
+                         // 124, inside the 128 every Vulkan device guarantees.
 }
 m_PushConstants;
+
+// The bits of PrimitiveFlags — C++ twin: Graphic::PrimitiveFlag (Engine/Graphic/Materials/Material.hpp).
+#define DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW 1u
 
 #endif

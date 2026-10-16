@@ -125,6 +125,11 @@ namespace Desert::Graphic::API::Vulkan
             // Every colour location the FRAGMENT stage writes, sorted and unique. A colour slot of the target
             // outside this set is drawn with write mask 0 (ShaderReflection::BuildColorBlendAttachments).
             std::vector<uint32_t> FragmentOutputLocations;
+
+            // Some stage declares the global bindless table (Common/BindlessTextures.glslh) at kBindlessSetIndex.
+            // That set is in no bucket above: its layout and its descriptor set are the table's
+            // (VulkanShader::CreateDescriptorsLayout, the passes' set binding), never built from this shader.
+            bool UsesBindlessTable = false;
         };
 
     } // namespace ShaderResource
