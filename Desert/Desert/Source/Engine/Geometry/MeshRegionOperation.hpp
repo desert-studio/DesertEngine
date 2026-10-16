@@ -145,12 +145,4 @@ namespace Desert::Geometry
 
     [[nodiscard]] Common::ResultStr<RegionOutcome>
     SimplifyMesh( const DynamicMesh3& before, const SimplifySettings& settings, ElementMode mode );
-
-    // The proxy simplifier of a MeshSimplify HLOD layer (UE UHLODBuilderMeshSimplify): QEM collapses @p mesh, in
-    // place, down to @p targetTriangles with the simplifier's default constraints, then recomputes the primary
-    // normal overlay from the new surface (the collapses moved vertices, so the old corner normals describe a
-    // surface that no longer exists). Unlike SimplifyMesh it refuses nothing: a target the mesh already meets
-    // leaves it as it is, because an HLOD layer at 100 % is a merge, not an error. Lives here, with the editor's
-    // Simplify, so the HLOD builder reaches the ported simplifier through an adapter and there is one QEM.
-    void SimplifyToTriangleCount( DynamicMesh3& mesh, int targetTriangles );
 } // namespace Desert::Geometry

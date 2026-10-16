@@ -5,7 +5,7 @@
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
 #include <Engine/Geometry/MeshAssetArrays.hpp>
-#include <Engine/Geometry/MeshRegionOperation.hpp>
+#include <Engine/Geometry/MeshSimplifyOperation.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>

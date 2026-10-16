@@ -465,16 +465,4 @@ namespace Desert::Geometry
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ), {} } );
     }
-
-    void SimplifyToTriangleCount( DynamicMesh3& mesh, int targetTriangles )
-    {
-        QemSimplification simplifier( mesh );
-        simplifier.SimplifyToTriangleCount( targetTriangles );
-        if ( mesh.HasAttributes() && mesh.Attributes()->PrimaryNormals() != nullptr )
-        {
-            MeshNormals normals( &mesh );
-            normals.RecomputeOverlayNormals( mesh.Attributes()->PrimaryNormals() );
-            normals.CopyToOverlay( mesh.Attributes()->PrimaryNormals() );
-        }
-    }
 } // namespace Desert::Geometry

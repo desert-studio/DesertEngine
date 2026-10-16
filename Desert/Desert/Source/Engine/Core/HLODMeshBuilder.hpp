@@ -6,10 +6,10 @@
 // or CreateProxyMesh (simplify) and gets one UStaticMesh; here the parts the Instancing pass chose
 // (Rules::HLODMeshRequest) are gathered into one render mesh in WORLD space, one section per distinct material,
 // welded into a DynamicMesh3, and for MeshSimplify collapsed by the editor's own QEM simplifier
-// (Geometry::SimplifyToTriangleCount, over the ported QemSimplification) - no second simplifier. Normals are
-// recomputed from the result. The answer is a StaticMesh block whose EditMesh is the built mesh and whose material
-// slots are the distinct materials, in first-seen order: what the HLOD record carries and ComponentRegistry loads
-// like any editor-built mesh.
+// (Geometry::SimplifyToTriangleCount in MeshSimplifyOperation, over the ported QemSimplification) - no second
+// simplifier. Normals are recomputed from the result. The answer is a StaticMesh block whose EditMesh is the built
+// mesh and whose material slots are the distinct materials, in first-seen order: what the HLOD record carries and
+// ComponentRegistry loads like any editor-built mesh.
 //
 // WHERE GEOMETRY COMES FROM: a Primitive from Geometry::MakePrimitive (the generators the scene's primitives are
 // drawn from), a mesh asset from its render form (Assets::LoadMeshPlatformData, the bytes StaticMeshAsset draws)
