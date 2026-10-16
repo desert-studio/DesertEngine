@@ -796,7 +796,6 @@ namespace Desert::Graphic
         m_SSRRaysPerPixel                     = quality.As<int>( Parameter::ReflectionRaysPerPixel );
         m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
-        m_ScreenProbeAdaptivePercent = quality.As<uint32_t>( Parameter::ScreenProbeAdaptiveAllocation );
         m_ContactShadowSteps                  = quality.As<int>( Parameter::ShadowContactSteps );
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
         m_SunContactShadowLengthInWorldSpace  = shadows.ContactShadowLengthInWorldSpace;

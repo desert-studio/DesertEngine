@@ -454,9 +454,6 @@ Shader "DeferredLighting"
         		sampled.Irradiance  = texelFetch(u_GIDiffuse, ivec2(gl_FragCoord.xy), 0).rgb;
         		sampled.Prefiltered = texelFetch(u_GISpecular, ivec2(gl_FragCoord.xy), 0).rgb;
         		sampled.Traced      = 1.0;
-        		// The gather carries its own short-range AO (bent normal, ScreenProbeShortRangeAO): only the material's
-        		// occlusion is left to apply (UE r.Lumen.DiffuseIndirect.SSAO 0 — no SSAO on Lumen's indirect).
-        		sampled.Occlusion   = ge.a;
         	}
         	if (u_CameraPos.w > 0.5)
         		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), sampled.Prefiltered);

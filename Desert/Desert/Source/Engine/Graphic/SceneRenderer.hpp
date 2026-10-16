@@ -994,10 +994,6 @@ namespace Desert::Graphic
         // global distance field's atlas holds and its finer mips stream within.
         uint32_t m_DistanceFieldPoolMiB = 256;
         int m_SSAOSamples = 16;
-        // Adaptive screen probes per uniform one, percent (Scalability GlobalIllumination.
-        // AdaptiveProbeAllocationPercent, UE r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction), refreshed
-        // each BeginScene and handed to the screen probe gather's layout.
-        uint32_t m_ScreenProbeAdaptivePercent = 50;
         // Contact-shadow ray steps (Scalability: Shadows.ContactShadowSteps; 0 = the march is skipped for every
         // light) and the sun's contact shadow (ViewShadowSettings, from the elected sun), taken each BeginScene
         // and handed to the deferred composite (Common/ContactShadow.glslh).

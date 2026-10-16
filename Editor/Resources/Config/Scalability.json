@@ -199,8 +199,7 @@
                 "GlobalIllumination.RadiosityHemisphereProbeResolution": 3,
                 "GlobalIllumination.RadianceCacheProbeResolution": 16,
                 "GlobalIllumination.RadianceCacheProbesPerFrame": 100,
-                "GlobalIllumination.HitLighting": 0,
-                "GlobalIllumination.AdaptiveProbeAllocationPercent": 50
+                "GlobalIllumination.HitLighting": 0
             },
             "Medium": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 128,
@@ -215,8 +214,7 @@
                 "GlobalIllumination.RadiosityHemisphereProbeResolution": 3,
                 "GlobalIllumination.RadianceCacheProbeResolution": 16,
                 "GlobalIllumination.RadianceCacheProbesPerFrame": 100,
-                "GlobalIllumination.HitLighting": 0,
-                "GlobalIllumination.AdaptiveProbeAllocationPercent": 50
+                "GlobalIllumination.HitLighting": 0
             },
             "High": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 384,
@@ -231,8 +229,7 @@
                 "GlobalIllumination.RadiosityHemisphereProbeResolution": 3,
                 "GlobalIllumination.RadianceCacheProbeResolution": 16,
                 "GlobalIllumination.RadianceCacheProbesPerFrame": 100,
-                "GlobalIllumination.HitLighting": 0,
-                "GlobalIllumination.AdaptiveProbeAllocationPercent": 50
+                "GlobalIllumination.HitLighting": 0
             },
             "Epic": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 384,
@@ -247,8 +244,7 @@
                 "GlobalIllumination.RadiosityHemisphereProbeResolution": 4,
                 "GlobalIllumination.RadianceCacheProbeResolution": 32,
                 "GlobalIllumination.RadianceCacheProbesPerFrame": 150,
-                "GlobalIllumination.HitLighting": 1,
-                "GlobalIllumination.AdaptiveProbeAllocationPercent": 100
+                "GlobalIllumination.HitLighting": 1
             },
             "Cinematic": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 512,
@@ -263,8 +259,7 @@
                 "GlobalIllumination.RadiosityHemisphereProbeResolution": 4,
                 "GlobalIllumination.RadianceCacheProbeResolution": 32,
                 "GlobalIllumination.RadianceCacheProbesPerFrame": 350,
-                "GlobalIllumination.HitLighting": 1,
-                "GlobalIllumination.AdaptiveProbeAllocationPercent": 100
+                "GlobalIllumination.HitLighting": 1
             }
         },
         "Reflections": {
