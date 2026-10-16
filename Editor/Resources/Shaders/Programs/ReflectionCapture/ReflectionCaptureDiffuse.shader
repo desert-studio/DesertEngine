@@ -3,8 +3,8 @@ Shader "ReflectionCaptureDiffuse"
 {
     Compute
     {
-        // THE DIFFUSE AT THE CAPTURE POINTS, measured by the estimator the view's lit pixels receive their diffuse
-        // from (Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp ReflectionCaptureLighting), and stored in the
+        // THE DIFFUSE AT THE CAPTURE POINTS, measured by the estimator the view's lit pixels are normalised with
+        // (Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp ReflectionCaptureLighting), and stored in the
         // alpha of the capture's LAST mip - the capture's ONE stored brightness, which the lighting divides the
         // pixel's own diffuse by (UE ComputeMixingWeight, Common/ReflectionEnvironment.glslh).
         //
@@ -45,7 +45,8 @@ Shader "ReflectionCaptureDiffuse"
         struct DiffusePoint
         {
             vec4  Point;      // xyz = the capture point (world cm)
-            uvec4 CubeForced; // x = cube index in the array, y = 1 measure unconditionally (the cube being written)
+            uvec4 CubeForced; // x = cube index in the array (the staging cube for a recapture), y = 1 measure
+                              // unconditionally (the cube being written)
         };
         ReadBuffer(6) ReflectionCaptureDiffusePointsUB
         {
@@ -90,10 +91,10 @@ Shader "ReflectionCaptureDiffuse"
                 const vec3 n = axes[i];
                 if (u_Estimator.x > 0.5)
                 {
-                    // A point in the air has no viewer: the read's bias goes along the normal (V = N), as the
-                    // radiance cache marks it (RadianceCacheMark.shader's capture points). The dither picks the
-                    // middle of a clipmap fade; both ends of it are marked.
-                    const vec4 irradiance = RadianceCacheIrradianceAt(point.Point.xyz, n, n, 0.5);
+                    // The cache's SMOOTH read, the one the pixels take their side of the ratio from
+                    // (Mesh/AmbientIBL.glslh DesertCaptureNormalisation): the field without the per-probe
+                    // visibility whose cell-shaped steps the ratio once carried onto the walls.
+                    const vec4 irradiance = RadianceCacheSmoothIrradianceAt(point.Point.xyz, n);
                     luminance[i] = dot(irradiance.rgb, vec3(0.2126, 0.7152, 0.0722));
                     if (irradiance.a > 0.0)
                         answered += 1.0;

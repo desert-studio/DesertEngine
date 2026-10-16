@@ -45,7 +45,8 @@ namespace Desert::Graphic
         glm::vec4  PositionRadius{ 0.0f };          // xyz = influence centre (world cm), w = sphere radius
         glm::vec4  CaptureOffsetBrightness{ 0.0f }; // xyz = capture point - centre (world cm), w = Brightness
         glm::vec4  BoxExtentTransition{ 0.0f };     // xyz = box half extent (cm), w = box transition (cm)
-        glm::uvec4 ShapeCube{ 0u };                 // x = 0 sphere / 1 box, y = cube index in the array
+        glm::uvec4 ShapeCube{ 0u }; // x = 0 sphere / 1 box, y = cube index in the array, z = the capture's
+                                    // presence (float bits, 0..1: PackReflectionCaptures)
         glm::mat4  WorldToBox{ 1.0f };              // world -> box space ([-1, 1]^3)
     };
     static_assert( sizeof( ReflectionCaptureGpu ) == 128, "ReflectionCaptureGpu must match the std430 struct" );
@@ -69,10 +70,20 @@ namespace Desert::Graphic
     [[nodiscard]] std::vector<ReflectionCaptureEntry> GatherReflectionCaptures( const entt::registry& registry );
 
     /// What the lighting pass reads: the header (x = count) and the captures sorted smallest influence first, only
-    /// those @p captured (by cube index) — a capture whose cube has not been written yet is not read.
+    /// those with a @p presence above 0 (by cube index) — a capture whose cube has not been written yet is not
+    /// read — each carrying its presence (ShapeCube.z, float bits), which scales its coverage while its first cube
+    /// fades in.
     [[nodiscard]] std::vector<std::byte>
     PackReflectionCaptures( const std::vector<ReflectionCaptureEntry>& captures,
-                            const std::vector<bool>&                   captured );
+                            const std::vector<float>&                  presence );
+
+    /// THE FRAMES A NEW CUBE TAKES TO REPLACE WHAT WAS READ BEFORE IT (REFL-NORM-SMOOTH): a capture's first cube
+    /// fades its coverage in from 0 (the environment behind it shows through), a recapture blends the live cube
+    /// toward the new one (ReflectionCaptureBlend.shader). A one-frame swap of a whole cube was a visible step of
+    /// every rough surface it covers (0.8 % of the Bistro running day's frame at a re-capture, 26 % on load).
+    /// Twelve is the fewest face renders a capture takes (two per face), so a blend ends before the next cube is
+    /// ready in the common case; one that is not waits for it.
+    inline constexpr uint32_t kReflectionCaptureBlendFrames = 12u;
 
     /**
      * @brief WHAT A CAPTURE'S STORED DIFFUSE IS MEASURED WITH: the view's own diffuse estimator, the one its lit
@@ -150,9 +161,11 @@ namespace Desert::Graphic
      * settled when it held one sky environment for one render after its first (its sky-view LUT is a frame late)
      * - kCaptureSettleFrames when it draws a cloud layer, whose history converges - or after kCaptureFrameBudget
      * renders whatever its sky does. Only when all six have settled is the cube written -
-     * assembled, mipped, filtered with UE's real-time sample counts - in one frame, so the array holds either the
-     * previous cube or the new one, never a half-written mix. Captures are taken round-robin from the one after
-     * the last, so a lighting that keeps changing refreshes every capture in turn.
+     * assembled, mipped, filtered with UE's real-time sample counts - in one frame, so the array never holds a
+     * half-written cube. A capture's FIRST cube is written in place and fades its coverage in; a RECAPTURE is
+     * written into the staging cube and the live one blends toward it (kReflectionCaptureBlendFrames). Captures
+     * are taken round-robin from the one after the last, so a lighting that keeps changing refreshes every capture
+     * in turn.
      *
      * THE STORED DIFFUSE IS RE-MEASURED UNTIL IT IS MEASURED: every frame, the first view that reads captures runs
      * ReflectionCaptureDiffuse over every written cube, and a cube whose stored diffuse is still 0 ("not
@@ -229,9 +242,18 @@ namespace Desert::Graphic
                                uint32_t faceSize, bool black );
         // ReflectionCaptureDiffuse over every written cube of @p array: stores @p lighting's diffuse in the last
         // mip's alpha where it is not measured yet, and unconditionally into @p forcedCube (kNoCapture: none) -
-        // into every written cube when @p forceAll (the estimator changed).
+        // into every written cube when @p forceAll (the estimator changed). The staging cube, while it holds a
+        // recapture of capture @p stagingSource (kNoCapture: none), is measured at that capture's point when
+        // @p stagingForced (it was written this frame) or @p forceAll.
         void AddDiffusePass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef array,
-                             uint32_t forcedCube, bool forceAll, const ReflectionCaptureLighting& lighting );
+                             uint32_t forcedCube, uint32_t stagingSource, bool stagingForced, bool forceAll,
+                             const ReflectionCaptureLighting& lighting );
+        // One step of the recapture blend in progress (m_BlendCube): every mip of the live cube moved toward the
+        // staging cube by 1 / (kReflectionCaptureBlendFrames - m_BlendStep).
+        void AddBlendPasses( RDG::Builder& graph, RDG::TextureRef array );
+        // Each capture's presence for PackReflectionCaptures (by cube index): 0 unwritten, then its first cube's
+        // fade-in.
+        [[nodiscard]] std::vector<float> CapturePresence() const;
         // The sky's Rebake Sun Angle of the scene's primary sky (lowest entity), or that field's default without
         // one.
         [[nodiscard]] static float SunAngleThreshold( const entt::registry& registry );
@@ -242,6 +264,7 @@ namespace Desert::Graphic
         // The scene's captures as last gathered, and what has been written into the array (by cube index).
         std::vector<ReflectionCaptureEntry> m_Captures;
         std::vector<bool>                   m_Captured; // written at least once: the lighting reads it
+        std::vector<uint32_t>               m_Presence; // frames since the first cube was written (fade-in)
         std::vector<bool>                   m_Done;     // settled: not rendered again until something changes
         uint64_t                            m_Signature         = 0; // the structure (see the class comment)
         // The lighting the captures were last triggered under: the exact part (the sky bake, the local lights)
@@ -271,6 +294,10 @@ namespace Desert::Graphic
         // The estimator the written cubes were last measured with (MeasureKey: the radiance cache, or the sky bake
         // and look): another one re-measures them all.
         uint64_t m_MeasuredKey = 0;
+        // THE RECAPTURE BLEND: the array's last cube (index m_Captures.size()) is the staging cube a recapture is
+        // written into; m_BlendCube's live cube is moved toward it one step per frame (kNoCapture: no blend).
+        uint32_t m_BlendCube = kNoCapture;
+        uint32_t m_BlendStep = 0;
 
         std::array<std::unique_ptr<FaceView>, 6> m_Faces;
         // Face views released once every capture settled, kept alive until no frame in flight can still execute
@@ -287,10 +314,12 @@ namespace Desert::Graphic
         std::shared_ptr<ComputePipeline> m_Downsample;
         std::shared_ptr<ComputePipeline> m_Filter;
         std::shared_ptr<ComputePipeline> m_Diffuse;
+        std::shared_ptr<ComputePipeline> m_Blend;
         bool                             m_PipelinesFailed = false;
         mutable ShaderBindingLayoutCache m_AssembleLayout;
         mutable ShaderBindingLayoutCache m_DownsampleLayout;
         mutable ShaderBindingLayoutCache m_FilterLayout;
         mutable ShaderBindingLayoutCache m_DiffuseLayout;
+        mutable ShaderBindingLayoutCache m_BlendLayout;
     };
 } // namespace Desert::Graphic

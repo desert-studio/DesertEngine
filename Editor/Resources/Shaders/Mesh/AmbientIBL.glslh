@@ -139,11 +139,21 @@ DesertAmbient DesertSampleAmbient(DesertSurface S, vec3 irradiance, vec3 remaind
 	A.Irradiance  = irradiance;
 	A.Prefiltered = remainder;
 #ifdef DESERT_REFLECTION_CAPTURES
-	// UE's IndirectIrradiance for the normalisation: the diffuse this pixel is lit with (the estimator's irradiance
-	// under the occlusion, plus the bounce), as luminance - the same estimator the captures' stored diffuse was
-	// measured with at their capture points (ReflectionCaptureDiffuse.shader), never the sky alone where the GI
-	// lights the pixel.
-	const float indirectIrradiance = dot(A.Irradiance * occlusion + indirect, vec3(0.2126, 0.7152, 0.0722));
+	// UE's IndirectIrradiance for the normalisation: the diffuse this pixel receives under its occlusion, plus the
+	// bounce, as luminance - from the same estimator the captures' stored diffuse was measured with at their capture
+	// points (ReflectionCaptureDiffuse.shader), never the sky alone where the GI lights the pixel. Where the view has
+	// a radiance cache that estimator is the cache's SMOOTH read, not the final gather that lights the pixel: the
+	// gather's visibility steps from cell to cell, and a ratio of it scaled a smooth cube into wall patches
+	// (REFL-NORM-SMOOTH). The sky's irradiance cube is smooth already.
+	vec3 estimator = A.Irradiance;
+#ifdef DESERT_VIEW_RADIANCE_CACHE
+	if (radianceCache.shape.x != 0u)
+	{
+		const vec4 smoothIrradiance = RadianceCacheSmoothIrradianceAt(S.WorldPosition, S.N);
+		estimator                   = smoothIrradiance.a > 0.0 ? smoothIrradiance.rgb : vec3(0.0);
+	}
+#endif
+	const float indirectIrradiance = dot(estimator * occlusion + indirect, vec3(0.2126, 0.7152, 0.0722));
 	A.Prefiltered = DesertReflectionEnvironment(S.WorldPosition, reflect(-S.V, S.N), S.N, S.Roughness, A.Prefiltered,
 	                                            indirectIrradiance);
 #endif

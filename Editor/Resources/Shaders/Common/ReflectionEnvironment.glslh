@@ -126,6 +126,10 @@ vec4 GatherReflectionCaptures(vec3 P, vec3 R, vec3 N, float roughness, float ind
 				continue;
 			lookup = ReflectionCaptureBoxLookup(R, P, capture, local, distanceAlpha);
 		}
+		// A capture whose first cube was just written fades in over a few frames (ReflectionCaptureRenderer's
+		// presence): the environment behind it shows through meanwhile, so a capture becoming readable is a
+		// ramp, never a one-frame change of every rough surface it covers.
+		distanceAlpha *= uintBitsToFloat(capture.ShapeCube.z);
 		if (distanceAlpha <= 0.0)
 			continue;
 

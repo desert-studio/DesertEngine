@@ -93,15 +93,10 @@ Shader "DeferredLighting"
         // (Core::kGraphOwnedBindingFirst) - which no engine declaration may enter, graph or no graph in this
         // program. A second set is outside both reservations by construction (they are set-0 numbers), and the
         // pass binds by name: the backend resolves each name to its (set, binding) from the reflection.
-        // Raw layout() for the buffer: the DSL's ReadBuffer(n) sugar has no set form.
-        #define DESERT_REFLECTION_CAPTURES
-        #include <Common/ReflectionCaptureGpu.glslh>
-        layout(std430, set = 1, binding = 0) readonly buffer ReflectionCapturesUB
-        {
-            uvec4                u_ReflectionCaptureHeader; // x = capture count
-            ReflectionCaptureGpu u_ReflectionCaptures[];
-        };
-        Uniform(1, 1) samplerCubeArray u_ReflectionCaptureCubes;
+        // The declarations are the forward passes' (Mesh/Surface/ViewIndirect.glslh): the capture list and cubes
+        // (set 1, b0-b1) and the view's world radiance cache (b2-b6), whose smooth read is the captures'
+        // normalisation estimator wherever the view runs the cache (Mesh/AmbientIBL.glslh, REFL-NORM-SMOOTH).
+        #include <Mesh/Surface/ViewIndirect.glslh>
         // The screen-space reflection of this frame (SSRRenderer's resolved trace, full resolution): rgb = the traced
         // radiance, a = the share of the specular lobe the trace answered. When SSR is off it is System.Black (opaque)
         // and u_CameraPos.w = 0: nothing is read, the environment answers the whole lobe.

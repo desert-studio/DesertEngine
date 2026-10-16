@@ -74,6 +74,14 @@ namespace Desert::Graphic
             glm::vec4 SkyGain{ 1.0f };
         };
         // ReflectionCaptureDiffuse.shader's push block and one row of its point list (std430).
+        // ReflectionCaptureBlend.shader's push block.
+        struct BlendPush
+        {
+            uint32_t LiveLayer    = 0u;
+            uint32_t StagingLayer = 0u;
+            float    Weight       = 0.0f;
+            float    Pad          = 0.0f;
+        };
         struct DiffusePointGpu
         {
             glm::vec4  Point{ 0.0f };    // xyz = the capture point (world cm)
@@ -261,11 +269,11 @@ namespace Desert::Graphic
     }
 
     std::vector<std::byte> PackReflectionCaptures( const std::vector<ReflectionCaptureEntry>& captures,
-                                                   const std::vector<bool>&                   captured )
+                                                   const std::vector<float>&                  presence )
     {
         std::vector<const ReflectionCaptureEntry*> readable;
         for ( const ReflectionCaptureEntry& capture : captures )
-            if ( capture.Gpu.ShapeCube.y < captured.size() && captured[capture.Gpu.ShapeCube.y] )
+            if ( capture.Gpu.ShapeCube.y < presence.size() && presence[capture.Gpu.ShapeCube.y] > 0.0f )
                 readable.push_back( &capture );
         // Smallest influence first: the shader composites front to back (UE sorts its captures the same way).
         std::stable_sort( readable.begin(), readable.end(),
@@ -277,8 +285,12 @@ namespace Desert::Graphic
                                       sizeof( ReflectionCaptureGpu ) * std::max<size_t>( readable.size(), 1u ) );
         std::memcpy( bytes.data(), &header, sizeof( header ) );
         for ( size_t i = 0; i < readable.size(); ++i )
-            std::memcpy( bytes.data() + sizeof( header ) + i * sizeof( ReflectionCaptureGpu ), &readable[i]->Gpu,
+        {
+            ReflectionCaptureGpu gpu = readable[i]->Gpu;
+            gpu.ShapeCube.z          = std::bit_cast<uint32_t>( std::min( presence[gpu.ShapeCube.y], 1.0f ) );
+            std::memcpy( bytes.data() + sizeof( header ) + i * sizeof( ReflectionCaptureGpu ), &gpu,
                          sizeof( ReflectionCaptureGpu ) );
+        }
         return bytes;
     }
 
@@ -307,7 +319,7 @@ namespace Desert::Graphic
 
     bool ReflectionCaptureRenderer::EnsurePipelines()
     {
-        if ( m_Assemble && m_Downsample && m_Filter && m_Diffuse )
+        if ( m_Assemble && m_Downsample && m_Filter && m_Diffuse && m_Blend )
             return true;
         if ( m_PipelinesFailed )
             return false;
@@ -315,7 +327,8 @@ namespace Desert::Graphic
         m_Downsample      = MakeCompute( "ReflectionCaptureDownsample" );
         m_Filter          = MakeCompute( "ReflectionCaptureFilter" );
         m_Diffuse         = MakeCompute( "ReflectionCaptureDiffuse" );
-        m_PipelinesFailed = !( m_Assemble && m_Downsample && m_Filter && m_Diffuse );
+        m_Blend           = MakeCompute( "ReflectionCaptureBlend" );
+        m_PipelinesFailed = !( m_Assemble && m_Downsample && m_Filter && m_Diffuse && m_Blend );
         return !m_PipelinesFailed;
     }
 
@@ -375,8 +388,10 @@ namespace Desert::Graphic
             m_LightingSignature = lighting;
             m_ReferenceSuns     = dirLights.DirectionLights;
             m_Captured.assign( m_Captures.size(), false );
+            m_Presence.assign( m_Captures.size(), 0u );
             m_Done.assign( m_Captures.size(), false );
-            m_Pending = kNoCapture;
+            m_Pending   = kNoCapture;
+            m_BlendCube = kNoCapture;
             // The round starts at capture 0: the one after the "last", which is the final index.
             m_LastCaptured = m_Captures.empty() ? 0u : static_cast<uint32_t>( m_Captures.size() - 1u );
         }
@@ -642,7 +657,7 @@ namespace Desert::Graphic
         {
             const RDG::TextureRef black =
                  AcquireArray( graph, textures, m_Black, 1u, 1u, "ReflectionCaptures.Black" ).first;
-            const std::vector<std::byte> list = PackReflectionCaptures( {}, {} );
+            const std::vector<std::byte> list = PackReflectionCaptures( {}, std::vector<float>{} );
             const RDG::BufferRef         buffer =
                  graph.CreateBuffer( RDG::BufferDesc{ list.size() }, "ReflectionCaptures.List" );
             graph.QueueBufferUpload( buffer, list );
@@ -651,15 +666,19 @@ namespace Desert::Graphic
             return;
         }
 
-        const uint32_t cubes = std::max<uint32_t>( static_cast<uint32_t>( m_Captures.size() ), 1u );
+        // One cube per capture, and the staging cube a recapture is written into before the live one blends to it.
+        const uint32_t cubes = static_cast<uint32_t>( m_Captures.size() ) + 1u;
         const auto [array, created] =
              AcquireArray( graph, textures, m_Cubes, cubes, m_FaceSize, "ReflectionCaptures.Cubes" );
         if ( created )
+        {
             std::fill( m_Captured.begin(), m_Captured.end(), false ); // a reshaped array holds nothing yet
+            m_BlendCube = kNoCapture;
+        }
 
         m_GraphArray = array;
 
-        const std::vector<std::byte> list = PackReflectionCaptures( m_Captures, m_Captured );
+        const std::vector<std::byte> list = PackReflectionCaptures( m_Captures, CapturePresence() );
         const RDG::BufferRef         buffer =
              graph.CreateBuffer( RDG::BufferDesc{ list.size() }, "ReflectionCaptures.List" );
         graph.QueueBufferUpload( buffer, list );
@@ -668,15 +687,58 @@ namespace Desert::Graphic
         textures.Transients.ReflectionCaptures     = buffer;
     }
 
+    std::vector<float> ReflectionCaptureRenderer::CapturePresence() const
+    {
+        // A cube written in frame F is first read in F + 1 at 1/K, and fully from F + K on (AddCaptureUpdate
+        // counts the frames after the one that wrote it).
+        std::vector<float> presence( m_Captured.size(), 0.0f );
+        for ( size_t cube = 0; cube < presence.size(); ++cube )
+            if ( m_Captured[cube] )
+                presence[cube] =
+                     static_cast<float>( std::min( m_Presence[cube] + 1u, kReflectionCaptureBlendFrames ) ) /
+                     static_cast<float>( kReflectionCaptureBlendFrames );
+        return presence;
+    }
+
+    void ReflectionCaptureRenderer::AddBlendPasses( RDG::Builder& graph, const RDG::TextureRef array )
+    {
+        const uint32_t mips = Core::Formats::MipChainLength( m_FaceSize );
+        BlendPush      push;
+        push.LiveLayer    = m_BlendCube * 6u;
+        push.StagingLayer = static_cast<uint32_t>( m_Captures.size() ) * 6u;
+        push.Weight       = 1.0f / static_cast<float>( kReflectionCaptureBlendFrames - m_BlendStep );
+        for ( uint32_t mip = 0; mip < mips; ++mip )
+            graph.AddPass(
+                 std::format( "ReflectionCapture: Blend {} mip {}", m_BlendCube, mip ), RDG::PassFlags::Compute,
+                 [&, mip]( RDG::PassBuilder& pass )
+                 {
+                     // Read-modify-write of this mip: the staging layers are read, the live ones written.
+                     pass.Bindings( m_BlendLayout.Get( m_Blend->GetSpecification().Shader ),
+                                    Renderer::GetPipelineRouteFill( *m_Blend ) )
+                          .Storage( "u_Cubes", array, RDG::Access::StorageWrite, mip )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( BlendPush ) ) );
+                 },
+                 [pipeline = m_Blend, push, mip,
+                  faceSize = m_FaceSize]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &push, sizeof( push ) );
+                     const uint32_t size = std::max( 1u, faceSize >> mip );
+                     return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, GroupCount( size ),
+                                                                     GroupCount( size ), 6 );
+                 } );
+    }
+
     void ReflectionCaptureRenderer::AddDiffusePass( RDG::Builder& graph, FrameTextures& textures,
                                                     const RDG::TextureRef array, const uint32_t forcedCube,
+                                                    const uint32_t stagingSource, const bool stagingForced,
                                                     const bool                       forceAll,
                                                     const ReflectionCaptureLighting& lighting )
     {
         // The sky's irradiance answers everywhere and at once: a cube written under it is measured when written,
         // and re-measured when the sky changes (forceAll); in between a re-measure would store the same value.
         // Only the radiance cache can owe one.
-        if ( forcedCube == kNoCapture && !forceAll && !lighting.RadianceCache )
+        if ( forcedCube == kNoCapture && !stagingForced && !forceAll && !lighting.RadianceCache )
             return;
         // The written cubes (a cube nothing captured is black and never read: its diffuse means nothing).
         std::vector<DiffusePointGpu> points;
@@ -688,6 +750,15 @@ namespace Desert::Graphic
             DiffusePointGpu row;
             row.Point      = glm::vec4( capture.CapturePosition, 1.0f );
             row.CubeForced = glm::uvec4( cube, forceAll || cube == forcedCube ? 1u : 0u, 0u, 0u );
+            points.push_back( row );
+        }
+        // The staging cube holds the recapture of stagingSource: measured at that capture's point, into its own
+        // layer, when written or when the estimator changed (it is blended into the live cube with that measure).
+        if ( stagingSource < m_Captures.size() && ( stagingForced || forceAll ) )
+        {
+            DiffusePointGpu row;
+            row.Point      = glm::vec4( m_Captures[stagingSource].CapturePosition, 1.0f );
+            row.CubeForced = glm::uvec4( static_cast<uint32_t>( m_Captures.size() ), 1u, 0u, 0u );
             points.push_back( row );
         }
         if ( points.empty() )
@@ -779,18 +850,47 @@ namespace Desert::Graphic
         const bool remeasureAll = key != m_MeasuredKey;
         m_MeasuredKey           = key;
 
-        uint32_t written = kNoCapture;
-        if ( m_WriteCapture && m_Pending < m_Captures.size() )
+        // The first cubes' fade-in counts this frame (CapturePresence: the next list reads one step further).
+        for ( size_t cube = 0; cube < m_Captured.size(); ++cube )
+            if ( m_Captured[cube] && m_Presence[cube] < kReflectionCaptureBlendFrames )
+                ++m_Presence[cube];
+
+        uint32_t   firstWrite    = kNoCapture;
+        bool       stagingForced = false;
+        const bool recapture     = m_Pending < m_Captures.size() && m_Captured[m_Pending];
+        // A recapture waits for the blend in progress to end: the staging cube holds that one's new cube.
+        if ( m_WriteCapture && m_Pending < m_Captures.size() && !( recapture && m_BlendCube != kNoCapture ) )
         {
-            written = m_Pending;
-            AddCapturePasses( graph, textures, array, written, m_FaceSize, false );
-            m_Captured[written] = true;
-            m_Done[written]     = !m_PendingRelit;
-            m_LastCaptured      = written;
-            m_Pending           = kNoCapture;
-            m_WriteCapture      = false;
+            const uint32_t capture = m_Pending;
+            if ( recapture )
+            {
+                // Into the staging cube; the live one is read meanwhile and blends toward it from this frame.
+                AddCapturePasses( graph, textures, array, static_cast<uint32_t>( m_Captures.size() ), m_FaceSize,
+                                  false );
+                m_BlendCube   = capture;
+                m_BlendStep   = 0u;
+                stagingForced = true;
+            }
+            else
+            {
+                // A first cube is written in place: nothing read it before, its coverage fades in instead.
+                AddCapturePasses( graph, textures, array, capture, m_FaceSize, false );
+                m_Captured[capture] = true;
+                m_Presence[capture] = 0u;
+                firstWrite          = capture;
+            }
+            m_Done[capture] = !m_PendingRelit;
+            m_LastCaptured  = capture;
+            m_Pending       = kNoCapture;
+            m_WriteCapture  = false;
         }
-        AddDiffusePass( graph, textures, array, written, remeasureAll, lighting );
+        AddDiffusePass( graph, textures, array, firstWrite, m_BlendCube, stagingForced, remeasureAll, lighting );
+        if ( m_BlendCube != kNoCapture )
+        {
+            AddBlendPasses( graph, array );
+            if ( ++m_BlendStep >= kReflectionCaptureBlendFrames )
+                m_BlendCube = kNoCapture;
+        }
     }
 
     std::vector<glm::vec3> ReflectionCaptureRenderer::CapturePoints() const
