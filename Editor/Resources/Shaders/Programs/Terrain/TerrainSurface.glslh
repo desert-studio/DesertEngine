@@ -135,8 +135,8 @@
         // and the anti-tiling half of a landscape material: the same maps at FarTilingScale times the size,
         // faded in with distance (UE's distance-blended texture coordinates). Past the fade only the far fetch
         // runs, close in only the near one.
-        TerrainLayer TerrainSampleLayer( sampler2D albedo, sampler2D normal, sampler2D arm, sampler2D height,
-                                         float tileCm, float farMix )
+        TerrainLayer TerrainSampleLayerAt( sampler2D albedo, sampler2D normal, sampler2D arm, sampler2D height,
+                                           float tileCm, float farMix )
         {
             vec2 uv = v_WorldPos.xz / max( tileCm, 1.0 );
             if ( farMix <= 0.0 )
@@ -146,6 +146,16 @@
             if ( farMix >= 1.0 )
                 return distant;
             return TerrainMixLayer( TerrainFetchLayer( albedo, normal, arm, height, uv ), distant, farMix );
+        }
+
+        // The input's maps, its albedo times the input's Tint (UE landscape materials' per-layer colour
+        // control: the scanned map's hue moved toward the scene's without repainting it).
+        TerrainLayer TerrainSampleLayer( sampler2D albedo, sampler2D normal, sampler2D arm, sampler2D height,
+                                         float tileCm, vec4 tint, float farMix )
+        {
+            TerrainLayer l = TerrainSampleLayerAt( albedo, normal, arm, height, tileCm, farMix );
+            l.Albedo *= tint.rgb;
+            return l;
         }
 
         // Value noise for the macro variation: a smooth 0..1 field with no texture behind it.
@@ -193,13 +203,13 @@
                                         textureSize( u_Layer2Albedo, 0 ).x > 1 );
             TerrainLayer inputs[3];
             inputs[0] = textured[0] ? TerrainSampleLayer( u_Layer0Albedo, u_Layer0Normal, u_Layer0ARM, u_Layer0Height,
-                                                          u_Material.Layer0TileSize, farMix )
+                                                          u_Material.Layer0TileSize, u_Material.Layer0Tint, farMix )
                                     : TerrainFlatLayer( vec3( 1.0 ) );
             inputs[1] = textured[1] ? TerrainSampleLayer( u_Layer1Albedo, u_Layer1Normal, u_Layer1ARM, u_Layer1Height,
-                                                          u_Material.Layer1TileSize, farMix )
+                                                          u_Material.Layer1TileSize, u_Material.Layer1Tint, farMix )
                                     : TerrainFlatLayer( vec3( 1.0 ) );
             inputs[2] = textured[2] ? TerrainSampleLayer( u_Layer2Albedo, u_Layer2Normal, u_Layer2ARM, u_Layer2Height,
-                                                          u_Material.Layer2TileSize, farMix )
+                                                          u_Material.Layer2TileSize, u_Material.Layer2Tint, farMix )
                                     : TerrainFlatLayer( vec3( 1.0 ) );
 
             // The ground: the root's first layer = input 0 (white, flat, when the root names none).

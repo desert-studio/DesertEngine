@@ -25,16 +25,19 @@ Shader "Terrain"
         Float       MacroVariationSize ("Macro Variation Size (cm)", Range(100,100000), Category("Layers")) = 6000
         Float       MacroVariationStrength ("Macro Variation Strength", Range(0,1), Category("Layers")) = 0.3
         Float       Layer0TileSize ("Layer 0 Tile Size (cm)", Range(10,10000), Category("Layer 0")) = 300
+        Color       Layer0Tint ("Layer 0 Tint", Category("Layer 0")) = (1, 1, 1, 1)
         Texture2D   u_Layer0Albedo ("Layer 0 Albedo", Category("Layer 0"), Intent(Colour))
         Texture2D   u_Layer0Normal ("Layer 0 Normal", Category("Layer 0"), Intent(NormalMap)) = "normal"
         Texture2D   u_Layer0ARM ("Layer 0 ARM", Category("Layer 0"), Intent(Data))
         Texture2D   u_Layer0Height ("Layer 0 Height", Category("Layer 0"), Intent(Data))
         Float       Layer1TileSize ("Layer 1 Tile Size (cm)", Range(10,10000), Category("Layer 1")) = 300
+        Color       Layer1Tint ("Layer 1 Tint", Category("Layer 1")) = (1, 1, 1, 1)
         Texture2D   u_Layer1Albedo ("Layer 1 Albedo", Category("Layer 1"), Intent(Colour))
         Texture2D   u_Layer1Normal ("Layer 1 Normal", Category("Layer 1"), Intent(NormalMap)) = "normal"
         Texture2D   u_Layer1ARM ("Layer 1 ARM", Category("Layer 1"), Intent(Data))
         Texture2D   u_Layer1Height ("Layer 1 Height", Category("Layer 1"), Intent(Data))
         Float       Layer2TileSize ("Layer 2 Tile Size (cm)", Range(10,10000), Category("Layer 2")) = 300
+        Color       Layer2Tint ("Layer 2 Tint", Category("Layer 2")) = (1, 1, 1, 1)
         Texture2D   u_Layer2Albedo ("Layer 2 Albedo", Category("Layer 2"), Intent(Colour))
         Texture2D   u_Layer2Normal ("Layer 2 Normal", Category("Layer 2"), Intent(NormalMap)) = "normal"
         Texture2D   u_Layer2ARM ("Layer 2 ARM", Category("Layer 2"), Intent(Data))

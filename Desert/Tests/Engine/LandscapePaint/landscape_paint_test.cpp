@@ -453,13 +453,14 @@ TEST( LandscapePaint, HeightBlendWeightsAndGroundShareSumToOne )
     const vec4 drawn( 1.0f );
     for ( const float h : { 0.0f, 0.3f, 1.0f } )
     {
-        const LandscapeBlendWeights r = LandscapeHeightBlend( vec4( 0.5f, 0.2f, 0.0f, 0.0f ), vec4( 0.0f ), drawn, drawn,
-                                                              kWeightBlendAll, kWeightBlendAll,
-                                                              vec4( h, 1.0f - h, 0.5f, 0.5f ), vec4( 0.5f ), 0.5f );
-        const vec3 grey = Blend( r.W0, r.W1, Colors{ vec4( 0.5f, 0.5f, 0.5f, 1.0f ), vec4( 0.5f, 0.5f, 0.5f, 1.0f ),
-                                                     vec4( 0.5f, 0.5f, 0.5f, 1.0f ), vec4( 0.5f, 0.5f, 0.5f, 1.0f ),
-                                                     vec4( 0.5f, 0.5f, 0.5f, 1.0f ), vec4( 0.5f, 0.5f, 0.5f, 1.0f ),
-                                                     vec4( 0.5f, 0.5f, 0.5f, 1.0f ), vec4( 0.5f, 0.5f, 0.5f, 1.0f ) },
+        const LandscapeBlendWeights r =
+             LandscapeHeightBlend( vec4( 0.5f, 0.2f, 0.0f, 0.0f ), vec4( 0.0f ), drawn, drawn, kWeightBlendAll,
+                                   kWeightBlendAll, vec4( h, 1.0f - h, 0.5f, 0.5f ), vec4( 0.5f ), 0.5f );
+        const vec3 grey = Blend( r.W0, r.W1,
+                                 Colors{ vec4( 0.5f, 0.5f, 0.5f, 1.0f ), vec4( 0.5f, 0.5f, 0.5f, 1.0f ),
+                                         vec4( 0.5f, 0.5f, 0.5f, 1.0f ), vec4( 0.5f, 0.5f, 0.5f, 1.0f ),
+                                         vec4( 0.5f, 0.5f, 0.5f, 1.0f ), vec4( 0.5f, 0.5f, 0.5f, 1.0f ),
+                                         vec4( 0.5f, 0.5f, 0.5f, 1.0f ), vec4( 0.5f, 0.5f, 0.5f, 1.0f ) },
                                  kWeightBlendAll, kWeightBlendAll, vec3( 0.5f ) );
         EXPECT_NEAR( grey.x, 0.5f, 1e-5f ) << "height " << h;
     }

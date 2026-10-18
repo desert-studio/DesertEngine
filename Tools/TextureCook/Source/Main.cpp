@@ -38,12 +38,13 @@ namespace
 {
     int Usage()
     {
-        std::fprintf( stderr,
-                      "usage: TextureCook <project.deproj> [--engine-dir <dir>] [--intent <name>] <source> [<source> ...]\n"
-                      "       TextureCook <project.deproj> [--engine-dir <dir>] --emit <asset.detex> <out.tex>\n"
-                      "  paths are relative to the project's folder, e.g. Resources/Splash/Splash.detex\n"
-                      "  --engine-dir: the folder holding the engine's Resources/ (default: from this binary)\n"
-                      "  --intent: Colour, NormalMap, Mask or Data, for a source imported the first time\n" );
+        std::fprintf(
+             stderr,
+             "usage: TextureCook <project.deproj> [--engine-dir <dir>] [--intent <name>] <source> [<source> ...]\n"
+             "       TextureCook <project.deproj> [--engine-dir <dir>] --emit <asset.detex> <out.tex>\n"
+             "  paths are relative to the project's folder, e.g. Resources/Splash/Splash.detex\n"
+             "  --engine-dir: the folder holding the engine's Resources/ (default: from this binary)\n"
+             "  --intent: Colour, NormalMap, Mask or Data, for a source imported the first time\n" );
         return 2;
     }
 
@@ -147,7 +148,8 @@ int main( int argc, char** argv )
                  intent = Desert::Core::Formats::TextureIntentFromName( args[first + 1] );
                  if ( intent == Desert::Core::Formats::TextureIntent::Count )
                  {
-                     std::fprintf( stderr, "TextureCook: '%s' is not a texture intent (Colour, NormalMap, Mask, Data)\n",
+                     std::fprintf( stderr,
+                                   "TextureCook: '%s' is not a texture intent (Colour, NormalMap, Mask, Data)\n",
                                    args[first + 1] );
                      return 2;
                  }
