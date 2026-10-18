@@ -22,6 +22,7 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
+#include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
@@ -1804,6 +1805,57 @@ namespace Desert::Editor
             // back-reference — so the owner cannot be resolved from here (task У7-2's measurement, and
             // task У14 is where that would be fixed). Offering a button that opened the generated
             // `.shader` as text would answer a different question than the one being asked.
+            return changed;
+        }
+
+        // ---- A LANDSCAPE MATERIAL INPUT'S LAYER --------------------------------------------------------
+        //
+        // The layer info (`.delayerinfo`) whose painted weights this input draws with (UE: the LayerName of a
+        // LandscapeLayerBlend input). The renderer matches the input to a tile's channels by that info's
+        // LayerName, so the order of the root's layers no longer decides which maps a layer gets.
+        if ( p.AssetKind == "LandscapeLayerInfoAsset" )
+        {
+            std::string preview = "None (input unused)";
+            if ( handle != 0 )
+            {
+                preview = "(missing)";
+                if ( m_AssetManager )
+                    if ( auto info = m_AssetManager->FindByHandle<Assets::LandscapeLayerInfoAsset>(
+                              Common::UUID( handle ) ) )
+                        preview = info->GetData().LayerName;
+            }
+            if ( ImGui::BeginCombo( hiddenId.c_str(), preview.c_str() ) )
+            {
+                if ( ImGui::Selectable( "None (input unused)", handle == 0 ) && handle != 0 )
+                {
+                    data.SetCloudAsset( p.Name, {}, {} );
+                    changed = true;
+                }
+                if ( m_AssetManager )
+                {
+                    for ( const auto& row :
+                          Assets::ContentRegistry::Rows( Common::Content::ContentKind::LandscapeLayerInfo ) )
+                    {
+                        const auto info =
+                             m_AssetManager->ProbeByHandle<Assets::LandscapeLayerInfoAsset>( row.Handle );
+                        if ( !info )
+                            continue;
+                        const bool        selected = ( static_cast<uint64_t>( row.Handle ) == handle );
+                        const std::string label =
+                             info->GetData().LayerName + "##" + info->GetMetadata().Filepath.string();
+                        if ( ImGui::Selectable( label.c_str(), selected ) )
+                        {
+                            const auto& file = info->GetMetadata().Filepath;
+                            data.SetCloudAsset( p.Name, info->Guid(),
+                                                Common::AssetHandle::StableKeyForPath( file ) );
+                            changed = true;
+                        }
+                        if ( selected )
+                            ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
             return changed;
         }
 

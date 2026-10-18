@@ -8,6 +8,7 @@
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/TerrainLayerInputs.hpp>
 
 #include <glm/glm.hpp>
 #include <memory>
@@ -149,6 +150,9 @@ namespace Desert::Graphic::System
         ShaderBindingLayoutCache m_ShadowLayout;
 
         std::unordered_map<std::string, ProgramMaterials> m_Materials;
+        // The landscape materials' layer inputs (their texture arrays), by the material's texture key: shared
+        // by every tile of a landscape, kept between frames so an array is copied only when its sources change.
+        std::unordered_map<std::string, TerrainLayerInputs> m_LayerInputs;
 
         std::vector<TerrainDrawData> m_Queue;
         std::vector<FrameGroup>      m_FrameGroups;

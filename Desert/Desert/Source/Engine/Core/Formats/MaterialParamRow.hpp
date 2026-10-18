@@ -70,7 +70,7 @@ namespace Desert::Core::Formats
         uint32_t slot = 0;
         for ( const auto& p : meta.Params )
         {
-            if ( p.IsTexture )
+            if ( p.IsTexture || p.IsAssetRef() ) // the row's fields, as BuildMaterialLayout lays them
                 continue;
             if ( p.Name == name )
                 return slot;
@@ -105,8 +105,9 @@ namespace Desert::Core::Formats
     {
         for ( const auto& p : meta.Params )
         {
-            // An EngineSet sampler is a pass parameter (RDG::PassBindings), never a material texture slot.
-            if ( !p.IsTexture || p.IsCubeTexture || p.IsAssetRef() || p.EngineSet )
+            // An EngineSet sampler is a pass parameter (RDG::PassBindings), never a material texture slot; an
+            // Element texture is no sampler at all (its renderer copies it into its Texture2DArray).
+            if ( !p.IsTexture || p.IsCubeTexture || p.IsAssetRef() || p.EngineSet || p.ElementIndex >= 0 )
             {
                 continue;
             }

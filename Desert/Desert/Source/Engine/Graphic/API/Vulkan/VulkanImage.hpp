@@ -167,6 +167,7 @@ namespace Desert::Graphic::API::Vulkan
         NO_DISCARD Common::BoolResultStr SetData( const Core::Formats::ImagePixelData& data ) override;
         NO_DISCARD Common::BoolResultStr RecordSetData( GpuBatch&                            batch,
                                                         const Core::Formats::ImagePixelData& data ) override;
+        NO_DISCARD Common::BoolResultStr CopyLayersFrom( std::span<const Image2D* const> sources ) override;
 
         // --- IVulkanImage Interface ---
         [[nodiscard]] const VulkanImageResource& GetResource() const override { return m_Resource; }
@@ -188,7 +189,7 @@ namespace Desert::Graphic::API::Vulkan
             desc.Format  = m_Specification.Format;
             desc.Mips    = m_Resource.MipLevels;
             desc.Layers  = m_Resource.LayerCount;
-            desc.Dim     = RDG::TextureDim::Tex2D;
+            desc.Dim     = m_Specification.ArrayLayers > 0 ? RDG::TextureDim::Tex2DArray : RDG::TextureDim::Tex2D;
             desc.Samples = std::max( 1u, m_Specification.Samples );
             return desc;
         }

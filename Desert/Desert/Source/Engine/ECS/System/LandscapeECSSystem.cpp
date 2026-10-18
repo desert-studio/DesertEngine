@@ -158,6 +158,8 @@ namespace Desert::ECS
             // The root's FIRST layer's colour with a = 1 (UE shows its first layer where nothing is
             // painted); a = 0 while the root names none or that layer is not loaded: white ground.
             glm::vec4 Ground = glm::vec4( 0.0f );
+            // That first layer's LayerName: the material input the ground draws with is matched by it.
+            std::string GroundLayer;
         };
         std::map<uint64_t, Surface> surfaces;
         const auto                  surfaceOf = [&]( const Common::UUID& rootId ) -> const Surface&
@@ -177,7 +179,10 @@ namespace Desert::ECS
                     if ( const auto* info = service.Get( handle ) )
                     {
                         if ( handle == handles.front() )
-                            it->second.Ground = glm::vec4( info->LayerUsageDebugColor, 1.0f );
+                        {
+                            it->second.Ground      = glm::vec4( info->LayerUsageDebugColor, 1.0f );
+                            it->second.GroundLayer = info->LayerName;
+                        }
                         it->second.Layers.push_back( *info );
                     }
                     else if ( service.StateOf( handle ) == Runtime::LandscapeLayerInfoService::State::Pending )
@@ -277,7 +282,8 @@ namespace Desert::ECS
             const Surface& surface = surfaceOf( Common::UUID( tileComp.Landscape ) );
 
             Graphic::System::LandscapeWeightDraw weights;
-            weights.Ground = surface.Ground;
+            weights.Ground      = surface.Ground;
+            weights.GroundLayer = surface.GroundLayer;
             if ( gpu.Weightmap )
             {
                 const Landscape::LandscapeWeightChannels channels =
@@ -286,7 +292,7 @@ namespace Desert::ECS
                 weights.LayerCount = channels.Count;
                 weights.Colors     = channels.Colors;
                 weights.AlphaBlend = Landscape::LandscapeAlphaBlendPages( channels );
-                weights.RootLayer       = Landscape::LandscapeRootLayerPages( channels );
+                weights.LayerNames      = channels.Names;
                 weights.VisibilityLayer = channels.Visibility;
                 if ( !channels.Unknown.empty() && !surface.LayersPending &&
                      m_WarnedWeights.insert( d.Entity ).second )

@@ -448,14 +448,16 @@ namespace
 
 TEST( LandscapePaint, HeightBlendWeightsAndGroundShareSumToOne )
 {
-    // UE's LB_HeightBlend renormalises: whatever the heights, the weight-blended layers and the ground share
-    // one whole pixel, so a blended attribute stays inside the layers' range (no darkening at a seam).
+    // UE's LB_HeightBlend renormalises: whatever the heights, the height- and weight-blended layers (layer 1
+    // here is LB_WeightBlend, the rest LB_HeightBlend) and the ground share one whole pixel, so a blended
+    // attribute stays inside the layers' range (no darkening at a seam).
     const vec4 drawn( 1.0f );
     for ( const float h : { 0.0f, 0.3f, 1.0f } )
     {
         const LandscapeBlendWeights r =
              LandscapeHeightBlend( vec4( 0.5f, 0.2f, 0.0f, 0.0f ), vec4( 0.0f ), drawn, drawn, kWeightBlendAll,
-                                   kWeightBlendAll, vec4( h, 1.0f - h, 0.5f, 0.5f ), vec4( 0.5f ), 0.5f );
+                                   kWeightBlendAll, vec4( 1.0f, 0.0f, 1.0f, 1.0f ), vec4( 1.0f ),
+                                   vec4( h, 1.0f - h, 0.5f, 0.5f ), vec4( 0.5f ), 0.5f, 1.0f );
         const vec3 grey = Blend( r.W0, r.W1,
                                  Colors{ vec4( 0.5f, 0.5f, 0.5f, 1.0f ), vec4( 0.5f, 0.5f, 0.5f, 1.0f ),
                                          vec4( 0.5f, 0.5f, 0.5f, 1.0f ), vec4( 0.5f, 0.5f, 0.5f, 1.0f ),
