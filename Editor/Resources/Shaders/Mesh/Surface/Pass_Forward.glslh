@@ -65,6 +65,7 @@ layout( binding = 7 ) uniform ShadowUB
 #include <ShadingModels/ShadingModelContract.glslh>
 #define CONTACT_SHADOW_DEPTH        u_SceneDepth
 #define CONTACT_SHADOW_VP           cameraUB.JitteredViewProjection
+#define CONTACT_SHADOW_INV_VP       cameraUB.InvJitteredViewProjection
 #define CONTACT_SHADOW_SHADING_WORD u_SceneShadingWord
 #include <Common/ContactShadow.glslh>
 

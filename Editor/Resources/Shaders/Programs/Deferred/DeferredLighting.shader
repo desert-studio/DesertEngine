@@ -224,6 +224,7 @@ Shader "DeferredLighting"
         // below applies it to the point and spot lights, the sun's is applied in main().
         #define CONTACT_SHADOW_DEPTH u_GBufferDepth
         #define CONTACT_SHADOW_VP    u_JitteredViewProjection
+        #define CONTACT_SHADOW_INV_VP u_InvJitteredViewProjection
         // The hit texel's NO_CONTACT_SHADOW bit (UE CastContactShadow( GBuffer )): which intensity occludes.
         #define CONTACT_SHADOW_SHADING_WORD u_GBufferShadingWord
         #include <Common/ContactShadow.glslh>
