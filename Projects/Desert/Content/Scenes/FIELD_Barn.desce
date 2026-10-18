@@ -32,9 +32,9 @@
             "siblingIndex": 0,
             "Tag": "Sun",
             "Translation": [
-                0.6,
-                -0.3,
-                -0.74
+                0.709,
+                -0.309,
+                0.633
             ],
             "Rotation": [
                 0.0,
@@ -49,17 +49,17 @@
             "DirectionLight": {
                 "Color": [
                     1.0,
-                    0.86,
-                    0.68
+                    0.97,
+                    0.92
                 ],
-                "Intensity": 1.6,
+                "Intensity": 16.0,
                 "AtmosphereSunLight": true,
                 "AtmosphereSunLightIndex": 0,
                 "AffectedByAtmosphereTransmittance": true,
                 "AtmosphereSunDiskColorScale": [
-                    22.0,
-                    22.0,
-                    22.0
+                    1.0,
+                    1.0,
+                    1.0
                 ],
                 "LightShaftBloom": false,
                 "BloomScale": 0.25,
@@ -189,9 +189,9 @@
                     1.0
                 ],
                 "SkyAndAerialPerspectiveLuminanceFactor": [
-                    22.0,
-                    22.0,
-                    22.0
+                    1.0,
+                    1.0,
+                    1.0
                 ],
                 "AerialPerspectiveViewDistanceScale": 1.0,
                 "AerialPerspectiveStartDepth": 0.10000000149011612,
@@ -287,7 +287,7 @@
                     "ContactShadows": false,
                     "DistanceFieldShadows": false,
                     "Tonemapper": 0,
-                    "ManualExposureEV100": -0.3,
+                    "ManualExposureEV100": 0.0,
                     "Gamma": 2.200000047683716,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
