@@ -331,6 +331,16 @@ namespace Desert::ECS
                          if ( !targetMesh )
                              return;
 
+                         // Null slots take the mesh asset's section materials, the static and skinned twins'
+                         // one rule (UE: a foliage instance draws its mesh's materials unless overridden). The
+                         // painted and procedural foliage spawners set only MeshHandle, so without this every
+                         // field drew the default white surface, and a resimulate (which rebuilds the fields)
+                         // dropped any slots copied in by hand. An edited RuntimeMesh or a primitive has no
+                         // mesh asset to adopt from.
+                         if ( !ism.RuntimeMesh && !ism.Primitive.has_value() )
+                             AdoptMeshMaterialSlots( ism.MaterialSlots, ism.RuntimeMaterialInstances,
+                                                     ism.MeshHandle );
+
                          // Invalidation stamp (see the static path) — rebuild on any Invalidate().
                          if ( ism.SeenMaterialsVersion != materialsVersion )
                          {
