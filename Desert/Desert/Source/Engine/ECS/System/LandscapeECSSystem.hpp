@@ -1,5 +1,9 @@
 #pragma once
 
+#include <Engine/Assets/Serialization/LandscapeLayerInfo.hpp>
+#include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
+#include <Engine/World/Landscape/LandscapeLayout.hpp>
+
 #include "System.hpp"
 
 #include <entt/entt.hpp>
@@ -8,6 +12,8 @@
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
+#include <string>
+#include <vector>
 
 namespace Desert::Graphic
 {
@@ -78,6 +84,34 @@ namespace Desert::ECS
         // Weight-layer problems (a layer the root does not name, a weightmap that could not be created or
         // written), said once per tile until its weights are edited again.
         std::unordered_set<entt::entity> m_WarnedWeights;
+        struct GrassTile
+        {
+            const LandscapeTileComponent* Tile  = nullptr;
+            bool                          Dirty = false;
+        };
+        void EmitGrass( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
+                        uint64_t rootId, const World::Landscape::LandscapeRoot& root,
+                        const std::vector<Assets::Serialization::LandscapeLayerInfoData>& layers,
+                        const std::vector<GrassTile>&                                   tiles );
+
+        // GRASS-GPU: per landscape root, the packed grass field (rebuilt when a tile's heights or weights, the
+        // tile set or the grass layers change) and the varieties' resolved section materials.
+        struct GrassRootCache
+        {
+            std::shared_ptr<Graphic::System::GrassFieldData> Field;
+            uint64_t                                         Signature = 0;
+        };
+        struct GrassSections
+        {
+            const void*                                    Mesh    = nullptr;
+            uint32_t                                       Version = 0;
+            std::vector<Graphic::System::GrassSectionDraw> Sections;
+        };
+        std::unordered_map<uint64_t, GrassRootCache> m_Grass;
+        std::unordered_map<uint64_t, GrassSections>  m_GrassSections;
+        uint64_t                                     m_GrassRevision = 0;
+        double                                       m_WindSeconds   = 0.0;
+        std::unordered_set<std::string>              m_WarnedGrass;
 
         // Material handles already reported as unresolvable, so the warning is said once and not once a frame.
         std::unordered_set<uint64_t> m_WarnedMaterials;

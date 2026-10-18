@@ -80,6 +80,16 @@ namespace Desert::Graphic::API::Vulkan
                                           const MaterialExecutor& material, uint32_t instanceCount,
                                           uint32_t firstInstance, uint64_t hiddenSubmeshMask,
                                           uint32_t lodLevel ) override;
+        Common::BoolResultStr RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                                  const Mesh& mesh, const glm::mat4& transform,
+                                                  const MaterialExecutor& material, RDG::BufferRef args,
+                                                  uint64_t hiddenSubmeshMask ) override;
+        // RenderMesh and RenderMeshIndirect: one walk; @p indirect non-null draws each submesh from its record.
+        Common::BoolResultStr RecordMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                          const Mesh& mesh, const glm::mat4& transform,
+                                          const MaterialExecutor& material, uint32_t instanceCount,
+                                          uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel,
+                                          const RDG::BufferRef* indirect );
 
         virtual void ComputeImageBeginWrite( Image* image ) override;
         virtual void ComputeImageEndWrite( Image* image ) override;

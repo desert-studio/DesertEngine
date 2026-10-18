@@ -189,6 +189,7 @@ namespace Desert::Graphic::System
         m_SkinnedQueue.clear();
         m_GenericQueue.clear();
         m_InstancedQueue.clear();
+        m_GpuInstancedQueue.clear();
     }
 
     uint32_t MeshRenderer::ComputeLOD( const glm::mat4& transform, const Mesh* mesh, int forcedLOD,
@@ -221,6 +222,12 @@ namespace Desert::Graphic::System
     {
         if ( data.Mesh && data.Material && data.Transforms && !data.Transforms->empty() )
             m_InstancedQueue.push_back( data );
+    }
+
+    void MeshRenderer::SubmitGpuInstanced( const GpuInstancedRenderData& data )
+    {
+        if ( data.Mesh != nullptr && data.Material && data.Instances && data.Refs != nullptr )
+            m_GpuInstancedQueue.push_back( data );
     }
 
     namespace MeshRendererDetail
@@ -298,6 +305,18 @@ namespace Desert::Graphic::System
                 }
                 perBlock( block, *layout );
             }
+            // A GPU-instanced draw's buffers: the graph places the compute-write -> vertex / indirect barrier from
+            // these (its material binds the transforms; the record reads the arguments). Each buffer once.
+            std::vector<RDG::BufferRef> read;
+            for ( const MeshDrawCommand& command : m_Commands )
+            {
+                if ( !command.IndirectArgs.IsValid() ||
+                     std::find( read.begin(), read.end(), command.IndirectArgs ) != read.end() )
+                    continue;
+                read.push_back( command.IndirectArgs );
+                declaration.Read( command.IndirectArgs, RDG::Access::IndirectArgs );
+                declaration.Read( command.IndirectInstances, RDG::Access::StorageRead );
+            }
         }
 
         void MeshDrawList::Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view ) const
@@ -333,6 +352,15 @@ namespace Desert::Graphic::System
                 if ( draw.BindState )
                 {
                     draw.BindState();
+                }
+                if ( draw.IndirectArgs.IsValid() )
+                {
+                    if ( auto drawn = Renderer::RenderMeshIndirect( *blocks[m_BlockOf[i]], *draw.Pipeline,
+                                                                    *draw.Mesh, draw.Transform, *draw.Material,
+                                                                    draw.IndirectArgs, draw.HiddenSubmeshMask );
+                         !drawn.IsSuccess() )
+                        return drawn;
+                    continue;
                 }
                 if ( auto drawn = Renderer::RenderMesh(
                           *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,

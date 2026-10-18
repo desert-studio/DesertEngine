@@ -126,6 +126,15 @@ namespace Desert::Graphic
                     const glm::mat4& transform, const MaterialExecutor& material, uint32_t instanceCount,
                     uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel );
 
+        // RenderMesh for a GPU-instanced draw (GpuInstances.hpp): every drawn submesh si is one
+        // vkCmdDrawIndexedIndirect of the record at GpuInstanceArgsOffset( si ) of @p args, a graph buffer the pass
+        // declared Access::IndirectArgs; the record names the submesh's index range and the instance count the GPU
+        // wrote. An unindexed mesh is refused.
+        [[nodiscard]] static Common::BoolResultStr
+        RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
+                            const glm::mat4& transform, const MaterialExecutor& material, RDG::BufferRef args,
+                            uint64_t hiddenSubmeshMask );
+
         // RDG-FAULT1 - what a pass's SETUP declares its binding blocks against (RenderPassDeclaration::Bindings,
         // RDG::PassBuilder::Bindings), so a block that does not match its shader faults the pass before anything
         // is recorded. GetBindingLayout: the resource slots and push-constant range @p shader reflects (names and

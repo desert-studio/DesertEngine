@@ -1,3 +1,4 @@
+#include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
@@ -316,6 +317,18 @@ namespace Desert::Graphic
                 else
                 {
                     meshSystem->AddShadowCaster( terrainSystem );
+                }
+
+                // The landscape grass (GRASS-GPU): generated per view before the cascades, drawn by the mesh
+                // renderer's instanced cells (GrassRenderer::AddFrame).
+                RegisterSystem<System::GrassRenderer>( "GrassSystem", this, m_TargetFramebuffer );
+                if ( const auto init =
+                          SP_CAST( System::GrassRenderer, m_RenderSystems["GrassSystem"] )->Initialize();
+                     !init )
+                {
+                    LOG_ERROR( "[SceneRenderer] the grass system did not initialise; landscape grass will not "
+                               "grow: {}",
+                               init.GetError() );
                 }
 
                 // The water surface (WATER-W6): drawn by its own deferred node (AddFrameWater), after the scene
@@ -1208,6 +1221,16 @@ namespace Desert::Graphic
 
         AddFrameCloudShadowMap( graph, textures );
 
+        // The landscape grass of this view, before every node that draws it (the cascades, the geometry). A face
+        // view grows none, as it simulates no particles.
+        if ( !m_ViewProfile.SceneCapture )
+        {
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
+            UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
+                 ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) );
+            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        }
+
         // The opaque raster of the systems, in this order: the cascade depths (the geometry's shadow lookups read
         // them), the scene target's sky and geometry, the outline mask.
         AddFrameShadowDepths( graph, textures );
@@ -1429,6 +1452,8 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ClearQueues();
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->ClearQueue();
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )->ClearQueue();
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->ClearQueue();
 
@@ -1695,6 +1720,12 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
              ->Submit( { .Heightmap = heightmap, .Landscape = tile, .Weights = weights, .Overrides = overrides } );
+    }
+
+    void SceneRenderer::SubmitLandscapeGrass( System::GrassFieldDraw draw )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )->Submit( std::move( draw ) );
     }
 
     void SceneRenderer::SubmitWaterZone( System::WaterZoneDraw zone )

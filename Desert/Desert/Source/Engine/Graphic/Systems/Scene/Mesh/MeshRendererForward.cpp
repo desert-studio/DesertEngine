@@ -1329,6 +1329,10 @@ namespace Desert::Graphic::System
                 }
             }
         }
+
+        // The GPU-generated sections (the landscape grass), through the same pass's instanced cells.
+        if ( instancingOn )
+            BuildGpuInstancedDraws( list, instancedPipeline, instancedPass, frameState );
     }
 
     void MeshRenderer::BuildSkinnedDraws( MeshDrawList& list )

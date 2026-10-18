@@ -218,6 +218,15 @@ namespace Desert::Graphic
                                           firstInstance, hiddenSubmeshMask, lodLevel );
     }
 
+    Common::BoolResultStr Renderer::RenderMeshIndirect( const RDG::PassBindings& bindings,
+                                                        const GraphicsPipeline& pipeline, const Mesh& mesh,
+                                                        const glm::mat4& transform, const MaterialExecutor& material,
+                                                        RDG::BufferRef args, uint64_t hiddenSubmeshMask )
+    {
+        return s_RendererAPI->RenderMeshIndirect( bindings, pipeline, mesh, transform, material, args,
+                                                  hiddenSubmeshMask );
+    }
+
     void Renderer::ComputeImageBeginWrite( Image* image )
     {
         s_RendererAPI->ComputeImageBeginWrite( image );
