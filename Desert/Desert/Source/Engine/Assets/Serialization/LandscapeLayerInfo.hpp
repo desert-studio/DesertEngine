@@ -57,7 +57,7 @@ namespace Desert::Assets::Serialization
     }
 
     /// UE EGrassScaling: how a variety's three scale ranges combine.
-    enum class GrassScaling : uint8_t
+    enum class GrassScaling
     {
         Uniform, ///< one draw of ScaleX for all three axes
         Free,    ///< each axis its own draw
