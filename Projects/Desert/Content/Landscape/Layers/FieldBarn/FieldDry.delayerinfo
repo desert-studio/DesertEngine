@@ -6,10 +6,7 @@
             "LLYI": 4
         },
         "Dependencies": [
-            "d3bd81114a742dcc6b7a3037c7dd83d7",
-            "d3bd83114a7431326b7a3237c7dd873d",
-            "8eead75937e641d63666fc6678500859",
-            "9cf602bde6105b5a37e2cafe2972b5a7"
+            "060537443b0e446f8973f6ce45b7e4fc"
         ]
     },
     "LayerName": "FieldDry",
@@ -20,154 +17,10 @@
         0.27,
         0.11
     ],
-    "Grass": [
+    "GrassTypes": [
         {
-            "Mesh": {
-                "Guid": "d3bd81114a742dcc6b7a3037c7dd83d7",
-                "Path": "Environments/FieldBarn/Meshes/grass_bermuda_01/grass_bermuda_01_grass_bermuda_01_medium_a.stmesh"
-            },
-            "Density": 700,
-            "PlacementJitter": 1.0,
-            "StartCullDistance": 2100.0,
-            "EndCullDistance": 3500,
-            "AllowedDensityRange": {
-                "Min": 0.0,
-                "Max": 1.0
-            },
-            "Scaling": "Uniform",
-            "ScaleX": {
-                "Min": 1.8,
-                "Max": 2.6
-            },
-            "ScaleY": {
-                "Min": 1.8,
-                "Max": 2.6
-            },
-            "ScaleZ": {
-                "Min": 1.8,
-                "Max": 2.6
-            },
-            "WeightAttenuatesMaxScale": true,
-            "MaxScaleWeightAttenuation": 0.5,
-            "RandomRotation": true,
-            "AlignToSurface": true,
-            "CastDynamicShadow": true,
-            "Wind": {
-                "Strength": 0.6,
-                "Speed": 0.5,
-                "Height": 60.0
-            }
-        },
-        {
-            "Mesh": {
-                "Guid": "d3bd83114a7431326b7a3237c7dd873d",
-                "Path": "Environments/FieldBarn/Meshes/grass_bermuda_01/grass_bermuda_01_grass_bermuda_01_medium_c.stmesh"
-            },
-            "Density": 700,
-            "PlacementJitter": 1.0,
-            "StartCullDistance": 2100.0,
-            "EndCullDistance": 3500,
-            "AllowedDensityRange": {
-                "Min": 0.0,
-                "Max": 1.0
-            },
-            "Scaling": "Uniform",
-            "ScaleX": {
-                "Min": 1.8,
-                "Max": 2.6
-            },
-            "ScaleY": {
-                "Min": 1.8,
-                "Max": 2.6
-            },
-            "ScaleZ": {
-                "Min": 1.8,
-                "Max": 2.6
-            },
-            "WeightAttenuatesMaxScale": true,
-            "MaxScaleWeightAttenuation": 0.5,
-            "RandomRotation": true,
-            "AlignToSurface": true,
-            "CastDynamicShadow": true,
-            "Wind": {
-                "Strength": 0.6,
-                "Speed": 0.5,
-                "Height": 60.0
-            }
-        },
-        {
-            "Mesh": {
-                "Guid": "8eead75937e641d63666fc6678500859",
-                "Path": "Environments/FieldBarn/Meshes/grass_medium_01/grass_medium_01_grass_medium_01_mid_a.stmesh"
-            },
-            "Density": 200,
-            "PlacementJitter": 1.0,
-            "StartCullDistance": 3000.0,
-            "EndCullDistance": 5000,
-            "AllowedDensityRange": {
-                "Min": 0.0,
-                "Max": 1.0
-            },
-            "Scaling": "Uniform",
-            "ScaleX": {
-                "Min": 1.6,
-                "Max": 2.4
-            },
-            "ScaleY": {
-                "Min": 1.6,
-                "Max": 2.4
-            },
-            "ScaleZ": {
-                "Min": 1.6,
-                "Max": 2.4
-            },
-            "WeightAttenuatesMaxScale": true,
-            "MaxScaleWeightAttenuation": 0.5,
-            "RandomRotation": true,
-            "AlignToSurface": true,
-            "CastDynamicShadow": true,
-            "Wind": {
-                "Strength": 0.6,
-                "Speed": 0.5,
-                "Height": 60.0
-            }
-        },
-        {
-            "Mesh": {
-                "Guid": "9cf602bde6105b5a37e2cafe2972b5a7",
-                "Path": "Environments/FieldBarn/Meshes/grass_medium_01/grass_medium_01_grass_medium_01_tall_b.stmesh"
-            },
-            "Density": 80,
-            "PlacementJitter": 1.0,
-            "StartCullDistance": 4800.0,
-            "EndCullDistance": 8000,
-            "AllowedDensityRange": {
-                "Min": 0.0,
-                "Max": 1.0
-            },
-            "Scaling": "Uniform",
-            "ScaleX": {
-                "Min": 1.8,
-                "Max": 2.6
-            },
-            "ScaleY": {
-                "Min": 1.8,
-                "Max": 2.6
-            },
-            "ScaleZ": {
-                "Min": 1.8,
-                "Max": 2.6
-            },
-            "WeightAttenuatesMaxScale": true,
-            "MaxScaleWeightAttenuation": 0.5,
-            "RandomRotation": true,
-            "AlignToSurface": true,
-            "CastDynamicShadow": true,
-            "Wind": {
-                "Strength": 0.6,
-                "Speed": 0.5,
-                "Height": 60.0
-            }
+            "Guid": "060537443b0e446f8973f6ce45b7e4fc",
+            "Path": "Landscape/Grass/FieldBarn/DryMeadow.degrasstype"
         }
     ]
 }

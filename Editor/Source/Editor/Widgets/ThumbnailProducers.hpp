@@ -74,6 +74,9 @@ namespace Desert::Editor::ThumbnailProducers
               "the class icon until the physics asset editor (RAG1c) renders the bodies (UE renders them)" },
          Row{ FileType::VFXDataChannel, Producer::TypeIcon,
               "UE (UNiagaraDataChannel): the class icon; a field layout has no picture" },
+         Row{ FileType::LandscapeGrassType, Producer::TypeIcon,
+              "UE (ULandscapeGrassType): the class icon; what it grows exists only around a camera on a painted "
+              "landscape" },
          Row{ FileType::ImportSettings, Producer::TypeIcon, "import settings text beside a source file" },
          Row{ FileType::SkinnedMesh, Producer::RenderedPose, "UE (USkeletalMesh): the mesh in its bind pose" },
          Row{ FileType::Skeleton, Producer::RenderedPose,

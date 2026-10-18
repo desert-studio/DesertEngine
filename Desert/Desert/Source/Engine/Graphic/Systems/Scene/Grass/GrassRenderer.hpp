@@ -68,7 +68,7 @@ namespace Desert::Graphic::System
 
     struct GrassVarietyDraw
     {
-        uint64_t                      Key   = 0; // stable: (root, layer, variety)
+        uint64_t                      Key   = 0; // stable: (root, layer, grass type, variety)
         uint32_t                      Layer = 0; // the grass layer's index in the field
         class Desert::Mesh*           Mesh  = nullptr;
         std::vector<GrassSectionDraw> Sections;

@@ -104,7 +104,8 @@ namespace Desert::ECS
         struct GrassSections
         {
             const void*                                    Mesh    = nullptr;
-            uint32_t                                       Version = 0;
+            uint32_t                                       Version      = 0;
+            uint64_t                                       TypeRevision = 0;
             std::vector<Graphic::System::GrassSectionDraw> Sections;
         };
         std::unordered_map<uint64_t, GrassRootCache> m_Grass;

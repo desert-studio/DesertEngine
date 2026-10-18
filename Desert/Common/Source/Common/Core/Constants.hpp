@@ -178,6 +178,7 @@ namespace Common::Constants
             WaterWaves,
             Input,
             PhysicsAsset,
+            LandscapeGrassType,
             Cooked,
             COUNT
         };
@@ -283,6 +284,9 @@ namespace Common::Constants
              /* Input         */ { "Input/", DirRoot::Assets },
              // Physics assets (`.dephysasset`, UE UPhysicsAsset): the ragdoll bodies and joints of a skeleton.
              /* PhysicsAsset  */ { "PhysicsAssets/", DirRoot::Assets },
+             // Landscape grass types (`.degrasstype`, UE ULandscapeGrassType) sit beside the layer infos that
+             // name them, as UE keeps them.
+             /* LandscapeGrassType */ { "Landscape/Grass/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
         } };
 
@@ -630,6 +634,8 @@ namespace Common::Constants
         inline const std::filesystem::path& WATER_WAVES_PATH    = Detail::Slot( ContentDir::WaterWaves );
         inline const std::filesystem::path& INPUT_PATH          = Detail::Slot( ContentDir::Input );
         inline const std::filesystem::path& PHYSICS_ASSET_PATH  = Detail::Slot( ContentDir::PhysicsAsset );
+        inline const std::filesystem::path& LANDSCAPE_GRASS_TYPE_PATH =
+             Detail::Slot( ContentDir::LandscapeGrassType );
         inline const std::filesystem::path& COOKED_PATH         = Detail::Slot( ContentDir::Cooked );
         // Empty while no project is open (a read of an empty path finds nothing, the reader refuses by name).
         inline const std::filesystem::path& PROJECT_CONFIG_PATH = Detail::s_ProjectConfig;

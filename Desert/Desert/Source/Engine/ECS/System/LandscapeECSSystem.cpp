@@ -376,7 +376,7 @@ namespace Desert::ECS
     {
         std::vector<const Assets::Serialization::LandscapeLayerInfoData*> grassLayers;
         for ( const auto& layer : layers )
-            if ( !layer.Grass.empty() )
+            if ( !layer.GrassTypes.empty() )
                 grassLayers.push_back( &layer );
         if ( grassLayers.empty() || tiles.empty() )
             return;
@@ -461,75 +461,97 @@ namespace Desert::ECS
         auto*                           meshes    = Runtime::ResourceRegistry::GetMeshService();
         auto*                           materials = Runtime::ResourceRegistry::GetMaterialService();
         const glm::vec3                 air       = ECS::WindAt( registry, root.Origin ).Velocity;
+        auto*                           types     = Runtime::ResourceRegistry::GetLandscapeGrassTypeService();
         Graphic::System::GrassFieldDraw draw;
         draw.Root  = rootId;
         draw.Field = cache.Field;
         for ( uint32_t k = 0; k < grassLayers.size(); ++k )
-            for ( uint32_t vi = 0; vi < grassLayers[k]->Grass.size(); ++vi )
+            for ( const Assets::AssetGuidRef& typeRef : grassLayers[k]->GrassTypes )
             {
-                const auto& v    = grassLayers[k]->Grass[vi];
-                const auto  guid = Common::Content::AssetGuidFromText( v.Mesh.Guid );
-                if ( !guid )
+                const auto typeGuid = Common::Content::AssetGuidFromText( typeRef.Guid );
+                if ( !typeGuid )
                     continue; // the layer info's validation refused it on load
-                const Assets::AssetHandle handle = Common::Content::HandleForGuid( guid.GetValue() );
-                Desert::Mesh*             mesh   = meshes->Get( handle );
-                const Assets::MeshAsset*  asset  = meshes->GetAsset( handle );
-                if ( mesh == nullptr || asset == nullptr )
-                    continue; // still loading, or MeshService said why it failed
-                const uint64_t key      = ( rootId * 1000003ull ) + ( k * 4099ull ) + vi;
-                GrassSections& sections = m_GrassSections[key];
-                if ( sections.Mesh != mesh || sections.Version != materials->GetInvalidationVersion() )
+                const Assets::AssetHandle typeHandle = Common::Content::HandleForGuid( typeGuid.GetValue() );
+                const auto                type       = types->AssetOf( typeHandle );
+                if ( !type )
+                    continue; // still loading, or the service said once why it failed
+                const auto& varieties = type->GetData().GrassVarieties;
+                for ( uint32_t vi = 0; vi < varieties.size(); ++vi )
                 {
-                    sections.Mesh    = mesh;
-                    sections.Version = materials->GetInvalidationVersion();
-                    sections.Sections.clear();
-                    const auto&    slots     = asset->GetMaterialHandles();
-                    const size_t   submeshes = std::min<size_t>( mesh->GetSubmeshes().size(), 64 );
-                    const uint64_t all       = submeshes >= 64 ? ~0ull : ( 1ull << submeshes ) - 1ull;
-                    for ( size_t slot = 0; slot < slots.size(); ++slot )
+                    const auto& v    = varieties[vi];
+                    const auto  guid = Common::Content::AssetGuidFromText( v.Mesh.Guid );
+                    if ( !guid )
+                        continue; // the type's validation refused it on load
+                    const Assets::AssetHandle handle = Common::Content::HandleForGuid( guid.GetValue() );
+                    Desert::Mesh*             mesh   = meshes->Get( handle );
+                    const Assets::MeshAsset*  asset  = meshes->GetAsset( handle );
+                    if ( mesh == nullptr || asset == nullptr )
+                        continue; // still loading, or MeshService said why it failed
+                    // Stable per (root, layer, type, variety): it seeds the placement, so the same grass grows at
+                    // the same spot every session; the type's revision decides when its derived sections are
+                    // stale.
+                    uint64_t key = 1469598103934665603ull;
+                    for ( const uint64_t part :
+                          { rootId, static_cast<uint64_t>( k ), static_cast<uint64_t>( typeHandle ),
+                            static_cast<uint64_t>( vi ) } )
+                        key = ( key ^ part ) * 1099511628211ull;
+                    GrassSections& sections = m_GrassSections[key];
+                    if ( sections.Mesh != mesh || sections.Version != materials->GetInvalidationVersion() ||
+                         sections.TypeRevision != type->Revision() )
                     {
-                        uint64_t hidden = 0;
-                        for ( size_t si = 0; si < submeshes; ++si )
-                            if ( SectionMaterialSlot( si, slots.size() ) != slot )
-                                hidden |= 1ull << si;
-                        if ( hidden == all )
-                            continue;
-                        auto instance =
-                             materials->CreateRuntimeInstance( materials->GetAssetHandleByExternal( slots[slot] ) );
-                        if ( !instance )
+                        sections.Mesh         = mesh;
+                        sections.Version      = materials->GetInvalidationVersion();
+                        sections.TypeRevision = type->Revision();
+                        sections.Sections.clear();
+                        const auto&    slots     = asset->GetMaterialHandles();
+                        const size_t   submeshes = std::min<size_t>( mesh->GetSubmeshes().size(), 64 );
+                        const uint64_t all       = submeshes >= 64 ? ~0ull : ( 1ull << submeshes ) - 1ull;
+                        for ( size_t slot = 0; slot < slots.size(); ++slot )
                         {
-                            if ( m_WarnedGrass.insert( v.Mesh.Path ).second )
-                                LOG_WARN( "[Landscape] grass mesh '{}': section material {} does not resolve; those "
-                                          "sections do not grow",
-                                          v.Mesh.Path, slot );
-                            continue;
+                            uint64_t hidden = 0;
+                            for ( size_t si = 0; si < submeshes; ++si )
+                                if ( SectionMaterialSlot( si, slots.size() ) != slot )
+                                    hidden |= 1ull << si;
+                            if ( hidden == all )
+                                continue;
+                            auto instance = materials->CreateRuntimeInstance(
+                                 materials->GetAssetHandleByExternal( slots[slot] ) );
+                            if ( !instance )
+                            {
+                                if ( m_WarnedGrass.insert( v.Mesh.Path ).second )
+                                    LOG_WARN( "[Landscape] grass mesh '{}': section material {} does not resolve; "
+                                              "those "
+                                              "sections do not grow",
+                                              v.Mesh.Path, slot );
+                                continue;
+                            }
+                            sections.Sections.push_back( { std::move( instance ), hidden } );
                         }
-                        sections.Sections.push_back( { std::move( instance ), hidden } );
                     }
+                    Graphic::System::GrassVarietyDraw variety;
+                    variety.Key                 = key;
+                    variety.Layer               = k;
+                    variety.Mesh                = mesh;
+                    variety.Sections            = sections.Sections;
+                    auto& p                     = variety.Placement;
+                    p.Density                   = v.Density;
+                    p.PlacementJitter           = v.PlacementJitter;
+                    p.StartCullDistance         = v.StartCullDistance;
+                    p.EndCullDistance           = v.EndCullDistance;
+                    p.AllowedDensityRange       = { v.AllowedDensityRange.Min, v.AllowedDensityRange.Max };
+                    p.Scaling                   = static_cast<uint32_t>( v.Scaling );
+                    p.ScaleX                    = { v.ScaleX.Min, v.ScaleX.Max };
+                    p.ScaleY                    = { v.ScaleY.Min, v.ScaleY.Max };
+                    p.ScaleZ                    = { v.ScaleZ.Min, v.ScaleZ.Max };
+                    p.WeightAttenuatesMaxScale  = v.WeightAttenuatesMaxScale;
+                    p.MaxScaleWeightAttenuation = v.MaxScaleWeightAttenuation;
+                    p.RandomRotation            = v.RandomRotation;
+                    p.AlignToSurface            = v.AlignToSurface;
+                    p.CastDynamicShadow         = v.CastDynamicShadow;
+                    variety.Wind = Graphic::MakeInstanceWind( v.Wind.Strength, v.Wind.Speed, v.Wind.Height,
+                                                              glm::vec2( air.x, air.z ), m_WindSeconds );
+                    draw.Varieties.push_back( std::move( variety ) );
                 }
-                Graphic::System::GrassVarietyDraw variety;
-                variety.Key                 = key;
-                variety.Layer               = k;
-                variety.Mesh                = mesh;
-                variety.Sections            = sections.Sections;
-                auto& p                     = variety.Placement;
-                p.Density                   = v.Density;
-                p.PlacementJitter           = v.PlacementJitter;
-                p.StartCullDistance         = v.StartCullDistance;
-                p.EndCullDistance           = v.EndCullDistance;
-                p.AllowedDensityRange       = { v.AllowedDensityRange.Min, v.AllowedDensityRange.Max };
-                p.Scaling                   = static_cast<uint32_t>( v.Scaling );
-                p.ScaleX                    = { v.ScaleX.Min, v.ScaleX.Max };
-                p.ScaleY                    = { v.ScaleY.Min, v.ScaleY.Max };
-                p.ScaleZ                    = { v.ScaleZ.Min, v.ScaleZ.Max };
-                p.WeightAttenuatesMaxScale  = v.WeightAttenuatesMaxScale;
-                p.MaxScaleWeightAttenuation = v.MaxScaleWeightAttenuation;
-                p.RandomRotation            = v.RandomRotation;
-                p.AlignToSurface            = v.AlignToSurface;
-                p.CastDynamicShadow         = v.CastDynamicShadow;
-                variety.Wind = Graphic::MakeInstanceWind( v.Wind.Strength, v.Wind.Speed, v.Wind.Height,
-                                                          glm::vec2( air.x, air.z ), m_WindSeconds );
-                draw.Varieties.push_back( std::move( variety ) );
             }
         if ( !draw.Varieties.empty() )
             renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeGrassCommand>( std::move( draw ) );

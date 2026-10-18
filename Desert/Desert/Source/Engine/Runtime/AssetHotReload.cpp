@@ -8,6 +8,7 @@
 #include <Engine/Assets/CloudTypeAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
+#include <Engine/Assets/LandscapeGrassTypeAsset.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -83,6 +84,7 @@ namespace Desert::Runtime
         PollCloudModellingVolumes( assetManager );
         PollUIThemes( assetManager );
         PollLandscapeLayerInfos( assetManager );
+        PollLandscapeGrassTypes( assetManager );
         PollPrefabs( assetManager );
         m_ContentWatch.Poll();
         m_FirstScan = false;
@@ -266,6 +268,32 @@ namespace Desert::Runtime
             }
 
             LOG_INFO( "[HotReload] Landscape layer info '{}' reloaded — the next frame and stroke use it.", key );
+        }
+    }
+
+    void AssetHotReload::PollLandscapeGrassTypes( Assets::AssetManager& assetManager )
+    {
+        // No service to notify, for the layer info's reason: LandscapeGrassTypeService hands out the asset, the
+        // landscape system reads its varieties every frame and compares its Revision for what it derived from
+        // them.
+        for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::LandscapeGrassTypeAsset>() )
+        {
+            if ( !asset )
+                continue;
+
+            const auto& path = asset->GetMetadata().Filepath;
+            if ( !TouchWatched( path ) )
+                continue;
+
+            const std::string key = path.generic_string();
+            if ( const auto reloaded = asset->Load(); !reloaded )
+            {
+                LOG_ERROR( "[HotReload] Landscape grass type '{}' could not be re-read: {}", key,
+                           reloaded.GetError() );
+                continue;
+            }
+
+            LOG_INFO( "[HotReload] Landscape grass type '{}' reloaded — the next frame grows it.", key );
         }
     }
 

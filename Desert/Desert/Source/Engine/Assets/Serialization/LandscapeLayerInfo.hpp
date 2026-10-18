@@ -10,7 +10,6 @@
 // SplineFalloffModulation* (no landscape splines yet).
 
 #include <Engine/Assets/AssetGuidRef.hpp>
-#include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
@@ -42,6 +41,8 @@ namespace Desert::Assets::Serialization
      *   3 - GrassType leaves (LS-16): the landscape grows no grass; grass is a foliage asset placed with the
      *       Foliage tool. The header states no Dependencies again. The corpus files were rewritten as v3 in
      *       the same change, so v2 is refused by its number.
+     *   4 - GrassTypes: the `.degrasstype`s the layer grows, any number, by {Guid, Path}; their GUIDs are the
+     *       header's Dependencies (GRASS-GPU). The corpus files were rewritten as v4, so v3 is refused.
      *
      * An unknown value is refused in both directions; there is no migration step in the runtime.
      */
@@ -55,47 +56,6 @@ namespace Desert::Assets::Serialization
                                                 static_cast<uint32_t>( kLandscapeLayerInfoVersion ) } };
         return versions;
     }
-
-    /// UE EGrassScaling: how a variety's three scale ranges combine.
-    enum class GrassScaling
-    {
-        Uniform, ///< one draw of ScaleX for all three axes
-        Free,    ///< each axis its own draw
-        LockXY,  ///< X and Y share ScaleX's draw, Z (up) draws ScaleZ
-    };
-
-    /**
-     * @brief One kind of grass a layer grows (UE: FGrassVariety, LandscapeGrassType.h:30-158).
-     *
-     * Units are UE's: Density is instances per 1000 x 1000 cm (as FoliageTypeData::Density), distances are cm,
-     * Z is the up axis (the engine's Y). The mesh shades with its own section materials (UE without
-     * OverrideMaterials). Refused, because nothing here could consume them: bUseGrid=false (Halton placement),
-     * MinLOD, lightmap / decal / lighting-channel / distance-field flags, the per-platform and quality overrides.
-     */
-    struct GrassVariety
-    {
-        AssetGuidRef Mesh;
-        float        Density = 400.0f;
-        /// 0..1 of a grid cell the instance may wander from the cell centre (UE PlacementJitter, clamped to .99).
-        float PlacementJitter   = 1.0f;
-        float StartCullDistance = 0.0f;
-        float EndCullDistance   = 10000.0f;
-        /// The layer weight an instance needs: kept when Min < weight <= Max and weight beats its random draw.
-        FoliageFloatInterval AllowedDensityRange{ 0.0f, 1.0f };
-        GrassScaling         Scaling = GrassScaling::Uniform;
-        FoliageFloatInterval ScaleX{ 1.0f, 1.0f };
-        FoliageFloatInterval ScaleY{ 1.0f, 1.0f };
-        FoliageFloatInterval ScaleZ{ 1.0f, 1.0f };
-        bool                 WeightAttenuatesMaxScale = false;
-        float                MaxScaleWeightAttenuation = 0.5f;
-        bool                 RandomRotation            = true;
-        bool                 AlignToSurface            = true;
-        bool                 CastDynamicShadow         = true;
-        /// The response to the scene's wind (ECS::WindAt), as a foliage type's (FoliageWind).
-        FoliageWind Wind;
-
-        [[nodiscard]] bool operator==( const GrassVariety& ) const = default;
-    };
 
     /**
      * @brief One `.delayerinfo` (UE: ULandscapeLayerInfoObject).
@@ -114,9 +74,9 @@ namespace Desert::Assets::Serialization
         bool NoWeightBlend = false;
         /// The swatch the panel shows and what a layer-usage debug view would tint by (linear RGB).
         glm::vec3 LayerUsageDebugColor = glm::vec3( 1.0f );
-        /// What grows where this layer is painted (UE: the LandscapeGrassType the material's LandscapeGrassOutput
-        /// names for this layer). Empty: nothing.
-        std::vector<GrassVariety> Grass;
+        /// What grows where this layer is painted (UE: the ULandscapeGrassTypes the material's
+        /// LandscapeGrassOutput names for this layer; any number). Empty: nothing.
+        std::vector<AssetGuidRef> GrassTypes;
 
         [[nodiscard]] bool operator==( const LandscapeLayerInfoData& ) const = default;
     };
@@ -125,7 +85,7 @@ namespace Desert::Assets::Serialization
     Common::BoolResultStr ValidateLandscapeLayerInfoData( const LandscapeLayerInfoData& data );
 
     /// Parses a `.delayerinfo`. A file without a header, of another version or kind, whose Dependencies are not
-    /// exactly its varieties' meshes, or with invalid numbers is an error naming why.
+    /// exactly its grass types, or with invalid numbers is an error naming why.
     Common::ResultStr<LandscapeLayerInfoData> ParseLandscapeLayerInfo( const std::string& text );
 
     /// Canonical text; stamps the header (keeping a loaded GUID, minting one otherwise).
