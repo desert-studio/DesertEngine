@@ -25,6 +25,8 @@ namespace Desert::World::Landscape
         // Shaders/Common/LandscapeHeight.glslh COMPILED AS C++ — the same text Terrain.shader decodes a
         // tile's R16 copy with, so the CPU's heights and the drawn heights are one function. The shader
         // root is on the include path of every project that compiles this file.
+        using glm::clamp;
+        using glm::dot;
         using glm::floor;
         using glm::min;
         using glm::mix;

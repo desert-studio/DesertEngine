@@ -1,8 +1,9 @@
 // DesertAsset {"Kind":"Shader","Guid":"9d6d6db70d7f0b397eac782bfb709efd","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "Terrain"
 {
-    // Data-driven material metadata. The ground's layers are the landscape's painted layer infos, not
-    // parameters of this program: the material contributes the Tint every layer is multiplied by.
+    // Data-driven material metadata: the landscape material. The layers' names and weights are the
+    // landscape's painted layer infos; what each layer looks like is this material's layer inputs (UE's
+    // LandscapeLayerBlend), plus the Tint every layer is multiplied by.
 
     Domain Terrain
     Role Terrain
@@ -14,6 +15,33 @@ Shader "Terrain"
     Properties Binding(1)
     {
         Color       Tint ("Tint") = (1, 1, 1, 1)
+
+        // THE LANDSCAPE MATERIAL (UE's LandscapeLayerBlend inputs): input k is the root's layer k. Its maps are
+        // sampled with world-aligned UVs at the input's tile size (cm per repeat); TerrainSurface.glslh.
+        // An input without an albedo map draws its layer's LayerUsageDebugColor.
+        Float       HeightBlend ("Height Blend", Range(0,1), Category("Layers")) = 1
+        Float       FarTilingDistance ("Far Tiling Distance (cm)", Range(100,100000), Category("Layers")) = 3000
+        Float       FarTilingScale ("Far Tiling Scale", Range(1,16), Category("Layers")) = 4
+        Float       MacroVariationSize ("Macro Variation Size (cm)", Range(100,100000), Category("Layers")) = 6000
+        Float       MacroVariationStrength ("Macro Variation Strength", Range(0,1), Category("Layers")) = 0.3
+        Float       Layer0TileSize ("Layer 0 Tile Size (cm)", Range(10,10000), Category("Layer 0")) = 300
+        Color       Layer0Tint ("Layer 0 Tint", Category("Layer 0")) = (1, 1, 1, 1)
+        Texture2D   u_Layer0Albedo ("Layer 0 Albedo", Category("Layer 0"), Intent(Colour))
+        Texture2D   u_Layer0Normal ("Layer 0 Normal", Category("Layer 0"), Intent(NormalMap)) = "normal"
+        Texture2D   u_Layer0ARM ("Layer 0 ARM", Category("Layer 0"), Intent(Data))
+        Texture2D   u_Layer0Height ("Layer 0 Height", Category("Layer 0"), Intent(Data))
+        Float       Layer1TileSize ("Layer 1 Tile Size (cm)", Range(10,10000), Category("Layer 1")) = 300
+        Color       Layer1Tint ("Layer 1 Tint", Category("Layer 1")) = (1, 1, 1, 1)
+        Texture2D   u_Layer1Albedo ("Layer 1 Albedo", Category("Layer 1"), Intent(Colour))
+        Texture2D   u_Layer1Normal ("Layer 1 Normal", Category("Layer 1"), Intent(NormalMap)) = "normal"
+        Texture2D   u_Layer1ARM ("Layer 1 ARM", Category("Layer 1"), Intent(Data))
+        Texture2D   u_Layer1Height ("Layer 1 Height", Category("Layer 1"), Intent(Data))
+        Float       Layer2TileSize ("Layer 2 Tile Size (cm)", Range(10,10000), Category("Layer 2")) = 300
+        Color       Layer2Tint ("Layer 2 Tint", Category("Layer 2")) = (1, 1, 1, 1)
+        Texture2D   u_Layer2Albedo ("Layer 2 Albedo", Category("Layer 2"), Intent(Colour))
+        Texture2D   u_Layer2Normal ("Layer 2 Normal", Category("Layer 2"), Intent(NormalMap)) = "normal"
+        Texture2D   u_Layer2ARM ("Layer 2 ARM", Category("Layer 2"), Intent(Data))
+        Texture2D   u_Layer2Height ("Layer 2 Height", Category("Layer 2"), Intent(Data))
 
         // The landscape tile's own maps (LandscapeECSSystem's R16 height / RGBA8 weight copies): material
         // parameters the TerrainRenderer writes per tile, never an artist (EngineSet). Declared by hand in
@@ -107,7 +135,7 @@ Shader "Terrain"
             // split the deferred composite and the mesh shaders make.
             float cloudShadow = CloudShadowFactor( v_WorldPos );
 
-            vec3 lit = albedo * ( ambient + sun * ndl * cloudShadow );
+            vec3 lit = albedo * ( ambient * s.AO + sun * ndl * cloudShadow );
 
             o_Color   = vec4( lit * u_Material.Tint.rgb, 1.0 );
             oVelocity = TerrainVelocity();

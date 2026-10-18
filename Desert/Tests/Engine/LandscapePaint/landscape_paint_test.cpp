@@ -24,6 +24,8 @@ using namespace Desert::World::Landscape;
 
 namespace
 {
+    using glm::clamp;
+    using glm::dot;
     using glm::mix;
     using glm::vec2;
     using glm::vec3;
@@ -443,6 +445,26 @@ namespace
         return Blend( w0, vec4( 0.0f ), c, alpha0, kWeightBlendAll, ground );
     }
 } // namespace
+
+TEST( LandscapePaint, HeightBlendWeightsAndGroundShareSumToOne )
+{
+    // UE's LB_HeightBlend renormalises: whatever the heights, the weight-blended layers and the ground share
+    // one whole pixel, so a blended attribute stays inside the layers' range (no darkening at a seam).
+    const vec4 drawn( 1.0f );
+    for ( const float h : { 0.0f, 0.3f, 1.0f } )
+    {
+        const LandscapeBlendWeights r =
+             LandscapeHeightBlend( vec4( 0.5f, 0.2f, 0.0f, 0.0f ), vec4( 0.0f ), drawn, drawn, kWeightBlendAll,
+                                   kWeightBlendAll, vec4( h, 1.0f - h, 0.5f, 0.5f ), vec4( 0.5f ), 0.5f );
+        const vec3 grey = Blend( r.W0, r.W1,
+                                 Colors{ vec4( 0.5f, 0.5f, 0.5f, 1.0f ), vec4( 0.5f, 0.5f, 0.5f, 1.0f ),
+                                         vec4( 0.5f, 0.5f, 0.5f, 1.0f ), vec4( 0.5f, 0.5f, 0.5f, 1.0f ),
+                                         vec4( 0.5f, 0.5f, 0.5f, 1.0f ), vec4( 0.5f, 0.5f, 0.5f, 1.0f ),
+                                         vec4( 0.5f, 0.5f, 0.5f, 1.0f ), vec4( 0.5f, 0.5f, 0.5f, 1.0f ) },
+                                 kWeightBlendAll, kWeightBlendAll, vec3( 0.5f ) );
+        EXPECT_NEAR( grey.x, 0.5f, 1e-5f ) << "height " << h;
+    }
+}
 
 TEST( LandscapePaint, FullyPaintedLayerIsExactlyItsColour )
 {

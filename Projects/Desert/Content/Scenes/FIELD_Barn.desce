@@ -416,7 +416,7 @@
                 ]
             },
             "LandscapeMaterial": {
-                "Material": ""
+                "Material": "Materials/FieldBarn/M_FieldBarn_Landscape.demat"
             }
         },
         {
