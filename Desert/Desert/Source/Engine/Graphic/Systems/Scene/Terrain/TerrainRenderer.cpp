@@ -282,9 +282,11 @@ namespace Desert::Graphic::System
             // tile's, so every tile of a landscape shares one set of arrays; resolved once per frame per material.
             const std::string   layerKey = TerrainTextureKey( t.Overrides, nullptr, nullptr );
             TerrainLayerInputs& layers   = m_LayerInputs[layerKey];
+            if ( !m_EmptyLayerArray )
+                m_EmptyLayerArray = CreateTerrainEmptyLayerArray();
             if ( layerKeysThisFrame.insert( layerKey ).second )
                 UpdateTerrainLayerInputs( materials.Forward->GetSchema(), t.Overrides,
-                                          "landscape material " + layerKey, layers );
+                                          "landscape material " + layerKey, m_EmptyLayerArray, layers );
 
             if ( inserted )
             {

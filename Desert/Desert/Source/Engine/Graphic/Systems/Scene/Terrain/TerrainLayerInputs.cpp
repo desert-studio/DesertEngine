@@ -45,54 +45,52 @@ namespace Desert::Graphic::System
                  Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
         }
 
-        // The one-layer array bound to a kind no input fills: a sampler2DArray must see an array view, and
-        // this one is never sampled (every input's slice of the kind is -1).
-        std::shared_ptr<Image2D> EmptyArray()
-        {
-            static std::shared_ptr<Image2D> empty = []() -> std::shared_ptr<Image2D>
-            {
-                const ResourceAttributionScope      owned( ResourceOwner::SceneRenderer );
-                Core::Formats::Image2DSpecification white = {
-                     .Tag        = "TerrainLayerArrayWhite",
-                     .Width      = 1,
-                     .Height     = 1,
-                     .Format     = Core::Formats::ImageFormat::RGBA8F,
-                     .Mips       = 1,
-                     .Samples    = 1,
-                     .Data       = Core::Formats::EmptyPixelData{},
-                     .Usage      = Core::Formats::Image2DUsage::Image2D,
-                     .Properties = Core::Formats::ImageProperties::Sample,
-                     .MipLevels  = {},
-                };
-                white.Data                                 = std::vector<unsigned char>{ 255, 255, 255, 255 };
-                const auto                          source = Image2D::Create( white );
-                Core::Formats::Image2DSpecification spec   = {
-                       .Tag         = "TerrainLayerArrayEmpty",
-                       .Width       = 1,
-                       .Height      = 1,
-                       .Format      = Core::Formats::ImageFormat::RGBA8F,
-                       .Mips        = 1,
-                       .Samples     = 1,
-                       .Data        = Core::Formats::EmptyPixelData{},
-                       .Usage       = Core::Formats::Image2DUsage::Image2D,
-                       .Properties  = Core::Formats::ImageProperties::Sample,
-                       .MipLevels   = {},
-                       .ArrayLayers = 1,
-                };
-                auto array = Image2D::Create( spec );
-                if ( !source || !array )
-                    return nullptr;
-                const Image2D* layers[] = { source.get() };
-                if ( const auto copied = array->CopyLayersFrom( layers ); !copied.IsSuccess() )
-                {
-                    LOG_ERROR( "[Terrain] the empty layer array could not be filled: {}", copied.GetError() );
-                    return nullptr;
-                }
-                return array;
-            }();
-            return empty;
-        }
+    } // namespace
 
+    std::shared_ptr<Image2D> CreateTerrainEmptyLayerArray()
+    {
+        const ResourceAttributionScope      owned( ResourceOwner::SceneRenderer );
+        Core::Formats::Image2DSpecification white = {
+             .Tag        = "TerrainLayerArrayWhite",
+             .Width      = 1,
+             .Height     = 1,
+             .Format     = Core::Formats::ImageFormat::RGBA8F,
+             .Mips       = 1,
+             .Samples    = 1,
+             .Data       = Core::Formats::EmptyPixelData{},
+             .Usage      = Core::Formats::Image2DUsage::Image2D,
+             .Properties = Core::Formats::ImageProperties::Sample,
+             .MipLevels  = {},
+        };
+        white.Data                                 = std::vector<unsigned char>{ 255, 255, 255, 255 };
+        const auto                          source = Image2D::Create( white );
+        Core::Formats::Image2DSpecification spec   = {
+               .Tag         = "TerrainLayerArrayEmpty",
+               .Width       = 1,
+               .Height      = 1,
+               .Format      = Core::Formats::ImageFormat::RGBA8F,
+               .Mips        = 1,
+               .Samples     = 1,
+               .Data        = Core::Formats::EmptyPixelData{},
+               .Usage       = Core::Formats::Image2DUsage::Image2D,
+               .Properties  = Core::Formats::ImageProperties::Sample,
+               .MipLevels   = {},
+               .ArrayLayers = 1,
+        };
+        auto array = Image2D::Create( spec );
+        if ( !source || !array )
+            return nullptr;
+        const Image2D* layers[] = { source.get() };
+        if ( const auto copied = array->CopyLayersFrom( layers ); !copied.IsSuccess() )
+        {
+            LOG_ERROR( "[Terrain] the empty layer array could not be filled: {}", copied.GetError() );
+            return nullptr;
+        }
+        return array;
+    }
+
+    namespace
+    {
         // An array of @p sources' layers in their order, sized and formatted as the first: CopyLayersFrom
         // refuses any source that differs, naming it.
         Common::ResultStr<std::shared_ptr<Image2D>> BuildArray( const std::string&                 tag,
@@ -126,7 +124,7 @@ namespace Desert::Graphic::System
 
     void UpdateTerrainLayerInputs( const Core::Formats::ShaderProgramMeta& schema,
                                    const MaterialOverrides& overrides, const std::string& materialTag,
-                                   TerrainLayerInputs& inputs )
+                                   const std::shared_ptr<Image2D>& emptyArray, TerrainLayerInputs& inputs )
     {
         constexpr size_t kInputs = World::Landscape::kLandscapeMaxWeightLayers;
 
@@ -194,7 +192,7 @@ namespace Desert::Graphic::System
             {
                 inputs.Sources[kind] = sources;
                 inputs.Filled[kind]  = false;
-                inputs.Arrays[kind]  = EmptyArray();
+                inputs.Arrays[kind]  = emptyArray;
                 if ( !sources.empty() )
                 {
                     auto built = BuildArray( materialTag + "/" + inputs.ArrayNames[kind], sources );

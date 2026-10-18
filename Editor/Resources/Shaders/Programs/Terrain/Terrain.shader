@@ -28,7 +28,7 @@ Shader "Terrain"
         Float       MacroVariationSize ("Macro Variation Size (cm)", Range(100,100000), Category("Layers")) = 6000
         Float       MacroVariationStrength ("Macro Variation Strength", Range(0,1), Category("Layers")) = 0.3
         LandscapeLayerInfo Layer0Layer ("Layer 0 Layer", Category("Layer 0"), Element(Layers, 0))
-        Int         Layer0Blend ("Layer 0 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 0")) = 0
+        Float       Layer0Blend ("Layer 0 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 0")) = 0
         Float       Layer0TileSize ("Layer 0 Tile Size (cm)", Range(10,10000), Category("Layer 0")) = 300
         Color       Layer0Tint ("Layer 0 Tint", Category("Layer 0")) = (1, 1, 1, 1)
         Texture2D   u_Layer0Albedo ("Layer 0 Albedo", Category("Layer 0"), Intent(Colour), Element(u_LayerAlbedo, 0))
@@ -36,7 +36,7 @@ Shader "Terrain"
         Texture2D   u_Layer0ARM ("Layer 0 ARM", Category("Layer 0"), Intent(Data), Element(u_LayerARM, 0))
         Texture2D   u_Layer0Height ("Layer 0 Height", Category("Layer 0"), Intent(Data), Element(u_LayerHeight, 0))
         LandscapeLayerInfo Layer1Layer ("Layer 1 Layer", Category("Layer 1"), Element(Layers, 1))
-        Int         Layer1Blend ("Layer 1 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 1")) = 0
+        Float       Layer1Blend ("Layer 1 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 1")) = 0
         Float       Layer1TileSize ("Layer 1 Tile Size (cm)", Range(10,10000), Category("Layer 1")) = 300
         Color       Layer1Tint ("Layer 1 Tint", Category("Layer 1")) = (1, 1, 1, 1)
         Texture2D   u_Layer1Albedo ("Layer 1 Albedo", Category("Layer 1"), Intent(Colour), Element(u_LayerAlbedo, 1))
@@ -44,7 +44,7 @@ Shader "Terrain"
         Texture2D   u_Layer1ARM ("Layer 1 ARM", Category("Layer 1"), Intent(Data), Element(u_LayerARM, 1))
         Texture2D   u_Layer1Height ("Layer 1 Height", Category("Layer 1"), Intent(Data), Element(u_LayerHeight, 1))
         LandscapeLayerInfo Layer2Layer ("Layer 2 Layer", Category("Layer 2"), Element(Layers, 2))
-        Int         Layer2Blend ("Layer 2 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 2")) = 0
+        Float       Layer2Blend ("Layer 2 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 2")) = 0
         Float       Layer2TileSize ("Layer 2 Tile Size (cm)", Range(10,10000), Category("Layer 2")) = 300
         Color       Layer2Tint ("Layer 2 Tint", Category("Layer 2")) = (1, 1, 1, 1)
         Texture2D   u_Layer2Albedo ("Layer 2 Albedo", Category("Layer 2"), Intent(Colour), Element(u_LayerAlbedo, 2))
@@ -52,7 +52,7 @@ Shader "Terrain"
         Texture2D   u_Layer2ARM ("Layer 2 ARM", Category("Layer 2"), Intent(Data), Element(u_LayerARM, 2))
         Texture2D   u_Layer2Height ("Layer 2 Height", Category("Layer 2"), Intent(Data), Element(u_LayerHeight, 2))
         LandscapeLayerInfo Layer3Layer ("Layer 3 Layer", Category("Layer 3"), Element(Layers, 3))
-        Int         Layer3Blend ("Layer 3 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 3")) = 0
+        Float       Layer3Blend ("Layer 3 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 3")) = 0
         Float       Layer3TileSize ("Layer 3 Tile Size (cm)", Range(10,10000), Category("Layer 3")) = 300
         Color       Layer3Tint ("Layer 3 Tint", Category("Layer 3")) = (1, 1, 1, 1)
         Texture2D   u_Layer3Albedo ("Layer 3 Albedo", Category("Layer 3"), Intent(Colour), Element(u_LayerAlbedo, 3))
@@ -60,7 +60,7 @@ Shader "Terrain"
         Texture2D   u_Layer3ARM ("Layer 3 ARM", Category("Layer 3"), Intent(Data), Element(u_LayerARM, 3))
         Texture2D   u_Layer3Height ("Layer 3 Height", Category("Layer 3"), Intent(Data), Element(u_LayerHeight, 3))
         LandscapeLayerInfo Layer4Layer ("Layer 4 Layer", Category("Layer 4"), Element(Layers, 4))
-        Int         Layer4Blend ("Layer 4 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 4")) = 0
+        Float       Layer4Blend ("Layer 4 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 4")) = 0
         Float       Layer4TileSize ("Layer 4 Tile Size (cm)", Range(10,10000), Category("Layer 4")) = 300
         Color       Layer4Tint ("Layer 4 Tint", Category("Layer 4")) = (1, 1, 1, 1)
         Texture2D   u_Layer4Albedo ("Layer 4 Albedo", Category("Layer 4"), Intent(Colour), Element(u_LayerAlbedo, 4))
@@ -68,7 +68,7 @@ Shader "Terrain"
         Texture2D   u_Layer4ARM ("Layer 4 ARM", Category("Layer 4"), Intent(Data), Element(u_LayerARM, 4))
         Texture2D   u_Layer4Height ("Layer 4 Height", Category("Layer 4"), Intent(Data), Element(u_LayerHeight, 4))
         LandscapeLayerInfo Layer5Layer ("Layer 5 Layer", Category("Layer 5"), Element(Layers, 5))
-        Int         Layer5Blend ("Layer 5 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 5")) = 0
+        Float       Layer5Blend ("Layer 5 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 5")) = 0
         Float       Layer5TileSize ("Layer 5 Tile Size (cm)", Range(10,10000), Category("Layer 5")) = 300
         Color       Layer5Tint ("Layer 5 Tint", Category("Layer 5")) = (1, 1, 1, 1)
         Texture2D   u_Layer5Albedo ("Layer 5 Albedo", Category("Layer 5"), Intent(Colour), Element(u_LayerAlbedo, 5))
@@ -76,7 +76,7 @@ Shader "Terrain"
         Texture2D   u_Layer5ARM ("Layer 5 ARM", Category("Layer 5"), Intent(Data), Element(u_LayerARM, 5))
         Texture2D   u_Layer5Height ("Layer 5 Height", Category("Layer 5"), Intent(Data), Element(u_LayerHeight, 5))
         LandscapeLayerInfo Layer6Layer ("Layer 6 Layer", Category("Layer 6"), Element(Layers, 6))
-        Int         Layer6Blend ("Layer 6 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 6")) = 0
+        Float       Layer6Blend ("Layer 6 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 6")) = 0
         Float       Layer6TileSize ("Layer 6 Tile Size (cm)", Range(10,10000), Category("Layer 6")) = 300
         Color       Layer6Tint ("Layer 6 Tint", Category("Layer 6")) = (1, 1, 1, 1)
         Texture2D   u_Layer6Albedo ("Layer 6 Albedo", Category("Layer 6"), Intent(Colour), Element(u_LayerAlbedo, 6))
@@ -84,7 +84,7 @@ Shader "Terrain"
         Texture2D   u_Layer6ARM ("Layer 6 ARM", Category("Layer 6"), Intent(Data), Element(u_LayerARM, 6))
         Texture2D   u_Layer6Height ("Layer 6 Height", Category("Layer 6"), Intent(Data), Element(u_LayerHeight, 6))
         LandscapeLayerInfo Layer7Layer ("Layer 7 Layer", Category("Layer 7"), Element(Layers, 7))
-        Int         Layer7Blend ("Layer 7 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 7")) = 0
+        Float       Layer7Blend ("Layer 7 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 7")) = 0
         Float       Layer7TileSize ("Layer 7 Tile Size (cm)", Range(10,10000), Category("Layer 7")) = 300
         Color       Layer7Tint ("Layer 7 Tint", Category("Layer 7")) = (1, 1, 1, 1)
         Texture2D   u_Layer7Albedo ("Layer 7 Albedo", Category("Layer 7"), Intent(Colour), Element(u_LayerAlbedo, 7))

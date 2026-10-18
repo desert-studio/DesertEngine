@@ -75,7 +75,8 @@
         Uniform(13) sampler2DArray u_LayerARM;
         Uniform(14) sampler2DArray u_LayerHeight;
 
-        // ELandscapeLayerBlendType, the material's per-input `LayerKBlend`.
+        // ELandscapeLayerBlendType, the material's per-input `LayerKBlend` (a Float, rounded: the row holds
+        // floats, and an Int field of it would read a float's bit pattern).
         const int kTerrainWeightBlend = 0;
         const int kTerrainHeightBlend = 1;
         const int kTerrainAlphaBlend  = 2;
@@ -151,49 +152,49 @@
             {
                 i.TileCm = u_Material.Layer0TileSize;
                 i.Tint   = u_Material.Layer0Tint;
-                i.Blend  = u_Material.Layer0Blend;
+                i.Blend  = int( u_Material.Layer0Blend + 0.5 );
             }
             if ( k == 1 )
             {
                 i.TileCm = u_Material.Layer1TileSize;
                 i.Tint   = u_Material.Layer1Tint;
-                i.Blend  = u_Material.Layer1Blend;
+                i.Blend  = int( u_Material.Layer1Blend + 0.5 );
             }
             if ( k == 2 )
             {
                 i.TileCm = u_Material.Layer2TileSize;
                 i.Tint   = u_Material.Layer2Tint;
-                i.Blend  = u_Material.Layer2Blend;
+                i.Blend  = int( u_Material.Layer2Blend + 0.5 );
             }
             if ( k == 3 )
             {
                 i.TileCm = u_Material.Layer3TileSize;
                 i.Tint   = u_Material.Layer3Tint;
-                i.Blend  = u_Material.Layer3Blend;
+                i.Blend  = int( u_Material.Layer3Blend + 0.5 );
             }
             if ( k == 4 )
             {
                 i.TileCm = u_Material.Layer4TileSize;
                 i.Tint   = u_Material.Layer4Tint;
-                i.Blend  = u_Material.Layer4Blend;
+                i.Blend  = int( u_Material.Layer4Blend + 0.5 );
             }
             if ( k == 5 )
             {
                 i.TileCm = u_Material.Layer5TileSize;
                 i.Tint   = u_Material.Layer5Tint;
-                i.Blend  = u_Material.Layer5Blend;
+                i.Blend  = int( u_Material.Layer5Blend + 0.5 );
             }
             if ( k == 6 )
             {
                 i.TileCm = u_Material.Layer6TileSize;
                 i.Tint   = u_Material.Layer6Tint;
-                i.Blend  = u_Material.Layer6Blend;
+                i.Blend  = int( u_Material.Layer6Blend + 0.5 );
             }
             if ( k == 7 )
             {
                 i.TileCm = u_Material.Layer7TileSize;
                 i.Tint   = u_Material.Layer7Tint;
-                i.Blend  = u_Material.Layer7Blend;
+                i.Blend  = int( u_Material.Layer7Blend + 0.5 );
             }
             return i;
         }
@@ -204,20 +205,20 @@
         // runs, close in only the near one. The albedo is multiplied by the input's Tint (UE landscape
         // materials' per-layer colour control: the scanned map's hue moved toward the scene's without
         // repainting it).
-        TerrainLayer TerrainSampleInput( TerrainInput input, float farMix )
+        TerrainLayer TerrainSampleInput( TerrainInput layerInput, float farMix )
         {
-            vec2         uv = v_WorldPos.xz / max( input.TileCm, 1.0 );
+            vec2         uv = v_WorldPos.xz / max( layerInput.TileCm, 1.0 );
             TerrainLayer l;
             if ( farMix <= 0.0 )
-                l = TerrainFetchLayer( input.Slices, uv );
+                l = TerrainFetchLayer( layerInput.Slices, uv );
             else
             {
                 TerrainLayer distant = TerrainFetchLayer(
-                     input.Slices, uv / max( u_Material.FarTilingScale, 1.0 ) + vec2( 0.37, 0.61 ) );
+                     layerInput.Slices, uv / max( u_Material.FarTilingScale, 1.0 ) + vec2( 0.37, 0.61 ) );
                 l = farMix >= 1.0 ? distant
-                                  : TerrainMixLayer( TerrainFetchLayer( input.Slices, uv ), distant, farMix );
+                                  : TerrainMixLayer( TerrainFetchLayer( layerInput.Slices, uv ), distant, farMix );
             }
-            l.Albedo *= input.Tint.rgb;
+            l.Albedo *= layerInput.Tint.rgb;
             return l;
         }
 
@@ -227,10 +228,10 @@
         {
             if ( k < 0 )
                 return TerrainFlatLayer( colour );
-            TerrainInput input = TerrainInputOf( k );
-            if ( input.Slices.x < 0.0 )
+            TerrainInput layerInput = TerrainInputOf( k );
+            if ( layerInput.Slices.x < 0.0 )
                 return TerrainFlatLayer( colour );
-            return TerrainSampleInput( input, farMix );
+            return TerrainSampleInput( layerInput, farMix );
         }
 
         // Value noise for the macro variation: a smooth 0..1 field with no texture behind it.

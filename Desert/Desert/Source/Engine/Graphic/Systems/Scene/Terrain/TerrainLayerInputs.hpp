@@ -65,10 +65,16 @@ namespace Desert::Graphic::System
         }
     };
 
+    /// The one-layer array bound to a kind no input fills: a sampler2DArray must see an array view, and this one
+    /// is never sampled (every input's slice of the kind is -1). Owned by the renderer, so it dies with the
+    /// device.
+    std::shared_ptr<Image2D> CreateTerrainEmptyLayerArray();
+
     /// (Re)resolves @p inputs from @p schema's Element properties and @p overrides' values for them: names from
-    /// the layer infos, arrays rebuilt only where a source image changed. @p materialTag names the material in
-    /// an error. A layer info or texture still loading is simply absent this frame and picked up when it lands.
+    /// the layer infos, arrays rebuilt only where a source image changed (a kind with no array gets
+    /// @p emptyArray). @p materialTag names the material in an error. A layer info or texture still loading is
+    /// simply absent this frame and picked up when it lands.
     void UpdateTerrainLayerInputs( const Core::Formats::ShaderProgramMeta& schema,
                                    const MaterialOverrides& overrides, const std::string& materialTag,
-                                   TerrainLayerInputs& inputs );
+                                   const std::shared_ptr<Image2D>& emptyArray, TerrainLayerInputs& inputs );
 } // namespace Desert::Graphic::System
