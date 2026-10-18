@@ -53,6 +53,13 @@ namespace Desert::World::Landscape
         return texels;
     }
 
+    inline constexpr std::array<int32_t, kLandscapeMaxWeightLayers> MakeNoRootLayers()
+    {
+        std::array<int32_t, kLandscapeMaxWeightLayers> none{};
+        none.fill( -1 );
+        return none;
+    }
+
     /// What the surface shader needs per channel of a tile's weightmap (LandscapeWeights.glslh).
     struct LandscapeWeightChannels
     {
@@ -61,6 +68,10 @@ namespace Desert::World::Landscape
         std::array<glm::vec4, kLandscapeMaxWeightLayers> Colors{};
         /// 1 per tile layer whose root layer is NoWeightBlend (UE's LB_AlphaBlend).
         std::array<float, kLandscapeMaxWeightLayers> AlphaBlend{};
+        /// Per tile layer, the index of its layer in the ROOT's layer list (-1: the root does not name it, or
+        /// it is the visibility layer). The landscape material's layer inputs are the root's layers in that
+        /// order (TerrainSurface.glslh), so this is what picks a tile channel's maps.
+        std::array<int32_t, kLandscapeMaxWeightLayers> RootLayer = MakeNoRootLayers();
         /// The tile's layer count (0 = no weightmap; the shader then keeps the rule-only path).
         uint32_t Count = 0u;
         /// Tile layers the root no longer names: kept on the tile (LandscapeWeightLayer), reported by the caller.
@@ -91,14 +102,19 @@ namespace Desert::World::Landscape
                 out.Visibility = static_cast<int32_t>( c );
                 continue;
             }
-            bool named = false;
+            bool    named = false;
+            int32_t index = 0;
             for ( const auto& info : root )
             {
                 if ( info.LayerName != layers[c].Name )
+                {
+                    ++index;
                     continue;
-                out.Colors[c]           = glm::vec4( info.LayerUsageDebugColor, 1.0f );
-                out.AlphaBlend[c]       = info.NoWeightBlend ? 1.0f : 0.0f;
-                named                   = true;
+                }
+                out.Colors[c]     = glm::vec4( info.LayerUsageDebugColor, 1.0f );
+                out.AlphaBlend[c] = info.NoWeightBlend ? 1.0f : 0.0f;
+                out.RootLayer[c]  = index;
+                named             = true;
                 break;
             }
             if ( !named )
@@ -116,6 +132,16 @@ namespace Desert::World::Landscape
         for ( uint32_t c = 0; c < channels.Count; ++c )
             pages[c / kLandscapeWeightmapChannels][static_cast<glm::length_t>( c % kLandscapeWeightmapChannels )] =
                  channels.AlphaBlend[c];
+        return pages;
+    }
+    /// @p channels' RootLayer indices packed four to a vec4 the way the pages pack the weights (-1 = none) —
+    /// the shape TerrainInstance::LayerRootIndex carries them in.
+    inline std::array<glm::vec4, 2> LandscapeRootLayerPages( const LandscapeWeightChannels& channels )
+    {
+        std::array<glm::vec4, 2> pages{ glm::vec4( -1.0f ), glm::vec4( -1.0f ) };
+        for ( uint32_t c = 0; c < channels.Count; ++c )
+            pages[c / kLandscapeWeightmapChannels][static_cast<glm::length_t>( c % kLandscapeWeightmapChannels )] =
+                 static_cast<float>( channels.RootLayer[c] );
         return pages;
     }
 } // namespace Desert::World::Landscape

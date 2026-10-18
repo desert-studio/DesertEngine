@@ -76,14 +76,17 @@ namespace Desert::Graphic::System
         // Per layer, four to a vec4 like the pages: 1 = the layer is NoWeightBlend (UE LB_AlphaBlend), laid
         // over the weight blend.
         std::array<glm::vec4, 2> LayerAlphaBlend{};
+        // Per layer, four to a vec4 like the pages: the index of the layer in the ROOT's layer list, which
+        // names the landscape material's layer input it draws with (-1: none, the layer keeps its colour).
+        std::array<glm::vec4, 2> LayerRootIndex{ glm::vec4( -1.0f ), glm::vec4( -1.0f ) };
     };
 
     static_assert( World::Landscape::kLandscapeMaxWeightLayers ==
                         2u * World::Landscape::kLandscapeWeightmapChannels,
                    "TerrainInstance carries exactly two weightmap pages of layer data - LandscapeWeights.glslh "
                    "blends two RGBA8 pages" );
-    static_assert( sizeof( TerrainInstance ) == 17 * sizeof( glm::vec4 ),
-                   "TerrainInstance must stay seventeen 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
+    static_assert( sizeof( TerrainInstance ) == 19 * sizeof( glm::vec4 ),
+                   "TerrainInstance must stay nineteen 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
                    "reads these offsets" );
     static_assert( offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, GroundColor ) == 32 &&
                         offsetof( TerrainInstance, LandscapeFrame ) == 48 &&
@@ -91,7 +94,8 @@ namespace Desert::Graphic::System
                         offsetof( TerrainInstance, LodEdges ) == 80 &&
                         offsetof( TerrainInstance, LodCorners ) == 96 &&
                         offsetof( TerrainInstance, LayerColors ) == 112 &&
-                        offsetof( TerrainInstance, LayerAlphaBlend ) == 240,
+                        offsetof( TerrainInstance, LayerAlphaBlend ) == 240 &&
+                        offsetof( TerrainInstance, LayerRootIndex ) == 272,
                    "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
 
     // One tile's painted weight layers, as the surface shader blends them (LandscapeWeights.glslh). Kept
@@ -107,6 +111,8 @@ namespace Desert::Graphic::System
         uint32_t                                                           LayerCount = 0;
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> Colors{};
         std::array<glm::vec4, 2>                                           AlphaBlend{};
+        // Per layer, its index in the root's layer list (LandscapeRootLayerPages; -1 = none).
+        std::array<glm::vec4, 2> RootLayer{ glm::vec4( -1.0f ), glm::vec4( -1.0f ) };
         // The root's first layer colour (rgb) with a = 1, or a = 0 when the root names no layer - drawn
         // where the tile has no weightmap or its layers leave a pixel unclaimed.
         glm::vec4 Ground{ 0.0f };

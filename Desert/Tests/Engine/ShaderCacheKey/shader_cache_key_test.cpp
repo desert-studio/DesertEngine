@@ -1723,7 +1723,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
             const auto& block = compiler.get_type( resource.base_type_id );
             ASSERT_FALSE( block.member_types.empty() );
             const uint32_t stride = compiler.type_struct_member_array_stride( block, 0 );
-            EXPECT_EQ( stride, 272u ) << "the GLSL TerrainInstance and the C++ TerrainInstance disagree";
+            EXPECT_EQ( stride, 304u ) << "the GLSL TerrainInstance and the C++ TerrainInstance disagree";
             found = true;
         }
         EXPECT_TRUE( found ) << "the vertex stage no longer reads TerrainInstances";
@@ -1731,7 +1731,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
 
     // The census, so a binding added or lost anywhere in the two stages is named here first.
     const auto bindings = ShaderReflection::BuildLayoutBindings( set );
-    EXPECT_EQ( bindings.size(), 7u ) << DescribeBindings( bindings );
+    EXPECT_EQ( bindings.size(), 19u ) << DescribeBindings( bindings );
     EXPECT_TRUE( HasBinding( bindings, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // TerrainUB (shared)
     EXPECT_TRUE( HasBinding( bindings, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // Materials[] rows
     // Bindings 2-4 held the built-in grass/rock/snow layer textures until LS-16; none may come back.
@@ -1742,6 +1742,9 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
     EXPECT_TRUE( HasBinding( bindings, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // TerrainInstances[]
     EXPECT_TRUE( HasBinding( bindings, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Heightmap (R16)
     EXPECT_TRUE( HasBinding( bindings, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Weightmap (RGBA8)
+    // The landscape material's three layer inputs, four maps each (albedo, normal, ARM, height).
+    for ( uint32_t map = 11; map <= 22; ++map )
+        EXPECT_TRUE( HasBinding( bindings, map, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) << map;
 }
 
 // ---- The terrain's three programs (LS-5): one patch, three things written ---------------------------------

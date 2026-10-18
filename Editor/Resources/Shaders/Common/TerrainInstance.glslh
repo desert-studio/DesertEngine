@@ -17,6 +17,7 @@ struct TerrainInstance
     vec4 LodCorners;     // LOD on the (-x,-z), (+x,-z), (-x,+z), (+x,+z) corner: max of the four tiles
     vec4 LayerColors[8]; // tile layer colours (rgb), a = 1 when the root names the layer; layer i = page i/4, channel i%4
     vec4 LayerAlphaBlend[2]; // per page, 1 per channel whose layer is NoWeightBlend (laid over the weight blend)
+    vec4 LayerRootIndex[2];  // per page, per channel: the layer's index in the root's list = its material input (-1 none)
 };
 
 #endif // TERRAIN_INSTANCE_GLSLH

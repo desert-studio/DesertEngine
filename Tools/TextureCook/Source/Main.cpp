@@ -1,6 +1,6 @@
 // TextureCook — cook named texture sources into a project's Cooked/ tree.
 //
-//   TextureCook <project.deproj> [--engine-dir <dir>] <source> [<source> ...]
+//   TextureCook <project.deproj> [--engine-dir <dir>] [--intent <name>] <source> [<source> ...]
 //   TextureCook <project.deproj> [--engine-dir <dir>] --emit <asset.detex> <out.tex>
 //
 // `--emit` writes an asset's platform data (its DDC entry, derived first if absent) to a file. It exists for
@@ -10,6 +10,11 @@
 // folder the shell is in (Common::Constants::Path::FullPath; the process never changes directory), and
 // lands where the editor would put it: the `.detex` asset beside the source, its platform data in the DDC. The
 // cook is `TextureImporter::Cook` itself, so an up-to-date `.tex` is reported Fresh and not rewritten.
+//
+// `--intent` is what the texture IS (Core::Formats::kTextureIntentNames: Colour, NormalMap, Mask, Data), the
+// word a material slot gives an image imported for it (TextureImporter::ImportSourceAsset). Written on a FIRST
+// import only — an existing asset keeps its settings, as in the editor. Without it a loose image is
+// Unspecified (sRGB), which is wrong for a normal or data map imported outside a mesh.
 //
 // Exit status: 0 when every source ends with a correct `.tex` on the disk (Cooked or Fresh), 1 when any
 // did not, 2 for a command line it cannot act on. Every source gets one line on stdout saying which.
@@ -34,10 +39,11 @@ namespace
     int Usage()
     {
         std::fprintf( stderr,
-                      "usage: TextureCook <project.deproj> [--engine-dir <dir>] <source> [<source> ...]\n"
+                      "usage: TextureCook <project.deproj> [--engine-dir <dir>] [--intent <name>] <source> [<source> ...]\n"
                       "       TextureCook <project.deproj> [--engine-dir <dir>] --emit <asset.detex> <out.tex>\n"
                       "  paths are relative to the project's folder, e.g. Resources/Splash/Splash.detex\n"
-                      "  --engine-dir: the folder holding the engine's Resources/ (default: from this binary)\n" );
+                      "  --engine-dir: the folder holding the engine's Resources/ (default: from this binary)\n"
+                      "  --intent: Colour, NormalMap, Mask or Data, for a source imported the first time\n" );
         return 2;
     }
 
@@ -133,6 +139,21 @@ int main( int argc, char** argv )
                  return 0;
              }
 
+             auto intent = Desert::Core::Formats::TextureIntent::Unspecified;
+             if ( count > first && std::string( args[first] ) == "--intent" )
+             {
+                 if ( count < first + 3 )
+                     return Usage();
+                 intent = Desert::Core::Formats::TextureIntentFromName( args[first + 1] );
+                 if ( intent == Desert::Core::Formats::TextureIntent::Count )
+                 {
+                     std::fprintf( stderr, "TextureCook: '%s' is not a texture intent (Colour, NormalMap, Mask, Data)\n",
+                                   args[first + 1] );
+                     return 2;
+                 }
+                 first += 2;
+             }
+
              Desert::Editor::TextureImporter importer;
              int                             status = 0;
              for ( int i = first; i < count; ++i )
@@ -145,7 +166,21 @@ int main( int argc, char** argv )
                      status = 1;
                      continue;
                  }
-                 const auto result = importer.Cook( source );
+                 // A raw image is imported first, with the intent, and the ASSET is cooked (Cook would
+                 // import it as Unspecified); an asset path is its own asset.
+                 fs::path asset = source;
+                 if ( Desert::Editor::TextureImporter::AssetPathFor( source ) != source )
+                 {
+                     const auto imported = Desert::Editor::TextureImporter::ImportSourceAsset( source, intent );
+                     if ( !imported.IsSuccess() )
+                     {
+                         std::fprintf( stderr, "TextureCook: %s: %s\n", args[i], imported.GetError().c_str() );
+                         status = 1;
+                         continue;
+                     }
+                     asset = imported.GetValue();
+                 }
+                 const auto result = importer.Cook( asset );
                  const bool ok     = result.Outcome == Desert::Editor::TextureCookOutcome::Cooked ||
                                  result.Outcome == Desert::Editor::TextureCookOutcome::Fresh;
                  std::fprintf( ok ? stdout : stderr, "TextureCook: %s %s -> %s\n", OutcomeName( result.Outcome ),

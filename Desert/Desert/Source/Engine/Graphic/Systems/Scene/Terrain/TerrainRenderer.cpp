@@ -83,6 +83,7 @@ namespace Desert::Graphic::System
             instance.LodCorners = lod.Corners;
             instance.LayerColors     = t.Weights.Colors;
             instance.LayerAlphaBlend = t.Weights.AlphaBlend;
+            instance.LayerRootIndex  = t.Weights.RootLayer;
             return instance;
         }
 
