@@ -1,0 +1,67 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "40bbdf25c81a389070d22ca642d72521",
+        "Versions": {
+            "MATL": 5
+        },
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "ff984413a6428774d26f01b75e7e0eff", "c21f2819c1d9c34d1a163d0d46b442e7", "12386ed70895ac4ff352acd78a97b996"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/Surface/StandardSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "NormalScale",
+            "Value": [0.5, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "EmissiveColor",
+            "Value": [0.0, 0.0, 0.0, 1.0]
+        },
+        {
+            "Name": "UVOffset",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "UVTiling",
+            "Value": [15.0, 3.4000000953674316, 0.0, 0.0]
+        },
+        {
+            "Name": "UVRotation",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "u_AlbedoTexture",
+            "Guid": "ff984413a6428774d26f01b75e7e0eff",
+            "Path": "assets:Environments/FieldBarn/Meshes/island_tree_02/textures/island_tree_02_branches_diff_2k.detex"
+        },
+        {
+            "Name": "u_ORMTexture",
+            "Guid": "c21f2819c1d9c34d1a163d0d46b442e7",
+            "Path": "assets:Environments/FieldBarn/Meshes/island_tree_02/textures/island_tree_02_branches_arm_2k_ORMTexture.detex"
+        },
+        {
+            "Name": "u_NormalTexture",
+            "Guid": "12386ed70895ac4ff352acd78a97b996",
+            "Path": "assets:Environments/FieldBarn/Meshes/island_tree_02/textures/island_tree_02_branches_nor_gl_2k.detex"
+        }
+    ],
+    "CloudAssets": [],
+    "TwoSided": true
+}

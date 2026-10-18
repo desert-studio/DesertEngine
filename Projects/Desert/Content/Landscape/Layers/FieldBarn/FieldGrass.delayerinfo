@@ -1,0 +1,18 @@
+{
+    "Header": {
+        "Kind": "LandscapeLayerInfo",
+        "Guid": "0e67a9bfdff1b3cd7ed50e27dadc465e",
+        "Versions": {
+            "LLYI": 3
+        },
+        "Dependencies": []
+    },
+    "LayerName": "FieldGrass",
+    "Hardness": 0.5,
+    "NoWeightBlend": false,
+    "LayerUsageDebugColor": [
+        0.11,
+        0.17,
+        0.045
+    ]
+}

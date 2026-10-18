@@ -1,0 +1,18 @@
+{
+    "Header": {
+        "Kind": "LandscapeLayerInfo",
+        "Guid": "c39ddb7d5965f1c080b50b71c51a6db6",
+        "Versions": {
+            "LLYI": 3
+        },
+        "Dependencies": []
+    },
+    "LayerName": "FieldDry",
+    "Hardness": 0.5,
+    "NoWeightBlend": false,
+    "LayerUsageDebugColor": [
+        0.3,
+        0.27,
+        0.11
+    ]
+}

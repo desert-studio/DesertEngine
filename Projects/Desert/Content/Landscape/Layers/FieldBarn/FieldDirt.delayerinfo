@@ -1,0 +1,18 @@
+{
+    "Header": {
+        "Kind": "LandscapeLayerInfo",
+        "Guid": "f1310680ea846d17141c59441b901b55",
+        "Versions": {
+            "LLYI": 3
+        },
+        "Dependencies": []
+    },
+    "LayerName": "FieldDirt",
+    "Hardness": 0.5,
+    "NoWeightBlend": false,
+    "LayerUsageDebugColor": [
+        0.22,
+        0.15,
+        0.08
+    ]
+}
