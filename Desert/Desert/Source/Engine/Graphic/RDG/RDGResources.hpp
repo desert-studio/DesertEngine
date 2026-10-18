@@ -5,10 +5,12 @@
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <limits>
 #include <memory>
+#include <span>
 #include <vector>
 
 // Resource descriptions, handles and externally owned resources of the render graph. Device-free: a
@@ -147,6 +149,13 @@ namespace Desert::Graphic::RDG
     public:
         virtual ~IPhysicalBuffer()                               = default;
         [[nodiscard]] virtual BackendKind GetBackendKind() const = 0;
+        // The bytes the device wrote into a buffer extracted with Access::HostRead (Builder::Extract), made
+        // visible to the host; empty for a buffer the host cannot read. Meaningful only after the fence of the
+        // submission that wrote it.
+        [[nodiscard]] virtual std::span<const std::byte> ReadHost() const
+        {
+            return {};
+        }
     };
 
     // A texture that outlives the graph (swapchain image, history buffer, a baked cube). It carries its

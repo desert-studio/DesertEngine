@@ -28,7 +28,8 @@ layout( std430, binding = GI_TRACER_BINDING + 4 ) readonly buffer GITracerSoftwa
     MeshSDFGrid giTracerMeshSDFGrid;
 };
 // The mesh fields the near field traces (DistanceField::MeshDistanceFieldReads; Common/MeshDistanceField.glslh's
-// inputs) and the froxel grid's cells: MeshSDFGridCellStride uints per cell, its count then its object indices.
+// inputs) and the froxel grid's cells: per cell MeshSDFGridHeaderStride uints (its list's first index, its length),
+// then the compacted lists.
 layout( std430, binding = GI_TRACER_BINDING + 5 ) readonly buffer GITracerDFAssetsUB
 {
     vec4 u_DFAssetData[];

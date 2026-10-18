@@ -32,8 +32,8 @@ namespace Desert::Graphic::DistanceField
         RDG::BufferRef  Objects;     // DF_OBJECT_STRIDE vec4 per object
         RDG::TextureRef BrickAtlas;
         uint32_t        NumObjects = 0; // objects in Objects
-        // The near field's froxel grid (AddNearFieldCullPasses): per cell MeshSDFGridCellStride uints, the count
-        // then the object indices; and its placement.
+        // The near field's froxel grid (AddNearFieldCullPasses): per cell MeshSDFGridHeaderStride uints (its
+        // list's first index, its length), then the compacted lists; and its placement.
         RDG::BufferRef       NearFieldGrid;
         MeshSDFGridPlacement NearFieldGridPlacement;
 

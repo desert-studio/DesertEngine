@@ -21,12 +21,18 @@
 // Sphere-trace steps per object of the near field (UE's mesh SDF MaxTraceSteps).
 #define GI_MESH_SDF_MAX_STEPS 64
 
-// The near-field object list of the froxel holding @p position (Common/MeshSDFGrid.glslh): the offset of its count in
-// giTracerMeshSDFGridCells, the indices following, or -1 outside the grid (no near field there).
-int GIMeshObjectList( vec3 position )
+// The near-field object list of the froxel holding @p position (Common/MeshSDFGrid.glslh) into @p list: x = the index
+// of its first object in giTracerMeshSDFGridCells, y = its length - every object within DF_MESH_SDF_TRACE_DISTANCE of
+// the froxel. False outside the grid (no near field there; @p list empty).
+bool GIMeshObjectList( vec3 position, out uvec2 list )
 {
+    list           = uvec2( 0u );
     const int cell = MeshSDFGridCellAt( giTracerMeshSDFGrid, position );
-    return cell < 0 ? -1 : cell * int( MeshSDFGridCellStride );
+    if ( cell < 0 )
+        return false;
+    const uint header = uint( cell ) * MeshSDFGridHeaderStride;
+    list              = uvec2( giTracerMeshSDFGridCells[header], giTracerMeshSDFGridCells[header + 1u] );
+    return true;
 }
 
 // One voxel of object @p objectIndex's finest resident mip, world cm (0 with no resident mip): the precision of its
@@ -137,23 +143,20 @@ GITraceResult GITraceRay( GITraceInput ray )
     const uint  seed     = ( o.x * 73856093u ) ^ ( o.y * 19349663u ) ^ ( o.z * 83492791u ) ^ ( d.x * 2654435761u ) ^
                       ( d.y * 2246822519u );
 
-    // The near field: the objects of the origin's froxel (each within DF_MESH_SDF_TRACE_DISTANCE of it, the closest
-    // first), the closest hit. The list holds every object the ray can reach before DF_MESH_SDF_TRACE_DISTANCE, up to
-    // the grid's cap.
+    // The near field: the objects of the origin's froxel, the closest hit. The list holds every object the ray can
+    // reach before DF_MESH_SDF_TRACE_DISTANCE (each within that of the froxel), uncapped.
     float       globalStart = ray.tMin;
     const float nearEnd     = min( ray.tMax, DF_MESH_SDF_TRACE_DISTANCE );
-    const int   list        = ray.tMin < nearEnd ? GIMeshObjectList( ray.origin ) : -1;
-    if ( list >= 0 )
+    uvec2       list        = uvec2( 0u );
+    if ( ray.tMin < nearEnd && GIMeshObjectList( ray.origin, list ) )
     {
         float      tHit   = nearEnd;
         vec3       normal = -ray.direction;
         bool       hit    = false;
-        const uint first  = uint( list );
         const float tanCone = tan( ray.coneAngle );
-        const uint count  = giTracerMeshSDFGridCells[first];
-        for ( uint i = 0u; i < count; ++i )
-            hit = GITraceMeshObject( giTracerMeshSDFGridCells[first + 1u + i], ray.origin, ray.direction, ray.tMin,
-                                     tHit, dithered, tanCone, seed, normal ) || hit;
+        for ( uint i = 0u; i < list.y; ++i )
+            hit = GITraceMeshObject( giTracerMeshSDFGridCells[list.x + i], ray.origin, ray.direction, ray.tMin, tHit,
+                                     dithered, tanCone, seed, normal ) || hit;
         if ( hit )
         {
             result.hit                  = true;
@@ -239,15 +242,13 @@ GITraceBias GIRayBias( vec3 position, vec3 normal, vec3 direction )
     bias.farOffset       = voxel;
     bias.screenTolerance = voxel;
     bias.nearOffset      = voxel;
-    const int list = GIMeshObjectList( position );
-    if ( list < 0 )
+    uvec2 list;
+    if ( !GIMeshObjectList( position, list ) )
         return bias;
-    float      near  = DF_MESH_SDF_SURFACE_BIAS;
-    const uint first = uint( list );
-    const uint count = giTracerMeshSDFGridCells[first];
-    for ( uint i = 0u; i < count; ++i )
+    float near = DF_MESH_SDF_SURFACE_BIAS;
+    for ( uint i = 0u; i < list.y; ++i )
     {
-        const uint object = giTracerMeshSDFGridCells[first + 1u + i];
+        const uint object = giTracerMeshSDFGridCells[list.x + i];
         const uint base   = object * uint( DF_OBJECT_STRIDE );
         const vec3 lo     = u_DFObjects[base + uint( DF_OBJECT_ROW_BOUNDS_MIN )].xyz;
         const vec3 hi     = u_DFObjects[base + uint( DF_OBJECT_ROW_BOUNDS_MAX )].xyz;

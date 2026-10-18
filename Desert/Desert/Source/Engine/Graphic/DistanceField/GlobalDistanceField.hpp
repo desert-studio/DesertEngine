@@ -121,11 +121,14 @@ namespace Desert::Graphic::DistanceField
             glm::uvec2 Extent{ 0u };
         };
 
-        // THE NEAR FIELD'S FROXEL GRID (UE LumenMeshSDFCulling: CullMeshSDFObjectsForView, then
-        // CullMeshSDFObjectsToViewGrid - written from memory): two compute passes over @p field's objects, the
-        // ones near @p view's frustum, then per froxel of Common/MeshSDFGrid.glslh the closest
-        // DF_MESH_SDF_GRID_MAX_OBJECTS_PER_CELL within DF_MESH_SDF_TRACE_DISTANCE of it. Fills
-        // @p field.MeshFields' NearFieldGrid and NearFieldGridPlacement. An error names the bad input.
+        // THE NEAR FIELD'S FROXEL GRID (UE LumenMeshSDFCulling: CullMeshSDFObjectsForView,
+        // CullMeshSDFObjectsToViewGrid, ComputeCulledObjectsStartOffset, CompactCulledObjects - written from
+        // memory): four compute passes over @p field's objects - the ones near @p view's frustum; per froxel of
+        // Common/MeshSDFGrid.glslh the count of those within DF_MESH_SDF_TRACE_DISTANCE of it; the counts' prefix
+        // sum; the objects scattered into the froxels' compacted lists - every object, no per-cell cap. The lists'
+        // room is m_NearFieldListRoom, grown from what earlier frames needed (ReadNearFieldFeedback); a frame that
+        // needs more is refused on the GPU (every list empty) and logged. Fills @p field.MeshFields' NearFieldGrid
+        // and NearFieldGridPlacement. An error names the bad input.
         [[nodiscard]] Common::BoolResultStr AddNearFieldCullPasses( RDG::Builder& graph, FrameField& field,
                                                                     const NearFieldView& view );
 
@@ -184,5 +187,21 @@ namespace Desert::Graphic::DistanceField
         std::shared_ptr<Shader>          m_CullGridShader;
         std::shared_ptr<ComputePipeline> m_CullGridPipeline;
         mutable ShaderBindingLayoutCache m_CullGridLayout;
+        std::shared_ptr<Shader>          m_CullOffsetsShader;
+        std::shared_ptr<ComputePipeline> m_CullOffsetsPipeline;
+        mutable ShaderBindingLayoutCache m_CullOffsetsLayout;
+
+        // What the cull of frame slot @p slot handed back (MeshSDFCullFeedbackUints of Common/MeshSDFGrid.glslh),
+        // read once that slot comes round again (its fence waited): grows m_NearFieldListRoom to what the lists
+        // needed and logs a refused frame. A readback of another cull than the slot's last (its stamp) is ignored.
+        void ReadNearFieldFeedback( uint32_t slot );
+
+        // The list entries the near-field grid buffer has room for, grown, never cut, to what a frame needed.
+        uint64_t m_NearFieldListRoom = 0;
+        // Per frame slot: the HostRead buffer the cull extracted into and the stamp of that cull (0 = none).
+        std::vector<RDG::ExternalBuffer> m_NearFieldFeedback;
+        std::vector<uint32_t>            m_NearFieldFeedbackStamp;
+        uint32_t                         m_NearFieldStamp          = 0;
+        bool                             m_NearFieldFeedbackLogged = false; // the first readback is logged once
     };
 } // namespace Desert::Graphic::DistanceField
