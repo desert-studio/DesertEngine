@@ -483,6 +483,8 @@ namespace Desert::Graphic
         gather.GIFrame            = inputs.GIFrame;
         gather.RadianceCache      = cache.GetValue();
         gather.Extent             = inputs.Extent;
+        gather.AdaptiveProbePercent = m_ScreenProbeAdaptivePercent;
+        gather.ShortRangeAO         = m_ScreenProbeShortRangeAO;
         gather.PrevViewProjection = frame.PrevViewProjection;
         gather.PrevCameraPosition = frame.PrevCameraPosition;
         const auto gathered       = m_ScreenProbeGather->AddPasses( graph, import, gather );
@@ -494,6 +496,7 @@ namespace Desert::Graphic
         t.GIDiffuse  = gathered.GetValue().Diffuse;
         t.GISpecular = gathered.GetValue().Specular;
         t.GIBackface = gathered.GetValue().Backface;
+        t.GIOccluded = gathered.GetValue().ShortRangeAO;
     }
 
     bool SceneRenderer::WorldLightGridRead() const
@@ -617,12 +620,15 @@ namespace Desert::Graphic
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
         // The composite's GI branch (DeferredLighting.shader u_Params.w): 0 none, 1 the screen-space gather inside
-        // this pass, 2 the traced final gather's diffuse and specular in place of the sky's.
-        // Spelled here, not cast from the enum, whose numbering is the method ladder's
-        // (Common/Settings/RenderMethods.hpp).
+        // this pass, 2 the traced final gather's diffuse and specular in place of the sky's (SSAO occludes it), 3
+        // the same gather occluded by its own short-range AO (the material AO alone left to apply). Spelled here,
+        // not cast from the enum, whose numbering is the method ladder's (Common/Settings/RenderMethods.hpp).
         using Common::Scalability::GIMethod;
         const GIMethod gi            = m_RenderMethods.GlobalIllumination.Effective;
-        const int      compositeGI   = gi == GIMethod::ScreenSpace ? 1 : traced ? 2 : 0;
+        const int      compositeGI   = gi == GIMethod::ScreenSpace            ? 1
+                                       : traced && refs.Transients.GIOccluded ? 3
+                                       : traced                               ? 2
+                                                                              : 0;
         const float    giIntensity   = ( gi == GIMethod::ScreenSpace ) ? m_GIIntensity : 0.0f;
 
         auto* const deferred =

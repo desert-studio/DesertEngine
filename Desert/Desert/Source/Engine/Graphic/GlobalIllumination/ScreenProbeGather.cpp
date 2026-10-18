@@ -18,8 +18,9 @@ namespace Desert::Graphic::GlobalIllumination
 {
     namespace
     {
-        constexpr std::array<std::string_view, 4> kShaderNames{ "ScreenProbePlace", "ScreenProbeTrace",
-                                                                "ScreenProbeFilter", "ScreenProbeIntegrate" };
+        constexpr std::array<std::string_view, 5> kShaderNames{ "ScreenProbePlace", "ScreenProbeShortRangeAO",
+                                                                "ScreenProbeTrace", "ScreenProbeFilter",
+                                                                "ScreenProbeIntegrate" };
 
         constexpr std::array<std::string_view, ScreenProbeLayout::kLevels> kPlaceNames{
              "ScreenProbes: Place Uniform", "ScreenProbes: Place Adaptive 8", "ScreenProbes: Place Adaptive 4" };
@@ -102,6 +103,7 @@ namespace Desert::Graphic::GlobalIllumination
         constexpr uint32_t res = ScreenProbeLayout::kTracedTexels;
         m_Traced               = CreateTarget( "ScreenProbes.Traced", row * res, layout.AtlasRows * res );
         m_Filtered = CreateTarget( "ScreenProbes.Filtered", row * ( res + 2u ), layout.AtlasRows * ( res + 2u ) );
+        m_ShortRangeAO         = CreateTarget( "ScreenProbes.ShortRangeAO", extent.x, extent.y );
         for ( uint32_t i = 0; i < 2; ++i )
         {
             m_Diffuse[i]  = CreateTarget( std::format( "ScreenProbes.Diffuse{}", i ), extent.x, extent.y,
@@ -111,8 +113,8 @@ namespace Desert::Graphic::GlobalIllumination
             m_Backface[i] = CreateTarget( std::format( "ScreenProbes.Backface{}", i ), extent.x, extent.y,
                                           ViewTargetFormats::kGIFinalGather );
         }
-        if ( !m_Traced || !m_Filtered || !m_Diffuse[0] || !m_Diffuse[1] || !m_Specular[0] || !m_Specular[1] ||
-             !m_Backface[0] || !m_Backface[1] )
+        if ( !m_Traced || !m_Filtered || !m_ShortRangeAO || !m_Diffuse[0] || !m_Diffuse[1] || !m_Specular[0] ||
+             !m_Specular[1] || !m_Backface[0] || !m_Backface[1] )
             return Common::MakeError<bool>( "screen probes: an image could not be created" );
         m_Extent       = extent;
         m_AtlasRows    = layout.AtlasRows;
@@ -141,7 +143,7 @@ namespace Desert::Graphic::GlobalIllumination
             return Common::MakeFormattedError<ScreenProbeGatherFrame>( "screen probes: {}", missing );
         if ( const auto traced = EnsureTraceProgram( inputs.Tracer.Pipeline ); !traced )
             return Common::MakeError<ScreenProbeGatherFrame>( traced.GetError() );
-        const ScreenProbeLayout layout = MakeScreenProbeLayout( inputs.Extent );
+        const ScreenProbeLayout layout = MakeScreenProbeLayout( inputs.Extent, inputs.AdaptiveProbePercent );
         if ( const auto images = EnsureImages( inputs.Extent, layout ); !images )
             return Common::MakeError<ScreenProbeGatherFrame>( images.GetError() );
 
@@ -149,6 +151,7 @@ namespace Desert::Graphic::GlobalIllumination
         m_Current                             = 1u - m_Current;
         const RDG::TextureRef traced          = import( m_Traced, "ScreenProbes.Traced" );
         const RDG::TextureRef filtered        = import( m_Filtered, "ScreenProbes.Filtered" );
+        const RDG::TextureRef shortRangeAO    = import( m_ShortRangeAO, "ScreenProbes.ShortRangeAO" );
         const RDG::TextureRef diffuse         = import( m_Diffuse[m_Current], "ScreenProbes.Diffuse" );
         const RDG::TextureRef specular        = import( m_Specular[m_Current], "ScreenProbes.Specular" );
         const RDG::TextureRef diffuseHistory  = import( m_Diffuse[previous], "ScreenProbes.DiffuseHistory" );
@@ -161,8 +164,10 @@ namespace Desert::Graphic::GlobalIllumination
         params.PrevCamera         = glm::vec4( inputs.PrevCameraPosition, 0.0f );
         params.Grid               = glm::uvec4( layout.Grid, layout.UniformProbes, layout.AdaptiveProbes );
         const glm::uvec2 jitter   = ScreenProbeJitter( ++m_FrameIndex );
-        params.Atlas   = glm::uvec4( ScreenProbeLayout::kAtlasProbesRow, m_FrameIndex, m_HistoryValid ? 1u : 0u,
-                                     jitter.x | ( jitter.y << 16u ) );
+        const uint32_t   flags    = ( m_HistoryValid ? kScreenProbeHistoryValid : 0u ) |
+                               ( inputs.ShortRangeAO ? kScreenProbeShortRangeAO : 0u );
+        params.Atlas =
+             glm::uvec4( ScreenProbeLayout::kAtlasProbesRow, m_FrameIndex, flags, jitter.x | ( jitter.y << 16u ) );
         m_HistoryValid = true;
 
         const RDG::BufferRef paramsBuffer =
@@ -213,6 +218,31 @@ namespace Desert::Graphic::GlobalIllumination
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( &level, static_cast<uint32_t>( sizeof( level ) ) );
+                     return Renderer::DispatchCompute( bindings, *pipeline, groups.x, groups.y, 1u );
+                 } );
+        }
+
+        // Short-range AO: the bent normal and AO of every pixel, from the scene depth (UE
+        // ScreenSpaceShortRangeAOCS). Off by scalability, the integrate reads the shading normal unoccluded (its
+        // flag) and the composite applies SSAO to the gather instead.
+        if ( inputs.ShortRangeAO )
+        {
+            ComputePipeline* const pipeline = m_Pipelines[ShortRangeAO].get();
+            const glm::uvec2       groups( DivideUp( inputs.Extent.x, 8u ), DivideUp( inputs.Extent.y, 8u ) );
+            graph.AddPass(
+                 "ScreenProbes: ShortRangeAO", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& builder )
+                 {
+                     auto block = builder.Bindings( m_Layouts[ShortRangeAO].Get( m_Shaders[ShortRangeAO] ),
+                                                    Renderer::GetPipelineRouteFill( *pipeline ) );
+                     block.Storage( "ScreenProbeParamsUB", paramsBuffer, kR )
+                          .Storage( "GIFrameUB", inputs.GIFrame, kR )
+                          .Storage( "u_ShortRangeAOOut", shortRangeAO, kW );
+                     gbuf( block );
+                 },
+                 [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      return Renderer::DispatchCompute( bindings, *pipeline, groups.x, groups.y, 1u );
                  } );
         }
@@ -323,7 +353,8 @@ namespace Desert::Graphic::GlobalIllumination
                           .Sampled( "u_RadianceCacheIrradiance", inputs.RadianceCache.Irradiance, kS, all,
                                     RDG::SamplerDesc::LinearClamp() )
                           .Sampled( "u_RadianceCacheDepth", inputs.RadianceCache.Depth, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() );
+                                    RDG::SamplerDesc::LinearClamp() )
+                          .Sampled( "u_ShortRangeAO", shortRangeAO, kS, all, RDG::SamplerDesc::PointClamp() );
                      gbuf( block );
                  },
                  [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -333,7 +364,9 @@ namespace Desert::Graphic::GlobalIllumination
                  } );
         }
 
-        return Common::MakeSuccess(
-             ScreenProbeGatherFrame{ .Diffuse = diffuse, .Specular = specular, .Backface = backface } );
+        return Common::MakeSuccess( ScreenProbeGatherFrame{ .Diffuse      = diffuse,
+                                                            .Specular     = specular,
+                                                            .Backface     = backface,
+                                                            .ShortRangeAO = inputs.ShortRangeAO } );
     }
 } // namespace Desert::Graphic::GlobalIllumination

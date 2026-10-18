@@ -118,6 +118,10 @@ namespace Desert::Graphic
         RDG::TextureRef GIDiffuse;
         RDG::TextureRef GISpecular;
         RDG::TextureRef GIBackface; // the irradiance from behind the surface (-N), a two-sided leaf's
+        // The gather above already carries its own contact occlusion (the screen probes' short-range AO): the
+        // composite then applies only the material AO to it, never SSAO on top (UE r.Lumen.DiffuseIndirect.SSAO
+        // 0).
+        bool GIOccluded = false;
     };
 
     // RDG-A2 (owner decision 2, 2026-10-05). What EVERY node of the frame graph is handed, whatever registered

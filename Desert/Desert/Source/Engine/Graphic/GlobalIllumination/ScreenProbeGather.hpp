@@ -15,12 +15,13 @@
 
 // THE SCREEN PROBE GATHER (GI-FINAL-GATHER) — the final gather of the traced GI methods, ported from UE Lumen's
 // LumenScreenProbeGather.cpp / LumenScreenProbeTracing.usf / LumenScreenProbeFiltering.usf /
-// LumenScreenProbeGather.usf. Six compute passes a frame (Programs/GlobalIllumination/ScreenProbe*.shader; the
-// GPU records are Common/ScreenProbes.glslh):
+// LumenScreenProbeGather.usf / LumenScreenSpaceBentNormal.usf. Seven compute passes a frame
+// (Programs/GlobalIllumination/ScreenProbe*.shader; the GPU records are Common/ScreenProbes.glslh):
 //   Place ×3   a uniform probe in every 16-pixel tile, at the frame's jitter (UE GetScreenTileJitter: Hammersley
 //              over 8 frames), then adaptive probes on the 8 and 4 pixel grids at the same jitter wherever the
-//              probes already placed cannot interpolate the pixel (UE ScreenProbeAdaptivePlacementCS), up to half
-//              the uniform count (UE r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction 0.5). An adaptive
+//              probes already placed cannot interpolate the pixel (UE ScreenProbeAdaptivePlacementCS), up to the
+//              scalability's share of the uniform count (GlobalIllumination.AdaptiveProbeAllocationPercent, UE
+//              r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction: 100 % at Epic, 50 % below). An adaptive
 //              probe is listed under the uniform tile it falls in (UE ScreenTileAdaptiveProbeHeader / Indices),
 //              and a pixel whose uniform corner misses it takes the best adaptive probe of that corner's tile (UE
 //              CalculateUpsampleInterpolationWeights).
@@ -30,10 +31,15 @@
 //   Filter     spatial filter across neighbouring probes with UE's hit-angle test; the filtered radiance (rough
 //              reflections) and its second-order SH irradiance (diffuse); the irradiance from behind the probe's
 //              surface, read from the world radiance cache at -N (a hemisphere probe holds nothing there).
+//   ShortRangeAO  per pixel: a bent normal and its AO from four cosine rays marched through the scene depth over
+//              2 % of the screen (UE ScreenSpaceShortRangeAOCS, r.Lumen.ScreenProbeGather.ShortRangeAO): the
+//              occluders between the pixel and its probes, a tile away, which the probes cannot see.
 //   Integrate  per pixel: the four uniform corners by plane and normal, each missed corner replaced by its
-//              tile's best adaptive probe; diffuse from the SH, rough specular from GGX samples of the probes'
-//              radiance, blended with the reprojected history. Only a pixel no probe holds after all that (the
-//              adaptive budget spent) reads the world radiance cache.
+//              tile's best adaptive probe; diffuse from the SH at the bent normal times the short-range AO, rough
+//              specular from GGX samples of the probes' radiance each weighted by its visibility in the bent cone
+//              (UE CalculateSpecularOcclusion), blended with the reprojected history. The composite therefore
+//              applies no SSAO to the gather (UE r.Lumen.DiffuseIndirect.SSAO 0). Only a pixel no probe holds
+//              after all that (the adaptive budget spent) reads the world radiance cache.
 // The deferred composite reads the two results per pixel (one fetch each) in place of the sky's diffuse
 // irradiance and prefiltered radiance: no surface of a traced method reads the sky cube.
 //
@@ -63,10 +69,13 @@ namespace Desert::Graphic::GlobalIllumination
         glm::mat4  PrevViewProjection{ 1.0f };
         glm::vec4  PrevCamera{ 0.0f };
         glm::uvec4 Grid{ 0u };  // xy = level-0 grid, z = uniform probes, w = adaptive probe budget
-        glm::uvec4 Atlas{ 0u }; // x = probes per atlas row, y = frame index, z = 1 when the history is valid,
+        glm::uvec4 Atlas{ 0u }; // x = probes per atlas row, y = frame index, z = kScreenProbe* flags below,
                                 // w = the frame's probe jitter in pixels (x | y << 16, ScreenProbeJitter)
     };
     static_assert( sizeof( ScreenProbeParamsPayload ) == 112 );
+    // ScreenProbeParamsPayload::Atlas.z — must match SP_FLAG_* in Common/ScreenProbes.glslh.
+    inline constexpr uint32_t kScreenProbeHistoryValid = 1u; // the history is this view's
+    inline constexpr uint32_t kScreenProbeShortRangeAO = 2u; // the ShortRangeAO pass ran: the integrate reads it
 
     // std430 — must match `struct ScreenProbe` in Common/ScreenProbes.glslh. 32 bytes.
     struct ScreenProbePayload
@@ -102,14 +111,17 @@ namespace Desert::Graphic::GlobalIllumination
         }
     };
 
-    [[nodiscard]] inline ScreenProbeLayout MakeScreenProbeLayout( const glm::uvec2 extent )
+    // @p adaptivePercent: adaptive probes per uniform probe, percent (Scalability
+    // GlobalIllumination.AdaptiveProbeAllocationPercent, UE AdaptiveProbeAllocationFraction x 100).
+    [[nodiscard]] inline ScreenProbeLayout MakeScreenProbeLayout( const glm::uvec2 extent,
+                                                                  const uint32_t   adaptivePercent )
     {
         ScreenProbeLayout layout;
         const auto        grid = [extent]( const uint32_t spacing )
         { return glm::uvec2( ( extent.x + spacing - 1u ) / spacing, ( extent.y + spacing - 1u ) / spacing ); };
         layout.Grid           = grid( ScreenProbeLayout::kDownsample );
         layout.UniformProbes  = layout.Grid.x * layout.Grid.y;
-        layout.AdaptiveProbes = layout.UniformProbes / 2u;
+        layout.AdaptiveProbes = layout.UniformProbes * adaptivePercent / 100u;
         layout.IndexEntries   = 1u + layout.UniformProbes * ( 1u + ( ScreenProbeLayout::kLevels - 1u ) +
                                                             ScreenProbeLayout::kAdaptivePerTile );
         layout.AtlasRows =
@@ -146,6 +158,8 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::BufferRef     GIFrame; // GIFramePayload, "GIFrameUB"
         RadianceCacheFrame RadianceCache;
         glm::uvec2         Extent{ 0u };
+        uint32_t AdaptiveProbePercent = 0; // Scalability GlobalIllumination.AdaptiveProbeAllocationPercent
+        bool     ShortRangeAO = true; // Scalability GlobalIllumination.ShortRangeAO: the ShortRangeAO pass runs
         glm::mat4          PrevViewProjection{ 1.0f }; // unjittered
         glm::vec3          PrevCameraPosition{ 0.0f };
     };
@@ -157,6 +171,7 @@ namespace Desert::Graphic::GlobalIllumination
              Diffuse; // rgb = irradiance / pi, a = distance to the camera — "u_GIDiffuse" in the composite
         RDG::TextureRef Specular; // rgb = radiance in the reflection direction — "u_GISpecular" in the composite
         RDG::TextureRef Backface; // rgb = irradiance / pi from -N (a two-sided leaf's) — "u_GIBackface"
+        bool ShortRangeAO = false; // Diffuse and Specular carry the short-range AO: the composite applies no SSAO
     };
 
     class ScreenProbeGather
@@ -170,7 +185,7 @@ namespace Desert::Graphic::GlobalIllumination
         // The tracer-independent shaders and pipelines; Trace's is acquired per tracer permutation.
         [[nodiscard]] Common::BoolResultStr Initialize();
 
-        // The gather of one frame, its six passes added to @p graph after the radiance cache's update.
+        // The gather of one frame, its seven passes added to @p graph after the radiance cache's update.
         [[nodiscard]] Common::ResultStr<ScreenProbeGatherFrame>
         AddPasses( RDG::Builder& graph, const WorldRadianceCache::ImportImage& import,
                    const ScreenProbeGatherInputs& inputs );
@@ -179,6 +194,7 @@ namespace Desert::Graphic::GlobalIllumination
         enum Program : uint32_t
         {
             Place = 0,
+            ShortRangeAO,
             Trace,
             Filter,
             Integrate,
@@ -195,6 +211,7 @@ namespace Desert::Graphic::GlobalIllumination
 
         std::shared_ptr<Image2D>                m_Traced;   // SP_RES² texels per probe
         std::shared_ptr<Image2D>                m_Filtered; // (SP_RES + 2)² per probe
+        std::shared_ptr<Image2D>                m_ShortRangeAO; // xyz = bent normal, w = AO, the G-buffer's extent
         std::array<std::shared_ptr<Image2D>, 2> m_Diffuse;  // this frame's output / last frame's history
         std::array<std::shared_ptr<Image2D>, 2> m_Specular;
         std::array<std::shared_ptr<Image2D>, 2> m_Backface;

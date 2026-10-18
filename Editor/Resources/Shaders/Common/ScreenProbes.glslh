@@ -41,9 +41,13 @@ struct ScreenProbeParams {
     mat4  prevViewProjection; // last frame's (unjittered) view-projection: the integrate's history
     vec4  prevCamera;         // xyz = last frame's camera (cm)
     uvec4 grid;               // xy = level-0 grid, z = uniform probes, w = adaptive probe budget
-    uvec4 atlas;              // x = probes per atlas row, y = frame index, z = 1 when the history is this view's,
+    uvec4 atlas;              // x = probes per atlas row, y = frame index, z = SP_FLAG_* below,
                               // w = the probes' jitter in pixels (x | y << 16)
 };
+
+// ScreenProbeParams.atlas.z — must match GlobalIllumination::kScreenProbe* (ScreenProbeGather.hpp).
+#define SP_FLAG_HISTORY_VALID  1u // the history is this view's
+#define SP_FLAG_SHORT_RANGE_AO 2u // the ShortRangeAO pass ran this frame: the integrate reads its bent normal + AO
 
 // std430 — must match GlobalIllumination::ScreenProbePayload (32 bytes).
 struct ScreenProbe {

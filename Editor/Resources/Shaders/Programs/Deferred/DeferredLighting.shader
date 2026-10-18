@@ -72,7 +72,8 @@ Shader "DeferredLighting"
             vec4 Gain;      // rgb = tint * intensity
         } skyLook;
 
-        // THE TRACED GI'S FINAL GATHER (u_Params.w == 2): per pixel, the irradiance (/ pi) and the specular
+        // THE TRACED GI'S FINAL GATHER (u_Params.w == 2, or 3 when it carries its own short-range AO): per pixel,
+        // the irradiance (/ pi) and the specular
         // radiance of the screen probes (Graphic/GlobalIllumination/ScreenProbeGather, SoftwareTraced) or of the
         // radiance cache read in place (IrradianceFieldGather, ProbeVolume), in place of the sky's two cubes —
         // the rays saw the sky only where it is visible. Black in the other GI modes (unread).
@@ -451,7 +452,7 @@ Shader "DeferredLighting"
         	// environment (captures, then sky) (UE ReflectionEnvironmentPixelShader: SSR over the rest, then the
         	// split-sum Fresnel of both together).
         	DesertAmbient sampled = DesertSampleAmbient(surface, indirect, ao);
-        	if (giMode == 2)
+        	if (giMode >= 2)
         	{
         		// The traced final gather at this pixel (one texel each, the G-buffer's extent): the diffuse irradiance
         		// and the specular radiance replace both sky terms, so a closed room neither glows nor mirrors the sky.
@@ -459,6 +460,11 @@ Shader "DeferredLighting"
         		sampled.Prefiltered = texelFetch(u_GISpecular, ivec2(gl_FragCoord.xy), 0).rgb;
         		sampled.Traced      = 1.0;
         		sampled.BackIrradiance = texelFetch(u_GIBackface, ivec2(gl_FragCoord.xy), 0).rgb;
+        		// giMode 3: the gather carries its own short-range AO (bent normal, ScreenProbeShortRangeAO), so only
+        		// the material's occlusion is left to apply (UE r.Lumen.DiffuseIndirect.SSAO 0 — no SSAO on Lumen's
+        		// indirect). giMode 2 (the irradiance field, or the short-range AO off): SSAO occludes it, as before.
+        		if (giMode == 3)
+        			sampled.Occlusion = ge.a;
         	}
         	if (u_CameraPos.w > 0.5)
         		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), sampled.Prefiltered);

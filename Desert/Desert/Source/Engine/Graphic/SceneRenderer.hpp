@@ -994,6 +994,15 @@ namespace Desert::Graphic
         // global distance field's atlas holds and its finer mips stream within.
         uint32_t m_DistanceFieldPoolMiB = 256;
         int m_SSAOSamples = 16;
+        // Adaptive screen probes per uniform one, percent (Scalability GlobalIllumination.
+        // AdaptiveProbeAllocationPercent, UE r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction), refreshed
+        // each BeginScene and handed to the screen probe gather's layout.
+        uint32_t m_ScreenProbeAdaptivePercent = 50;
+        // The screen probe gather's short-range AO (Scalability GlobalIllumination.ShortRangeAO, UE
+        // r.Lumen.ScreenProbeGather.ShortRangeAO), refreshed each BeginScene. On, the gather occludes its own
+        // diffuse and rough specular and the composite applies no SSAO to it; off, SSAO does — one AO source
+        // either way.
+        bool m_ScreenProbeShortRangeAO = true;
         // Contact-shadow ray steps (Scalability: Shadows.ContactShadowSteps; 0 = the march is skipped for every
         // light) and the sun's contact shadow (ViewShadowSettings, from the elected sun), taken each BeginScene
         // and handed to the deferred composite (Common/ContactShadow.glslh).

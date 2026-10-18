@@ -105,9 +105,9 @@ namespace Common::Scalability
                             // off..32
         // COST knobs of passes whose LOOK is authored per scene (PostProcessSettings): they scale what the pass
         // spends (steps, taps, mips), never its intensity - UE sg.* semantics.
-        ReflectionMaxSteps,        // SSR HZB traversal iterations per ray (SSRRenderer push constant). 8..128
-        DistanceFieldPoolMiB,      // mesh distance-field brick atlas (DistanceFieldSceneData). 32..512 MiB
-        AmbientOcclusionSamples,   // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
+        ReflectionMaxSteps,      // SSR HZB traversal iterations per ray (SSRRenderer push constant). 8..128
+        DistanceFieldPoolMiB,    // mesh distance-field brick atlas (DistanceFieldSceneData). 32..512 MiB
+        AmbientOcclusionSamples, // SSAO kernel taps (SSAORenderer). 4..32, SSAO.shader MAX_SAMPLES
         BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
         DepthOfFieldQuality,    // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
@@ -160,6 +160,10 @@ namespace Common::Scalability
                                                 // r.Lumen.ScreenProbeGather.RadianceCache.NumProbesToTraceBudget)
         HitLightingAllowed,                     // 0/1: a hardware-traced hit may be lit in place (UE
                                                 // r.Lumen.HardwareRayTracing.HitLighting.Allowed)
+        ScreenProbeAdaptiveAllocation,          // adaptive screen probes per uniform one, percent (UE
+                                                // r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction)
+        ScreenProbeShortRangeAO,                // 0/1: the screen probe gather's own contact AO + bent normal (UE
+                                                // r.Lumen.ScreenProbeGather.ShortRangeAO); 0 = SSAO occludes it
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
