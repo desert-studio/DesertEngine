@@ -2799,7 +2799,7 @@ namespace Desert::Core::Preprocess
                              stage, AssembleSurfaceCellStage( stage, kSurfaceGrassBladePath, pass, *surfaceBlock,
                                                               includeBlock, autoDecls, result.Surface.Blend,
                                                               shadingModelDefine, result.Surface.ResponsiveAA,
-                                                              opacityMaskFunction ) );
+                                                              opacityMaskFunction, false, heightFunctions ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );

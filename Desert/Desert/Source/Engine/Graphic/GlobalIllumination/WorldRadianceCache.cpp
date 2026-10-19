@@ -250,9 +250,9 @@ namespace Desert::Graphic::GlobalIllumination
                          block.Storage( "GIFrameUB", frame, kR );
                      if ( pass == Mark )
                          block.Texture( "u_GBufferDepth", inputs.GBufferDepth, kS, all )
-.Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                              .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                               .Texture( "u_GBufferB", inputs.GBufferB, kS, all )
-.Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                              .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                               .Storage( "RadianceCacheMarkPointsUB", markPointsBuffer, kR );
                      if ( pass == Allocate || pass == Trace )
                          block.Storage( "PointLightsUB", inputs.PointLights, kR )

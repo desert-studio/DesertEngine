@@ -202,10 +202,10 @@ namespace Desert::Graphic::GlobalIllumination
     //                          (GI_TRACER_BINDING + 0..3); + 4 and + 5 stay unbound.
     struct TracerFrame
     {
-        GlobalIllumination::Pipeline          Pipeline{};
-        std::array<RDG::TextureRef, 4>        GlobalDistanceField{};
-        RDG::BufferRef                        GlobalDistanceFieldLevels; // "GITracerSoftwareUB" (TracerSoftwarePayload)
-        RDG::TextureRef                       GlobalDistanceFieldObjectGrid; // "u_GlobalDistanceFieldObjectGrid"
+        GlobalIllumination::Pipeline   Pipeline{};
+        std::array<RDG::TextureRef, 4> GlobalDistanceField{};
+        RDG::BufferRef                 GlobalDistanceFieldLevels; // "GITracerSoftwareUB" (TracerSoftwarePayload)
+        RDG::TextureRef                GlobalDistanceFieldObjectGrid; // "u_GlobalDistanceFieldObjectGrid"
         DistanceField::MeshDistanceFieldReads MeshDistanceFields;
         RDG::BufferRef                        Tlas;
         RayTracing::RayTracingMetadataFrame   Metadata;

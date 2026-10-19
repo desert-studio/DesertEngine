@@ -711,8 +711,8 @@ namespace Desert::Graphic::DistanceField
         }
         graph.Extract( feedback, m_NearFieldFeedback[slot], RDG::Access::HostRead );
         m_NearFieldFeedbackStamp[slot] = m_NearFieldStamp;
-        fields.NearFieldGrid          = grid;
-        fields.NearFieldGridPlacement = cull.Grid;
+        fields.NearFieldGrid           = grid;
+        fields.NearFieldGridPlacement  = cull.Grid;
         return BOOLSUCCESS;
     }
 

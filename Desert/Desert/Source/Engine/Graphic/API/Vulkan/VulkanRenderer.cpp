@@ -909,13 +909,10 @@ namespace Desert::Graphic::API::Vulkan
              } );
     }
 
-    Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirect( const RDG::PassBindings& bindings,
-                                                                 const GraphicsPipeline&  pipeline,
-                                                                 const Mesh& mesh, const glm::mat4& transform,
-                                                                 const MaterialExecutor& material,
-                                                                 const RDG::BufferRef args, const uint64_t offset,
-                                                                 const uint64_t               hiddenSubmeshMask,
-                                                                 const MeshDrawArgumentsOrder order )
+    Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirect(
+         const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
+         const glm::mat4& transform, const MaterialExecutor& material, const RDG::BufferRef args,
+         const uint64_t offset, const uint64_t hiddenSubmeshMask, const MeshDrawArgumentsOrder order )
     {
         DESERT_PROFILE_FUNC();
         const RDG::PassContext& context = bindings.GetContext();
@@ -938,8 +935,9 @@ namespace Desert::Graphic::API::Vulkan
              [&]( const uint32_t drawn, const size_t si, const Submesh&,
                   const IndexBuffer* indexBuffer ) -> Common::BoolResultStr
              {
-                 const uint64_t record = order == MeshDrawArgumentsOrder::Drawn ? uint64_t{ drawn } : uint64_t{ si };
-                 const uint64_t at     = offset + ( record * kMeshDrawArgumentsBytes );
+                 const uint64_t record =
+                      order == MeshDrawArgumentsOrder::Drawn ? uint64_t{ drawn } : uint64_t{ si };
+                 const uint64_t at = offset + ( record * kMeshDrawArgumentsBytes );
                  if ( at + kMeshDrawArgumentsBytes > bytes )
                      return Common::MakeFormattedError(
                           "{}: indirect arguments of drawn submesh {} at byte {} past the end of '{}' ({} bytes)",

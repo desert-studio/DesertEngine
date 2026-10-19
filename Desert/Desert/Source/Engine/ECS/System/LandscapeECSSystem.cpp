@@ -105,7 +105,7 @@ namespace Desert::ECS
 
     void LandscapeECSSystem::Update( entt::registry&                       registry,
                                      Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
-                                     const Common::Timestep& ts )
+                                     const Common::Timestep&               ts )
     {
         // Pass 1: every drawable tile, by (root, tile x, tile z) — a tile's heightmap carries a ring row from
         // each loaded neighbour, so it cannot be built before its neighbours are known.
@@ -339,7 +339,7 @@ namespace Desert::ECS
         // Pass 3 (GRASS-GPU): every root whose layers grow grass hands the grass renderer its field and varieties.
         m_PrevWindSeconds = m_WindSeconds;
         m_WindSeconds += static_cast<double>( ts.GetSeconds() );
-        std::map<uint64_t, std::vector<GrassTile>>          grassRoots;
+        std::map<uint64_t, std::vector<GrassTile>>   grassRoots;
         std::map<uint64_t, Landscape::LandscapeRoot> grassFrames;
         for ( const Drawable& d : drawables )
         {
@@ -395,9 +395,9 @@ namespace Desert::ECS
             LOG_ERROR( "[Landscape] tile ({}, {}): RGBA8 weightmap: {}; the tile's painted layers are not drawn",
                        tileComp.TileX, tileComp.TileZ, weightmap.GetError() );
     }
-    void LandscapeECSSystem::EmitGrass( entt::registry&                                                   registry,
-                                        Graphic::Render::RenderCommandBuffer&                             renderCommandBuffer,
-                                        const uint64_t rootId, const World::Landscape::LandscapeRoot&     root,
+    void LandscapeECSSystem::EmitGrass( entt::registry&                       registry,
+                                        Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
+                                        const uint64_t rootId, const World::Landscape::LandscapeRoot& root,
                                         const std::vector<Assets::Serialization::LandscapeLayerInfoData>& layers,
                                         const std::vector<GrassTile>&                                     tiles )
     {
@@ -442,14 +442,14 @@ namespace Desert::ECS
             auto           field    = std::make_shared<Graphic::System::GrassFieldData>();
             auto&          w        = field->Words;
             w.assign( 8u + count + ( perLayer * grassLayers.size() ), 0u );
-            w[0]                = samplesX;
-            w[1]                = samplesZ;
-            w[2]                = static_cast<uint32_t>( grassLayers.size() );
-            const float firstX  = static_cast<float>( minX * static_cast<int32_t>( quads ) ) * root.SpacingCm;
-            const float firstZ  = static_cast<float>( minZ * static_cast<int32_t>( quads ) ) * root.SpacingCm;
-            w[4]                = std::bit_cast<uint32_t>( root.Origin.x + firstX );
-            w[5]                = std::bit_cast<uint32_t>( root.Origin.z + firstZ );
-            w[6]                = std::bit_cast<uint32_t>( root.SpacingCm );
+            w[0]               = samplesX;
+            w[1]               = samplesZ;
+            w[2]               = static_cast<uint32_t>( grassLayers.size() );
+            const float firstX = static_cast<float>( minX * static_cast<int32_t>( quads ) ) * root.SpacingCm;
+            const float firstZ = static_cast<float>( minZ * static_cast<int32_t>( quads ) ) * root.SpacingCm;
+            w[4]               = std::bit_cast<uint32_t>( root.Origin.x + firstX );
+            w[5]               = std::bit_cast<uint32_t>( root.Origin.z + firstZ );
+            w[6]               = std::bit_cast<uint32_t>( root.SpacingCm );
             std::fill( w.begin() + 8, w.begin() + 8 + static_cast<std::ptrdiff_t>( count ),
                        std::bit_cast<uint32_t>( Graphic::System::kGrassNoHeight ) );
             for ( const GrassTile& t : tiles )
@@ -514,7 +514,7 @@ namespace Desert::ECS
                           { rootId, static_cast<uint64_t>( k ), static_cast<uint64_t>( typeHandle ),
                             static_cast<uint64_t>( vi ) } )
                         key = ( key ^ part ) * 1099511628211ull;
-                    GrassSections& sections = m_GrassSections[key];
+                    GrassSections&              sections = m_GrassSections[key];
                     const bool                  blade = v.Kind == Assets::Serialization::GrassVarietyKind::Blade;
                     const Assets::AssetGuidRef& ref   = blade ? *v.Material : *v.Mesh;
                     const auto                  guid  = Common::Content::AssetGuidFromText( ref.Guid );
@@ -578,10 +578,10 @@ namespace Desert::ECS
                         }
                     }
                     Graphic::System::GrassVarietyDraw variety;
-                    variety.Key                 = key;
-                    variety.Layer               = k;
-                    variety.Mesh                = mesh;
-                    variety.Sections            = sections.Sections;
+                    variety.Key      = key;
+                    variety.Layer    = k;
+                    variety.Mesh     = mesh;
+                    variety.Sections = sections.Sections;
                     if ( blade )
                     {
                         const auto& b   = *v.Blade;

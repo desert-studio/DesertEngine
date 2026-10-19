@@ -25,8 +25,8 @@ namespace Desert::Graphic
     // instance, capacity, 0). A bucket is a range of Instances: a mesh has one, drawn by every section; a grass
     // blade strip one per level, drawn by the submesh of that level (GRASS-BLADE). Programs/Grass/
     // GrassFinalize.shader writes each record's instanceCount and firstInstance from its bucket.
-    inline constexpr uint64_t kGpuInstanceArgsHeaderBytes = 16;
-    inline constexpr uint64_t kGpuInstanceArgsRecordBytes = 20;
+    inline constexpr uint64_t        kGpuInstanceArgsHeaderBytes = 16;
+    inline constexpr uint64_t        kGpuInstanceArgsRecordBytes = 20;
     [[nodiscard]] constexpr uint64_t GpuInstanceArgsOffset( uint32_t submesh )
     {
         return kGpuInstanceArgsHeaderBytes + kGpuInstanceArgsRecordBytes * submesh;

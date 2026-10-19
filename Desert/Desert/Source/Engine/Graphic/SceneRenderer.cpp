@@ -1791,8 +1791,8 @@ namespace Desert::Graphic
         RDG::TextureRef opaqueLuma;
         // A multisampled scene target has no temporal resolve (AddFrameTemporal's refusal), so nothing to measure.
         // A reflection capture's face view ends at the lit scene (below): no temporal resolve to measure for.
-        if ( !m_ViewProfile.SceneCapture && frame.Method != TemporalMethod::None && m_TemporalUpscaler != nullptr &&
-             m_TargetFramebuffer &&
+        if ( !m_ViewProfile.SceneCapture && frame.Method != TemporalMethod::None &&
+             m_TemporalUpscaler != nullptr && m_TargetFramebuffer &&
              m_TargetFramebuffer->GetSpecification().Samples == 1 )
         {
             const Common::ResultStr<RDG::TextureRef> measured = m_TemporalUpscaler->AddOpaquePasses(
@@ -1852,7 +1852,8 @@ namespace Desert::Graphic
             // gizmos, UI) are UNJITTERED: their shaders read ViewFrame::ViewProjection or the camera's matrices,
             // never JitteredViewProjection (Camera.hpp WHICH MATRIX). Without a temporal method the post input is
             // the scene colour, as before.
-            const OverlayTargets overlay = AddFrameTemporal( graph, textures, frame, exposurePrevious, opaqueLuma );
+            const OverlayTargets overlay =
+                 AddFrameTemporal( graph, textures, frame, exposurePrevious, opaqueLuma );
             const std::vector<RDG::TextureRef> postInput =
                  overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
 #if DESERT_DEV_INSTRUMENTS

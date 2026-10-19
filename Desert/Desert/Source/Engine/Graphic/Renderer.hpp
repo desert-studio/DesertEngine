@@ -139,11 +139,12 @@ namespace Desert::Graphic
                     uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel );
         // RenderMesh whose counts the GPU wrote: the same walk, each drawn submesh one indirect draw of a
         // kMeshDrawArgumentsBytes record of @p args (Graphic/MeshDrawArguments.hpp), which the pass declares
-        // Access::IndirectArgs. The record of the k-th drawn submesh si is at @p offset + k * kMeshDrawArgumentsBytes
-        // for MeshDrawArgumentsOrder::Drawn (the virtual shadow map's culled casters, UE CullPerPageDrawCommands:
-        // AppendMeshDrawArguments made them, LOD included) and at @p offset + si * kMeshDrawArgumentsBytes for
-        // ::Submesh (a GPU-instanced draw, GpuInstances.hpp: @p offset = kGpuInstanceArgsHeaderBytes). A record past
-        // the buffer is refused before it is drawn.
+        // Access::IndirectArgs. The record of the k-th drawn submesh si is at @p offset + k *
+        // kMeshDrawArgumentsBytes for MeshDrawArgumentsOrder::Drawn (the virtual shadow map's culled casters, UE
+        // CullPerPageDrawCommands: AppendMeshDrawArguments made them, LOD included) and at @p offset + si *
+        // kMeshDrawArgumentsBytes for
+        // ::Submesh (a GPU-instanced draw, GpuInstances.hpp: @p offset = kGpuInstanceArgsHeaderBytes). A record
+        // past the buffer is refused before it is drawn.
         [[nodiscard]] static Common::BoolResultStr
         RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                             const glm::mat4& transform, const MaterialExecutor& material, RDG::BufferRef args,

@@ -291,7 +291,7 @@ namespace Desert::Graphic
             RoughSpecularIndirect,   // rgb = radiance, a = 1
             BackfaceDiffuseIndirect, // rgb = irradiance / pi from -N, a = 1
             Guide,                   // xyz = world normal, w = frames accumulated (UE NumFramesAccumulated) plus
-                                     // the foliage flag (UE bHasBackfaceDiffuse; SPPackGuideW, ScreenProbeTemporal)
+                   // the foliage flag (UE bHasBackfaceDiffuse; SPPackGuideW, ScreenProbeTemporal)
             TextureCount
         };
         using Refs = std::array<RDG::TextureRef, TextureCount>;
@@ -439,8 +439,8 @@ namespace Desert::Graphic
         [[nodiscard]] Common::ResultStr<ViewFrame> BeginFrame( const ViewInputs&        inputs,
                                                                const ITemporalUpscaler* upscaler );
 
-        [[nodiscard]] VolumetricCloudHistory&       Clouds();
-        [[nodiscard]] const VolumetricCloudHistory& Clouds() const; // HeldBytes: SceneRenderer::HeldBytes
+        [[nodiscard]] VolumetricCloudHistory&         Clouds();
+        [[nodiscard]] const VolumetricCloudHistory&   Clouds() const; // HeldBytes: SceneRenderer::HeldBytes
         [[nodiscard]] ScreenProbeGatherHistory&       ScreenProbeGather();
         [[nodiscard]] const ScreenProbeGatherHistory& ScreenProbeGather() const; // HeldBytes: SceneRenderer
         [[nodiscard]] TemporalHistory& History();

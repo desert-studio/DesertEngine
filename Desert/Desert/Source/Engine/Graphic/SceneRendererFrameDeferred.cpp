@@ -580,7 +580,7 @@ namespace Desert::Graphic
         gather.GBufferDepth       = inputs.GBufferDepth;
         gather.GBufferA           = inputs.GBufferA;
         gather.GBufferB           = inputs.GBufferB;
-        gather.GBufferShadingWord = gbuffer[2];
+        gather.GBufferShadingWord   = gbuffer[2];
         gather.GBufferEmissive    = inputs.GBufferEmissive;
         gather.EnvSpecular        = inputs.EnvSpecular;
         gather.Tracer             = inputs.Tracer;
@@ -609,11 +609,12 @@ namespace Desert::Graphic
         gather.PrevJitterNdc    = frame.PrevJitterNdc;
         gather.ViewHistoryValid = frame.HistoryValid();
         gather.Black            = refs.System.Black;
-        // THE ONE DECISION POINT of the gather's denoiser: a temporal method that denoises the raw lighting signals
-        // itself (DLSS Ray Reconstruction) takes the integrate's output instead. No method of this renderer does,
-        // so the gather denoises.
+        // THE ONE DECISION POINT of the gather's denoiser: a temporal method that denoises the raw lighting
+        // signals itself (DLSS Ray Reconstruction) takes the integrate's output instead. No method of this
+        // renderer does, so the gather denoises.
         gather.Denoise = true;
-        const auto gathered = m_ScreenProbeGather->AddPasses( graph, import, gather, m_ViewState.ScreenProbeGather() );
+        const auto gathered =
+             m_ScreenProbeGather->AddPasses( graph, import, gather, m_ViewState.ScreenProbeGather() );
         if ( !gathered )
         {
             LOG_ERROR( "[SceneRenderer] ScreenProbes: {}", gathered.GetError() );
@@ -868,8 +869,8 @@ namespace Desert::Graphic
             const uint32_t row = it != rows.end() ? it->second : DistanceField::kNoObjectGridRow;
             for ( const Assets::MeshDistanceFieldVolume& volume : field->Volumes )
                 objects.push_back( DistanceField::GlobalDistanceFieldObject{
-                     .Field = std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ),
-                     .World = world,
+                     .Field          = std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ),
+                     .World          = world,
                      .PrevWorld      = prevWorld,
                      .Row            = row,
                      .MostlyTwoSided = mostlyTwoSided } );

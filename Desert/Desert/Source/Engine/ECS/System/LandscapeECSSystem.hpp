@@ -105,7 +105,7 @@ namespace Desert::ECS
         void EmitGrass( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
                         uint64_t rootId, const World::Landscape::LandscapeRoot& root,
                         const std::vector<Assets::Serialization::LandscapeLayerInfoData>& layers,
-                        const std::vector<GrassTile>&                                   tiles );
+                        const std::vector<GrassTile>&                                     tiles );
 
         // GRASS-GPU: per landscape root, the packed grass field (rebuilt when a tile's heights or weights, the
         // tile set or the grass layers change) and the varieties' resolved section materials.
@@ -116,15 +116,15 @@ namespace Desert::ECS
         };
         struct GrassSections
         {
-            const void*                                    Mesh    = nullptr;
+            const void*                                    Mesh         = nullptr;
             uint32_t                                       Version      = 0;
             uint64_t                                       TypeRevision = 0;
             std::vector<Graphic::System::GrassSectionDraw> Sections;
         };
         std::unordered_map<uint64_t, GrassRootCache> m_Grass;
         std::unordered_map<uint64_t, GrassSections>  m_GrassSections;
-        uint64_t                                     m_GrassRevision = 0;
-        double                                       m_WindSeconds   = 0.0;
+        uint64_t                                     m_GrassRevision   = 0;
+        double                                       m_WindSeconds     = 0.0;
         double                                       m_PrevWindSeconds = 0.0;
         std::unordered_set<std::string>              m_WarnedGrass;
 

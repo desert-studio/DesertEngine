@@ -15,9 +15,9 @@
 
 // THE SCREEN PROBE GATHER (GI-FINAL-GATHER) — the final gather of the traced GI methods, ported from UE Lumen's
 // LumenScreenProbeGather.cpp / LumenScreenProbeTracing.usf / LumenScreenProbeFiltering.usf /
-// LumenScreenProbeGather.usf / LumenScreenSpaceBentNormal.usf / LumenScreenProbeGatherTemporal.usf. Sixteen compute
-// passes a frame, eleven when the denoiser is skipped (Programs/GlobalIllumination/ScreenProbe*.shader; the GPU
-// records are Common/ScreenProbes.glslh):
+// LumenScreenProbeGather.usf / LumenScreenSpaceBentNormal.usf / LumenScreenProbeGatherTemporal.usf. Sixteen
+// compute passes a frame, eleven when the denoiser is skipped (Programs/GlobalIllumination/ScreenProbe*.shader;
+// the GPU records are Common/ScreenProbes.glslh):
 //   Place ×3   a uniform probe in every 16-pixel tile, at the frame's jitter (UE GetScreenTileJitter: Hammersley
 //              over 8 frames), then adaptive probes on the 8 and 4 pixel grids at the same jitter wherever the
 //              probes already placed cannot interpolate the pixel (UE ScreenProbeAdaptivePlacementCS), up to the
@@ -38,7 +38,8 @@
 //              legs hand one another each ray's state in a trace hit buffer (Common/ScreenProbeTracing.glslh).
 //   Disocclusion  per probe: the share of its tile's pixels whose history holds few frames (UE
 //              SpatialFilter.DisocclusionMaxFrames / DisocclusionFraction): the spatial filter relaxes there.
-//   SpatialFilter ×3  the probes' radiance filtered across neighbouring probes (UE ScreenProbeFilterGatherTracesCS,
+//   SpatialFilter ×3  the probes' radiance filtered across neighbouring probes (UE
+//   ScreenProbeFilterGatherTracesCS,
 //              SpatialFilterNumPasses): weighted by the plane distance and the hit angle seen from the probe.
 //   Filter     the filtered radiance with its border (rough reflections) and its second-order SH irradiance
 //              (diffuse); the irradiance from behind the probe's surface, read from the world radiance cache at -N
@@ -53,10 +54,11 @@
 //              r.Lumen.DiffuseIndirect.SSAO 0). Only a pixel no probe holds after all that (the adaptive budget
 //              spent) reads the world radiance cache.
 //   Temporal   per pixel: the integrated diffuse, rough specular and backface diffuse blended with the view's
-//              history (SceneViewState ScreenProbeGatherHistory, UE FScreenProbeGatherTemporalState) reprojected by
-//              the velocity, each bilinear tap kept by a depth and a normal test, by 1 / (1 + frames accumulated)
-//              up to ten (UE ScreenProbeTemporalReprojectionCS): a disoccluded pixel restarts and converges in a
-//              few frames. A camera cut, a teleport or a resize is the view's HistoryReset: no tap is kept.
+//              history (SceneViewState ScreenProbeGatherHistory, UE FScreenProbeGatherTemporalState) reprojected
+//              by the velocity, each bilinear tap kept by a depth and a normal test, by 1 / (1 + frames
+//              accumulated) up to ten (UE ScreenProbeTemporalReprojectionCS): a disoccluded pixel restarts and
+//              converges in a few frames. A camera cut, a teleport or a resize is the view's HistoryReset: no tap
+//              is kept.
 // THE DENOISER (Disocclusion, SpatialFilter, Temporal) runs unless ScreenProbeGatherInputs::Denoise is false: a
 // temporal method that denoises the raw signals itself (DLSS Ray Reconstruction) takes the integrate's output.
 // The deferred composite reads the two results per pixel (one fetch each) in place of the sky's diffuse

@@ -434,6 +434,6 @@ namespace Desert::Graphic
                 std::pair{ kSceneViewRadianceCacheDepthName, inputs.RadianceCacheDepth } } )
             if ( SceneViewDetail::LayoutSamples( layout, name ) )
                 block.Texture( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-.Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
+                     .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
     }
 } // namespace Desert::Graphic

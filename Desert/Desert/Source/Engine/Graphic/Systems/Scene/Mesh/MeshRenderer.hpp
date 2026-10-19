@@ -76,8 +76,8 @@ namespace Desert::Graphic::System
             uint64_t                HiddenSubmeshMask = 0;
             uint32_t                LodLevel          = 0;
             // A GPU-generated instanced draw (GpuInstances.hpp): each drawn submesh reads its record at
-            // GpuInstanceArgsOffset( submesh ) of this graph buffer (InstanceCount / FirstInstance unused), and the
-            // node declares the reads of it and of Instances (the transforms its material binds).
+            // GpuInstanceArgsOffset( submesh ) of this graph buffer (InstanceCount / FirstInstance unused), and
+            // the node declares the reads of it and of Instances (the transforms its material binds).
             RDG::BufferRef IndirectArgs{};
             RDG::BufferRef IndirectInstances{};
             // The per-draw material state the draw records with (transform push constant, material row, bone
@@ -289,9 +289,10 @@ namespace Desert::Graphic::System
             uint32_t FirstMotionRow = 0;
         };
 
-        // An instanced section whose transforms and count the GPU wrote this frame (GpuInstances.hpp): the landscape
-        // grass. Drawn through the material's (Instanced x pass) cell like an ISM, but with a material copy of its
-        // own (MaterialService::GetViewVariant keyed by Key) whose InstanceTransforms is the producer's buffer.
+        // An instanced section whose transforms and count the GPU wrote this frame (GpuInstances.hpp): the
+        // landscape grass. Drawn through the material's (Instanced x pass) cell like an ISM, but with a material
+        // copy of its own (MaterialService::GetViewVariant keyed by Key) whose InstanceTransforms is the
+        // producer's buffer.
         struct GpuInstancedRenderData
         {
             class Desert::Mesh* Mesh = nullptr;
@@ -472,9 +473,10 @@ namespace Desert::Graphic::System
         {
             return m_InstancedMotionRows;
         }
-        // This frame's rows (indexed by a queued record's MotionRow) and the view's ObjectBones (BuildObjectMotions):
-        // the skin cache skins from the same palette at the same BoneOffset the raster does - one source of the
-        // pose - and the global distance field's objects read a primitive's previous world from them.
+        // This frame's rows (indexed by a queued record's MotionRow) and the view's ObjectBones
+        // (BuildObjectMotions): the skin cache skins from the same palette at the same BoneOffset the raster does
+        // - one source of the pose - and the global distance field's objects read a primitive's previous world
+        // from them.
         [[nodiscard]] const ObjectMotionRows& GetObjectMotionRows() const
         {
             return m_ScratchMotionRows;

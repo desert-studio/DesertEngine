@@ -55,9 +55,9 @@ namespace Desert::Graphic::System
         {
             const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
             const uint32_t            view = kGpuInstancedViewBase + gpu.Key * 2u + ( pass == MeshPass::GBuffer );
-            DataDrivenMaterial*       cell   = parent != nullptr && materials->Owns( parent )
-                                                    ? materials->GetViewVariant( parent, gpu.Path, pass, view )
-                                                    : nullptr;
+            DataDrivenMaterial*       cell = parent != nullptr && materials->Owns( parent )
+                                                  ? materials->GetViewVariant( parent, gpu.Path, pass, view )
+                                                  : nullptr;
             if ( cell == nullptr )
             {
                 static std::unordered_set<const DataDrivenMaterial*> s_Refused;

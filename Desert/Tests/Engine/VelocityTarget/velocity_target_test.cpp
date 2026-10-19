@@ -324,7 +324,8 @@ TEST( VelocityTarget, GlslVelocityIsTheCpuTwinExpression )
 {
     const std::string source =
          ReadFile( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Common/ObjectMotion.glslh" );
-    EXPECT_NE( source.find( "return vec4( clip.xyz / clip.w - prevClip.xyz / prevClip.w, 0.0 );" ), std::string::npos );
+    EXPECT_NE( source.find( "return vec4( clip.xyz / clip.w - prevClip.xyz / prevClip.w, 0.0 );" ),
+               std::string::npos );
 }
 
 TEST( VelocityTarget, StillCameraOverAStillObjectIsZero )
@@ -1156,7 +1157,8 @@ TEST( VelocityTarget, TheVelocityViewShowsAMovingCameraOverStaticGeometryAndIsBl
     const glm::vec2 size( static_cast<float>( m.Split.Render.Width ),
                           static_cast<float>( m.Split.Render.Height ) );
     ASSERT_GT( size.x, 0.0f );
-    const glm::vec2 v  = glm::vec2( VelocityNdc( m.ViewProjection * staticPoint, m.PrevViewProjection * staticPoint ) );
+    const glm::vec2 v =
+         glm::vec2( VelocityNdc( m.ViewProjection * staticPoint, m.PrevViewProjection * staticPoint ) );
     const float     px = glm::length( v * 0.5f * size );
     EXPECT_GT( px, 1.0f ) << "5 cm at 10 m must move a static point by more than a render pixel";
     const glm::vec3 shown = VelocityViewColour( v, size );

@@ -201,7 +201,8 @@ namespace Desert::Graphic
 
         [[nodiscard]] bool AnyMissing( const ScreenProbeHistorySet& set )
         {
-            return std::ranges::any_of( set, []( const RDG::ExternalTexture& texture ) { return !texture.Physical; } );
+            return std::ranges::any_of( set,
+                                        []( const RDG::ExternalTexture& texture ) { return !texture.Physical; } );
         }
     } // namespace
 
@@ -215,8 +216,8 @@ namespace Desert::Graphic
     ScreenProbeGatherHistory::Refs ScreenProbeGatherHistory::RegisterPrevious( RDG::Builder&    graph,
                                                                                const ViewExtent extent )
     {
-        m_Created    = false;
-        m_WriterPass = UINT32_MAX;
+        m_Created                                                = false;
+        m_WriterPass                                             = UINT32_MAX;
         std::array<RDG::ExternalTexture, TextureCount>& previous = m_Slots[m_PreviousSlot];
         // Another extent is another view size: the set describes pixels that no longer exist.
         if ( !m_HasPrevious || AnyMissing( previous ) || m_PreviousExtent.Width != extent.Width ||
@@ -231,14 +232,15 @@ namespace Desert::Graphic
     ScreenProbeGatherHistory::Refs ScreenProbeGatherHistory::CreateCurrent( RDG::Builder&    graph,
                                                                             const ViewExtent extent )
     {
-        // The other slot held the set of two frames ago, which nothing registers any more; emptied first so a frame
-        // whose extraction does not happen leaves no stale image in it.
+        // The other slot held the set of two frames ago, which nothing registers any more; emptied first so a
+        // frame whose extraction does not happen leaves no stale image in it.
         std::array<RDG::ExternalTexture, TextureCount>& next = m_Slots[m_PreviousSlot ^ 1u];
         next                                                 = {};
         Refs current;
         for ( uint32_t i = 0; i < TextureCount; ++i )
         {
-            current[i] = graph.CreateTexture( Desc( static_cast<Texture>( i ), extent ), kScreenProbeHistoryNames[i] );
+            current[i] =
+                 graph.CreateTexture( Desc( static_cast<Texture>( i ), extent ), kScreenProbeHistoryNames[i] );
             graph.Extract( current[i], next[i], RDG::Access::SampledCompute );
         }
         m_CurrentExtent = extent;

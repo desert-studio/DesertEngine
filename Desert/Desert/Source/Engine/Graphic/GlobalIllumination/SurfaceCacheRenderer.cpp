@@ -194,19 +194,19 @@ namespace Desert::Graphic::SurfaceCache
                                              Renderer::GetPipelineRouteFill( *pipeline ) );
                  block.Texture( "u_CaptureAlbedo", capture.Albedo, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-.Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                       .Texture( "u_CaptureNormal", capture.Normal, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-.Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                       .Texture( "u_CaptureShadingWord", capture.ShadingWord, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-.Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                       .Texture( "u_CaptureEmissive", capture.Emissive, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-.Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                       .Texture( "u_CaptureDepth", capture.Depth, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-.Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                       .Storage( "SurfaceCardPageCopies", copies, RDG::Access::StorageRead );
                  for ( std::size_t i = 0; i < layers.size(); ++i )
                      block.Storage( kLayerImages[i], layers[i], RDG::Access::StorageWrite );
@@ -272,7 +272,7 @@ namespace Desert::Graphic::SurfaceCache
                      if ( kCapturedLayers[i] != Layer::Emissive && kCapturedLayers[i] != Layer::Subsurface )
                          block.Texture( kLayerImages[i], layers[i], RDG::Access::SampledGraphics,
                                         RDG::SubresourceRange::All() )
-.Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                              .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
                  pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 1.0f ) );
              },
              [raw]( RDG::PassContext& context ) -> Common::BoolResultStr

@@ -159,9 +159,9 @@ namespace Desert::Graphic::System
     GrassRenderer::VarietyGpu* GrassRenderer::PrepareVariety( const GrassVarietyDraw& variety, Desert::Mesh& mesh,
                                                               const ViewFrame& frame )
     {
-        const GrassPlacement& p      = variety.Placement;
-        const float           cell   = CellSizeCm( p );
-        const float           radius = p.EndCullDistance;
+        const GrassPlacement& p         = variety.Placement;
+        const float           cell      = CellSizeCm( p );
+        const float           radius    = p.EndCullDistance;
         const auto&           submeshes = mesh.GetSubmeshes();
         // A blade draws one level per bucket (submesh b = bucket b, by distance); a mesh one bucket for all its
         // sections.
@@ -189,12 +189,12 @@ namespace Desert::Graphic::System
             gpu.LodDistance = lodDistance;
             if ( gpu.Index == 0 )
                 gpu.Index = ++m_NextIndex;
-            gpu.Instances = ShaderResources::StorageBuffer::Create( "GrassInstances",
-                                                                    capacity * sizeof( glm::mat4 ), 2, true );
+            gpu.Instances           = ShaderResources::StorageBuffer::Create( "GrassInstances",
+                                                                              capacity * sizeof( glm::mat4 ), 2, true );
             const auto submeshCount = static_cast<uint32_t>( submeshes.size() );
             const auto tableWord    = static_cast<uint32_t>( GpuInstanceArgsOffset( submeshCount ) / 4u );
             const auto argBytes     = ( tableWord + buckets * kBucketWords ) * 4u;
-            gpu.Args = ShaderResources::StorageBuffer::Create( "GrassArgs", argBytes, 3, true );
+            gpu.Args                = ShaderResources::StorageBuffer::Create( "GrassArgs", argBytes, 3, true );
             // The records' static half: each submesh's level-0 index range; instanceCount and firstInstance are
             // GrassFinalize's. The bucket table: each bucket's first instance and capacity.
             std::vector<uint32_t> args( argBytes / 4u, 0u );
@@ -240,9 +240,9 @@ namespace Desert::Graphic::System
 
         GrassParamsGpu params{};
         SidePlanes( frame.ViewProjection, params.Planes );
-        params.Camera                   = glm::vec4( frame.CameraPosition, radius );
-        params.Cull                     = glm::vec4( p.StartCullDistance, p.EndCullDistance, cell,
-                                                     std::clamp( p.PlacementJitter, 0.0f, 0.99f ) * 0.5f );
+        params.Camera = glm::vec4( frame.CameraPosition, radius );
+        params.Cull   = glm::vec4( p.StartCullDistance, p.EndCullDistance, cell,
+                                   std::clamp( p.PlacementJitter, 0.0f, 0.99f ) * 0.5f );
         // The instance's bounding sphere in its local space: a blade's from its shape (the upright blade's
         // middle, reaching the leaning tip and the wind's sway), a mesh's from its bounds.
         float boundsRadius = 0.0f, boundsHeight = 0.0f;

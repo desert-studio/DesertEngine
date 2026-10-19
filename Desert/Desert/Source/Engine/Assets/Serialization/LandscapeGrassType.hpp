@@ -127,7 +127,7 @@ namespace Desert::Assets::Serialization
         std::optional<AssetGuidRef> Material;
         /// The blade's shape: required for Kind Blade, absent for Mesh.
         std::optional<GrassBlade> Blade;
-        float        Density = 400.0f;
+        float                     Density = 400.0f;
         /// 0..1 of a grid cell the instance may wander from the cell centre (UE PlacementJitter, clamped to .99).
         float PlacementJitter   = 1.0f;
         float StartCullDistance = 0.0f;

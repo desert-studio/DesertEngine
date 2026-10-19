@@ -144,7 +144,7 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "u_GIDiffuseOut", diffuse, kW )
                           .Storage( "u_GISpecularOut", specular, kW )
                           .Texture( "u_GIHalfBackface", halfBackface, kS, all )
-.Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                           .Storage( "u_GIBackfaceOut", backface, kW );
                  },
                  [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr

@@ -315,7 +315,8 @@ namespace Desert::Graphic
         void SubmitLandscapeTile( const std::shared_ptr<Image2D>& heightmap, const System::LandscapeTileDraw& tile,
                                   const MaterialOverrides& overrides, const System::LandscapeWeightDraw& weights );
 
-        // Submit one landscape root's grass for this frame (from LandscapeECSSystem via DrawLandscapeGrassCommand).
+        // Submit one landscape root's grass for this frame (from LandscapeECSSystem via
+        // DrawLandscapeGrassCommand).
         void SubmitLandscapeGrass( System::GrassFieldDraw draw );
 
         // Submit one water zone for this frame (from WaterZoneECSSystem via WaterZoneCommand): its quadtree is

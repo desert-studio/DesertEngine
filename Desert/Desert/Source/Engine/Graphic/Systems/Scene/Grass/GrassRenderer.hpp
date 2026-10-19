@@ -81,8 +81,8 @@ namespace Desert::Graphic::System
 
     struct GrassVarietyDraw
     {
-        uint64_t                      Key   = 0; // stable: (root, layer, grass type, variety)
-        uint32_t                      Layer = 0; // the grass layer's index in the field
+        uint64_t Key   = 0; // stable: (root, layer, grass type, variety)
+        uint32_t Layer = 0; // the grass layer's index in the field
         // Kind Mesh: the mesh every instance draws. Kind Blade: null - the renderer draws its blade strip.
         class Desert::Mesh* Mesh = nullptr;
         // Kind Blade: the shape; Sections then holds the one blade material.
@@ -157,15 +157,15 @@ namespace Desert::Graphic::System
         // The blade strip of @p segments segments: one submesh per level, each halving the last down to one.
         [[nodiscard]] class Desert::Mesh* BladeStrip( uint32_t segments );
 
-        std::vector<GrassFieldDraw>              m_Queue;
-        std::unordered_map<uint64_t, FieldGpu>   m_Fields;
-        std::unordered_map<uint64_t, VarietyGpu> m_Varieties;
+        std::vector<GrassFieldDraw>                                       m_Queue;
+        std::unordered_map<uint64_t, FieldGpu>                            m_Fields;
+        std::unordered_map<uint64_t, VarietyGpu>                          m_Varieties;
         std::unordered_map<uint32_t, std::shared_ptr<class Desert::Mesh>> m_BladeStrips;
-        std::vector<VarietyGpu*>                 m_Frame; // this frame's, in dispatch order
-        std::shared_ptr<ComputePipeline>         m_Generate;
-        std::shared_ptr<ComputePipeline>         m_Finalize;
-        mutable ShaderBindingLayoutCache         m_GenerateLayout;
-        mutable ShaderBindingLayoutCache         m_FinalizeLayout;
-        uint32_t                                 m_NextIndex = 0;
+        std::vector<VarietyGpu*>         m_Frame; // this frame's, in dispatch order
+        std::shared_ptr<ComputePipeline> m_Generate;
+        std::shared_ptr<ComputePipeline> m_Finalize;
+        mutable ShaderBindingLayoutCache m_GenerateLayout;
+        mutable ShaderBindingLayoutCache m_FinalizeLayout;
+        uint32_t                         m_NextIndex = 0;
     };
 } // namespace Desert::Graphic::System

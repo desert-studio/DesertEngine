@@ -403,8 +403,8 @@ namespace Desert::Graphic
             // irradiance field gather writes graph transients of the same size and format instead).
             add( { "ScreenProbes.Diffuse+Specular+Backface", "ScreenProbeGather.cpp", F::kGIFinalGather, width,
                    height, 1, 3 } );
-            add( { "ScreenProbes.History (diffuse, specular, backface) x2", "SceneViewState.cpp", F::kGIFinalGather,
-                   width, height, 1, 6 } );
+            add( { "ScreenProbes.History (diffuse, specular, backface) x2", "SceneViewState.cpp",
+                   F::kGIFinalGather, width, height, 1, 6 } );
             add( { "ScreenProbes.HistoryGuide x2", "SceneViewState.cpp", F::kGIFinalGatherGuide, width, height, 1,
                    2 } );
         }
