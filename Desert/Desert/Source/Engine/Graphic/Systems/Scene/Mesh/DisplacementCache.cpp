@@ -237,10 +237,43 @@ namespace Desert::Graphic::System
         }
     }
 
+    uint64_t DisplacementCache::HashKey( const BuildKey& key )
+    {
+        uint64_t h     = 14695981039346656037ull;
+        auto     bytes = [&h]( const void* data, size_t size )
+        {
+            const auto* p = static_cast<const uint8_t*>( data );
+            for ( size_t i = 0; i < size; ++i )
+            {
+                h ^= p[i];
+                h *= 1099511628211ull;
+            }
+        };
+        bytes( &key.Mesh, sizeof( key.Mesh ) );
+        bytes( &key.Topology, sizeof( key.Topology ) );
+        bytes( key.Levels.data(), key.Levels.size() );
+        // Field by field: the record has no padding (static_assert 48 B of 4-byte fields), but floats compare
+        // by value in operator== and -0/+0 must hash alike.
+        for ( const DisplacementMaterialRecord& m : key.Materials )
+        {
+            const std::array<float, 7> values{ m.ScaleCm, m.Center, m.Tiling.x, m.Tiling.y,
+                                               m.Offset.x, m.Offset.y, m.Rotation };
+            const std::array<uint32_t, 5> words{ m.Texture, m.Sampler, m.Channel, m.UVSet, m.HasTransform };
+            bytes( words.data(), sizeof( words ) );
+            for ( const float v : values )
+            {
+                const uint32_t bits = v == 0.0f ? 0u : std::bit_cast<uint32_t>( v );
+                bytes( &bits, sizeof( bits ) );
+            }
+        }
+        return h;
+    }
+
     std::shared_ptr<DisplacementCache::SharedGeometry> DisplacementCache::FindShared( const BuildKey& key ) const
     {
-        for ( const std::weak_ptr<SharedGeometry>& weak : m_Shared )
-            if ( const auto shared = weak.lock(); shared && shared->Key == key )
+        const auto [first, last] = m_Shared.equal_range( HashKey( key ) );
+        for ( auto it = first; it != last; ++it )
+            if ( const auto shared = it->second.lock(); shared && shared->Key == key )
                 return shared;
         return nullptr;
     }
@@ -465,6 +498,13 @@ namespace Desert::Graphic::System
                     liveBytes += entry.Current->Bytes;
         }
 
+        // The keys in flight at the start of this pass, and those launched during it (value-hashed).
+        // Copies: a pending key is moved out of its entry when its tessellation is collected below.
+        std::unordered_multimap<uint64_t, BuildKey> pendingKeys;
+        for ( const auto& [key, entry] : m_Entries )
+            if ( entry.PendingKey )
+                pendingKeys.emplace( HashKey( *entry.PendingKey ), *entry.PendingKey );
+
         std::vector<std::string> errors;
         for ( auto& [entryKey, entry] : m_Entries )
         {
@@ -543,7 +583,7 @@ namespace Desert::Graphic::System
                 liveBytes += bytes;
                 liveBytes -= released;
                 entry.Current = emitted.GetValue();
-                m_Shared.push_back( entry.Current );
+                m_Shared.emplace( HashKey( entry.Current->Key ), entry.Current );
                 ++m_Stats.Rebuilt;
             }
 
@@ -557,10 +597,19 @@ namespace Desert::Graphic::System
             }
             if ( entry.Pending.valid() )
                 continue; // one tessellation in flight per entry; the newer key follows when it lands
+            // Another entry is already tessellating this key: it lands in m_Shared and FindShared hands it to
+            // this entry next frame - one worker per distinct key, not one per instance.
+            if ( const uint64_t hash = HashKey( wanted ); pendingKeys.contains( hash ) )
+            {
+                const auto [first, last] = pendingKeys.equal_range( hash );
+                if ( std::any_of( first, last, [&wanted]( const auto& p ) { return p.second == wanted; } ) )
+                    continue;
+            }
             // Tessellate on a worker: the topology is co-owned by the task, the levels copied.
             std::shared_ptr<const Desert::Geometry::DisplacementTopology> topology = entry.Topology;
             std::vector<uint8_t> levels = wanted.Levels;
             entry.PendingKey            = wanted;
+            pendingKeys.emplace( HashKey( wanted ), wanted );
             entry.Pending               = Common::JobSystem::Get().Async(
                  [topology, levels = std::move( levels ),
                   submeshes = static_cast<uint32_t>(
@@ -622,7 +671,7 @@ namespace Desert::Graphic::System
     void DisplacementCache::EndFrame( const uint64_t frame )
     {
         std::erase_if( m_Entries, [frame]( const auto& item ) { return item.second.LastFrame != frame; } );
-        std::erase_if( m_Shared, []( const std::weak_ptr<SharedGeometry>& weak ) { return weak.expired(); } );
+        std::erase_if( m_Shared, []( const auto& shared ) { return shared.second.expired(); } );
 
         std::unordered_set<const Desert::Geometry::DisplacementTopology*> topologies;
         std::unordered_set<const SharedGeometry*>                         geometries;

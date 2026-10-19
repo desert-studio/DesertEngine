@@ -158,6 +158,10 @@ namespace Desert::Graphic::System
             bool                                    operator==( const BuildKey& ) const = default;
         };
 
+        // Value hash of a BuildKey: the shared geometries and the in-flight tessellations are found by it, so
+        // thousands of ISM members asking for the same key cost one lookup each and ONE tessellation in all.
+        [[nodiscard]] static uint64_t HashKey( const BuildKey& key );
+
         // CPU tessellation of one BuildKey, gathered over the clusters in submesh order.
         struct Tessellation
         {
@@ -206,7 +210,7 @@ namespace Desert::Graphic::System
 
         DisplacementQuality                  m_Quality;
         std::unordered_map<uint64_t, Entry>  m_Entries;
-        std::vector<std::weak_ptr<SharedGeometry>> m_Shared;
+        std::unordered_multimap<uint64_t, std::weak_ptr<SharedGeometry>> m_Shared; // by HashKey
         // The GPU form of each live topology (CornerVertex | TriangleSubmesh | WeldPosition | WeldDirection).
         std::unordered_map<const Desert::Geometry::DisplacementTopology*, std::vector<uint32_t>> m_TopologyWords;
         std::shared_ptr<ComputePipeline>                                                 m_HeightsPipeline;
