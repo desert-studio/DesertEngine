@@ -253,6 +253,17 @@ namespace Desert::Graphic
                 m_Refs.emplace( zeroUint.get(), System.ZeroUint );
                 m_Externals.emplace( zeroUint.get(), zeroUintExternal );
             }
+            // The empty cube array (UE GBlackCubeArrayTexture), for a samplerCubeArray whose producer cannot run.
+            const std::shared_ptr<ImageCube> blackCubeArray =
+                 FallbackTextures::Get().GetFallbackTextureCubeArray( Core::Formats::ImageFormat::RGBA8F );
+            if ( RDG::ExternalTexture* blackCubeArrayExternal =
+                      ImportExternal( blackCubeArray, "System.BlackCubeArray" ) )
+            {
+                System.BlackCubeArray =
+                     m_Graph.RegisterExternal( *blackCubeArrayExternal, "System.BlackCubeArray" );
+                m_Refs.emplace( blackCubeArray.get(), System.BlackCubeArray );
+                m_Externals.emplace( blackCubeArray.get(), blackCubeArrayExternal );
+            }
         }
 
         // @p image as an external holding its recorded layout, not yet registered; nullptr (logged) if it

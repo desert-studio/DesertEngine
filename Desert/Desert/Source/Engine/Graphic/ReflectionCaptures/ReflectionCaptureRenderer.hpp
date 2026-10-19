@@ -90,7 +90,8 @@ namespace Desert::Graphic
      * UE's "recapture on change", never every frame. One capture per frame while any is pending.
      *
      * A view whose profile does not read captures (previews, thumbnails, the face views themselves) is handed
-     * an empty list and the scene's one-cube black array: the lighting shader declares the bindings.
+     * an empty list and the engine's black cube array (System.BlackCubeArray): the lighting shader declares the
+     * bindings.
      */
     class ReflectionCaptureRenderer
     {
@@ -114,7 +115,8 @@ namespace Desert::Graphic
         /// In a view's graph, before any lit node: the scene's array and capture list published to @p textures
         /// (SceneViewInputs). The first view that reads captures after a face-view frame also records the passes
         /// that turn the face views into the capture's cube; the others register the array as it is.
-        /// @p readsCaptures false (ViewProfile::ReflectionCaptures): the empty list and the black array.
+        /// @p readsCaptures false (ViewProfile::ReflectionCaptures), or the programs did not build: the empty list
+        /// and System.BlackCubeArray.
         void AddPasses( RDG::Builder& graph, FrameTextures& textures, bool readsCaptures );
 
         /// The three compute programs that turn face views into a capture's cube, built on the first call; false
@@ -175,7 +177,6 @@ namespace Desert::Graphic
         ResourceOwnerInstance m_Scene; // see the constructor
 
         SharedArray m_Cubes; // the scene's captures
-        SharedArray m_Black; // one black cube, for the views that read none
         // Arrays retired by a reshape stay alive while the frames in flight may still sample them.
         std::vector<std::unique_ptr<RDG::ExternalTexture>> m_Retired;
 

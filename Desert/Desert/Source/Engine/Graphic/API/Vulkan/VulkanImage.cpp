@@ -1130,11 +1130,17 @@ namespace Desert::Graphic::API::Vulkan
         // additionally is the number that stops existing the day a format is block-compressed.
         RecordDeviceBytes( VulkanAllocator::AllocationSize( m_Resource.Allocation ) );
 
-        m_Resource.ImageView = Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_VIEW_TYPE_CUBE, 6, m_Resource.MipLevels );
+        // The same six layers, viewed as a cube or as a cube array of this one cube
+        // (ImageCubeSpecification::CubeArray).
+        const VkImageViewType viewType =
+             m_Specification.CubeArray ? VK_IMAGE_VIEW_TYPE_CUBE_ARRAY : VK_IMAGE_VIEW_TYPE_CUBE;
+        m_Resource.ImageView = Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format,
+                                                  VK_IMAGE_ASPECT_COLOR_BIT, viewType, 6, m_Resource.MipLevels );
         m_Resource.Sampler = Utils::AcquireSampler( Utils::SamplerFilterPolicy::Global );
 
         for ( uint32_t i = 0; i < m_Resource.MipLevels; ++i )
-            m_MipViews.push_back( Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_VIEW_TYPE_CUBE, 6, 1, i ) );
+            m_MipViews.push_back( Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format,
+                                                     VK_IMAGE_ASPECT_COLOR_BIT, viewType, 6, 1, i ) );
 
         const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
         if ( !cmdAlloc.IsSuccess() )

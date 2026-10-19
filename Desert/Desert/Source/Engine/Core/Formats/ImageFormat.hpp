@@ -751,6 +751,12 @@ namespace Desert::Core::Formats
         // Empty means "no pixels, the image is for a compute pass to fill", which is what every cube in
         // this engine was until a baked environment could be read off disk.
         std::vector<MipLevelSpan> Levels;
+
+        // Viewed as a cube ARRAY holding this one cube (samplerCubeArray; render graph TextureDim::CubeArray)
+        // instead of a cube. The image is the same six layers either way; only its views and its graph
+        // description differ. UE GBlackCubeArrayTexture: the neutral input of a cube-array binding whose
+        // producer cannot run (FallbackTextures::GetFallbackTextureCubeArray).
+        bool CubeArray = false;
     };
 
     // A volume texture — the shape/detail noise the volumetric passes sample, and any other

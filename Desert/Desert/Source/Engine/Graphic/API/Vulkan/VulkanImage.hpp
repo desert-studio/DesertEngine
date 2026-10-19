@@ -282,7 +282,7 @@ namespace Desert::Graphic::API::Vulkan
             desc.Format = m_Specification.Format;
             desc.Mips   = m_Resource.MipLevels;
             desc.Layers = m_Resource.LayerCount;
-            desc.Dim    = RDG::TextureDim::Cube;
+            desc.Dim    = m_Specification.CubeArray ? RDG::TextureDim::CubeArray : RDG::TextureDim::Cube;
             return desc;
         }
         void RecordLayouts( std::vector<VkImageLayout> layouts ) override
