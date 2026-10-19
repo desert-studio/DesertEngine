@@ -23,12 +23,7 @@ namespace Desert::Editor
     void AssetCompiling::StartBackgroundCook()
     {
         m_BackgroundCook = std::make_unique<BackgroundCookQueue>(
-             []( const std::filesystem::path& source )
-             {
-                 // One cooker per worker thread: Assimp importers are not reentrant.
-                 thread_local ImportManager s_ThreadImporter;
-                 return s_ThreadImporter.Import( source, ImportPass::Cook );
-             },
+             []( const std::filesystem::path& source ) { return CookMeshSource( source ); },
              []( std::function<void()> job ) { Common::JobSystem::Get().Submit( std::move( job ) ); } );
         m_BackgroundCookStart = std::chrono::steady_clock::now();
 

@@ -27,6 +27,8 @@
 #include <Engine/Assets/MeshDerivedData.hpp>
 
 #include <Common/Core/Constants.hpp>
+#include <thread>
+#include <condition_variable>
 
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
@@ -496,29 +498,38 @@ namespace Desert::Editor
                 record( serialized );
             }
         }
-        else if ( resolved.Mesh && pass == ImportPass::Cook )
-            record( ContentWriteAllowed( pass, sourcePath, CookPaths::MeshAsset( sourcePath ), "static mesh" ) );
         else if ( resolved.Mesh )
         {
-            // The static mesh is a source asset beside its file (ImportedMeshAsset.hpp); its slots are named
-            // from the materials resolved above, whose GUIDs the submeshes now carry.
+            // The static mesh's slots are named from the materials resolved above, whose GUIDs the submeshes now
+            // carry.
             std::vector<Assets::MeshMaterialSlot> named;
             named.reserve( resolved.Materials.size() );
             for ( const auto& material : resolved.Materials )
                 named.push_back( { material.Name, material.Guid } );
-            // COMBINE MESHES OFF (UE's default): every mesh-bearing node becomes its own static mesh and NO
-            // combined one is written (NodeMeshSplit.hpp WriteStaticMeshImport); a single-node source, or Combine
-            // Meshes on, is the one combined mesh.
-            auto written = WriteStaticMeshImport( resolved.Mesh.value(), resolved.SubmeshNodes, named, sourcePath,
-                                                  settings );
-            if ( !written )
-                record( Common::MakeError<bool>( written.GetError() ) );
+            // THE COOK REBUILDS THE DERIVED MESH, NOT THE CONTENT (UE: a DDC miss rebuilds from the package): the
+            // combined import's envelope goes into the DDC under the identity the record states; the record and
+            // a split import's node meshes are Content, written only by the import below.
+            if ( pass == ImportPass::Cook )
+            {
+                record( CookStaticMeshImport( resolved.Mesh.value(), resolved.SubmeshNodes, named, sourcePath,
+                                              settings ) );
+            }
             else
             {
-                for ( const auto& [node, path] : written.GetValue() )
+                // COMBINE MESHES OFF (UE's default): every mesh-bearing node becomes its own static mesh and NO
+                // combined one is written (NodeMeshSplit.hpp WriteStaticMeshImport); a single-node source, or
+                // Combine Meshes on, is the one combined mesh.
+                auto written = WriteStaticMeshImport( resolved.Mesh.value(), resolved.SubmeshNodes, named,
+                                                      sourcePath, settings );
+                if ( !written )
+                    record( Common::MakeError<bool>( written.GetError() ) );
+                else
                 {
-                    Assets::ContentRegistry::NoteFile( path );
-                    writtenMeshes.push_back( path );
+                    for ( const auto& [node, path] : written.GetValue() )
+                    {
+                        Assets::ContentRegistry::NoteFile( path );
+                        writtenMeshes.push_back( path );
+                    }
                 }
             }
         }
@@ -867,4 +878,67 @@ namespace Desert::Editor
         return asset;
     }
 
+    namespace
+    {
+        // The sources being cooked and the thread cooking each (a cook that reached its own source again
+        // through a load is refused rather than waiting for itself).
+        struct MeshSourceCooks
+        {
+            std::mutex                                       Mutex;
+            std::condition_variable                          Done;
+            std::unordered_map<std::string, std::thread::id> Running;
+        };
+
+        MeshSourceCooks& RunningMeshSourceCooks()
+        {
+            static MeshSourceCooks s_Cooks;
+            return s_Cooks;
+        }
+    } // namespace
+
+    CookVerdict CookMeshSource( const std::filesystem::path& source )
+    {
+        const std::string key   = Common::Constants::Path::FullPath( source ).lexically_normal().generic_string();
+        MeshSourceCooks&  cooks = RunningMeshSourceCooks();
+        {
+            std::unique_lock<std::mutex> lock( cooks.Mutex );
+            if ( const auto it = cooks.Running.find( key );
+                 it != cooks.Running.end() && it->second == std::this_thread::get_id() )
+            {
+                LOG_ERROR( "[Import] '{}': its cook reached a load of its own mesh; refused rather than waiting "
+                           "for itself",
+                           source.generic_string() );
+                return CookVerdict::Failed;
+            }
+            cooks.Done.wait( lock, [&] { return !cooks.Running.contains( key ); } );
+            cooks.Running.emplace( key, std::this_thread::get_id() );
+        }
+        thread_local ImportManager s_ThreadImporter;
+        const CookVerdict          verdict = s_ThreadImporter.Import( source, ImportPass::Cook );
+        {
+            const std::lock_guard<std::mutex> lock( cooks.Mutex );
+            cooks.Running.erase( key );
+        }
+        cooks.Done.notify_all();
+        return verdict;
+    }
+
+    Common::BoolResultStr BuildMeshSourceOnMiss( const std::filesystem::path& source )
+    {
+        const auto        start   = std::chrono::steady_clock::now();
+        const CookVerdict verdict = CookMeshSource( source );
+        const auto        ms =
+             std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::steady_clock::now() - start )
+                  .count();
+        if ( verdict == CookVerdict::Cooked || verdict == CookVerdict::UpToDate )
+        {
+            LOG_INFO( "[Import] '{}': its derived mesh was missing from the DDC and was cooked on demand from the "
+                      "source in {} ms",
+                      source.generic_string(), ms );
+            return BOOLSUCCESS;
+        }
+        return Common::MakeFormattedError<bool>(
+             "'{}' was cooked on demand and did not write its derived mesh (its [Import] line says why)",
+             source.generic_string() );
+    }
 } // namespace Desert::Editor

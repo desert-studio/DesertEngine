@@ -228,6 +228,9 @@ namespace Desert::Editor
                    // has no builder.
                    Assets::SetTexturePlatformDataBuilder( &TextureImporter::BuildPlatformData );
                    Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
+                   // A static mesh's envelope missing from the DDC is cooked from its source (UE: a DDC miss
+                   // rebuilds from the package), so a fresh checkout's scene draws without a re-import.
+                   Assets::SetMeshSourceBuilder( &Editor::BuildMeshSourceOnMiss );
                    // A mesh's distance field (UE: built beside the render data on a DDC miss, editor only).
                    Assets::SetMeshDistanceFieldBuilder( &Assets::BuildMeshDistanceFieldBytes );
                    // Its surface-cache cards, the same way (UE CARDREPRESENTATION_DERIVEDDATA_VER).

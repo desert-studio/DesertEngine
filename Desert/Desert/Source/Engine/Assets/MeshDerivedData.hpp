@@ -103,14 +103,23 @@ namespace Desert::Assets
     // (FIX8 minted the records fresh), so it is still never read in the DDC envelope's place.
     [[nodiscard]] bool IsEditedImportedMesh( const std::filesystem::path& assetPath );
 
+    // THE BUILD A MISS OF kMeshSourceDeriver RUNS (UE: the DDC miss of a static mesh rebuilds from its package).
+    // Given the raw source beside the asset, it Puts the envelope of the source's current bytes under
+    // MeshSourceDerivedDataKey, or returns why it could not. Registered by the editor, which owns the importers;
+    // a packaged game registers none. An empty builder unregisters.
+    using MeshSourceBuilder = std::function<Common::BoolResultStr( const std::filesystem::path& source )>;
+    void SetMeshSourceBuilder( MeshSourceBuilder builder );
+
     // Resolves the MeshSourceAsset an asset PATH names (e.g. `Meshes/Props/base.stmesh`).
     //
     // A companion raw source beside it (today: `base.fbx`, same stem) means this .stmesh is DERIVED: its
     // bytes are read from the DDC, keyed by the source file's OWN content, and @p assetPath itself is never
     // opened - a stale beside-source file left over from a build that still wrote one (AF4h retires that
     // write) is therefore never read in its place, whether or not it happens to exist. A DDC miss is a
-    // refusal naming the source and the key: nothing here silently falls back to reading the stale file, and
-    // nothing here re-imports (that is the editor's job, on request).
+    // miss is rebuilt from the source by the registered MeshSourceBuilder (the editor's; UE: a DDC miss rebuilds
+    // the derived data from the package) and read again; where none is registered (a packaged game) or the
+    // rebuild fails, it is a refusal naming the source and the key. Nothing here silently falls back to reading
+    // the stale file.
     //
     // An edited import (IsEditedImportedMesh) is the exception: that file IS the asset, read from disk.
     //

@@ -238,4 +238,13 @@ namespace Desert::Assets::Serialization
     EnsureImportRecord( const std::filesystem::path& source, Common::Content::ContentKind kind,
                         const std::optional<Common::Math::AABB>& bounds,
                         const Assets::SourceImportSettings&      settings );
+
+    /// The GUID of @p source's record when it already states this import - @p kind, @p bounds (as
+    /// EnsureImportRecord takes them) and @p settings - else an error naming the record and what it states
+    /// otherwise (or that it is missing). Reads only: the cook, which writes nothing into Content, asks this where
+    /// an import calls EnsureImportRecord.
+    Common::ResultStr<Common::Content::AssetGuid>
+    ReadCurrentImportRecord( const std::filesystem::path& source, Common::Content::ContentKind kind,
+                             const std::optional<Common::Math::AABB>& bounds,
+                             const Assets::SourceImportSettings&      settings );
 } // namespace Desert::Assets::Serialization

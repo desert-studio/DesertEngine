@@ -129,4 +129,15 @@ namespace Desert::Editor
         std::unordered_map<std::string, std::unique_ptr<IAssetImporter>> m_Importers;
         std::unique_ptr<TextureImporter>                                 m_TextureImporter;
     };
+
+    // THE COOK OF ONE MESH SOURCE, ONCE AT A TIME PER SOURCE (UE's DDC build is single-flight per key): the
+    // background cook and a load's DDC miss (BuildMeshSourceOnMiss) both cook through here, each worker on its
+    // own ImportManager (Assimp importers are not reentrant). A caller that finds the source cooking waits for
+    // it and then asks again, which is a cache hit. ImportPass::Cook: nothing under Content is written.
+    CookVerdict CookMeshSource( const std::filesystem::path& source );
+
+    // Assets::MeshSourceBuilder (MeshDerivedData.hpp): a load found no envelope for @p source's bytes, so the
+    // source is cooked now (CookMeshSource) and the miss logged with its time; an error when the cook did not
+    // write it (the reason is the cook's own [Import] line).
+    Common::BoolResultStr BuildMeshSourceOnMiss( const std::filesystem::path& source );
 } // namespace Desert::Editor
