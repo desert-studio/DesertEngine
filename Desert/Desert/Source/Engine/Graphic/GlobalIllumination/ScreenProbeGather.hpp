@@ -175,6 +175,10 @@ namespace Desert::Graphic::GlobalIllumination
 
         // The tracer-independent shaders and pipelines; Trace's is acquired per tracer permutation.
         [[nodiscard]] Common::BoolResultStr Initialize();
+        // Trace's program under TracerVariant( @p pipeline ), re-acquired when the pipeline changes. Public so the
+        // view asks for it first and refuses the GI method of that tracer by name when it does not build
+        // (SceneRenderer::AddFrameTracedGI); AddPasses asks again (cached).
+        [[nodiscard]] Common::BoolResultStr EnsureTraceProgram( const Pipeline& pipeline );
 
         // The gather of one frame, its six passes added to @p graph after the radiance cache's update.
         [[nodiscard]] Common::ResultStr<ScreenProbeGatherFrame>
@@ -192,7 +196,6 @@ namespace Desert::Graphic::GlobalIllumination
         };
 
         [[nodiscard]] Common::BoolResultStr EnsureImages( glm::uvec2 extent, const ScreenProbeLayout& layout );
-        [[nodiscard]] Common::BoolResultStr EnsureTraceProgram( const Pipeline& pipeline );
 
         std::array<std::shared_ptr<Shader>, ProgramCount>          m_Shaders;
         std::array<std::shared_ptr<ComputePipeline>, ProgramCount> m_Pipelines;

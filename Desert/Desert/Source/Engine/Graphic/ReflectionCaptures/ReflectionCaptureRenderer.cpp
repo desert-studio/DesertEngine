@@ -189,10 +189,14 @@ namespace Desert::Graphic
             return true;
         if ( m_PipelinesFailed )
             return false;
-        m_Assemble        = MakeCompute( "ReflectionCaptureAssemble" );
-        m_Downsample      = MakeCompute( "ReflectionCaptureDownsample" );
-        m_Filter          = MakeCompute( "ReflectionCaptureFilter" );
+        constexpr std::string_view kAssemble   = "ReflectionCaptureAssemble";
+        constexpr std::string_view kDownsample = "ReflectionCaptureDownsample";
+        constexpr std::string_view kFilter     = "ReflectionCaptureFilter";
+        m_Assemble                             = MakeCompute( kAssemble );
+        m_Downsample                           = MakeCompute( kDownsample );
+        m_Filter                               = MakeCompute( kFilter );
         m_PipelinesFailed = !( m_Assemble && m_Downsample && m_Filter );
+        m_FailedProgram = !m_Assemble ? kAssemble : !m_Downsample ? kDownsample : !m_Filter ? kFilter : "";
         return !m_PipelinesFailed;
     }
 

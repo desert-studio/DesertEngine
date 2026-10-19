@@ -1175,9 +1175,33 @@ namespace Desert::Graphic
         // What this view renders for GI / reflections / shadows: Graphic::ResolveRenderMethods of the view's
         // request, the machine's ceiling and the device, refreshed in BeginScene. The passes read `.Effective`.
         RenderMethods           m_RenderMethods;
-        // The methods the view's renderers could not build a program for on this device (set once, when the
-        // DeferredLightingRenderer initialises), an input of every ResolveRenderMethods.
+        // The methods the view's renderers could not build a program for on this device, an input of every
+        // ResolveRenderMethods: Shadows from the DeferredLightingRenderer's initialisation, GI and Reflections
+        // from their renderers' programs as each is first built (RefuseProgramMethods). Never cleared: a program
+        // that did not build on this device is not retried.
         ProgramRefusals m_ProgramRefusals;
+        // A program only @p methods need did not build (@p program: its name, static storage; @p error: why). Each
+        // method not yet refused is added to m_ProgramRefusals with one ERROR line naming it and the program; the
+        // next BeginScene resolves the method below it (MethodLimit::Program), the rest of the frame is untouched.
+        void RefuseProgramMethods( std::span<const Common::Scalability::GIMethod> methods,
+                                   std::string_view program, std::string_view error );
+        void RefuseProgramMethods( std::span<const Common::Scalability::ReflectionMethod> methods,
+                                   std::string_view program, std::string_view error );
+        // The Reflections methods each reflection program serves. The screen trace (SSR's programs, the HZB, the
+        // scene colour history) serves the three that trace the screen; the reflection captures' programs every
+        // method that reads the captures (all above Off); the surface cache the two traced methods, whose hits
+        // it lights.
+        static constexpr std::array<Common::Scalability::ReflectionMethod, 3> kScreenTraceReflectionMethods{
+             Common::Scalability::ReflectionMethod::ScreenSpace,
+             Common::Scalability::ReflectionMethod::SoftwareTraced,
+             Common::Scalability::ReflectionMethod::HardwareTraced };
+        static constexpr std::array<Common::Scalability::ReflectionMethod, 4> kCaptureReflectionMethods{
+             Common::Scalability::ReflectionMethod::Captures, Common::Scalability::ReflectionMethod::ScreenSpace,
+             Common::Scalability::ReflectionMethod::SoftwareTraced,
+             Common::Scalability::ReflectionMethod::HardwareTraced };
+        static constexpr std::array<Common::Scalability::ReflectionMethod, 2> kTracedReflectionMethods{
+             Common::Scalability::ReflectionMethod::SoftwareTraced,
+             Common::Scalability::ReflectionMethod::HardwareTraced };
         // The view's TLAS (built when a resolved method traces rays; RT-SHADOWS reads GetFrame().Tlas).
         RayTracing::RayTracingSceneRenderer m_RayTracingScene;
         // Hit-lit reflections: this frame's hit group table (BuildReflectionHitGroups; the pass reads it at exec,

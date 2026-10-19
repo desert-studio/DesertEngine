@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -124,6 +125,32 @@ namespace Desert::Graphic::GlobalIllumination
             pipeline.Hits   = hitLightingAllowed ? HitLighting::InPlace : HitLighting::SurfaceCache;
         }
         return pipeline;
+    }
+
+    // THE GI METHODS EACH PROGRAM OF THIS MACHINERY SERVES: a program that does not build on the device refuses
+    // exactly these by its name (SceneRenderer::RefuseProgramMethods, ProgramRefusals), and the view renders the
+    // method below. The surface cache and the world radiance cache serve every traced method; the screen probes
+    // the two that gather through them; the irradiance field gather ProbeVolume alone.
+    inline constexpr std::array<Common::Scalability::GIMethod, 3> kCacheGIMethods{
+         Common::Scalability::GIMethod::ProbeVolume, Common::Scalability::GIMethod::SoftwareTraced,
+         Common::Scalability::GIMethod::HardwareTraced };
+    inline constexpr std::array<Common::Scalability::GIMethod, 2> kScreenProbeGIMethods{
+         Common::Scalability::GIMethod::SoftwareTraced, Common::Scalability::GIMethod::HardwareTraced };
+    inline constexpr std::array<Common::Scalability::GIMethod, 1> kIrradianceFieldGIMethods{
+         Common::Scalability::GIMethod::ProbeVolume };
+
+    // PURE. The GI methods a Trace program compiled for @p pipeline serves (the radiance cache's when
+    // @p screenProbes is false, the screen probes' when true): the hardware permutation serves HardwareTraced
+    // alone (PipelineFor picks it only there), the software one every traced method that walks the SDF.
+    [[nodiscard]] constexpr std::span<const Common::Scalability::GIMethod>
+    TraceProgramGIMethods( const Pipeline& pipeline, const bool screenProbes )
+    {
+        constexpr std::span<const Common::Scalability::GIMethod> cache( kCacheGIMethods );
+        constexpr std::span<const Common::Scalability::GIMethod> probes( kScreenProbeGIMethods );
+        if ( pipeline.Tracer == Tracer::HardwareRayQuery )
+            return cache.subspan( 2, 1 );                                               // HardwareTraced
+        return screenProbes ? probes.first( 1 ) /* SoftwareTraced */ : cache.first( 2 ) /* ProbeVolume, Software */
+             ;
     }
 
     // PURE. The same, with the hit-lighting allowance read from the machine's quality and ray query from the

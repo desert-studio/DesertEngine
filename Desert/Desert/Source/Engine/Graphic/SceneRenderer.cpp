@@ -532,7 +532,7 @@ namespace Desert::Graphic
                 if ( const auto deferredInit = deferred->Initialize(); !deferredInit )
                     LOG_WARN( "[SceneRenderer] Deferred lighting system unavailable: {}",
                               deferredInit.GetError() );
-                m_ProgramRefusals = deferred->Refusals();
+                m_ProgramRefusals.Shadows = deferred->Refusals().Shadows;
                 return "DeferredLighting";
             }
             case 20:
@@ -877,6 +877,11 @@ namespace Desert::Graphic
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
+        // The captures' programs serve every Reflections method that reads the captures: built here, before the
+        // resolution, so one that did not build refuses those methods from this frame on (by its name).
+        if ( !m_FrameReflectionCaptures->EnsurePipelines() )
+            RefuseProgramMethods( kCaptureReflectionMethods, m_FrameReflectionCaptures->FailedProgram(),
+                                  "the reflection captures' compute program did not build" );
         // device x render path x the programs the view's renderers built, each lowered axis logged once.
         // m_RenderPath (set above, a debug view may force forward) is what the frame graph branches on, so a
         // method that needs the G-buffer is lowered exactly when the deferred block will not run - under forward,
@@ -2019,7 +2024,7 @@ namespace Desert::Graphic
         const auto& ssrSys = SP_CAST( System::SSRRenderer, m_RenderSystems["SSRSystem"] );
         if ( const Common::BoolResultStr initialized = ssrSys->Initialize(); !initialized )
         {
-            LOG_WARN( "[SceneRenderer] SSR system unavailable: {}", initialized.GetError() );
+            RefuseProgramMethods( kScreenTraceReflectionMethods, "SSR", initialized.GetError() );
             m_SSRResourcesFailed = true;
             return false;
         }
@@ -2031,6 +2036,34 @@ namespace Desert::Graphic
 
         m_SSRResourcesReady = true;
         return true;
+    }
+
+    namespace
+    {
+        template <typename Method, std::size_t N>
+        void RefuseMethods( std::vector<MethodRefusal<Method>>& refusals, const std::span<const Method> methods,
+                            const std::string_view axis, const std::array<std::string_view, N>& names,
+                            const std::string_view program, const std::string_view error )
+        {
+            for ( const Method method : methods )
+                if ( AddRefusal( refusals, method, program ) )
+                    LOG_ERROR( "[SceneRenderer] {} {} refused on this device: its program '{}' did not build: {}",
+                               axis, names[static_cast<std::size_t>( method )], program, error );
+        }
+    } // namespace
+
+    void SceneRenderer::RefuseProgramMethods( const std::span<const Common::Scalability::GIMethod> methods,
+                                              const std::string_view program, const std::string_view error )
+    {
+        RefuseMethods( m_ProgramRefusals.GlobalIllumination, methods, "GI", Common::Scalability::kGIMethodNames,
+                       program, error );
+    }
+
+    void SceneRenderer::RefuseProgramMethods( const std::span<const Common::Scalability::ReflectionMethod> methods,
+                                              const std::string_view program, const std::string_view error )
+    {
+        RefuseMethods( m_ProgramRefusals.Reflections, methods, "Reflections",
+                       Common::Scalability::kReflectionMethodNames, program, error );
     }
 
     bool SceneRenderer::EnsureScreenTraceResources()
@@ -2047,7 +2080,9 @@ namespace Desert::Graphic
                   SP_CAST( System::HZBRenderer, m_RenderSystems["HZBSystem"] )->Initialize();
              !initialized )
         {
-            LOG_WARN( "[SceneRenderer] Screen traces unavailable: the HZB: {}", initialized.GetError() );
+            // The screen probes run without their screen leg (black HZB, AddFrameTracedGI); the reflections that
+            // trace the screen cannot.
+            RefuseProgramMethods( kScreenTraceReflectionMethods, "HZB", initialized.GetError() );
             m_ScreenTraceResourcesFailed = true;
             return false;
         }
@@ -2057,8 +2092,7 @@ namespace Desert::Graphic
                        ->Initialize();
              !initialized )
         {
-            LOG_WARN( "[SceneRenderer] Screen traces unavailable: the scene colour history: {}",
-                      initialized.GetError() );
+            RefuseProgramMethods( kScreenTraceReflectionMethods, "SceneColorHistory", initialized.GetError() );
             m_ScreenTraceResourcesFailed = true;
             return false;
         }

@@ -117,6 +117,17 @@ namespace Desert::Graphic
         /// @p readsCaptures false (ViewProfile::ReflectionCaptures): the empty list and the black array.
         void AddPasses( RDG::Builder& graph, FrameTextures& textures, bool readsCaptures );
 
+        /// The three compute programs that turn face views into a capture's cube, built on the first call; false
+        /// when one did not build on this device (then for good, logged once). Asked by every view's BeginScene
+        /// before it resolves its methods: the Reflections methods that read the captures are then refused by
+        /// FailedProgram()'s name (SceneRenderer, ProgramRefusals).
+        [[nodiscard]] bool EnsurePipelines();
+        /// The first program that did not build (static storage), empty while EnsurePipelines succeeds.
+        [[nodiscard]] std::string_view FailedProgram() const
+        {
+            return m_FailedProgram;
+        }
+
     private:
         struct FaceView;
 
@@ -129,7 +140,6 @@ namespace Desert::Graphic
             bool                 Built    = false;
         };
 
-        [[nodiscard]] bool EnsurePipelines();
         // The array registered into @p graph, created (and every cube written black) when it does not exist or
         // has another shape. Returns the ref and whether it was created in this graph.
         [[nodiscard]] std::pair<RDG::TextureRef, bool> AcquireArray( RDG::Builder& graph, FrameTextures& textures,
@@ -173,6 +183,7 @@ namespace Desert::Graphic
         std::shared_ptr<ComputePipeline> m_Downsample;
         std::shared_ptr<ComputePipeline> m_Filter;
         bool                             m_PipelinesFailed = false;
+        std::string_view                 m_FailedProgram;
         mutable ShaderBindingLayoutCache m_AssembleLayout;
         mutable ShaderBindingLayoutCache m_DownsampleLayout;
         mutable ShaderBindingLayoutCache m_FilterLayout;

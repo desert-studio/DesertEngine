@@ -63,6 +63,35 @@ namespace Desert::Graphic
             for ( const RDG::TextureRef ref : refs )
                 pass.Read( ref, access );
         }
+
+        // The name of a Trace program a refusal carries (static storage): the radiance cache's or the screen
+        // probes' shader under @p pipeline's tracer and hit lighting (GlobalIllumination::TracerVariant).
+        std::string_view TraceProgramName( const GlobalIllumination::Pipeline& pipeline, const bool screenProbes )
+        {
+            using GlobalIllumination::HitLighting;
+            using GlobalIllumination::Tracer;
+            if ( pipeline.Tracer == Tracer::SoftwareDistanceField )
+                return screenProbes ? "ScreenProbeTrace (DESERT_GI_TRACER_SOFTWARE)"
+                                    : "RadianceCacheTrace (DESERT_GI_TRACER_SOFTWARE)";
+            if ( pipeline.Hits == HitLighting::InPlace )
+                return screenProbes
+                            ? "ScreenProbeTrace (DESERT_GI_TRACER_HARDWARE, DESERT_GI_HIT_LIGHTING_IN_PLACE)"
+                            : "RadianceCacheTrace (DESERT_GI_TRACER_HARDWARE, DESERT_GI_HIT_LIGHTING_IN_PLACE)";
+            return screenProbes ? "ScreenProbeTrace (DESERT_GI_TRACER_HARDWARE)"
+                                : "RadianceCacheTrace (DESERT_GI_TRACER_HARDWARE)";
+        }
+
+        // The traced reflections' permutation of SSR (SSRRenderer::EnsureTracedProgram), by tracer and hit
+        // lighting.
+        std::string_view TracedReflectionProgramName( const GlobalIllumination::Pipeline& tracer,
+                                                      const bool                          hitLit )
+        {
+            if ( tracer.Tracer == GlobalIllumination::Tracer::SoftwareDistanceField )
+                return "SSRTrace (DESERT_GI_TRACER_SOFTWARE, DESERT_REFLECTIONS_TRACED)";
+            return hitLit ? "SSRTrace (DESERT_GI_TRACER_HARDWARE, DESERT_REFLECTIONS_TRACED, "
+                            "DESERT_REFLECTIONS_HIT_LIGHTING)"
+                          : "SSRTrace (DESERT_GI_TRACER_HARDWARE, DESERT_REFLECTIONS_TRACED)";
+        }
     } // namespace
 
     RDG::TextureRef SceneRenderer::AddFrameNoSunCascades( RDG::Builder& graph )
@@ -375,7 +404,8 @@ namespace Desert::Graphic
             auto cache = std::make_unique<GlobalIllumination::WorldRadianceCache>();
             if ( const auto initialized = cache->Initialize(); !initialized )
             {
-                LOG_ERROR( "[SceneRenderer] RadianceCache: {}", initialized.GetError() );
+                RefuseProgramMethods( GlobalIllumination::kCacheGIMethods, "RadianceCache",
+                                      initialized.GetError() );
                 return;
             }
             m_RadianceCache = std::move( cache );
@@ -385,7 +415,8 @@ namespace Desert::Graphic
             auto gather = std::make_unique<GlobalIllumination::ScreenProbeGather>();
             if ( const auto initialized = gather->Initialize(); !initialized )
             {
-                LOG_ERROR( "[SceneRenderer] ScreenProbes: {}", initialized.GetError() );
+                RefuseProgramMethods( GlobalIllumination::kScreenProbeGIMethods, "ScreenProbes",
+                                      initialized.GetError() );
                 return;
             }
             m_ScreenProbeGather = std::move( gather );
@@ -395,11 +426,27 @@ namespace Desert::Graphic
             auto gather = std::make_unique<GlobalIllumination::IrradianceFieldGather>();
             if ( const auto initialized = gather->Initialize(); !initialized )
             {
-                LOG_ERROR( "[SceneRenderer] IrradianceField: {}", initialized.GetError() );
+                RefuseProgramMethods( GlobalIllumination::kIrradianceFieldGIMethods, "IrradianceField",
+                                      initialized.GetError() );
                 return;
             }
             m_IrradianceFieldGather = std::move( gather );
         }
+        // The Trace programs of this frame's tracer, asked before the update so the one that does not build
+        // refuses the GI methods of that tracer alone (the update and the gather ask again, cached).
+        if ( const auto traced = m_RadianceCache->EnsureTraceProgram( m_GIPipeline ); !traced )
+        {
+            RefuseProgramMethods( GlobalIllumination::TraceProgramGIMethods( m_GIPipeline, false ),
+                                  TraceProgramName( m_GIPipeline, false ), traced.GetError() );
+            return;
+        }
+        if ( m_GIPipeline.ScreenProbes )
+            if ( const auto traced = m_ScreenProbeGather->EnsureTraceProgram( m_GIPipeline ); !traced )
+            {
+                RefuseProgramMethods( GlobalIllumination::TraceProgramGIMethods( m_GIPipeline, true ),
+                                      TraceProgramName( m_GIPipeline, true ), traced.GetError() );
+                return;
+            }
         const RDG::TextureRef depth = textures.Depth( m_GBuffer, "GBuffer" );
         const auto            desc  = graph.GetTextureDesc( depth );
         if ( !desc )
@@ -1149,7 +1196,14 @@ namespace Desert::Graphic
         }
         const bool hitLit = ReflectionsHitLit();
         if ( const auto made = ssr.EnsureTracedProgram( tracer, hitLit ); !made )
+        {
+            // The traced permutation serves the method of its tracer alone.
+            RefuseProgramMethods(
+                 std::span( kTracedReflectionMethods )
+                      .subspan( tracer.Tracer == GlobalIllumination::Tracer::HardwareRayQuery ? 1 : 0, 1 ),
+                 TracedReflectionProgramName( tracer, hitLit ), made.GetError() );
             return refuse( made.GetError() );
+        }
         if ( hitLit )
         {
             if ( !m_RayTracingScene.GetFrame().Built )
@@ -1157,7 +1211,11 @@ namespace Desert::Graphic
             if ( const auto built = BuildReflectionHitGroups(); !built )
                 return refuse( built.GetError() );
             if ( const auto made = ssr.EnsureHitLightingPipeline( m_ReflectionHitGroups.Templates ); !made )
+            {
+                RefuseProgramMethods( std::span( kTracedReflectionMethods ).subspan( 1, 1 ), "SSRHitLighting",
+                                      made.GetError() );
                 return refuse( made.GetError() );
+            }
         }
 
         System::SSRRenderer::TracedReads reads;

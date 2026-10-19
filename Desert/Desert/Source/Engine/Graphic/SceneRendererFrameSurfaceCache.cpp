@@ -131,7 +131,10 @@ namespace Desert::Graphic
             auto cache = std::make_unique<SurfaceCache::SurfaceCacheRenderer>();
             if ( const auto initialized = cache->Initialize(); !initialized )
             {
-                LOG_ERROR( "[SceneRenderer] Surface Cache: {}", initialized.GetError() );
+                // The cards light every traced GI method's hits and the traced reflections' hits.
+                RefuseProgramMethods( GlobalIllumination::kCacheGIMethods, "SurfaceCache",
+                                      initialized.GetError() );
+                RefuseProgramMethods( kTracedReflectionMethods, "SurfaceCache", initialized.GetError() );
                 return;
             }
             m_SurfaceCache = std::move( cache );

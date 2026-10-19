@@ -70,6 +70,18 @@ namespace Desert::Graphic
         std::vector<MethodRefusal<Common::Scalability::ShadowMethod>> Shadows;
     };
 
+    // Records @p method refused for @p program; false when it already was (the caller logs only a new refusal).
+    template <typename Method>
+    bool AddRefusal( std::vector<MethodRefusal<Method>>& refusals, const Method method,
+                     const std::string_view program )
+    {
+        for ( const MethodRefusal<Method>& refusal : refusals )
+            if ( refusal.Refused == method )
+                return false;
+        refusals.push_back( { .Refused = method, .Program = program } );
+        return true;
+    }
+
     struct RenderMethods
     {
         ResolvedMethod<Common::Scalability::GIMethod>         GlobalIllumination;
