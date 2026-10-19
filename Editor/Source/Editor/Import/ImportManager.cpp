@@ -87,7 +87,7 @@ namespace Desert::Editor
         // A COOK WRITES NOTHING INTO CONTENT (SELF-COOK; UE: the cook reads the packages the import made and puts
         // only derived data into the DDC). Every branch of the import that creates or rewrites a file beside the
         // source - the import record, the skeleton, the clips, the skinned or static mesh, the material and the
-        // textures it packs or imports - asks here first: the user's import writes, the boot/background cook is
+        // textures it packs or imports - asks here first: the user's import writes, a load's on-demand cook is
         // refused with the file and the re-import that writes it. A checkout that was merely opened stays clean.
         Common::BoolResultStr ContentWriteAllowed( const ImportPass pass, const std::filesystem::path& source,
                                                    const std::filesystem::path& file, std::string_view what )
@@ -666,7 +666,7 @@ namespace Desert::Editor
         // THE IMPORT TEMPLATES ARE THE ASSET REGISTRY'S SHADERS (MAT1b), not a second scan of the shader
         // directory: whatever the editor loaded as a ShaderAsset, and only that, can take an imported material.
         // Published once the shaders are loaded (EditorLayer, after CompileEngineShaders) and read by every
-        // importer — the background cook's per-thread ones included — so the snapshot is swapped under a lock.
+        // importer — the on-demand cook's per-thread ones included — so the snapshot is swapped under a lock.
         std::mutex                                         s_TemplatesMutex;
         std::shared_ptr<const std::vector<ImportTemplate>> s_Templates;
 
@@ -921,6 +921,13 @@ namespace Desert::Editor
         }
         cooks.Done.notify_all();
         return verdict;
+    }
+
+    std::size_t MeshSourceCooksRunning()
+    {
+        MeshSourceCooks&                  cooks = RunningMeshSourceCooks();
+        const std::lock_guard<std::mutex> lock( cooks.Mutex );
+        return cooks.Running.size();
     }
 
     Common::BoolResultStr BuildMeshSourceOnMiss( const std::filesystem::path& source )
