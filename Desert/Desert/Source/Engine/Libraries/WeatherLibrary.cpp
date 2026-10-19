@@ -27,7 +27,8 @@ namespace Desert::Libraries
         if ( !handle )
             return Common::MakeFormattedError<bool>( "Weather.set: {}", handle.GetError() );
         Core::Scene* scene = world.GetValue();
-        if ( auto set = scene->GetWeather().Set( scene->GetRegistry(), zone.GetHandle(), handle.GetValue(), seconds );
+        if ( auto set =
+                  scene->GetWeather().Set( scene->GetRegistry(), zone.GetHandle(), handle.GetValue(), seconds );
              !set )
             return Common::MakeFormattedError<bool>( "Weather.set: {}", set.GetError() );
         return BOOLSUCCESS;

@@ -34,8 +34,8 @@ namespace Desert::Runtime
         void Clear();
 
     private:
-        std::weak_ptr<Assets::AssetManager>                                                  m_Assets;
+        std::weak_ptr<Assets::AssetManager>                                                m_Assets;
         std::unordered_map<Assets::AssetHandle, Assets::Asset<Assets::WeatherPresetAsset>> m_Held;
-        std::unordered_map<Assets::AssetHandle, std::string>                                 m_Failed;
+        std::unordered_map<Assets::AssetHandle, std::string>                               m_Failed;
     };
 } // namespace Desert::Runtime

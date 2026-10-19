@@ -37,8 +37,7 @@ namespace Desert::Assets
         if ( text.empty() )
         {
             m_Ready = false;
-            return Common::MakeFormattedError<bool>( "weather preset '{}' is empty or could not be opened",
-                                                     path );
+            return Common::MakeFormattedError<bool>( "weather preset '{}' is empty or could not be opened", path );
         }
         auto parsed = Serialization::ParseWeatherPreset( text );
         if ( !parsed )
@@ -62,13 +61,12 @@ namespace Desert::Assets
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr WeatherPresetAsset::Save( const Common::Filepath&                   filepath,
-                                                      const Serialization::WeatherPresetData& data )
+    Common::BoolResultStr WeatherPresetAsset::Save( const Common::Filepath&                 filepath,
+                                                    const Serialization::WeatherPresetData& data )
     {
         if ( auto ok = Serialization::SaveWeatherPresetFile( filepath, data ); !ok )
             return ok;
-        LOG_INFO( "[Weather] Preset written: '{}', {} parameters.", filepath.string(),
-                  data.Parameters.size() );
+        LOG_INFO( "[Weather] Preset written: '{}', {} parameters.", filepath.string(), data.Parameters.size() );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Assets

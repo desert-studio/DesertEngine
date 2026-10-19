@@ -284,7 +284,8 @@ namespace Common::Constants
              // World parameter collections (`.dworldparams`, UE UMaterialParameterCollection): the scene's
              // World Parameters slot offers only what is scanned from here.
              /* WorldParameters */ { "WorldParameters/", DirRoot::Assets },
-             // Weather presets (`.dweatherpreset`, WTH-STATE): a weather zone's Preset slot offers what is scanned here.
+             // Weather presets (`.dweatherpreset`, WTH-STATE): a weather zone's Preset slot offers what is scanned
+             // here.
              /* Weather       */ { "Weather/", DirRoot::Assets },
              // Input actions and mapping contexts (`.deinputaction`, `.deinputcontext`, UE Enhanced Input).
              /* Input         */ { "Input/", DirRoot::Assets },
