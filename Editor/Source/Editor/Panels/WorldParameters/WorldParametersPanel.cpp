@@ -1,5 +1,6 @@
 #include "WorldParametersPanel.hpp"
 
+#include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/EditorSubject.hpp>
 #include <Editor/Core/SubjectTitle.hpp>
 
@@ -11,7 +12,9 @@
 #include <ImGui/imgui.h>
 
 #include <array>
+#include <filesystem>
 #include <format>
+#include <system_error>
 
 namespace Desert::Editor
 {
@@ -193,5 +196,45 @@ namespace Desert::Editor
         }
         m_OnDisk = *m_Data;
         return true;
+    }
+
+    SubjectEditorRegistry::PathOpenOutcome RequestWorldParametersDocument( Assets::AssetManager*        assets,
+                                                                           const std::string&           path,
+                                                                           const SubjectEditorRegistry& editors )
+    {
+        using Outcome = SubjectEditorRegistry::PathOpenOutcome;
+        std::error_code ec;
+        if ( assets == nullptr ||
+             std::filesystem::path( path ).extension() != Assets::Serialization::kWorldParametersExtension ||
+             !std::filesystem::exists( path, ec ) )
+            return Outcome::NotMine;
+
+        auto asset = assets->FindByPath<Assets::WorldParametersAsset>( path );
+        if ( !asset )
+            asset = assets->CreateAsset<Assets::WorldParametersAsset>( path );
+        if ( !asset )
+        {
+            LOG_ERROR( "[WorldParameters] '{}' could not be registered as a collection - no editor was opened.",
+                       path );
+            return Outcome::Failed;
+        }
+        if ( !asset->IsReadyForUse() )
+        {
+            if ( const auto loaded = asset->LoadFromFile(); !loaded )
+            {
+                LOG_ERROR( "[WorldParameters] '{}' would not load as a collection - no editor was opened: {}",
+                           path, loaded.GetError() );
+                return Outcome::Failed;
+            }
+        }
+
+        const auto handle = asset->GetMetadata().Handle;
+        if ( const auto opened = Core::RequestOpenAsset( assets->FindMetadataByHandle( handle ), handle, editors );
+             !opened.IsSuccess() )
+        {
+            LOG_ERROR( "[WorldParameters] '{}': {}", path, opened.GetError() );
+            return Outcome::Failed;
+        }
+        return Outcome::Requested;
     }
 } // namespace Desert::Editor

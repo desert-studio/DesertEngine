@@ -3,6 +3,7 @@
 #include "../IPanel.hpp"
 
 #include <Editor/Core/Commands/InputAssetEdit.hpp>
+#include <Editor/Core/SubjectEditorRegistry.hpp>
 
 #include <Engine/Assets/Serialization/WorldParameters.hpp>
 
@@ -64,4 +65,11 @@ namespace Desert::Editor
         std::string                     m_Status;
         bool                            m_StatusIsError = false;
     };
+
+    // The Content Browser's "Open" on a `.dworldparams`: registers the file with the asset manager if needed,
+    // loads it, and asks the one handle route (Core::RequestOpenAsset) for its WorldParametersPanel. NotMine for
+    // any other extension or a path with no file; Failed, with the reason logged, when it will not load or open.
+    [[nodiscard]] SubjectEditorRegistry::PathOpenOutcome
+    RequestWorldParametersDocument( Assets::AssetManager* assets, const std::string& path,
+                                    const SubjectEditorRegistry& editors );
 } // namespace Desert::Editor

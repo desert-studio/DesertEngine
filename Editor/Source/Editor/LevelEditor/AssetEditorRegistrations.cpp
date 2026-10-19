@@ -567,6 +567,10 @@ namespace Desert::Editor
              [&documents, &assetManager]( const std::string& path )
              { return RequestVFXDataChannelDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
         documents.SubjectEditors().RegisterPathOpener(
+             { std::string( Assets::Serialization::kWorldParametersExtension ) },
+             [&documents, &assetManager]( const std::string& path )
+             { return RequestWorldParametersDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
+        documents.SubjectEditors().RegisterPathOpener(
              { std::string( Animation::Timeline::kLevelSequenceExtension ) },
              [&documents, &assetManager]( const std::string& path ) {
                  return Editor::RequestLevelSequenceDocument( assetManager.get(), path,
