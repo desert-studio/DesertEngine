@@ -120,6 +120,12 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
      */
     std::vector<uint32_t> ReflectFragmentOutputLocations( const std::vector<uint32_t>& spirv );
 
+    // The bytes of shared (Workgroup storage class) memory ONE compute stage declares, every `shared` variable
+    // laid out by std430 rules (a vec3 element strides 16): the conservative count VkPhysicalDeviceLimits::
+    // maxComputeSharedMemorySize is held against (VulkanShader::Reflect). An array sized by a specialization
+    // constant counts its default size. Pure.
+    [[nodiscard]] uint64_t ReflectWorkgroupMemoryBytes( const std::vector<uint32_t>& spirv );
+
     /**
      * A graphics pipeline's per-attachment colour state: one entry per colour slot of the target, and a slot
      * the fragment stage does not write has colour write mask 0 and blending off.

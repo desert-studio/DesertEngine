@@ -283,20 +283,21 @@ namespace Desert::Graphic
         // After the temporal resolve the scene target is the RENDER-extent pre-resolve scene: the overlay
         // draws into the OUTPUT-extent overlay set instead - every attachment replaced, so the render pass has
         // one extent (colour 0 the resolved colour, the velocity slot the overlay velocity, the depth the one
-        // PopulateSceneDepth filled, the responsive-AA slot the overlay mask - never read; one sample, so no
-        // resolves).
+        // PopulateSceneDepth filled, the responsive-AA and thin-geometry-coverage slots overlay textures - never
+        // read; one sample, so no resolves).
         if ( overlay.IsValid() && target == m_TargetFramebuffer )
         {
-            if ( targets->Colors.size() != kSceneTargetResponsiveAASlot + 1 )
+            if ( targets->Colors.size() != kSceneTargetThinGeometryCoverageSlot + 1 )
             {
                 LOG_ERROR( "[SceneRenderer] pass '{}' refused: the scene target has {} colours, the overlay set "
-                           "replaces exactly colour 0, the velocity slot and the responsive-AA slot",
+                           "replaces exactly colour 0, the velocity, responsive-AA and thin-geometry-coverage slots",
                            pass.Name, targets->Colors.size() );
                 return;
             }
             targets->Colors[0]                            = overlay.Color;
             targets->Colors[kSceneTargetVelocitySlot]     = overlay.Velocity;
             targets->Colors[kSceneTargetResponsiveAASlot] = overlay.ResponsiveAA;
+            targets->Colors[kSceneTargetThinGeometryCoverageSlot] = overlay.ThinGeometryCoverage;
             targets->Depth                            = overlay.Depth;
             targets->Resolves                         = {};
         }

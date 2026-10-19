@@ -169,15 +169,11 @@ namespace Desert::Editor
         if ( Utils::ImGuiUtilities::SectionHeader( "Anti-Aliasing" ) )
         {
             // ONE METHOD (AA1, UE's r.AntiAliasingMethod + r.MSAACount) and a sample count shown only under
-            // MSAA. The list is the catalog's, minus the vendor temporal methods (FSRNative / DLAA): no pass runs
-            // them in this build, so offering them would be a dead setting. TAA runs (TAA1-B) and is the method
-            // that lets Resolution.Percent go below 100 %.
-            std::vector<SC::AntiAliasingMethod> methods;
-            for ( const SC::AntiAliasingMethod method : catalog.AntiAliasingMethods )
-                if ( method == SC::AntiAliasingMethod::None || method == SC::AntiAliasingMethod::FXAA ||
-                     method == SC::AntiAliasingMethod::SMAA || method == SC::AntiAliasingMethod::MSAA ||
-                     method == SC::AntiAliasingMethod::TAA )
-                    methods.push_back( method );
+            // MSAA. The list is the catalog's: every method it offers runs here - FSRNative and DLAA only where
+            // the device and the build have the vendor upscaler (Graphic/API/UpscalerBuild.hpp). TAA (TAA1-B) and
+            // the vendor methods are the ones that let Resolution.Percent go below 100 %.
+            const std::vector<SC::AntiAliasingMethod> methods( catalog.AntiAliasingMethods.begin(),
+                                                               catalog.AntiAliasingMethods.end() );
 
             const auto requestedMethod =
                  static_cast<SC::AntiAliasingMethod>( Requested( SC::Parameter::AntiAliasingMethod ) );
@@ -235,6 +231,38 @@ namespace Desert::Editor
                     SC::QualityState::SetOverride( SC::Parameter::AntiAliasingSamples, counts[*picked] );
                 ShowFallback( resolved, SC::Parameter::AntiAliasingSamples );
             }
+
+            // UE's r.NGX.DLSS.<Mode>Preset: which DLSS network each DLSS mode runs. Shown where this device offers
+            // DLSS (DLAA at 100 %, the DLSS upscaler below it) - elsewhere the rows have no reader.
+            if ( std::find( catalog.Upscalers.begin(), catalog.Upscalers.end(), SC::Upscaler::DLSS ) !=
+                 catalog.Upscalers.end() )
+            {
+                static constexpr std::array<std::pair<SC::Parameter, const char*>, 6> kPresetRows{ {
+                     { SC::Parameter::DlssPresetDLAA, "DLSS Preset: DLAA" },
+                     { SC::Parameter::DlssPresetUltraQuality, "DLSS Preset: Ultra Quality" },
+                     { SC::Parameter::DlssPresetQuality, "DLSS Preset: Quality" },
+                     { SC::Parameter::DlssPresetBalanced, "DLSS Preset: Balanced" },
+                     { SC::Parameter::DlssPresetPerformance, "DLSS Preset: Performance" },
+                     { SC::Parameter::DlssPresetUltraPerformance, "DLSS Preset: Ultra Performance" },
+                } };
+                for ( const auto& [parameter, label] : kPresetRows )
+                {
+                    const int requested = Requested( parameter );
+                    if ( const auto picked = ValueCombo(
+                              label,
+                              requested >= 0 && requested < static_cast<int>( SC::kDlssPresetNames.size() )
+                                   ? static_cast<std::size_t>( requested )
+                                   : SC::kDlssPresetNames.size(),
+                              SC::kDlssPresetNames.size(),
+                              []( std::size_t i ) { return std::string( SC::kDlssPresetNames[i] ); } ) )
+                        SC::QualityState::SetOverride( parameter, static_cast<SC::ParameterValue>( *picked ) );
+                    ShowFallback( resolved, parameter );
+                }
+                Utils::ImGuiUtilities::Tooltip( "Default is NVIDIA's network for the mode. K: transformer, best "
+                                                "quality (default for DLAA, Quality, Balanced); M: default for "
+                                                "Performance; L: default for Ultra Performance; J: like K with "
+                                                "less ghosting and more flicker. Applies on the next frame." );
+            }
         }
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Resolution" ) )
@@ -263,8 +291,51 @@ namespace Desert::Editor
             std::vector<SC::Upscaler> vendors;
             for ( const SC::Upscaler upscaler : catalog.Upscalers )
                 if ( upscaler != SC::Upscaler::None && upscaler != SC::Upscaler::TAAU &&
-                     upscaler != SC::Upscaler::Spatial )
+                     upscaler != SC::Upscaler::TSR && upscaler != SC::Upscaler::Spatial )
                     vendors.push_back( upscaler );
+            // The engine's own temporal upscaler (UE: TSR vs TAAU), used below 100 % when no vendor override is
+            // picked and when the picked one is not offered.
+            const auto engineTemporal =
+                 static_cast<SC::EngineTemporalUpscaler>( Requested( SC::Parameter::TemporalUpscaler ) );
+            if ( const auto picked = ValueCombo( "Temporal Upscaler", static_cast<std::size_t>( engineTemporal ),
+                                                 SC::kEngineTemporalUpscalerNames.size(), []( std::size_t i )
+                                                 { return std::string( SC::kEngineTemporalUpscalerNames[i] ); } ) )
+                SC::QualityState::SetOverride( SC::Parameter::TemporalUpscaler,
+                                               static_cast<SC::ParameterValue>( *picked ) );
+            Utils::ImGuiUtilities::Tooltip( "The engine's temporal upscaler below 100 %: TSR (temporal super "
+                                            "resolution, UE TSR) or TAAU. A vendor override replaces it where "
+                                            "the device offers one." );
+            ShowFallback( resolved, SC::Parameter::TemporalUpscaler );
+            if ( resolved.As<SC::EngineTemporalUpscaler>( SC::Parameter::TemporalUpscaler ) ==
+                 SC::EngineTemporalUpscaler::TSR )
+            {
+                // UE's sg.AntiAliasingQuality rows of r.TSR.*; the level sets them, an override replaces one.
+                const auto tsrSlider = [&]( const char* label, SC::Parameter parameter, const char* tooltip )
+                {
+                    const SC::ParameterSpec& spec  = SC::SpecOf( parameter );
+                    int                      value = Requested( parameter );
+                    if ( ImGui::SliderInt( label, &value, spec.Min, spec.Max, "%d",
+                                           ImGuiSliderFlags_AlwaysClamp ) )
+                        SC::QualityState::SetOverride( parameter, static_cast<SC::ParameterValue>( value ) );
+                    Utils::ImGuiUtilities::Tooltip( tooltip );
+                    ShowFallback( resolved, parameter );
+                };
+                tsrSlider( "TSR History %", SC::Parameter::TsrHistoryScreenPercentage,
+                           "r.TSR.History.ScreenPercentage: the history's size in percent of the output." );
+                tsrSlider( "TSR Update Quality", SC::Parameter::TsrHistoryUpdateQuality,
+                           "r.TSR.History.UpdateQuality: how the history is resampled and clamped (0..3)." );
+                tsrSlider( "TSR Flickering", SC::Parameter::TsrShadingRejectionFlickering,
+                           "r.TSR.ShadingRejection.Flickering: keep the history of flickering detail (1) or "
+                           "reject it like any other change (0)." );
+                tsrSlider(
+                     "TSR Rejection AA", SC::Parameter::TsrRejectionAntiAliasing,
+                     "r.TSR.RejectionAntiAliasingQuality: spatial anti-aliasing of rejected pixels (0 off)." );
+                tsrSlider( "TSR Reprojection Field", SC::Parameter::TsrReprojectionField,
+                           "r.TSR.ReprojectionField: reproject with the depth-anti-aliased reprojection field and its "
+                           "jacobian (1) or the dilated velocity alone (0)." );
+                tsrSlider( "TSR Resurrection", SC::Parameter::TsrResurrection,
+                           "r.TSR.Resurrection: keep persistent frames and resurrect disoccluded history from them." );
+            }
             if ( !vendors.empty() )
             {
                 const auto requestedUpscaler = static_cast<SC::Upscaler>( Requested( SC::Parameter::Upscaler ) );
@@ -273,7 +344,7 @@ namespace Desert::Editor
                 if ( const auto picked =
                           ValueCombo( "Upscaler Override", IndexOf( choices, requestedUpscaler ), choices.size(),
                                       [&choices]( std::size_t i ) {
-                                          return i == 0 ? std::string( "Engine (TAAU)" )
+                                          return i == 0 ? std::string( "Engine" )
                                                         : std::string( rfl::enum_to_string( choices[i] ) );
                                       } ) )
                     SC::QualityState::SetOverride( SC::Parameter::Upscaler,

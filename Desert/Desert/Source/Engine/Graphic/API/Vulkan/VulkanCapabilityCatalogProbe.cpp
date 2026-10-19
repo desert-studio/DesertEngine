@@ -1,4 +1,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDeviceExtensions.hpp>
+
+#include <Engine/Graphic/API/UpscalerBuild.hpp>
 
 #include <vulkan/vulkan.h>
 
@@ -13,6 +16,14 @@ namespace Desert::Graphic::API::Vulkan
         CatalogProbe probe;
         probe.Caps        = caps;
         probe.Portability = caps.Has( Capability::PortabilitySubset );
+
+        // FSR is linked (not a runtime that loads or not): the device and the build decide, by name.
+        if ( const Common::BoolResultStr fsr = FsrDeviceSupport( caps, kFsrBuilt ); fsr )
+            probe.FsrAvailable = true;
+        else
+        {
+            LOG_INFO( "[CapabilityCatalog] {}", fsr.GetError() );
+        }
 
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties( physicalDevice, &properties );
@@ -96,6 +107,10 @@ namespace Desert::Graphic::API::Vulkan
                     probe.PresentModes.clear();
             }
         }
+        // What a vendor runtime offers (DlssAvailable...): its own answer, given once the device's requirements
+        // were enabled or refused.
+        for ( const IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            extension->AmendCatalogProbe( probe );
         return probe;
     }
 } // namespace Desert::Graphic::API::Vulkan

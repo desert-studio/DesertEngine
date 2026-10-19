@@ -1218,8 +1218,34 @@ namespace Desert::Graphic
             overridePercent = std::nullopt;
             upscaler        = Common::Scalability::Upscaler::None;
         }
+        // A vendor method its runtime stopped offering (DLSS after an exception inside its evaluation) renders
+        // with the engine's method instead, said once per reason; the frame never waits on a method that cannot
+        // write its output.
+        // Ray Reconstruction is refused also by the VIEW: it denoises traced lighting, so a view that traces none
+        // (or renders the forward path, which has no G-buffer for its guides) runs DLSS Super Resolution instead.
+        const VendorMethodFallback vendor = ReplaceUnavailableVendorMethods(
+             m_RenderedAntiAliasing, upscaler,
+             [this]( const TemporalMethod method ) -> std::string
+             {
+                 if ( method == TemporalMethod::DLSSRR )
+                     if ( std::string why = RayReconstructionRefusal(
+                               m_RenderMethods.Reflections.Effective, m_RenderMethods.GlobalIllumination.Effective,
+                               m_RenderMethods.Shadows.Effective, m_GBuffer != nullptr );
+                          !why.empty() )
+                         return why;
+                 return TemporalMethodUnavailable( method );
+             } );
+        if ( vendor.Why != m_VendorFallbackSaid )
+        {
+            if ( !vendor.Why.empty() )
+                LOG_ERROR( "[SceneRenderer] {}: {}; the view renders with the engine's temporal method instead",
+                           m_ViewResources.GetName(), vendor.Why );
+            m_VendorFallbackSaid = vendor.Why;
+        }
+        m_RenderedAntiAliasing                           = vendor.AntiAliasing;
         const Common::ResultStr<ViewResolution> resolved = ResolveViewResolution(
-             m_ViewExtent, settingPercent, overridePercent, m_RenderedAntiAliasing, upscaler,
+             m_ViewExtent, settingPercent, overridePercent, m_RenderedAntiAliasing, vendor.Upscaler,
+             m_Quality.As<Common::Scalability::EngineTemporalUpscaler>( Parameter::TemporalUpscaler ),
              [this]( const TemporalMethod method ) -> const ITemporalUpscaler*
              {
                  EnsureTemporalUpscaler( method );
@@ -1237,6 +1263,7 @@ namespace Desert::Graphic
         inputs.AntiAliasing                      = m_RenderedAntiAliasing;
         inputs.Upscaler                          = resolved.GetValue().Upscaler; // the view's, not the setting's
         inputs.Quality                           = m_TemporalAAQuality;
+        inputs.Scalability                       = &m_Quality;
         inputs.TimeSeconds                       = m_SceneTimeSeconds;
         m_LastRenderScalePercent                 = inputs.RenderScalePercent;
         const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, m_TemporalUpscaler.get() );
@@ -1328,6 +1355,12 @@ namespace Desert::Graphic
                  graph, RDG::Extent3D{ frame.Split.Render.Width, frame.Split.Render.Height, 1 }, target.Samples );
             textures.Transients.ResponsiveAA = responsive.Resolved;
             textures.AddGraphColor( m_TargetFramebuffer, ResponsiveAAColor( responsive, target.Samples ) );
+            // After them on both targets (kSceneTargetThinGeometryCoverageSlot / kGBufferThinGeometryCoverageSlot).
+            const ViewVelocity coverage = CreateViewThinGeometryCoverage(
+                 graph, RDG::Extent3D{ frame.Split.Render.Width, frame.Split.Render.Height, 1 }, target.Samples );
+            textures.Transients.ThinGeometryCoverage = coverage.Resolved;
+            textures.AddGraphColor( m_TargetFramebuffer, ThinGeometryCoverageColor( coverage, target.Samples ) );
+            textures.AddGraphColor( m_GBuffer, ThinGeometryCoverageColor( coverage, 1 ) );
         }
         const auto values = std::make_shared<FrameValues>();
 
@@ -1697,6 +1730,31 @@ namespace Desert::Graphic
         // the engine that belong under every translucent layer join here.
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterOpaque, {} );
 
+        // AutoExposure's build-time step, before the first node that reads last frame's adapted luminance: the
+        // temporal method's opaque passes below and the temporal node.
+        const RDG::TextureRef exposurePrevious = PrepareFrameAutoExposure( textures );
+        // The temporal method's passes over the OPAQUE scene, before the translucency composites into the scene
+        // colour (ITemporalUpscaler::AddOpaquePasses; UE AddTSRMeasureFlickeringLuma). A refusal is said; the
+        // temporal node then refuses itself by name if it needed the result.
+        RDG::TextureRef opaqueLuma;
+        // A multisampled scene target has no temporal resolve (AddFrameTemporal's refusal), so nothing to measure.
+        if ( frame.Method != TemporalMethod::None && m_TemporalUpscaler != nullptr && m_TargetFramebuffer &&
+             m_TargetFramebuffer->GetSpecification().Samples == 1 )
+        {
+            const Common::ResultStr<RDG::TextureRef> measured = m_TemporalUpscaler->AddOpaquePasses(
+                 graph, frame,
+                 TemporalUpscalerOpaqueInputs{
+                      .SceneColor =
+                           textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
+                      .Exposure = exposurePrevious.IsValid() ? exposurePrevious : textures.System.White,
+                      .Quality  = &m_Quality } );
+            if ( measured )
+                opaqueLuma = measured.GetValue();
+            else
+                LOG_ERROR( "[SceneRenderer] {}: the temporal method's opaque passes are refused: {}",
+                           m_ViewResources.GetName(), measured.GetError() );
+        }
+
         // The translucency, the debug lines and the UI canvas run AFTER the deferred lighting composite so lit
         // geometry does not paint over them, and as LOAD nodes so a CLEAR never wipes the depth later overlays
         // test against (the particle top-down bug / grid-through-meshes).
@@ -1722,8 +1780,7 @@ namespace Desert::Graphic
         // gizmos, UI) are UNJITTERED: their shaders read ViewFrame::ViewProjection or the camera's matrices, never
         // JitteredViewProjection (Camera.hpp WHICH MATRIX). Without a temporal method the post input is the scene
         // colour, as before.
-        const RDG::TextureRef              exposurePrevious = PrepareFrameAutoExposure( textures );
-        const OverlayTargets               overlay = AddFrameTemporal( graph, textures, frame, exposurePrevious );
+        const OverlayTargets overlay = AddFrameTemporal( graph, textures, frame, exposurePrevious, opaqueLuma );
         const std::vector<RDG::TextureRef> postInput =
              overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
 #if DESERT_DEV_INSTRUMENTS
@@ -2549,7 +2606,8 @@ namespace Desert::Graphic
 
     SceneRenderer::OverlayTargets SceneRenderer::AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures,
                                                                    const ViewFrame&      frame,
-                                                                   const RDG::TextureRef exposure )
+                                                                   const RDG::TextureRef exposure,
+                                                                   const RDG::TextureRef opaqueLuma )
     {
         // The resolve of this frame: the temporal method's, the spatial upscale (below 100 % without one), and
         // above 100 % the fixed SSAA downsample after the temporal method, or alone without one
@@ -2592,13 +2650,23 @@ namespace Desert::Graphic
         const std::vector<HistoryRefs> histories =
              temporal ? m_ViewState.History().Register( graph ) : std::vector<HistoryRefs>{};
         const TemporalUpscalerInputs inputs{
-             .SceneColor = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
-             .SceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
-             .Velocity   = textures.Transients.Velocity,
+             .SceneColor   = textures.Import( m_TargetFramebuffer->GetColorAttachmentImage( 0 ), "SceneColor" ),
+             .SceneDepth   = textures.Depth( m_TargetFramebuffer, "SceneColor" ),
+             .Velocity     = textures.Transients.Velocity,
              .ResponsiveAA = textures.Transients.ResponsiveAA,
              // No exposure node this frame: unit luminance (System.White), the weight of a neutral exposure.
-             .Exposure = exposure.IsValid() ? exposure : textures.System.White,
-             .History  = histories };
+             .Exposure             = exposure.IsValid() ? exposure : textures.System.White,
+             .ThinGeometryCoverage = textures.Transients.ThinGeometryCoverage,
+             .OpaqueLuma           = opaqueLuma,
+             .Black                = textures.System.Black,
+             // The surface guides of an upscaler that takes the lighting raw (deferred path only).
+             .GBufferAlbedo = m_GBuffer ? textures.Colors( m_GBuffer, "GBuffer" )[0] : RDG::TextureRef{},
+             .GBufferNormal = m_GBuffer ? textures.Colors( m_GBuffer, "GBuffer" )[1] : RDG::TextureRef{},
+             .BrdfLut       = textures.Transients.BrdfLut,
+             .ReflectionRay = textures.Transients.ReflectionRay,
+             .History              = histories,
+             .PrevHistory          = temporal ? m_ViewState.UpscalerHistory() : nullptr,
+             .Quality              = &m_Quality };
         RDG::TextureRef resolvedColor;
         if ( spatial )
         {
@@ -2618,6 +2686,7 @@ namespace Desert::Graphic
                 if ( !added )
                     return withoutTemporal( added.GetError() );
                 resolvedColor = added.GetValue().SceneColor;
+                m_ViewState.SetUpscalerHistory( added.GetValue().NewHistory );
             }
             // Above 100 % the temporal output is at RenderExtent; the downsample brings it to OutputExtent, where
             // the overlay target set and the post chain are.
@@ -2679,6 +2748,8 @@ namespace Desert::Graphic
         overlay.Velocity = graph.CreateTexture( desc, "Overlay.Velocity" );
         desc.Format          = ViewTargetFormats::kResponsiveAA;
         overlay.ResponsiveAA = graph.CreateTexture( desc, "Overlay.ResponsiveAA" );
+        desc.Format                  = ViewTargetFormats::kThinGeometryCoverage;
+        overlay.ThinGeometryCoverage = graph.CreateTexture( desc, "Overlay.ThinGeometryCoverage" );
         desc.Format      = ViewTargetFormats::kSceneDepth;
         overlay.Depth    = graph.CreateTexture( desc, "Overlay.SceneDepth" );
         const System::PopulateSceneDepthRenderer* populate = m_PopulateSceneDepth.get();

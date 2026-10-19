@@ -67,6 +67,9 @@ namespace Desert::Graphic
         RDG::TextureRef LightShafts;    // LightShaftRenderer result          -> Tonemap
         RDG::TextureRef LensFlare;      // LensFlareRenderer result           -> Tonemap
         RDG::TextureRef SSAO;           // SSAO factor                        -> deferred lighting
+        // SSR's full-resolution trace ray (xyz the point each pixel's reflection came from, w log2 pdf, -126 no
+        // ray), set only when the temporal upscaler takes the reflection raw  -> TemporalUpscalerInputs
+        RDG::TextureRef ReflectionRay;
         RDG::TextureRef SceneColorCopy; // scene snapshot                     -> glass refraction
         // The opaque scene's device depth (the G-buffer depth, reversed-Z), set by the deferred composite; invalid
         // on the forward path, which has no depth before its meshes draw   -> contact shadows of the forward
@@ -91,6 +94,9 @@ namespace Desert::Graphic
         // The view's responsive-AA mask (ViewRasterTargets.hpp CreateViewResponsiveAA): a colour slot of the scene
         // target only, written by ResponsiveAA translucency (glass, particles)   -> TAA
         RDG::TextureRef ResponsiveAA;
+        // The view's thin-geometry coverage (ViewRasterTargets.hpp CreateViewThinGeometryCoverage): a colour slot of
+        // the scene target and of the G-buffer, written by the passes that write the view's depth   -> TSR
+        RDG::TextureRef ThinGeometryCoverage;
         // The scene/view inputs every lit pass samples (UE: the view uniform buffer's shadow / sky /
         // PreIntegratedGF textures), imported once per graph by SceneRenderer::ImportSceneViewTextures before any
         // node is added: the sun's cascade array (MeshRenderer::AcquireCascadeMaps, layer c = cascade c; a cleared

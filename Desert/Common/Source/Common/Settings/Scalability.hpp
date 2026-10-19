@@ -192,6 +192,34 @@ namespace Common::Scalability
         // r.Lumen.Reflections.DownsampleFactor). 1 = every pixel traced each frame; 2 = one pixel of each 2x2
         // block, rotating per frame, the denoiser's reconstruction and history filling the other three. 1..2
         ReflectionDownsampleFactor,
+        // The DLSS preset of each DLSS mode (DLSSUpscaler: the mode its split selects reads its row). Values:
+        // DlssPreset (CapabilityCatalog.hpp). Read only while DLSS runs.
+        DlssPresetDLAA,
+        DlssPresetUltraQuality,
+        DlssPresetQuality,
+        DlssPresetBalanced,
+        DlssPresetPerformance,
+        DlssPresetUltraPerformance,
+        // The Ray Reconstruction preset of each DLSS mode (DLSSUpscaler under Upscaler::DLSSRayReconstruction: the
+        // mode its split selects reads its row). Values: DlssRRPreset (CapabilityCatalog.hpp). Read only while
+        // Ray Reconstruction runs.
+        DlssRRPresetDLAA,
+        DlssRRPresetUltraQuality,
+        DlssRRPresetQuality,
+        DlssRRPresetBalanced,
+        DlssRRPresetPerformance,
+        DlssRRPresetUltraPerformance,
+        // The engine's own temporal upscaler below 100 % when no vendor one is asked for, and the fallback of a
+        // vendor upscaler the device does not offer. Values: EngineTemporalUpscaler (TAAU / TSR).
+        TemporalUpscaler,
+        // TSR (Graphic::TemporalSuperResolution), UE's sg.AntiAliasingQuality rows of r.TSR.*. Read only while
+        // TSR runs.
+        TsrHistoryScreenPercentage,    // r.TSR.History.ScreenPercentage: history extent, % of output. 100..200
+        TsrHistoryUpdateQuality,       // r.TSR.History.UpdateQuality: UpdateHistory shader variant. 0..3
+        TsrShadingRejectionFlickering, // r.TSR.ShadingRejection.Flickering: flicker-tolerant rejection. 0/1
+        TsrRejectionAntiAliasing,      // r.TSR.RejectionAntiAliasingQuality: spatial AA of rejected pixels. 0..2
+        TsrReprojectionField,          // r.TSR.ReprojectionField: depth-anti-aliased reprojection + jacobian. 0/1
+        TsrResurrection,               // r.TSR.Resurrection: resurrect disoccluded history from a kept frame. 0/1
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget
@@ -411,9 +439,11 @@ namespace Common::Scalability
     //   3. A value outside its spec range is clamped ("outside the parameter's range").
     //   4. A value its catalog list does not offer walks DOWN the list to the nearest offered value below it;
     //      if none, the list's front ("not offered by this device"). MSAACounts/AnisotropyLevels: largest offered
-    //      <= requested. Upscalers: DLSS/XeSS/MetalFX/FSR -> TAAU. AA methods: DLAA/FSRNative -> TAA.
+    //      <= requested. Upscalers: DLSS/XeSS/MetalFX/FSR -> TAAU; DLSSRayReconstruction -> DLSS where offered,
+    //      else TAAU. AA methods: DLAA/FSRNative -> TAA.
     //   5. Axis coupling: RenderScale < 100 and Upscaler None -> TAAU ("an upscaler is required below 100 %");
-    //      RenderScale >= 100 and Upscaler != None -> None ("upscaler unused at native/supersampled scale");
+    //      RenderScale >= 100 and Upscaler != None -> None ("upscaler unused at native/supersampled scale"),
+    //      except Ray Reconstruction under DLAA at exactly 100 % (IsNativeRayReconstruction);
     //      RenderScale < 100 -> AntiAliasingMethod effective = TAA unless it is DLAA/FSRNative matching the
     //      upscaler, which become that upscaler's temporal pass ("the upscaler anti-aliases below 100 %");
     //      AntiAliasingMethod MSAA with RenderScale != 100 -> FXAA ("MSAA renders at native scale only").
@@ -428,12 +458,27 @@ namespace Common::Scalability
     [[nodiscard]] bool IsTemporalAntiAliasing( AntiAliasingMethod method );
 
     // THE coupling rule of Resolve step 5, the one place the upscaler follows from (AA method, render scale):
-    // below 100 % a temporal method upscales temporally (@p vendorOverride kept; None and Spatial -> TAAU), and a
+    // below 100 % a temporal method upscales temporally (@p vendorOverride kept; None and Spatial -> the engine's
+    // own temporal upscaler @p engineTemporal: TAAU or TSR), and a
     // method without history (None / FXAA / SMAA / MSAA) is upscaled by Spatial whatever the override; at or
     // above 100 % nothing upscales (None). Total: every (method, percent) has an upscaler. Shared by Resolve (the
     // game setting) and the renderer's per-view resolution (an editor viewport's Screen Percentage), so the two
     // cannot disagree.
-    [[nodiscard]] Upscaler UpscalerForScale( AntiAliasingMethod method, int percent, Upscaler vendorOverride );
+    // Ray Reconstruction is a DLSS network with the denoiser in it, so at 100 % it is DLAA's: the one case an
+    // upscaler value stays at native scale is Upscaler::DLSSRayReconstruction under AntiAliasingMethod::DLAA at
+    // exactly 100 % (UE: r.NGX.DLSS.DenoiserMode on top of DLAA). Above 100 % it never runs (DLSS takes no
+    // supersampled input). Read by Resolve step 5, UpscalerForScale and Graphic::SelectTemporalMethod.
+    [[nodiscard]] constexpr bool IsNativeRayReconstruction( const AntiAliasingMethod method, const int percent,
+                                                            const Upscaler upscaler )
+    {
+        return percent == 100 && method == AntiAliasingMethod::DLAA && upscaler == Upscaler::DLSSRayReconstruction;
+    }
+
+    [[nodiscard]] Upscaler UpscalerForScale( AntiAliasingMethod method, int percent, Upscaler vendorOverride,
+                                             EngineTemporalUpscaler engineTemporal );
+
+    // The Upscaler value of an EngineTemporalUpscaler (TAAU -> Upscaler::TAAU, TSR -> Upscaler::TSR).
+    [[nodiscard]] Upscaler UpscalerOf( EngineTemporalUpscaler engineTemporal );
 
     // Per-path AA: what the scene framebuffer and the post pass run on a path that can / cannot multisample.
     struct PathAntiAliasing

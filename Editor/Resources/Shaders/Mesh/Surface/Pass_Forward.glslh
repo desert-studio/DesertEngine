@@ -28,6 +28,10 @@ layout( location = 0 ) out vec4 oColor;
 // the same surface's motion into the one velocity texture the G-buffer pass cleared (Graphic::kVelocityFormat).
 #include <Common/ObjectMotion.glslh>
 layout( location = 1 ) out vec2 oVelocity;
+// The view's thin-geometry coverage (slot 3 of the scene target, Common/ThinGeometryCoverage.glslh, included after
+// the generated dispatch below), as the G-buffer pass writes it: this pass writes the view's depth. Slot 2
+// (responsive AA) is translucency's, not written here.
+layout( location = 3 ) out float oThinGeometryCoverage;
 
 struct DirectionLight
 {
@@ -126,11 +130,16 @@ layout( binding = 21 ) uniform CloudShadowUB
 // THE lighting of this pass: the template's model (DESERT_SHADING_MODEL_INDEX, defined by the parser) through the
 // dispatch the registry generates. This pass names no model.
 #include <Generated/ShadingModels.glslh>
+// After the dispatch, not before: it includes the generated models itself, and a model included ahead of the
+// whole AmbientIBL text above takes its sampler-less half (DefaultLit.shadingmodel), leaving this lighting pass
+// without DesertSampleAmbient.
+#include <Common/ThinGeometryCoverage.glslh>
 
 void main()
 {
     // First, before any debug view returns early: a debug colour is still the same surface at the same depth.
-    oVelocity = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip );
+    oVelocity             = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip );
+    oThinGeometryCoverage = DesertThinGeometryCoverage( DESERT_SHADING_MODEL_INDEX );
     const SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
                               v_Surface.VertexColor, gl_FrontFacing );

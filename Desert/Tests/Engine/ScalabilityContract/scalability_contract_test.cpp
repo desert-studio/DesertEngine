@@ -898,16 +898,26 @@ TEST( ScalabilityContract, TheCacheKeyIsTheCreatedDevicesIdentityAndATableChange
 // so an editor viewport's Screen Percentage cannot pick an upscaler the game setting would not).
 TEST( ScalabilityContract, UpscalerForScaleIsResolvesCouplingRule )
 {
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 50, Upscaler::None ), Upscaler::TAAU );
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 99, Upscaler::FSR ), Upscaler::FSR ); // vendor override
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 100, Upscaler::TAAU ), Upscaler::None );
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 150, Upscaler::None ), Upscaler::None );
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::FXAA, 50, Upscaler::None ), Upscaler::Spatial );
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::MSAA, 50, Upscaler::TAAU ), Upscaler::Spatial );
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::None, 50, Upscaler::FSR ), Upscaler::Spatial );
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 50, Upscaler::Spatial ), Upscaler::TAAU );
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::FXAA, 100, Upscaler::Spatial ), Upscaler::None );
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::None, 100, Upscaler::None ), Upscaler::None );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 50, Upscaler::None, EngineTemporalUpscaler::TAAU ),
+               Upscaler::TAAU );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 99, Upscaler::FSR, EngineTemporalUpscaler::TAAU ),
+               Upscaler::FSR ); // vendor override
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 100, Upscaler::TAAU, EngineTemporalUpscaler::TAAU ),
+               Upscaler::None );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 150, Upscaler::None, EngineTemporalUpscaler::TAAU ),
+               Upscaler::None );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::FXAA, 50, Upscaler::None, EngineTemporalUpscaler::TAAU ),
+               Upscaler::Spatial );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::MSAA, 50, Upscaler::TAAU, EngineTemporalUpscaler::TAAU ),
+               Upscaler::Spatial );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::None, 50, Upscaler::FSR, EngineTemporalUpscaler::TAAU ),
+               Upscaler::Spatial );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 50, Upscaler::Spatial, EngineTemporalUpscaler::TAAU ),
+               Upscaler::TAAU );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::FXAA, 100, Upscaler::Spatial, EngineTemporalUpscaler::TAAU ),
+               Upscaler::None );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::None, 100, Upscaler::None, EngineTemporalUpscaler::TAAU ),
+               Upscaler::None );
     EXPECT_TRUE( IsTemporalAntiAliasing( AntiAliasingMethod::DLAA ) );
     EXPECT_FALSE( IsTemporalAntiAliasing( AntiAliasingMethod::SMAA ) );
 }

@@ -4,6 +4,7 @@
 // headers only; it does not link until TAA1's implementation step lands, and that step is done when this suite
 // passes unchanged. No GPU: the graph is a bare RDG::Builder that is never executed, and the upscaler is a fixture
 // that declares the same history TAA does.
+#include <Engine/Graphic/API/UpscalerBuild.hpp>
 #include <Engine/Graphic/GraphImageImporter.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/ImageFactory.hpp>
@@ -31,6 +32,8 @@ namespace Scal = Common::Scalability;
 
 namespace
 {
+    // The resolved quality BeginFrame hands HistoryDescs (ViewInputs::Scalability); the fixtures read none of it.
+    const Scal::ResolvedQuality kResolvedQuality{};
     constexpr ViewExtent k1080p{ 1920, 1080 };
 
     // ResultStr::GetValue is deleted on an rvalue (it would hand out a reference into a dying temporary).
@@ -78,7 +81,8 @@ namespace
         {
             return ( m_Method == TemporalMethod::TAAU ) == ( split.Mode == Scal::ScaleMode::Upscale );
         }
-        [[nodiscard]] std::vector<HistoryTextureDesc> HistoryDescs( const ResolutionSplit& split ) const override
+        [[nodiscard]] std::vector<HistoryTextureDesc>
+        HistoryDescs( const ResolutionSplit& split, const Scal::ResolvedQuality& /*quality*/ ) const override
         {
             const ViewExtent   side = split.Mode == Scal::ScaleMode::Supersample ? split.Render : split.Output;
             HistoryTextureDesc desc;
@@ -109,6 +113,7 @@ namespace
         in.CameraIdentity = 7;
         in.SceneIdentity  = 1;
         in.Output         = k1080p;
+        in.Scalability    = &kResolvedQuality;
         in.AntiAliasing   = Path( Scal::AntiAliasingMethod::TAA );
         in.TimeSeconds    = time;
         return in;
@@ -180,13 +185,17 @@ TEST( TemporalViewContract, MethodRefusesWhatScalabilityNeverProduces )
     // Below 100 % with no upscaler, and an upscaler at native scale: SCAL1's Resolve rule 5 removes both.
     EXPECT_FALSE( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), Scal::Upscaler::None ).IsSuccess() );
     EXPECT_FALSE( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 100 ), Scal::Upscaler::TAAU ).IsSuccess() );
-    // A vendor upscaler has no implementation in this build: an error naming it, not a quiet TAAU.
-    for ( const Scal::Upscaler vendor :
-          { Scal::Upscaler::FSR, Scal::Upscaler::DLSS, Scal::Upscaler::XeSS, Scal::Upscaler::MetalFX } )
+    // A vendor upscaler with no implementation in this build: an error naming it, not a quiet TAAU. FSR and DLSS
+    // have one exactly where their SDK is built (API/UpscalerBuild.hpp), XeSS and MetalFX nowhere yet.
+    for ( const Scal::Upscaler vendor : { Scal::Upscaler::XeSS, Scal::Upscaler::MetalFX } )
     {
         const auto chosen = SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), vendor );
         EXPECT_FALSE( chosen.IsSuccess() );
     }
+    EXPECT_EQ( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), Scal::Upscaler::FSR ).IsSuccess(),
+               kFsrBuilt );
+    EXPECT_EQ( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), Scal::Upscaler::DLSS ).IsSuccess(),
+               kDlssBuilt );
 }
 
 // ---- Jitter -------------------------------------------------------------------------------------------------
@@ -620,9 +629,10 @@ namespace
         OneNameUpscaler() : FixtureUpscaler( TemporalMethod::TAA )
         {
         }
-        [[nodiscard]] std::vector<HistoryTextureDesc> HistoryDescs( const ResolutionSplit& split ) const override
+        [[nodiscard]] std::vector<HistoryTextureDesc>
+        HistoryDescs( const ResolutionSplit& split, const Scal::ResolvedQuality& quality ) const override
         {
-            std::vector<HistoryTextureDesc> descs = FixtureUpscaler::HistoryDescs( split );
+            std::vector<HistoryTextureDesc> descs = FixtureUpscaler::HistoryDescs( split, quality );
             descs.front().PreviousName            = descs.front().Name;
             return descs;
         }

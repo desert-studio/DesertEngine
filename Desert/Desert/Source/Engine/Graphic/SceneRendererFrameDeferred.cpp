@@ -1445,15 +1445,20 @@ namespace Desert::Graphic
                        gbuffer.size() );
             return {};
         }
-        if ( !System::SSRRenderer::IsSupportedDownsampleFactor( m_ViewProfile.ReflectionDownsampleFactor ) )
+        // Raw under an upscaler that denoises (DLSS Ray Reconstruction): one trace per pixel (DownsampleFactor 1),
+        // no denoiser. The opaque reflections only: the front layer's are composited by the glass before the
+        // upscaler, which takes the opaque surface's guides and hit distance.
+        const bool raw = frontLayer == nullptr && m_TemporalUpscaler != nullptr &&
+                         m_TemporalUpscaler->TakesRawLightingSignals();
+        const uint32_t downsampleFactor = raw ? 1u : m_ViewProfile.ReflectionDownsampleFactor;
+        if ( !System::SSRRenderer::IsSupportedDownsampleFactor( downsampleFactor ) )
         {
             LOG_ERROR( "[SceneRenderer] Deferred: Reflections.DownsampleFactor is {}, the reflection trace knows 1 "
                        "and 2",
-                       m_ViewProfile.ReflectionDownsampleFactor );
+                       downsampleFactor );
             return {};
         }
-        const std::optional<System::SSRRenderer::TraceTargets> traceTargets =
-             ssr.Prepare( m_ViewProfile.ReflectionDownsampleFactor );
+        const std::optional<System::SSRRenderer::TraceTargets> traceTargets = ssr.Prepare( downsampleFactor );
         if ( !traceTargets || !screenTrace.HZB.IsValid() )
             return {};
         const RDG::TextureRef velocity = textures.Transients.Velocity;
@@ -1555,6 +1560,14 @@ namespace Desert::Graphic
                      return ssrPtr->RecordHitLighting( context, cameraPos, settings, sceneHistoryReadable, seed,
                                                        *hits );
                  } );
+        }
+        if ( raw )
+        {
+            // The trace IS the per-pixel reflection (rgb radiance, a coverage: what the denoiser outputs), and
+            // its ray is where each pixel's reflection came from - the upscaler's specular hit distance.
+            ssr.SkipDenoise();
+            textures.Transients.ReflectionRay = traceRay;
+            return FrameSSR{ .Resolved = trace };
         }
         const RDG::TextureRef resolved =
              ssr.Denoise( graph,

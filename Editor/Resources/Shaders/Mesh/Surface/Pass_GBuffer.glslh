@@ -18,6 +18,10 @@ layout( location = 3 ) out vec4 oGBufferEmissive; // Emissive.rgb (HDR; the defe
 // so it writes the same surface's motion.
 #include <Common/ObjectMotion.glslh>
 layout( location = 4 ) out vec2 oVelocity;
+// The view's thin-geometry coverage (slot 5 of the G-buffer target, Common/ThinGeometryCoverage.glslh): this pass
+// writes the view's depth, so it says what material won it.
+#include <Common/ThinGeometryCoverage.glslh>
+layout( location = 5 ) out float oThinGeometryCoverage;
 
 void main()
 {
@@ -37,5 +41,6 @@ void main()
          DesertMarkSunShadowReceive( word, s.ReceiveSunShadows ),
          ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );
     oGBufferEmissive = vec4( s.Emissive, s.AmbientOcclusion );
-    oVelocity = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip );
+    oVelocity             = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip );
+    oThinGeometryCoverage = DesertThinGeometryCoverage( DESERT_SHADING_MODEL_INDEX );
 }

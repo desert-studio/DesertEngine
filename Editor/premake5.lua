@@ -217,6 +217,10 @@ project "Editor"
         -- GetSaveFileNameA, SHBrowseForFolderA, CoTaskMemFree. The editor's and not Common's -- see
         -- Editor/Platform/DesktopPlatform.hpp.
         links { "comdlg32", "shell32", "ole32" }
+    filter {}
+
+    -- The DLSS runtime next to the executable (Desert/Dependencies.lua).
+    DesertCopyStreamlineRuntime()
 
     filter "system:macosx"
         -- Unlike Visual Studio, gmake does not link static-lib dependencies
