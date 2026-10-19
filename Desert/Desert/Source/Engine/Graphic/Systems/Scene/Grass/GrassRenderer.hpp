@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -60,6 +61,18 @@ namespace Desert::Graphic::System
         bool      CastDynamicShadow         = true;
     };
 
+    // A procedural blade's shape (Assets::Serialization::GrassBlade, colours linear), resolved by the ECS. The
+    // vertex stage reads the first eleven numbers (GrassBladeShapeGpu); the generator the clump and the levels.
+    struct GrassBladeDraw
+    {
+        float     Height = 45.0f, Width = 1.2f, Taper = 0.9f, Curvature = 0.35f, Stiffness = 0.3f;
+        glm::vec3 BaseColor{ 0.06f, 0.10f, 0.03f }, TipColor{ 0.25f, 0.33f, 0.09f },
+             DryTipColor{ 0.45f, 0.38f, 0.2f };
+        float    DryTipShare = 0.25f, DryTipLength = 0.3f, Clumping = 0.5f, ClumpSize = 35.0f;
+        uint32_t Segments    = 6;
+        float    LodDistance = 700.0f;
+    };
+
     struct GrassSectionDraw
     {
         MaterialInstancePtr Material;
@@ -70,7 +83,10 @@ namespace Desert::Graphic::System
     {
         uint64_t                      Key   = 0; // stable: (root, layer, grass type, variety)
         uint32_t                      Layer = 0; // the grass layer's index in the field
-        class Desert::Mesh*           Mesh  = nullptr;
+        // Kind Mesh: the mesh every instance draws. Kind Blade: null - the renderer draws its blade strip.
+        class Desert::Mesh* Mesh = nullptr;
+        // Kind Blade: the shape; Sections then holds the one blade material.
+        std::optional<GrassBladeDraw> Blade;
         std::vector<GrassSectionDraw> Sections;
         GrassPlacement                Placement;
         InstanceWind                  Wind;
@@ -87,7 +103,9 @@ namespace Desert::Graphic::System
     // of each landscape grows its instances on a world grid around the camera (GrassGenerate, one thread per cell,
     // culled to the view and faded out to EndCullDistance) into a buffer of its own, and its sections are drawn
     // through the mesh renderer's instanced cells - G-buffer or forward, and the cascades - by indirect draws
-    // (GpuInstances.hpp). Nothing is stored in the level and nothing is read back.
+    // (GpuInstances.hpp). Nothing is stored in the level and nothing is read back. A Blade variety draws the
+    // renderer's own blade strip (one per segment count, a level per halving) through the GrassBlade vertex path:
+    // the generator sorts its instances into one bucket per level by distance, so a far blade has fewer segments.
     class GrassRenderer final : public RenderSystem
     {
     public:
@@ -123,6 +141,9 @@ namespace Desert::Graphic::System
             std::shared_ptr<ShaderResources::StorageBuffer> Instances;
             std::shared_ptr<ShaderResources::StorageBuffer> Args;
             std::shared_ptr<ShaderResources::StorageBuffer> Params;
+            std::shared_ptr<ShaderResources::StorageBuffer> Shape; // Kind Blade: GrassBladeShapeGpu
+            uint32_t                                        Buckets     = 1;
+            float                                           LodDistance = 0.0f;
             RDG::ExternalBuffer                             InstancesImport, ArgsImport, ParamsImport;
             GpuInstanceRefs                                 Refs;
             RDG::BufferRef                                  ParamsRef;
@@ -131,11 +152,15 @@ namespace Desert::Graphic::System
             uint32_t                                        Index = 0; // stable section key base
         };
 
-        [[nodiscard]] VarietyGpu* PrepareVariety( const GrassVarietyDraw& variety, const ViewFrame& frame );
+        [[nodiscard]] VarietyGpu* PrepareVariety( const GrassVarietyDraw& variety, class Desert::Mesh& mesh,
+                                                  const ViewFrame& frame );
+        // The blade strip of @p segments segments: one submesh per level, each halving the last down to one.
+        [[nodiscard]] class Desert::Mesh* BladeStrip( uint32_t segments );
 
         std::vector<GrassFieldDraw>              m_Queue;
         std::unordered_map<uint64_t, FieldGpu>   m_Fields;
         std::unordered_map<uint64_t, VarietyGpu> m_Varieties;
+        std::unordered_map<uint32_t, std::shared_ptr<class Desert::Mesh>> m_BladeStrips;
         std::vector<VarietyGpu*>                 m_Frame; // this frame's, in dispatch order
         std::shared_ptr<ComputePipeline>         m_Generate;
         std::shared_ptr<ComputePipeline>         m_Finalize;

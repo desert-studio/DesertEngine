@@ -19,9 +19,12 @@ namespace Desert::Graphic
         RDG::BufferRef Args;      // GpuInstanceArgs header + one indexed-indirect record per submesh
     };
 
-    // The argument buffer: a 16-byte header (count the generator appended, capacity, submesh count, 0) and one
+    // The argument buffer: a 16-byte header (bucket count, total capacity, submesh count, last drawn count), one
     // VkDrawIndexedIndirectCommand (indexCount, instanceCount, firstIndex, vertexOffset, firstInstance) per
-    // submesh of the mesh at the drawn level. Programs/Grass/GrassFinalize.shader writes instanceCount.
+    // submesh of the mesh at the drawn level, then per BUCKET four words (count the generator appended, first
+    // instance, capacity, 0). A bucket is a range of Instances: a mesh has one, drawn by every section; a grass
+    // blade strip one per level, drawn by the submesh of that level (GRASS-BLADE). Programs/Grass/
+    // GrassFinalize.shader writes each record's instanceCount and firstInstance from its bucket.
     inline constexpr uint64_t kGpuInstanceArgsHeaderBytes = 16;
     inline constexpr uint64_t kGpuInstanceArgsRecordBytes = 20;
     [[nodiscard]] constexpr uint64_t GpuInstanceArgsOffset( uint32_t submesh )

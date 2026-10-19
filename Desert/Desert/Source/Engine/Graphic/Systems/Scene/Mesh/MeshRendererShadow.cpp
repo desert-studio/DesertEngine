@@ -533,6 +533,7 @@ namespace Desert::Graphic::System
         switch ( path )
         {
             case MeshVertexPath::Instanced:
+            case MeshVertexPath::GrassBlade: // the same vertex layout: the blade strip is a mesh
                 shared = m_ShadowInstancedPipeline.get();
                 break;
             case MeshVertexPath::Skinned:

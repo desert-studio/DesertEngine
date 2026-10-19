@@ -23,6 +23,7 @@ namespace Desert::Graphic
              { "Skinned.Forward", "Skinned.GBuffer", nullptr, "Skinned.ShadowDepth" },
              { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth" },
              { "ParticleSprite.Forward", nullptr, nullptr, nullptr },
+             { "GrassBlade.Forward", "GrassBlade.GBuffer", nullptr, "GrassBlade.ShadowDepth" },
         };
     } // namespace
 
@@ -96,6 +97,8 @@ namespace Desert::Graphic
                 return 1; // Bones
             case MeshVertexPath::Instanced:
                 return 17; // InstanceTransforms
+            case MeshVertexPath::GrassBlade:
+                return 17; // InstanceTransforms; the blade shape at 13 is bound beside it by the mesh renderer
             case MeshVertexPath::ParticleSprite:
                 return 9; // Particles (the pool); the alive list at 10 is bound beside it by ParticleRenderer
             case MeshVertexPath::Static:
@@ -116,6 +119,8 @@ namespace Desert::Graphic
                 return "Instanced";
             case MeshVertexPath::ParticleSprite:
                 return "ParticleSprite";
+            case MeshVertexPath::GrassBlade:
+                return "GrassBlade";
         }
         return "?";
     }

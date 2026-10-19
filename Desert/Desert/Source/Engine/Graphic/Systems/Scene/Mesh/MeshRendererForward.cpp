@@ -1259,7 +1259,7 @@ namespace Desert::Graphic::System
                     d.HiddenSubmeshMask = ism.HiddenSubmeshes;
                     d.LodLevel      = level;
                     // A view pass: the wind at the view's previous frame too (B.z), for the instances' velocity.
-                    d.Wind = PackViewInstanceWind( ism.Wind, m_PrevWorldTimeSeconds );
+                    d.Wind           = PackViewInstanceWind( ism.Wind );
                     d.PrimitiveFlags = PrimitiveFlagsOf( ism.CastContactShadow );
                     for ( std::size_t i = 0; i < visible.size(); ++i )
                         if ( levels[i] == level )

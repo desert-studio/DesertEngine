@@ -25,6 +25,16 @@ namespace Desert::Graphic::System
         {
             return instance ? dynamic_cast<const DataDrivenMaterial*>( instance->GetParentMaterial() ) : nullptr;
         }
+
+        // The producer's buffers into the cell: the instances, and a blade's shape (MeshPathOwnBinding).
+        void BindGpuInstancedBuffers( DataDrivenMaterial& cell, const MeshRenderer::GpuInstancedRenderData& gpu )
+        {
+            if ( auto* sb = cell.Get<StorageBufferProperty>( "InstanceTransforms" ) )
+                sb->SetBuffer( gpu.Instances );
+            if ( gpu.Path == MeshVertexPath::GrassBlade )
+                if ( auto* sb = cell.Get<StorageBufferProperty>( "GrassBladeShape" ) )
+                    sb->SetBuffer( gpu.BladeShape );
+        }
     } // namespace
 
     void MeshRenderer::BuildGpuInstancedDraws( MeshDrawList& list, GraphicsPipeline* instancedPipeline,
@@ -45,18 +55,16 @@ namespace Desert::Graphic::System
         {
             const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
             const uint32_t            view = kGpuInstancedViewBase + gpu.Key * 2u + ( pass == MeshPass::GBuffer );
-            DataDrivenMaterial*       cell =
-                 parent != nullptr && materials->Owns( parent )
-                            ? materials->GetViewVariant( parent, MeshVertexPath::Instanced, pass, view )
-                            : nullptr;
+            DataDrivenMaterial*       cell   = parent != nullptr && materials->Owns( parent )
+                                                    ? materials->GetViewVariant( parent, gpu.Path, pass, view )
+                                                    : nullptr;
             if ( cell == nullptr )
             {
                 static std::unordered_set<const DataDrivenMaterial*> s_Refused;
                 if ( s_Refused.insert( parent ).second )
-                    LOG_ERROR(
-                         "[MeshRenderer] a GPU-instanced section's material has no (Instanced x {}) cell; the "
-                         "section is not drawn (MaterialService named the cell it refused).",
-                         MeshPassName( pass ) );
+                    LOG_ERROR( "[MeshRenderer] a GPU-instanced section's material has no ({} x {}) cell; the "
+                               "section is not drawn (MaterialService named the cell it refused).",
+                               MeshVertexPathName( gpu.Path ), MeshPassName( pass ) );
                 continue;
             }
             GraphicsPipeline* pipeline =
@@ -67,8 +75,7 @@ namespace Desert::Graphic::System
             auto& instance = m_GpuInstancedInstances[view];
             if ( !instance )
                 instance = cell->CreateInstance( "GpuInstanced" );
-            if ( auto* sb = cell->Get<StorageBufferProperty>( "InstanceTransforms" ) )
-                sb->SetBuffer( gpu.Instances );
+            BindGpuInstancedBuffers( *cell, gpu );
             std::vector<glm::vec4> rows;
             const uint32_t         row = AppendRow( rows, EffectiveRow( parent, gpu.Material.get() ) );
             if ( auto* sb = cell->Get<StorageBufferProperty>( "Materials" ) )
@@ -83,8 +90,7 @@ namespace Desert::Graphic::System
                         .HiddenSubmeshMask = gpu.HiddenSubmeshes,
                         .IndirectArgs      = gpu.Refs->Args,
                         .IndirectInstances = gpu.Refs->Instances,
-                        .BindState         = [cell, inst = instance.get(), row,
-                                      wind = PackViewInstanceWind( gpu.Wind, m_PrevWorldTimeSeconds )]
+                        .BindState = [cell, inst = instance.get(), row, wind = PackViewInstanceWind( gpu.Wind )]
                         {
                             cell->SetMaterialIndex( row );
                             cell->SetInstancedWind( wind );
@@ -109,25 +115,24 @@ namespace Desert::Graphic::System
             // the CPU-batched ISMs'.
             DataDrivenMaterial* caster =
                  parent != nullptr && materials->Owns( parent )
-                      ? materials->GetViewVariant( parent, MeshVertexPath::Instanced, MeshPass::ShadowDepth, view )
+                      ? materials->GetViewVariant( parent, gpu.Path, MeshPass::ShadowDepth, view )
                       : nullptr;
             if ( caster == nullptr )
             {
                 static std::unordered_set<const DataDrivenMaterial*> s_Refused;
                 if ( s_Refused.insert( parent ).second )
-                    LOG_ERROR(
-                         "[Shadows] a GPU-instanced section's material has no (Instanced x ShadowDepth) cell; "
-                         "the section casts no shadow (MaterialService named the cell it refused)." );
+                    LOG_ERROR( "[Shadows] a GPU-instanced section's material has no ({} x ShadowDepth) cell; "
+                               "the section casts no shadow (MaterialService named the cell it refused).",
+                               MeshVertexPathName( gpu.Path ) );
                 continue;
             }
-            GraphicsPipeline* pipeline = MaskedCasterPipeline( *caster, MeshVertexPath::Instanced );
+            GraphicsPipeline* pipeline = MaskedCasterPipeline( *caster, gpu.Path );
             if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
                 continue;
 
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
                               m_CascadeCasterBias[c] );
-            if ( auto* sb = caster->Get<StorageBufferProperty>( "InstanceTransforms" ) )
-                sb->SetBuffer( gpu.Instances );
+            BindGpuInstancedBuffers( *caster, gpu );
             std::vector<glm::vec4> rows;
             const uint32_t         row = AppendRow( rows, EffectiveRow( parent, gpu.Material.get() ) );
             if ( auto* sb = caster->Get<StorageBufferProperty>( "Materials" ) )

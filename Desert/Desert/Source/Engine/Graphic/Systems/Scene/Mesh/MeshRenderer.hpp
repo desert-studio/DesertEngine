@@ -261,12 +261,17 @@ namespace Desert::Graphic::System
         // own (MaterialService::GetViewVariant keyed by Key) whose InstanceTransforms is the producer's buffer.
         struct GpuInstancedRenderData
         {
-            class Desert::Mesh*                             Mesh = nullptr;
+            class Desert::Mesh* Mesh = nullptr;
+            // Instanced (a mesh per instance) or GrassBlade (the blade strip, shaped per instance by the
+            // GrassBlade vertex path from BladeShape): the material's cell of that path draws it.
+            MeshVertexPath                                  Path = MeshVertexPath::Instanced;
             MaterialInstancePtr                             Material;
             uint64_t                                        HiddenSubmeshes = 0;
             bool                                            CastShadows     = true;
             InstanceWind                                    Wind;
             std::shared_ptr<ShaderResources::StorageBuffer> Instances;
+            // GrassBlade only: the variety's shape, Vertex_GrassBlade.glslh's GrassBladeShape.
+            std::shared_ptr<ShaderResources::StorageBuffer> BladeShape;
             const GpuInstanceRefs*                          Refs = nullptr; // the producer's, this frame
             // Stable per section across frames: the view-variant key (several cascades: Key * kMaxCascades + c).
             uint32_t Key = 0;
@@ -325,13 +330,6 @@ namespace Desert::Graphic::System
         void SetWorldTimeSeconds( float seconds )
         {
             m_WorldTimeSeconds = seconds;
-        }
-        // The scene time of the view's PREVIOUS frame (ViewFrame::PrevTimeSeconds; equal to this frame's on a
-        // history reset), handed over by SceneRenderer::OnUpdate: the instanced view passes evaluate the wind at
-        // it for the instances' velocity (PackViewInstanceWind).
-        void SetPrevWorldTimeSeconds( double seconds )
-        {
-            m_PrevWorldTimeSeconds = seconds;
         }
 
         // The view's motion rows for this frame — UE's GPUScene primitive data: ONE GpuObjectMotion per drawn
@@ -1327,7 +1325,6 @@ namespace Desert::Graphic::System
         std::vector<GenericDraw>                 m_ScratchGenericDraws;
         std::vector<std::pair<DataDrivenMaterial*, MaterialRows>> m_ScratchGenericRows;
         float                                                     m_WorldTimeSeconds = 0.0f;
-        double                                                    m_PrevWorldTimeSeconds = 0.0;
         // BuildObjectMotions' output: the rows and both frames' palettes (CPU scratch, capacity kept) and the
         // per-(frame x view) buffers they are uploaded into (StorageBuffer::Create non-persistent: one copy per
         // frame in flight). Created on the first frame, grown by SetData.
