@@ -192,6 +192,10 @@ namespace Desert::Graphic::API::Vulkan
             CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( commandBuffer.GetValue() );
 
             ImGui_ImplVulkan_DestroyFontUploadObjects();
+            // The atlas lives on the device now; its CPU pixels (RGBA32 plus the Alpha8 it was expanded from,
+            // ~80 MB for the editor's glyph ranges) are read by nothing after the upload. A later rebuild
+            // rasterizes again from the fonts' config data, which this keeps.
+            ::ImGui::GetIO().Fonts->ClearTexData();
         }
 
         return BOOLSUCCESS;

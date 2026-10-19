@@ -24,7 +24,10 @@ namespace Desert::Graphic
     {
         if ( m_RenderPath != Core::RenderPath::Deferred )
             return false;
-        if ( m_GIPipeline.SurfaceCache || ReflectionsTraced() )
+        // A profile without traced GI (a preview, a thumbnail, a capture's face view: ViewMemory.hpp) never brings
+        // the cache up for the GI's sake, as RadianceCacheRuns: each such view would otherwise hold its own
+        // atlases and Global Distance Field brick pool (~0.8 GB a view) for a lighting path it never runs.
+        if ( ( m_GIPipeline.SurfaceCache && m_ViewProfile.GlobalIllumination ) || ReflectionsTraced() )
             return true;
 #if DESERT_DEV_INSTRUMENTS
         // Its views bring it up on their own (and light its cards) under any GI method.
