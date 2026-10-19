@@ -11,6 +11,7 @@
 #include <Editor/Panels/FileExplorer/FileExplorerPanel.hpp>
 #include <Editor/Panels/ViewportPanel/ViewportPanel.hpp>
 #include <Editor/Panels/WorldPartition/WorldPartitionPanel.hpp>
+#include <array>
 #include <Editor/Widgets/ThumbnailEdit.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -58,6 +59,25 @@ namespace Desert::Editor
                                                                 "Partition window does not exist" );
                                   return WorldPartition()->ConvertSceneToWorldPartition();
                               } } );
+
+        // The World Partition window's region buttons (UE's "Load Region from Selection" / "Unload All" /
+        // "Load All" in the World Partition editor), offered unconditionally for the same reason as Convert.
+        const std::array<std::pair<const char*, int>, 3> regionEntries{ {
+             { "World Partition: Load Region (map selection)", 0 },
+             { "World Partition: Unload All", 1 },
+             { "World Partition: Load All", 2 },
+        } };
+        for ( const auto& [label, which] : regionEntries )
+            commands.push_back( { "Scene", std::string( label ), [this, which = which]
+                                  {
+                                      if ( WorldPartition() == nullptr )
+                                          return Common::MakeError( "load region: the World Partition window "
+                                                                    "does not exist" );
+                                      if ( which == 0 )
+                                          return WorldPartition()->LoadSelectedRegion();
+                                      return WorldPartition()->LoadRegion(
+                                           WorldPartitionPanel::RegionRequest{ {}, which == 2 } );
+                                  } } );
 
         // The rename dialog on the Assets window's selection, with the registry's referrers listed; the
         // same dialog F2 opens.

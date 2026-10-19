@@ -314,12 +314,8 @@ namespace Desert::Editor
         {
             ImGui::BeginDisabled( !m_Selection.has_value() );
             if ( ImGui::Button( "Load Region" ) )
-            {
-                RegionRequest request;
-                request.Regions.push_back( *m_Selection );
-                if ( const auto loaded = LoadRegion( request ); !loaded )
+                if ( const auto loaded = LoadSelectedRegion(); !loaded )
                     m_RegionStatus = loaded.GetError();
-            }
             ImGui::EndDisabled();
             ImGui::SameLine();
             if ( ImGui::Button( "Unload All" ) )
@@ -361,6 +357,16 @@ namespace Desert::Editor
                              static_cast<double>( partition->Grids[0].CellSize ) / 100.0 );
 
         DrawMap( *plan, *partition, residency, streamer );
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::LoadSelectedRegion()
+    {
+        if ( !m_Selection )
+            return Common::MakeError<bool>(
+                 std::string( "Load Region: no region is selected - drag on the World Partition map." ) );
+        RegionRequest request;
+        request.Regions.push_back( *m_Selection );
+        return LoadRegion( request );
     }
 
     Common::BoolResultStr WorldPartitionPanel::LoadRegion( const RegionRequest& request )
