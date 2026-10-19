@@ -2177,6 +2177,14 @@ namespace Desert::Graphic
             m_PathTracerFailed = true;
             return false;
         }
+        if ( const Common::BoolResultStr emissive = m_EmissiveLights.Initialize(); !emissive )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: the emissive light list could not be brought up; the view renders "
+                       "HardwareTraced GI and reflections instead: {}",
+                       m_ViewResources.GetName(), emissive.GetError() );
+            m_PathTracerFailed = true;
+            return false;
+        }
         m_PathTracerReady = true;
         return true;
     }

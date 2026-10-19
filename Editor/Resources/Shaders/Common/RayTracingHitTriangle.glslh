@@ -26,6 +26,14 @@ struct DesertRayHitTriangle
     vec2 UV;     // interpolated; 0 when the segment has no UV stream
 };
 
+// Which triangle the closest hit is (RayTracingPayload.glslh): every closest-hit stage writes it with its material.
+void DesertRayHitIdentify()
+{
+    payload.InstanceIndex  = uint( gl_InstanceID );
+    payload.GeometryIndex  = uint( gl_GeometryIndexEXT );
+    payload.PrimitiveIndex = uint( gl_PrimitiveID );
+}
+
 DesertRayHitTriangle DesertRayHitFetch()
 {
     const uvec3 corner  = DesertRayHitCorners( uint( gl_PrimitiveID ) );

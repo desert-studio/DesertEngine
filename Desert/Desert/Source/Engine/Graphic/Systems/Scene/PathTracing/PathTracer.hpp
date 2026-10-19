@@ -1,12 +1,15 @@
 #pragma once
 
 #include <Common/Core/Profiler.hpp>
+#include <Engine/Assets/FrameRetireQueue.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RayTracingPipeline.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Graphic/Systems/RayTracing/EmissiveLightsRenderer.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -51,8 +54,13 @@ namespace Desert::Graphic::System
     // pyramid of its weights is reduced level by level (PathTracerSky.shader "Prepare" / "Reduce"); the paths
     // importance-sample it (Common/PathTracingSky.glslh).
     //
+    // THE EMISSIVE SURFACES (RayTracing::EmissiveLightsFrame, the scene's one emissive triangle list): each vertex
+    // also samples one emissive triangle by power and a point on it, a strategy of its own beside the analytic
+    // lights, and emission met by a material ray is weighed against it (PathTracer.shader). The list's hash is in
+    // the scene hash, so a changed emitter restarts the sum.
+    //
     // Not here (each is UE's and a task of its own): a denoiser (UE's is a plugin over albedo/normal guides),
-    // emissive light sampling, transmission, participating media, a Sobol sequence, pixel filters other than a
+    // transmission, participating media, a Sobol sequence, pixel filters other than a
     // box.
     class PathTracer final : public RenderSystem
     {
@@ -80,6 +88,7 @@ namespace Desert::Graphic::System
             RDG::TextureRef EnvSpecular; // the environment cube (System.BlackCube without one)
             // This frame's hit group table; its Templates built the pipeline (EnsurePipeline).
             const RayTracing::RayTracingHitGroupTable* HitGroups = nullptr;
+            RayTracing::EmissiveLightsFrame            Emissive; // this frame's emissive triangle list (Valid)
             float    SunSinHalfAngle = 0.0f; // sin of half the sun's SourceAngle (0: a delta direction)
             float    PixelSpread     = 0.0f; // the angle one pixel covers (the ray cone)
             uint64_t SceneHash       = 0;
@@ -211,6 +220,8 @@ namespace Desert::Graphic::System
                 return Common::MakeError( "PathTracer: the pipelines were not made (Initialize, EnsurePipeline)" );
             if ( inputs.HitGroups == nullptr )
                 return Common::MakeError( "PathTracer: the frame has no hit group table" );
+            if ( !inputs.Emissive.Valid )
+                return Common::MakeError( "PathTracer: the frame has no emissive triangle list" );
             const auto sceneDesc = graph.GetTextureDesc( sceneColor );
             if ( !sceneDesc )
                 return Common::MakeError( sceneDesc.GetError() );
@@ -265,6 +276,8 @@ namespace Desert::Graphic::System
             glm::uvec4 Counts; // point lights, spot lights, paths already summed (0: overwrite), max bounces
             glm::uvec4 Sky;    // sky side S, its levels, frame seed, paths this frame
             glm::vec4  Sun;    // sin of half the sun's angle, pixel spread angle
+            glm::uvec4 Emissive;        // EmissiveLightsFrame::StaticParams
+            glm::uvec4 EmissiveDynamic; // EmissiveLightsFrame::DynamicParams
         };
         struct SkyPush
         {
@@ -301,8 +314,14 @@ namespace Desert::Graphic::System
         // before it is read: its frame restarts, so the trace overwrites (Counts.z = 0) every pixel.
         RDG::TextureRef AcquireAccumulation( RDG::Builder& graph, const uint32_t width, const uint32_t height )
         {
+            const auto& frames = ::Desert::Engine::FrameManager::GetInstance();
+            m_RetiringAccumulation.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
             if ( m_Accumulation.Built && m_Accumulation.Width == width && m_Accumulation.Height == height )
                 return graph.RegisterExternal( m_Accumulation.Texture, "PathTracing.Accumulation" );
+            // The previous size's sum is parked, not dropped: the frames recorded before this one may still be
+            // tracing into it or resolving it on the GPU.
+            if ( m_Accumulation.Texture.Physical )
+                m_RetiringAccumulation.Park( std::move( m_Accumulation.Texture ), frames.GetAbsoluteFrameCount() );
             m_Accumulation.Texture = {};
             m_Stamp.Invalidate();
             const RDG::TextureRef created =
@@ -389,7 +408,8 @@ namespace Desert::Graphic::System
             const TracePush push{
                  glm::uvec4( inputs.PointLightCount, inputs.SpotLightCount, m_Summed, m_MaxBounces ),
                  glm::uvec4( sky.Side, sky.Levels, m_Restarts, traced ),
-                 glm::vec4( inputs.SunSinHalfAngle, inputs.PixelSpread, 0.0f, 0.0f ) };
+                 glm::vec4( inputs.SunSinHalfAngle, inputs.PixelSpread, 0.0f, 0.0f ),
+                 inputs.Emissive.StaticParams(), inputs.Emissive.DynamicParams() };
             graph.AddPass(
                  "PathTracing: Trace", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -404,6 +424,13 @@ namespace Desert::Graphic::System
                           .Storage( "SpotLightsUB", inputs.SpotLights, kR )
                           .Storage( "u_SkyRadiance", sky.Radiance, kR )
                           .Storage( "PathTracingSkyPdfUB", sky.Pdf, kR )
+                          .Storage( "EmissiveSegmentsUB", inputs.Emissive.Static.Segments, kR )
+                          .Storage( "EmissiveLookupUB", inputs.Emissive.Lookup, kR )
+                          .Storage( "EmissiveTrianglesUB", inputs.Emissive.Static.Triangles, kR )
+                          .Storage( "EmissivePowerUB", inputs.Emissive.Static.Power, kR )
+                          .Storage( "EmissiveDynamicSegmentsUB", inputs.Emissive.Dynamic.Segments, kR )
+                          .Storage( "EmissiveDynamicTrianglesUB", inputs.Emissive.Dynamic.Triangles, kR )
+                          .Storage( "EmissiveDynamicPowerUB", inputs.Emissive.Dynamic.Power, kR )
                           .Texture( "u_EnvSpecularTex", inputs.EnvSpecular, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
                           .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
@@ -468,6 +495,8 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache m_ResolveLayout;
 
         AccumulationTarget m_Accumulation;
+        // Accumulations a resize replaced, kept until no frame in flight can still read them.
+        Assets::FrameRetireQueue<RDG::ExternalTexture> m_RetiringAccumulation;
         PassHistoryStamp   m_Stamp;               // the view frame whose resolve last stood behind the sum
         uint32_t           m_Summed      = 0;     // paths per pixel in the sum
         uint32_t           m_MaxBounces  = 0;     // the bounces the sum was traced with
