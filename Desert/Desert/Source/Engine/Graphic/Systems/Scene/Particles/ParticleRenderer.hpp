@@ -144,9 +144,11 @@ namespace Desert::Graphic::System
             return m_Simulates;
         }
 
-        // How many fixed steps this frame simulates: the most any declared emitter runs (0 in a view that does not
-        // simulate).
-        [[nodiscard]] uint32_t SimulationStepCount() const;
+        // How many fixed steps this frame simulates at @p stage: the most any declared emitter of that tick stage
+        // runs (0 in a view that does not simulate). Every node below takes the stage: SceneRenderer adds the
+        // chain twice, before the opaque passes (PreOpaque) and after them (PostOpaque, reading this frame's
+        // depth), each dispatching only its stage's emitters (UE: the GPU compute tick stages).
+        [[nodiscard]] uint32_t SimulationStepCount( VFX::VFXTickStage stage ) const;
 
         // Imports the scene's pool (particles, free list, alive list) and every emitter's Counters into @p graph,
         // and in the simulating view its step table and dispatch arguments too (Renderer::ImportBuffer +
@@ -164,19 +166,22 @@ namespace Desert::Graphic::System
         // the indirect draw arguments. Compact 0 scans the whole range (and kills it first when it restarts);
         // a later compact scans only what the step touched and is dispatched INDIRECT from the step's Dispatch
         // Args (kParticleCompactArgsOffset). Block n is the n-th such emitter (DeclareCompactBindings).
-        [[nodiscard]] Common::BoolResultStr Compact( const RDG::PassContext& context, uint32_t compact );
-        void DeclareCompactBindings( RDG::PassBuilder& pass, uint32_t compact ) const;
+        [[nodiscard]] Common::BoolResultStr Compact( const RDG::PassContext& context, uint32_t compact,
+                                                     VFX::VFXTickStage stage );
+        void DeclareCompactBindings( RDG::PassBuilder& pass, uint32_t compact, VFX::VFXTickStage stage ) const;
 
         // Dispatch Args of step @p step: one single-thread ParticleDispatchArgs dispatch per emitter running the
         // step, writing from compact @p step's alive / free counts and the step's spawn budget the group counts of
         // Spawn+Update @p step and of compact @p step + 1, and opening compact @p step + 1's Counters slot.
-        [[nodiscard]] Common::BoolResultStr BuildDispatchArgs( const RDG::PassContext& context, uint32_t step );
-        void DeclareDispatchArgsBindings( RDG::PassBuilder& pass, uint32_t step ) const;
+        [[nodiscard]] Common::BoolResultStr BuildDispatchArgs( const RDG::PassContext& context, uint32_t step,
+                                                               VFX::VFXTickStage stage );
+        void DeclareDispatchArgsBindings( RDG::PassBuilder& pass, uint32_t step, VFX::VFXTickStage stage ) const;
 
         // Spawn+Update of step @p step: one ParticleSimulate dispatch per declared emitter that runs the step,
         // INDIRECT from the step's Dispatch Args (kParticleSimulateArgsOffset); block n = the n-th such emitter.
-        [[nodiscard]] Common::BoolResultStr Simulate( const RDG::PassContext& context, uint32_t step );
-        void DeclareSimulateBindings( RDG::PassBuilder& pass, uint32_t step ) const;
+        [[nodiscard]] Common::BoolResultStr Simulate( const RDG::PassContext& context, uint32_t step,
+                                                      VFX::VFXTickStage stage );
+        void DeclareSimulateBindings( RDG::PassBuilder& pass, uint32_t step, VFX::VFXTickStage stage ) const;
 
         // VFX-08: this view's back-to-front sort of every emitter with a translucent / additive row, and the
         // ribbon order of every emitter with a Ribbon row (ParticleSortGraph.hpp ParticleSortKind), one Compute
@@ -187,8 +192,10 @@ namespace Desert::Graphic::System
         // VFX-RENDER: the indexed-indirect commands of this view's Mesh renderer rows (UE
         // FNiagaraGPUInstanceCountManager::UpdateDrawIndirectBuffers): one Compute node per mesh row, after the
         // last Compact and before ParticlePass, writing one command per mesh section (instances = the emitter's
-        // alive count) into the view's transient MeshDrawArgs. Call after ImportFrameBuffers.
-        void AddMeshDrawArgsPasses( RDG::Builder& graph );
+        // alive count) into the view's transient MeshDrawArgs. Call after ImportFrameBuffers, once per stage:
+        // PreOpaque writes the commands of every mesh row drawn before the PostOpaque simulation (a PostOpaque
+        // emitter's from its previous half), PostOpaque those of a PostOpaque emitter's blended rows (DrawSource).
+        void AddMeshDrawArgsPasses( RDG::Builder& graph, VFX::VFXTickStage stage );
 
     private:
         // One particle cell's draw state in this view, shared by every renderer row that draws through the cell
@@ -296,10 +303,10 @@ namespace Desert::Graphic::System
             MaterialInstance*          Instance      = nullptr; // the row's own (null = the cell's defaults)
             uint32_t                   Row           = 0;       // the draw's row in Cell->Rows this frame
             // Kind == Mesh: the resident static mesh (null = still streaming: not drawn this frame), its sections,
-            // and its first command in m_MeshArgsRef.
+            // and its first command in m_MeshArgsRefs[stage] per stage.
             const ::Desert::Mesh*    StaticMesh = nullptr;
             std::vector<MeshSection> Sections;
-            uint32_t                 ArgsBase = 0;
+            std::array<uint32_t, 2>  ArgsBase{};
             // A row of any kind with an opaque / masked material (Opaque: never a ParticlePass draw; the
             // template's shading model lights it as any mesh): on the deferred path its G-buffer cell
             // (GBufferPass), on the forward path its lit forward cell (BasePass), on
@@ -321,9 +328,16 @@ namespace Desert::Graphic::System
         // Whether the row can draw this frame (its emitter declared, a cell, a resident mesh for a Mesh row), in
         // any view: what the sorts and the mesh arguments are planned from.
         bool IsDrawable( const ViewDraw& draw ) const;
-        // Whether the row's draw arguments exist this frame: a mesh row's commands (m_MeshArgsRef), a ribbon row's
+        // Whether the row's draw arguments exist this frame: a mesh row's commands (m_MeshArgsRefs), a ribbon row's
         // order (RibbonSorted); a sprite draws from its Counters slot.
-        bool HasDrawArgs( const ViewDraw& draw ) const;
+        bool HasDrawArgs( const ViewDraw& draw, VFX::VFXTickStage at ) const;
+        // WHICH SIMULATION STATE a draw recorded at @p at reads: a PostOpaque emitter drawn before its simulation
+        // (every node but ParticlePass: the G-buffer, the base pass, the shadow views) reads the previous tick's
+        // half (PreOpaque state); everything else this frame's. DrawHalf is that half; HasDrawData is false for a
+        // PostOpaque emitter with no previous tick, whose pre-simulation draws record nothing.
+        [[nodiscard]] VFX::VFXTickStage DrawSource( const ViewEmitter& ve, VFX::VFXTickStage at ) const;
+        [[nodiscard]] uint32_t          DrawHalf( const ViewEmitter& ve, VFX::VFXTickStage at ) const;
+        [[nodiscard]] bool              HasDrawData( const ViewEmitter& ve, VFX::VFXTickStage at ) const;
         // Whether an opaque / masked row will cast this frame, asked before the graph imports anything
         // (LocalShadowReachOf): a shadow cell, a cell, and for a mesh row a resident mesh.
         bool CanCast( const ViewDraw& draw ) const;
@@ -351,7 +365,8 @@ namespace Desert::Graphic::System
         // what only its node binds. On a RenderPassDeclaration (a system pass) or an RDG::PassBuilder (a raster
         // the SceneRenderer adds); defined and used in the .cpp only.
         template <typename Declaration>
-        auto DeclareDrawBlock( Declaration& declared, const ViewDraw& draw, const CellDraw& cell ) const;
+        auto DeclareDrawBlock( Declaration& declared, const ViewDraw& draw, const CellDraw& cell,
+                               VFX::VFXTickStage at ) const;
         // The particle list @p draw reads through @p cell: the view's RibbonOrder for a ribbon, the view's
         // SortedAlive for a blended row of a sorted emitter, the alive list otherwise.
         RDG::BufferRef ListFor( const ViewDraw& draw, const CellDraw& cell ) const;
@@ -359,14 +374,14 @@ namespace Desert::Graphic::System
         // one per section; a sprite / ribbon row's six vertices per particle from its Counters slot, faced to the
         // view's camera (pushed: the light views face them as the camera sees them, UE's dependent view).
         Common::BoolResultStr RecordDraw( const RDG::PassBindings& bindings, const ViewDraw& draw,
-                                          const CellDraw& cell ) const;
+                                          const CellDraw& cell, VFX::VFXTickStage at ) const;
         // A mesh row's indexed-indirect draws through @p cell, one per section, bound by @p bindings.
         Common::BoolResultStr RecordMeshDraws( const RDG::PassBindings& bindings, const ViewDraw& draw,
-                                               const CellDraw& cell ) const;
+                                               const CellDraw& cell, VFX::VFXTickStage at ) const;
         // Whether step @p step's Dispatch Args and Spawn+Update nodes dispatch @p ve.
-        bool RunsStep( const ViewEmitter& ve, uint32_t step ) const;
+        bool RunsStep( const ViewEmitter& ve, uint32_t step, VFX::VFXTickStage stage ) const;
         // Whether compact @p compact's node dispatches @p ve (compacts 0..StepCount of a declared emitter).
-        bool RunsCompact( const ViewEmitter& ve, uint32_t compact ) const;
+        bool RunsCompact( const ViewEmitter& ve, uint32_t compact, VFX::VFXTickStage stage ) const;
         // The draw state of @p cellShader (a cell of vertex path @p path) in this view, built on first use (null =
         // refused, said once by name).
         CellDraw* CellDrawFor( const std::string& cellShader, MeshVertexPath path,
@@ -385,7 +400,8 @@ namespace Desert::Graphic::System
         RDG::BufferRef                   m_SortKeysRef;
         RDG::BufferRef                   m_SortedRef;      // this view's SortedAlive, valid while any ViewSorted
         RDG::BufferRef                   m_RibbonOrderRef; // this view's RibbonOrder, valid while any RibbonSorted
-        RDG::BufferRef                   m_MeshArgsRef; // this view's mesh draw commands (AddMeshDrawArgsPasses)
+        // Per tick stage, this view's mesh draw commands (AddMeshDrawArgsPasses).
+        std::array<RDG::BufferRef, 2>    m_MeshArgsRefs;
         // The shaders' binding layouts, kept between frames (re-derived on a swapped or reloaded shader).
         // Per stack host program (ParticleWorldGpu's, alive with the scene's GPU state).
         mutable std::unordered_map<const ComputePipeline*, ShaderBindingLayoutCache> m_SimLayouts;

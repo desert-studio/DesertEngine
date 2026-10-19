@@ -39,7 +39,8 @@
 namespace Desert::Graphic
 {
     // The claiming view's simulation nodes (Compact 0, then per step Dispatch Args / Spawn+Update / Compact).
-    static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer );
+    static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer,
+                                            VFX::VFXTickStage stage );
 
     void SceneRenderer::AddFrameParticlesSimulate( RDG::Builder& graph, FrameTextures& textures )
     {
@@ -62,8 +63,10 @@ namespace Desert::Graphic
         // twice. Spawn+Update s and compact s+1 are dispatched INDIRECT from what "Dispatch Args s" wrote from
         // compact s's GPU counts.
         // VFX-PARAMS: the scene depth engine:Collision reads (the single-sample one the height fog and the clouds
-        // sample, "SceneDepth.Compute"), as the previous frame's resolve left it: this runs before the opaque
-        // passes. A frame without one hands the 2D fallback, never an empty slot (an
+        // sample, "SceneDepth.Compute"). Imported here, before the opaque passes; only the PostOpaque chain
+        // (AddFrameParticlesPostOpaque) reads it for a collision, after the opaque passes wrote it this frame - the
+        // graph orders that read after those writes (one graph texture per image, FrameTextures::Import). A frame
+        // without one hands the 2D fallback, never an empty slot (an
         // unbound sampler is an invalid descriptor set), and says so: nothing collides then.
         const std::shared_ptr<Image2D> sceneDepth = GetComputeSceneDepth();
         RDG::TextureRef                depthRef =
@@ -74,43 +77,63 @@ namespace Desert::Graphic
                  FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ),
                  "Particles.NoSceneDepth" );
         particles->ImportFrameBuffers( graph, depthRef, hasDepth );
+        // The PreOpaque emitters (UE ENiagaraGpuComputeTickStage::PreInitViews): their opaque rows draw this
+        // frame's particles in the G-buffer, the base pass and the shadow views.
         if ( particles->ClaimsSimulation() )
-            AddParticleSimulationSteps( graph, *particles );
-        // VFX-08: every view sorts its own translucent / additive emitters back to front (the key is its view
-        // depth); the graph orders the sort after the last Compact and before ParticlePass from the buffers.
-        particles->AddSortPasses( graph );
-        // VFX-RENDER: the mesh rows' indexed-indirect commands, from the same last compact's slots.
-        particles->AddMeshDrawArgsPasses( graph );
+            AddParticleSimulationSteps( graph, *particles, VFX::VFXTickStage::PreOpaque );
+        // VFX-RENDER: the mesh rows' indexed-indirect commands of every node before the PostOpaque chain.
+        particles->AddMeshDrawArgsPasses( graph, VFX::VFXTickStage::PreOpaque );
     }
 
-    static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer )
+    void SceneRenderer::AddFrameParticlesPostOpaque( RDG::Builder& graph )
+    {
+        // The PostOpaque emitters (UE ENiagaraGpuComputeTickStage::PostOpaqueRender): a stack that reads the scene
+        // (VFX::kVFXSceneReadHostFunctions, engine:Collision) simulates here, after every opaque pass and the
+        // depth resolve, against THIS frame's depth; then the sorts and the blended mesh commands ParticlePass
+        // reads. Their opaque rows were drawn above from the previous tick (ParticleRenderer::DrawSource).
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+        if ( particles == nullptr )
+            return;
+        if ( particles->ClaimsSimulation() )
+            AddParticleSimulationSteps( graph, *particles, VFX::VFXTickStage::PostOpaque );
+        // VFX-08: every view sorts its own translucent / additive emitters back to front (the key is its view
+        // depth); after both chains' last Compact and before ParticlePass.
+        particles->AddSortPasses( graph );
+        particles->AddMeshDrawArgsPasses( graph, VFX::VFXTickStage::PostOpaque );
+    }
+
+    static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer,
+                                            const VFX::VFXTickStage stage )
     {
         System::ParticleRenderer* particles = &renderer;
-        const uint32_t            steps     = particles->SimulationStepCount();
+        const uint32_t            steps     = particles->SimulationStepCount( stage );
+        const char* const         phase     = stage == VFX::VFXTickStage::PreOpaque ? "PreOpaque" : "PostOpaque";
         graph.AddPass(
-             "Particles: Compact 0", RDG::PassFlags::Compute,
-             [particles]( RDG::PassBuilder& pass ) { particles->DeclareCompactBindings( pass, 0 ); },
-             [particles]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return particles->Compact( context, 0 ); } );
+             std::format( "Particles {}: Compact 0", phase ), RDG::PassFlags::Compute,
+             [particles, stage]( RDG::PassBuilder& pass ) { particles->DeclareCompactBindings( pass, 0, stage ); },
+             [particles, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return particles->Compact( context, 0, stage ); } );
         for ( uint32_t step = 0; step < steps; ++step )
         {
             graph.AddPass(
-                 std::format( "Particles: Dispatch Args {}", step ), RDG::PassFlags::Compute,
-                 [particles, step]( RDG::PassBuilder& pass )
-                 { particles->DeclareDispatchArgsBindings( pass, step ); },
-                 [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return particles->BuildDispatchArgs( context, step ); } );
+                 std::format( "Particles {}: Dispatch Args {}", phase, step ), RDG::PassFlags::Compute,
+                 [particles, step, stage]( RDG::PassBuilder& pass )
+                 { particles->DeclareDispatchArgsBindings( pass, step, stage ); },
+                 [particles, step, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return particles->BuildDispatchArgs( context, step, stage ); } );
             graph.AddPass(
-                 std::format( "Particles: Spawn+Update {}", step ), RDG::PassFlags::Compute,
-                 [particles, step]( RDG::PassBuilder& pass ) { particles->DeclareSimulateBindings( pass, step ); },
-                 [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return particles->Simulate( context, step ); } );
+                 std::format( "Particles {}: Spawn+Update {}", phase, step ), RDG::PassFlags::Compute,
+                 [particles, step, stage]( RDG::PassBuilder& pass )
+                 { particles->DeclareSimulateBindings( pass, step, stage ); },
+                 [particles, step, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return particles->Simulate( context, step, stage ); } );
             graph.AddPass(
-                 std::format( "Particles: Compact {}", step + 1 ), RDG::PassFlags::Compute,
-                 [particles, step]( RDG::PassBuilder& pass )
-                 { particles->DeclareCompactBindings( pass, step + 1 ); },
-                 [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return particles->Compact( context, step + 1 ); } );
+                 std::format( "Particles {}: Compact {}", phase, step + 1 ), RDG::PassFlags::Compute,
+                 [particles, step, stage]( RDG::PassBuilder& pass )
+                 { particles->DeclareCompactBindings( pass, step + 1, stage ); },
+                 [particles, step, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return particles->Compact( context, step + 1, stage ); } );
         }
     }
 

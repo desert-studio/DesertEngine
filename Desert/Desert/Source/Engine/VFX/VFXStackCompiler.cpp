@@ -183,6 +183,21 @@ namespace Desert::VFX
         };
 
         /// The key a module is held by in one compile: its GUID, spelled canonically.
+        // Whether @p text names the identifier @p id as a whole token (a call or a reference; not a longer name).
+        bool CallsIdentifier( const std::string_view text, const std::string_view id )
+        {
+            const auto isIdent = []( const char c )
+            { return std::isalnum( static_cast<unsigned char>( c ) ) != 0 || c == '_'; };
+            for ( std::size_t at = text.find( id ); at != std::string_view::npos; at = text.find( id, at + 1 ) )
+            {
+                const bool startsToken = at == 0 || !isIdent( text[at - 1] );
+                const bool endsToken   = at + id.size() >= text.size() || !isIdent( text[at + id.size()] );
+                if ( startsToken && endsToken )
+                    return true;
+            }
+            return false;
+        }
+
         std::string ModuleKey( const S::VFXModuleUse& use )
         {
             const auto guid = Common::Content::AssetGuidFromText( use.Module.Guid );
@@ -681,6 +696,11 @@ namespace Desert::VFX
                         "    if ( sim.Spawned )\n    {{\n{}    }}\n{}"
                         "    VFX_WriteParticle( particle, p );\n}}\n",
                         calls[0], calls[1] );
+
+        // 4b. The tick stage: a stack whose GLSL calls a scene-reading host function runs after the opaque passes.
+        const bool readsScene = std::ranges::any_of( kVFXSceneReadHostFunctions, [&]( const std::string_view f )
+                                                     { return CallsIdentifier( body, f ); } );
+        compiled.TickStage    = readsScene ? VFXTickStage::PostOpaque : VFXTickStage::PreOpaque;
 
         // 5. The key is the body's hash: the body is a function of the stack's structure and the layout only (no
         //    value reaches it), so equal structures share one program and any structural change moves it. The

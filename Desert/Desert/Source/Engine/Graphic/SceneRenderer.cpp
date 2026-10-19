@@ -1606,10 +1606,10 @@ namespace Desert::Graphic
             m_SunCascadesDrawnLastFrame = m_FrameSunCascades;
         }
 
-        // The GPU particle simulation runs BEFORE the opaque passes: the opaque / masked rows are drawn into the
-        // G-buffer, the forward base pass and the shadow views from this frame's simulation. engine:Collision
-        // therefore reads the previous frame's single-sample scene depth (ParticleRenderer's CollisionView carries
-        // the matrices it was drawn with).
+        // The GPU particle simulation of the PreOpaque emitters runs BEFORE the opaque passes: their opaque /
+        // masked rows are drawn into the G-buffer, the forward base pass and the shadow views from this frame's
+        // simulation. An emitter whose stack reads the scene depth ticks PostOpaque (AddFrameParticlesPostOpaque,
+        // below, before the translucency), against this frame's depth.
         AddFrameParticlesSimulate( graph, textures );
 
         AddFrameCloudShadowMap( graph, textures );
@@ -1792,6 +1792,9 @@ namespace Desert::Graphic
         // The translucency, the debug lines and the UI canvas run AFTER the deferred lighting composite so lit
         // geometry does not paint over them, and as LOAD nodes so a CLEAR never wipes the depth later overlays
         // test against (the particle top-down bug / grid-through-meshes).
+        // The PostOpaque particle tick stage: every opaque pass and the depth resolve are above, the translucency
+        // that draws its blended rows below (UE: PostOpaqueRender, before the translucency).
+        AddFrameParticlesPostOpaque( graph );
         if ( pathTraced )
             AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterTranslucency, {} );
         else

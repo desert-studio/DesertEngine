@@ -7,6 +7,7 @@
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
+#include <Engine/VFX/VFXStackCompiler.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 
 #include "ParticleGpuLayout.hpp"
@@ -218,6 +219,13 @@ namespace Desert::Graphic::System
         uint32_t          ChannelCapacity = 0;    // particles ChannelSpawns holds
         uint64_t          Generation      = 0;    // the VFXWorld instance generation this state belongs to
         bool              NeedsReset      = true; // compact 0 kills the range (fresh, moved, restarted, pool grew)
+        // When its simulation runs (VFX::VFXTickStage, from what its stack reads): PreOpaque or PostOpaque.
+        VFX::VFXTickStage TickStage = VFX::VFXTickStage::PreOpaque;
+        // The alive half / draw slot the last scheduled compact fills (StepCount & 1 of the last tick), and whether
+        // there was such a tick since the last reset: what a PostOpaque emitter's opaque rows draw from, before
+        // this frame's simulation (ParticleFrameEmitter::PreviousHalf).
+        uint32_t LastHalf    = 0;
+        bool     HasLastHalf = false;
     };
 
     // One emitter active in this scene update.
@@ -228,6 +236,11 @@ namespace Desert::Graphic::System
         ParticleSimPush     Push;
         ComputePipeline*    Pipeline  = nullptr; // the emitter's stack host program (Gpu->Pipeline)
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
+        // The half the previous tick's last compact filled, read by the draws recorded BEFORE this emitter's
+        // simulation (a PostOpaque emitter's opaque rows and shadow casts); HasPrevious false = no previous tick
+        // (fresh or reset), and those draws are skipped.
+        uint32_t PreviousHalf = 0;
+        bool     HasPrevious  = false;
         // Where the emitter's particles are this tick, world centimetres: its fixed bounds (LocalBounds)
         // translated by the position the simulation places it at (Push.EmitterPos). What every view culls its
         // draws by, and what decides the point / spot lights it casts into (ParticleRenderer).

@@ -284,28 +284,32 @@ namespace Desert::Graphic::System
         }
     }
 
-    uint32_t ParticleRenderer::SimulationStepCount() const
+    uint32_t ParticleRenderer::SimulationStepCount( const VFX::VFXTickStage stage ) const
     {
         if ( !m_Simulates || !m_CompactPipeline || !m_ArgsPipeline )
             return 0; // the nodes dispatch nothing either
         uint32_t steps = 0;
         for ( const ViewEmitter& ve : m_ViewEmitters )
-            if ( ve.Declared )
+            if ( ve.Declared && ve.Frame->Gpu->TickStage == stage )
                 steps = std::max( steps, ve.Frame->StepCount );
         return steps;
     }
 
-    bool ParticleRenderer::RunsStep( const ViewEmitter& ve, const uint32_t step ) const
+    bool ParticleRenderer::RunsStep( const ViewEmitter& ve, const uint32_t step,
+                                     const VFX::VFXTickStage stage ) const
     {
-        return m_Simulates && ve.Declared && ve.Frame->Pipeline != nullptr && step < ve.Frame->StepCount;
+        return m_Simulates && ve.Declared && ve.Frame->Gpu->TickStage == stage && ve.Frame->Pipeline != nullptr &&
+               step < ve.Frame->StepCount;
     }
 
-    bool ParticleRenderer::RunsCompact( const ViewEmitter& ve, const uint32_t compact ) const
+    bool ParticleRenderer::RunsCompact( const ViewEmitter& ve, const uint32_t compact,
+                                        const VFX::VFXTickStage stage ) const
     {
-        return m_Simulates && ve.Declared && compact <= ve.Frame->StepCount;
+        return m_Simulates && ve.Declared && ve.Frame->Gpu->TickStage == stage && compact <= ve.Frame->StepCount;
     }
 
-    Common::BoolResultStr ParticleRenderer::Compact( const RDG::PassContext& context, const uint32_t compact )
+    Common::BoolResultStr ParticleRenderer::Compact( const RDG::PassContext& context, const uint32_t compact,
+                                                    const VFX::VFXTickStage stage )
     {
         if ( !m_CompactPipeline )
             return BOOLSUCCESS;
@@ -314,7 +318,7 @@ namespace Desert::Graphic::System
         uint32_t block    = 0;
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
-            if ( !RunsCompact( ve, compact ) )
+            if ( !RunsCompact( ve, compact, stage ) )
                 continue;
             ParticleEmitterGpu& gpu   = *ve.Frame->Gpu;
             const bool          reset = compact == 0 && gpu.NeedsReset;
@@ -339,14 +343,15 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void ParticleRenderer::DeclareCompactBindings( RDG::PassBuilder& pass, const uint32_t compact ) const
+    void ParticleRenderer::DeclareCompactBindings( RDG::PassBuilder& pass, const uint32_t compact,
+                                                   const VFX::VFXTickStage stage ) const
     {
         if ( !m_CompactPipeline )
             return; // Compact dispatches nothing either
         const auto& layout = m_CompactLayout.Get( m_CompactPipeline->GetSpecification().Shader );
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
-            if ( !RunsCompact( ve, compact ) )
+            if ( !RunsCompact( ve, compact, stage ) )
                 continue; // Compact skips it the same way
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_CompactPipeline ) )
                  .Storage( "PoolSlots", m_Pool.SlotsRef, RDG::Access::StorageWrite )
@@ -360,7 +365,8 @@ namespace Desert::Graphic::System
     }
 
     Common::BoolResultStr ParticleRenderer::BuildDispatchArgs( const RDG::PassContext& context,
-                                                               const uint32_t          step )
+                                                               const uint32_t          step,
+                                                               const VFX::VFXTickStage stage )
     {
         if ( !m_ArgsPipeline )
             return BOOLSUCCESS;
@@ -369,7 +375,7 @@ namespace Desert::Graphic::System
         uint32_t block    = 0;
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
-            if ( !RunsStep( ve, step ) )
+            if ( !RunsStep( ve, step, stage ) )
                 continue;
             const ParticleArgsPush push{ glm::uvec4( step, ve.Frame->Push.Stack.y, 0u, 0u ) };
             RDG::PassBindings      bindings( context, context.GetBindingBlock( block++ ) );
@@ -382,14 +388,15 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void ParticleRenderer::DeclareDispatchArgsBindings( RDG::PassBuilder& pass, const uint32_t step ) const
+    void ParticleRenderer::DeclareDispatchArgsBindings( RDG::PassBuilder& pass, const uint32_t step,
+                                                        const VFX::VFXTickStage stage ) const
     {
         if ( !m_ArgsPipeline )
             return; // BuildDispatchArgs dispatches nothing either
         const auto& layout = m_ArgsLayout.Get( m_ArgsPipeline->GetSpecification().Shader );
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
-            if ( !RunsStep( ve, step ) )
+            if ( !RunsStep( ve, step, stage ) )
                 continue; // BuildDispatchArgs skips it the same way
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_ArgsPipeline ) )
                  .Storage( "StepTable", ve.StepsRef, RDG::Access::StorageRead )
@@ -401,12 +408,13 @@ namespace Desert::Graphic::System
         }
     }
 
-    Common::BoolResultStr ParticleRenderer::Simulate( const RDG::PassContext& context, const uint32_t step )
+    Common::BoolResultStr ParticleRenderer::Simulate( const RDG::PassContext& context, const uint32_t step,
+                                                     const VFX::VFXTickStage stage )
     {
         uint32_t block = 0;
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
-            if ( !RunsStep( ve, step ) )
+            if ( !RunsStep( ve, step, stage ) )
                 continue;
             ParticleSimPush push = ve.Frame->Push;
             push.Counts.y        = step;
@@ -421,11 +429,12 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void ParticleRenderer::DeclareSimulateBindings( RDG::PassBuilder& pass, const uint32_t step ) const
+    void ParticleRenderer::DeclareSimulateBindings( RDG::PassBuilder& pass, const uint32_t step,
+                                                    const VFX::VFXTickStage stage ) const
     {
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
-            if ( !RunsStep( ve, step ) )
+            if ( !RunsStep( ve, step, stage ) )
                 continue; // Simulate skips it the same way
             const ComputePipeline& program = *ve.Frame->Pipeline;
             const auto&            layout  = m_SimLayouts[&program].Get( program.GetSpecification().Shader );
@@ -599,10 +608,10 @@ namespace Desert::Graphic::System
         if ( view != nullptr )
         {
             ParticleCollisionViewGpu collision;
-            // The simulation runs before the opaque passes (SceneRenderer::AddFrameParticlesSimulate), so the depth
-            // it collides against is the PREVIOUS frame's, drawn with the previous frame's jittered matrices.
-            collision.ViewProjection    = view->PrevJitteredViewProjection;
-            collision.InvViewProjection = glm::inverse( view->PrevJitteredViewProjection );
+            // Only a PostOpaque emitter reads the depth (VFX::kVFXSceneReadHostFunctions), and it simulates after the
+            // opaque passes: the depth is THIS frame's, drawn with this frame's jittered matrices.
+            collision.ViewProjection    = view->JitteredViewProjection;
+            collision.InvViewProjection = view->InvJitteredViewProjection;
             collision.Camera            = glm::vec4( view->CameraPosition, hasSceneDepth ? 1.0f : 0.0f );
             written = m_CollisionView ? m_CollisionView->SetData( &collision, kParticleCollisionViewSize )
                                       : Common::BoolResultStr( Common::MakeError( "the buffer was not created" ) );
@@ -724,47 +733,57 @@ namespace Desert::Graphic::System
         }
     }
 
-    void ParticleRenderer::AddMeshDrawArgsPasses( RDG::Builder& graph )
+    void ParticleRenderer::AddMeshDrawArgsPasses( RDG::Builder& graph, const VFX::VFXTickStage stage )
     {
-        m_MeshArgsRef = {};
+        // PreOpaque: every mesh row (each is drawn before the PostOpaque simulation by some node - the G-buffer,
+        // the base pass, a shadow view - or by ParticlePass reading PreOpaque state). PostOpaque: the rows whose
+        // ParticlePass draw reads the PostOpaque state (DrawSource). Each stage writes its own buffer.
+        const auto slot  = static_cast<std::size_t>( stage );
+        const auto wants = [this, stage]( const ViewDraw& draw )
+        {
+            return stage == VFX::VFXTickStage::PreOpaque ||
+                   ( !draw.Opaque && DrawSource( m_ViewEmitters[draw.Emitter], stage ) == stage );
+        };
+        RDG::BufferRef& argsRef = m_MeshArgsRefs[slot];
+        argsRef                 = {};
         if ( !m_Pool.Declared || !m_MeshArgsPipeline )
             return;
         uint32_t commands = 0;
         for ( ViewDraw& draw : m_ViewDraws )
         {
-            if ( draw.Renderer->Kind != VFXRendererKind::Mesh || !IsDrawable( draw ) )
+            if ( draw.Renderer->Kind != VFXRendererKind::Mesh || !IsDrawable( draw ) || !wants( draw ) )
                 continue;
-            draw.ArgsBase = commands;
+            draw.ArgsBase[slot] = commands;
             commands += static_cast<uint32_t>( draw.Sections.size() );
         }
         if ( commands == 0 )
             return;
-        m_MeshArgsRef = graph.CreateBuffer( RDG::BufferDesc{ uint64_t{ commands } * kMeshDrawCommandBytes },
+        argsRef = graph.CreateBuffer( RDG::BufferDesc{ uint64_t{ commands } * kMeshDrawCommandBytes },
                                             "ParticleMeshDrawArgs" );
         for ( uint32_t d = 0; d < static_cast<uint32_t>( m_ViewDraws.size() ); ++d )
         {
             const ViewDraw& draw = m_ViewDraws[d];
-            if ( draw.Renderer->Kind != VFXRendererKind::Mesh || !IsDrawable( draw ) )
+            if ( draw.Renderer->Kind != VFXRendererKind::Mesh || !IsDrawable( draw ) || !wants( draw ) )
                 continue;
             const ViewEmitter&                ve   = m_ViewEmitters[draw.Emitter];
-            const uint32_t                    slot = ve.Frame->StepCount & 1u;
+            const uint32_t                    half = DrawHalf( ve, stage );
             std::vector<ParticleMeshArgsPush> pushes;
             for ( uint32_t s = 0; s < static_cast<uint32_t>( draw.Sections.size() ); ++s )
             {
                 const MeshSection& section = draw.Sections[s];
                 pushes.push_back(
-                     { glm::uvec4( section.IndexCount, section.FirstIndex, section.VertexOffset, slot ),
-                       glm::uvec4( ( draw.ArgsBase + s ) * ( kMeshDrawCommandBytes / sizeof( uint32_t ) ), 0u, 0u,
+                     { glm::uvec4( section.IndexCount, section.FirstIndex, section.VertexOffset, half ),
+                       glm::uvec4( ( draw.ArgsBase[slot] + s ) * ( kMeshDrawCommandBytes / sizeof( uint32_t ) ), 0u, 0u,
                                    0u ) } );
             }
             graph.AddPass(
-                 std::format( "Particles: Mesh Args {}", d ), RDG::PassFlags::Compute,
-                 [this, counters = ve.CountersRef]( RDG::PassBuilder& pass )
+                 std::format( "Particles: Mesh Args {} {}", slot, d ), RDG::PassFlags::Compute,
+                 [this, counters = ve.CountersRef, argsRef]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_MeshArgsLayout.Get( m_MeshArgsPipeline->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_MeshArgsPipeline ) )
                           .Storage( "Counters", counters, RDG::Access::StorageRead )
-                          .Storage( "MeshDrawArgs", m_MeshArgsRef, RDG::Access::StorageWrite )
+                          .Storage( "MeshDrawArgs", argsRef, RDG::Access::StorageWrite )
                           .PushConstantBytes( sizeof( ParticleMeshArgsPush ) );
                  },
                  [this, pushes = std::move( pushes )]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -792,14 +811,37 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    bool ParticleRenderer::HasDrawArgs( const ViewDraw& draw ) const
+    VFX::VFXTickStage ParticleRenderer::DrawSource( const ViewEmitter& ve, const VFX::VFXTickStage at ) const
     {
+        return ve.Frame->Gpu->TickStage == VFX::VFXTickStage::PostOpaque && at == VFX::VFXTickStage::PostOpaque
+                    ? VFX::VFXTickStage::PostOpaque
+                    : VFX::VFXTickStage::PreOpaque;
+    }
+
+    uint32_t ParticleRenderer::DrawHalf( const ViewEmitter& ve, const VFX::VFXTickStage at ) const
+    {
+        const bool before =
+             ve.Frame->Gpu->TickStage == VFX::VFXTickStage::PostOpaque && at == VFX::VFXTickStage::PreOpaque;
+        return before ? ve.Frame->PreviousHalf : ( ve.Frame->StepCount & 1u );
+    }
+
+    bool ParticleRenderer::HasDrawData( const ViewEmitter& ve, const VFX::VFXTickStage at ) const
+    {
+        return ve.Frame->Gpu->TickStage == VFX::VFXTickStage::PreOpaque || at == VFX::VFXTickStage::PostOpaque ||
+               ve.Frame->HasPrevious;
+    }
+
+    bool ParticleRenderer::HasDrawArgs( const ViewDraw& draw, const VFX::VFXTickStage at ) const
+    {
+        if ( !HasDrawData( m_ViewEmitters[draw.Emitter], at ) )
+            return false;
         switch ( draw.Renderer->Kind )
         {
             case VFXRendererKind::Ribbon:
                 return m_ViewEmitters[draw.Emitter].RibbonSorted;
             case VFXRendererKind::Mesh:
-                return m_MeshArgsRef.IsValid();
+                return m_MeshArgsRefs[static_cast<std::size_t>( DrawSource( m_ViewEmitters[draw.Emitter], at ) )]
+                     .IsValid();
             case VFXRendererKind::Sprite:
                 break;
         }
@@ -809,24 +851,26 @@ namespace Desert::Graphic::System
     bool ParticleRenderer::IsDrawn( const ViewDraw& draw ) const
     {
         // An opaque / masked row is the base passes' and the shadow views' (ResolveOpaqueCells), never this one's.
-        return IsDrawable( draw ) && !draw.Opaque && m_ViewEmitters[draw.Emitter].InView && HasDrawArgs( draw );
+        return IsDrawable( draw ) && !draw.Opaque && m_ViewEmitters[draw.Emitter].InView &&
+               HasDrawArgs( draw, VFX::VFXTickStage::PostOpaque );
     }
 
     bool ParticleRenderer::IsDrawnOpaque( const ViewDraw& draw ) const
     {
         return draw.GBufferCell != nullptr && IsDrawable( draw ) && m_ViewEmitters[draw.Emitter].InView &&
-               HasDrawArgs( draw );
+               HasDrawArgs( draw, VFX::VFXTickStage::PreOpaque );
     }
 
     bool ParticleRenderer::IsDrawnBase( const ViewDraw& draw ) const
     {
         return draw.BaseCell != nullptr && IsDrawable( draw ) && m_ViewEmitters[draw.Emitter].InView &&
-               HasDrawArgs( draw );
+               HasDrawArgs( draw, VFX::VFXTickStage::PreOpaque );
     }
 
     bool ParticleRenderer::CastsShadow( const ViewDraw& draw ) const
     {
-        return !draw.ShadowShader.empty() && IsDrawable( draw ) && HasDrawArgs( draw );
+        return !draw.ShadowShader.empty() && IsDrawable( draw ) &&
+               HasDrawArgs( draw, VFX::VFXTickStage::PreOpaque );
     }
 
     bool ParticleRenderer::CanCast( const ViewDraw& draw ) const
@@ -921,8 +965,8 @@ namespace Desert::Graphic::System
     }
 
     template <typename Declaration>
-    auto ParticleRenderer::DeclareDrawBlock( Declaration& declared, const ViewDraw& draw,
-                                             const CellDraw& cell ) const
+    auto ParticleRenderer::DeclareDrawBlock( Declaration& declared, const ViewDraw& draw, const CellDraw& cell,
+                                             const VFX::VFXTickStage at ) const
     {
         const ViewEmitter&    ve     = m_ViewEmitters[draw.Emitter];
         const VFXRendererKind kind   = draw.Renderer->Kind;
@@ -936,7 +980,8 @@ namespace Desert::Graphic::System
             block.Storage( "AttributeInts", ve.IntsRef, RDG::Access::StorageRead )
                  .Storage( "Counters", ve.CountersRef, RDG::Access::StorageRead );
         // Named, not a conditional inline in the by-value argument (the MSVC 19.44 hang of 2026-10-07).
-        const RDG::BufferRef args = kind == VFXRendererKind::Mesh ? m_MeshArgsRef : ve.CountersRef;
+        const RDG::BufferRef meshArgs = m_MeshArgsRefs[static_cast<std::size_t>( DrawSource( ve, at ) )];
+        const RDG::BufferRef args     = kind == VFXRendererKind::Mesh ? meshArgs : ve.CountersRef;
         declared.Read( args, RDG::Access::IndirectArgs );
         return block;
     }
@@ -953,10 +998,10 @@ namespace Desert::Graphic::System
     }
 
     Common::BoolResultStr ParticleRenderer::RecordDraw( const RDG::PassBindings& bindings, const ViewDraw& draw,
-                                                        const CellDraw& cell ) const
+                                                        const CellDraw& cell, const VFX::VFXTickStage at ) const
     {
         if ( draw.Renderer->Kind == VFXRendererKind::Mesh )
-            return RecordMeshDraws( bindings, draw, cell );
+            return RecordMeshDraws( bindings, draw, cell, at );
         // Sprite and ribbon: six vertices per alive particle of alive half StepCount & 1, from the slot the last
         // compact (index StepCount) filled (the slot's FirstVertex). They face the VIEW's camera in every node,
         // its camera-to-world in the push block's Transform (Vertex_ParticleSprite.glslh): a light view draws a
@@ -967,14 +1012,16 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS; // no view: the Declares declared nothing either
         cell.Material->SetPushMatrix( view->InvView );
         const ViewEmitter& ve   = m_ViewEmitters[draw.Emitter];
-        const uint64_t     slot = ( ve.Frame->StepCount & 1u ) * kParticleDrawSlotStride;
+        const uint64_t     slot = uint64_t{ DrawHalf( ve, at ) } * kParticleDrawSlotStride;
         return Renderer::DrawProceduralIndirect( bindings, *cell.Pipeline, cell.Material->GetMaterialExecutor(),
                                                  ve.CountersRef, slot );
     }
 
     Common::BoolResultStr ParticleRenderer::RecordMeshDraws( const RDG::PassBindings& bindings,
-                                                             const ViewDraw& draw, const CellDraw& cell ) const
+                                                             const ViewDraw& draw, const CellDraw& cell,
+                                                             const VFX::VFXTickStage at ) const
     {
+        const auto argsSlot = static_cast<std::size_t>( DrawSource( m_ViewEmitters[draw.Emitter], at ) );
         // One indexed-indirect draw per section: instances = the alive particles, written by
         // AddMeshDrawArgsPasses; the section's own transform in the push block.
         for ( uint32_t s = 0; s < static_cast<uint32_t>( draw.Sections.size() ); ++s )
@@ -982,7 +1029,7 @@ namespace Desert::Graphic::System
             cell.Material->SetPushMatrix( draw.Sections[s].Transform );
             if ( auto drawn = Renderer::DrawMeshIndirect(
                       bindings, *cell.Pipeline, cell.Material->GetMaterialExecutor(), *draw.StaticMesh,
-                      m_MeshArgsRef, uint64_t{ draw.ArgsBase + s } * kMeshDrawCommandBytes );
+                      m_MeshArgsRefs[argsSlot], uint64_t{ draw.ArgsBase[argsSlot] + s } * kMeshDrawCommandBytes );
                  !drawn.IsSuccess() )
                 return drawn;
         }
@@ -1163,7 +1210,8 @@ namespace Desert::Graphic::System
                          continue;
                      cell.Material->SetMaterialIndex( draw.Row );
                      cell.Material->Bind( cell.Instance.get() );
-                     if ( auto drawn = RecordDraw( bindings, draw, cell ); !drawn.IsSuccess() )
+                     if ( auto drawn = RecordDraw( bindings, draw, cell, VFX::VFXTickStage::PostOpaque );
+                          !drawn.IsSuccess() )
                          return drawn;
                  }
                  return BOOLSUCCESS;
@@ -1208,7 +1256,7 @@ namespace Desert::Graphic::System
                     continue;
                 const CellDraw& cell   = *draw.Cell;
                 const auto&     layout = cell.Layout.Get( cell.Pipeline->GetSpecification().Shader );
-                auto            block  = DeclareDrawBlock( declared, draw, cell );
+                auto            block  = DeclareDrawBlock( declared, draw, cell, VFX::VFXTickStage::PostOpaque );
                 if ( SceneViewDetail::LayoutSamples( *layout, "u_SceneDepth" ) && depth )
                     block.Texture( "u_SceneDepth", depth, RDG::Access::SampledGraphics, "SceneDepth.Compute" )
                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
@@ -1240,7 +1288,8 @@ namespace Desert::Graphic::System
                          continue; // PSO1, as in ParticlePass
                      cell.Material->SetMaterialIndex( draw.GBufferRow );
                      cell.Material->Bind( cell.Instance.get() );
-                     if ( auto drawn = RecordDraw( bindings, draw, cell ); !drawn.IsSuccess() )
+                     if ( auto drawn = RecordDraw( bindings, draw, cell, VFX::VFXTickStage::PreOpaque );
+                          !drawn.IsSuccess() )
                          return drawn;
                  }
                  return BOOLSUCCESS;
@@ -1278,7 +1327,7 @@ namespace Desert::Graphic::System
             {
                 if ( !IsDrawnOpaque( draw ) )
                     continue;
-                (void)DeclareDrawBlock( declared, draw, *draw.GBufferCell );
+                (void)DeclareDrawBlock( declared, draw, *draw.GBufferCell, VFX::VFXTickStage::PreOpaque );
             }
         };
         return pass;
@@ -1309,7 +1358,8 @@ namespace Desert::Graphic::System
                          continue; // PSO1, as in ParticlePass
                      cell.Material->SetMaterialIndex( draw.BaseRow );
                      cell.Material->Bind( cell.Instance.get() );
-                     if ( auto drawn = RecordDraw( bindings, draw, cell ); !drawn.IsSuccess() )
+                     if ( auto drawn = RecordDraw( bindings, draw, cell, VFX::VFXTickStage::PreOpaque );
+                          !drawn.IsSuccess() )
                          return drawn;
                  }
                  return BOOLSUCCESS;
@@ -1356,7 +1406,7 @@ namespace Desert::Graphic::System
                     continue;
                 const CellDraw& cell   = *draw.BaseCell;
                 const auto&     layout = cell.Layout.Get( cell.Pipeline->GetSpecification().Shader );
-                auto            block  = DeclareDrawBlock( declared, draw, cell );
+                auto            block  = DeclareDrawBlock( declared, draw, cell, VFX::VFXTickStage::PreOpaque );
                 if ( SamplesSceneViewInputs( *layout ) )
                     BindSceneViewInputs( block, inputs, *layout );
             }
@@ -1407,7 +1457,7 @@ namespace Desert::Graphic::System
                  CellDrawFor( draw.ShadowShader, PathOf( draw.Renderer->Kind ), CellNode::Shadow, cascade );
             if ( cell == nullptr )
                 continue;
-            (void)DeclareDrawBlock( declared, draw, *cell );
+            (void)DeclareDrawBlock( declared, draw, *cell, VFX::VFXTickStage::PreOpaque );
             ++blocks;
         }
         return blocks;
@@ -1448,7 +1498,8 @@ namespace Desert::Graphic::System
             }
             cell->Material->SetMaterialIndex( draw.ShadowRows[cascade] );
             cell->Material->Bind( cell->Instance.get() );
-            if ( auto drawn = RecordDraw( bindings, draw, *cell ); !drawn.IsSuccess() )
+            if ( auto drawn = RecordDraw( bindings, draw, *cell, VFX::VFXTickStage::PreOpaque );
+                 !drawn.IsSuccess() )
                 return drawn;
         }
         return BOOLSUCCESS;

@@ -350,7 +350,8 @@ namespace Desert::Graphic::System
             return refuse( source.GetError() );
         gpu.UserRows = std::move( userRows.GetValue() );
 
-        gpu.Pipeline = ProgramFor( compiled.GetValue().Key, compiled.GetValue().ShaderName, source.GetValue() );
+        gpu.Pipeline  = ProgramFor( compiled.GetValue().Key, compiled.GetValue().ShaderName, source.GetValue() );
+        gpu.TickStage = compiled.GetValue().TickStage;
         if ( !gpu.Pipeline )
             return refuse( "its host program did not build (logged above)" );
         gpu.ParamRows    = std::move( params.GetValue() );
@@ -624,6 +625,10 @@ namespace Desert::Graphic::System
         fe.Gpu             = &gpu;
         fe.Pipeline        = gpu.Pipeline.get();
         fe.StepCount       = stepCount;
+        fe.PreviousHalf    = gpu.LastHalf;
+        fe.HasPrevious     = gpu.HasLastHalf && !gpu.NeedsReset;
+        gpu.LastHalf       = stepCount & 1u;
+        gpu.HasLastHalf    = true;
         fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
         // The placement is the position alone (the simulation reads no rotation or scale), so the box translates.
         fe.WorldBounds     = Common::Math::AABB{ gpu.LocalBounds.Min + worldPos, gpu.LocalBounds.Max + worldPos };

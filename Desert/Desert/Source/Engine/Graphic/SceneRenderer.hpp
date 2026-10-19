@@ -1139,6 +1139,9 @@ namespace Desert::Graphic
         // Before the opaque passes (they draw the opaque particle rows from this frame's simulation); hands the
         // particles the single-sample scene depth engine:Collision reads - the previous frame's resolve.
         void AddFrameParticlesSimulate( RDG::Builder& graph, FrameTextures& textures );
+        // The PostOpaque particle chain (reads this frame's depth), then the sorts and the blended mesh commands;
+        // after the opaque passes and the depth resolve, before the translucency.
+        void AddFrameParticlesPostOpaque( RDG::Builder& graph );
         // MESH-PB1: imports this frame's scene/view inputs (CSM cascades, the environment's cubes, the BRDF LUT)
         // into FrameTransients before any node is added; what is absent stays invalid (SceneViewInputsOf).
         void ImportSceneViewTextures( RDG::Builder& graph, FrameTextures& textures );
