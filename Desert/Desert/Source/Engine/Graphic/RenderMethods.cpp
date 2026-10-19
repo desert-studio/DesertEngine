@@ -24,8 +24,8 @@ namespace Desert::Graphic
         // method the device cannot run, the render path cannot feed or this build does not implement. The
         // ladder's front (Off / CascadedMaps) is implemented and needs nothing, so the walk always ends.
         template <typename Method>
-        ResolvedMethod<Method> ResolveAxis( Method requested, Method ceiling, bool rayQuery, uint32_t renderArea,
-                                            bool gBuffer )
+        ResolvedMethod<Method> ResolveAxis( Method requested, Method ceiling, bool rayQuery, bool fragmentStores,
+                                            uint32_t renderArea, bool gBuffer )
         {
             ResolvedMethod<Method> r{ .Requested = requested, .Ceiling = ceiling, .Effective = requested };
             if ( ceiling < requested )
@@ -38,6 +38,8 @@ namespace Desert::Graphic
                 MethodLimit blocked = MethodLimit::None;
                 if ( NeedsRayQuery( r.Effective ) && !rayQuery )
                     blocked = MethodLimit::Device;
+                else if ( NeedsFragmentStores( r.Effective ) && !fragmentStores )
+                    blocked = MethodLimit::FragmentStores;
                 else if ( NeedsRenderArea( r.Effective ) > renderArea )
                     blocked = MethodLimit::RenderArea;
                 else if ( NeedsGBuffer( r.Effective ) && !gBuffer )
@@ -71,6 +73,8 @@ namespace Desert::Graphic
                     return "not implemented in this build";
                 case MethodLimit::FrameScene:
                     return "the view's ray-traced scene was not built this frame";
+                case MethodLimit::FragmentStores:
+                    return "the device offers no fragmentStoresAndAtomics";
                 case MethodLimit::RenderArea:
                     scratch = std::format( "the device's framebuffer / viewport is below {0}x{0}",
                                            kVirtualShadowMapResolution );
@@ -103,12 +107,12 @@ namespace Desert::Graphic
         RenderMethods out;
         out.GlobalIllumination = ResolveAxis( post.GlobalIlluminationMethod,
                                               quality.As<GIMethod>( Parameter::GlobalIlluminationMethod ),
-                                              rayQuery, catalog.MaxRenderArea, gBuffer );
+                                              rayQuery, catalog.FragmentStores, catalog.MaxRenderArea, gBuffer );
         out.Reflections =
              ResolveAxis( post.ReflectionsMethod, quality.As<ReflectionMethod>( Parameter::ReflectionsMethod ),
-                          rayQuery, catalog.MaxRenderArea, gBuffer );
+                          rayQuery, catalog.FragmentStores, catalog.MaxRenderArea, gBuffer );
         out.Shadows = ResolveAxis( post.ShadowsMethod, quality.As<ShadowMethod>( Parameter::ShadowsMethod ),
-                                   rayQuery, catalog.MaxRenderArea, gBuffer );
+                                   rayQuery, catalog.FragmentStores, catalog.MaxRenderArea, gBuffer );
         out.ContactShadows       = post.ContactShadows && kContactShadowsImplemented;
         out.DistanceFieldShadows = post.DistanceFieldShadows && kDistanceFieldShadowsImplemented;
         return out;

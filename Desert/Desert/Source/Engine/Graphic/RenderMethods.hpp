@@ -31,6 +31,7 @@ namespace Desert::Graphic
         NotImplemented, // declared, but this build has no renderer for it (only a ceiling can name one)
         FrameScene,     // this view-frame's ray-traced scene (TLAS, trace resources) could not be built
         RenderArea,     // the device's framebuffer / viewport is below the method's render area (NeedsRenderArea)
+        FragmentStores, // the device has no stores / atomics in the fragment stage (NeedsFragmentStores)
     };
 
     template <typename Method>

@@ -31,6 +31,13 @@ namespace Desert::Graphic::API::Vulkan
              // level's depth range are flattened onto its near plane instead of clipped away, so a mountain
              // between the sun and the level still shadows it). Universal on desktop and MoltenVK.
              { C::DepthClamp, "depthClamp", N::Required, V10, {} },
+             // The sun's virtual shadow map rasterizes its casters with no attachment: the fragment stage
+             // atomic-maxes its depth into the physical pool, a storage image (Common/VirtualShadowRaster.glslh;
+             // UE ShadowDepthPixelShader.usf VIRTUAL_TEXTURE_TARGET). Optional, as in UE, where a platform without
+             // the feature has no virtual shadow maps and keeps the shadow maps: ShadowMethod::VirtualMaps needs
+             // it (NeedsFragmentStores) and both method ladders lower it to CascadedMaps by name where it is
+             // absent. Desktop GPUs and MoltenVK on Apple GPUs carry it.
+             { C::FragmentStoresAndAtomics, "fragmentStoresAndAtomics", N::Optional, V10, {} },
              { C::Swapchain, "swapchain", N::Required, 0, VK_KHR_SWAPCHAIN_EXTENSION_NAME },
              // MoltenVK has no wide lines; the debug-line path clamps the width instead.
              { C::WideLines, "wideLines", N::Optional, V10, {} },

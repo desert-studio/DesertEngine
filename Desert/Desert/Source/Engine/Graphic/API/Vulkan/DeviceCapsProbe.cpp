@@ -45,6 +45,8 @@ namespace Desert::Graphic::API::Vulkan
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::imageCubeArray );
                 case Capability::DepthClamp:
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::depthClamp );
+                case Capability::FragmentStoresAndAtomics:
+                    return EnableCore10( device, &VkPhysicalDeviceFeatures::fragmentStoresAndAtomics );
                 case Capability::WideLines:
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::wideLines );
                 case Capability::FillModeNonSolid:

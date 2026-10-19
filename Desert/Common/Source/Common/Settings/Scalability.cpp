@@ -580,7 +580,7 @@ namespace Common::Scalability
         // method (ParseValue refuses it), an override can; either lowering is a Fallback, logged by Publish like
         // every other, so the resolved ceiling is what the machine renders and the log says why it is lower.
         template <typename Method>
-        void NarrowMethod( Parameter parameter, bool rayQuery, Resolution& r )
+        void NarrowMethod( Parameter parameter, bool rayQuery, bool fragmentStores, Resolution& r )
         {
             auto             method = static_cast<Method>( r.Get( parameter ) );
             std::string_view reason;
@@ -589,6 +589,8 @@ namespace Common::Scalability
                 std::string_view blocked;
                 if ( NeedsRayQuery( method ) && !rayQuery )
                     blocked = "the device offers no ray query";
+                else if ( NeedsFragmentStores( method ) && !fragmentStores )
+                    blocked = "the device offers no fragmentStoresAndAtomics";
                 else if ( !IsImplemented( method ) )
                     blocked = "not implemented in this build";
                 if ( blocked.empty() )
@@ -849,9 +851,9 @@ namespace Common::Scalability
         }
         {
             const bool rayQuery = OffersRayQuery( catalog );
-            NarrowMethod<GIMethod>( Parameter::GlobalIlluminationMethod, rayQuery, r );
-            NarrowMethod<ReflectionMethod>( Parameter::ReflectionsMethod, rayQuery, r );
-            NarrowMethod<ShadowMethod>( Parameter::ShadowsMethod, rayQuery, r );
+            NarrowMethod<GIMethod>( Parameter::GlobalIlluminationMethod, rayQuery, catalog.FragmentStores, r );
+            NarrowMethod<ReflectionMethod>( Parameter::ReflectionsMethod, rayQuery, catalog.FragmentStores, r );
+            NarrowMethod<ShadowMethod>( Parameter::ShadowsMethod, rayQuery, catalog.FragmentStores, r );
         }
 
         // 5. The two axes are coupled (UE: below 100 % r.ScreenPercentage the AA method's temporal pass upscales,

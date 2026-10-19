@@ -145,6 +145,22 @@ namespace Common::Scalability
         return method == ShadowMethod::HardwareTraced || method == ShadowMethod::Stochastic;
     }
 
+    // ---- What a method needs from the device: stores and atomics in the fragment stage (CapabilityCatalog
+    // FragmentStores). The virtual shadow map's casters write the physical pool from the fragment stage (UE: a
+    // platform without them has no virtual shadow maps and renders the shadow maps).
+    [[nodiscard]] constexpr bool NeedsFragmentStores( GIMethod )
+    {
+        return false;
+    }
+    [[nodiscard]] constexpr bool NeedsFragmentStores( ReflectionMethod )
+    {
+        return false;
+    }
+    [[nodiscard]] constexpr bool NeedsFragmentStores( ShadowMethod method )
+    {
+        return method == ShadowMethod::VirtualMaps;
+    }
+
     // ---- What a method needs from the render path: the G-buffer (Core::RenderPath::Deferred). ------------------
     // These methods work per screen pixel from the G-buffer's depth and normal (screen-space GI/reflections, the
     // irradiance field gather, the traced methods' ray origins, the sun's screen shadow mask), so the forward path

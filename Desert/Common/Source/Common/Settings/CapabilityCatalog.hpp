@@ -192,6 +192,11 @@ namespace Common::Scalability
         // maxViewportDimensions. Mac: 16384 on Apple GPUs (Metal's texture and render-target limit).
         uint32_t MaxRenderArea = 0;
 
+        // Reader: Graphic::ResolveRenderMethods and Scalability's method ceilings (NeedsFragmentStores: the
+        // virtual shadow map's caster raster atomic-maxes into a storage image from the fragment stage). The
+        // device's fragmentStoresAndAtomics, enabled (DeviceCaps). Mac: true on Apple GPUs (MoltenVK).
+        bool FragmentStores = false;
+
         // Reader: Filtering group (Anisotropy parameter). The selectable levels (1, 2, 4, 8, 16) up to the
         // device's maxSamplerAnisotropy; {1} when samplerAnisotropy is absent. Mac: 1..16.
         std::vector<int> AnisotropyLevels;

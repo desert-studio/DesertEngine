@@ -63,6 +63,7 @@ namespace Desert::Graphic::API::Vulkan
     //                       each iff available — best first: DLSS, XeSS, MetalFX, FSR, TAAU, None.
     //   RayTracingModes   = None; RayQuery iff RayQuery+AccelerationStructure present; RayTracingPipeline iff
     //                       present and not Portability.
+    //   FragmentStores    = FragmentStoresAndAtomics present.
     //   AnisotropyLevels  = 1,2,4,8,16 up to MaxSamplerAnisotropy; {1} without SamplerAnisotropy.
     //   DisplayOutputs    = SDR_sRGB; HDR10_PQ / scRGB_Linear iff the surface lists their (format, colour space).
     //   PresentModes      = Fifo always (spec); the rest as listed by the surface.

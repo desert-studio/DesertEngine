@@ -30,6 +30,7 @@ namespace Desert::Graphic::API::Vulkan
         IndependentBlend,
         ImageCubeArray,
         DepthClamp,
+        FragmentStoresAndAtomics,
         Swapchain,
         WideLines,
         FillModeNonSolid,
