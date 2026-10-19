@@ -70,16 +70,9 @@ namespace Desert::Graphic::API::Vulkan
     {
         Release( m_Sbt );
         Release( m_Rows );
-        const auto logical = LogicalDevice();
-        if ( !logical )
-            return;
-        const VkDevice device = logical->GetVulkanLogicalDevice();
-        // The pipeline may be in a frame in flight; the device waits for its frames before a pipeline of the
-        // scene's renderer is dropped (SceneRenderer teardown), as for every other pipeline object here.
-        if ( m_Pipeline != VK_NULL_HANDLE )
-            vkDestroyPipeline( device, m_Pipeline, nullptr );
-        if ( m_Layout != VK_NULL_HANDLE )
-            vkDestroyPipelineLayout( device, m_Layout, nullptr );
+        // A rebuild mid-session (the hit group set changed) drops a pipeline the previous frames recorded
+        // vkCmdTraceRaysKHR with: it waits for those frames in the deletion queue, as the SBT above does.
+        Allocator().RT_DestroyPipeline( m_Pipeline, m_Layout );
         m_Pipeline = VK_NULL_HANDLE;
         m_Layout   = VK_NULL_HANDLE;
     }

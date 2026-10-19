@@ -63,6 +63,15 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t    FrameIndex;
     };
 
+    // A pipeline and the layout it was created with. A rebuilt pipeline (the ray tracing pipeline after its hit
+    // group set changed) may still be bound in a command buffer of a frame in flight, so both wait for that frame.
+    struct PipelineDeletionEntry
+    {
+        VkPipeline       Pipeline;
+        VkPipelineLayout Layout; // VK_NULL_HANDLE when the layout outlives the pipeline
+        uint32_t         FrameIndex;
+    };
+
     struct DescriptorPoolDeletionEntry
     {
         VkDescriptorPool DescriptorPool;
@@ -119,6 +128,8 @@ namespace Desert::Graphic::API::Vulkan
         // A timestamp pool the GPU profiler outgrew: the frame that last wrote into it may still be in
         // flight, so it waits for that frame like any other per-frame object.
         void RT_DestroyQueryPool( VkQueryPool queryPool );
+        // A pipeline (and its layout, when it owns one) a frame in flight may still have bound.
+        void RT_DestroyPipeline( VkPipeline pipeline, VkPipelineLayout layout );
         // A BLAS or TLAS a frame in flight may still trace: waits for that frame like a buffer does.
         void RT_DestroyAccelerationStructure( VkAccelerationStructureKHR            accelerationStructure,
                                               PFN_vkDestroyAccelerationStructureKHR destroy );
@@ -199,6 +210,7 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<FramebufferDeletionEntry> m_FramebufferDeletionQueue;
         std::vector<RenderPassDeletionEntry>  m_RenderPassDeletionQueue;
         std::vector<QueryPoolDeletionEntry>      m_QueryPoolDeletionQueue;
+        std::vector<PipelineDeletionEntry>       m_PipelineDeletionQueue;
         std::vector<AccelerationStructureDeletionEntry> m_AccelerationStructureDeletionQueue;
         std::vector<DescriptorPoolDeletionEntry> m_DescriptorPoolDeletionQueue;
 

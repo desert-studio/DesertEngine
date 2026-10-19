@@ -50,7 +50,7 @@ Shader "TerrainGBuffer"
             TerrainSurface s = EvaluateTerrainSurface();
 
             // Ground is a matte dielectric, as the forward program's diffuse-only lighting draws it.
-            const float roughness = 0.9;
+            const float roughness = kLandscapeRoughness;
 
             oGBufferA        = vec4( s.Albedo * u_Material.Tint.rgb, 0.0 );
             oGBufferB        = vec4( s.N, roughness );

@@ -32,6 +32,7 @@
 #include <initializer_list>
 #include <map>
 #include <memory>
+#include <span>
 #include <atomic>
 #include <chrono>
 #include <format>
@@ -1047,18 +1048,32 @@ namespace Desert::Graphic
             return Common::MakeError( defaultCell.GetError() );
         if ( !m_ReflectionDefaultSurface || m_ReflectionDefaultSurface->GetShaderName() != defaultCell.GetValue() )
             m_ReflectionDefaultSurface = std::make_shared<DataDrivenMaterial>( defaultCell.GetValue() );
-        if ( const auto hit = shaders->GetByName( std::format( "{}/RayTracing.Hit", defaultTemplate.GetValue() ) );
-             !hit || !hit->IsCompiled() )
-            return Common::MakeFormattedError( "the default surface template '{}' has no compiled hit group",
-                                               defaultTemplate.GetValue() );
+        const auto hasHitGroup = [shaders]( const std::string& name )
+        {
+            const auto hit = shaders->GetByName( std::format( "{}/RayTracing.Hit", name ) );
+            return hit && hit->IsCompiled();
+        };
         const RayTracing::RayTracingSegmentSurface defaultSurface{ defaultTemplate.GetValue(),
                                                                    m_ReflectionDefaultSurface->GetParamRow() };
-        const auto surfaceOf = []( const RayTracing::RayTracingSegmentRecord& segment )
+        // A landscape tile's segment is shaded by the landscape's own hit group from the raster's inputs (UE: the
+        // landscape material's hit shaders); its row is the tile's, by the record's LandscapeTile.
+        const std::span<const RayTracing::LandscapeRayTracingMaterial> landscape =
+             m_LandscapeRayTracing.GetFrame().Materials;
+        const auto surfaceOf = [landscape]( const RayTracing::RayTracingSegmentRecord& segment )
         {
             RayTracing::RayTracingSegmentSurface surface;
+            if ( segment.LandscapeTile != RayTracing::kNoLandscapeTile )
+            {
+                if ( segment.LandscapeTile < landscape.size() )
+                {
+                    surface.Template = std::string( RayTracing::kLandscapeRayHitTemplate );
+                    surface.Row      = RayTracing::LandscapeRayHitRow( landscape[segment.LandscapeTile] );
+                }
+                return surface; // past the tile list: a broken invariant, the default surface, counted
+            }
             const auto* material = dynamic_cast<const DataDrivenMaterial*>( segment.SurfaceMaterial );
             if ( material == nullptr )
-                return surface; // a landscape tile or a whole-entity override: the default surface, counted
+                return surface; // a whole-entity override: the default surface, counted
             const std::string& cell  = material->GetShaderName();
             const auto         slash = cell.find( '/' );
             surface.Template         = slash == std::string::npos ? cell : cell.substr( 0, slash );
@@ -1069,10 +1084,21 @@ namespace Desert::Graphic
         };
         auto table = RayTracing::BuildRayTracingHitGroupTable( m_RayTracingScene.GetGeometryRecords(),
                                                                 m_RayTracingScene.GetSegmentRecords(), surfaceOf,
-                                                                defaultSurface );
+                                                                defaultSurface, hasHitGroup );
         if ( !table )
             return Common::MakeError( table.GetError() );
         m_ReflectionHitGroups = std::move( table.GetValue() );
+        for ( const RayTracing::RayTracingHitGroupFallback& fallback : m_ReflectionHitGroups.TemplatesWithoutHitGroup )
+        {
+            if ( std::ranges::find( m_ReportedHitGroupFallbacks, fallback.Template ) !=
+                 m_ReportedHitGroupFallbacks.end() )
+                continue;
+            m_ReportedHitGroupFallbacks.push_back( fallback.Template );
+            LOG_WARN( "[SceneRenderer] Reflections hit lighting: '{}' has no compiled hit group ('{}/RayTracing.Hit' "
+                      "refused or failed: DShaderParser SurfaceTemplateInfo::RayHitRefusal, or the shader log) - its "
+                      "{} segments this frame shade with the default surface '{}'",
+                      fallback.Template, fallback.Template, fallback.Segments, defaultTemplate.GetValue() );
+        }
         return BOOLSUCCESS;
     }
 

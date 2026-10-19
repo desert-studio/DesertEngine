@@ -266,6 +266,14 @@ namespace Desert::Graphic::API::Vulkan
         m_QueryPoolDeletionQueue.push_back( { queryPool, frameIndex } );
     }
 
+    void VulkanAllocator::RT_DestroyPipeline( VkPipeline pipeline, VkPipelineLayout layout )
+    {
+        if ( pipeline == VK_NULL_HANDLE && layout == VK_NULL_HANDLE )
+            return;
+        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        m_PipelineDeletionQueue.push_back( { pipeline, layout, frameIndex } );
+    }
+
     void VulkanAllocator::RT_DestroyAccelerationStructure( VkAccelerationStructureKHR accelerationStructure,
                                                            PFN_vkDestroyAccelerationStructureKHR destroy )
     {
@@ -447,6 +455,21 @@ namespace Desert::Graphic::API::Vulkan
                 ++it;
         }
 
+        for ( auto it = m_PipelineDeletionQueue.begin(); it != m_PipelineDeletionQueue.end(); )
+        {
+            if ( takeFrame( it->FrameIndex ) )
+            {
+                if ( it->Pipeline != VK_NULL_HANDLE )
+                    vkDestroyPipeline( device, it->Pipeline, nullptr );
+                if ( it->Layout != VK_NULL_HANDLE )
+                    vkDestroyPipelineLayout( device, it->Layout, nullptr );
+                it = m_PipelineDeletionQueue.erase( it );
+                ++destroyed;
+            }
+            else
+                ++it;
+        }
+
         for ( auto it = m_DescriptorPoolDeletionQueue.begin(); it != m_DescriptorPoolDeletionQueue.end(); )
         {
             if ( !takeFrame( it->FrameIndex ) )
@@ -491,7 +514,7 @@ namespace Desert::Graphic::API::Vulkan
     std::size_t VulkanAllocator::QueuedCount() const
     {
         return m_BufferDeletionQueue.size() + m_ImageDeletionQueue.size() + m_FramebufferDeletionQueue.size() +
-               m_RenderPassDeletionQueue.size() + m_QueryPoolDeletionQueue.size() +
+               m_RenderPassDeletionQueue.size() + m_QueryPoolDeletionQueue.size() + m_PipelineDeletionQueue.size() +
                m_AccelerationStructureDeletionQueue.size() + m_DescriptorPoolDeletionQueue.size();
     }
 

@@ -122,12 +122,19 @@ namespace Desert::Graphic::RayTracing
             m_Instances.Skipped[reason] += m_Gather.Skipped[reason];
 
         // The GPU twin of the segment records: record i of SegmentRecords becomes geometry record i, the row an
-        // instance's SBT offset (its FirstSegmentRecord) + a hit's geometry index names. No material declares an
-        // opacity source the metadata can read yet (REMAINDER RT-UNIFY): every alpha-tested segment is counted in
+        // instance's SBT offset (its FirstSegmentRecord) + a hit's geometry index names. A landscape tile's masked
+        // segment tests its holes (the producer's LandscapeOpacity). No mesh material declares an opacity source
+        // the metadata can read yet (REMAINDER RT-UNIFY): every alpha-tested mesh segment is counted in
         // SegmentsWithoutOpacity, and its candidates are confirmed as hits.
         const Common::ResultStr<RayTracingMetadataBuild> metadata = BuildRayTracingMetadata(
              m_Gather.Primitives, m_Gather.SegmentRecords,
-             []( const RayTracingSegmentRecord& ) -> std::optional<RayTracingMaterialRecord> { return std::nullopt; } );
+             [&external]( const RayTracingSegmentRecord& segment ) -> std::optional<RayTracingMaterialRecord>
+             {
+                 if ( segment.LandscapeTile == kNoLandscapeTile ||
+                      segment.LandscapeTile >= external.LandscapeOpacity.size() )
+                     return std::nullopt;
+                 return external.LandscapeOpacity[segment.LandscapeTile];
+             } );
         if ( !metadata )
             return Common::MakeError( metadata.GetError() );
 

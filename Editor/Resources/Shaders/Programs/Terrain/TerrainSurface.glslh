@@ -62,7 +62,7 @@
         Uniform(12) sampler u_WeightmapSampler;
         #define u_Weightmap sampler2D(u_Weightmap, u_WeightmapSampler)
 
-        #include <Common/LandscapeWeights.glslh>
+        #include <Common/LandscapeSurface.glslh>
 
         struct TerrainSurface
         {
@@ -72,30 +72,24 @@
 
         TerrainSurface EvaluateTerrainSurface()
         {
-            vec3 N      = normalize( v_Normal );
-            vec3 albedo = u_T.GroundColor.a > 0.5 ? u_T.GroundColor.rgb : vec3( 1.0 );
-
-            // Painted layers over the ground. g = this pixel's sample coordinate within the tile (the
-            // same global-sample frame the vertex stage places the tile by), and the texel centre of sample
-            // i is (i + 0.5) / size, so the filter blends neighbouring samples as the mesh interpolates them.
-            if ( u_T.Params2.y > 0.5 )
+            vec3 N = normalize( v_Normal );
+            // Painted layers over the ground (Common/LandscapeSurface.glslh, the statement the landscape's hit
+            // group reads too). The filter blends neighbouring samples as the mesh interpolates them.
+            vec4 w0 = vec4( 0.0 );
+            vec4 w1 = vec4( 0.0 );
+            if ( LandscapeTileHasLayers( u_T ) )
             {
-                vec2  g     = ( v_WorldPos.xz - u_T.LandscapeFrame.xz ) / u_T.LandscapeFrame.w - u_T.LandscapeTile.xy;
+                vec2  g     = LandscapeTileSampleCoord( u_T, v_WorldPos );
                 vec2  size  = vec2( textureSize( u_Weightmap, 0 ) );
-                float pages = u_T.Params2.z;
-                vec4  w0    = texture( u_Weightmap, LandscapeWeightmapPageUV( g, 0.0, size, pages ) );
-                vec4  w1    = pages > 1.5 ? texture( u_Weightmap, LandscapeWeightmapPageUV( g, 1.0, size, pages ) )
-                                          : vec4( 0.0 );
+                float pages = LandscapeTilePages( u_T );
+                w0          = texture( u_Weightmap, LandscapeWeightmapPageUV( g, 0.0, size, pages ) );
+                w1 = pages > 1.5 ? texture( u_Weightmap, LandscapeWeightmapPageUV( g, 1.0, size, pages ) ) : vec4( 0.0 );
                 // UE's Landscape Visibility Mask: the tile's visibility layer punches a hole (the shadow
                 // caster, TerrainShadow.shader, discards on the same test).
-                if ( LandscapeIsHole( LandscapeVisibility( w0, w1, u_T.Params.z ) ) )
+                if ( LandscapeTileIsHole( u_T, w0, w1 ) )
                     discard;
-                albedo = LandscapeWeightBlend(
-                     w0, w1, u_T.LayerColors[0], u_T.LayerColors[1], u_T.LayerColors[2], u_T.LayerColors[3],
-                     u_T.LayerColors[4], u_T.LayerColors[5], u_T.LayerColors[6], u_T.LayerColors[7],
-                     u_T.LayerAlphaBlend[0], u_T.LayerAlphaBlend[1], albedo );
             }
-
+            const vec3 albedo = LandscapeGroundAlbedo( u_T, w0, w1 );
             TerrainSurface s;
             s.N      = N;
             s.Albedo = albedo;

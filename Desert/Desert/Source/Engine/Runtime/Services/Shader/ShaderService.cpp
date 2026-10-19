@@ -2,6 +2,7 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Settings/Scalability.hpp>
+#include <Engine/Core/EngineContext.hpp>
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
@@ -138,9 +139,15 @@ namespace Desert::Runtime
              Core::Preprocess::DShaderParser::MayDeclareSurface( shaderAsset->GetShaderContent() );
         // Ray tracing passes exist on a device with the ray tracing pipeline alone (ShaderProgramMeta::
         // RayTracingPassNames); elsewhere their names stay unregistered and a pass that asks for one refuses, naming
-        // the device (Graphic::RayTracingPipeline::Create).
+        // the device (Graphic::RayTracingPipeline::Create). The DEVICE's catalog, not QualityState's copy of it:
+        // that copy is empty until QualityBoot::Start, and a Register before it would drop every ray tracing pass
+        // in silence. The device exists whenever a shader compiles (VulkanShader reads it).
+        const auto device = EngineContext::GetInstance().GetDevice();
+        if ( !device )
+            return Common::MakeFormattedError( "ShaderService: '{}' registered before the device exists",
+                                               shader->GetName() );
         const bool rayTracingPipeline = Common::Scalability::CapabilityCatalog::Offers(
-             Common::Scalability::QualityState::Catalog().RayTracingModes,
+             device->GetCapabilities().Catalog.RayTracingModes,
              Common::Scalability::RayTracingMode::RayTracingPipeline );
         const auto& rayTracingPasses = shader->GetProgramMeta().RayTracingPassNames;
         for ( const auto& passName : shader->GetProgramMeta().PassNames )

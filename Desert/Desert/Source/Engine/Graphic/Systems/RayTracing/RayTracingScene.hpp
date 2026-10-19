@@ -46,6 +46,8 @@ namespace Desert::Graphic::RayTracing
     inline constexpr uint32_t kMaxGpuSceneRow = ( 1u << 24 ) - 1u;
     // VkAccelerationStructureInstanceKHR::instanceShaderBindingTableRecordOffset is 24 bits too.
     inline constexpr uint32_t kMaxSegmentRecord = ( 1u << 24 ) - 1u;
+    // RayTracingSegmentRecord::LandscapeTile of a segment that is not a landscape tile's.
+    inline constexpr uint32_t kNoLandscapeTile = 0xFFFFFFFFu;
 
     // THE MATERIAL OF ONE BLAS SEGMENT (UE: the FRayTracingMeshCommand of a segment, the record its hit group
     // runs, found at the instance's InstanceContributionToHitGroupIndex + the segment's geometry index). The
@@ -63,13 +65,18 @@ namespace Desert::Graphic::RayTracing
         const MaterialInstance* Instance = nullptr;
         // The material the raster shades the section with: the slot's surface template (SectionSurface), or a
         // generic record's SlotMaterial. Null: a whole-entity shader override (its material is keyed by shader
-        // name, MaterialComponent) and a landscape tile, whose surface is LandscapeRayTracingMaterial by row.
+        // name, MaterialComponent) and a landscape tile, whose surface is its LandscapeTile.
         const Material* SurfaceMaterial = nullptr;
         // The submesh the segment is (a landscape tile: the segment's index in LandscapeRayTracingLayout).
         uint32_t SubmeshIndex = 0;
         // The segment's own Opaque: false = the material is Masked and a hit runs its alpha test (the same test as
         // the material's shadow caster, MeshRendererShadow.cpp).
         bool Opaque = true;
+        // A landscape tile's segment: the tile's index in its producer's per-tile lists
+        // (LandscapeRayTracingFrame::Materials / RayTracingExternalPrimitives::LandscapeOpacity), which say what
+        // the ground is at a hit (the TerrainRayHit hit group) and where its holes are (the alpha test).
+        // kNoLandscapeTile for every mesh segment.
+        uint32_t LandscapeTile = kNoLandscapeTile;
 
         bool operator==( const RayTracingSegmentRecord& ) const = default;
     };
