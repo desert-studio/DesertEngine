@@ -912,6 +912,9 @@ namespace Desert::Graphic
         m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
         m_ContactShadowSteps                  = quality.As<int>( Parameter::ShadowContactSteps );
+        m_ParallaxQuality = ParallaxQuality{ .MinSteps    = quality.As<int>( Parameter::ShadingParallaxMinSteps ),
+                                             .MaxSteps    = quality.As<int>( Parameter::ShadingParallaxMaxSteps ),
+                                             .ShadowSteps = quality.As<int>( Parameter::ShadingParallaxShadowSteps ) };
         m_RayTracedShadowSamples =
              static_cast<uint32_t>( quality.As<int>( Parameter::ShadowRayTracedSamplesPerPixel ) );
         m_ShadowFilter = SceneResources::ShadowFilterSettings{
@@ -970,6 +973,8 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetWorldTimeSeconds( static_cast<float>( scene.GetWorldTime().GetGameTimeSeconds() ) );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->SetParallaxQuality( m_ParallaxQuality );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
              ->SetDeltaSeconds( scene.GetWorldTime().GetDeltaSeconds() );
@@ -1265,6 +1270,12 @@ namespace Desert::Graphic
         inputs.Quality                           = m_TemporalAAQuality;
         inputs.Scalability                       = &m_Quality;
         inputs.TimeSeconds                       = m_SceneTimeSeconds;
+        inputs.Parallax                          = m_ParallaxQuality;
+        // Index 0 is the scene's one directional light (see the atmosphere sun above); its Direction is the way the
+        // light travels, the relief's self-shadow traces the other way.
+        inputs.SunDirection = m_DirectionLights.DirectionLights.empty()
+                                   ? glm::vec3( 0.0f )
+                                   : glm::normalize( -glm::vec3( m_DirectionLights.DirectionLights[0].Direction ) );
         m_LastRenderScalePercent                 = inputs.RenderScalePercent;
         const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, m_TemporalUpscaler.get() );
         if ( !begun )

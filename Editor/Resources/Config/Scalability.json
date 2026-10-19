@@ -570,6 +570,33 @@
                 "PostProcess.MotionBlurQuality": 2,
                 "PostProcess.DepthOfFieldQuality": 2
             }
+        },
+        "Shading": {
+            "Low": {
+                "Shading.ParallaxMinSteps": 4,
+                "Shading.ParallaxMaxSteps": 8,
+                "Shading.ParallaxShadowSteps": 0
+            },
+            "Medium": {
+                "Shading.ParallaxMinSteps": 8,
+                "Shading.ParallaxMaxSteps": 16,
+                "Shading.ParallaxShadowSteps": 4
+            },
+            "High": {
+                "Shading.ParallaxMinSteps": 8,
+                "Shading.ParallaxMaxSteps": 32,
+                "Shading.ParallaxShadowSteps": 8
+            },
+            "Epic": {
+                "Shading.ParallaxMinSteps": 16,
+                "Shading.ParallaxMaxSteps": 48,
+                "Shading.ParallaxShadowSteps": 16
+            },
+            "Cinematic": {
+                "Shading.ParallaxMinSteps": 32,
+                "Shading.ParallaxMaxSteps": 96,
+                "Shading.ParallaxShadowSteps": 32
+            }
         }
     },
     "Recommend": {
@@ -620,6 +647,11 @@
                 160
             ],
             "PostProcess": [
+                15,
+                50,
+                110
+            ],
+            "Shading": [
                 15,
                 50,
                 110

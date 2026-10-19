@@ -247,6 +247,15 @@ namespace Common::Scalability
                CL::None,
                "SceneRenderer::TranslucentFrontLayerReflections -> \"Translucency: Front Layer G-buffer\" + "
                "\"Translucency: Front Layer Reflections\" -> Pass_Forward_Translucent.glslh" },
+             { P::ShadingParallaxMinSteps, G::Shading, "Shading.ParallaxMinSteps", 1, 64, CL::None,
+               "SceneRenderer::BeginScene -> ViewFrame::Parallax -> cameraUB.ParallaxMinSteps "
+               "(Mesh/Surface/SurfaceParallax.glslh)" },
+             { P::ShadingParallaxMaxSteps, G::Shading, "Shading.ParallaxMaxSteps", 1, 128, CL::None,
+               "SceneRenderer::BeginScene -> ViewFrame::Parallax -> cameraUB.ParallaxMaxSteps "
+               "(Mesh/Surface/SurfaceParallax.glslh)" },
+             { P::ShadingParallaxShadowSteps, G::Shading, "Shading.ParallaxShadowSteps", 0, 64, CL::None,
+               "SceneRenderer::BeginScene -> ViewFrame::Parallax -> cameraUB.ParallaxShadowSteps "
+               "(Mesh/Surface/SurfaceParallax.glslh)" },
         } };
     } // namespace
 
@@ -847,7 +856,8 @@ namespace Common::Scalability
     {
         constexpr std::array<std::string_view, kGroupCount> kKeys{
              "Textures",    "Filtering", "Shadows",      "GlobalIllumination", "Reflections",
-             "PostProcess", "Effects",   "ViewDistance", "AntiAliasing",       "ResolutionScale" };
+             "PostProcess", "Effects",   "ViewDistance", "AntiAliasing",       "ResolutionScale",
+             "Shading" };
         return kKeys[static_cast<std::size_t>( group )];
     }
 

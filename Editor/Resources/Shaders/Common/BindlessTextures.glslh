@@ -77,6 +77,16 @@ vec4 SampleBindlessBias( BindlessTexture t, vec2 uv, float bias )
                                u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
                     uv, bias );
 }
+
+// Explicit gradients: a fetch inside a loop whose trip count differs between the quad's lanes (the parallax march,
+// Mesh/Surface/SurfaceParallax.glslh) has no defined implicit derivative, so the caller takes the UV's derivatives
+// once, before the loop, and hands them here.
+vec4 SampleBindlessGrad( BindlessTexture t, vec2 uv, vec2 dUVdx, vec2 dUVdy )
+{
+    return textureGrad( sampler2D( u_BindlessTextures[nonuniformEXT( t.Texture )],
+                                   u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
+                        uv, dUVdx, dUVdy );
+}
 #endif // !DESERT_RAY_TRACING_STAGE
 
 vec4 SampleBindlessLod( BindlessTexture t, vec2 uv, float lod )

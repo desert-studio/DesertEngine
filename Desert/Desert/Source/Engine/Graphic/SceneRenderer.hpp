@@ -1339,6 +1339,8 @@ namespace Desert::Graphic
         // light) and the sun's contact shadow (ViewShadowSettings, from the elected sun), taken each BeginScene
         // and handed to the deferred composite (Common/ContactShadow.glslh).
         int   m_ContactShadowSteps                  = 12;
+        // Shading.Parallax*Steps, read in BeginScene; every view's frame carries them (ViewFrame::Parallax).
+        ParallaxQuality m_ParallaxQuality;
         float m_SunContactShadowLength              = 0.0f;
         bool  m_SunContactShadowLengthInWorldSpace  = false;
         float m_SunContactShadowCastingIntensity    = 1.0f;

@@ -234,6 +234,15 @@ namespace Desert::Graphic
     // class or its template's name.
     std::optional<MeshVertexPath> MeshCellPath( std::string_view shaderName );
 
+    // THE PARALLAX PERMUTATION of a cell (DShaderParser kSurfaceParallaxCellSuffix): "<Template>/<Cell>.Parallax",
+    // registered for every template that declares `Height <Texture2D> ... Scale(<Float>)`. A material takes it, for EVERY pass, when
+    // it assigns that height map (MaterialService CellShaderOf): the march, the Pixel Depth Offset in the G-buffer,
+    // the forward pass and both caster passes (Mesh/Surface/SurfaceParallax.glslh). A material without one keeps the
+    // base cells and pays nothing.
+    [[nodiscard]] std::string ParallaxCellOf( std::string_view cellShader );
+    // Whether a compiled cell shader is a `.Parallax` permutation (its caster is its own; see ShadowCasterCellFor).
+    [[nodiscard]] bool IsParallaxCell( std::string_view shaderName );
+
     // The one binding a path adds to the surface's own set, or nothing for a path that adds none.
     // Set 0 binding 1 is the skinned path's `Bones`, binding 17 the instanced path's
     // `InstanceTransforms`; both are free in every other variant, which is what makes "same surface,
@@ -275,18 +284,23 @@ namespace Desert::Graphic
     // ShadowDepth cell — and batches by mesh. A Masked caster's depth has HOLES, and only its own template's
     // ShadowDepth cell (DESERT_SURFACE_MASKED -> EvaluateSurface + DESERT_SURFACE_CLIP) knows where: drawn
     // through the shared program, a leaf card casts its whole quad. Translucent keeps the shared caster, as
-    // before this existed (no translucent-shadow model yet).
+    // before this existed (no translucent-shadow model yet). A PARALLAX caster's depth is the relief's (Pixel Depth
+    // Offset), which only its own template's `.Parallax` ShadowDepth cell computes: Own as well (UE: a material with
+    // Pixel Depth Offset gets its own shadow-depth shader).
     enum class ShadowCasterCell : uint8_t
     {
         Shared, // the default surface template's (path x ShadowDepth) cell, one pipeline for all casters
         Own,    // the MATERIAL'S template's (path x ShadowDepth) cell, with its textures and its clip threshold
     };
-    ShadowCasterCell ShadowCasterCellFor( Core::Formats::SurfaceBlendMode blend );
+    // @p parallax: the material draws its template's `.Parallax` cells (IsParallaxCell of its cell shader).
+    ShadowCasterCell ShadowCasterCellFor( Core::Formats::SurfaceBlendMode blend, bool parallax );
 
     // The caster shader of a material on @p materialTemplate with @p blend, drawn on @p path:
     // MeshShaderFor on the material's template when ShadowCasterCellFor says Own, on @p defaultTemplate (the
-    // template declaring `Default Surface`) when it says Shared. Empty where MeshShaderFor is.
+    // template declaring `Default Surface`) when it says Shared; a parallax material's is its own template's
+    // `.Parallax` cell. Empty where MeshShaderFor is.
     std::optional<std::string> ShadowCasterShaderFor( std::string_view                materialTemplate,
                                                       std::string_view                defaultTemplate,
-                                                      Core::Formats::SurfaceBlendMode blend, MeshVertexPath path );
+                                                      Core::Formats::SurfaceBlendMode blend, bool parallax,
+                                                      MeshVertexPath path );
 } // namespace Desert::Graphic

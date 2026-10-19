@@ -83,6 +83,15 @@ namespace Desert::Core::Preprocess
     inline constexpr std::array<std::string_view, 4> kSurfaceCellPasses   = { "Forward", "GBuffer", "ShadowDepth",
                                                                               "VirtualShadowDepth" };
     inline constexpr std::string_view                kSurfaceTypesInclude = "Mesh/Surface/SurfaceTypes.glslh";
+    // THE PARALLAX PERMUTATION (UE: the static permutation of a material whose ParallaxOcclusionMapping node and
+    // Pixel Depth Offset pin are wired). A template that declares `Height <Texture2D> ... Scale(<Float>)` gets every mesh cell a
+    // second time, named `<Path>.<Pass>.Parallax`, after all its other cells; only those define
+    // kSurfaceParallaxDefine (Mesh/Surface/SurfaceParallax.glslh: the march, the depth write, a caster that
+    // evaluates the surface). A material draws them only when it assigns the named texture
+    // (Graphic::ParallaxCellOf), so one without a height map pays nothing.
+    inline constexpr std::string_view kSurfaceParallaxCellSuffix = ".Parallax";
+    inline constexpr std::string_view kSurfaceParallaxDefine     = "DESERT_SURFACE_PARALLAX";
+    inline constexpr std::string_view kSurfaceParallaxInclude    = "Mesh/Surface/SurfaceParallax.glslh";
     // THE PARTICLE SPRITE USAGE (UE: a material's bUsedWithParticleSprites). A template that declares
     // `Usage ParticleSprites` gets ONE more cell, `ParticleSprite.Forward`, after the mesh cells: the sprite
     // vertex path (Vertex_ParticleSprite.glslh, the particle's colour / relative time / random into

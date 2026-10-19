@@ -61,6 +61,7 @@ namespace Common::Scalability
         ViewDistance,    // sg.ViewDistanceQuality — LOD distance scale, foliage/HLOD distances
         AntiAliasing,    // sg.AntiAliasingQuality — axis 1
         ResolutionScale, // sg.ResolutionQuality — axis 2
+        Shading,         // sg.ShadingQuality — material shader cost: parallax occlusion steps
         Count
     };
     inline constexpr std::size_t kGroupCount = static_cast<std::size_t>( Group::Count );
@@ -275,6 +276,12 @@ namespace Common::Scalability
                                           // G-buffer and is reflected by the opaque surfaces' tracer and
                                           // denoiser; glass reads that reflection in place of the sky (UE
                                           // r.Lumen.TranslucencyReflections.FrontLayer.Enable)
+        // Parallax occlusion mapping (Mesh/Surface/SurfaceParallax.glslh), through ViewFrame::Parallax and the view
+        // block: march steps head-on and at grazing view, and the self-shadow steps toward the sun (0 = no relief
+        // self-shadow).
+        ShadingParallaxMinSteps,    // 1..64
+        ShadingParallaxMaxSteps,    // 1..128
+        ShadingParallaxShadowSteps, // 0..64
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
