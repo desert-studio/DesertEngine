@@ -1826,7 +1826,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainProgramsShareOneMaterialAndTheCaster
 // guard was the comment `must match the shader's Particle`. Д26 then gave Age.yzw a meaning in one of the
 // two declarations, so the copies had already begun to diverge in MEANING while still agreeing in SIZE.
 //
-// Г4 removed the mirror where it could: the struct now lives in Common/ParticleState.glslh and both stages
+// Г4 removed the mirror where it could: the struct now lives in Common/ParticlePool.glslh and both stages
 // include it. The C++ stride cannot be folded into GLSL, so it is asserted here instead — against the
 // array stride the COMPILER produced for each stage, which is the number the GPU actually indexes by.
 //
@@ -2019,7 +2019,7 @@ TEST_F( ShaderCacheKeyShaderRoot, AChannelSizeScalesTheParticleBaseSize )
          << "the channel-scaled size is no longer the base SizeOverLife scales";
     EXPECT_NE( simulate.find( "none.Scalars   = vec4( 0.0, 1.0, 0.0, 0.0 );" ), std::string::npos )
          << "a particle not from a channel no longer gets size scale 1";
-    const std::string state = ReadFile( Common::Constants::Path::ShaderDir() / "Common" / "ParticleState.glslh" );
+    const std::string state = ReadFile( Common::Constants::Path::ShaderDir() / "Common" / "ParticlePool.glslh" );
     EXPECT_NE( state.find( "uint Id;" ), std::string::npos ) << "the pool slot lost the id it carries";
     EXPECT_EQ( Desert::Graphic::System::kParticleSlotStride, 8u )
          << "the pool slot is the id and the alive flag, none of the particle's data";
@@ -2048,17 +2048,17 @@ TEST_F( ShaderCacheKeyShaderRoot, TheParticleStructIsCompiledFromOneTextByBothSt
     const auto sprite =
          closure( "Particles/ParticleSpriteDefault.shader", ShaderStage::Vertex, kParticleSpriteCell );
 
-    EXPECT_TRUE( ClosureNames( simulate, "ParticleState.glslh" ) )
+    EXPECT_TRUE( ClosureNames( simulate, "ParticlePool.glslh" ) )
          << "the simulation declares the pool slot itself again";
-    EXPECT_TRUE( ClosureNames( compact, "ParticleState.glslh" ) )
+    EXPECT_TRUE( ClosureNames( compact, "ParticlePool.glslh" ) )
          << "the compact declares the pool slot itself again";
     EXPECT_TRUE( ClosureNames( sprite, "ParticleDrawRead.glslh" ) )
          << "the sprite draw no longer reads the particle through the emitter's draw layout";
     EXPECT_TRUE( ClosureNames( sort, "ParticleDrawRead.glslh" ) )
          << "the sort no longer reads the particle through the emitter's draw layout";
-    EXPECT_FALSE( ClosureNames( sprite, "ParticleState.glslh" ) )
+    EXPECT_FALSE( ClosureNames( sprite, "ParticlePool.glslh" ) )
          << "the sprite draw reads a pool record again instead of the stack's attribute columns";
-    EXPECT_FALSE( ClosureNames( sort, "ParticleState.glslh" ) )
+    EXPECT_FALSE( ClosureNames( sort, "ParticlePool.glslh" ) )
          << "the sort reads a pool record again instead of the stack's attribute columns";
 }
 

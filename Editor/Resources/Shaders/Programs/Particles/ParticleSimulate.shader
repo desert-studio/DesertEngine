@@ -16,16 +16,17 @@ Shader "ParticleSimulate"
         // A module's Kill (UpdateAge at Lifetime) clears the slot's Alive flag: the next compact frees the particle.
         // The attributes are the particle's ONE store: the sprite vertex path and the sort read them where the
         // emitter's ParticleDrawLayout says (Common/ParticleDrawLayout.glslh); the host keeps only the pool slot's
-        // id and alive flag (Common/ParticleState.glslh). A Spawn from Channel newborn hands its record's direction, colour and scalars to the
-        // stack in VFXSim (the Initialize / velocity modules read them, UE's Data Channel read); only the bound
-        // position is the host's, as the shape modules place a newborn around zero. Positions are centimetres: a World-space emitter's newborn is moved to the emitter, a
-        // Local one is drawn at emitter + Position every step.
+        // id and alive flag (Common/ParticlePool.glslh ParticleSlot). A Spawn from Channel newborn carries
+        // sim.Channel = 1 + its row of this tick's ChannelSpawns; the stack's engine:SpawnFromChannel module (the
+        // compiler appends it to the spawn group) reads the row through VFX_ChannelSpawn - the host only binds the
+        // rows. Positions are centimetres: a newborn's Position is relative to the emitter (the shape modules place
+        // it around zero, VFX_ChannelSpawn hands a channel position relative to it); a World-space emitter's newborn
+        // is moved to the emitter, a Local one is drawn at emitter + Position every step.
         LocalSize(64, 1, 1);
 
-        #include <Common/ParticleState.glslh>
         #include <Common/ParticlePool.glslh>
 
-        // The pool's bookkeeping (Common/ParticleState.glslh): id + alive flag, none of the particle's data.
+        // The pool's bookkeeping (Common/ParticlePool.glslh ParticleSlot): id + alive flag, none of the particle's data.
         Buffer(0) PoolSlots
         {
             ParticleSlot u_PoolSlots[];
@@ -60,16 +61,8 @@ Shader "ParticleSimulate"
             ParticleDrawSlot u_Slots[];
         };
 
-        // VFX-10: this tick's Spawn from Channel particles, one record per particle (VFXWorld PlanEmitterSteps).
-        struct VFXChannelSpawn
-        {
-            vec4 Position;  // xyz world cm, w = 1 when the module binds a Position field
-            vec4 Direction; // xyz start velocity direction, w = 1 when bound
-            vec4 Color;     // linear rgba, bound when Scalars.z = 1
-            vec4 Scalars;   // x = lifetime seconds, y = base-size scale (1 when unbound), z = 1 when the colour is
-                            // bound, w = 1 when the lifetime is
-        };
-
+        // VFX-10: this tick's Spawn from Channel particles, one row per particle (VFXWorld PlanEmitterSteps); the
+        // struct is Common/VFXParticleContract.glslh's.
         ReadBuffer(5) ChannelSpawns
         {
             VFXChannelSpawn u_ChannelSpawns[];
@@ -131,6 +124,14 @@ Shader "ParticleSimulate"
         {
             return u_StackCurves[index];
         }
+        // The row's bound position is world centimetres; the stack works relative to the emitter (see above).
+        VFXChannelSpawn VFX_ChannelSpawn( uint row )
+        {
+            VFXChannelSpawn c = u_ChannelSpawns[row];
+            if ( c.Position.w > 0.5 )
+                c.Position.xyz -= u_EmitterPos.xyz;
+            return c;
+        }
 
         vec3 ReadVec3( uint n, uint c )
         {
@@ -144,7 +145,7 @@ Shader "ParticleSimulate"
         }
 
         // Runs the stack on pool particle @p i: its attributes, then its slot (id, alive).
-        void Run( uint i, bool spawned, uint id, uint step, VFXChannelSpawn channel )
+        void Run( uint i, bool spawned, uint id, uint step, uint channel )
         {
             const uint n     = i - u_Counts.z; // range-local: the attribute columns are the emitter's
             const bool local = u_Counts.w == 1u;
@@ -157,9 +158,7 @@ Shader "ParticleSimulate"
             sim.Step       = u_Stack.x + step;
             sim.Spawned    = spawned;
             sim.Kill       = false;
-            sim.ChannelDirection = channel.Direction;
-            sim.ChannelColor     = channel.Color;
-            sim.ChannelScalars   = channel.Scalars;
+            sim.Channel    = channel;
             VFX_SimulateParticle( n, sim );
 
             vec3 position = vec3( 0.0 );
@@ -167,12 +166,12 @@ Shader "ParticleSimulate"
             position = ReadVec3( n, VFX_ATTR_POSITION );
             if ( spawned )
             {
-                // A newborn's Position is relative to the emitter (the shape modules place it around zero).
-                if ( channel.Position.w > 0.5 )
-                    position = local ? channel.Position.xyz - u_EmitterPos.xyz : channel.Position.xyz;
-                else if ( !local )
+                // A newborn's Position is relative to the emitter: World space moves it there.
+                if ( !local )
+                {
                     position += u_EmitterPos.xyz;
-                WriteVec3( n, VFX_ATTR_POSITION, position );
+                    WriteVec3( n, VFX_ATTR_POSITION, position );
+                }
             }
 #endif
             // Death is the stack's (a module's Kill, UpdateAge at Lifetime); a stack without one never kills.
@@ -191,16 +190,10 @@ Shader "ParticleSimulate"
             uint alive     = u_Slots[slot].VertexCount / 6u;
             uint freeCount = u_Slots[slot].FreeCount;
 
-            VFXChannelSpawn none;
-            none.Position  = vec4( 0.0 );
-            none.Direction = vec4( 0.0 );
-            none.Color     = vec4( 1.0 );
-            none.Scalars   = vec4( 0.0, 1.0, 0.0, 0.0 );
-
             if ( t < alive )
             {
                 uint i = u_Alive[2u * base + slot * u_Counts.x + t];
-                Run( i, false, u_PoolSlots[i].Id, step, none );
+                Run( i, false, u_PoolSlots[i].Id, step, 0u );
             }
 
             if ( t < min( u_Steps[step].Budget, freeCount ) )
@@ -208,9 +201,8 @@ Shader "ParticleSimulate"
                 uint i = u_Free[base + freeCount - 1u - t];
                 // Appended after the alive entries: compact step+1 scans alive + spawned (Dispatch Args).
                 u_Alive[2u * base + slot * u_Counts.x + alive + t] = i;
-                VFXChannelSpawn channel = none;
-                if ( t < u_Steps[step].ChannelCount )
-                    channel = u_ChannelSpawns[u_Steps[step].ChannelFirst + t];
+                // 1 + the row a Spawn from Channel newborn reads; 0 = not from the channel.
+                const uint channel = t < u_Steps[step].ChannelCount ? u_Steps[step].ChannelFirst + t + 1u : 0u;
                 Run( i, true, u_Steps[step].IdBase + t, step, channel );
             }
         }

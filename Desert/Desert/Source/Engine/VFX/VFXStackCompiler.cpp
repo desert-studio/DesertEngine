@@ -1,6 +1,7 @@
 #include <Engine/VFX/VFXStackCompiler.hpp>
 
 #include <Engine/VFX/VFXCurveLUT.hpp>
+#include <Engine/VFX/VFXEmitterSpawn.hpp>
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
@@ -363,13 +364,31 @@ namespace Desert::VFX
         return Common::Constants::Path::ShaderDir() / "VFX" / "Modules";
     }
 
-    Common::ResultStr<VFXCompiledEmitter> CompileEmitterStack( const S::VFXSystemData&      system,
+    Common::ResultStr<VFXCompiledEmitter> CompileEmitterStack( const S::VFXSystemData&      authored,
                                                                std::size_t                  emitterIndex,
                                                                const std::filesystem::path& engineModuleDir )
     {
         using Result = VFXCompiledEmitter;
-        if ( emitterIndex >= system.Emitters.size() )
-            return Common::MakeFormattedError<Result>( "emitter {} of {}", emitterIndex, system.Emitters.size() );
+        if ( emitterIndex >= authored.Emitters.size() )
+            return Common::MakeFormattedError<Result>( "emitter {} of {}", emitterIndex,
+                                                       authored.Emitters.size() );
+        // engine:SpawnFromChannel has two halves (UE Spawn From Data Channel): its EmitterUpdate use is the CPU
+        // spawn count (VFXEmitterSpawn), its particle half (VFX/Modules/SpawnFromChannel.shader) is appended here
+        // as the LAST spawn module, so a channel particle takes its entry's fields over what the spawn group gave.
+        const auto isChannelRead = []( const S::VFXModuleUse& use )
+        { return use.Enabled && use.Module == kVFXSpawnFromChannelModule; };
+        const S::VFXEmitterStack& authoredStack = authored.Emitters[emitterIndex].Stack;
+        const bool readsChannel =
+             std::any_of( authoredStack.EmitterUpdate.begin(), authoredStack.EmitterUpdate.end(), isChannelRead ) &&
+             std::none_of( authoredStack.ParticleSpawn.begin(), authoredStack.ParticleSpawn.end(), isChannelRead );
+        S::VFXSystemData withChannelRead;
+        if ( readsChannel )
+        {
+            withChannelRead = authored;
+            withChannelRead.Emitters[emitterIndex].Stack.ParticleSpawn.push_back(
+                 { std::string( kVFXSpawnFromChannelModule ), true, {} } );
+        }
+        const S::VFXSystemData& system = readsChannel ? withChannelRead : authored;
         // The format's own rules (every source has exactly its member, a User binding names a row of its type, a
         // Random range is ordered) are checked in one place; the compiler relies on them below.
         if ( auto valid = S::ValidateVFXSystemData( system ); !valid.IsSuccess() )

@@ -2,8 +2,8 @@
 // Engine VFX module `engine:InitializeColor` (UE Initialize Particle's Color, NiagaraStatelessModule_
 // InitializeParticle.ush): the newborn's linear RGBA colour. A Random-source range is UE's colour min/max. It also
 // keeps the colour as InitialColor, the base ColorOverLife scales — a stateful particle cannot re-derive it the way
-// a stateless one does. A Spawn from Channel colour, when the emitter binds one, replaces the input (UE: the
-// colour read from the Niagara Data Channel). Spawn group.
+// a stateless one does. A Spawn from Channel colour replaces both afterwards (engine:SpawnFromChannel). Spawn
+// group.
 Shader "InitializeColor"
 {
     Domain Particle
@@ -15,7 +15,7 @@ Shader "InitializeColor"
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {
-            const vec4 colour = sim.ChannelScalars.z > 0.5 ? sim.ChannelColor : i.Color;
+            const vec4 colour = i.Color;
             p.Color        = colour;
             p.InitialColor = colour;
         }

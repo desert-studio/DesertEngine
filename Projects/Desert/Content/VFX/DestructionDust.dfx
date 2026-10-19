@@ -99,7 +99,7 @@
                 ],
                 "ParticleSpawn": [
                     {
-                        "Module": "engine:InitializeParticle",
+                        "Module": "engine:InitializeLifetime",
                         "Enabled": true,
                         "Inputs": [
                             {
@@ -120,7 +120,13 @@
                                         0.0
                                     ]
                                 }
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeColor",
+                        "Enabled": true,
+                        "Inputs": [
                             {
                                 "Name": "Color",
                                 "Type": "Vec4",
@@ -133,9 +139,99 @@
                                 ]
                             }
                         ]
+                    },
+                    {
+                        "Module": "engine:InitializeSpriteSize",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Size",
+                                "Type": "Vec2",
+                                "Source": "Value",
+                                "Value": [
+                                    30.0,
+                                    30.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:AddVelocityInCone",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Speed",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    120.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Angle",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    35.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Falloff",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Axis",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    0.0,
+                                    1.0,
+                                    0.0
+                                ]
+                            }
+                        ]
                     }
                 ],
-                "ParticleUpdate": []
+                "ParticleUpdate": [
+                    {
+                        "Module": "engine:UpdateAge",
+                        "Enabled": true,
+                        "Inputs": []
+                    },
+                    {
+                        "Module": "engine:SolveForcesAndVelocity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpeedLimit",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    }
+                ]
             },
             "Renderers": [
                 {
@@ -234,7 +330,7 @@
                 ],
                 "ParticleSpawn": [
                     {
-                        "Module": "engine:InitializeParticle",
+                        "Module": "engine:InitializeLifetime",
                         "Enabled": true,
                         "Inputs": [
                             {
@@ -255,7 +351,13 @@
                                         0.0
                                     ]
                                 }
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeColor",
+                        "Enabled": true,
+                        "Inputs": [
                             {
                                 "Name": "Color",
                                 "Type": "Vec4",
@@ -268,9 +370,99 @@
                                 ]
                             }
                         ]
+                    },
+                    {
+                        "Module": "engine:InitializeSpriteSize",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Size",
+                                "Type": "Vec2",
+                                "Source": "Value",
+                                "Value": [
+                                    12.0,
+                                    12.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:AddVelocityInCone",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Speed",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    250.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Angle",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    35.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Falloff",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Axis",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    0.0,
+                                    1.0,
+                                    0.0
+                                ]
+                            }
+                        ]
                     }
                 ],
-                "ParticleUpdate": []
+                "ParticleUpdate": [
+                    {
+                        "Module": "engine:UpdateAge",
+                        "Enabled": true,
+                        "Inputs": []
+                    },
+                    {
+                        "Module": "engine:SolveForcesAndVelocity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpeedLimit",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    }
+                ]
             },
             "Renderers": [
                 {
@@ -335,7 +527,7 @@
                 ],
                 "ParticleSpawn": [
                     {
-                        "Module": "engine:InitializeParticle",
+                        "Module": "engine:InitializeLifetime",
                         "Enabled": true,
                         "Inputs": [
                             {
@@ -356,7 +548,13 @@
                                         0.0
                                     ]
                                 }
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeColor",
+                        "Enabled": true,
+                        "Inputs": [
                             {
                                 "Name": "Color",
                                 "Type": "Vec4",
@@ -369,9 +567,99 @@
                                 ]
                             }
                         ]
+                    },
+                    {
+                        "Module": "engine:InitializeSpriteSize",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Size",
+                                "Type": "Vec2",
+                                "Source": "Value",
+                                "Value": [
+                                    40.0,
+                                    40.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:AddVelocityInCone",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Speed",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    60.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Angle",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    35.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Falloff",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Axis",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    0.0,
+                                    1.0,
+                                    0.0
+                                ]
+                            }
+                        ]
                     }
                 ],
-                "ParticleUpdate": []
+                "ParticleUpdate": [
+                    {
+                        "Module": "engine:UpdateAge",
+                        "Enabled": true,
+                        "Inputs": []
+                    },
+                    {
+                        "Module": "engine:SolveForcesAndVelocity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpeedLimit",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    }
+                ]
             },
             "Renderers": [
                 {
