@@ -500,6 +500,42 @@ namespace Desert::Editor::ImportOptions
         }
         UI::EndPropertyRow();
 
+        // CONTRACT-DISPLACE §9.7: the mode and the bake edge length live in the mesh's import settings.
+        UI::BeginPropertyRow( "Displacement",
+                              "Sections whose material assigns its Height move along the surface. Runtime: diced "
+                              "per frame by screen size. Baked: a dense mesh cooked at the edge length below, "
+                              "drawn with its own LODs. Collision uses the baked surface in both modes." );
+        static constexpr std::array<const char*, 3> kDisplacementLabels = { "None", "Runtime", "Baked" };
+        static constexpr std::array<Assets::MeshDisplacementMode, 3> kDisplacementModes = {
+             Assets::MeshDisplacementMode::None, Assets::MeshDisplacementMode::Runtime,
+             Assets::MeshDisplacementMode::Baked };
+        int mode = 0;
+        for ( std::size_t i = 0; i < kDisplacementModes.size(); ++i )
+            if ( kDisplacementModes[i] == settings.Mesh.Displacement )
+                mode = static_cast<int>( i );
+        if ( ImGui::Combo( "##Displacement", &mode, kDisplacementLabels.data(),
+                           static_cast<int>( kDisplacementLabels.size() ) ) )
+        {
+            settings.Mesh.Displacement = kDisplacementModes[static_cast<std::size_t>( mode )];
+            changed                    = true;
+        }
+        UI::EndPropertyRow();
+
+        if ( settings.Mesh.Displacement != Assets::MeshDisplacementMode::None )
+        {
+            UI::BeginPropertyRow( "Bake Edge Length",
+                                  "Centimetres per diced edge of the baked surface (Baked draw and collision). "
+                                  "Clusters that cannot dice this fine bake at their densest level." );
+            float edge = settings.Mesh.DisplacementBake.EdgeLengthCm;
+            if ( ImGui::DragFloat( "##DisplacementEdge", &edge, 0.05f, 0.05f, 100.0f, "%.2f cm" ) &&
+                 edge > 0.0f && edge != settings.Mesh.DisplacementBake.EdgeLengthCm )
+            {
+                settings.Mesh.DisplacementBake.EdgeLengthCm = edge;
+                changed                                     = true;
+            }
+            UI::EndPropertyRow();
+        }
+
         UI::BeginPropertyRow(
              "FBX Specular Map",
              "What the FBX Specular map holds. Specular: a specular-colour image, as FBX defines "
