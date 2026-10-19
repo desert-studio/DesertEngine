@@ -189,10 +189,10 @@ namespace Desert::Graphic::RayTracing
         std::shared_ptr<ComputePipeline>       m_Pipeline;
         ShaderBindingLayoutCache               m_Layout;
         // The graph DeclareReads registered into last, and its serial: AddPasses must run on that same graph.
-        const RDG::Builder*                    m_DeclaringGraph        = nullptr;
-        uint64_t                               m_GraphSerial           = 0;
-        bool                                   m_Enabled               = true;
-        bool                                   m_PipelineRefusalLogged = false;
-        bool                                   m_OffLogged             = false;
+        const RDG::Builder* m_DeclaringGraph        = nullptr;
+        uint64_t            m_GraphSerial           = 0;
+        bool                m_Enabled               = true;
+        bool                m_PipelineRefusalLogged = false;
+        bool                m_OffLogged             = false;
     };
 } // namespace Desert::Graphic::RayTracing

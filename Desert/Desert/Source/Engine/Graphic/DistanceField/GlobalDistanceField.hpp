@@ -172,9 +172,9 @@ namespace Desert::Graphic::DistanceField
 
         DistanceFieldSceneData                                              m_SceneData;
         // The last AddUpdatePasses' objects (AddMeshSDFReads): the object records, their rows, their world boxes.
-        std::vector<glm::vec4>                                              m_FrameObjectData;
-        std::vector<uint32_t>                                               m_FrameObjectRows;
-        std::vector<Common::Math::AABB>                                     m_FrameObjectBounds;
+        std::vector<glm::vec4>          m_FrameObjectData;
+        std::vector<uint32_t>           m_FrameObjectRows;
+        std::vector<Common::Math::AABB> m_FrameObjectBounds;
         uint64_t m_FrameObjectsRevision = 0; // bumped when the objects or their rows changed
         bool     m_HasFrame             = false;
         // A device copy of one record list for the mesh SDF readers: one persistent buffer, grown as needed,

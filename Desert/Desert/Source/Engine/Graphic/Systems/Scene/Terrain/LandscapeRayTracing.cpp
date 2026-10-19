@@ -71,12 +71,13 @@ namespace Desert::Graphic::RayTracing
         const uint32_t weightmap =
              material.Weights.Weightmap != nullptr ? material.Weights.Weightmap->GetBindlessSlot().Index : 0u;
         const uint32_t sampler = BindlessSamplerFor( kLandscapeWeightmapRaySampler ).Index;
-        row[kTintSlot + 1u]    = glm::vec4( std::bit_cast<float>( weightmap ), std::bit_cast<float>( sampler ),
-                                            0.0f, 0.0f );
+        row[kTintSlot + 1u] =
+             glm::vec4( std::bit_cast<float>( weightmap ), std::bit_cast<float>( sampler ), 0.0f, 0.0f );
         return row;
     }
 
-    std::optional<RayTracingMaterialRecord> LandscapeVisibilityOpacity( const LandscapeRayTracingMaterial& material )
+    std::optional<RayTracingMaterialRecord>
+    LandscapeVisibilityOpacity( const LandscapeRayTracingMaterial& material )
     {
         if ( material.Weights.Weightmap == nullptr || material.Weights.VisibilityLayer < 0 )
             return std::nullopt;

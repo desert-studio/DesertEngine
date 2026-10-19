@@ -175,7 +175,8 @@ namespace Desert::Graphic
         return s_RendererAPI->DispatchComputeIndirect( bindings, pipeline, args, offset );
     }
 
-    Common::BoolResultStr Renderer::TraceRays( const RDG::PassBindings& bindings, const RayTracingPipeline& pipeline,
+    Common::BoolResultStr Renderer::TraceRays( const RDG::PassBindings&                   bindings,
+                                               const RayTracingPipeline&                  pipeline,
                                                const RayTracing::RayTracingHitGroupTable& hits, uint32_t width,
                                                uint32_t height )
     {
@@ -227,7 +228,8 @@ namespace Desert::Graphic
 
     Common::BoolResultStr Renderer::RenderMeshIndirect( const RDG::PassBindings& bindings,
                                                         const GraphicsPipeline& pipeline, const Mesh& mesh,
-                                                        const glm::mat4& transform, const MaterialExecutor& material,
+                                                        const glm::mat4&        transform,
+                                                        const MaterialExecutor& material,
                                                         const RDG::BufferRef args, const uint64_t offset,
                                                         const uint64_t hiddenSubmeshMask )
     {

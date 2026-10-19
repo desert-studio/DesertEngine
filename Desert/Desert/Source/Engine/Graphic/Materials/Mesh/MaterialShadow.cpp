@@ -21,8 +21,8 @@ namespace Desert::Graphic
             const auto name = Runtime::ResourceRegistry::GetMaterialService()->DefaultSurfaceShader( path, pass );
             if ( !name )
             {
-                LOG_ERROR( "[MaterialShadow] no ({} x {}) caster: {}", MeshVertexPathName( path ), MeshPassName( pass ),
-                           name.GetError() );
+                LOG_ERROR( "[MaterialShadow] no ({} x {}) caster: {}", MeshVertexPathName( path ),
+                           MeshPassName( pass ), name.GetError() );
                 return {};
             }
             return name.GetValue();

@@ -316,10 +316,12 @@ namespace
 TEST( ShadowReallocation, ALevelViewportReallocatesOnlyWhenTheShadowsLevelChangesItsBudget )
 {
     // High is the budget the viewport is built with: nothing to re-allocate.
-    EXPECT_EQ( ShadowReallocation( kSceneViewProfile, ShadowLevel( 4, 2048, 15000, 1 ), /*sunRayTraced*/ false ), std::nullopt );
+    EXPECT_EQ( ShadowReallocation( kSceneViewProfile, ShadowLevel( 4, 2048, 15000, 1 ), /*sunRayTraced*/ false ),
+               std::nullopt );
 
     // Low: two cascades of 1024 over 60 m — exactly that budget, in centimetres.
-    const auto low = ShadowReallocation( kSceneViewProfile, ShadowLevel( 2, 1024, 6000, 2 ), /*sunRayTraced*/ false );
+    const auto low =
+         ShadowReallocation( kSceneViewProfile, ShadowLevel( 2, 1024, 6000, 2 ), /*sunRayTraced*/ false );
     if ( !low.has_value() )
         FAIL() << "the Low budget asks for no reallocation";
     EXPECT_EQ( low->CascadeCount, 2u );
@@ -339,15 +341,16 @@ TEST( ShadowReallocation, APreviewAThumbnailAndAnUnpublishedQualityNeverRealloca
     EXPECT_EQ( ShadowReallocation( kThumbnailViewProfile, low, /*sunRayTraced*/ false ), std::nullopt );
     // Generation 0: QualityState never published (a tool or a test host) — the view keeps its own budget,
     // not the all-zero values of an empty resolution.
-    EXPECT_EQ( ShadowReallocation( kSceneViewProfile, ShadowLevel( 0, 0, 0, 0 ), /*sunRayTraced*/ false ), std::nullopt );
+    EXPECT_EQ( ShadowReallocation( kSceneViewProfile, ShadowLevel( 0, 0, 0, 0 ), /*sunRayTraced*/ false ),
+               std::nullopt );
     EXPECT_TRUE( kSceneViewProfile.ShadowsFollowQuality );
     EXPECT_FALSE( kPreviewViewProfile.ShadowsFollowQuality );
     EXPECT_FALSE( kThumbnailViewProfile.ShadowsFollowQuality );
 }
 
 // THE SUN PATH IS PART OF THE BUDGET: a ray-traced sun keeps only the low-detail cascades (the
-// Shadows.RayTracedTranslucency* rows), a sun drawn with CascadedMaps - also a frame that fell back from the ray-traced
-// sun - the full Shadows rows; the local lights' atlas keeps Shadows.MapSize either way.
+// Shadows.RayTracedTranslucency* rows), a sun drawn with CascadedMaps - also a frame that fell back from the
+// ray-traced sun - the full Shadows rows; the local lights' atlas keeps Shadows.MapSize either way.
 TEST( ShadowReallocation, ARayTracedSunTakesTheLowDetailCascadesAndCascadedMapsTheFullOnes )
 {
     using Common::Scalability::Parameter;

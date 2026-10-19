@@ -39,7 +39,8 @@ namespace Desert::Graphic::System
         RDG::TextureRef GBufferDepth;       // device depth: world position is reconstructed from it
         RDG::TextureRef GBufferEmissive; // HDR emissive
         RDG::TextureRef SSAO;            // FrameTransients::SSAO, or System.White (AO = 1)
-        RDG::TextureRef SunShadowMask; // "Shadows: Ray Traced Sun" (DeferredScreenShadowMask); bound by its program only
+        RDG::TextureRef
+             SunShadowMask;  // "Shadows: Ray Traced Sun" (DeferredScreenShadowMask); bound by its program only
         RDG::TextureRef SSR; // SSR's resolved reflection (rgb, a = coverage), or System.Black (the environment's)
         // The traced GI's final gather, per pixel: diffuse irradiance and specular radiance (FrameTransients::
         // GIDiffuse / GISpecular, SceneRenderer::AddFrameTracedGI), or System.Black (unread in the other GI
@@ -74,14 +75,15 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override
         {
-auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
+            auto* const shaders                = Runtime::ResourceRegistry::GetShaderService();
             m_Programs[kCascadeProgram].Shader = shaders->GetByName( "DeferredLighting" );
             if ( !m_Programs[kCascadeProgram].Shader )
                 return Common::MakeError( "DeferredLighting shader not found" );
-            // The screen-mask permutation (the ray-traced sun, the virtual shadow map): u_ScreenShadowMask in place of
-            // u_ShadowCascades.
+            // The screen-mask permutation (the ray-traced sun, the virtual shadow map): u_ScreenShadowMask in
+            // place of u_ShadowCascades.
             m_Programs[kScreenMaskSunProgram].Shader = shaders->AcquireVariant(
-                 "DeferredLighting", Core::ShaderVariant{ .Defines = { std::string( kSunShadowScreenMaskDefine ) } } );
+                 "DeferredLighting",
+                 Core::ShaderVariant{ .Defines = { std::string( kSunShadowScreenMaskDefine ) } } );
             if ( !m_Programs[kScreenMaskSunProgram].Shader )
                 return Common::MakeError( "DeferredLighting (DESERT_SUN_SHADOW_SCREEN_MASK) did not compile" );
             // Shadows Stochastic: the ray-traced sun's mask, and the local lights from MegaLights in place of the
@@ -98,7 +100,7 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
                 return Common::MakeError( "Deferred lighting target framebuffer missing" );
 
             GraphicsPipelineSpecification spec;
-            spec.TargetLayout      = SceneTargetLayout();
+            spec.TargetLayout = SceneTargetLayout();
             // Fullscreen composite over the forward-rendered scene: no depth test/write (the quad has no
             // meaningful depth), and LOAD the target so the real sky/grid drawn by the forward passes are
             // preserved — the shader discards non-geometry texels so that scene shows through.
@@ -109,8 +111,8 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
                 CompositeProgram& program = m_Programs[index];
                 // Each permutation names its own pipeline, so a device-lost report says which sun arm drew.
                 const std::string programName{ kProgramDebugNames[index] };
-                spec.DebugName = programName;
-                spec.Shader    = program.Shader;
+                spec.DebugName      = programName;
+                spec.Shader         = program.Shader;
                 const auto pipeline = Graphic::GraphicsPipeline::Create( spec );
                 if ( !pipeline )
                     return Common::MakeError( pipeline.GetError() );
@@ -393,7 +395,7 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
             std::unique_ptr<MaterialDeferredLighting> Material;
             mutable ShaderBindingLayoutCache          Layout;
         };
-        static constexpr std::size_t kCascadeProgram      = 0; // DeferredCascadeShadow
+        static constexpr std::size_t kCascadeProgram       = 0; // DeferredCascadeShadow
         static constexpr std::size_t kScreenMaskSunProgram = 1; // DeferredScreenShadowMask
         static constexpr std::size_t kMegaLightsProgram    = 2; // DeferredShadowInput::MegaLightsLocalLights
         static constexpr std::array<std::string_view, 3> kProgramDebugNames = {

@@ -126,8 +126,8 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
         {
-            // OnUpdate's frame decision: under "Shadows: Ray Traced Sun" the composite and the opaque programs read
-            // the screen mask, and the cascades are drawn only for the blended programs that sample them.
+            // OnUpdate's frame decision: under "Shadows: Ray Traced Sun" the composite and the opaque programs
+            // read the screen mask, and the cascades are drawn only for the blended programs that sample them.
             if ( m_FrameSunCascades )
                 AddFrameSunCascades( graph, textures, *mesh );
             // The local lights' views LOAD the atlas: each clears and draws only its own tile, and a tile whose
@@ -375,8 +375,9 @@ namespace Desert::Graphic
         if ( !targets || meshRenderer == nullptr )
             return;
         AddRaster(
-             graph, "Deferred: Forward Depth/Normal", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
-             RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             graph, "Deferred: Forward Depth/Normal", *targets,
+             textures.ColorLoads( *targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderForwardDepthNormalManual( context ); },
              [meshRenderer, rayTracedSun = SunShadowIsScreenMask()]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun ); } );

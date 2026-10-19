@@ -51,11 +51,11 @@ namespace Desert::Graphic::System
     // ONE PASS, THREE METHODS. ReflectionMethod::ScreenSpace runs the program's default compile (the screen
     // alone); the traced methods the permutation DESERT_REFLECTIONS_TRACED under a GI tracer's defines
     // (GlobalIllumination::TracerVariant of SceneRenderer::ReflectionsTracer): the rays the screen does not answer
-    // go on into the world - SoftwareTraced through the mesh SDFs and the global field, HardwareTraced by ray query
-    // over the view's TLAS (alpha-tested, UE Lumen HWRT reflections) - a hit lit from the surface cache (UE Lumen's
-    // reflections, SSR.shader's header). The tracer, the cards and the mesh SDFs are the GI's own frame records
-    // (TracedReads) - there is no second tracer - and the denoiser is the same, so the methods differ only in which
-    // rays come back answered.
+    // go on into the world - SoftwareTraced through the mesh SDFs and the global field, HardwareTraced by ray
+    // query over the view's TLAS (alpha-tested, UE Lumen HWRT reflections) - a hit lit from the surface cache (UE
+    // Lumen's reflections, SSR.shader's header). The tracer, the cards and the mesh SDFs are the GI's own frame
+    // records (TracedReads) - there is no second tracer - and the denoiser is the same, so the methods differ only
+    // in which rays come back answered.
     class SSRRenderer final : public RenderSystem
     {
     public:
@@ -84,7 +84,7 @@ namespace Desert::Graphic::System
         // r.Lumen.TraceMeshSDFs.TraceDistance, CardTraceEndDistanceFromCamera - the screen probes' own).
         struct TracedReads
         {
-            GlobalIllumination::TracerFrame                                 Tracer;
+            GlobalIllumination::TracerFrame Tracer;
             // Hit lighting (Reflections.HitLighting): this frame's hit group table, whose templates built the
             // hit-lit pipeline (EnsureHitLightingPipeline); null = the traced compute walks the world itself.
             // Owned by the SceneRenderer for the frame (SceneRenderer::m_ReflectionHitGroups).
@@ -147,7 +147,8 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr EnsureHitLightingPipeline( const std::vector<std::string>& templates )
         {
             if ( !m_TracedHitLit )
-                return Common::MakeError( "SSR: the hit-lit pipeline was asked for a permutation without hit lighting" );
+                return Common::MakeError(
+                     "SSR: the hit-lit pipeline was asked for a permutation without hit lighting" );
             if ( m_HitLightingPipeline && templates == m_HitLightingTemplates &&
                  m_HitLightingFor == m_TracedVariant.Hash() )
                 return BOOLSUCCESS;
@@ -156,15 +157,17 @@ namespace Desert::Graphic::System
             if ( !program )
                 return Common::MakeError( "SSR: the hit-lit ray generation ('SSR/HitLighting') did not compile or "
                                           "is not registered on this device" );
-            RayTracingPipelineSpecification spec{ .Program = program, .HitGroups = {}, .DebugName = "SSRHitLighting" };
+            RayTracingPipelineSpecification spec{
+                 .Program = program, .HitGroups = {}, .DebugName = "SSRHitLighting" };
             for ( const std::string& name : templates )
             {
                 const std::string cell = std::format( "{}/RayTracing.Hit", name );
                 auto              hit  = shaders->GetByName( cell );
                 if ( !hit || !hit->IsCompiled() )
-                    return Common::MakeFormattedError( "SSR: the hit group table names surface template '{}', whose "
-                                                       "hit group '{}' is not compiled",
-                                                       name, cell );
+                    return Common::MakeFormattedError(
+                         "SSR: the hit group table names surface template '{}', whose "
+                         "hit group '{}' is not compiled",
+                         name, cell );
                 spec.HitGroups.push_back( std::move( hit ) );
             }
             auto pipeline = RayTracingPipeline::Create( spec );
@@ -282,10 +285,13 @@ namespace Desert::Graphic::System
             ComputePipeline&               pipeline = tracedProgram ? *m_TracedPipeline : *m_TracePipeline;
             ShaderBindingLayoutCache&      layout   = tracedProgram ? m_TracedLayout : m_TraceLayout;
             auto block = pass.Bindings( layout.Get( shader ), Renderer::GetPipelineRouteFill( pipeline ) );
-            block.Texture( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+            block.Texture( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
                  .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                 .Texture( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                 .Texture( "u_SceneColor", sceneHistory, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Texture( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Texture( "u_SceneColor", sceneHistory, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
                  .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
                  .Texture( "u_HZB", hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                  .Texture( "u_Velocity", velocity, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
@@ -299,22 +305,26 @@ namespace Desert::Graphic::System
                 DeclareTracedReads( block, *traced );
         }
 
-        // SETUP of the "Deferred: Reflections (HitLighting)" node (after the classify): the hit-lit trace's block -
-        // DeclareTraceBindings' reads and writes against the ray generation's program, the tile mask READ (the
+        // SETUP of the "Deferred: Reflections (HitLighting)" node (after the classify): the hit-lit trace's block
+        // - DeclareTraceBindings' reads and writes against the ray generation's program, the tile mask READ (the
         // classify wrote it), the view block @p camera (ShaderProtocols::Camera, for the hit cells' SurfaceInput
         // and the ray cone) and the traced reads. EnsureHitLightingPipeline first.
         void DeclareHitLightingBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef traceRay,
-                                         RDG::TextureRef tiles, const GBufferInputs& gbuffer, RDG::TextureRef velocity,
-                                         RDG::TextureRef sceneHistory, RDG::TextureRef hzb, RDG::BufferRef uniforms,
-                                         RDG::BufferRef camera, const TracedReads& traced ) const
+                                         RDG::TextureRef tiles, const GBufferInputs& gbuffer,
+                                         RDG::TextureRef velocity, RDG::TextureRef sceneHistory,
+                                         RDG::TextureRef hzb, RDG::BufferRef uniforms, RDG::BufferRef camera,
+                                         const TracedReads& traced ) const
         {
             if ( !m_HitLightingPipeline )
                 return;
             auto block = pass.Bindings( m_HitLightingLayout.Get( m_HitLightingShader ), RDG::OtherRouteFill{} );
-            block.Texture( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+            block.Texture( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
                  .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                 .Texture( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                 .Texture( "u_SceneColor", sceneHistory, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Texture( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Texture( "u_SceneColor", sceneHistory, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
                  .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
                  .Texture( "u_HZB", hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                  .Texture( "u_Velocity", velocity, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
@@ -374,10 +384,10 @@ namespace Desert::Graphic::System
         // EXEC of the hit-lit node: the same push constants as the classify's, one ray generation per trace texel,
         // the shader binding table from @p hits (this frame's RayTracingHitGroupTable, whose Templates built the
         // pipeline).
-        [[nodiscard]] Common::BoolResultStr RecordHitLighting( const RDG::PassContext& context,
-                                                               const glm::vec4& cameraPos, const TraceSettings& settings,
-                                                               const bool sceneHistoryReadable, const uint32_t seed,
-                                                               const RayTracing::RayTracingHitGroupTable& hits ) const
+        [[nodiscard]] Common::BoolResultStr
+        RecordHitLighting( const RDG::PassContext& context, const glm::vec4& cameraPos,
+                           const TraceSettings& settings, const bool sceneHistoryReadable, const uint32_t seed,
+                           const RayTracing::RayTracingHitGroupTable& hits ) const
         {
             DESERT_PROFILE_PASS( "SSR: Hit-lit trace" );
             if ( !m_HitLightingPipeline )
@@ -474,12 +484,12 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache      m_TraceLayout;
         std::shared_ptr<ComputePipeline>      m_TracePipeline;
         // The traced permutation (EnsureTracedProgram) and the tracer it was compiled for.
-        std::shared_ptr<Shader>               m_TracedShader;
-        mutable ShaderBindingLayoutCache      m_TracedLayout;
-        std::shared_ptr<ComputePipeline>      m_TracedPipeline;
-        GlobalIllumination::Pipeline          m_TracedFor{};
-        bool                                  m_TracedHitLit = false;
-        Core::ShaderVariant                   m_TracedVariant;
+        std::shared_ptr<Shader>          m_TracedShader;
+        mutable ShaderBindingLayoutCache m_TracedLayout;
+        std::shared_ptr<ComputePipeline> m_TracedPipeline;
+        GlobalIllumination::Pipeline     m_TracedFor{};
+        bool                             m_TracedHitLit = false;
+        Core::ShaderVariant              m_TracedVariant;
         // The hit-lit trace (Reflections.HitLighting): its ray generation program (the traced permutation's
         // "SSR/HitLighting" pass), its ray tracing pipeline and the templates whose hit groups it was built with.
         std::shared_ptr<Shader>               m_HitLightingShader;

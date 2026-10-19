@@ -810,9 +810,9 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                                                     const DescriptorIndexingLimits&       updateAfterBind )
     {
         using Core::Formats::ShaderStage;
-        constexpr std::array kStages{ ShaderStage::Vertex,     ShaderStage::TessControl, ShaderStage::TessEvaluation,
-                                      ShaderStage::Fragment,   ShaderStage::Compute,     ShaderStage::RayGen,
-                                      ShaderStage::AnyHit,     ShaderStage::ClosestHit,  ShaderStage::Miss };
+        constexpr std::array kStages{ ShaderStage::Vertex,   ShaderStage::TessControl, ShaderStage::TessEvaluation,
+                                      ShaderStage::Fragment, ShaderStage::Compute,     ShaderStage::RayGen,
+                                      ShaderStage::AnyHit,   ShaderStage::ClosestHit,  ShaderStage::Miss };
         std::vector<std::string> refusals;
         for ( const ShaderStage stage : kStages )
         {

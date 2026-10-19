@@ -30,14 +30,15 @@
 // price per pixel instead of every light of the froxel with its shadow map (no shadow map is drawn for them:
 // MeshRenderer::UpdateLocalShadows). The light samples live at a DOWNSAMPLED resolution (Shadows.MegaLights
 // DownsampleFactor, UE r.MegaLights.DownsampleFactor 2): one SAMPLE PIXEL per factor x factor block of render
-// pixels, taken at the block's representative pixel (Common/MegaLights.glslh MegaLightsScreenPixel). Per frame, per
-// view:
+// pixels, taken at the block's representative pixel (Common/MegaLights.glslh MegaLightsScreenPixel). Per frame,
+// per view:
 //  1) "MegaLights: Generate Samples"    - per sample pixel, Shadows.MegaLightsSamplesPerPixel reservoirs, each one
 //     light of the pixel's light-grid cell drawn in proportion to its unshadowed contribution (no visibility);
 //  2) "MegaLights: Temporal Resampling" - ReSTIR DI temporal reuse: the previous frame's TRACED reservoirs at the
 //     sample pixel reprojected through the velocity, capped at Shadows.MegaLightsMaxHistory frames;
-//  3) "MegaLights: Spatial Resampling"  - ReSTIR DI spatial reuse over Shadows.MegaLightsSpatialSamples neighbours;
-//  4) "MegaLights: Trace Samples"       - ONE visibility test per surviving sample (UE traces each sample once):
+//  3) "MegaLights: Spatial Resampling"  - ReSTIR DI spatial reuse over Shadows.MegaLightsSpatialSamples
+//  neighbours; 4) "MegaLights: Trace Samples"       - ONE visibility test per surviving sample (UE traces each
+//  sample once):
 //     the light's contact shadow through the G-buffer depth, then a ray query toward a point of its source sphere
 //     (SourceRadius: soft shadows); W scaled by it. Next frame's history;
 //  5) "MegaLights: Shade Samples"       - at RENDER resolution, every pixel shades its sample pixel's traced
@@ -70,7 +71,8 @@ namespace Desert::Graphic::System
         uint32_t SpatialSamples  = 0; // 0 = no spatial reuse
         uint32_t MaxHistory      = 0; // frames; 0 = no temporal reuse
         uint32_t DenoiserRadius  = 2; // taps per side from the centre
-        uint32_t DownsampleFactor = 2; // render pixels per sample pixel, per side: 1..kMegaLightsMaxDownsampleFactor
+        uint32_t DownsampleFactor =
+             2; // render pixels per sample pixel, per side: 1..kMegaLightsMaxDownsampleFactor
     };
 
     // The denoised, demodulated local lighting the composite remodulates (rgb, straight), render sized.
@@ -108,9 +110,9 @@ namespace Desert::Graphic::System
         glm::mat4  JitteredViewProjection; // the contact shadow's march (Common/ContactShadow.glslh)
         glm::vec4  CameraPosition;         // xyz
         glm::uvec4 Counts;                 // points, spots, samples per pixel, spatial samples
-        glm::vec4  Params;                 // history cap, history readable, normal bias, spatial radius (sample px)
-        glm::uvec4 Frame;                  // frame index, render width, render height, downsample factor
-        glm::vec4  ContactShadowView;      // steps, tan(fov / 2), dither frame
+        glm::vec4  Params;            // history cap, history readable, normal bias, spatial radius (sample px)
+        glm::uvec4 Frame;             // frame index, render width, render height, downsample factor
+        glm::vec4  ContactShadowView; // steps, tan(fov / 2), dither frame
     };
     static_assert( sizeof( MegaLightsViewUniforms ) == 336 );
 
@@ -123,7 +125,7 @@ namespace Desert::Graphic::System
             {
                 Stage&           program = m_Stages[stage];
                 std::string_view name    = kShaderNames[stage];
-                program.Shader           = Runtime::ResourceRegistry::GetShaderService()->GetByName( std::string( name ) );
+                program.Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( std::string( name ) );
                 if ( !program.Shader )
                     return Common::MakeError( std::format( "MegaLights: shader {} not found", name ) );
                 const auto pipeline =
@@ -141,13 +143,14 @@ namespace Desert::Graphic::System
         // local lighting. An error, never an unshadowed light grid, when the frame has no TLAS or a pass could
         // not be declared.
         [[nodiscard]] Common::ResultStr<MegaLightsLighting> AddPasses( RDG::Builder&            graph,
-                                                                    const MegaLightsInputs&  in,
-                                                                    const MegaLightsQuality& quality,
-                                                                    const ViewFrame&         frame )
+                                                                       const MegaLightsInputs&  in,
+                                                                       const MegaLightsQuality& quality,
+                                                                       const ViewFrame&         frame )
         {
             for ( const Stage& stage : m_Stages )
                 if ( !stage.Pipeline )
-                    return Common::MakeError<MegaLightsLighting>( "MegaLights: the pipelines are not initialised" );
+                    return Common::MakeError<MegaLightsLighting>(
+                         "MegaLights: the pipelines are not initialised" );
             if ( !in.Tlas.IsValid() || !in.Metadata.Geometry.IsValid() || !in.Metadata.Materials.IsValid() )
                 return Common::MakeError<MegaLightsLighting>(
                      "MegaLights: Shadows resolved to Stochastic but the frame has no TLAS" );
@@ -284,16 +287,16 @@ namespace Desert::Graphic::System
                                                .Velocity      = in.Velocity,
                                                .Black         = in.Black };
             const MegaLightsLighting    denoised{
-                    .Diffuse  = m_DiffuseDenoiser.DenoiseDiffuseIndirect(
-                         graph,
-                         DiffuseIndirectDenoiserInputs{ .Signal               = diffuse,
+                    .Diffuse = m_DiffuseDenoiser.DenoiseDiffuseIndirect(
+                      graph,
+                      DiffuseIndirectDenoiserInputs{ .Signal               = diffuse,
                                                         .ReconstructionRadius = quality.DenoiserRadius },
-                         scene, frame, width, height ),
+                      scene, frame, width, height ),
                     .Specular = m_SpecularDenoiser.DenoiseDirectSpecular(
-                         graph,
-                         DirectSpecularDenoiserInputs{ .Signal               = specular,
+                      graph,
+                      DirectSpecularDenoiserInputs{ .Signal               = specular,
                                                        .ReconstructionRadius = quality.DenoiserRadius },
-                         scene, frame, width, height ) };
+                      scene, frame, width, height ) };
             if ( !denoised.Diffuse.IsValid() || !denoised.Specular.IsValid() )
                 return Common::MakeError<MegaLightsLighting>( "MegaLights: the denoisers are not initialised" );
             return Common::MakeSuccess( denoised );

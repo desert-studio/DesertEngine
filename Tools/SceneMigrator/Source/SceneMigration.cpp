@@ -1850,7 +1850,7 @@ namespace Desert::Migration
             auto fields = payload.value().to_object();
             if ( !fields.has_value() || fields.value().get( "SourceAngle" ).has_value() )
                 continue;
-            fields.value()["SourceAngle"]        = rfl::Generic( static_cast<double>( kSourceAngleDefault ) );
+            fields.value()["SourceAngle"]       = rfl::Generic( static_cast<double>( kSourceAngleDefault ) );
             entity.Components["DirectionLight"] = rfl::Generic( std::move( fields.value() ) );
             ++stated;
         }

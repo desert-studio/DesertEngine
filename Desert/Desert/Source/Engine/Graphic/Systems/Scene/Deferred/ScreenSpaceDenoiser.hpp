@@ -68,9 +68,10 @@ namespace Desert::Graphic::System
         uint32_t ReconstructionRadius = 2;
     };
 
-    // What MegaLights hands the denoiser's specular signal (UE MegaLights denoises its specular lighting apart from
-    // the diffuse): its full-resolution demodulated specular light, rgb = light, a = 1 on a surface. The diffuse
-    // half goes through DiffuseIndirectDenoiserInputs, so a glossy highlight never gets the diffuse kernel.
+    // What MegaLights hands the denoiser's specular signal (UE MegaLights denoises its specular lighting apart
+    // from the diffuse): its full-resolution demodulated specular light, rgb = light, a = 1 on a surface. The
+    // diffuse half goes through DiffuseIndirectDenoiserInputs, so a glossy highlight never gets the diffuse
+    // kernel.
     struct DirectSpecularDenoiserInputs
     {
         RDG::TextureRef Signal;
@@ -239,15 +240,17 @@ namespace Desert::Graphic::System
         // The full-resolution surface signals (diffuse indirect, direct specular): one reconstruction pass of this
         // signal's program, then the shared temporal accumulation and history convolution.
         RDG::TextureRef DenoiseSurfaceSignal( RDG::Builder& graph, const RDG::TextureRef input,
-                                              const uint32_t reconstructionRadius, const DenoiserSceneTextures& scene,
-                                              const ViewFrame& frame, const uint32_t width, const uint32_t height,
+                                              const uint32_t               reconstructionRadius,
+                                              const DenoiserSceneTextures& scene, const ViewFrame& frame,
+                                              const uint32_t width, const uint32_t height,
                                               const std::string_view passName )
         {
             const RDG::BufferRef  uniforms = UploadViewUniforms( graph, frame );
             const RDG::TextureRef signal =
                  graph.CreateTexture( Desc( width, height, kSignalFormat ), "SSD.Signal" );
             graph.SetFaultDefault( signal, RDG::FaultDefault::Black );
-            // x = the kernel's taps per side from the centre (SSDReconstructDiffuse / SSDReconstructDirectSpecular).
+            // x = the kernel's taps per side from the centre (SSDReconstructDiffuse /
+            // SSDReconstructDirectSpecular).
             const glm::vec4 push( static_cast<float>( std::max( reconstructionRadius, 1u ) ), 0.0f, 0.0f, 0.0f );
             graph.AddPass(
                  passName, RDG::PassFlags::Compute,
@@ -279,10 +282,10 @@ namespace Desert::Graphic::System
 
     public:
         // UE IScreenSpaceDenoiser::DenoiseShadowVisibilityMasks. As DenoiseDiffuseIndirect, for a light's penumbra
-        // mask: the reconstruction's kernel is the penumbra's width (closest occluder * tan(angle / 2)), the history
-        // is reprojected through the surface. Returns the denoised visibility (r; rgb equal, a = 1). A light of
-        // angle 0 casts a hard shadow from one ray per pixel - nothing stochastic to denoise: the mask itself is
-        // returned and no pass is added. Invalid: not initialised for this signal.
+        // mask: the reconstruction's kernel is the penumbra's width (closest occluder * tan(angle / 2)), the
+        // history is reprojected through the surface. Returns the denoised visibility (r; rgb equal, a = 1). A
+        // light of angle 0 casts a hard shadow from one ray per pixel - nothing stochastic to denoise: the mask
+        // itself is returned and no pass is added. Invalid: not initialised for this signal.
         [[nodiscard]] RDG::TextureRef DenoiseShadowVisibility( RDG::Builder&                         graph,
                                                                const ShadowVisibilityDenoiserInputs& in,
                                                                const DenoiserSceneTextures&          scene,
@@ -464,7 +467,7 @@ namespace Desert::Graphic::System
                                                    const RDG::BufferRef uniforms, const uint32_t width,
                                                    const uint32_t height )
         {
-            const std::string prefix = SignalName( m_Signal ) + ".History";
+            const std::string prefix   = SignalName( m_Signal ) + ".History";
             HistorySlot& previous = m_Slots[m_Parity];
             HistorySlot& next     = m_Slots[1u - m_Parity];
             // Decided at build time: the exec runs after the frame was built and must not consult a stamp a later
@@ -524,8 +527,8 @@ namespace Desert::Graphic::System
                      return dispatched;
                  } );
 
-            const RDG::TextureRef output = graph.CreateTexture( Desc( width, height, kSignalFormat ),
-                                                                SignalName( m_Signal ) );
+            const RDG::TextureRef output =
+                 graph.CreateTexture( Desc( width, height, kSignalFormat ), SignalName( m_Signal ) );
             graph.SetFaultDefault( output, RDG::FaultDefault::Black );
             const glm::vec4 convolutionPush( 0.0f, static_cast<float>( m_Signal ), 0.0f, 0.0f );
             graph.AddPass(

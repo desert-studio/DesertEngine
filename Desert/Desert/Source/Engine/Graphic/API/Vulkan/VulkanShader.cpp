@@ -113,15 +113,16 @@ namespace Desert::Graphic::API::Vulkan
             {
                 if ( !SpirvDeclaresCapability( spirv, kSpirvCapabilityRayQuery ) )
                     continue;
-                m_DeviceRefusal = std::format( "its {} stage uses inline ray tracing (SPIR-V RayQueryKHR) and device "
-                                               "'{}' has no ray query; no module or set layout is created on it",
-                                               GetStringShaderStage( stage ), caps.DeviceName );
+                m_DeviceRefusal =
+                     std::format( "its {} stage uses inline ray tracing (SPIR-V RayQueryKHR) and device "
+                                  "'{}' has no ray query; no module or set layout is created on it",
+                                  GetStringShaderStage( stage ), caps.DeviceName );
                 return Common::MakeFormattedError( "Shader '{}': {}", m_ShaderName, m_DeviceRefusal );
             }
         }
-        // The same for the ray tracing PIPELINE's stages (RayGen, Miss, ClosestHit, AnyHit): a named pass of them is
-        // never registered on such a device (ShaderService::Register), but a shader made of such passes alone has
-        // its first one as its default program (Programs/Terrain/TerrainRayHit.shader), which must not reach
+        // The same for the ray tracing PIPELINE's stages (RayGen, Miss, ClosestHit, AnyHit): a named pass of them
+        // is never registered on such a device (ShaderService::Register), but a shader made of such passes alone
+        // has its first one as its default program (Programs/Terrain/TerrainRayHit.shader), which must not reach
         // vkCreateShaderModule with the RayTracingKHR capability either.
         if ( !caps.Has( Capability::RayTracingPipeline ) || !caps.Has( Capability::AccelerationStructure ) )
         {
@@ -129,9 +130,10 @@ namespace Desert::Graphic::API::Vulkan
             {
                 if ( !Core::Formats::IsRayTracingStage( stage ) )
                     continue;
-                m_DeviceRefusal = std::format( "its {} stage is a ray tracing pipeline stage and device '{}' has no "
-                                               "ray tracing pipeline; no module or set layout is created on it",
-                                               GetStringShaderStage( stage ), caps.DeviceName );
+                m_DeviceRefusal =
+                     std::format( "its {} stage is a ray tracing pipeline stage and device '{}' has no "
+                                  "ray tracing pipeline; no module or set layout is created on it",
+                                  GetStringShaderStage( stage ), caps.DeviceName );
                 return Common::MakeFormattedError( "Shader '{}': {}", m_ShaderName, m_DeviceRefusal );
             }
         }

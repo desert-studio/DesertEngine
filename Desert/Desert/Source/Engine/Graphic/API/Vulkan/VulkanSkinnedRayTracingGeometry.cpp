@@ -152,7 +152,7 @@ namespace Desert::Graphic::API::Vulkan
         const auto&    allocator =
              SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
 
-        m_IndexAddress = functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() );
+        m_IndexAddress  = functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() );
         m_VertexAddress = functions.BufferAddress( device, vertexBuffer->GetVulkanBuffer() );
         // The sizes ignore the vertex address: RecordBuild passes the streams' (the positions SkinFrame wrote).
         const VulkanBlasBuildInput sizing                 = TranslateBlasGeometry( m_Segments, 0, m_IndexAddress );
@@ -273,13 +273,13 @@ namespace Desert::Graphic::API::Vulkan
             allocator->RT_DestroyAccelerationStructure( m_Handle, m_Destroy );
         if ( m_Storage != VK_NULL_HANDLE )
             allocator->RT_DestroyBuffer( m_Storage, m_StorageMemory );
-        m_Handle            = VK_NULL_HANDLE;
-        m_Storage           = VK_NULL_HANDLE;
-        m_StorageMemory     = nullptr;
-        m_StorageBytes      = 0;
-        m_DeviceAddress     = 0;
-        m_StorageLedger     = ResourceOwnership{};
-        m_StorageExternal   = RDG::ExternalBuffer{};
+        m_Handle          = VK_NULL_HANDLE;
+        m_Storage         = VK_NULL_HANDLE;
+        m_StorageMemory   = nullptr;
+        m_StorageBytes    = 0;
+        m_DeviceAddress   = 0;
+        m_StorageLedger   = ResourceOwnership{};
+        m_StorageExternal = RDG::ExternalBuffer{};
         m_SourceVertices.reset();
         m_Indices.reset();
         m_Segments.clear();

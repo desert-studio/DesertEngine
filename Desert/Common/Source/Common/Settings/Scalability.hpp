@@ -162,12 +162,13 @@ namespace Common::Scalability
         ShadowVirtualSMRTRayCount,
         ShadowVirtualSMRTSamplesPerRay,
         // Shadows Stochastic (MegaLights, System::MegaLightsRenderer; UE r.MegaLights.*): the traced light samples
-        // per sample pixel (reservoirs, each traced once after the reuse; UE NumSamplesPerPixel), the ReSTIR spatial reuse's neighbours per sample (0 = no spatial reuse), the
-        // temporal reuse's history cap in frames (a reprojected reservoir weighs at most this many of the current
-        // frame's; 0 = no temporal reuse; UE Temporal.MaxFramesAccumulated), and the denoiser's reconstruction
-        // kernel, taps per side from the centre (ScreenSpaceDenoiser DiffuseIndirect and DirectSpecular), and the
-        // render pixels per sample pixel, per side (UE r.MegaLights.DownsampleFactor: 2 = the samples at half
-        // resolution, upsampled by the shading). 1..4, 0..8, 0..30, 1..3, 1..2.
+        // per sample pixel (reservoirs, each traced once after the reuse; UE NumSamplesPerPixel), the ReSTIR
+        // spatial reuse's neighbours per sample (0 = no spatial reuse), the temporal reuse's history cap in frames
+        // (a reprojected reservoir weighs at most this many of the current frame's; 0 = no temporal reuse; UE
+        // Temporal.MaxFramesAccumulated), and the denoiser's reconstruction kernel, taps per side from the centre
+        // (ScreenSpaceDenoiser DiffuseIndirect and DirectSpecular), and the render pixels per sample pixel, per
+        // side (UE r.MegaLights.DownsampleFactor: 2 = the samples at half resolution, upsampled by the
+        // shading). 1..4, 0..8, 0..30, 1..3, 1..2.
         ShadowMegaLightsSamplesPerPixel,
         ShadowMegaLightsSpatialSamples,
         ShadowMegaLightsMaxHistory,

@@ -298,13 +298,13 @@ namespace Desert::Graphic::API::Vulkan
             m_StorageExternal  = RDG::ExternalBuffer{};
         }
 
-        std::string                             m_Name;
-        VkAccelerationStructureKHR              m_Handle        = VK_NULL_HANDLE;
-        PFN_vkDestroyAccelerationStructureKHR   m_Destroy       = nullptr;
-        uint64_t                                m_DeviceAddress = 0;
-        uint64_t                                m_VertexAddress = 0; // m_Vertices' device address (GetMetadataLayout)
-        uint64_t                                m_IndexAddress  = 0; // m_Indices' device address
-        bool                                    m_Update        = false; // the last Prepare's plan
+        std::string                           m_Name;
+        VkAccelerationStructureKHR            m_Handle        = VK_NULL_HANDLE;
+        PFN_vkDestroyAccelerationStructureKHR m_Destroy       = nullptr;
+        uint64_t                              m_DeviceAddress = 0;
+        uint64_t m_VertexAddress = 0;     // m_Vertices' device address (GetMetadataLayout)
+        uint64_t m_IndexAddress  = 0;     // m_Indices' device address
+        bool     m_Update        = false; // the last Prepare's plan
         RayTracing::RayTracingDynamicMeshLayout m_Layout;
         OwnedBuffer                             m_Vertices;
         OwnedBuffer                             m_Indices;

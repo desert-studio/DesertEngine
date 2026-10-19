@@ -603,8 +603,7 @@ namespace Desert::Runtime
     }
 
     Graphic::DataDrivenMaterial* MaterialService::GetVariant( const Graphic::Material* built,
-                                                              Graphic::MeshVertexPath  path,
-                                                              Graphic::MeshPass        pass,
+                                                              Graphic::MeshVertexPath path, Graphic::MeshPass pass,
                                                               const Core::ShaderVariant& permutation ) const
     {
         if ( permutation.IsDefault() )
@@ -614,7 +613,7 @@ namespace Desert::Runtime
 
     Graphic::DataDrivenMaterial* MaterialService::SiblingOf( const Graphic::Material* built,
                                                              Graphic::MeshVertexPath path, Graphic::MeshPass pass,
-                                                             uint32_t view,
+                                                             uint32_t                   view,
                                                              const Core::ShaderVariant& permutation ) const
     {
         // The sibling first: it resolves the asset (instance chain, unread shell, cell refusal) once, and a

@@ -162,12 +162,13 @@ namespace Desert::Graphic::GlobalIllumination
     //                          own record, so the neutral GI frame (GIFramePayload) carries nothing of it -
     //                          and the field's object grid, the rows a hit may belong to (GIHitInstanceRows);
     //   HardwareRayQuery       the view's scene TLAS (RayTracingSceneFrame::Tlas, RT-SCENE), its per-segment
-    //                          geometry and material records (RayTracingSceneFrame::Metadata, RT-SHADOWS: the hit's
-    //                          vertex streams and alpha test), and the surface cache's instance-table row (contract
-    //                          B3) per TLAS instance custom index (one uint per GPU-scene row, kNoInstance where the
-    //                          cache holds no such instance; SceneRenderer::AddFrameInstanceSurfaceCacheRows).
-    //                          The ray-query walk's own record; it reads no distance field data. It fills four of
-    //                          the tracer's six bindings (GI_TRACER_BINDING + 0..3); + 4 and + 5 stay unbound.
+    //                          geometry and material records (RayTracingSceneFrame::Metadata, RT-SHADOWS: the
+    //                          hit's vertex streams and alpha test), and the surface cache's instance-table row
+    //                          (contract B3) per TLAS instance custom index (one uint per GPU-scene row,
+    //                          kNoInstance where the cache holds no such instance;
+    //                          SceneRenderer::AddFrameInstanceSurfaceCacheRows). The ray-query walk's own record;
+    //                          it reads no distance field data. It fills four of the tracer's six bindings
+    //                          (GI_TRACER_BINDING + 0..3); + 4 and + 5 stay unbound.
     struct TracerFrame
     {
         GlobalIllumination::Pipeline        Pipeline{};
@@ -181,9 +182,9 @@ namespace Desert::Graphic::GlobalIllumination
 
     // The shader names of the hardware tracer's four reads (Common/GITracer.glslh declares them at
     // GI_TRACER_BINDING + 0..3; the record blocks are Common/RayQueryVisibility.glslh's, shared with RT-SHADOWS).
-    inline constexpr std::string_view kHardwareTracerTlasName              = "u_SceneTLAS";
-    inline constexpr std::string_view kHardwareTracerGeometryName          = "RayTracingGeometryRecords";
-    inline constexpr std::string_view kHardwareTracerMaterialsName         = "RayTracingMaterialRecords";
+    inline constexpr std::string_view kHardwareTracerTlasName                     = "u_SceneTLAS";
+    inline constexpr std::string_view kHardwareTracerGeometryName                 = "RayTracingGeometryRecords";
+    inline constexpr std::string_view kHardwareTracerMaterialsName                = "RayTracingMaterialRecords";
     inline constexpr std::string_view kHardwareTracerInstanceSurfaceCacheRowsName = "GIInstanceSurfaceCacheRows";
 
     // THE GI FRAME RECORD — what every GI pass knows of the frame, neutral to the tracer. std430 — must match

@@ -80,8 +80,8 @@ namespace Desert::Core::Preprocess
     // the one home of the cell set and of the headers a cell is built from — the parser writes the cells
     // from them and ComputeShaderMapKey hashes the same headers, so the two cannot disagree.
     inline constexpr std::array<std::string_view, 3> kSurfaceVertexPaths = { "Static", "Instanced", "Skinned" };
-    inline constexpr std::array<std::string_view, 4> kSurfaceCellPasses  = { "Forward", "GBuffer", "ShadowDepth",
-                                                                             "VirtualShadowDepth" };
+    inline constexpr std::array<std::string_view, 4> kSurfaceCellPasses   = { "Forward", "GBuffer", "ShadowDepth",
+                                                                              "VirtualShadowDepth" };
     inline constexpr std::string_view                kSurfaceTypesInclude = "Mesh/Surface/SurfaceTypes.glslh";
     // THE PARTICLE SPRITE USAGE (UE: a material's bUsedWithParticleSprites). A template that declares
     // `Usage ParticleSprites` gets ONE more cell, `ParticleSprite.Forward`, after the mesh cells: the sprite
@@ -94,9 +94,9 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceParticleSpritePassInclude = "Mesh/Surface/Pass_ParticleSprite.glslh";
     inline constexpr std::string_view kSurfaceParticleSpriteDefine      = "DESERT_SURFACE_PARTICLE_SPRITE";
     // THE RAY TRACING HIT CELL (UE: the material's hit group). Every Opaque / Masked template whose bindings are
-    // all row slots gets `RayTracing.Hit` after its mesh cells: ClosestHit (the surface into the ray's payload) and,
-    // Masked, AnyHit (the OpacityMask test). Its stages define DESERT_SURFACE_PASS_Hit; their material row comes
-    // from the hit group's shader record (kSurfaceRayHitRecordInclude), the geometry from the same record.
+    // all row slots gets `RayTracing.Hit` after its mesh cells: ClosestHit (the surface into the ray's payload)
+    // and, Masked, AnyHit (the OpacityMask test). Its stages define DESERT_SURFACE_PASS_Hit; their material row
+    // comes from the hit group's shader record (kSurfaceRayHitRecordInclude), the geometry from the same record.
     inline constexpr std::string_view kSurfaceRayHitPath          = "RayTracing";
     inline constexpr std::string_view kSurfaceRayHitPass          = "Hit";
     inline constexpr std::string_view kSurfaceRayHitPassInclude   = "Mesh/Surface/Pass_RayHit.glslh";
@@ -138,11 +138,11 @@ namespace Desert::Core::Preprocess
     // The pass whose opaque cells never evaluate the surface: their fragment stage is the pass header alone (no
     // surface function, no material row, no push block), so the cell's layout is the shadow shader's.
     inline constexpr std::string_view kSurfaceDepthPass = "ShadowDepth";
-    // The virtual shadow map's caster pass (UE: the VSM page raster, a non-Nanite mesh's shadow-depth shader writing
-    // the physical pool): the same depth-only cell, its fragment stage writing the pool by an atomic max instead
-    // of a depth attachment (Mesh/Surface/Pass_VirtualShadowDepth.glslh).
+    // The virtual shadow map's caster pass (UE: the VSM page raster, a non-Nanite mesh's shadow-depth shader
+    // writing the physical pool): the same depth-only cell, its fragment stage writing the pool by an atomic max
+    // instead of a depth attachment (Mesh/Surface/Pass_VirtualShadowDepth.glslh).
     inline constexpr std::string_view kSurfaceVirtualDepthPass = "VirtualShadowDepth";
-    constexpr bool IsSurfaceDepthOnlyPass( const std::string_view pass )
+    constexpr bool                    IsSurfaceDepthOnlyPass( const std::string_view pass )
     {
         return pass == kSurfaceDepthPass || pass == kSurfaceVirtualDepthPass;
     }
@@ -192,7 +192,8 @@ namespace Desert::Core::Preprocess
         Common::UUID             ShadingModel{ ShadingModels::kDefaultLitGuid };
         std::vector<std::string> Cells; // `<Path>.<Pass>`, in kSurfaceVertexPaths × kSurfaceCellPasses order
         // `RayTracing.Hit` when the template has its hit cell (also in Cells); otherwise empty, and RayHitRefusal
-        // says why for an Opaque / Masked template (empty for a translucent one, which has no hit group by design).
+        // says why for an Opaque / Masked template (empty for a translucent one, which has no hit group by
+        // design).
         std::string RayHitCell;
         std::string RayHitRefusal;
     };

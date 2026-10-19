@@ -835,7 +835,7 @@ namespace Desert::Graphic
         System::MegaLightsLighting AddFrameMegaLights( RDG::Builder& graph, FrameTextures& textures,
                                                        const std::vector<RDG::TextureRef>& gbuffer,
                                                        const ViewFrame&                    frame );
-        bool            EnsureMegaLightsResources();
+        bool                       EnsureMegaLightsResources();
         // This frame's sun shadow is the virtual shadow map (the Shadows method resolved to VirtualMaps).
         [[nodiscard]] bool SunShadowIsVirtual() const;
         // THE ONE ANSWER TO "is the sun shadowed from a screen mask this frame" (the ray-traced sun or the virtual
@@ -911,8 +911,8 @@ namespace Desert::Graphic
         // "Deferred: Forward Depth/Normal": the generic queue's opaque draws into G-buffer depth + normal.
         void AddFrameForwardDepthNormal( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer );
-        // @p sunShadowMask: the ray-traced sun's screen mask (invalid when the sun is not ray traced), bound where a
-        // generic program's DESERT_SUN_SHADOW_SCREEN_MASK permutation reads it (SceneViewInputs.SunShadowMask).
+        // @p sunShadowMask: the ray-traced sun's screen mask (invalid when the sun is not ray traced), bound where
+        // a generic program's DESERT_SUN_SHADOW_SCREEN_MASK permutation reads it (SceneViewInputs.SunShadowMask).
         void AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
                               RDG::TextureRef sunShadowMask );
         // @p sceneCopy: this frame's scene snapshot (FrameTransients::SceneColorCopy); invalid -> no glass node.
@@ -1277,9 +1277,9 @@ namespace Desert::Graphic
         System::VirtualShadowMapQuality  m_VirtualShadowQuality;
         bool                             m_VirtualShadowReady  = false;
         bool                             m_VirtualShadowFailed = false;
-        // This frame draws the sun's cascades (OnUpdate's frame decision): CascadedMaps, or a ray-traced sun with a
-        // cascade reader queued (MeshRenderer::SunCascadeReadersQueued). Last frame's, to redraw the static caches
-        // after a gap in which nothing drew them.
+        // This frame draws the sun's cascades (OnUpdate's frame decision): CascadedMaps, or a ray-traced sun with
+        // a cascade reader queued (MeshRenderer::SunCascadeReadersQueued). Last frame's, to redraw the static
+        // caches after a gap in which nothing drew them.
         bool m_FrameSunCascades          = true;
         bool m_SunCascadesDrawnLastFrame = false;
         // The sun path the cascade budget was taken for (ShadowQualityOf): a ray-traced sun's cascades are the
@@ -1292,7 +1292,7 @@ namespace Desert::Graphic
         // Shadows.BlockerSearchTaps / Shadows.FilterTaps (Scalability): the sun's PCSS kernel, taken each
         // BeginScene and packed into every ShadowUB (GetShadowFilterSettings).
         SceneResources::ShadowFilterSettings                            m_ShadowFilter;
-        float    m_SunSourceAngleDegrees  = 0.0f;
+        float                                                           m_SunSourceAngleDegrees = 0.0f;
         bool                                                            m_SSRResourcesFailed = false;
         std::unordered_map<std::string, std::shared_ptr<IRenderSystem>> m_RenderSystems;
 

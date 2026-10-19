@@ -395,10 +395,10 @@ namespace Desert::Graphic
     /// the owner that claimed it, its size, and its id (ids grow in creation order, so the id dates the row).
     struct ResourceRowSummary
     {
-        uint64_t      Id    = 0;
-        ResourceKind  Kind  = ResourceKind::Image2D;
-        ResourceOwner Owner = ResourceOwner::Unclaimed;
-        std::size_t   Bytes = 0;
+        uint64_t      Id         = 0;
+        ResourceKind  Kind       = ResourceKind::Image2D;
+        ResourceOwner Owner      = ResourceOwner::Unclaimed;
+        std::size_t   Bytes      = 0;
         bool          BytesKnown = false;
     };
 

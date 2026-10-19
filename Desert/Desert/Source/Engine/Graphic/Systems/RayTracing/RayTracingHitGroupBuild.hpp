@@ -51,10 +51,10 @@ namespace Desert::Graphic::RayTracing
         if ( defaultSurface.Template.empty() )
             return Common::MakeError<Result>( "RayTracingHitGroupTable: no default surface template" );
         if ( !hasHitGroup( defaultSurface.Template ) )
-            return Common::MakeFormattedError<Result>(
-                 "RayTracingHitGroupTable: the default surface template '{}' has no compiled hit group - nothing to "
-                 "fall back to",
-                 defaultSurface.Template );
+            return Common::MakeFormattedError<Result>( "RayTracingHitGroupTable: the default surface template "
+                                                       "'{}' has no compiled hit group - nothing to "
+                                                       "fall back to",
+                                                       defaultSurface.Template );
 
         Result table;
         table.Templates.push_back( defaultSurface.Template );

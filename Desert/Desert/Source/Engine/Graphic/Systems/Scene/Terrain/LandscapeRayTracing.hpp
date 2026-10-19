@@ -121,14 +121,16 @@ namespace Desert::Graphic::RayTracing
     // The sampler the ray tracing paths read a tile's weightmap through (the hit group and the inline alpha
     // test): linear, clamped, as the raster's filter (a tile's samples never reach the neighbouring page).
     inline constexpr Core::Formats::SamplerState kLandscapeWeightmapRaySampler{
-         .WrapU = Core::Formats::SamplerWrap::Clamp, .WrapV = Core::Formats::SamplerWrap::Clamp,
+         .WrapU  = Core::Formats::SamplerWrap::Clamp,
+         .WrapV  = Core::Formats::SamplerWrap::Clamp,
          .Filter = Core::Formats::SamplerFilter::Linear };
 
     // The hit group's row for one tile, as Programs/Terrain/TerrainRayHit.glslh LandscapeRayHitRow declares it:
     // the 17 slots of TerrainInstance, the Tint, then (weightmap bindless slot, its sampler slot, 0, 0) as bits.
     inline constexpr std::size_t kLandscapeRayHitRowSlots =
          ( sizeof( System::TerrainInstance ) / sizeof( glm::vec4 ) ) + 2u;
-    [[nodiscard]] Core::Formats::MaterialParamRow LandscapeRayHitRow( const LandscapeRayTracingMaterial& material );
+    [[nodiscard]] Core::Formats::MaterialParamRow
+    LandscapeRayHitRow( const LandscapeRayTracingMaterial& material );
 
     // The inline alpha test of the tile's masked segment (RayTracingSceneMetadata.hpp LandscapeVisibilityRecord):
     // empty when the tile has no weightmap or no visibility layer, which leaves its masked segment without a
@@ -149,8 +151,9 @@ namespace Desert::Graphic::RayTracing
         // RayTracingExternalPrimitives::LandscapeOpacity.
         std::vector<std::optional<RayTracingMaterialRecord>> Opacity;
         // One segment-record run per tile, in Primitives order (RayTracingSegmentRecord, no material: the tile's
-        // surface is Materials[LandscapeTile]); each primitive's FirstSegmentRecord indexes this list. Not shared: the
-        // GPU record of a segment carries its tile's own vertex and index buffers (RayTracingSceneMetadata.hpp).
+        // surface is Materials[LandscapeTile]); each primitive's FirstSegmentRecord indexes this list. Not shared:
+        // the GPU record of a segment carries its tile's own vertex and index buffers
+        // (RayTracingSceneMetadata.hpp).
         std::vector<RayTracingSegmentRecord> SegmentRecords;
         uint32_t                             Built       = 0;
         uint32_t                             Refit       = 0;

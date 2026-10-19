@@ -873,9 +873,9 @@ namespace Desert::Graphic
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
         // device x render path, each lowered axis logged once. m_RenderPath (set above, a debug view may force
-        // forward) is what the frame graph branches on, so a method that needs the G-buffer is lowered exactly when
-        // the deferred block will not run - under forward, ray-traced sun shadows resolve to CascadedMaps and the
-        // cascades are drawn for the forward meshes that read them (UE's forward renderer does the same).
+        // forward) is what the frame graph branches on, so a method that needs the G-buffer is lowered exactly
+        // when the deferred block will not run - under forward, ray-traced sun shadows resolve to CascadedMaps and
+        // the cascades are drawn for the forward meshes that read them (UE's forward renderer does the same).
         m_RenderMethods = ResolveRenderMethods( post, quality, Common::Scalability::QualityState::Catalog(),
                                                 m_RenderPath == Core::RenderPath::Deferred && m_GBuffer );
         m_GIPipeline    = GlobalIllumination::PipelineFor( m_RenderMethods.GlobalIllumination.Effective, quality,
@@ -894,21 +894,24 @@ namespace Desert::Graphic
         m_ShadowFilter = SceneResources::ShadowFilterSettings{
              .BlockerSearchTaps = quality.As<int>( Parameter::ShadowBlockerSearchTaps ),
              .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ) };
-        m_ShadowDenoiserRadius                = quality.As<uint32_t>( Parameter::ShadowRayTracedDenoiserRadius );
+        m_ShadowDenoiserRadius = quality.As<uint32_t>( Parameter::ShadowRayTracedDenoiserRadius );
         m_VirtualShadowQuality = System::VirtualShadowMapQuality{
-             .MaxPhysicalPages  = static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualMaxPhysicalPages ) ),
-             .ResolutionLodBias = 0.1f * static_cast<float>( quality.As<int>( Parameter::ShadowVirtualResolutionLodBias ) ),
-             .SmrtRayCount      = static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTRayCount ) ),
-             .SmrtSamplesPerRay = static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTSamplesPerRay ) ) };
+             .MaxPhysicalPages =
+                  static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualMaxPhysicalPages ) ),
+             .ResolutionLodBias =
+                  0.1f * static_cast<float>( quality.As<int>( Parameter::ShadowVirtualResolutionLodBias ) ),
+             .SmrtRayCount = static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTRayCount ) ),
+             .SmrtSamplesPerRay =
+                  static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTSamplesPerRay ) ) };
         m_MegaLightsQuality = System::MegaLightsQuality{
-             .SamplesPerPixel = quality.As<uint32_t>( Parameter::ShadowMegaLightsSamplesPerPixel ),
-             .SpatialSamples  = quality.As<uint32_t>( Parameter::ShadowMegaLightsSpatialSamples ),
-             .MaxHistory      = quality.As<uint32_t>( Parameter::ShadowMegaLightsMaxHistory ),
-             .DenoiserRadius  = quality.As<uint32_t>( Parameter::ShadowMegaLightsDenoiserRadius ),
+             .SamplesPerPixel  = quality.As<uint32_t>( Parameter::ShadowMegaLightsSamplesPerPixel ),
+             .SpatialSamples   = quality.As<uint32_t>( Parameter::ShadowMegaLightsSpatialSamples ),
+             .MaxHistory       = quality.As<uint32_t>( Parameter::ShadowMegaLightsMaxHistory ),
+             .DenoiserRadius   = quality.As<uint32_t>( Parameter::ShadowMegaLightsDenoiserRadius ),
              .DownsampleFactor = quality.As<uint32_t>( Parameter::ShadowMegaLightsDownsampleFactor ) };
         m_ReflectionDenoiserRadius            = quality.As<uint32_t>( Parameter::ReflectionDenoiserRadius );
         m_ScreenSpaceGISamples                = quality.As<int>( Parameter::ScreenSpaceGISamples );
-        m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
+        m_SunSourceAngleDegrees               = shadows.SourceAngleDegrees;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
         m_SunContactShadowLengthInWorldSpace  = shadows.ContactShadowLengthInWorldSpace;
         m_SunContactShadowCastingIntensity    = shadows.ContactShadowCastingIntensity;
@@ -1059,12 +1062,13 @@ namespace Desert::Graphic
         return BOOLSUCCESS;
     }
 
-    // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL AND THE FRAME'S SUN PATH (UE re-creates its shadow depth targets on
-    // r.Shadow.*). Asked when the quality generation or the sun path the budget was taken for moved - a level change
-    // or a sun that starts/stops being ray traced, never per frame otherwise - and the maps are re-allocated only when
-    // the budget really differs (ShadowReallocation, ViewMemory.hpp). The profile is updated with them so the view's
-    // memory census keeps describing what is allocated. The sun path is part of the budget (ShadowQualityOf): a
-    // ray-traced sun keeps only the low-detail cascades; a frame that fell back to CascadedMaps gets the full ones.
+    // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL AND THE FRAME'S SUN PATH (UE re-creates its shadow depth targets
+    // on r.Shadow.*). Asked when the quality generation or the sun path the budget was taken for moved - a level
+    // change or a sun that starts/stops being ray traced, never per frame otherwise - and the maps are
+    // re-allocated only when the budget really differs (ShadowReallocation, ViewMemory.hpp). The profile is
+    // updated with them so the view's memory census keeps describing what is allocated. The sun path is part of
+    // the budget (ShadowQualityOf): a ray-traced sun keeps only the low-detail cascades; a frame that fell back to
+    // CascadedMaps gets the full ones.
     void SceneRenderer::RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality,
                                             const bool                                  sunRayTraced )
     {
@@ -1474,9 +1478,10 @@ namespace Desert::Graphic
             // The sun's cascades this frame: always under CascadedMaps; under a ray-traced sun only when a program
             // of this frame samples them (MeshRenderer::SunCascadeReadersQueued: blended draws whose program
             // declares u_ShadowCascades - the low-detail sun CSM, budgeted by the Shadows.RayTracedTranslucency*
-            // rows). Not drawn -> the view binds the far-plane stand-in, never last drawn frame's maps; drawn after
-            // a gap -> every cascade's static cache is redrawn (it went stale while nothing drew it).
-            m_FrameSunCascades = meshes != nullptr && ( !SunShadowIsScreenMask() || meshes->SunCascadeReadersQueued() );
+            // rows). Not drawn -> the view binds the far-plane stand-in, never last drawn frame's maps; drawn
+            // after a gap -> every cascade's static cache is redrawn (it went stale while nothing drew it).
+            m_FrameSunCascades =
+                 meshes != nullptr && ( !SunShadowIsScreenMask() || meshes->SunCascadeReadersQueued() );
             if ( !m_FrameSunCascades )
                 textures.Transients.ShadowCascades = AddFrameNoSunCascades( graph );
             else if ( !m_SunCascadesDrawnLastFrame )
@@ -1558,9 +1563,9 @@ namespace Desert::Graphic
                       : RDG::TextureRef{};
             // Shadows Stochastic: the local lights sampled, traced and denoised by MegaLights, which the
             // composite's MegaLights program reads in place of its light-grid loop.
-            const System::MegaLightsLighting megaLights = LocalLightsAreStochastic()
-                                                               ? AddFrameMegaLights( graph, textures, gbuffer, frame )
-                                                               : System::MegaLightsLighting{};
+            const System::MegaLightsLighting megaLights =
+                 LocalLightsAreStochastic() ? AddFrameMegaLights( graph, textures, gbuffer, frame )
+                                            : System::MegaLightsLighting{};
             AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, sunShadowMask, megaLights,
                                meshRenderer, lightDir, lightColor, frame );
             AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask );
@@ -1793,25 +1798,25 @@ namespace Desert::Graphic
             return {};
         }
         // The frame resolved to Stochastic only with this frame's TLAS built (OnUpdate, LowerShadowsForFrame).
-        const RayTracing::RayTracingSceneFrame&  scene = m_RayTracingScene.GetFrame();
-        const FrameGraphRefs                     refs  = textures.GraphRefs();
-        const System::MegaLightsInputs           inputs{ .Depth       = textures.Depth( m_GBuffer, "GBuffer" ),
-                                                         .GBufferA    = gbuffer[0],
-                                                         .GBufferB    = gbuffer[1],
-                                                         .ShadingWord = gbuffer[2],
-                                                         .Velocity    = textures.Transients.Velocity,
-                                                         .Black       = refs.System.Black,
-                                                         .Tlas        = scene.Tlas,
-                                                         .Metadata    = scene.Metadata,
-                                                         .Lights      = refs.Transients.Lights,
-                                                         .PointLights = pointCount,
-                                                         .SpotLights  = spotCount,
-                                                         .Width       = frame.Split.Render.Width,
-                                                         .Height      = frame.Split.Render.Height,
-                                                         // The G-buffer depth is the opaque scene: the march has
-                                                         // something to hit (as the composite's contact shadows).
-                                                         .ContactShadowView = SceneResources::ContactShadowViewVector(
-                                                              GetContactShadowSettings( frame, true ) ) };
+        const RayTracing::RayTracingSceneFrame& scene = m_RayTracingScene.GetFrame();
+        const FrameGraphRefs                    refs  = textures.GraphRefs();
+        const System::MegaLightsInputs          inputs{ .Depth       = textures.Depth( m_GBuffer, "GBuffer" ),
+                                                        .GBufferA    = gbuffer[0],
+                                                        .GBufferB    = gbuffer[1],
+                                                        .ShadingWord = gbuffer[2],
+                                                        .Velocity    = textures.Transients.Velocity,
+                                                        .Black       = refs.System.Black,
+                                                        .Tlas        = scene.Tlas,
+                                                        .Metadata    = scene.Metadata,
+                                                        .Lights      = refs.Transients.Lights,
+                                                        .PointLights = pointCount,
+                                                        .SpotLights  = spotCount,
+                                                        .Width       = frame.Split.Render.Width,
+                                                        .Height      = frame.Split.Render.Height,
+                                               // The G-buffer depth is the opaque scene: the march has
+                                               // something to hit (as the composite's contact shadows).
+                                                        .ContactShadowView = SceneResources::ContactShadowViewVector(
+                                                    GetContactShadowSettings( frame, true ) ) };
         const Common::ResultStr<System::MegaLightsLighting> lighting =
              m_MegaLights.AddPasses( graph, inputs, m_MegaLightsQuality, frame );
         if ( !lighting )
@@ -1841,9 +1846,10 @@ namespace Desert::Graphic
             return false;
         if ( const Common::BoolResultStr initialized = m_VirtualShadowMap.Initialize(); !initialized )
         {
-            LOG_ERROR( "[SceneRenderer] {}: Shadows: Virtual Shadow Map could not be created; the sun casts no shadow "
-                       "while the method resolves to VirtualMaps: {}",
-                       m_ViewResources.GetName(), initialized.GetError() );
+            LOG_ERROR(
+                 "[SceneRenderer] {}: Shadows: Virtual Shadow Map could not be created; the sun casts no shadow "
+                 "while the method resolves to VirtualMaps: {}",
+                 m_ViewResources.GetName(), initialized.GetError() );
             m_VirtualShadowFailed = true;
             return false;
         }
@@ -1860,18 +1866,20 @@ namespace Desert::Graphic
             return {};
         const System::VirtualShadowMapViewInputs view{ .Depth  = textures.Depth( m_GBuffer, "GBuffer" ),
                                                        .Normal = gbuffer[1],
-                                                       .InvJitteredViewProjection = frame.InvJitteredViewProjection,
-                                                       .Projection                = frame.Projection,
-                                                       .CameraPosition            = frame.CameraPosition,
-                                                       .Width                     = frame.Split.Render.Width,
-                                                       .Height                    = frame.Split.Render.Height,
-                                                       .FrameIndex                = frame.FrameIndex };
-        const System::VirtualShadowMapSun sun{ .DirectionToSun     = directionToSun,
-                                               .SourceAngleDegrees = m_SunSourceAngleDegrees };
+                                                       .InvJitteredViewProjection =
+                                                            frame.InvJitteredViewProjection,
+                                                       .Projection     = frame.Projection,
+                                                       .CameraPosition = frame.CameraPosition,
+                                                       .Width          = frame.Split.Render.Width,
+                                                       .Height         = frame.Split.Render.Height,
+                                                       .FrameIndex     = frame.FrameIndex };
+        const System::VirtualShadowMapSun        sun{ .DirectionToSun     = directionToSun,
+                                                      .SourceAngleDegrees = m_SunSourceAngleDegrees };
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
         // The casters that changed since the last frame drop their cached pages (UE VSM cache invalidation).
-        const System::MeshRenderer::VirtualShadowInvalidation invalidation = meshes->CollectVirtualShadowInvalidation();
+        const System::MeshRenderer::VirtualShadowInvalidation invalidation =
+             meshes->CollectVirtualShadowInvalidation();
         const Common::ResultStr<System::VirtualShadowMapFrame> pages = m_VirtualShadowMap.AddPagePasses(
              graph, view, sun, m_VirtualShadowQuality, invalidation.Boxes, invalidation.StaticCastersChanged );
         if ( !pages )
@@ -1881,8 +1889,10 @@ namespace Desert::Graphic
             return {};
         }
         // "VSM: Raster": every caster into the dirty pages, before the projection reads the pool. A refusal is
-        // a missing caster program or pipeline, which no later frame repairs: said once, and the method stays dark.
-        if ( const Common::BoolResultStr raster = meshes->AddVirtualShadowRasterPasses( graph, pages.GetValue(), m_VirtualShadowMap );
+        // a missing caster program or pipeline, which no later frame repairs: said once, and the method stays
+        // dark.
+        if ( const Common::BoolResultStr raster =
+                  meshes->AddVirtualShadowRasterPasses( graph, pages.GetValue(), m_VirtualShadowMap );
              !raster.IsSuccess() )
         {
             LOG_ERROR( "[SceneRenderer] {}: Shadows: Virtual Shadow Map casters cannot be drawn; the sun casts no "
@@ -1929,19 +1939,20 @@ namespace Desert::Graphic
                                                                const glm::vec3&                    directionToSun,
                                                                const ViewFrame&                    frame )
     {
-        // The frame resolved to a ray-traced sun only with this frame's TLAS built (OnUpdate, LowerShadowsForFrame).
-        const RayTracing::RayTracingSceneFrame& scene = m_RayTracingScene.GetFrame();
-        const uint32_t                       width  = frame.Split.Render.Width;
-        const uint32_t                       height = frame.Split.Render.Height;
-        const RDG::TextureRef                depth  = textures.Depth( m_GBuffer, "GBuffer" );
-        const System::ScreenShadowMaskInputs inputs{ .Depth                     = depth,
-                                                     .Normal                    = gbuffer[1],
-                                                     .Tlas                      = scene.Tlas,
-                                                     .Metadata                  = scene.Metadata,
-                                                     .InvJitteredViewProjection = frame.InvJitteredViewProjection,
-                                                     .Width                     = width,
-                                                     .Height                    = height };
-        const System::RayTracedSunShadowParams params = System::MakeRayTracedSunShadowParams(
+        // The frame resolved to a ray-traced sun only with this frame's TLAS built (OnUpdate,
+        // LowerShadowsForFrame).
+        const RayTracing::RayTracingSceneFrame& scene  = m_RayTracingScene.GetFrame();
+        const uint32_t                          width  = frame.Split.Render.Width;
+        const uint32_t                          height = frame.Split.Render.Height;
+        const RDG::TextureRef                   depth  = textures.Depth( m_GBuffer, "GBuffer" );
+        const System::ScreenShadowMaskInputs    inputs{ .Depth    = depth,
+                                                        .Normal   = gbuffer[1],
+                                                        .Tlas     = scene.Tlas,
+                                                        .Metadata = scene.Metadata,
+                                                        .InvJitteredViewProjection = frame.InvJitteredViewProjection,
+                                                        .Width  = width,
+                                                        .Height = height };
+        const System::RayTracedSunShadowParams  params = System::MakeRayTracedSunShadowParams(
              m_SunSourceAngleDegrees, directionToSun, m_RayTracedShadowSamples,
              System::kRayTracedSunShadowMaxDistance, frame.FrameIndex );
         const Common::ResultStr<System::RayTracedSunShadowOutputs> traced =

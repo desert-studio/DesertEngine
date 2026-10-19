@@ -44,8 +44,8 @@ namespace Desert::Graphic::API::Vulkan
         const auto& allocator =
              SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
 
-        auto geometry       = std::make_shared<VulkanRayTracingGeometry>();
-        geometry->m_Destroy = functions.DestroyAccelerationStructure;
+        auto geometry             = std::make_shared<VulkanRayTracingGeometry>();
+        geometry->m_Destroy       = functions.DestroyAccelerationStructure;
         geometry->m_Segments      = segments;
         geometry->m_VertexAddress = functions.BufferAddress( device, vertexBuffer->GetVulkanBuffer() );
         geometry->m_IndexAddress  = functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() );

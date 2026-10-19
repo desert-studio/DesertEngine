@@ -291,7 +291,8 @@ namespace Desert::Graphic
                   RDG::SamplerDesc::PointClamp() );
             // Marched texel by texel (Common/ContactShadow.glslh): nearest, clamped at the screen's edge.
             bind( kSceneViewSceneDepthName, inputs.SceneDepth, kPoint, RDG::SamplerDesc::PointClamp() );
-            // Read with texelFetch at the fragment (the mask is the render resolution the forward draws raster at).
+            // Read with texelFetch at the fragment (the mask is the render resolution the forward draws raster
+            // at).
             if ( inputs.SunShadowMask.IsValid() )
                 bind( kSceneViewSunShadowMaskName, inputs.SunShadowMask, kPoint, RDG::SamplerDesc::PointClamp() );
             // Read with texelFetch at the hit texel (an integer format is never filtered).

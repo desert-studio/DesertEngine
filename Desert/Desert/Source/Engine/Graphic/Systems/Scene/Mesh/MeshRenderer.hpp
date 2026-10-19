@@ -79,9 +79,9 @@ namespace Desert::Graphic::System
             std::function<void()> BindState{};
             // What a GPU cull of the draw needs (the virtual shadow map's, CollectVirtualShadowCull): the matrices
             // its instance range indexes, from FirstInstance (empty: one instance at Transform), how far the wind
-            // moves its vertices past the mesh's bounds (cm, WindBoundsPad), and the world box of a single instance
-            // whose vertices leave the mesh's bind bounds (a skinned pose, SkinnedPoseBounds). Instances points into
-            // the list builder's scratch: valid until the list is built again.
+            // moves its vertices past the mesh's bounds (cm, WindBoundsPad), and the world box of a single
+            // instance whose vertices leave the mesh's bind bounds (a skinned pose, SkinnedPoseBounds). Instances
+            // points into the list builder's scratch: valid until the list is built again.
             std::span<const glm::mat4>        Instances{};
             float                             BoundsPad = 0.0f;
             std::optional<Common::Math::AABB> WorldBounds{};
@@ -211,7 +211,7 @@ namespace Desert::Graphic::System
             MaterialSlotBindingPtr MaterialSlots;
             // The slot every drawn submesh shades with, in every pass (SectionSurface); HiddenSubmeshes masks the
             // sections of the entity's other slots, which arrive as their own entries.
-            uint32_t               SectionSlot              = 0;
+            uint32_t               SectionSlot     = 0;
             bool                   Outlined        = false;
             uint64_t               HiddenSubmeshes = 0;  // bit i = submesh i hidden
             int                    ForcedLOD       = -1; // -1 = auto (by distance)
@@ -508,7 +508,8 @@ namespace Desert::Graphic::System
         // queue is shaded by the composite). SceneRenderer::OnUpdate draws the low-detail cascades only when true.
         [[nodiscard]] bool SunCascadeReadersQueued() const;
         // Every cascade's static cache marked never drawn: the next ShadowCascadePasses redraws and rebuilds each
-        // fitted cascade. For a frame that draws the cascades after frames that did not (nothing kept them current).
+        // fitted cascade. For a frame that draws the cascades after frames that did not (nothing kept them
+        // current).
         void InvalidateCascadeCaches();
         // THE SUN'S CASCADES AS ONE DEPTH ARRAY in @p graph, layer c = cascade c (RDG::TextureDim::Tex2DArray, so
         // the lit passes spend one sampler on all of them: UE's whole-scene shadow depth target). The renderer
@@ -529,11 +530,11 @@ namespace Desert::Graphic::System
         // same frame as the cascade's static layer, so it needs caster materials (light-matrix UBO, instance and
         // bone SSBOs) of its own — two passes through one material would both read whichever upload came last.
         static constexpr uint32_t kCascadeMovableViewBase = kMaxShadowCascades + kMaxLocalShadowViews;
-        // After those, one view per clipmap level of the sun's virtual shadow map ("VSM: Raster"): its casters draw
-        // into the physical pool through the VirtualShadowDepth cells (CasterPipelinesOf), each level with caster
-        // materials of its own for the same reason as the movable views.
-        static constexpr uint32_t kVsmViewBase    = kCascadeMovableViewBase + kMaxShadowCascades;
-        static constexpr uint32_t kMaxShadowViews = kVsmViewBase + kVsmClipmapLevelCount;
+        // After those, one view per clipmap level of the sun's virtual shadow map ("VSM: Raster"): its casters
+        // draw into the physical pool through the VirtualShadowDepth cells (CasterPipelinesOf), each level with
+        // caster materials of its own for the same reason as the movable views.
+        static constexpr uint32_t           kVsmViewBase    = kCascadeMovableViewBase + kMaxShadowCascades;
+        static constexpr uint32_t           kMaxShadowViews = kVsmViewBase + kVsmClipmapLevelCount;
         [[nodiscard]] static constexpr bool IsVirtualShadowView( const uint32_t view )
         {
             return view >= kVsmViewBase && view < kMaxShadowViews;
@@ -542,21 +543,21 @@ namespace Desert::Graphic::System
         // THE SUN'S VIRTUAL SHADOW MAP, before its page passes (SceneRenderer::AddFrameVirtualSunShadow): what
         // changed among the casters since the last frame the map was drawn. A static, generic or still instanced
         // caster and every non-mesh caster (IShadowCaster::AppendVirtualShadowEntries) that was added, removed or
-        // changed hands its old and its new box; a caster that moves by itself (skinned, swaying foliage) hands its
-        // box now and last frame, every frame. StaticCastersChanged: a masked caster's pipeline was still compiling
-        // when the pages were drawn, so the cached pages lack it and every one is dropped.
+        // changed hands its old and its new box; a caster that moves by itself (skinned, swaying foliage) hands
+        // its box now and last frame, every frame. StaticCastersChanged: a masked caster's pipeline was still
+        // compiling when the pages were drawn, so the cached pages lack it and every one is dropped.
         struct VirtualShadowInvalidation
         {
             std::vector<VsmInvalidationBox> Boxes;
             bool                            StaticCastersChanged = false;
         };
         [[nodiscard]] VirtualShadowInvalidation CollectVirtualShadowInvalidation();
-        // "VSM: Raster L<l>", one attachment-less raster node per clipmap level (RDG PassBuilder::RenderArea over the
-        // 16k virtual map): every caster of the level's view (BuildShadowCascadeDraws, kVsmViewBase + l) through the
-        // VirtualShadowDepth cells, then the non-mesh casters (IShadowCaster::DeclareVirtualShadow); the fragments
-        // write the dirty pages of @p frame's pool. Between VirtualShadowMapRenderer::AddPagePasses and AddProjection.
-        // Each level's casters are culled on the GPU first ("VSM: Cull Casters", @p map): only the instances over a
-        // page drawn this frame are rasterised, and a level with none draws nothing.
+        // "VSM: Raster L<l>", one attachment-less raster node per clipmap level (RDG PassBuilder::RenderArea over
+        // the 16k virtual map): every caster of the level's view (BuildShadowCascadeDraws, kVsmViewBase + l)
+        // through the VirtualShadowDepth cells, then the non-mesh casters (IShadowCaster::DeclareVirtualShadow);
+        // the fragments write the dirty pages of @p frame's pool. Between VirtualShadowMapRenderer::AddPagePasses
+        // and AddProjection. Each level's casters are culled on the GPU first ("VSM: Cull Casters", @p map): only
+        // the instances over a page drawn this frame are rasterised, and a level with none draws nothing.
         [[nodiscard]] Common::BoolResultStr AddVirtualShadowRasterPasses( RDG::Builder&                   graph,
                                                                           const VirtualShadowMapFrame&    frame,
                                                                           const VirtualShadowMapRenderer& map );
@@ -566,13 +567,12 @@ namespace Desert::Graphic::System
         // first one), writes its ShadowView into its payload, fills the view table GetLocalShadowRows hands the
         // composite, and marks the views whose cached depth is stale — a view is redrawn only when its light,
         // its tile or a caster in its reach changed (UE: cached shadow maps of a stationary light). Without
-        // @p shadowMaps (Shadows Stochastic: MegaLights traces the local lights) no tile is given and no view drawn;
-        // every light that casts is still marked ShadowCaster, which is what the traced visibility reads.
+        // @p shadowMaps (Shadows Stochastic: MegaLights traces the local lights) no tile is given and no view
+        // drawn; every light that casts is still marked ShadowCaster, which is what the traced visibility reads.
         void UpdateLocalShadows( std::vector<ShaderProtocols::PointLightPayload>& points,
                                  const std::vector<LocalLightShadowSettings>&     pointShadows,
                                  std::vector<ShaderProtocols::SpotLightPayload>&  spots,
-                                 const std::vector<LocalLightShadowSettings>&     spotShadows,
-                                 bool                                             shadowMaps );
+                                 const std::vector<LocalLightShadowSettings>& spotShadows, bool shadowMaps );
         [[nodiscard]] const std::vector<LocalShadowViewPayload>& GetLocalShadowRows() const
         {
             return m_LocalShadowRows;
@@ -604,7 +604,8 @@ namespace Desert::Graphic::System
         // sun-reading opaque programs through their DESERT_SUN_SHADOW_SCREEN_MASK permutation - the forward
         // pipeline whose readiness this prepass checks together with its own.
         void DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, bool rayTracedSun );
-        [[nodiscard]] Common::BoolResultStr RenderForwardDepthNormalManual( const RDG::PassContext& context ) const;
+        [[nodiscard]] Common::BoolResultStr
+        RenderForwardDepthNormalManual( const RDG::PassContext& context ) const;
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
         // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in the order of
         // TranslucentSortOrder: priority, then back to front from the frame's camera, stable on ties. Runs
@@ -930,8 +931,9 @@ namespace Desert::Graphic::System
             // at CloserOrEqual against its own prepassed depth.
             DeferredForward,
             // DeferredForward while the sun is ray traced: an opaque program that samples the sun shadow is shaded
-            // through its DESERT_SUN_SHADOW_SCREEN_MASK permutation (ReadsSunShadowScreenMask), which reads the view's
-            // screen mask (SceneViewInputs.SunShadowMask) in place of the cascades; a blended one through itself.
+            // through its DESERT_SUN_SHADOW_SCREEN_MASK permutation (ReadsSunShadowScreenMask), which reads the
+            // view's screen mask (SceneViewInputs.SunShadowMask) in place of the cascades; a blended one through
+            // itself.
             DeferredForwardRayTracedSun,
         };
         // per-object data-driven materials (v3 slots + overrides)
@@ -1026,17 +1028,19 @@ namespace Desert::Graphic::System
         void PrecacheRequestedMaterials();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
         // An opaque generic program that samples the sun's shadow (declares u_ShadowCascades): the one that gets a
-        // DESERT_SUN_SHADOW_SCREEN_MASK permutation while the sun is ray traced. A blended program (TextSDF) or one
-        // that reads no sun shadow is shaded through itself.
+        // DESERT_SUN_SHADOW_SCREEN_MASK permutation while the sun is ray traced. A blended program (TextSDF) or
+        // one that reads no sun shadow is shaded through itself.
         [[nodiscard]] static bool ReadsSunShadowScreenMask( const Shader& shader, bool opaque );
         // Whether the pipeline "Deferred: Generic" shades @p shader's opaque draw with is Ready, tracked (so a
-        // compiling one counts among the pending pipelines); @p rayTracedSun picks the permutation as that pass does.
+        // compiling one counts among the pending pipelines); @p rayTracedSun picks the permutation as that pass
+        // does.
         [[nodiscard]] bool GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,
                                                         const std::string& shaderName, bool rayTracedSun );
-        // THE ONE READINESS CHECK for an opaque generic draw on the deferred path: "Deferred: Forward Depth/Normal"
-        // admits it when BOTH its depth-normal and its forward pipeline are Ready and records it here; "Deferred:
-        // Generic" shades only what this frame admitted, so no draw is shaded forward against a missing prepass
-        // depth (it would fail CloserOrEqual) and none is in the depth unshaded. Stamped with the view's frame.
+        // THE ONE READINESS CHECK for an opaque generic draw on the deferred path: "Deferred: Forward
+        // Depth/Normal" admits it when BOTH its depth-normal and its forward pipeline are Ready and records it
+        // here; "Deferred: Generic" shades only what this frame admitted, so no draw is shaded forward against a
+        // missing prepass depth (it would fail CloserOrEqual) and none is in the depth unshaded. Stamped with the
+        // view's frame.
         bool OpaqueGenericAdmitted( const GenericMeshRenderData& draw ) const;
         std::unordered_set<const GenericMeshRenderData*> m_GenericPrepassed;
         std::optional<uint64_t>                          m_GenericPrepassFrame;
@@ -1050,9 +1054,11 @@ namespace Desert::Graphic::System
                                                          uint32_t cascade );
         // The pipeline of one masked caster cell: the shared caster's state for @p path with the cell's shader,
         // built on first use and kept per cell shader. Null (logged once per shader) when it cannot.
-        GraphicsPipeline* MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path, MeshPass pass );
-        // The shared caster pipelines of shadow view @p view, by path, and the cell pass they draw: ShadowDepth for a
-        // cascade or local view, VirtualShadowDepth for a virtual shadow map level. Null where that caster is off.
+        GraphicsPipeline* MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path,
+                                                MeshPass pass );
+        // The shared caster pipelines of shadow view @p view, by path, and the cell pass they draw: ShadowDepth
+        // for a cascade or local view, VirtualShadowDepth for a virtual shadow map level. Null where that caster
+        // is off.
         struct CasterPipelines
         {
             GraphicsPipeline* Static    = nullptr;
@@ -1208,8 +1214,8 @@ namespace Desert::Graphic::System
         std::unique_ptr<MaterialShadowSkinned> m_ShadowSkinnedMaterial[kMaxShadowViews];
 
         // The virtual shadow map's caster pipelines, by path: the (path x VirtualShadowDepth) cells of the default
-        // surface, no attachment (RenderTargetLayout{}), no depth test (the pool's atomic max is the test). Null until
-        // the "VSM: Raster" passes build them.
+        // surface, no attachment (RenderTargetLayout{}), no depth test (the pool's atomic max is the test). Null
+        // until the "VSM: Raster" passes build them.
         std::shared_ptr<GraphicsPipeline> m_VsmPipeline;
         std::shared_ptr<GraphicsPipeline> m_VsmInstancedPipeline;
         std::shared_ptr<GraphicsPipeline> m_VsmSkinnedPipeline;
@@ -1232,9 +1238,9 @@ namespace Desert::Graphic::System
         };
         std::array<std::vector<VsmCasterEntry>, kVsmClipmapLevelCount> m_VsmCasters;
         // CollectVirtualShadowInvalidation's state from the last frame the map was drawn: the casters that stand
-        // still, sorted by signature, and the boxes of the ones that move by themselves. The instance snapshots the
-        // still ISMs' signatures name, kept alive so a freed snapshot's address is not reused by a new one under
-        // the same signature (m_CascadeKeySnapshots says the same).
+        // still, sorted by signature, and the boxes of the ones that move by themselves. The instance snapshots
+        // the still ISMs' signatures name, kept alive so a freed snapshot's address is not reused by a new one
+        // under the same signature (m_CascadeKeySnapshots says the same).
         std::vector<ShadowCasterEntry>                             m_VsmStillCasters;
         std::vector<VsmInvalidationBox>                            m_VsmMovingBoxes;
         std::vector<std::shared_ptr<const std::vector<glm::mat4>>> m_VsmKeySnapshots;
@@ -1244,7 +1250,6 @@ namespace Desert::Graphic::System
         std::unordered_map<uint64_t, std::vector<uint32_t>> m_VsmIsmStates;
         // A masked caster's pipeline was still compiling when a level was drawn (BuildShadowCascadeDraws).
         bool m_VsmCastersPending = false;
-
 
         // THE BUDGET, copied from the owning SceneRenderer in Initialize() and never written again. Held
         // by value rather than read through m_SceneRenderer on every use, because the three numbers decide

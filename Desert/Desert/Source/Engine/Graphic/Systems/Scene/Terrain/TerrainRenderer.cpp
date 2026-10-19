@@ -107,8 +107,10 @@ namespace Desert::Graphic::System
             const float     extent        = static_cast<float>( at.QuadsPerTile ) * at.SpacingCm;
             const float     y0            = at.BaseY + ( kLowestLocal * at.ZScale );
             const float     y1            = at.BaseY + ( kHighestLocal * at.ZScale );
-            return { .Min = glm::vec3( std::min( x0, x0 + extent ), std::min( y0, y1 ), std::min( z0, z0 + extent ) ),
-                     .Max = glm::vec3( std::max( x0, x0 + extent ), std::max( y0, y1 ), std::max( z0, z0 + extent ) ) };
+            return {
+                 .Min = glm::vec3( std::min( x0, x0 + extent ), std::min( y0, y1 ), std::min( z0, z0 + extent ) ),
+                 .Max =
+                      glm::vec3( std::max( x0, x0 + extent ), std::max( y0, y1 ), std::max( z0, z0 + extent ) ) };
         }
 
         struct TileKey
@@ -380,7 +382,8 @@ namespace Desert::Graphic::System
         {
             ProgramMaterials const& materials = m_Materials[group.Key];
             DataDrivenMaterial* surface   = deferred ? materials.GBuffer.get() : materials.Forward.get();
-            for ( DataDrivenMaterial* material : { surface, materials.Shadow.get(), materials.VirtualShadow.get() } )
+            for ( DataDrivenMaterial* material :
+                  { surface, materials.Shadow.get(), materials.VirtualShadow.get() } )
             {
                 // The shadow programs have no TerrainUB: its vertices are the camera's (the LOD rides in the row).
                 if ( auto* terrainUB = material->Get<UniformBufferProperty>( "TerrainUB" ) )
@@ -471,7 +474,8 @@ namespace Desert::Graphic::System
             material->SetPushMatrix( clipFromWorld );
             if ( indirect )
             {
-                // The level's cull kept or dropped this tile (AppendVirtualShadowDraws: record k of the terrain's).
+                // The level's cull kept or dropped this tile (AppendVirtualShadowDraws: record k of the
+                // terrain's).
                 const uint64_t offset = ( uint64_t{ indirect->FirstRecord } + k ) * kMeshDrawArgumentsBytes;
                 if ( auto drawn = Renderer::DrawProceduralIndirect( *blocks[draw.Group], pipeline,
                                                                     material->GetMaterialExecutor(),
@@ -593,7 +597,7 @@ namespace Desert::Graphic::System
         // invalidates its virtual shadow pages); the morph inside one grid is not tracked (REMAINDER).
         for ( size_t index = 0; index < m_Queue.size(); ++index )
         {
-            const TerrainDrawData& tile = m_Queue[index];
+            const TerrainDrawData&   tile = m_Queue[index];
             const LandscapeTileDraw& at   = tile.Landscape;
             uint64_t                 hash = 1469598103934665603ull;
             const auto               add  = [&hash]( const auto& value )
@@ -642,7 +646,9 @@ namespace Desert::Graphic::System
         for ( size_t k = 0; k < m_FrameDraws.size(); ++k )
         {
             const VsmTileBox box = TileBox( m_Queue[k].Landscape );
-            draws.push_back( { .Min = box.Min, .Max = box.Max, .Arguments = { m_FrameDraws[k].VertexCount, 0u, 0u, 0u, 0u } } );
+            draws.push_back( { .Min       = box.Min,
+                               .Max       = box.Max,
+                               .Arguments = { m_FrameDraws[k].VertexCount, 0u, 0u, 0u, 0u } } );
         }
     }
 

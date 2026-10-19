@@ -164,8 +164,8 @@ namespace Desert::Graphic
         // G-buffer (the ray-traced sun's mask, SSAO, SSR) see the forward-shaded opaque meshes too (UE: the
         // depth prepass every opaque mesh draws). A surface template has no such cell: it is in the G-buffer.
         DepthNormal = 4,
-        // Depth only, into the virtual shadow map's physical pool (SHADOW-VSM "VSM: Raster"): the ShadowDepth cell's
-        // vertex stage, a fragment stage that atomic-maxes the depth into the page its texel maps to.
+        // Depth only, into the virtual shadow map's physical pool (SHADOW-VSM "VSM: Raster"): the ShadowDepth
+        // cell's vertex stage, a fragment stage that atomic-maxes the depth into the page its texel maps to.
         VirtualShadowDepth = 5,
     };
 
@@ -213,9 +213,9 @@ namespace Desert::Graphic
     // and the cell is MeshShaderFor. A template with no Surface block registers no cells: it is drawn by its own
     // default program on the generic path, which is its (Static x Forward), and its declared depth-normal pass
     // (DShaderParser kGenericDepthNormalPass, "<Template>/DepthNormal") is its (Static x DepthNormal) — every
-    // other cell is a hole the caller must refuse. @p isRegistered answers whether a program of that name is registered
-    // (ShaderService at run time); MaterialService builds by this and answers CellOf by it, so "can this draw
-    // here" and "what draws here" cannot disagree. Empty = no cell.
+    // other cell is a hole the caller must refuse. @p isRegistered answers whether a program of that name is
+    // registered (ShaderService at run time); MaterialService builds by this and answers CellOf by it, so "can
+    // this draw here" and "what draws here" cannot disagree. Empty = no cell.
     std::optional<std::string> TemplateCellShader( std::string_view templateName, MeshVertexPath path,
                                                    MeshPass                                       pass,
                                                    const std::function<bool( std::string_view )>& isRegistered );

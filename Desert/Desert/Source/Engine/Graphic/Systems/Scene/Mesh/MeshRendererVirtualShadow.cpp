@@ -55,7 +55,9 @@ namespace Desert::Graphic::System
         }
         VsmCullInstanceGpu CullInstance( const VsmInvalidationBox& box, const uint32_t draw, const uint32_t fetch )
         {
-            return { .Min = glm::vec4( box.Min, 0.0f ), .Max = glm::vec4( box.Max, 0.0f ), .Draw = glm::uvec4( draw, fetch, 0u, 0u ) };
+            return { .Min  = glm::vec4( box.Min, 0.0f ),
+                     .Max  = glm::vec4( box.Max, 0.0f ),
+                     .Draw = glm::uvec4( draw, fetch, 0u, 0u ) };
         }
     } // namespace
 
@@ -221,7 +223,7 @@ namespace Desert::Graphic::System
         const auto*                                                lodCamera = m_SceneRenderer->GetMainCamera();
         const Geometry::LODView                                    lodView =
              lodCamera != nullptr ? Geometry::LODView{ lodCamera->GetPosition(), lodCamera->GetProjectionMatrix() }
-                                  : Geometry::LODView{};
+                                                                     : Geometry::LODView{};
         for ( const auto& ism : m_InstancedQueue )
         {
             if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
@@ -242,9 +244,9 @@ namespace Desert::Graphic::System
             addStill( hash.Value, [&ism, &local] { return InstancesBox( *ism.Transforms, local, ism.Wind ); } );
             snapshots.push_back( ism.Transforms );
 
-            // What each instance casts follows the main camera (CollectIsmInstances' rules): its cull-distance fade
-            // and its LOD. An instance whose state changed redraws the pages under it alone (UE: an instance's
-            // own invalidation, not its component's).
+            // What each instance casts follows the main camera (CollectIsmInstances' rules): its cull-distance
+            // fade and its LOD. An instance whose state changed redraws the pages under it alone (UE: an
+            // instance's own invalidation, not its component's).
             const InstanceCullDistance lensCull = ScaledByLens( ism.CullDistance, DrawDistanceScale( lodView ) );
             const uint32_t             maxLevel = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
             std::vector<uint32_t>      states( ism.Transforms->size(), 0u );
@@ -253,9 +255,10 @@ namespace Desert::Graphic::System
                 const glm::mat4& transform = ( *ism.Transforms )[i];
                 if ( KeepsInstanceAtDistance( lensCull, static_cast<uint32_t>( i ), glm::vec3( transform[3] ),
                                               lodView.Origin ) )
-                    states[i] = 1u + std::min( Geometry::SelectLODFromBounds( transform, local, lodView,
-                                                                              ism.Mesh->GetLODScreenSizes(), -1, 0 ),
-                                               maxLevel );
+                    states[i] =
+                         1u + std::min( Geometry::SelectLODFromBounds( transform, local, lodView,
+                                                                       ism.Mesh->GetLODScreenSizes(), -1, 0 ),
+                                        maxLevel );
             }
             if ( const auto before = m_VsmIsmStates.find( hash.Value );
                  before != m_VsmIsmStates.end() && before->second.size() == states.size() )
@@ -343,7 +346,8 @@ namespace Desert::Graphic::System
             draws.Clear();
             BuildShadowCascadeDraws( view, draws, ShadowCasterLayer::All );
             if ( draws.GetError() )
-                return Common::MakeError( std::format( "virtual shadow map level {}: {}", level, *draws.GetError() ) );
+                return Common::MakeError(
+                     std::format( "virtual shadow map level {}: {}", level, *draws.GetError() ) );
 
             // THE LEVEL'S CULL (UE CullPerPageDrawCommands): every draw's argument records (instance counts 0) and
             // every instance it may draw with its world box; "VSM: Cull Casters" keeps the instances over a page
@@ -380,8 +384,9 @@ namespace Desert::Graphic::System
                     continue;
                 }
                 for ( size_t i = 0; i < command.Instances.size(); ++i )
-                    cull.Instances.push_back( CullInstance( WorldBox( local, command.Instances[i], command.BoundsPad ),
-                                                            draw, command.FirstInstance + static_cast<uint32_t>( i ) ) );
+                    cull.Instances.push_back(
+                         CullInstance( WorldBox( local, command.Instances[i], command.BoundsPad ), draw,
+                                       command.FirstInstance + static_cast<uint32_t>( i ) ) );
                 cull.RemapSize += static_cast<uint32_t>( command.Instances.size() );
             }
             m_VsmCasters[level].clear();
@@ -406,8 +411,8 @@ namespace Desert::Graphic::System
                     std::array<uint32_t, kMeshDrawArgumentWords> arguments = casterDraw.Arguments;
                     arguments[kMeshDrawInstanceWord]                       = 0u;
                     cull.Arguments.insert( cull.Arguments.end(), arguments.begin(), arguments.end() );
-                    cull.Instances.push_back(
-                         CullInstance( VsmInvalidationBox{ .Min = casterDraw.Min, .Max = casterDraw.Max }, draw, 0u ) );
+                    cull.Instances.push_back( CullInstance(
+                         VsmInvalidationBox{ .Min = casterDraw.Min, .Max = casterDraw.Max }, draw, 0u ) );
                     cull.RemapSize += 1u;
                 }
             }
@@ -468,9 +473,9 @@ namespace Desert::Graphic::System
                          const auto caster = entry.Caster.lock();
                          if ( !caster )
                              continue; // gone since the setup: its draws went with it
-                         if ( auto cast = caster->RecordVirtualShadow( context, entry.FirstBlock,
-                                                                       m_CascadeCasterVP[view], arguments,
-                                                                       entry.FirstRecord );
+                         if ( auto cast =
+                                   caster->RecordVirtualShadow( context, entry.FirstBlock, m_CascadeCasterVP[view],
+                                                                arguments, entry.FirstRecord );
                               !cast.IsSuccess() )
                              return cast;
                      }

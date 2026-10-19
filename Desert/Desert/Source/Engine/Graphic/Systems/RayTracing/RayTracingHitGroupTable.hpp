@@ -10,8 +10,8 @@
 // the frame's scene, one per segment, each binding its material's hit group and its loose parameters). Built from
 // the ONE per-segment table (RT-UNIFY): hit record i is segment record i and carries geometry record i, so a TLAS
 // instance's SBT offset (its primitive's FirstSegmentRecord) + a hit's geometry index names the same segment for
-// the ray tracing pipeline as for the ray-query walk. Data only (RenderCore: Renderer::TraceRays takes it); the builder is
-// RayTracingHitGroupBuild.hpp, the backend writes the records after the group handles.
+// the ray tracing pipeline as for the ray-query walk. Data only (RenderCore: Renderer::TraceRays takes it); the
+// builder is RayTracingHitGroupBuild.hpp, the backend writes the records after the group handles.
 namespace Desert::Graphic::RayTracing
 {
     // std430, 48 B: Common/RayTracingHitRecord.glslh's DesertRayHitRecord, the record a hit stage reads through

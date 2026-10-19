@@ -42,8 +42,7 @@ namespace Desert::Graphic::GlobalIllumination
             case Tracer::SoftwareDistanceField:
                 for ( uint32_t level = 0; level < frame.GlobalDistanceField.size(); ++level )
                     block.Texture( std::format( "u_GlobalDistanceField{}", level ),
-                                   frame.GlobalDistanceField[level], sampled,
-                                   RDG::SubresourceRange::All() )
+                                   frame.GlobalDistanceField[level], sampled, RDG::SubresourceRange::All() )
                          .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
                 block.Storage( "GITracerSoftwareUB", frame.GlobalDistanceFieldLevels, RDG::Access::StorageRead );
                 // Fetched texel by texel through the includer's point-clamped shared state (GITracer.glslh).

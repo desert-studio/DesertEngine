@@ -91,9 +91,10 @@ namespace Desert::Graphic
         [[nodiscard]] static Common::BoolResultStr DispatchComputeIndirect( const RDG::PassBindings& bindings,
                                                                             const ComputePipeline&   pipeline,
                                                                             RDG::BufferRef args, uint64_t offset );
-        // The ray tracing pipeline's launch over @p width x @p height (RendererAPI::TraceRays): hit-lit reflections.
-        [[nodiscard]] static Common::BoolResultStr TraceRays( const RDG::PassBindings&                    bindings,
-                                                              const RayTracingPipeline&                   pipeline,
+        // The ray tracing pipeline's launch over @p width x @p height (RendererAPI::TraceRays): hit-lit
+        // reflections.
+        [[nodiscard]] static Common::BoolResultStr TraceRays( const RDG::PassBindings&                   bindings,
+                                                              const RayTracingPipeline&                  pipeline,
                                                               const RayTracing::RayTracingHitGroupTable& hits,
                                                               uint32_t width, uint32_t height );
         // One triangle covering the viewport: DrawProcedural( ..., kFullscreenTriangleVertexCount, 1 )
@@ -135,8 +136,9 @@ namespace Desert::Graphic
         RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                     const glm::mat4& transform, const MaterialExecutor& material, uint32_t instanceCount,
                     uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel );
-        // RenderMesh whose counts the GPU wrote (the virtual shadow map's culled casters, UE CullPerPageDrawCommands):
-        // the same walk, the k-th drawn submesh reading its record at @p offset + k * kMeshDrawArgumentsBytes of
+        // RenderMesh whose counts the GPU wrote (the virtual shadow map's culled casters, UE
+        // CullPerPageDrawCommands): the same walk, the k-th drawn submesh reading its record at @p offset + k *
+        // kMeshDrawArgumentsBytes of
         // @p args (Graphic/MeshDrawArguments.hpp: AppendMeshDrawArguments made them, LOD included), which the pass
         // declares Access::IndirectArgs. A record past the buffer is refused before it is drawn.
         [[nodiscard]] static Common::BoolResultStr

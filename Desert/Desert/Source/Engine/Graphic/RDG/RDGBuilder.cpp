@@ -252,13 +252,14 @@ namespace Desert::Graphic::RDG
         {
             if ( ( GetAccessInfo( access ).Targets & AccessTarget_Texture ) == 0 )
             {
-                RecordError( fmt::format( "graph '{}': texture '{}' extracted for a later {}, a buffer-only access",
-                                          m_Name, record.Name, GetAccessName( access ) ) );
+                RecordError(
+                     fmt::format( "graph '{}': texture '{}' extracted for a later {}, a buffer-only access",
+                                  m_Name, record.Name, GetAccessName( access ) ) );
                 return;
             }
             record.LaterAccessMask |= 1u << static_cast<uint32_t>( access );
         }
-        record.ExtractOwner   = CurrentResourceAttribution();
+        record.ExtractOwner = CurrentResourceAttribution();
     }
 
     void Builder::Extract( BufferRef buffer, ExternalBuffer& into, Access final )
@@ -449,24 +450,24 @@ namespace Desert::Graphic::RDG
         const std::string&   graph = m_Builder.m_Name;
         if ( !HasFlag( pass.Flags, PassFlags::Raster ) )
         {
-            m_Builder.RecordPassError( m_Pass, fmt::format( "graph '{}' pass '{}': RenderArea({}x{}) in a {} pass",
-                                                            graph, pass.Name, width, height,
-                                                            RdgPassKindName( pass.Flags ) ) );
+            m_Builder.RecordPassError( m_Pass,
+                                       fmt::format( "graph '{}' pass '{}': RenderArea({}x{}) in a {} pass", graph,
+                                                    pass.Name, width, height, RdgPassKindName( pass.Flags ) ) );
             return;
         }
         if ( width == 0 || height == 0 )
         {
-            m_Builder.RecordPassError(
-                 m_Pass, fmt::format( "graph '{}' pass '{}': RenderArea({}x{}) has a zero side", graph, pass.Name,
-                                      width, height ) );
+            m_Builder.RecordPassError( m_Pass,
+                                       fmt::format( "graph '{}' pass '{}': RenderArea({}x{}) has a zero side",
+                                                    graph, pass.Name, width, height ) );
             return;
         }
         if ( !pass.Attachments.empty() )
         {
-            m_Builder.RecordPassError( m_Pass, fmt::format( "graph '{}' pass '{}': RenderArea({}x{}) in a pass with "
-                                                            "{} attachment(s); the area of such a pass is theirs",
-                                                            graph, pass.Name, width, height,
-                                                            pass.Attachments.size() ) );
+            m_Builder.RecordPassError( m_Pass,
+                                       fmt::format( "graph '{}' pass '{}': RenderArea({}x{}) in a pass with "
+                                                    "{} attachment(s); the area of such a pass is theirs",
+                                                    graph, pass.Name, width, height, pass.Attachments.size() ) );
             return;
         }
         pass.AreaWidth  = width;
@@ -1086,8 +1087,8 @@ namespace Desert::Graphic::RDG
                          std::format( "graph '{}' pass '{}': {}", m_Name, pass.Name, recorded.GetError() ), {} );
                 }
             }
-            const bool rendering = HasFlag( pass.Flags, PassFlags::Raster ) &&
-                                   ( !pass.Attachments.empty() || pass.AreaWidth != 0 );
+            const bool rendering =
+                 HasFlag( pass.Flags, PassFlags::Raster ) && ( !pass.Attachments.empty() || pass.AreaWidth != 0 );
             if ( skipRoot )
             {
                 if ( renderPassOpen )

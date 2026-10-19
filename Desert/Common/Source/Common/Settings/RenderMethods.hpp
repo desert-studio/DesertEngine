@@ -41,8 +41,9 @@ namespace Common::Scalability
         ProbeVolume,
         SoftwareTraced, // global SDF + world radiance cache + screen probes (GLOBAL-SDF, GI-RADIANCE-CACHE,
                         // GI-FINAL-GATHER)
-        HardwareTraced, // ray query: screen probes + radiance cache (GI-HWRT); the tracer record carries the frame's
-                        // TLAS, segment records and instance -> surface-cache rows (MakeTracerFrame); RT device
+        HardwareTraced, // ray query: screen probes + radiance cache (GI-HWRT); the tracer record carries the
+                        // frame's TLAS, segment records and instance -> surface-cache rows (MakeTracerFrame); RT
+                        // device
         PathTraced,     // reference / Cinematic (PATHTRACER); RT device                  — not implemented
     };
 
@@ -84,9 +85,10 @@ namespace Common::Scalability
     static_assert( static_cast<std::size_t>( ShadowMethod::Stochastic ) + 1 == kShadowMethodNames.size() );
 
     // ---- What this build renders. The ONE table per enum; a method's task flips its row. ----------------------
-    // GI HardwareTraced is NOT here: GITracing's ray-query tracer and its shader permutation exist, but the frame's
-    // tracer record (SceneRenderer::MakeTracerFrame) fills no TLAS, ray-tracing records or the surface cache's
-    // instance -> MeshCards table, so TracerFrameMissing would refuse every tracing pass (RefuseGIMethod says so).
+    // GI HardwareTraced is NOT here: GITracing's ray-query tracer and its shader permutation exist, but the
+    // frame's tracer record (SceneRenderer::MakeTracerFrame) fills no TLAS, ray-tracing records or the surface
+    // cache's instance -> MeshCards table, so TracerFrameMissing would refuse every tracing pass (RefuseGIMethod
+    // says so).
     [[nodiscard]] constexpr bool IsImplemented( GIMethod method )
     {
         return method == GIMethod::Off || method == GIMethod::ScreenSpace || method == GIMethod::ProbeVolume ||
@@ -115,7 +117,7 @@ namespace Common::Scalability
     // The side of one virtual shadow map (UE VSM: 128 pages of 128 texels). Its casters are rasterized over the
     // whole virtual map with no attachment (RDG PassBuilder::RenderArea), so the device's framebuffer and viewport
     // must reach it; VirtualShadowMap.hpp derives its page layout from this value.
-    inline constexpr uint32_t kVirtualShadowMapResolution = 16384;
+    inline constexpr uint32_t        kVirtualShadowMapResolution = 16384;
     [[nodiscard]] constexpr uint32_t NeedsRenderArea( GIMethod )
     {
         return 0;
@@ -145,9 +147,9 @@ namespace Common::Scalability
 
     // ---- What a method needs from the render path: the G-buffer (Core::RenderPath::Deferred). ------------------
     // These methods work per screen pixel from the G-buffer's depth and normal (screen-space GI/reflections, the
-    // irradiance field gather, the traced methods' ray origins, the sun's screen shadow mask), so the forward path (no
-    // G-buffer, or a debug view that forces it) has no producer for them. UE's forward renderer drops the same set
-    // (no SSR, no SSGI, no Lumen, ray-traced shadows fall back to shadow maps).
+    // irradiance field gather, the traced methods' ray origins, the sun's screen shadow mask), so the forward path
+    // (no G-buffer, or a debug view that forces it) has no producer for them. UE's forward renderer drops the same
+    // set (no SSR, no SSGI, no Lumen, ray-traced shadows fall back to shadow maps).
     [[nodiscard]] constexpr bool NeedsGBuffer( GIMethod method )
     {
         return method == GIMethod::ScreenSpace || method == GIMethod::ProbeVolume ||
@@ -156,10 +158,11 @@ namespace Common::Scalability
     }
     [[nodiscard]] constexpr bool NeedsGBuffer( ReflectionMethod method )
     {
-        // Captures too: the captures are composited by the deferred lighting only (the forward pass reads the sky).
+        // Captures too: the captures are composited by the deferred lighting only (the forward pass reads the
+        // sky).
         return method == ReflectionMethod::Captures || method == ReflectionMethod::ScreenSpace ||
-               method == ReflectionMethod::SoftwareTraced ||
-               method == ReflectionMethod::HardwareTraced || method == ReflectionMethod::PathTraced;
+               method == ReflectionMethod::SoftwareTraced || method == ReflectionMethod::HardwareTraced ||
+               method == ReflectionMethod::PathTraced;
     }
     [[nodiscard]] constexpr bool NeedsGBuffer( ShadowMethod method )
     {
