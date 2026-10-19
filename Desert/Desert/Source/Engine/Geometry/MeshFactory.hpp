@@ -98,6 +98,8 @@ namespace Desert::Graphic
             {
                 DESERT_VERIFY( false );
             }
+            // Runtime displacement over the skin cache's posed vertices (CONTRACT-DISPLACE §9.8): null slot = none.
+            skinnedMesh->SetDisplacementTopology( asset->GetDisplacementTopology() );
 
             return skinnedMesh;
         }
