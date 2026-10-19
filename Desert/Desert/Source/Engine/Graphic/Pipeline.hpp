@@ -262,6 +262,11 @@ namespace Desert::Graphic
         // what an overlay lying on a surface needs to win against it. Both zero: no bias.
         float DepthBiasConstant = 0.0F;
         float DepthBiasSlope    = 0.0F;
+        // Depth clamp (VkPipelineRasterizationStateCreateInfo::depthClampEnable; the device's depthClamp is
+        // Required): a primitive outside the depth range is clamped onto its end instead of clipped. The virtual
+        // shadow map's casters draw with it (UE VSM "pancaking"), so a caster nearer the sun than a level's range
+        // still writes its nearest depth.
+        bool  DepthClampEnable  = false;
 
         float                LineWidth   = 1.0F;
         PrimitiveTopology    Topology    = PrimitiveTopology::Triangles;

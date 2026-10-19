@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 
 #include <glm/glm.hpp>
@@ -19,10 +20,13 @@ namespace Desert::Graphic
 
     // Depth-only material for the directional shadow pass. Feeds the LIGHT's view/projection into the
     // shared CameraUB (the per-mesh transform is pushed by Renderer::RenderMesh).
+    // @p pass is the caster cell it draws: ShadowDepth for a cascade or local view (depth attachment),
+    // VirtualShadowDepth for a virtual shadow map level (the attachment-less pool raster). Both share the vertex
+    // stage and the camera block, so one class serves both.
     class MaterialShadow : public Material
     {
     public:
-        MaterialShadow();
+        explicit MaterialShadow( MeshPass pass );
 
         void SetLightMatrix( const glm::mat4& view, const glm::mat4& projection, double timeSeconds,
                              const CascadeCasterBias& bias );
@@ -40,7 +44,7 @@ namespace Desert::Graphic
     class MaterialShadowInstanced final : public MaterialShadow
     {
     public:
-        MaterialShadowInstanced();
+        explicit MaterialShadowInstanced( MeshPass pass );
     };
 
     // Skinned depth-only shadow material: the (Skinned x ShadowDepth) cell of MeshShaderFor's table,
@@ -57,7 +61,7 @@ namespace Desert::Graphic
     class MaterialShadowSkinned final : public MaterialShadow
     {
     public:
-        MaterialShadowSkinned();
+        explicit MaterialShadowSkinned( MeshPass pass );
 
         void UploadBones( const std::vector<glm::mat4>& packedBoneMatrices );
         void SetBoneOffset( uint32_t firstBone );

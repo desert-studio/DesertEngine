@@ -27,6 +27,10 @@ namespace Desert::Graphic::API::Vulkan
              // The reflection captures live in one cube array (samplerCubeArray / imageCubeArray). Universal on
              // desktop and MoltenVK.
              { C::ImageCubeArray, "imageCubeArray", N::Required, V10, {} },
+             // The sun's virtual shadow map draws its casters with depth clamp (UE VSM: casters behind a clipmap
+             // level's depth range are flattened onto its near plane instead of clipped away, so a mountain
+             // between the sun and the level still shadows it). Universal on desktop and MoltenVK.
+             { C::DepthClamp, "depthClamp", N::Required, V10, {} },
              { C::Swapchain, "swapchain", N::Required, 0, VK_KHR_SWAPCHAIN_EXTENSION_NAME },
              // MoltenVK has no wide lines; the debug-line path clamps the width instead.
              { C::WideLines, "wideLines", N::Optional, V10, {} },

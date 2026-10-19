@@ -516,6 +516,25 @@ namespace Desert::Graphic::System
             return view >= kVsmViewBase && view < kMaxShadowViews;
         }
 
+        // THE SUN'S VIRTUAL SHADOW MAP, before its page passes (SceneRenderer::AddFrameVirtualSunShadow): what
+        // changed among the casters since the last frame the map was drawn. A static, generic or still instanced
+        // caster and every non-mesh caster (IShadowCaster::AppendVirtualShadowEntries) that was added, removed or
+        // changed hands its old and its new box; a caster that moves by itself (skinned, swaying foliage) hands its
+        // box now and last frame, every frame. StaticCastersChanged: a masked caster's pipeline was still compiling
+        // when the pages were drawn, so the cached pages lack it and every one is dropped.
+        struct VirtualShadowInvalidation
+        {
+            std::vector<VsmInvalidationBox> Boxes;
+            bool                            StaticCastersChanged = false;
+        };
+        [[nodiscard]] VirtualShadowInvalidation CollectVirtualShadowInvalidation();
+        // "VSM: Raster L<l>", one attachment-less raster node per clipmap level (RDG PassBuilder::RenderArea over the
+        // 16k virtual map): every caster of the level's view (BuildShadowCascadeDraws, kVsmViewBase + l) through the
+        // VirtualShadowDepth cells, then the non-mesh casters (IShadowCaster::DeclareVirtualShadow); the fragments
+        // write the dirty pages of @p frame's pool. Between VirtualShadowMapRenderer::AddPagePasses and AddProjection.
+        [[nodiscard]] Common::BoolResultStr AddVirtualShadowRasterPasses( RDG::Builder&                graph,
+                                                                          const VirtualShadowMapFrame& frame );
+
         // THE POINT AND SPOT LIGHTS' SHADOWS FOR THIS FRAME, before the graph records (SceneRenderer, after
         // UpdateCascades): gives each light that casts a tile per view in the atlas (allocating the atlas on the
         // first one), writes its ShadowView into its payload, fills the view table GetLocalShadowRows hands the
@@ -1165,6 +1184,28 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_VsmPipeline;
         std::shared_ptr<GraphicsPipeline> m_VsmInstancedPipeline;
         std::shared_ptr<GraphicsPipeline> m_VsmSkinnedPipeline;
+        // Builds them on the first "VSM: Raster" (the static one is the gate: without it nothing casts; the
+        // instanced and skinned ones are each logged and left null, as the cascades' are). Same depth-only state
+        // as the cascades' casters but no attachment (RenderTargetLayout{}), no depth test (the pool's atomic max
+        // is the test) and depth clamp (UE VSM: a caster nearer the sun than a level's depth range is flattened
+        // onto it instead of clipped).
+        [[nodiscard]] Common::BoolResultStr EnsureVirtualShadowPipelines();
+        std::optional<std::string>          m_VsmPipelinesRefused;
+        // Each level's casters, built by its node's setup and recorded by its exec; the non-mesh casters its setup
+        // declared, each with the index of its first block (after the list's).
+        std::array<MeshRendererDetail::MeshDrawList, kVsmClipmapLevelCount> m_VsmDraws;
+        std::array<std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>>, kVsmClipmapLevelCount>
+             m_VsmCasters;
+        // CollectVirtualShadowInvalidation's state from the last frame the map was drawn: the casters that stand
+        // still, sorted by signature, and the boxes of the ones that move by themselves. The instance snapshots the
+        // still ISMs' signatures name, kept alive so a freed snapshot's address is not reused by a new one under
+        // the same signature (m_CascadeKeySnapshots says the same).
+        std::vector<ShadowCasterEntry>                             m_VsmStillCasters;
+        std::vector<VsmInvalidationBox>                            m_VsmMovingBoxes;
+        std::vector<std::shared_ptr<const std::vector<glm::mat4>>> m_VsmKeySnapshots;
+        // A masked caster's pipeline was still compiling when a level was drawn (BuildShadowCascadeDraws).
+        bool m_VsmCastersPending = false;
+
 
         // THE BUDGET, copied from the owning SceneRenderer in Initialize() and never written again. Held
         // by value rather than read through m_SceneRenderer on every use, because the three numbers decide

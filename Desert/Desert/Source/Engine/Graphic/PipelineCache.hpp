@@ -336,6 +336,7 @@ namespace Desert::Graphic
             // The depth bias is baked into the rasterizer state (no VK_DYNAMIC_STATE_DEPTH_BIAS): bit patterns.
             uint32_t DepthBiasConstantBits = 0;
             uint32_t DepthBiasSlopeBits    = 0;
+            bool     DepthClamp            = false;
 
             bool operator==( const Key& ) const = default;
         };
@@ -371,6 +372,7 @@ namespace Desert::Graphic
                 mix( static_cast<size_t>( k.LayoutSignature ) );
                 mix( static_cast<size_t>( k.DepthBiasConstantBits ) );
                 mix( static_cast<size_t>( k.DepthBiasSlopeBits ) );
+                mix( static_cast<size_t>( k.DepthClamp ) );
                 return h;
             }
         };
@@ -435,6 +437,7 @@ namespace Desert::Graphic
             k.LoadRenderPass        = s.UseLoadRenderPass;
             k.DepthBiasConstantBits = std::bit_cast<uint32_t>( s.DepthBiasConstant );
             k.DepthBiasSlopeBits    = std::bit_cast<uint32_t>( s.DepthBiasSlope );
+            k.DepthClamp            = s.DepthClampEnable;
             k.VertexPulling  = s.PullingConfig.has_value();
 
             // Vertex pulling makes the backend ignore Layout outright, so folding it in here would fork

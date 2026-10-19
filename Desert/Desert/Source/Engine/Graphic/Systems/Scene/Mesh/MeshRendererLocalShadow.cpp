@@ -42,14 +42,20 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::EnsureShadowViewMaterials( const uint32_t view )
     {
-        if ( !m_ShadowPipeline || view >= kMaxShadowViews )
+        if ( view >= kMaxShadowViews )
+            return false;
+        // The view's caster cells (CasterPipelinesOf): a virtual shadow map level draws the VirtualShadowDepth cells
+        // through its own pipelines, every other view the ShadowDepth cells; each material is made on the cell its
+        // pipeline draws, so a draw never pairs one cell's program with the other's pipeline.
+        const CasterPipelines casters = CasterPipelinesOf( view );
+        if ( casters.Static == nullptr )
             return false;
         if ( !m_ShadowMaterial[view] )
-            m_ShadowMaterial[view] = std::make_unique<MaterialShadow>();
-        if ( m_ShadowInstancedPipeline && !m_ShadowInstancedMaterial[view] )
-            m_ShadowInstancedMaterial[view] = std::make_unique<MaterialShadowInstanced>();
-        if ( m_ShadowSkinnedPipeline && !m_ShadowSkinnedMaterial[view] )
-            m_ShadowSkinnedMaterial[view] = std::make_unique<MaterialShadowSkinned>();
+            m_ShadowMaterial[view] = std::make_unique<MaterialShadow>( casters.Pass );
+        if ( casters.Instanced != nullptr && !m_ShadowInstancedMaterial[view] )
+            m_ShadowInstancedMaterial[view] = std::make_unique<MaterialShadowInstanced>( casters.Pass );
+        if ( casters.Skinned != nullptr && !m_ShadowSkinnedMaterial[view] )
+            m_ShadowSkinnedMaterial[view] = std::make_unique<MaterialShadowSkinned>( casters.Pass );
         return true;
     }
 

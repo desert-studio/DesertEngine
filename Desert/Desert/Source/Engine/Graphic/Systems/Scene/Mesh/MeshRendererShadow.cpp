@@ -130,7 +130,7 @@ namespace Desert::Graphic::System
             m_CascadeStaticFB[i] = Graphic::Framebuffer::Create( cacheSpec );
             m_CascadeStaticFB[i]->Resize( m_Shadow.ShadowMapSize, m_Shadow.ShadowMapSize );
             m_CascadeCache[i]   = CascadeCacheState{};
-            m_ShadowMaterial[i] = std::make_unique<MaterialShadow>();
+            m_ShadowMaterial[i] = std::make_unique<MaterialShadow>( MeshPass::ShadowDepth );
         }
         const double allocMs =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - allocStart ).count();
@@ -184,7 +184,7 @@ namespace Desert::Graphic::System
                 m_ShadowInstancedPipeline = instanced.GetValue();
 
                 for ( uint32_t i = 0; i < m_Shadow.CascadeCount; ++i )
-                    m_ShadowInstancedMaterial[i] = std::make_unique<MaterialShadowInstanced>();
+                    m_ShadowInstancedMaterial[i] = std::make_unique<MaterialShadowInstanced>( MeshPass::ShadowDepth );
             }
             else
             {
@@ -208,7 +208,7 @@ namespace Desert::Graphic::System
                 m_ShadowSkinnedPipeline = skinnedShadow.GetValue();
 
                 for ( uint32_t i = 0; i < m_Shadow.CascadeCount; ++i )
-                    m_ShadowSkinnedMaterial[i] = std::make_unique<MaterialShadowSkinned>();
+                    m_ShadowSkinnedMaterial[i] = std::make_unique<MaterialShadowSkinned>( MeshPass::ShadowDepth );
             }
             else
             {
@@ -651,7 +651,12 @@ namespace Desert::Graphic::System
         // cascades are deliberately STANDARD-Z while the camera is reversed-Z, which swaps
         // which of the two derived planes is "near" and which is "far" — the SET of six
         // half-spaces is the same one either way, and Intersects tests all six by value.
-        const Core::Frustum cascadeFrustum( m_CascadeCasterVP[c], glm::mat4( 1.0f ) );
+        Core::Frustum cascadeFrustum( m_CascadeCasterVP[c], glm::mat4( 1.0f ) );
+        // A virtual shadow map level keeps the casters on the sun's side of its depth range: they draw with depth
+        // clamp and land on its sun-side end (EnsureVirtualShadowPipelines). That end is clip z >= 0 of the level's
+        // standard-Z [0,1] projection, the plane the extraction names PLANE_FAR (row 2 alone, Frustum::Rebuild).
+        if ( IsVirtualShadowView( c ) )
+            cascadeFrustum.Open( Core::PLANE_FAR );
 
         // THE LOD OF A CASTER IS ASKED FROM THE CAMERA, not from the light, and that is
         // deliberate rather than convenient: a caster drawn into the cascade at a coarser
@@ -1117,6 +1122,10 @@ namespace Desert::Graphic::System
         // The cache drawn now lacks the casters still compiling: the next frame's plan sees no key and redraws it.
         if ( maskedPending && layer == ShadowCasterLayer::Static && c < kMaxCascades )
             m_CascadeCache[c].StaticKey.reset();
+        // A virtual shadow map level's cached pages lack them the same way: the next frame drops every page
+        // (CollectVirtualShadowInvalidation).
+        if ( maskedPending && IsVirtualShadowView( c ) )
+            m_VsmCastersPending = true;
     }
     RDG::TextureRef MeshRenderer::AcquireCascadeMaps( RDG::Builder& graph )
     {

@@ -29,6 +29,7 @@ namespace Desert::Graphic::API::Vulkan
         TessellationShader,
         IndependentBlend,
         ImageCubeArray,
+        DepthClamp,
         Swapchain,
         WideLines,
         FillModeNonSolid,
