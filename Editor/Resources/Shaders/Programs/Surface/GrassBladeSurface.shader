@@ -13,13 +13,19 @@ Shader "GrassBladeSurface"
     Properties Binding(2)
     {
         Color       AlbedoColor ("Albedo Tint", Category("Surface")) = (1, 1, 1, 1)
-        Float       RoughnessFactor ("Roughness", Range(0,1), Category("Surface")) = 0.7
-        // UE's Specular pin: a blade's waxy sheen is weaker than a common dielectric's 4 %.
-        Float       Specular ("Specular", Range(0,1), Category("Surface")) = 0.3
+        // A grass blade is a leaf under a waxy cuticle: its specular is the cuticle's (refractive index ~1.5, F0 4 % -
+        // UE's Specular 0.5) on a moderately smooth surface (measured leaf BRDFs put the cuticle's slope roughness
+        // at 0.1-0.4, i.e. a perceptual roughness of ~0.3-0.6). At 0.7 / 0.3 the blade had no sheen at grazing angles,
+        // and a midday carpet of near-vertical blades - whose N.L to a high sun is small - was carried by the sky term.
+        Float       RoughnessFactor ("Roughness", Range(0,1), Category("Surface")) = 0.45
+        Float       Specular ("Specular", Range(0,1), Category("Surface")) = 0.5
         // Material half of the sun-shadow receive decision (as StandardSurface).
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
-        // The light a blade lets through, as a tint of its own colour (UE's SubsurfaceColor pin).
-        Color       SubsurfaceColor ("Subsurface Color", Category("Foliage")) = (0.6, 0.7, 0.35, 1)
+        // The light a blade lets through, as a tint of its own colour (UE's SubsurfaceColor pin). A thin leaf transmits
+        // about as much as it reflects across the visible band, the transmitted light yellower (less chlorophyll
+        // absorption on the way through than on the way back): the albedo itself, blue cut to 60 %. The former
+        // (0.6, 0.7, 0.35) halved the through-light of an already dark blade, so a back-lit blade did not glow.
+        Color       SubsurfaceColor ("Subsurface Color", Category("Foliage")) = (1.0, 1.0, 0.6, 1)
     }
 
     ShadingModel TwoSidedFoliage

@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "1eb1324b5419511d0f1637213db41ffe",
         "Versions": {
-            "SCNE": 64,
+            "SCNE": 65,
             "UNIT": 1
         },
         "Dependencies": ["e0ee3c11f6a10cf2edd3474d72613488"]
@@ -66,7 +66,6 @@
                     "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "ManualExposureEV100": 0.5260688662528992,
-                    "Gamma": 2.200000047683716,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
                     "AutoExposureKey": 0.18000000715255737,

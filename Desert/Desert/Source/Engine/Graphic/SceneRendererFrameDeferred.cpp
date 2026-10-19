@@ -306,14 +306,15 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
                                       const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame )
     {
-        // SSAO first (reads the G-buffer world pos + normal into the AO buffer); the lighting pass below
-        // multiplies its ambient term by this. Skipped when disabled (the shader uses AO=1 then).
+        // SSAO first (reads the G-buffer depth + normal into the AO buffer); the lighting pass below multiplies
+        // its ambient term by this. Skipped when disabled (the shader uses AO=1 then).
         //
-        // The hemisphere radius and depth bias are WORLD distances, and a world unit is a centimetre;
-        // the classic recipe (John Chapman-style hemisphere SSAO, radius 0.5, bias 0.025) states them in
-        // METRES.
-        constexpr float kSSAORadius = Common::Units::Metres( 0.5f );   // literature: 0.5 m
-        constexpr float kSSAOBias   = Common::Units::Metres( 0.025f ); // literature: 0.025 m
+        // GTAO's search, at UE's defaults (PostProcessAmbientOcclusion.cpp): r.GTAO.FalloffEnd 200 (UE units are
+        // centimetres, as ours), r.GTAO.ThicknessBlend 0.5, r.GTAO.NumAngles 2. The taps per direction are the
+        // scalability's AmbientOcclusionSamples (UE: GTAO_NUMTAPS by shader quality).
+        constexpr float kGTAOWorldRadius    = Common::Units::Metres( 2.0f );
+        constexpr float kGTAOThicknessBlend = 0.5f;
+        constexpr int   kGTAOAngles         = 2;
 
         if ( !m_EnableSSAO || ScreenProbeAOReplacesSSAO() )
             return;
@@ -355,13 +356,17 @@ namespace Desert::Graphic
              },
              // The G-buffer was rasterised with the jittered matrix: SSAO projects its samples through it and
              // reconstructs positions with its inverse (both from the ViewFrame, one copy).
-             [ssao, viewProj = frame.JitteredViewProjection, invViewProj = frame.InvJitteredViewProjection,
-              cameraPos = glm::vec4( frame.CameraPosition, 1.0f ),
-              samples   = m_SSAOSamples]( RDG::PassContext& context ) -> Common::BoolResultStr
-             {
-                 return ssao->Record( context, viewProj, invViewProj, cameraPos, kSSAORadius, kSSAOBias,
-                                      /*power*/ 1.5f, samples );
-             } );
+             [ssao, inputs = MaterialSSAO::Inputs{ .InvJitteredViewProjection = frame.InvJitteredViewProjection,
+                                                   .View                      = frame.View,
+                                                   .Projection                = frame.Projection,
+                                                   .TargetSize       = { aoDesc.Size.Width, aoDesc.Size.Height },
+                                                   .FrameIndex       = frame.FrameIndex,
+                                                   .WorldRadius      = kGTAOWorldRadius,
+                                                   .ThicknessBlend   = kGTAOThicknessBlend,
+                                                   .TapsPerDirection = m_SSAOSamples,
+                                                   .Angles           = kGTAOAngles }](
+                  RDG::PassContext& context ) -> Common::BoolResultStr
+             { return ssao->Record( context, inputs ); } );
     }
 
     LightGridParamsPayload SceneRenderer::AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures,

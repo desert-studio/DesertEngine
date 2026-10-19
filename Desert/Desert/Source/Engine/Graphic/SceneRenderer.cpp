@@ -1000,8 +1000,7 @@ namespace Desert::Graphic
 
         // The manual exposure as the scale the composite multiplies by (UE Manual metering, EV100).
         const float manualExposure = ManualExposureScale( post.ManualExposureEV100, post.AutoExposureKey );
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetParams( manualExposure, post.Gamma );
+        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->SetParams( manualExposure );
         // The physical sky's on-screen ceiling follows the LOWEST exposure this view can use — the manual scale,
         // or the meter clamped at Max EV100 — so a sky the exposure can show is never cut (SkyLuminanceCeiling).
         UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )

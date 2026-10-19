@@ -13,8 +13,8 @@
 
 namespace Desert::Graphic::System
 {
-    // Screen-space ambient occlusion. Fullscreen: reads the G-buffer (world position + normal) and writes an AO
-    // factor into a per-frame graph transient (FrameTransients::SSAO, SceneRendererFrameDeferred.cpp
+    // Screen-space ambient occlusion (GTAO, SSAO.shader). Fullscreen: reads the G-buffer (depth + normal) and
+    // writes an AO factor into a per-frame graph transient (FrameTransients::SSAO, SceneRendererFrameDeferred.cpp
     // "Deferred: SSAO"), which the deferred Composite then multiplies into the ambient term. Deferred only.
     class SSAORenderer final : public RenderSystem
     {
@@ -68,16 +68,13 @@ namespace Desert::Graphic::System
                  .Sampler( "u_LinearRepeatSampler", kSampler );
         }
 
-        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context, const glm::mat4& viewProj,
-                                                    const glm::mat4& invJitteredViewProjection,
-                                                    const glm::vec4& cameraPos, float radius, float bias,
-                                                    float power, int sampleCount )
+        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext&     context,
+                                                    const MaterialSSAO::Inputs& inputs )
         {
             if ( !m_Pipeline || !m_Material )
                 return Common::MakeError( "Deferred: SSAO: the SSAO pipeline is not initialised" );
 
-            m_Material->BindInputs( viewProj, invJitteredViewProjection, cameraPos, radius, bias, power,
-                                    sampleCount );
+            m_Material->BindInputs( inputs );
 
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
