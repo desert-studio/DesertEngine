@@ -92,6 +92,19 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceParallaxCellSuffix = ".Parallax";
     inline constexpr std::string_view kSurfaceParallaxDefine     = "DESERT_SURFACE_PARALLAX";
     inline constexpr std::string_view kSurfaceParallaxInclude    = "Mesh/Surface/SurfaceParallax.glslh";
+    // The world's parameter table, included into a cell whose surface reads `WorldParameter( "Name" )`.
+    inline constexpr std::string_view kWorldParametersInclude = "Common/WorldParameters.glslh";
+    // THE SURFACE'S WEATHER RESPONSE (WTH-WET; UE: CitySample's wet material functions). Every Opaque / Masked
+    // template with a material row gets two ENGINE-OWNED row parameters appended to its Properties — a weight
+    // RespondsToWeather (1 = fully) and Porosity — so a material and its instances state them like any other
+    // parameter, and its Forward and GBuffer cells get kSurfaceWeatherDefine plus the world's table, whose
+    // kSurfaceWetnessParameter value the pass headers apply through Mesh/Surface/SurfaceWeather.glslh after
+    // EvaluateSurface. A template that declares either name itself is refused: the engine owns them.
+    inline constexpr std::string_view kSurfaceWeatherDefine          = "DESERT_SURFACE_WEATHER";
+    inline constexpr std::string_view kSurfaceWetnessKeyDefine       = "DESERT_WORLD_PARAMETER_WETNESS";
+    inline constexpr std::string_view kSurfaceWetnessParameter       = "Wetness";
+    inline constexpr std::string_view kSurfaceRespondsToWeatherParam = "RespondsToWeather";
+    inline constexpr std::string_view kSurfacePorosityParam          = "Porosity";
     // THE PARTICLE SPRITE USAGE (UE: a material's bUsedWithParticleSprites). A template that declares
     // `Usage ParticleSprites` gets ONE more cell, `ParticleSprite.Forward`, after the mesh cells: the sprite
     // vertex path (Vertex_ParticleSprite.glslh, the particle's colour / relative time / random into

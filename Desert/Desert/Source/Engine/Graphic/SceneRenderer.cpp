@@ -45,7 +45,13 @@
 #include <vector>
 
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Debug/DebugDrawRenderer.hpp>
 #include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
+#include <Engine/Graphic/WorldParameterTable.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
+
+#include <cstring>
+#include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 
 namespace Desert::Graphic
 {
@@ -794,6 +800,27 @@ namespace Desert::Graphic
     }
     DESERT_DESTRUCTOR_GUARD( "~SceneRenderer" )
 
+    Common::BoolResultStr SceneRenderer::UploadWorldParameters( const Desert::Core::Scene& scene )
+    {
+        const WorldParameterTable table = BuildWorldParameterTable( scene.GetWorldParameters().Values() );
+        std::vector<std::byte>    bytes( sizeof( table.Header ) +
+                                         table.Slots.size() * sizeof( GpuWorldParameterSlot ) );
+        std::memcpy( bytes.data(), &table.Header, sizeof( table.Header ) );
+        std::memcpy( bytes.data() + sizeof( table.Header ), table.Slots.data(),
+                     table.Slots.size() * sizeof( GpuWorldParameterSlot ) );
+        if ( !m_WorldParameters )
+            m_WorldParameters = ShaderResources::StorageBuffer::Create( SceneResources::kWorldParametersName,
+                                                                        static_cast<uint32_t>( bytes.size() ),
+                                                                        Core::kWorldParametersBinding );
+        if ( !m_WorldParameters )
+            return Common::MakeError( "the view's WorldParameters buffer could not be created" );
+        if ( const auto wrote = m_WorldParameters->SetData( bytes.data(), static_cast<uint32_t>( bytes.size() ) );
+             !wrote )
+            return Common::MakeFormattedError( "the view's WorldParameters ({} bytes) could not be uploaded: {}",
+                                               bytes.size(), wrote.GetError() );
+        return BOOLSUCCESS;
+    }
+
     NO_DISCARD Common::BoolResultStr SceneRenderer::BeginScene( const Desert::Core::Scene& scene,
                                                                 Core::Camera*              camera )
     {
@@ -811,6 +838,9 @@ namespace Desert::Graphic
         // The world this frame draws and its clock (ViewInputs::SceneIdentity / TimeSeconds, OnUpdate).
         m_SceneGeneration  = scene.GetGeneration();
         m_SceneTimeSeconds = scene.GetWorldTime().GetGameTimeSeconds();
+        // The world's parameters, snapshotted once for every pass of this view's frame (per-frame state).
+        if ( const auto uploaded = UploadWorldParameters( scene ); !uploaded )
+            return uploaded;
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
 
@@ -821,6 +851,12 @@ namespace Desert::Graphic
         m_ScenePlaying = scene.IsPlaying(); // grid & other authoring aids hide while the game runs
         // The scene's extension passes, for AddExtensionPoint while OnUpdate builds this frame.
         m_FrameExtensions = &scene.GetExtensionPasses();
+#if DESERT_DEV_INSTRUMENTS
+        // The scene's debug lines and strings, for this frame's DebugDraw passes.
+        if ( !m_DebugDraw )
+            m_DebugDraw = std::make_unique<DebugDrawRenderer>( *this );
+        m_DebugDraw->SetWorld( &scene.GetDebugDraw() );
+#endif
         // The scene's reflection captures, published into this frame's graph (SceneViewInputs).
         m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
         // The scene's ray-tracing geometry (skin cache, BLAS variants), shared by this frame's views.
@@ -937,6 +973,16 @@ namespace Desert::Graphic
         m_ShadowFilter = SceneResources::ShadowFilterSettings{
              .BlockerSearchTaps = quality.As<int>( Parameter::ShadowBlockerSearchTaps ),
              .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ) };
+        if ( const auto mesh = m_RenderSystems.find( "MeshSystem" ); mesh != m_RenderSystems.end() )
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            UNIQUE_GET_AS( System::MeshRenderer, mesh->second )
+                 ->SetRainOcclusionQuality( RainOcclusionQuality{
+                      .MapSize = quality.As<uint32_t>( Parameter::ShadowRainOcclusionMapSize ),
+                      .Extent  = static_cast<float>( quality.As<int>( Parameter::ShadowRainOcclusionExtent ) ),
+                      .RefreshFraction = 0.01f * static_cast<float>( quality.As<int>(
+                                                      Parameter::ShadowRainOcclusionRefreshPercent ) ) } );
+        }
         m_ShadowDenoiserRadius = quality.As<uint32_t>( Parameter::ShadowRayTracedDenoiserRadius );
         m_VirtualShadowQuality = System::VirtualShadowMapQuality{
              .MaxPhysicalPages =
@@ -1000,8 +1046,7 @@ namespace Desert::Graphic
 
         // The manual exposure as the scale the composite multiplies by (UE Manual metering, EV100).
         const float manualExposure = ManualExposureScale( post.ManualExposureEV100, post.AutoExposureKey );
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetParams( manualExposure, post.Gamma );
+        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->SetParams( manualExposure );
         // The physical sky's on-screen ceiling follows the LOWEST exposure this view can use — the manual scale,
         // or the meter clamped at Max EV100 — so a sky the exposure can show is never cut (SkyLuminanceCeiling).
         UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
@@ -1194,6 +1239,12 @@ namespace Desert::Graphic
         {
             DESERT_PROFILE_PASS( "Shadow: UpdateCascades" );
             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateCascades();
+        }
+        // The rain occlusion's box, and whether its map is redrawn this frame (the same boundary: its pass only
+        // reads the matrix).
+        {
+            DESERT_PROFILE_PASS( "Weather: UpdateRainOcclusion" );
+            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateRainOcclusion();
         }
 
         // Morph targets blend before anything skins (UE: the morph update precedes the GPU skin passes): its own
@@ -1871,6 +1922,15 @@ namespace Desert::Graphic
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
                 AddSystemRaster( graph, textures, mesh->DebugLinesPass(), overlay );
+            // The scene's gameplay debug drawing (Core/DebugDraw.hpp): its lines over the engine's, its strings
+            // over both. A reflection capture's face shows the game scene only, as for the extension passes.
+            if ( m_DebugDraw && !m_ViewProfile.SceneCapture )
+            {
+                if ( m_DebugDraw->HasLines() )
+                    AddSystemRaster( graph, textures, m_DebugDraw->LinesPass(), overlay );
+                if ( m_DebugDraw->HasStrings() )
+                    AddSystemRaster( graph, textures, m_DebugDraw->StringsPass(), overlay );
+            }
 #endif // DESERT_DEV_INSTRUMENTS
        // The editor's authoring overlays (colliders, cubemap preview) over the engine's debug lines.
             AddExtensionPoint( graph, textures, RDG::ExtensionPoint::Overlay, overlay );
@@ -1945,6 +2005,10 @@ namespace Desert::Graphic
         m_PointLightShadows.clear();
         m_SpotLightShadows.clear();
         m_FrameExtensions         = nullptr;
+#if DESERT_DEV_INSTRUMENTS
+        if ( m_DebugDraw )
+            m_DebugDraw->SetWorld( nullptr );
+#endif
         m_FrameReflectionCaptures = nullptr;
         m_FrameRayTracingCache    = nullptr;
         m_FrameLocalShadows       = nullptr;

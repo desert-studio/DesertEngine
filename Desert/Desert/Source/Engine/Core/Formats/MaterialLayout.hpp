@@ -95,6 +95,13 @@ namespace Desert::Core::Formats
         // palettes of every skinned primitive the view draws, named by the row's BoneOffset / PrevBoneOffset.
         // Read by the view-pass skinned surface vertex stage.
         ObjectBones = 1u << 7,
+        // The world's parameters this frame (Common/WorldParameters.glslh `WorldParameters`): read by the cells
+        // whose surface names one (`WorldParameter( "Name" )`).
+        WorldParameters = 1u << 8,
+        // The view's rain occlusion (Common/RainOcclusion.glslh `RainOcclusionUB`, `u_RainOcclusionMap`):
+        // read by the cells that wet a surface. The block is written by SceneFrameBinding::ApplyTo, the map is a
+        // pass parameter (BindSceneViewInputs).
+        RainOcclusion = 1u << 9,
     };
     constexpr SceneRead operator|( SceneRead a, SceneRead b )
     {

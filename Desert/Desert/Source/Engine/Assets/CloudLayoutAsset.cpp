@@ -74,34 +74,37 @@ namespace Desert::Assets
                                                      decoded.GetError() );
         }
 
-        m_Layout = decoded.ExtractValue();
+        m_Layout = std::make_shared<const CloudLayoutData>( decoded.ExtractValue() );
         m_Ready  = true;
 
+        const CloudLayoutData& layout = *m_Layout;
         LOG_INFO( "[Clouds] Layout '{}' loaded: {}x{}, pattern {}, mask {}, channel means "
                   "{:.3f}/{:.3f}/{:.3f}/{:.3f}, content {:08x}.",
-                  path, m_Layout.Resolution, m_Layout.Resolution, m_Layout.HasPattern() ? "yes" : "no",
-                  m_Layout.HasMask() ? "yes" : "no", m_Layout.PatternMean[0], m_Layout.PatternMean[1],
-                  m_Layout.PatternMean[2], m_Layout.PatternMean[3], m_Layout.ContentHash );
+                  path, layout.Resolution, layout.Resolution, layout.HasPattern() ? "yes" : "no",
+                  layout.HasMask() ? "yes" : "no", layout.PatternMean[0], layout.PatternMean[1],
+                  layout.PatternMean[2], layout.PatternMean[3], layout.ContentHash );
 
         return BOOLSUCCESS;
     }
 
     Common::BoolResultStr CloudLayoutAsset::Unload()
     {
-        m_Layout.Pattern.clear();
-        m_Layout.Pattern.shrink_to_fit();
-        m_Layout.Mask.clear();
-        m_Layout.Mask.shrink_to_fit();
-        m_Layout.Resolution  = 0u;
-        m_Layout.ContentHash = 0u;
-        // The one thing this body — the most thorough of the thirteen and the model for the rest — still
-        // left describing a buffer it had freed. A zero ContentHash beside a non-zero mean is an
-        // inconsistent state for exactly the reason the two lines above exist.
-        m_Layout.PatternMean[0] = 0.0F;
-        m_Layout.PatternMean[1] = 0.0F;
-        m_Layout.PatternMean[2] = 0.0F;
-        m_Layout.PatternMean[3] = 0.0F;
-        m_Ready                 = false;
+        // A FRESH EMPTY REVISION rather than the old one cleared in place: a bake still holding the old
+        // revision keeps reading valid pixels, and this asset no longer describes a buffer it freed (a zero
+        // ContentHash, zero means, no tables).
+        m_Layout = std::make_shared<const CloudLayoutData>();
+        m_Ready  = false;
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr CloudLayoutAsset::ReplaceLayout( CloudLayoutData layout )
+    {
+        if ( auto valid = ValidateCloudLayoutData( layout ); !valid )
+            return Common::MakeFormattedError<bool>( "cloud layout '{}' was not replaced: {}",
+                                                     m_Metadata.Filepath.string(), valid.GetError() );
+
+        m_Layout = std::make_shared<const CloudLayoutData>( std::move( layout ) );
+        m_Ready  = true;
         return BOOLSUCCESS;
     }
 

@@ -6,6 +6,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/RenderMethods.hpp>
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
@@ -126,6 +127,9 @@ namespace Desert::Graphic
     /// "view #3 41 rows 182.40 MiB (the view's budget); scene #1 12 rows 9.10 MiB (scene-shared, the
     /// scene's own budget entry)" — the [ViewMemory] line.
     [[nodiscard]] std::string FormatViewLedgerMemory( const ViewLedgerMemory& memory );
+#if DESERT_DEV_INSTRUMENTS
+    class DebugDrawRenderer;
+#endif
 
     class SceneRenderer final
     {
@@ -604,6 +608,12 @@ namespace Desert::Graphic
         /// before the render graph records, so every pass in the frame may ask. Returns the default (disabled, no
         /// map) whenever the layer is absent, off, not casting or at zero strength.
         CloudShadowInput GetCloudShadowInput() const;
+        /// The view's snapshot of the world's parameters this frame (Common/WorldParameters.glslh), written once
+        /// at BeginScene from Scene::GetWorldParameters; every capture of the frame binds this one buffer.
+        [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& GetWorldParametersBuffer() const
+        {
+            return m_WorldParameters;
+        }
         // The frame's sun as every lit pass receives it: the first directional light (direction it travels,
         // colour/intensity), or the default sun when the scene has none. The deferred composite and the
         // surface-cache lighting read this one rule.
@@ -743,6 +753,10 @@ namespace Desert::Graphic
         uint64_t m_SceneGeneration = 0;
         // The scene's game time at BeginScene, seconds (ViewInputs::TimeSeconds).
         double m_SceneTimeSeconds = 0.0;
+        // The world's parameters as of BeginScene (GetWorldParametersBuffer): per (view x frame in flight).
+        std::shared_ptr<ShaderResources::StorageBuffer> m_WorldParameters;
+        // Uploads Scene::GetWorldParameters into m_WorldParameters (BeginScene, inside the view's scope).
+        [[nodiscard]] Common::BoolResultStr UploadWorldParameters( const Desert::Core::Scene& scene );
 
         // Constructor-set, const in everything but name: MeshRenderer copies it in Initialize and the
         // cascade framebuffers exist from that moment until this renderer dies.
@@ -1239,6 +1253,11 @@ namespace Desert::Graphic
         RayTracing::RayTracingSceneCache* m_FrameRayTracingCache = nullptr;
         // The scene's local-light shadow cache, the same bracket (GetFrameLocalShadows).
         LocalShadowCache* m_FrameLocalShadows = nullptr;
+#if DESERT_DEV_INSTRUMENTS
+        // The gameplay debug drawing of the scene BeginScene was handed (Core/DebugDraw.hpp): this view's lines
+        // and strings passes, fed the scene's store by BeginScene and emptied by EndScene. Made on first use.
+        std::unique_ptr<DebugDrawRenderer> m_DebugDraw;
+#endif
 
     public:
         // --- UI glass (backdrop blur) -----------------------------------------------------------

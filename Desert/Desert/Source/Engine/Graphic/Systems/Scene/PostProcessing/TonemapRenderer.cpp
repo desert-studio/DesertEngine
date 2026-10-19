@@ -84,10 +84,10 @@ namespace Desert::Graphic::System
         const float lightShaftIntensity = inputs.LightShaftsProduced ? m_LightShaftIntensity : 0.0f;
         const float lensFlareIntensity  = inputs.LensFlareProduced ? m_LensFlareIntensity : 0.0f;
 
-        const MaterialTonemap::Params params{ m_TonemapOperator, m_Exposure,         m_Gamma,
-                                              bloomIntensity,    m_ExposureKey,      m_AutoExposureEnabled,
-                                              m_ChromaticBloom,  m_WhitePoint,       lightShaftIntensity,
-                                              m_LightShaftTint,  lensFlareIntensity, m_LensFlareTint };
+        const MaterialTonemap::Params params{
+             m_TonemapOperator,     m_Exposure,         bloomIntensity, m_ExposureKey,
+             m_AutoExposureEnabled, m_ChromaticBloom,   m_WhitePoint,   lightShaftIntensity,
+             m_LightShaftTint,      lensFlareIntensity, m_LensFlareTint };
 
         m_MaterialTonemap->BindValues( params );
     }

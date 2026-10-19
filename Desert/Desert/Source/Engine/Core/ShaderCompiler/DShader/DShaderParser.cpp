@@ -1,6 +1,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <Common/Content/ShaderAssetHeader.hpp>
+#include <Engine/Assets/Serialization/WorldParameters.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Core/ShaderCompiler/SharedSamplerBinding.hpp>
@@ -1717,6 +1718,80 @@ namespace Desert::Core::Preprocess
                                 transform, mask.Texture, uv, channel );
         }
 
+        // A SURFACE READS A WORLD PARAMETER BY NAME — `WorldParameter( "Wetness" )`, the one spelling a
+        // hand-written surface and the shader graph's World Parameter node share — and the cell reads it by KEY:
+        // each read is lowered to DesertWorldParameter( <key>u ), the name's Serialization::WorldParameterKey, so
+        // the material is compiled against no particular collection (the scene names one). GLSL has no string
+        // literals, so a quoted name after the keyword is unambiguous. A malformed read becomes an `#error` naming
+        // it, which glslang reports on the .shader's own line. @p reads says whether the cell needs the table
+        // declared.
+        std::string LowerWorldParameterReads( const std::string_view content, bool& reads )
+        {
+            constexpr std::string_view keyword = "WorldParameter";
+            std::string                out;
+            out.reserve( content.size() );
+            size_t at = 0;
+            reads     = false;
+            while ( at < content.size() )
+            {
+                const size_t found = content.find( keyword, at );
+                if ( found == std::string_view::npos )
+                    break;
+                const bool identBefore = found > 0 && IsIdentChar( content[found - 1] );
+                size_t     cursor      = found + keyword.size();
+                const bool identAfter  = cursor < content.size() && IsIdentChar( content[cursor] );
+                if ( identBefore || identAfter )
+                {
+                    out.append( content.substr( at, cursor - at ) );
+                    at = cursor;
+                    continue;
+                }
+                out.append( content.substr( at, found - at ) );
+                const auto skipSpace = [&]
+                {
+                    while ( cursor < content.size() && ( content[cursor] == ' ' || content[cursor] == '\t' ) )
+                        ++cursor;
+                };
+                skipSpace();
+                std::string name;
+                bool        wellFormed = cursor < content.size() && content[cursor] == '(';
+                if ( wellFormed )
+                {
+                    ++cursor;
+                    skipSpace();
+                    wellFormed = cursor < content.size() && content[cursor] == '"';
+                }
+                if ( wellFormed )
+                {
+                    const size_t close = content.find( '"', cursor + 1 );
+                    wellFormed         = close != std::string_view::npos;
+                    if ( wellFormed )
+                    {
+                        name   = std::string( content.substr( cursor + 1, close - cursor - 1 ) );
+                        cursor = close + 1;
+                        skipSpace();
+                        wellFormed = cursor < content.size() && content[cursor] == ')' &&
+                                     Assets::Serialization::IsWorldParameterName( name );
+                    }
+                }
+                if ( !wellFormed )
+                {
+                    // The rest of the line stays as written; the directive needs a line of its own.
+                    const size_t eol = content.find( '\n', found );
+                    out.append(
+                         "\n#error WorldParameter: expected WorldParameter( \"Name\" ) with an identifier name" );
+                    at = eol == std::string_view::npos ? content.size() : eol;
+                    continue;
+                }
+                out.append( std::format( "DesertWorldParameter( {:#010x}u )",
+                                         Assets::Serialization::WorldParameterKey( name ) ) );
+                reads = true;
+                at    = cursor + 1;
+            }
+            out.append( content.substr( std::min( at, content.size() ) ) );
+            return out;
+        }
+
         // One stage of one surface CELL. The vertex stage is the path's engine header alone (a surface
         // function does not move vertices yet); the fragment stage is the author's surface function between
         // the shared types and the pass's engine header, which owns main(). `#line` puts glslang's errors in
@@ -1728,7 +1803,7 @@ namespace Desert::Core::Preprocess
                                               const std::string& autoDecls, const SurfaceBlendMode blend,
                                               const std::string_view shadingModelDefine, const bool responsiveAA,
                                               const std::string& opacityMaskFunction, const bool parallax,
-                                              const std::string& heightFunctions )
+                                              const std::string& heightFunctions, const bool weather )
         {
             const bool        masked   = blend == SurfaceBlendMode::Masked;
             const bool        particle = path == kSurfaceParticleSpritePath;
@@ -1743,6 +1818,14 @@ namespace Desert::Core::Preprocess
                  responsiveAA ? std::format( "#define {} 1\n", kSurfaceResponsiveAADefine ) : std::string(),
                  parallax ? std::format( "#define {} 1\n", kSurfaceParallaxDefine ) : std::string(),
                  kSurfaceShadingModelDefine, shadingModelDefine );
+            // A lit mesh pass of a template whose row carries the weather response (kSurfaceWeatherDefine).
+            const bool wets =
+                 weather && ( pass == "Forward" || pass == "GBuffer" ) && !particle && path != kSurfaceRayHitPath;
+            const std::string weatherDefines =
+                 wets ? std::format( "#define {} 1\n#define {} {:#010x}u\n", kSurfaceWeatherDefine,
+                                     kSurfaceWetnessKeyDefine,
+                                     Assets::Serialization::WorldParameterKey( kSurfaceWetnessParameter ) )
+                      : std::string();
             // The sprite path has its own pass header whatever the blend: the mesh Forward / glass headers light a
             // mesh, the sprite header composites a particle.
             const bool        rayHit      = path == kSurfaceRayHitPath;
@@ -1763,13 +1846,21 @@ namespace Desert::Core::Preprocess
                 return AssembleStage( stage, code, include, std::string() );
             }
             else
+            {
+                bool              readsWorld = false;
+                const std::string lowered    = LowerWorldParameterReads( surface.Content, readsWorld );
                 code.Content =
                      // Only a stage that evaluates the surface fetches material textures: it alone declares the
                      // biased fetch (Mesh/Surface/SurfaceTypes.glslh SurfaceSampleMaterial) and the camera block.
-                     std::format( "{}#define {} 1\n#include <{}>\n{}#line {}\n{}\n{}#include <{}>\n", defines,
-                                  kSurfaceSamplesMaterialDefine, kSurfaceTypesInclude, heightFunctions,
-                                  surface.StartLine > 0 ? surface.StartLine - 1 : 0, surface.Content,
+                     // The world's parameters are declared only into a cell whose surface reads one: reflection
+                     // keeps a declared buffer, and every other surface must not ask its renderer to bind it.
+                     std::format( "{}{}#define {} 1\n#include <{}>\n{}{}#line {}\n{}\n{}#include <{}>\n", defines,
+                                  weatherDefines, kSurfaceSamplesMaterialDefine, kSurfaceTypesInclude,
+                                  readsWorld || wets ? std::format( "#include <{}>\n", kWorldParametersInclude )
+                                                     : std::string(),
+                                  heightFunctions, surface.StartLine > 0 ? surface.StartLine - 1 : 0, lowered,
                                   masked ? opacityMaskFunction : std::string(), passInclude );
+            }
             return AssembleStage( stage, code, include, autoDecls );
         }
 
@@ -2535,6 +2626,50 @@ namespace Desert::Core::Preprocess
             return fail();
         }
 
+        // THE SURFACE'S WEATHER RESPONSE (kSurfaceRespondsToWeatherParam, DShaderParser.hpp): appended to the row
+        // of every lit Opaque / Masked template, after the authored parameters so no authored slot moves.
+        const bool respondsToWeather = surfaceBlock && propInfo.UBBinding.has_value() &&
+                                       !Formats::IsTranslucentBlend( result.Surface.Blend );
+        if ( respondsToWeather )
+        {
+            for ( const std::string_view reserved : { kSurfaceRespondsToWeatherParam, kSurfacePorosityParam } )
+                for ( const auto& p : result.Meta.Params )
+                    if ( p.Name == reserved )
+                    {
+                        err = { c.Line,
+                                std::format( "'{}' is the engine's weather-response parameter of every lit "
+                                             "Surface template; rename the template's own",
+                                             reserved ) };
+                        return fail();
+                    }
+            const auto weatherParam = []( const std::string_view name, const std::string_view display,
+                                          const std::string_view tooltip, const float value )
+            {
+                ShaderParam p;
+                p.Name        = std::string( name );
+                p.DisplayName = std::string( display );
+                p.Category    = "Weather";
+                p.Tooltip     = std::string( tooltip );
+                p.Type        = ShaderValueType::Float;
+                p.Widget      = ShaderParamWidget::Slider;
+                p.Timing      = ShaderParamTiming::Immediate;
+                p.Min         = 0.0f;
+                p.Max         = 1.0f;
+                p.Default     = glm::vec4( value, 0.0f, 0.0f, 0.0f );
+                return p;
+            };
+            result.Meta.Params.push_back( weatherParam(
+                 kSurfaceRespondsToWeatherParam, "Responds To Weather",
+                 "How much the world's Wetness reaches this surface: 1 = fully, 0 = never (a covered or indoor "
+                 "surface)",
+                 1.0f ) );
+            result.Meta.Params.push_back( weatherParam(
+                 kSurfacePorosityParam, "Porosity",
+                 "How much water the surface soaks up when wet: 1 = asphalt, soil, wood (darker, glossier), 0 = "
+                 "glazed tile, plastic, glass (unchanged until water stands on it). Metal never darkens",
+                 0.5f ) );
+        }
+
         result.Meta.LayoutBindings  = MaterialLayoutBindings{ propInfo.UBBinding, propInfo.TextureBinding };
         result.Layout               = BuildMaterialLayout( result.Meta );
         // The reserved scene-read range (Core::kSceneReadBindingFirst, ShaderGraphBindings.hpp) is declared into
@@ -2702,7 +2837,7 @@ namespace Desert::Core::Preprocess
                              stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock, includeBlock,
                                                               autoDecls, result.Surface.Blend, shadingModelDefine,
                                                               result.Surface.ResponsiveAA, opacityMaskFunction,
-                                                              false, heightFunctions ) );
+                                                              false, heightFunctions, respondsToWeather ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
@@ -2721,7 +2856,7 @@ namespace Desert::Core::Preprocess
                                                           *surfaceBlock, includeBlock, autoDecls,
                                                           result.Surface.Blend, shadingModelDefine,
                                                           result.Surface.ResponsiveAA, opacityMaskFunction,
-                                                          false, heightFunctions ) );
+                                                          false, heightFunctions, false ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );
@@ -2756,7 +2891,7 @@ namespace Desert::Core::Preprocess
                                                               *surfaceBlock, includeBlock, rayHitAutoDecls,
                                                               result.Surface.Blend, shadingModelDefine,
                                                               result.Surface.ResponsiveAA, opacityMaskFunction,
-                                                              false, heightFunctions ) );
+                                                              false, heightFunctions, false ) );
                     }
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Meta.RayTracingPassNames.push_back( cell.Name );
@@ -2779,7 +2914,7 @@ namespace Desert::Core::Preprocess
                                                           kSurfaceParticleSpritePass, *surfaceBlock, includeBlock,
                                                           autoDecls, result.Surface.Blend, shadingModelDefine,
                                                           result.Surface.ResponsiveAA, opacityMaskFunction,
-                                                          false, heightFunctions ) );
+                                                          false, heightFunctions, false ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );
@@ -2799,7 +2934,8 @@ namespace Desert::Core::Preprocess
                              stage, AssembleSurfaceCellStage( stage, kSurfaceGrassBladePath, pass, *surfaceBlock,
                                                               includeBlock, autoDecls, result.Surface.Blend,
                                                               shadingModelDefine, result.Surface.ResponsiveAA,
-                                                              opacityMaskFunction, false, heightFunctions ) );
+                                                              opacityMaskFunction, false, heightFunctions,
+                                                              false ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
@@ -2822,7 +2958,8 @@ namespace Desert::Core::Preprocess
                                  stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock, includeBlock,
                                                                   autoDecls, result.Surface.Blend,
                                                                   shadingModelDefine, result.Surface.ResponsiveAA,
-                                                                  opacityMaskFunction, true, heightFunctions ) );
+                                                                  opacityMaskFunction, true, heightFunctions,
+                                                                  respondsToWeather ) );
                         result.Meta.PassNames.push_back( cell.Name );
                         result.Surface.Cells.push_back( cell.Name );
                         result.Passes.push_back( std::move( cell ) );

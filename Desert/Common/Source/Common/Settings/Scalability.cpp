@@ -58,7 +58,7 @@ namespace Common::Scalability
                CL::None,
                "DistanceFieldSceneData::SetPoolMiB - the brick atlas the finer mesh-field mips stream within" },
              { P::AmbientOcclusionSamples, G::PostProcess, "PostProcess.AmbientOcclusionSamples", 4, 32, CL::None,
-               "SSAORenderer kernel sampleCount (SSAO.shader MAX_SAMPLES = 32)" },
+               "SSAORenderer GTAO horizon taps per direction (SSAO.shader kMaxTaps = 32)" },
              { P::BloomMips, G::PostProcess, "PostProcess.BloomMips", 2, 6, CL::None,
                "BloomRenderer::SetMaxMips (SceneRenderer::BeginScene)" },
              { P::MotionBlurQuality, G::PostProcess, "PostProcess.MotionBlurQuality", 0, 2, CL::None,
@@ -135,6 +135,14 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> MegaLightsVolumeRenderer::AddPasses (depth slices)" },
              { P::ShadowMegaLightsVolumeSamples, G::Shadows, "Shadows.MegaLightsVolumeSamples", 1, 4, CL::None,
                "SceneRenderer::BeginScene -> MegaLightsVolumeRenderer::AddPasses (traced samples per froxel)" },
+             { P::ShadowRainOcclusionMapSize, G::Shadows, "Shadows.RainOcclusionMapSize", 256, 4096, CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (\"Weather: RainOcclusion\" "
+               "target side)" },
+             { P::ShadowRainOcclusionExtent, G::Shadows, "Shadows.RainOcclusionExtent", 1000, 100000, CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (box side, world cm)" },
+             { P::ShadowRainOcclusionRefreshPercent, G::Shadows, "Shadows.RainOcclusionRefreshPercent", 5, 50,
+               CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (recentre distance)" },
              { P::ScreenSpaceGISamples, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceSamples", 4, 64,
                CL::None,
                "SceneRenderer::BeginScene -> MaterialDeferredLighting (u_ScreenSpaceGI.x: DeferredLighting.shader "

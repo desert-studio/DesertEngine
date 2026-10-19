@@ -74,6 +74,7 @@ namespace Desert::ECS
                      light.Position  = glm::vec3( worldTransform[3] );
                      light.Range     = spotlight.Data.Range;
                      light.SourceRadius = spotlight.Data.SourceRadius;
+                     light.MinRadius = spotlight.Data.MinRadius;
                      light.Direction = forward;
                      light.CosInner  = glm::cos( inner );
                      light.CosOuter  = glm::cos( outer );

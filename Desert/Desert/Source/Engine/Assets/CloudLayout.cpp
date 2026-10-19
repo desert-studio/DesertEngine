@@ -710,9 +710,12 @@ namespace Desert::Assets
 
         CloudLayoutCanvas canvas;
         canvas.Side = side;
-        // WHITE, THE NEUTRAL (WX-PAINT): the painted W is `1 - PatternStrength * (1 - painted)`, so white leaves
-        // the slider's sky as it is and the brush carves clear sky out of it — Unreal's Layout starts here too.
-        canvas.Pattern.assign( static_cast<size_t>( side ) * side * kPatternBytesPerTexel, 255u );
+        // BLACK, CLEAR SKY (CLOUD-PAINT-FIX): the painted W is `1 - PatternStrength * (1 - painted)`, so a blank
+        // canvas bound at full strength is a clear sky and the brush PAINTS clouds where it goes — what an artist
+        // reaches for a painted sky to do. A white start made the first stroke carve a lane out of a busy sky,
+        // which at the shipped Coverage could not be told from the gaps around it. The panel's Fill lays white
+        // (or any ink) over a channel for the opposite workflow.
+        canvas.Pattern.assign( static_cast<size_t>( side ) * side * kPatternBytesPerTexel, 0u );
 
         return Common::MakeSuccess( std::move( canvas ) );
     }
@@ -963,6 +966,15 @@ namespace Desert::Assets
 
         const float hardness = std::clamp( brush.Hardness, 0.0f, 1.0f );
         const float inkByte  = std::clamp( brush.Ink, 0.0f, 1.0f ) * 255.0f;
+
+        // A SEGMENT NO CANVAS COULD HOLD IS REFUSED before the box is converted to integers. ImGui reports a
+        // mouse that left the window as -FLT_MAX; the box below overflowed its int conversion on it and the
+        // loop then walked billions of texels — the editor froze for good the moment a drag crossed the
+        // window's edge. A real drag is within a few canvases of the canvas; a million texels is not one.
+        constexpr float kFarthestTexel = 1.0e6f;
+        for ( const float v : { fromTexels.x, fromTexels.y, toTexels.x, toTexels.y } )
+            if ( !std::isfinite( v ) || std::fabs( v ) > kFarthestTexel )
+                return 0u;
 
         // THE BOX IS THE SEGMENT INFLATED BY THE RADIUS, then wrapped. Walking the whole canvas would be a
         // million distance evaluations for a stroke that touches a thousand texels, on every mouse move.

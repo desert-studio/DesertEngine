@@ -23,7 +23,6 @@ Shader "SceneComposite"
         Uniform(0) TonemapUB
         {
             float u_Exposure;
-            float u_Gamma;
             float u_BloomIntensity;
             float u_ExposureKey;          // middle-grey target for auto-exposure
             float u_AutoExposureEnabled;  // > 0.5 -> use measured luminance instead of manual exposure
@@ -35,6 +34,19 @@ Shader "SceneComposite"
         };
 
         #include <Common/TonemapACES.glslh>
+
+        // THE DISPLAY TRANSFER: the sRGB OETF (IEC 61966-2-1), the curve the display decodes with.
+        // Ported from UE 5.8 Engine/Shaders/Private/GammaCorrectionCommon.ush:16-18 (LinearToSrgbBranchless),
+        // adapted: GLSL, input clamped to [0,1] (the tonemappers' output range). It was pow(1/Gamma) with a scene's
+        // Gamma 2.2: a pure power encode that the display's sRGB decode does not invert lifted every value below
+        // ~0.04 linear - 24/255 drew where 17/255 belongs, so shade under the grass and in the barn's corners read
+        // greyed. UE encodes with this curve for its default output device (r.HDR.Display.OutputDevice 0, sRGB);
+        // the transfer is the display's, not a per-scene look, so it is no longer a PostProcess setting.
+        vec3 LinearToSrgb(vec3 linearColor)
+        {
+            const vec3 c = clamp(linearColor, 0.0, 1.0);
+            return min(c * 12.92, pow(max(c, vec3(0.00313067)), vec3(1.0 / 2.4)) * 1.055 - 0.055);
+        }
 
         // Extended Reinhard, on luminance, preserving the colour's ratio to it.
         // see: "Photographic Tone Reproduction for Digital Images", eq. 4
@@ -99,13 +111,12 @@ Shader "SceneComposite"
 
             vec3 color = (scene + bloom + shafts + flare) * exposure;
 
-        	// The scene's chosen operator. Both branches return LINEAR colour — the gamma encode below is
+        	// The scene's chosen operator. Both branches return LINEAR colour — the display encode below is
         	// the display transfer function and belongs to neither of them.
         	vec3 mappedColor = (u_TonemapOperator < 0.5) ? TonemapACES(color)
         	                                             : TonemapReinhard(color, u_WhitePoint);
 
-        	// Gamma correction.
-        	vec3 mapped = pow(mappedColor, vec3(1.0 / u_Gamma));
+        	vec3 mapped = LinearToSrgb(mappedColor);
 
         	// Ordered dithering on the FINAL 8-bit output to break gradient banding. Without it, smooth gradients
         	// (esp. the procedural sky) quantize into 8-bit steps; under camera motion those steps sweep across the

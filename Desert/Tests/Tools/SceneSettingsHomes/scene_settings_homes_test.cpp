@@ -272,7 +272,6 @@ TEST( SceneSettingsHomesMigration, TheMigratedSceneResolvesToThePreviousValues )
     const entt::registry reg = RegistryOf( scene );
     const auto           v   = Graphic::ResolveViewSettings( reg, std::nullopt );
     EXPECT_NEAR( v.Post.ManualExposureEV100, std::log2( 0.21 / 2.5 ) + 3.0, 1e-5 );
-    EXPECT_EQ( v.Post.Gamma, 2.4f );
     EXPECT_EQ( v.Post.WhitePoint, 11.0f );
     EXPECT_EQ( v.Post.AutoExposureKey, 0.21f );
     EXPECT_EQ( v.Post.BloomIntensity, 1.3f );

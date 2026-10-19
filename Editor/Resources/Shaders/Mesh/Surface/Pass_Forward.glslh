@@ -22,6 +22,9 @@ layout( std430, binding = 30 ) readonly buffer LightGridCellsUB
 #include <Mesh/DirectLighting.glslh>
 
 DESERT_SURFACE_VARYINGS( in )
+#ifdef DESERT_SURFACE_WEATHER
+#include <Mesh/Surface/SurfaceWeather.glslh>
+#endif
 
 layout( location = 0 ) out vec4 oColor;
 // The view's velocity (slot 1 of the scene target): the forward opaque pass writes the view's depth, so it writes
@@ -153,7 +156,12 @@ void main()
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
                               v_Surface.VertexColor, gl_FrontFacing );
     DESERT_SURFACE_CLIP( i );
+#ifdef DESERT_SURFACE_WEATHER
+    // The material's weather response (Mesh/Surface/SurfaceWeather.glslh), before anything reads the surface.
+    const SurfaceOutput s = DesertApplySurfaceWeather( i, EvaluateSurface( i ) );
+#else
     const SurfaceOutput s = EvaluateSurface( i );
+#endif
 #ifdef DESERT_SURFACE_PARALLAX
     // The relief's depth and motion (SurfaceParallax.glslh), and the point it lights: the moved one, so its cascade
     // lookup, contact shadows and light-grid cell are the relief's, as the deferred composite's reconstruction is.

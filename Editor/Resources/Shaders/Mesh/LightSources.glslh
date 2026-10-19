@@ -47,7 +47,7 @@ struct SpotLight {
     float contactShadowNonCastingIntensity; // UE ContactShadowNonCastingIntensity (a hit on a non-caster)
     int   shadowCaster; // 1: casts shadows in this view (a -1 shadowView is then a light the maps refused)
     float sourceRadius; // UE SourceRadius (cm): the sphere traced shadows aim at (MegaLights); 0 = a point
-    float pad0;
+    float minRadius;    // full intensity within this distance (cm)
     float pad1;
     float pad2;
 };
@@ -107,7 +107,7 @@ DesertLight DesertSpotLightAt( SpotLight source, vec3 worldPosition )
     const float distance = length( toLight );
     DesertLight light;
     light.L        = normalize( toLight );
-    light.Radiance = source.color * source.intensity * LightFalloffFactor( distance, 0.0, source.range, source.falloff ) *
+    light.Radiance = source.color * source.intensity * LightFalloffFactor( distance, source.minRadius, source.range, source.falloff ) *
                      SpotConeFactor( source, light.L );
     light.Shadow             = 1.0;
     light.TransmissionShadow = 1.0;

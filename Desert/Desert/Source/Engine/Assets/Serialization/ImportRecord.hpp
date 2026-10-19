@@ -15,6 +15,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Assets::Serialization
@@ -78,6 +79,39 @@ namespace Desert::Assets::Serialization
         friend bool operator==( const ImportRecordNode&, const ImportRecordNode& ) = default;
     };
 
+    /// One light source the file states (ImportRecordData::Lights; UE FbxSceneImport / Interchange FbxLight: a
+    /// point, spot or directional light becomes a light actor at its node). Everything is in the ENGINE's space
+    /// (the import options applied), as a node's Placement is: where the placed light stands under the placed
+    /// source's root and where it shines. What each member becomes on the placed light: NodeActors.hpp
+    /// PlaceSourceLights.
+    struct ImportRecordLight
+    {
+        std::string Name; // the light's node
+        std::string Type; // "Point", "Spot" or "Directional" (ImportRecordLightTypes)
+        /// The light's origin, centimetres from the source's origin. A directional light states one too (its
+        /// node's), which placing does not use: such a light has a direction and no position.
+        std::array<float, 3> Position{};
+        /// The unit direction the light TRAVELS (a spot's axis out of its apex, a directional light's sun ->
+        /// scene); a point light states its node's, which placing does not use.
+        std::array<float, 3> Direction{};
+        /// Colour and Intensity are the file's colour times its intensity over 100 (FBX's and assimp's "100 =
+        /// full"), split so the colour's brightest channel is 1 and Intensity is the engine's linear multiplier
+        /// (the Intensity of the light components); their product is the file's, unchanged.
+        std::array<float, 3> Color{};
+        float                Intensity = 1.0f;
+        /// Where a point or spot light's reach ends, in centimetres (UE AttenuationRadius from FBX DecayStart).
+        /// Absent = the file states no decay (FBX DecayType None), which UE imports as an unbounded radius.
+        std::optional<float> Radius;
+        /// A spot light's cone half-angles in degrees (UE InnerConeAngle / OuterConeAngle, copied from FBX
+        /// InnerAngle / OuterAngle as UE copies them); absent on every other type.
+        std::optional<float> InnerConeAngle;
+        std::optional<float> OuterConeAngle;
+
+        friend bool operator==( const ImportRecordLight&, const ImportRecordLight& ) = default;
+    };
+    /// The names ImportRecordLight::Type takes.
+    inline constexpr std::array<std::string_view, 3> ImportRecordLightTypes = { "Point", "Spot", "Directional" };
+
     struct ImportRecordData
     {
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
@@ -107,6 +141,13 @@ namespace Desert::Assets::Serialization
         // arranged them. The node's rotation and scale are in its mesh (the importer bakes the node's world
         // transform into the vertices; NodeMeshSplit rebases them onto the pivot).
         std::optional<std::vector<ImportRecordNode>> Nodes;
+
+        // THE LIGHT SOURCES THE FILE STATES (BISTRO-LIGHTS; UE FbxSceneImport and Interchange's FbxLight turn each
+        // FBX point, spot and directional light into a light actor at its node's transform), in the ENGINE's space
+        // like `Nodes`. Placing the source places one light entity per entry under its root (NodeActors.hpp
+        // PlaceSourceLights), combined or split. Written by every mesh import; a file with no light writes no key
+        // (one spelling), so an empty list is refused.
+        std::optional<std::vector<ImportRecordLight>> Lights;
 
         // THE SOURCE'S BYTES THE LAST SKINNED, SKELETON OR CLIP IMPORT READ (UE UAssetImportData's source file
         // hash, HashMeshSourceFile): such an import is current when this states the source's current hash. It
@@ -177,6 +218,12 @@ namespace Desert::Assets::Serialization
     /// combined import. The record must exist (EnsureImportRecord runs first); written only when the list changes.
     Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                        source,
                                                 const std::optional<std::vector<ImportRecordNode>>& nodes );
+
+    /// Rewrites the record's `Lights`: the light sources the last import of @p source read, in the engine's space;
+    /// an empty list removes the key. The record must exist (EnsureImportRecord runs first); written only when the
+    /// list changes. An error for a light ParseImportRecord would refuse.
+    Common::BoolResultStr SetImportRecordLights( const std::filesystem::path&          source,
+                                                 const std::vector<ImportRecordLight>& lights );
 
     /// Rewrites the record's `SourceHash`: the import of @p source that read bytes of @p hash completed. The
     /// record must exist (EnsureImportRecord runs first); written only when the hash changes.

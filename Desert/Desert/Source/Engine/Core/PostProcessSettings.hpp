@@ -94,8 +94,6 @@ namespace Desert::Core
                   Tooltip( "Exposure when Auto Exposure is off (UE Manual): the scene EV100 shown as middle "
                            "grey. ~15 clear sun (100 000 lux), ~10 overcast, ~0 interior, ~-3 night street." ) )
         float ManualExposureEV100 = 0.5260688f;
-        PROPERTY( DisplayName( "Gamma" ), Category( "Film" ), Range( 1.0f, 3.0f ) )
-        float Gamma = 2.2f;
         PROPERTY( DisplayName( "White Point (Reinhard)" ), Category( "Film" ), Range( 1.0f, 20.0f ) )
         float WhitePoint = 8.0f;
 

@@ -20,7 +20,7 @@ float SpotLightContribution(SpotLight light, vec3 worldPosition, vec3 N)
     float cone = SpotConeFactor(light, L);
     float cosLi = max(dot(N, L), 0.0);
     if (cone <= 0.0 || cosLi <= 0.0) return 0.0;
-    float attenuation = LightFalloffFactor(dist, 0.0, light.range, light.falloff) * cone;
+    float attenuation = LightFalloffFactor(dist, light.minRadius, light.range, light.falloff) * cone;
     return attenuation * cosLi * light.intensity;
 }
 

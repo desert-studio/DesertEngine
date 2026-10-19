@@ -15,6 +15,10 @@
 #include "SceneEntityIndex.hpp"
 #include "SceneViewList.hpp"
 #include "WorldTime.hpp"
+#include "DebugDraw.hpp"
+#if DESERT_DEV_INSTRUMENTS
+#include <Engine/GameplayDebugger/GameplayDebugger.hpp>
+#endif
 #include "SceneGeneration.hpp"
 
 #include <Common/Core/ResultStr.hpp>
@@ -35,6 +39,9 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <Engine/Core/WorldParameterInstance.hpp>
+#include <Engine/Core/WeatherState.hpp>
+
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -361,6 +368,30 @@ namespace Desert::Core
             return m_WorldTime;
         }
 
+        // The world's instance of its collection (UE's UMaterialParameterCollectionInstance, Engine/Core/
+        // WorldParameterInstance.hpp): the live values every view snapshots into its WorldParameters buffer.
+        // SyncWorldParameters adopts the collection SceneSettings::WorldParameters names; OnUpdate calls it
+        // first, and the Luau library calls it before a set/get so a script's first frame finds the parameters.
+        [[nodiscard]] WorldParameterInstance& GetWorldParameters()
+        {
+            return m_WorldParameters;
+        }
+        [[nodiscard]] const WorldParameterInstance& GetWorldParameters() const
+        {
+            return m_WorldParameters;
+        }
+        // Adopts (or keeps) the named collection. Refused with the reason when the collection cannot be read;
+        // the instance then holds no parameters, so no material reads a stale value.
+        Common::BoolResultStr SyncWorldParameters();
+
+        // THE WORLD'S WEATHER (Core/WeatherState.hpp, WTH-STATE): per WeatherZone, what it shows and the
+        // transition it is in. Ticked by gameplay time in OnUpdate before the systems, then applied at the active
+        // camera into the world parameters, the cloud layer's Coverage, the fog's density and the zones' wind.
+        [[nodiscard]] WeatherState& GetWeather()
+        {
+            return m_Weather;
+        }
+
         // The editor viewport's Realtime toggle (UE's viewport "Realtime"): while editing, whether the
         // world's preview time moves. An editor preference pushed every frame, never serialized with the
         // scene.
@@ -544,6 +575,31 @@ namespace Desert::Core
         // (Graphic::ExtensionPass). A repeated name replaces the earlier pass.
         void                                                RegisterExtensionPass( Graphic::ExtensionPass&& pass );
         void                                                UnregisterExtensionPass( const std::string& name );
+        // THE SCENE'S DEBUG DRAWING (UE: the world's line batchers): what DebugDraw:: calls and the DebugDraw
+        // script library add, and what every view of this scene draws (SceneRenderer::BeginScene). Aged at the top
+        // of OnUpdate, before the systems that draw into it.
+        [[nodiscard]] DebugDrawWorld& GetDebugDraw()
+        {
+            return m_DebugDraw;
+        }
+        [[nodiscard]] const DebugDrawWorld& GetDebugDraw() const
+        {
+            return m_DebugDraw;
+        }
+#if DESERT_DEV_INSTRUMENTS
+        // THE SCENE'S GAMEPLAY DEBUGGER (UE: the local player's gameplay debugger replicator): the ` overlay about
+        // one entity. Ticked in OnUpdate right after the systems (the scripts' switches and this frame's keys are
+        // in); draws into GetDebugDraw. Not in a player's build.
+        [[nodiscard]] Debug::GameplayDebugger& GetGameplayDebugger()
+        {
+            return m_GameplayDebugger;
+        }
+        [[nodiscard]] const Debug::GameplayDebugger& GetGameplayDebugger() const
+        {
+            return m_GameplayDebugger;
+        }
+#endif
+
         [[nodiscard]] const Graphic::ExtensionPassRegistry& GetExtensionPasses() const
         {
             return m_ExtensionPasses;
@@ -704,6 +760,13 @@ namespace Desert::Core
 
         // See GetLedgerInstance. Declared BEFORE the members it is handed to.
         Graphic::ResourceOwnerInstance m_LedgerInstance = Graphic::ResourceOwnerInstance::NewScene();
+        // See GetDebugDraw.
+        DebugDrawWorld m_DebugDraw;
+#if DESERT_DEV_INSTRUMENTS
+        // See GetGameplayDebugger.
+        Debug::GameplayDebugger m_GameplayDebugger;
+#endif
+
         // See GetReflectionCaptures. Never null: made by both constructors.
         std::unique_ptr<Graphic::ReflectionCaptureRenderer> m_ReflectionCaptures;
         // See GetRayTracingCache. Never null: made by both constructors.
@@ -721,6 +784,8 @@ namespace Desert::Core
         mutable uint32_t              m_ViewportHeight = 720;
         SceneState                    m_State = SceneState::Edit;
         WorldTime                     m_WorldTime;
+        WorldParameterInstance        m_WorldParameters;
+        WeatherState                  m_Weather;
         bool                          m_PreviewRealtime    = true;
         bool                          m_SingleFramePending = false; // RequestSingleFrame, consumed by OnUpdate
         entt::entity                  m_PlayerPawn     = entt::null; // see SetPlayerPawn

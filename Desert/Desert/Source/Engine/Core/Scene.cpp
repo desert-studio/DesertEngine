@@ -16,6 +16,9 @@
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
+#if DESERT_DEV_INSTRUMENTS
+#include <Engine/ECS/System/ScriptSystem.hpp>
+#endif
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
@@ -39,6 +42,7 @@
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Geometry/PosedBounds.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 namespace Desert::Core
 {
@@ -580,8 +584,31 @@ namespace Desert::Core
         }
     }
 
+    Common::BoolResultStr Scene::SyncWorldParameters()
+    {
+        const Common::AssetHandle named = m_Settings.WorldParameters;
+        if ( named == Common::AssetHandle{} )
+        {
+            m_WorldParameters.Adopt( named, nullptr );
+            return BOOLSUCCESS;
+        }
+        const auto data = Runtime::ResourceRegistry::GetWorldParametersService()->Get( named );
+        if ( !data )
+        {
+            m_WorldParameters.Adopt( Common::AssetHandle{}, nullptr );
+            return Common::MakeFormattedError<bool>( "the scene's world parameters {}: {}",
+                                                     static_cast<uint64_t>( named ), data.GetError() );
+        }
+        m_WorldParameters.Adopt( named, data.GetValue() );
+        return BOOLSUCCESS;
+    }
+
     NO_DISCARD Common::BoolResultStr Scene::OnUpdate( const Common::Timestep& ts )
     {
+        // The world's parameters before anything reads them: the scripts below set them, every view after them
+        // snapshots them. The service logged a refusal once; the instance then holds none.
+        (void)SyncWorldParameters();
+
         // A pinned camera is driven from OUTSIDE the scene (the Details preview orbits its own), so the
         // play-state rule must not hand the view back to the EditorCamera behind its back — that is a
         // per-frame overwrite, and it is why the preview rendered through the input-driven editor camera
@@ -647,10 +674,42 @@ namespace Desert::Core
             World::Foliage::RealizePrefabFoliage( *this );
         }
 
+        // THE WEATHER before the systems read the fog, the clouds and the wind: advanced by gameplay time (a
+        // script's Weather.set lands next frame's tick), and written at the active camera. In Edit the authored
+        // values show — the weather is world state, and the editor world does not run it.
+        if ( TicksGameplay() )
+        {
+            DESERT_PROFILE_SCOPE( "Weather" );
+            m_Weather.Tick( m_Registry, gameplayTs.GetSeconds() );
+            if ( const auto observer = GetActiveCamera() )
+                m_Weather.Apply( m_Registry, m_WorldParameters, observer->GetPosition() );
+        }
+        // THE DEBUG DRAWING AGES before the systems draw this frame's (scripts run in them): last frame's
+        // one-frame items go unless the world is paused, timed items count down by the scene's time - the editor's
+        // step in Edit, gameplay's in Play, nothing while paused - as the effects clock below.
+        m_DebugDraw.Tick( m_State == SceneState::Edit ? ts.GetSeconds() : gameplayTs.GetSeconds(),
+                          m_State != SceneState::Paused || TicksGameplay() );
+
         {
             DESERT_PROFILE_SCOPE( "ECS Systems" );
             ExecuteSystems( gameplayTs );
         }
+
+#if DESERT_DEV_INSTRUMENTS
+        // THE GAMEPLAY DEBUGGER after the systems: the scripts' switches and the player's keys of this frame (the
+        // script system ticked the local player's input) are in, and what it draws is one-frame DebugDraw, aged
+        // with the rest at the top of the next update. Keys only while played: in Edit the player has no input.
+        {
+            DESERT_PROFILE_SCOPE( "Gameplay Debugger" );
+            const Input::LocalPlayerInput* playerInput = nullptr;
+            if ( m_State != SceneState::Edit )
+                if ( auto* scripts = FindSystem<ECS::ScriptSystem>() )
+                    playerInput = &scripts->PlayerInput();
+            m_GameplayDebugger.Tick( *this, playerInput,
+                                     m_State == SceneState::Edit ? ts.GetSeconds() : gameplayTs.GetSeconds(),
+                                     m_State != SceneState::Paused || TicksGameplay() );
+        }
+#endif
 
         // THE EFFECTS CLOCK, once per scene update and never per view: every SceneRenderer of this scene
         // reads the plan made here. Its time is the scene's — the editor's delta in Edit (effects preview

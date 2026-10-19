@@ -134,6 +134,10 @@ namespace Desert::Graphic
             // light and casters stood still keeps last frame's depth (it has no pass at all).
             const std::vector<SystemRasterPass> local = mesh->LocalShadowPasses();
             AddSystemRasters( graph, textures, local, false );
+            // The rain occlusion's top-down depth, when its box moved or its casters changed (it clears its own
+            // target); otherwise the map keeps the depth it was drawn with.
+            if ( const std::optional<SystemRasterPass> rain = mesh->RainOcclusionPass() )
+                AddSystemRasters( graph, textures, std::span<const SystemRasterPass>( &*rain, 1 ), true );
         }
     }
 
@@ -344,7 +348,8 @@ namespace Desert::Graphic
              RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderGBufferManual( context ); },
-             [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGBufferDraws( pass ); } );
+             [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGBufferDraws( pass, view ); } );
     }
 
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )

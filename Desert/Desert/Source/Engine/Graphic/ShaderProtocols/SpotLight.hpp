@@ -39,7 +39,8 @@ namespace Desert::Graphic::ShaderProtocols
         // UE SourceRadius (cm): the emitter sphere traced shadows aim at (MegaLights); 0 = a point.
         float SourceRadius = 0.0f; // 80
         // std430 rounds the array stride of a struct with a vec3 to 16 bytes: explicit, so sizeof matches.
-        float Pad0 = 0.0f;
+        // Full intensity within this distance (cm), the falloff measured from it (BISTRO-LIGHTS).
+        float MinRadius = 0.0f; // 84
         float Pad1 = 0.0f;
         float Pad2 = 0.0f; // -> 96
     };

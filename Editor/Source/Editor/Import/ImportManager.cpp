@@ -534,6 +534,21 @@ namespace Desert::Editor
             }
         }
 
+        // THE FILE'S LIGHTS (BISTRO-LIGHTS; UE FbxSceneImport places a light actor per FBX light): stated in the
+        // record in the engine's space, so placing the source places them (NodeActors.hpp PlaceSourceLights).
+        // Every mesh import writes them - none removes the key - once the mesh above recorded the import.
+        if ( resolved.Mesh && pass != ImportPass::Cook && firstFailure.empty() )
+        {
+            const auto allowed = ContentWriteAllowed(
+                 pass, sourcePath, Common::Content::ImportRecordPathFor( sourcePath ), "import record" );
+            record( allowed ? Assets::Serialization::SetImportRecordLights(
+                                   sourcePath, SourceLightsToEngine( resolved.Lights, settings.Mesh ) )
+                            : allowed );
+            if ( !resolved.Lights.empty() )
+                LOG_INFO( "[Import] '{}': {} light(s) recorded for placement", sourcePath.generic_string(),
+                          resolved.Lights.size() );
+        }
+
         // NO PREVIEW MESH FROM THE IMPORT (owner, THM1j): an imported material's thumbnail is the ball, as in UE,
         // masked materials included (the mesh path's alpha discard cuts the ball). PreviewMesh stays the manual
         // "Thumbnail Mesh" setting of the Material Editor; the pack's tufts are shown by the node meshes' own

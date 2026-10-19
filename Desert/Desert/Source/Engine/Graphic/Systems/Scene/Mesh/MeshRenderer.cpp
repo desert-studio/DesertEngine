@@ -530,6 +530,9 @@ namespace Desert::Graphic::System
         // and ApplyTo binds them by name only into a template that does.
         frame.ObjectMotions = m_ObjectMotions;
         frame.ObjectBones   = m_ObjectBones;
+        // The world's parameters, the view's one snapshot of this frame (SceneRenderer::BeginScene).
+        frame.WorldParameters = m_SceneRenderer->GetWorldParametersBuffer();
+        frame.RainOcclusion   = GetRainOcclusionUniforms();
 
         return frame;
     }

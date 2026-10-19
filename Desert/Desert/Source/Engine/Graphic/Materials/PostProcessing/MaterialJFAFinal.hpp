@@ -8,10 +8,10 @@ namespace Desert::Graphic
 {
     // Final Jump Flood pass: composites the outline on top of scene color. Holds the uniform block only; the seed
     // and the scene colour are bound per pass by the frame graph (JumpFloodOutlineRenderer::RecordFinal).
-    class MaterialJFAComposite final : public Material
+    class MaterialJFAFinal final : public Material
     {
     public:
-        MaterialJFAComposite();
+        MaterialJFAFinal();
 
         void SetParams( const glm::vec4& outlineColor, float outlineWidth, float smoothness );
 

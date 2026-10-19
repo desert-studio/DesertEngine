@@ -5,7 +5,7 @@
 
 namespace Desert::Graphic::System
 {
-    void MeshRenderer::DeclareGBufferDraws( RDG::PassBuilder& pass )
+    void MeshRenderer::DeclareGBufferDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
     {
         m_GBufferDraws.Clear();
         if ( !m_StaticGBufferPipeline )
@@ -15,7 +15,8 @@ namespace Desert::Graphic::System
             return;
 
         // The graph opens the render pass and clears it to ZERO (SceneRenderer::AddFrameGBuffer). The G-buffer
-        // shaders sample no scene input: every block is the material's alone.
+        // shaders sample one scene input, the rain occlusion map their wetness reads (SurfaceWeather.glslh), bound
+        // where a block's shader has the slot; everything else in a block is the material's.
         // Skinned meshes are drawn here too, through the (Skinned x GBuffer) cell (UE's base pass): no forward
         // redraw follows on the deferred path.
         m_DeferredGeometry = true;
@@ -24,7 +25,7 @@ namespace Desert::Graphic::System
         m_DeferredGeometry = false;
         // Shader Overrides naming a surface template are surface materials: their (Static x GBuffer) cell, here.
         BuildGenericDraws( m_GBufferDraws, GenericSlice::DeferredSurfaceGBuffer );
-        m_GBufferDraws.Declare( pass, std::nullopt );
+        m_GBufferDraws.Declare( pass, view );
         // The skin cache's streams the (Skinned x GBuffer) cell fetches by address (Vertex_Skinned.glslh): this
         // pass reads them after "SkinCache: Skin" wrote them.
         for ( const RDG::BufferRef& streams : m_SkinCacheReads )

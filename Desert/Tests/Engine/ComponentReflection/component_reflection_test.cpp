@@ -589,9 +589,12 @@ TEST( VolumetricCloudReflection, ExposesExactlyTheSpecifiedFieldsInOrder )
     // material schema now. CloudMaterialSchema asserts the schema names exactly four.
     EXPECT_EQ( Desert::Graphic::kCloudSpeciesSlots, 4u );
 
-    // The wind OFFSET is not a field: it is state the ECS system integrates against the timestep. A
-    // second copy on the component is a value that can disagree with the one the packer is handed.
-    EXPECT_EQ( Find( cloud, "WindOffset" ), nullptr );
+    // The wind offset's AUTHORED start is a field (CLOUD-OFFSET-BAKE: a saved scene shows the same sky every
+    // time it opens); the drift game time adds to it is runtime state and must not be reflected, or a save
+    // would bake wherever the clock happened to be.
+    EXPECT_NE( Find( cloud, "WindOffset" ), nullptr );
+    EXPECT_NE( Find( cloud, "Drift" ), nullptr );
+    EXPECT_EQ( Find( cloud, "DriftOffset" ), nullptr );
 }
 
 // The authored defaults of what REMAINS on the component. The moved thirty-three have their defaults

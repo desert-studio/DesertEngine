@@ -65,7 +65,6 @@ namespace Desert::Graphic
         target.SSRIntensity      = Lerp( target.SSRIntensity, volume.SSRIntensity, weight );
         target.SSRMaxDistance    = Lerp( target.SSRMaxDistance, volume.SSRMaxDistance, weight );
         target.ManualExposureEV100 = Lerp( target.ManualExposureEV100, volume.ManualExposureEV100, weight );
-        target.Gamma             = Lerp( target.Gamma, volume.Gamma, weight );
         target.WhitePoint        = Lerp( target.WhitePoint, volume.WhitePoint, weight );
         target.AutoExposureKey   = Lerp( target.AutoExposureKey, volume.AutoExposureKey, weight );
         target.AutoExposureSpeed = Lerp( target.AutoExposureSpeed, volume.AutoExposureSpeed, weight );

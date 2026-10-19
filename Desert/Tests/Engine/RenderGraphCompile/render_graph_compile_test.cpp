@@ -4166,7 +4166,7 @@ TEST( RenderGraphCompile, PostFXMaterialsAreFilledInTheSetupNeverInTheExec )
     // The jump-flood composite's uniforms (outline colour, width, smoothness) the same way.
     const std::string jfa = SqueezedSource( root, std::format( "{}JumpFloodOutlineRenderer.cpp", dir ).c_str() );
     EXPECT_NE( FunctionBody( jfa, "voidJumpFloodOutlineRenderer::FillFinalMaterial(" )
-                    .find( "m_MaterialComposite->SetParams(" ),
+                    .find( "m_MaterialFinal->SetParams(" ),
                std::string::npos )
          << "the composite's values are set by FillFinalMaterial";
     const std::string jfaNode =
@@ -4500,7 +4500,7 @@ TEST( RenderGraphCompile, LitMeshNodesDeclareTheSceneViewInputs )
         ++declared;
     EXPECT_EQ( declared, 0u ) << "a mesh node declares SceneViewInputs::Refs() wholesale instead of its blocks";
     EXPECT_NE( frame.find( "meshRenderer->DeclareGenericDraws( pass, view );" ), std::string::npos );
-    EXPECT_NE( frame.find( "meshRenderer->DeclareGBufferDraws( pass );" ), std::string::npos );
+    EXPECT_NE( frame.find( "meshRenderer->DeclareGBufferDraws( pass, view );" ), std::string::npos );
     // The glass declares its inputs as its draw list's blocks in setup (MeshDrawList::DeclareBlocks binds them
     // where a cell's shader has slots for them; RDG-PSO: one block per cell), plus the scene copy it refracts.
     const std::string glass =
