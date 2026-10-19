@@ -134,7 +134,10 @@ namespace Desert::Graphic::System
         m_Quality             = quality;
         if ( !quality.Enabled )
         {
-            // Retired on the frame ring by the buffers themselves: a frame in flight still reads them safely.
+            // Parked, not dropped: the records of frames in flight name the twins by raw pointer (RetireTwin).
+            for ( const auto& [key, entry] : m_Entries )
+                if ( entry.Current )
+                    RetireTwin( entry.Current->Twin );
             m_Entries.clear();
             m_Shared.clear();
             m_Pools.clear();
