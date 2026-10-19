@@ -55,7 +55,7 @@ Shader "MegaLightsTemporalResampling"
         			const vec2 prevUV  = vec2(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * 0.5); // Y-flipped
         			if (prevUV.x >= 0.0 && prevUV.x < 1.0 && prevUV.y >= 0.0 && prevUV.y < 1.0)
         			{
-        				previous                = ivec2(prevUV * vec2(size)); // the previous sample pixel // the previous sample pixel
+        				previous                = ivec2(prevUV * vec2(size)); // the previous sample pixel
         				const vec4  surface     = texelFetch(u_HistorySurface, previous, 0);
         				const float expected    = (u_PrevViewProjection * vec4(p.Position, 1.0)).w;
         				reprojected = surface.w > 0.0 && dot(surface.xyz, p.N) > kNormalThreshold &&

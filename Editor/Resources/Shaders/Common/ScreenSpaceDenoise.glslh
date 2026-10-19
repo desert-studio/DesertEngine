@@ -1,8 +1,9 @@
 // The screen-space denoiser's shared kernel (UE ScreenSpaceDenoise: SSDSignalFramework.ush, SSDSpatialKernel.ush,
-// SSDTemporalAccumulation.usf), included by the four passes of System::ScreenSpaceDenoiser:
+// SSDTemporalAccumulation.usf), included by the passes of System::ScreenSpaceDenoiser:
 //   Programs/Denoise/SSDReconstructReflections.shader - reflections: ratio estimator over the half-res trace
 //   Programs/Denoise/SSDReconstructDiffuse.shader     - diffuse indirect: bilateral spatial reconstruction
 //   Programs/Denoise/SSDReconstructShadowVisibility.shader - shadow visibility: penumbra-sized bilateral kernel
+//   Programs/Denoise/SSDReconstructDirectSpecular.shader - MegaLights' specular: lobe-aware bilateral kernel
 //   Programs/Denoise/SSDTemporalAccumulation.shader   - every signal: reprojection, variance rejection, counting
 //   Programs/Denoise/SSDHistoryConvolution.shader     - every signal: bilateral post filter by the sample count
 // A signal is (rgb, a): rgb = the radiance where the signal answered, a = the share it answered (the COVERAGE;

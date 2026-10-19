@@ -345,7 +345,7 @@ float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 		return 1.0; // on or inside the emitter
 	const vec3 axis = toLight / distance;
 	vec3       dir  = axis;
-	float      far  = distance;
+	float      reach = distance;
 	if (radius > 0.0)
 	{
 		const float sinMax2 = (radius * radius) / (distance * distance);
@@ -358,14 +358,14 @@ float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 		const vec3  b       = cross(axis, t);
 		dir                 = normalize(t * (cos(phi) * sinT) + b * (sin(phi) * sinT) + axis * cosT);
 		// Where the ray meets the sphere (the nearer root).
-		far = distance * cosT - sqrt(max(radius * radius - distance * distance * sinT * sinT, 0.0));
+		reach = distance * cosT - sqrt(max(radius * radius - distance * distance * sinT * sinT, 0.0));
 	}
 	const float contact =
 	     ContactShadowFactor(p.Position, p.N, dir, MegaLightsLightContactShadow(light), p.SubsurfaceOpacity);
 	if (contact <= 0.0)
 		return 0.0;
 	const vec3 origin = p.Position + p.N * (dot(p.N, dir) >= 0.0 ? bias : -bias);
-	return contact * RayQueryVisibility(origin, dir, max(far - 2.0 * bias, 0.0), RAY_TRACING_MASK_SHADOW_CASTER);
+	return contact * RayQueryVisibility(origin, dir, max(reach - 2.0 * bias, 0.0), RAY_TRACING_MASK_SHADOW_CASTER);
 }
 #endif
 
