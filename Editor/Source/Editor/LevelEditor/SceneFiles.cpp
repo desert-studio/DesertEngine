@@ -266,6 +266,7 @@ namespace Desert::Editor
         // completes it from the files). A level template or a recovery copy is not the world's files - it is
         // read whole, as the scene it becomes.
         const bool opensItsFiles = openAs != OpenAs::Untitled && !Autosave::SceneFor( path );
+        bool       heldWhole     = false; // the editor had the whole world loaded (Load All): no region breakdown
         const auto read          = [&]() -> Common::ResultStr<Desert::Core::EditorRegions::OpenRead>
         {
             if ( opensItsFiles )
@@ -275,6 +276,7 @@ namespace Desert::Editor
                     return Common::MakeError<Desert::Core::EditorRegions::OpenRead>( std::format(
                          "'{}' was not opened: the regions the editor had loaded could not be read: {}",
                          path.string(), held.GetError() ) );
+                heldWhole = held.GetValue().Whole;
                 return Desert::Core::EditorRegions::ReadForOpen( path, held.GetValue() );
             }
             auto whole = Desert::Core::ExternalEntities::ReadSceneFileText( path );
@@ -404,11 +406,15 @@ namespace Desert::Editor
             m_Workspace.ActiveScene()->Packages()->AdoptRegion( live, opened.NotLoaded );
             const std::size_t readCount = opened.Selection.Records.size();
             const std::size_t total     = readCount + opened.NotLoaded.size();
-            LOG_INFO(
-                 "[WorldPartition] '{}' opened: {} of {} record(s) read ({} always-loaded composite(s), {} in "
-                 "the editor's loaded regions); {} record(s) left on disk",
-                 path.string(), readCount, total, opened.Selection.AlwaysLoaded, opened.Selection.InRegions,
-                 opened.NotLoaded.size() );
+            if ( heldWhole )
+                LOG_INFO( "[WorldPartition] '{}' opened: {} of {} record(s) read (the editor had the whole world "
+                          "loaded); {} record(s) left on disk",
+                          path.string(), readCount, total, opened.NotLoaded.size() );
+            else
+                LOG_INFO( "[WorldPartition] '{}' opened: {} of {} record(s) read ({} always-loaded composite(s), "
+                          "{} in the editor's loaded regions); {} record(s) left on disk",
+                          path.string(), readCount, total, opened.Selection.AlwaysLoaded,
+                          opened.Selection.InRegions, opened.NotLoaded.size() );
         }
 
         // Update recent scenes
