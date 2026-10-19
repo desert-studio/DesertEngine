@@ -13,9 +13,9 @@ Module "Collision"
     Input KillOnCollision bool
 
     // Engine VFX module `engine:Collision` (VFX-PARAMS; UE Niagara Content/Modules/Update/Collision, GPU Scene Depth
-    // mode): the particle against the scene depth. The simulation runs before the opaque passes (SceneRenderer
-    // AddFrameParticlesSimulate: the opaque particle rows are drawn from it), so the depth it reads is the previous
-    // frame's resolve, with the matrices it was drawn with (ParticleRenderer CollisionView); the query is the
+    // mode): the particle against the scene depth. Calling VFX_SceneDepthCollide makes the emitter tick PostOpaque
+    // (VFXTickStage; SceneRenderer AddFrameParticlesPostOpaque), so the depth it reads is THIS frame's, with this
+    // frame's jittered matrices (ParticleRenderer CollisionView); its opaque rows draw last tick's; the query is the
     // host's VFX_SceneDepthCollide (Common/VFXParticleContract.glslh), the response is this module's. Place it in
     // the update group AFTER engine:SolveForcesAndVelocity: it corrects the step's integrated Position and Velocity.
     //   Radius          the particle's collision sphere, cm (0: a point)
