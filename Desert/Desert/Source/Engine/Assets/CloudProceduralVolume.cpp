@@ -693,8 +693,8 @@ namespace Desert::Assets
 
         if ( a.RegionSizeKm != b.RegionSizeKm || a.LayerBottomKm != b.LayerBottomKm ||
              a.LayerThicknessKm != b.LayerThicknessKm || a.BlendRadiusKm != b.BlendRadiusKm ||
-             a.Coverage != b.Coverage || a.CoverageContrast != b.CoverageContrast || a.Seed != b.Seed ||
-             a.WindAxis != b.WindAxis || a.ResolvableChordKm != b.ResolvableChordKm )
+             a.CoverageContrast != b.CoverageContrast || a.Seed != b.Seed || a.WindAxis != b.WindAxis ||
+             a.ResolvableChordKm != b.ResolvableChordKm )
             return false;
 
         if ( a.PlacementDensity != b.PlacementDensity || a.PlacementScatter != b.PlacementScatter ||
@@ -800,7 +800,6 @@ namespace Desert::Assets
         KeyF32( out, params.LayerBottomKm );
         KeyF32( out, params.LayerThicknessKm );
         KeyF32( out, params.BlendRadiusKm );
-        KeyF32( out, params.Coverage );
         KeyF32( out, params.CoverageContrast );
         KeyU32( out, params.Seed );
         KeyF32( out, params.WindAxis.x );
@@ -2254,11 +2253,13 @@ namespace Desert::Assets
              CloudProceduralBodyCut( CloudGatherCandidates( params, slot, lumps, pointKm, base ),
                                      CloudProceduralAltitudeDensity( params.Species[slot].Shape, pointKm.y ),
                                      1.0f / std::max( params.BlendRadiusKm, 1e-6f ), params.BlendRadiusKm,
-                                     params.Species[slot].Shape.BaseAltitudeKm - pointKm.y, params.Coverage );
+                                     params.Species[slot].Shape.BaseAltitudeKm - pointKm.y, 1.0f );
         const float fill = CloudFillFieldOf(
              params, slot, pointKm, CloudProceduralFillPresence( params, slot, glm::vec2( pointKm.x, pointKm.z ) ),
              base );
-        return std::max( body, CloudProceduralCoverageRemap( fill, params.Coverage ) );
+        // THE BAKED FIELD (bodies at Coverage 1 with the fill), then the march's threshold (WTH-CLOUDS).
+        return CloudProceduralCoverageRemap( std::max( body, CloudProceduralCoverageRemap( fill, 1.0f ) ),
+                                             params.Coverage );
     }
 
     float EvaluateCloudProceduralBodies( const CloudProceduralFieldParams& params, uint32_t slot,
@@ -2282,7 +2283,7 @@ namespace Desert::Assets
     }
 
     bool CloudProceduralColumnKept( const std::vector<unsigned char>& voxels, uint32_t side, uint32_t x,
-                                    uint32_t z, const glm::vec4& slotWeather )
+                                    uint32_t z, const glm::vec4& slotWeather, float coverage )
     {
         for ( uint32_t y = 0; y < kCloudProceduralVolumeHeight; ++y )
         {
@@ -2301,8 +2302,9 @@ namespace Desert::Assets
                     best   = voxels[at + slot];
                     winner = static_cast<int>( slot );
                 }
-            if ( winner >= 0 &&
-                 CloudProceduralCoverRemap( static_cast<float>( best ) / 255.0f, slotWeather[winner] ) > 0.0f )
+            if ( winner >= 0 && CloudProceduralCoverRemap(
+                                     CloudProceduralCoverageRemap( static_cast<float>( best ) / 255.0f, coverage ),
+                                     slotWeather[winner] ) > 0.0f )
                 return true;
         }
         return false;
@@ -2425,14 +2427,9 @@ namespace Desert::Assets
 
             for ( uint32_t slot = 0; slot < params.Species.size(); ++slot )
             {
-                // COVERAGE 0 IS EXACTLY EMPTY (CloudProceduralCoverageRemap), so the species writes nothing. A
-                // species with no lump in reach still bakes: the fill field stands between bodies everywhere.
-                if ( params.Coverage <= 0.0f )
-                {
-                    sliceDone += depth;
-                    continue;
-                }
-
+                // THE FIELD IS BAKED WITHOUT THE COVERAGE SLIDER (WTH-CLOUDS): the march thresholds it
+                // (CloudCoverageThreshold in Common/CloudField.glslh), so Coverage is neither read here nor in
+                // the key, and a species with no lump in reach still bakes its fill field.
                 const std::vector<CloudProceduralLump> blobs = lumpsOf( slot );
 
                 // EVERY LUMP AT EVERY WRAP THAT REACHES THE REGION. This is what makes the volume periodic and
@@ -2530,10 +2527,7 @@ namespace Desert::Assets
                 // lump is appended to each bin it touches. That is what carries phase Э4's order-independence
                 // into this bake: the sum a voxel performs is over an ascending subsequence of one sorted list,
                 // whatever the lattice loop did.
-                // THE FILL FIELD'S CEILING AGAINST THE THRESHOLD (CloudProceduralFillField): under it, a column no
-                // body reaches is empty at this Coverage and the voxel loop skips it.
                 const Graphic::CloudTypeShape& type = params.Species[slot].Shape;
-                const bool fillReachable            = kCloudFillCeiling > 1.0f - std::min( params.Coverage, 1.0f );
 
                 // THE FILL PRESENCE'S WAVES, drawn once for the species; the presence is read once per column.
                 const std::vector<CloudFillPresenceWave> presenceWaves = CloudFillPresenceWaves( params, slot );
@@ -2637,11 +2631,6 @@ namespace Desert::Assets
                                      column.push_back( index );
                                  }
 
-                                 // A COLUMN NO BODY REACHES holds only the fill field, and where even its ceiling
-                                 // is under the Coverage threshold it holds nothing — exact, not an estimate.
-                                 if ( column.empty() && !fillReachable )
-                                     continue;
-
                                  // ONE PRESENCE PER COLUMN (COVERAGE-FIELD-2): the fill is column-coherent.
                                  const float presence =
                                       CloudFillPresenceAt( presenceWaves, static_cast<double>( worldX ) / regionKm,
@@ -2685,14 +2674,16 @@ namespace Desert::Assets
 
                                          body = CloudProceduralBodyCut(
                                               candidates, CloudProceduralAltitudeDensity( type, worldY ), invBlend,
-                                              params.BlendRadiusKm, type.BaseAltitudeKm - worldY,
-                                              params.Coverage );
+                                              params.BlendRadiusKm, type.BaseAltitudeKm - worldY, 1.0f );
                                      }
 
+                                     // THE FIELD, NOT ITS CUT (WTH-CLOUDS): the bodies at Coverage 1 (each
+                                     // cluster's field times its prefilter) met with the fill by `max`; the march
+                                     // applies CloudProceduralCoverageRemap with the live Coverage.
                                      const float cut = std::max(
-                                          body, CloudProceduralCoverageRemap(
-                                                     CloudFillFieldOf( params, slot, point, presence, base ),
-                                                     params.Coverage ) );
+                                          body,
+                                          CloudProceduralCoverageRemap(
+                                               CloudFillFieldOf( params, slot, point, presence, base ), 1.0f ) );
                                      if ( cut <= 0.0f )
                                          continue;
 
