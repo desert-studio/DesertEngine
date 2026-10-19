@@ -70,6 +70,8 @@ namespace Desert::Editor::ThumbnailProducers
               "the class icon until DST-02 photographs the pieces (UE renders the geometry collection)" },
          Row{ FileType::WaterWaves, Producer::TypeIcon,
               "UE (UWaterWavesAsset): the class icon; a wave generator has no still of its own" },
+         Row{ FileType::WorldParameters, Producer::TypeIcon,
+              "UE (UMaterialParameterCollection): the class icon; a list of named values has no picture" },
          Row{ FileType::PhysicsAsset, Producer::TypeIcon,
               "the class icon until the physics asset editor (RAG1c) renders the bodies (UE renders them)" },
          Row{ FileType::VFXDataChannel, Producer::TypeIcon,

@@ -74,6 +74,10 @@ namespace Desert::Assets
     // A .dfxch: the VFX data channel file layout, stated in the header from its first version (VFX-10).
     inline constexpr uint32_t kVFXDataChannelSchemaTag     = Common::Content::FourCC( "VFXD" );
     inline constexpr uint32_t kVFXDataChannelSchemaVersion = 1;
+    // A .dworldparams: the world parameter collection file layout (UE UMaterialParameterCollection), stated in the
+    // header from its first version (WTH-PARAMS; Serialization/WorldParameters.hpp).
+    inline constexpr uint32_t kWorldParametersSchemaTag     = Common::Content::FourCC( "WPRM" );
+    inline constexpr uint32_t kWorldParametersSchemaVersion = 1;
     // A <name>.<ext>.deimport: an imported source's record (its asset's GUID), stated from its first version
     // (FIX8; Serialization/ImportRecord.hpp).
     inline constexpr uint32_t kImportRecordSchemaTag     = Common::Content::FourCC( "DIMP" );

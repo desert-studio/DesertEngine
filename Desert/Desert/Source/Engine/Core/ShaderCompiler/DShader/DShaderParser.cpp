@@ -1,6 +1,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <Common/Content/ShaderAssetHeader.hpp>
+#include <Engine/Assets/Serialization/WorldParameters.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Core/ShaderCompiler/SharedSamplerBinding.hpp>
@@ -1561,6 +1562,78 @@ namespace Desert::Core::Preprocess
                                 transform, mask.Texture, uv, channel );
         }
 
+        // A SURFACE READS A WORLD PARAMETER BY NAME — `WorldParameter( "Wetness" )`, the one spelling a hand-written
+        // surface and the shader graph's World Parameter node share — and the cell reads it by KEY: each read is
+        // lowered to DesertWorldParameter( <key>u ), the name's Serialization::WorldParameterKey, so the material is
+        // compiled against no particular collection (the scene names one). GLSL has no string literals, so a
+        // quoted name after the keyword is unambiguous. A malformed read becomes an `#error` naming it, which
+        // glslang reports on the .shader's own line. @p reads says whether the cell needs the table declared.
+        std::string LowerWorldParameterReads( const std::string_view content, bool& reads )
+        {
+            constexpr std::string_view keyword = "WorldParameter";
+            std::string                out;
+            out.reserve( content.size() );
+            size_t at = 0;
+            reads     = false;
+            while ( at < content.size() )
+            {
+                const size_t found = content.find( keyword, at );
+                if ( found == std::string_view::npos )
+                    break;
+                const bool identBefore = found > 0 && IsIdentChar( content[found - 1] );
+                size_t     cursor      = found + keyword.size();
+                const bool identAfter  = cursor < content.size() && IsIdentChar( content[cursor] );
+                if ( identBefore || identAfter )
+                {
+                    out.append( content.substr( at, cursor - at ) );
+                    at = cursor;
+                    continue;
+                }
+                out.append( content.substr( at, found - at ) );
+                const auto skipSpace = [&]
+                {
+                    while ( cursor < content.size() && ( content[cursor] == ' ' || content[cursor] == '\t' ) )
+                        ++cursor;
+                };
+                skipSpace();
+                std::string name;
+                bool        wellFormed = cursor < content.size() && content[cursor] == '(';
+                if ( wellFormed )
+                {
+                    ++cursor;
+                    skipSpace();
+                    wellFormed = cursor < content.size() && content[cursor] == '"';
+                }
+                if ( wellFormed )
+                {
+                    const size_t close = content.find( '"', cursor + 1 );
+                    wellFormed         = close != std::string_view::npos;
+                    if ( wellFormed )
+                    {
+                        name   = std::string( content.substr( cursor + 1, close - cursor - 1 ) );
+                        cursor = close + 1;
+                        skipSpace();
+                        wellFormed = cursor < content.size() && content[cursor] == ')' &&
+                                     Assets::Serialization::IsWorldParameterName( name );
+                    }
+                }
+                if ( !wellFormed )
+                {
+                    // The rest of the line stays as written; the directive needs a line of its own.
+                    const size_t eol = content.find( '\n', found );
+                    out.append( "\n#error WorldParameter: expected WorldParameter( \"Name\" ) with an identifier name" );
+                    at = eol == std::string_view::npos ? content.size() : eol;
+                    continue;
+                }
+                out.append( std::format( "DesertWorldParameter( {:#010x}u )",
+                                         Assets::Serialization::WorldParameterKey( name ) ) );
+                reads = true;
+                at    = cursor + 1;
+            }
+            out.append( content.substr( std::min( at, content.size() ) ) );
+            return out;
+        }
+
         // One stage of one surface CELL. The vertex stage is the path's engine header alone (a surface
         // function does not move vertices yet); the fragment stage is the author's surface function between
         // the shared types and the pass's engine header, which owns main(). `#line` puts glslang's errors in
@@ -1605,13 +1678,20 @@ namespace Desert::Core::Preprocess
                 return AssembleStage( stage, code, include, std::string() );
             }
             else
+            {
+                bool              readsWorld = false;
+                const std::string lowered    = LowerWorldParameterReads( surface.Content, readsWorld );
                 code.Content =
                      // Only a stage that evaluates the surface fetches material textures: it alone declares the
                      // biased fetch (Mesh/Surface/SurfaceTypes.glslh SurfaceSampleMaterial) and the camera block.
-                     std::format( "{}#define {} 1\n#include <{}>\n#line {}\n{}\n{}#include <{}>\n", defines,
+                     // The world's parameters are declared only into a cell whose surface reads one: reflection
+                     // keeps a declared buffer, and every other surface must not ask its renderer to bind it.
+                     std::format( "{}#define {} 1\n#include <{}>\n{}#line {}\n{}\n{}#include <{}>\n", defines,
                                   kSurfaceSamplesMaterialDefine, kSurfaceTypesInclude,
-                                  surface.StartLine > 0 ? surface.StartLine - 1 : 0, surface.Content,
+                                  readsWorld ? std::format( "#include <{}>\n", kWorldParametersInclude ) : std::string(),
+                                  surface.StartLine > 0 ? surface.StartLine - 1 : 0, lowered,
                                   masked ? opacityMaskFunction : std::string(), passInclude );
+            }
             return AssembleStage( stage, code, include, autoDecls );
         }
 

@@ -20,6 +20,12 @@ namespace Desert::Editor::ShaderGraph
         return ( a << 24 ) | ( b << 16 ) | ( g << 8 ) | r;
     }
 
+    // The two World Parameter node kinds (UE's Collection Parameter): they read the world's table by name.
+    static bool IsWorldParameterKind( const std::string& kind )
+    {
+        return kind == "WorldParameter" || kind == "WorldParameterScalar";
+    }
+
     // ---------------------------------------------------------------- node catalogue ----------
     // Domain masks for the two families of nodes:
     //   CORE    — math / textures / params / Time: valid in every domain.
@@ -244,6 +250,14 @@ namespace Desert::Editor::ShaderGraph
             // the Cloud Sample node already hands out.
             { "Time", "Time", RGBA( 60, 140, 150, 255 ), {},
               { { "Seconds", ValueType::Float } }, false, false, false, NOT_VOLUME },
+            // UE's Collection Parameter node: a value of the world's parameter collection, by name. The node names
+            // no collection — the scene does (SceneSettings::WorldParameters) — so it compiles to the same
+            // `WorldParameter( "Name" )` read a hand-written surface writes, which DShaderParser lowers to a key.
+            // Surface only: the world's table is a view-pass scene read.
+            { "WorldParameter", "World Parameter (Vector)", RGBA( 60, 150, 110, 255 ), {},
+              { { "Value", ValueType::Color } }, true, false, false, SURFACE },
+            { "WorldParameterScalar", "World Parameter (Scalar)", RGBA( 60, 150, 110, 255 ), {},
+              { { "Value", ValueType::Float } }, true, false, false, SURFACE },
             // ---- particles (UE's Particle Color / Particle SubUV / Particle Random / Particle Relative Time) ----
             // Each reads one field of SurfaceInput.Particle (Mesh/Surface/SurfaceTypes.glslh), which the
             // ParticleSprite cell fills from the particle the quad was expanded from (Pass_ParticleSprite.glslh)
@@ -402,7 +416,10 @@ namespace Desert::Editor::ShaderGraph
                 node.ParamName =
                      kind == "CloudParam"
                           ? VolumeParams().front().SchemaName
-                          : ( spec->HasColorValue ? "Tint" : ( spec->HasFloatValue ? "Amount" : "u_Texture" ) );
+                          : ( IsWorldParameterKind( kind )
+                                   ? "Wetness"
+                                   : ( spec->HasColorValue ? "Tint"
+                                                           : ( spec->HasFloatValue ? "Amount" : "u_Texture" ) ) );
             }
             if ( spec->HasFloatValue )
                 node.Value = { 1, 0, 0, 0 };
@@ -822,6 +839,10 @@ namespace Desert::Editor::ShaderGraph
                 }
                 else if ( node.Kind == "Sine" )
                     decl = std::format( "float {} = sin( {} );", var, EmitInput( node, 0, "0.0" ) );
+                else if ( node.Kind == "WorldParameter" )
+                    decl = std::format( "vec4 {} = WorldParameter( \"{}\" );", var, node.ParamName );
+                else if ( node.Kind == "WorldParameterScalar" )
+                    decl = std::format( "float {} = WorldParameter( \"{}\" ).x;", var, node.ParamName );
                 else if ( node.Kind == "Time" )
                     // A surface reads the view block's clock through its input (SurfaceInput.Time, UE's
                     // View.GameTime); a post-process program has no view block and declares TimeUB.
@@ -1364,6 +1385,10 @@ namespace Desert::Editor::ShaderGraph
                 if ( !IsValidIdentifier( node.ParamName ) )
                     return Common::MakeError<std::string>(
                          std::format( "'{}' is not a valid parameter name", node.ParamName ) );
+                // A world parameter is the WORLD's value, not a property of this material: it exposes nothing,
+                // and its name must not shadow a same-named material parameter in the dedupe below.
+                if ( IsWorldParameterKind( node.Kind ) )
+                    continue;
                 if ( !seen.insert( node.ParamName ).second )
                     continue; // same param used twice = same property, fine
                 if ( node.Kind == "TextureSample" )

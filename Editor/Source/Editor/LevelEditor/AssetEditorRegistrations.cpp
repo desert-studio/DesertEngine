@@ -14,6 +14,7 @@
 #include "Editor/Panels/Clouds/CloudNoiseVolumePanel.hpp"
 #include "Editor/Panels/Clouds/CloudTypePanel.hpp"
 #include "Editor/Panels/Input/InputAssetPanels.hpp"
+#include "Editor/Panels/WorldParameters/WorldParametersPanel.hpp"
 #include "Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp"
 #include "Editor/Panels/MaterialEditor/MaterialEditorPanel.hpp"
 #include "Editor/Panels/NodeGraph/NodeGraphPanel.hpp"
@@ -284,6 +285,20 @@ namespace Desert::Editor
                   [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument> {
                       return std::make_unique<Editor::CloudTypePanel>( Assets::AssetHandle( subject.Owner ),
                                                                        assetManager.get() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+        // UE's Material Parameter Collection editor: one window per `.dworldparams`, the parameter list with
+        // names, types and defaults; the working-copy / undo / save rules of the input editors below.
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::WorldParameters ) ),
+             Registration{
+                  "WorldParameters", ICON_MDI_TUNE,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument> {
+                      return std::make_unique<Editor::WorldParametersPanel>( Assets::AssetHandle( subject.Owner ),
+                                                                             assetManager.get() );
                   },
                   [&assetManager]( const SubjectId& subject ) {
                       return assetManager &&

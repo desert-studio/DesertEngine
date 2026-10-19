@@ -149,6 +149,12 @@ namespace Desert::Runtime
         return &waterWavesService;
     }
 
+    WorldParametersService* ResourceRegistry::GetWorldParametersService()
+    {
+        static WorldParametersService worldParametersService;
+        return &worldParametersService;
+    }
+
     void ResourceRegistry::BindOnDemandAssets( const std::weak_ptr<Assets::AssetManager>& assets )
     {
         GetCloudNoiseService()->BindAssetManager( assets );
@@ -166,6 +172,7 @@ namespace Desert::Runtime
         GetWaterWavesService()->BindAssetManager( assets );
         GetPhysicsAssetService()->BindAssetManager( assets );
         GetVFXSystemService()->BindAssetManager( assets );
+        GetWorldParametersService()->BindAssetManager( assets );
     }
 
     void ResourceRegistry::ClearAll()
@@ -173,6 +180,7 @@ namespace Desert::Runtime
         // Order matters in one place only: the ImageService holds the VkImages that the material, skybox,
         // font, icon and cloud services hand out views of, so it goes LAST.
         GetMaterialService()->Clear();
+        GetWorldParametersService()->Clear();
         GetMeshService()->Clear();
         GetSkyboxService()->Clear();
         GetTextureService()->Clear();

@@ -35,6 +35,8 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <Engine/Core/WorldParameterInstance.hpp>
+
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -359,6 +361,22 @@ namespace Desert::Core
         {
             return m_WorldTime;
         }
+
+        // The world's instance of its collection (UE's UMaterialParameterCollectionInstance, Engine/Core/
+        // WorldParameterInstance.hpp): the live values every view snapshots into its WorldParameters buffer.
+        // SyncWorldParameters adopts the collection SceneSettings::WorldParameters names; OnUpdate calls it
+        // first, and the Luau library calls it before a set/get so a script's first frame finds the parameters.
+        [[nodiscard]] WorldParameterInstance& GetWorldParameters()
+        {
+            return m_WorldParameters;
+        }
+        [[nodiscard]] const WorldParameterInstance& GetWorldParameters() const
+        {
+            return m_WorldParameters;
+        }
+        // Adopts (or keeps) the named collection. Refused with the reason when the collection cannot be read;
+        // the instance then holds no parameters, so no material reads a stale value.
+        Common::BoolResultStr SyncWorldParameters();
 
         // The editor viewport's Realtime toggle (UE's viewport "Realtime"): while editing, whether the
         // world's preview time moves. An editor preference pushed every frame, never serialized with the
@@ -711,6 +729,7 @@ namespace Desert::Core
         mutable uint32_t              m_ViewportHeight = 720;
         SceneState                    m_State = SceneState::Edit;
         WorldTime                     m_WorldTime;
+        WorldParameterInstance        m_WorldParameters;
         bool                          m_PreviewRealtime    = true;
         bool                          m_SingleFramePending = false; // RequestSingleFrame, consumed by OnUpdate
         entt::entity                  m_PlayerPawn     = entt::null; // see SetPlayerPawn

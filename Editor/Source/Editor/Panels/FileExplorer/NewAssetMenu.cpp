@@ -15,6 +15,7 @@
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/WorldParametersAsset.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
@@ -94,6 +95,10 @@ namespace Desert::Editor
 
         if ( ImGui::Selectable( std::string( kNewInputActionLabel ).c_str() ) )
             if ( const auto created = CreateNewInputAction( &folder ); !created )
+                LOG_ERROR( "[Content] {}", created.GetError() );
+
+        if ( ImGui::Selectable( "World Parameters" ) )
+            if ( const auto created = CreateNewWorldParameters( &folder ); !created )
                 LOG_ERROR( "[Content] {}", created.GetError() );
 
         if ( ImGui::Selectable( std::string( kNewInputMappingContextLabel ).c_str() ) )
@@ -281,6 +286,21 @@ namespace Desert::Editor
         if ( const auto saved = Assets::InputActionAsset::Save( path, Assets::Serialization::InputActionData{} );
              !saved )
             return Common::MakeFormattedError( "New Input Action: {}", saved.GetError() );
+        m_On.OnSelectAfterRefresh( path.generic_string() );
+        m_On.OnRefresh();
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr NewAssetMenu::CreateNewWorldParameters( const DirectoryInformation* folder )
+    {
+        if ( folder == nullptr )
+            return Common::MakeError( "New World Parameters: the Assets window has no folder open" );
+        const auto path = UniqueIn( *folder, "WP_NewParameters",
+                                    std::string( Assets::Serialization::kWorldParametersExtension ) );
+        if ( const auto saved =
+                  Assets::WorldParametersAsset::Save( path, Assets::Serialization::WorldParametersData{} );
+             !saved )
+            return Common::MakeFormattedError( "New World Parameters: {}", saved.GetError() );
         m_On.OnSelectAfterRefresh( path.generic_string() );
         m_On.OnRefresh();
         return Common::MakeSuccess( true );

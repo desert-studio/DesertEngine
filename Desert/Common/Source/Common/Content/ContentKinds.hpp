@@ -85,6 +85,7 @@ namespace Common::Content
         PhysicsAsset,
         Sound,
         VFXDataChannel,
+        WorldParameters,
         COUNT,
     };
 
@@ -187,6 +188,9 @@ namespace Common::Content
              // UE's UNiagaraDataChannel: a payload layout gameplay writes and emitters spawn from
              // (Engine/Assets/Serialization/VFXDataChannel.hpp).
              /* VFXDataChannel       */ { "VFXDataChannel", ".dfxch", &P::VFX_PATH },
+             // UE's UMaterialParameterCollection: named world values with defaults
+             // (Engine/Assets/Serialization/WorldParameters.hpp).
+             /* WorldParameters      */ { "WorldParameters", ".dworldparams", &P::WORLD_PARAMETERS_PATH },
         } };
     }
 

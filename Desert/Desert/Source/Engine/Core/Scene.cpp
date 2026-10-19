@@ -38,6 +38,7 @@
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Geometry/PosedBounds.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 namespace Desert::Core
 {
@@ -577,8 +578,31 @@ namespace Desert::Core
         }
     }
 
+    Common::BoolResultStr Scene::SyncWorldParameters()
+    {
+        const Common::AssetHandle named = m_Settings.WorldParameters;
+        if ( named == Common::AssetHandle{} )
+        {
+            m_WorldParameters.Adopt( named, nullptr );
+            return BOOLSUCCESS;
+        }
+        const auto data = Runtime::ResourceRegistry::GetWorldParametersService()->Get( named );
+        if ( !data )
+        {
+            m_WorldParameters.Adopt( Common::AssetHandle{}, nullptr );
+            return Common::MakeFormattedError<bool>( "the scene's world parameters {}: {}",
+                                                     static_cast<uint64_t>( named ), data.GetError() );
+        }
+        m_WorldParameters.Adopt( named, data.GetValue() );
+        return BOOLSUCCESS;
+    }
+
     NO_DISCARD Common::BoolResultStr Scene::OnUpdate( const Common::Timestep& ts )
     {
+        // The world's parameters before anything reads them: the scripts below set them, every view after them
+        // snapshots them. The service logged a refusal once; the instance then holds none.
+        (void)SyncWorldParameters();
+
         // A pinned camera is driven from OUTSIDE the scene (the Details preview orbits its own), so the
         // play-state rule must not hand the view back to the EditorCamera behind its back — that is a
         // per-frame overwrite, and it is why the preview rendered through the input-driven editor camera

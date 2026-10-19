@@ -126,6 +126,9 @@ namespace Desert::Assets
         // A VFX DATA CHANNEL (`.dfxch`): UE's UNiagaraDataChannel - the payload layout gameplay writes entries of
         // and Spawn from Channel emitters read. See Engine/Assets/VFXDataChannelAsset.hpp.
         VFXDataChannel,
+        // A WORLD PARAMETER COLLECTION (`.dworldparams`): UE's UMaterialParameterCollection — named world values
+        // every material can read and gameplay can set. See Engine/Assets/WorldParametersAsset.hpp.
+        WorldParameters,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -238,6 +241,9 @@ namespace Desert::Assets
             // A VFX DATA CHANNEL IS SCENE-SCOPED for the retarget's reason: the scene's VFXWorld registers it by
             // handle (VFXDataChannels::Register) and a channel no scene uses has no entries to carry.
             case AssetTypeID::VFXDataChannel:
+            // A WORLD PARAMETER COLLECTION IS SCENE-SCOPED for the retarget's reason: the scene's settings name it
+            // by `AssetHandle` (SceneSettings::WorldParameters), and a collection no scene names has no world.
+            case AssetTypeID::WorldParameters:
             case AssetTypeID::Count:
                 return false;
         }
@@ -320,6 +326,8 @@ namespace Desert::Assets
                 return "Sound";
             case AssetTypeID::VFXDataChannel:
                 return "VFXDataChannel";
+            case AssetTypeID::WorldParameters:
+                return "WorldParameters";
             case AssetTypeID::Count:
                 return "Count";
         }

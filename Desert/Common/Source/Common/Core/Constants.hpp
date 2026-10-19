@@ -176,6 +176,7 @@ namespace Common::Constants
             VFX,
             Fracture,
             WaterWaves,
+            WorldParameters,
             Input,
             PhysicsAsset,
             Cooked,
@@ -279,6 +280,9 @@ namespace Common::Constants
              // Water wave sets (`.dwaves`, UE UWaterWavesAsset) get their own folder for the anim graph's
              // reason: a water body's waves slot offers only what is scanned from here.
              /* WaterWaves    */ { "Water/Waves/", DirRoot::Assets },
+             // World parameter collections (`.dworldparams`, UE UMaterialParameterCollection): the scene's
+             // World Parameters slot offers only what is scanned from here.
+             /* WorldParameters */ { "WorldParameters/", DirRoot::Assets },
              // Input actions and mapping contexts (`.deinputaction`, `.deinputcontext`, UE Enhanced Input).
              /* Input         */ { "Input/", DirRoot::Assets },
              // Physics assets (`.dephysasset`, UE UPhysicsAsset): the ragdoll bodies and joints of a skeleton.
@@ -628,6 +632,7 @@ namespace Common::Constants
         inline const std::filesystem::path& VFX_PATH            = Detail::Slot( ContentDir::VFX );
         inline const std::filesystem::path& FRACTURE_PATH       = Detail::Slot( ContentDir::Fracture );
         inline const std::filesystem::path& WATER_WAVES_PATH    = Detail::Slot( ContentDir::WaterWaves );
+        inline const std::filesystem::path& WORLD_PARAMETERS_PATH = Detail::Slot( ContentDir::WorldParameters );
         inline const std::filesystem::path& INPUT_PATH          = Detail::Slot( ContentDir::Input );
         inline const std::filesystem::path& PHYSICS_ASSET_PATH  = Detail::Slot( ContentDir::PhysicsAsset );
         inline const std::filesystem::path& COOKED_PATH         = Detail::Slot( ContentDir::Cooked );
