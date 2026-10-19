@@ -660,8 +660,12 @@ namespace Desert::Runtime
         if ( owner == m_BuiltToAsset.end() )
             return nullptr;
 
-        const size_t slot  = VariantSlot( path, pass );
-        auto&        views = m_ViewMaterials[owner->second];
+        // A displaced built material's siblings are displaced too: one source (the section draws displaced
+        // geometry) decides the base cell in EVERY view - a masked cascade caster or a card capture of a displaced
+        // section that marched the `.Parallax` cell would put the relief on twice.
+        const bool   displaced = m_DisplacedBuilt.contains( built );
+        const size_t slot      = VariantSlot( path, pass, displaced );
+        auto&        views     = m_ViewMaterials[owner->second];
         for ( const auto& v : views )
             if ( v.Slot == slot && v.View == view && v.Defines == permutation.Defines )
                 return v.Material.get();
@@ -669,7 +673,7 @@ namespace Desert::Runtime
         const auto ait = m_MaterialAssets.find( owner->second );
         if ( ait == m_MaterialAssets.end() )
             return nullptr;
-        auto material = CreateSurfaceMaterial( ait->second.get(), path, pass, permutation );
+        auto material = CreateSurfaceMaterial( ait->second.get(), path, pass, permutation, displaced );
         if ( !material )
             return nullptr; // CreateSurfaceMaterial named the material and the cell it refused
         auto* raw = material.get();
