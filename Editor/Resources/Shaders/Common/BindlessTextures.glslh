@@ -68,13 +68,18 @@ vec4 SampleBindless( BindlessTexture t, vec2 uv )
                     uv );
 }
 
-// Fragment stage only, as GLSL's own bias form.
+// Fragment stage only, as GLSL's own bias form. A ray tracing stage (DESERT_RAY_TRACING_STAGE, DShaderParser
+// AssembleStage — defined ahead of the automatic declarations that include this header) has no screen
+// derivatives and samples with an explicit level (SampleBindlessLod); glslang refuses the bias overload there
+// even uncalled, which failed every surface and graph hit group's compile.
+#ifndef DESERT_RAY_TRACING_STAGE
 vec4 SampleBindlessBias( BindlessTexture t, vec2 uv, float bias )
 {
     return texture( sampler2D( u_BindlessTextures[nonuniformEXT( t.Texture )],
                                u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
                     uv, bias );
 }
+#endif
 
 vec4 SampleBindlessLod( BindlessTexture t, vec2 uv, float lod )
 {
