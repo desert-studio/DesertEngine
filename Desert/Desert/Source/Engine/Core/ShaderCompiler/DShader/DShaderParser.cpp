@@ -2856,7 +2856,7 @@ namespace Desert::Core::Preprocess
                                                           *surfaceBlock, includeBlock, autoDecls,
                                                           result.Surface.Blend, shadingModelDefine,
                                                           result.Surface.ResponsiveAA, opacityMaskFunction,
-                                                          false, heightFunctions ) );
+                                                          false, heightFunctions, false ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );
@@ -2934,7 +2934,8 @@ namespace Desert::Core::Preprocess
                              stage, AssembleSurfaceCellStage( stage, kSurfaceGrassBladePath, pass, *surfaceBlock,
                                                               includeBlock, autoDecls, result.Surface.Blend,
                                                               shadingModelDefine, result.Surface.ResponsiveAA,
-                                                              opacityMaskFunction, false, heightFunctions ) );
+                                                              opacityMaskFunction, false, heightFunctions,
+                                                              false ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
@@ -2957,7 +2958,8 @@ namespace Desert::Core::Preprocess
                                  stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock, includeBlock,
                                                                   autoDecls, result.Surface.Blend,
                                                                   shadingModelDefine, result.Surface.ResponsiveAA,
-                                                                  opacityMaskFunction, true, heightFunctions ) );
+                                                                  opacityMaskFunction, true, heightFunctions,
+                                                                  respondsToWeather ) );
                         result.Meta.PassNames.push_back( cell.Name );
                         result.Surface.Cells.push_back( cell.Name );
                         result.Passes.push_back( std::move( cell ) );
