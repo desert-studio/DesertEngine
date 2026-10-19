@@ -18,6 +18,7 @@ Shader "VirtualShadowMapProject"
 
         #include <Common/VirtualShadowMap.glslh>
         #include <Common/ConeSampling.glslh>
+        #include <Common/ReconstructPosition.glslh>
 
         ReadBuffer(0) VsmFrameData
         {
@@ -80,8 +81,8 @@ Shader "VirtualShadowMapProject"
                 return;
             }
             const vec2 uv       = ( vec2( pixel ) + 0.5 ) / vec2( size );
-            const vec4 world    = u_Frame.InvViewProjection * vec4( uv * 2.0 - 1.0, depth, 1.0 );
-            const vec3 position = world.xyz / world.w;
+            // Common/ReconstructPosition.glslh: (0,0) is the top-left pixel and NDC +y is up.
+            const vec3 position = ReconstructWorldPosition( uv, depth, u_Frame.InvViewProjection );
             const vec3 normal   = normalize( texelFetch( u_GBufferNormal, pixel, 0 ).rgb );
             const vec3 toSun    = normalize( u_Frame.ToSun.xyz );
 

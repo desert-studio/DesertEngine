@@ -9,6 +9,7 @@ Shader "VirtualShadowMapMark"
         LocalSize(8, 8, 1);
 
         #include <Common/VirtualShadowMap.glslh>
+        #include <Common/ReconstructPosition.glslh>
 
         ReadBuffer(0) VsmFrameData
         {
@@ -50,8 +51,8 @@ Shader "VirtualShadowMapMark"
             if ( depth <= 0.0 )
                 return;
             const vec2 uv       = ( vec2( pixel ) + 0.5 ) / vec2( u_Size.xy );
-            const vec4 world    = u_Frame.InvViewProjection * vec4( uv * 2.0 - 1.0, depth, 1.0 );
-            const vec3 position = world.xyz / world.w;
+            // Common/ReconstructPosition.glslh: (0,0) is the top-left pixel and NDC +y is up.
+            const vec3 position = ReconstructWorldPosition( uv, depth, u_Frame.InvViewProjection );
 
             const uint first = VsmSelectLevel( u_Frame, position );
             const uint last  = min( first + 1u, uint( u_Frame.Lod.y ) - 1u );
