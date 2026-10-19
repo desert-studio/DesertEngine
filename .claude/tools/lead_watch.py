@@ -16,6 +16,10 @@ Cost units as ledger.py: 5*out + 1.25*new input + 0.1*cache reads.
 """
 import csv, json, os, re, sys, time
 
+# Windows: the hook event and our messages are UTF-8, not the console code page (cp1251 lost «Код» on 10-20).
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
+    _stream.reconfigure(encoding="utf-8")
+
 STATE_DIR = os.path.expanduser("~/.claude/lead-watch")
 CSV = os.path.expanduser("~/.claude/lead-spend.csv")
 REPORT_EVERY = 20

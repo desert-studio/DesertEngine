@@ -24,6 +24,10 @@ import re
 import sys
 import time
 
+# Windows: the hook event and our messages are UTF-8, not the console code page (cp1251 lost «Код» on 10-20).
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
+    _stream.reconfigure(encoding="utf-8")
+
 STATE = os.path.expanduser("~/.claude/board_guard_state.json")
 CODE_RE = r"[A-Z][A-Z0-9]*(?:-[A-Z0-9+]+)*"
 TITLE_RE = re.compile(r'"id"\s*:\s*"([0-9a-f-]{32,36})"\s*,\s*"title"\s*:\s*"(' + CODE_RE + r')\s+·')

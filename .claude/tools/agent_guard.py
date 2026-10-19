@@ -27,6 +27,10 @@ import subprocess
 import sys
 import time
 
+# Windows: the hook event and our messages are UTF-8, not the console code page (cp1251 lost «Код» on 10-20).
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
+    _stream.reconfigure(encoding="utf-8")
+
 STATE_DIR = os.path.expanduser("~/.claude/agent-guard")  # survives a reboot: /tmp reset the 80-call budget
 TURN_WARN = 135
 TURN_LIMIT = 150  # owner 10-10 evening: one agent carries a feature to the end, no a/b/c/d passes
