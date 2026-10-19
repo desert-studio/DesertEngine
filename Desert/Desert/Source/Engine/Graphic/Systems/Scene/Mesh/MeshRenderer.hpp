@@ -615,9 +615,10 @@ namespace Desert::Graphic::System
         // Deferred: renders the static-mesh queue into the scene renderer's G-buffer via a MANUAL render pass
         // (outside the graph — see the note in GeometryPass). No-op unless the deferred pipeline exists.
         // Called by SceneRenderer when RenderPath == Deferred, before the deferred lighting pass.
-        // SETUP of the G-buffer node: builds the frame's G-buffer draw list and declares its binding blocks (the
-        // G-buffer shaders sample no scene/view input). The exec records that list.
-        void                                DeclareGBufferDraws( RDG::PassBuilder& pass );
+        // SETUP of the G-buffer node: builds the frame's G-buffer draw list and declares its binding blocks, each
+        // with the scene/view inputs @p view its shader samples (the surface weather's rain occlusion map,
+        // SurfaceWeather.glslh). The exec records that list.
+        void DeclareGBufferDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context ) const;
         // SETUP of "Deferred: Forward Depth/Normal" (after the terrain's G-buffer, before the depth resolve and
         // every screen pass): the generic queue's OPAQUE draws through their template's (Static x DepthNormal)

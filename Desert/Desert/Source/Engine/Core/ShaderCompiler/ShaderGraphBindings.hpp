@@ -75,7 +75,7 @@ namespace Desert::Core
     // The world's parameters (`WorldParameters`, Common/WorldParameters.glslh): declared only into the cells whose
     // surface reads one (DShaderParser lowers `WorldParameter( "Name" )`), bound by SceneFrameBinding::ApplyTo.
     inline constexpr uint32_t kWorldParametersBinding = kSceneReadBindingFirst + 6u;
-    // The view's rain occlusion (Graphic/RainOcclusion.hpp, Mesh/Surface/SurfaceWeather.glslh): the top-down depth
+    // The view's rain occlusion (Graphic/RainOcclusion.hpp, Common/RainOcclusion.glslh): the top-down depth
     // of what stands over the camera's surroundings (`u_RainOcclusionMap`) and the block that projects a world
     // position into it (`RainOcclusionUB`). Declared only into the cells that wet a surface
     // (DESERT_SURFACE_WEATHER: the Forward and GBuffer mesh cells); the map is bound from the frame graph

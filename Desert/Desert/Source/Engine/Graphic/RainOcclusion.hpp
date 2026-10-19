@@ -36,10 +36,10 @@ namespace Desert::Graphic
         [[nodiscard]] bool operator==( const RainOcclusionQuality& ) const = default;
     };
 
-    // std140 mirror of RainOcclusionUB (Mesh/Surface/SurfaceWeather.glslh).
+    // std140 mirror of RainOcclusionUB (Common/RainOcclusion.glslh).
     struct RainOcclusionUniforms
     {
-        glm::mat4 WorldToMap = glm::mat4( 1.0f ); // world -> the map's standard-Z clip (uv = ndc.xy * 0.5 + 0.5)
+        glm::mat4 WorldToMap = glm::mat4( 1.0f ); // world -> the map's standard-Z clip (uv = (x, -y) * 0.5 + 0.5)
         glm::vec4 Params =
              glm::vec4( 0.0f ); // x = depth range (cm), y = valid (>0.5), z = bias (cm), w = texel (cm)
     };

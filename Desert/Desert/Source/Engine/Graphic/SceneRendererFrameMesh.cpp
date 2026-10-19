@@ -346,7 +346,8 @@ namespace Desert::Graphic
              RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderGBufferManual( context ); },
-             [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGBufferDraws( pass ); } );
+             [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGBufferDraws( pass, view ); } );
     }
 
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
