@@ -12,11 +12,14 @@
 namespace Desert::Graphic::System
 {
     void MeshRenderer::ApplyDisplacement( DisplacementCache& cache, const Geometry::LODView& view,
-                                          const float viewHeightPixels, const uint64_t frame )
+                                          const float viewHeightPixels, const uint64_t frame,
+                                          const bool requestLevels )
     {
         std::vector<std::optional<DisplacementMaterialRecord>> materials;
         for ( const StaticMeshRenderData& data : m_StaticQueue )
         {
+            if ( !requestLevels )
+                break;
             if ( data.Mesh == nullptr || !data.Mesh->GetDisplacementTopology() || !data.MaterialSlots ||
                  data.MaterialSlots->Slots.empty() )
                 continue;

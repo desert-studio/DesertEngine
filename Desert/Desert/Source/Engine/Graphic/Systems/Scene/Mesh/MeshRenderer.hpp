@@ -376,8 +376,10 @@ namespace Desert::Graphic::System
         // first view of @p frame displace, then points each record whose twin is ready at the twin - every pass of
         // this view (GBuffer, forward, depth, velocity, cascades, VSM) draws the displaced surface. A record whose
         // twin is not ready draws its base mesh. Errors are logged; the view still draws.
+        // @p requestLevels: only CAMERA views ask for levels (§4); a capture face (ViewProfile::SceneCapture) is a
+        // consumer like the shadows - it draws the twins the cameras asked for and never raises a level itself.
         void ApplyDisplacement( DisplacementCache& cache, const Geometry::LODView& view, float viewHeightPixels,
-                                uint64_t frame );
+                                uint64_t frame, bool requestLevels );
 
 
         // The view's motion rows for this frame — UE's GPUScene primitive data: ONE GpuObjectMotion per drawn

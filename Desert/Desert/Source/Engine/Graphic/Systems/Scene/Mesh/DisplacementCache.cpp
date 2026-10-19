@@ -448,6 +448,8 @@ namespace Desert::Graphic::System
         m_Frame               = frame;
         m_Stats.Rebuilt       = 0;
         m_Stats.LevelsLowered = 0;
+        m_Stats.LevelsRaised  = 0;
+        m_Stats.LevelsHeld    = 0;
         if ( !m_Quality.Enabled || m_Entries.empty() || !EnsurePipelines() )
             return BOOLSUCCESS;
 
@@ -468,6 +470,21 @@ namespace Desert::Graphic::System
                 entry.Using = entry.Asked; // an entry's first frame: its first requests
             if ( entry.Using.empty() )
                 continue;
+            if ( entry.Lowered > 0 )
+            {
+                // §5 both ways: a lowering is undone once the pool holds the size it was measured at again.
+                const uint64_t held = entry.Current && entry.Current.use_count() == 1 ? entry.Current->Bytes : 0;
+                const bool     fits = m_Quality.PoolBytes == 0 ||
+                                  liveBytes - held + entry.RaiseBytes.back() <= m_Quality.PoolBytes;
+                if ( fits || entry.RaiseLevels.back() != entry.Using )
+                {
+                    --entry.Lowered;
+                    entry.RaiseBytes.pop_back();
+                    entry.RaiseLevels.pop_back();
+                    ++m_Stats.LevelsRaised;
+                }
+                m_Stats.LevelsHeld += entry.Lowered;
+            }
             std::vector<uint8_t> effective = entry.Using;
             for ( uint8_t& level : effective )
                 level = static_cast<uint8_t>( level > entry.Lowered ? level - entry.Lowered : 0 );
@@ -506,6 +523,10 @@ namespace Desert::Graphic::System
                     for ( const uint8_t level : smallest->Using )
                         if ( level > smallest->Lowered )
                             ++m_Stats.LevelsLowered;
+                    // The size one step up, exact: this result for the entry itself, else what it holds now.
+                    smallest->RaiseBytes.push_back(
+                         smallest == &entry ? bytes : ( smallest->Current ? smallest->Current->Bytes : 0 ) );
+                    smallest->RaiseLevels.push_back( smallest->Using );
                     ++smallest->Lowered;
                     continue;
                 }

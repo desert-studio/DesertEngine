@@ -1348,7 +1348,7 @@ namespace Desert::Graphic
                     meshes->ApplyDisplacement(
                          displacement,
                          Geometry::LODView{ viewCamera->GetPosition(), viewCamera->GetProjectionMatrix() },
-                         static_cast<float>( m_ViewExtent.Height ), frameNumber );
+                         static_cast<float>( m_ViewExtent.Height ), frameNumber, !m_ViewProfile.SceneCapture );
             }
             if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions(
                       m_ViewState.Motion(), m_ScratchTileMotions, skinCache, frameNumber );

@@ -103,6 +103,8 @@ namespace Desert::Graphic::System
         uint32_t Rebuilt       = 0; // twins emitted this frame
         uint32_t Pending       = 0; // entries whose tessellation is still on a worker
         uint32_t LevelsLowered = 0; // cluster levels lowered this frame to fit the pool (§5)
+        uint32_t LevelsRaised  = 0; // lowerings undone this frame: the pool holds the higher levels again
+        uint32_t LevelsHeld    = 0; // lowering steps still in force over all entries (overlay, [ViewMemory])
         uint32_t LevelsClamped = 0; // cluster requests above the fixed-point resolution limit (MaxLevel)
         uint64_t BufferBytes   = 0; // twins' vertex + stream + index buffers
         uint64_t TopologyBytes = 0; // the meshes' topologies the live entries read
@@ -185,8 +187,13 @@ namespace Desert::Graphic::System
             std::shared_ptr<SharedGeometry>                    Current;
             std::optional<BuildKey>                      PendingKey;
             std::future<Common::ResultStr<Tessellation>> Pending;
-            // Levels taken off every cluster above 0 to fit the pool (§5), kept for the entry\'s life.
-            uint8_t Lowered = 0;
+            // Levels taken off every cluster above 0 to fit the pool (§5). Each step remembers the EXACT bytes the
+            // entry held one step higher and the levels that size was measured at: the step is undone as soon as
+            // the pool holds that size again, or when the levels changed (the measurement no longer applies, so
+            // the higher key is tessellated and fitted anew).
+            uint8_t                           Lowered = 0;
+            std::vector<uint64_t>             RaiseBytes;
+            std::vector<std::vector<uint8_t>> RaiseLevels;
             uint64_t                                     LastFrame     = 0;
             bool                                         RefusalLogged = false;
         };
