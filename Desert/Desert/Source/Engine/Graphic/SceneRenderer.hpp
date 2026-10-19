@@ -1255,6 +1255,10 @@ namespace Desert::Graphic
         // The mesh distance-field brick pool, MiB (Scalability GlobalIllumination.DistanceFieldPoolMiB): what the
         // global distance field's atlas holds and its finer mips stream within.
         uint32_t m_DistanceFieldPoolMiB = 256;
+        // Mesh displacement (Scalability ViewDistance.DisplacementDicingRate / DisplacementPoolMiB), handed to the
+        // scene's DisplacementCache before this view requests levels. Rate 0 = runtime displacement off.
+        int      m_DisplacementDicingRate = 2;
+        uint32_t m_DisplacementPoolMiB    = 256;
         int m_SSAOSamples = 16;
         // Contact-shadow ray steps (Scalability: Shadows.ContactShadowSteps; 0 = the march is skipped for every
         // light) and the sun's contact shadow (ViewShadowSettings, from the elected sun), taken each BeginScene

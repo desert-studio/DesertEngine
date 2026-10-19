@@ -79,19 +79,29 @@
         },
         "ViewDistance": {
             "Low": {
-                "ViewDistance.MeshLOD": 1
+                "ViewDistance.MeshLOD": 1,
+                "ViewDistance.DisplacementDicingRate": 0,
+                "ViewDistance.DisplacementPoolMiB": 64
             },
             "Medium": {
-                "ViewDistance.MeshLOD": 1
+                "ViewDistance.MeshLOD": 1,
+                "ViewDistance.DisplacementDicingRate": 4,
+                "ViewDistance.DisplacementPoolMiB": 128
             },
             "High": {
-                "ViewDistance.MeshLOD": 1
+                "ViewDistance.MeshLOD": 1,
+                "ViewDistance.DisplacementDicingRate": 2,
+                "ViewDistance.DisplacementPoolMiB": 256
             },
             "Epic": {
-                "ViewDistance.MeshLOD": 1
+                "ViewDistance.MeshLOD": 1,
+                "ViewDistance.DisplacementDicingRate": 2,
+                "ViewDistance.DisplacementPoolMiB": 512
             },
             "Cinematic": {
-                "ViewDistance.MeshLOD": 0
+                "ViewDistance.MeshLOD": 0,
+                "ViewDistance.DisplacementDicingRate": 1,
+                "ViewDistance.DisplacementPoolMiB": 1024
             }
         },
         "Effects": {

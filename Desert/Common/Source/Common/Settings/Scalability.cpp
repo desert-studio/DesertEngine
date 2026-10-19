@@ -80,6 +80,10 @@ namespace Common::Scalability
              { P::SkinCache, G::Effects, "Effects.SkinCache", 0, 1, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::SetSkinCacheEnabled -> "
                "RayTracingSkinCache::SetEnabled" },
+             { P::DisplacementDicingRate, G::ViewDistance, "ViewDistance.DisplacementDicingRate", 0, 8, CL::None,
+               "SceneRenderer::BeginScene -> DisplacementCache::SetQuality (0 = runtime displacement off)" },
+             { P::DisplacementPoolMiB, G::ViewDistance, "ViewDistance.DisplacementPoolMiB", 64, 1024, CL::None,
+               "SceneRenderer::BeginScene -> DisplacementCache::SetQuality - the displaced geometry pool" },
              { P::LightGridPixelSize, G::Shadows, "Shadows.LightGridPixelSize", 16, 256, CL::None,
                "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" tiles)" },
              { P::LightGridSlices, G::Shadows, "Shadows.LightGridSlices", 8, 128, CL::None,

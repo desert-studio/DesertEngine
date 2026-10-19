@@ -127,6 +127,13 @@ namespace Common::Scalability
         // compute, the raster fetches it and the TLAS traces it; 0 = the raster skins in the vertex stage, no
         // skinned TLAS geometry. Values: 0/1
         SkinCache,
+        // Mesh displacement (Graphic::System::DisplacementCache, CONTRACT-DISPLACE §1f): pixels a diced edge
+        // covers on screen (UE r.Nanite.DicingRate); 0 = runtime displacement off, the surfaces keep their parallax
+        // (the counted Low downgrade, §9.10). 0..8
+        DisplacementDicingRate,
+        // The displaced geometry pool, MiB: when the requested levels do not fit, levels are lowered from the
+        // smallest screen size up and counted (DisplacementStats::LevelsLowered). 64..1024
+        DisplacementPoolMiB,
         // The view's light grid (Graphic::LightGridQuality, "Deferred: LightGrid"): what the per-pixel light loop
         // costs against what building the grid costs. The image is the same at every value (a cell whose list is
         // full is shaded by every light), so these are cost knobs only - UE's r.Forward.LightGrid* cvars.
