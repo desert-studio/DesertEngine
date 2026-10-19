@@ -64,10 +64,12 @@ namespace Desert::Graphic
         Method           Refused{};
         std::string_view Program; // the program's debug name, static storage
     };
-    // Only Shadows has a renderer with a per-method program today.
+    // One list per axis; the view's renderers append the methods whose own program did not build.
     struct ProgramRefusals
     {
-        std::vector<MethodRefusal<Common::Scalability::ShadowMethod>> Shadows;
+        std::vector<MethodRefusal<Common::Scalability::GIMethod>>         GlobalIllumination;
+        std::vector<MethodRefusal<Common::Scalability::ReflectionMethod>> Reflections;
+        std::vector<MethodRefusal<Common::Scalability::ShadowMethod>>     Shadows;
     };
 
     // Records @p method refused for @p program; false when it already was (the caller logs only a new refusal).

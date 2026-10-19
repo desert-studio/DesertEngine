@@ -130,14 +130,14 @@ namespace Desert::Graphic
     {
         const bool    rayQuery = OffersRayQuery( catalog );
         RenderMethods out;
-        out.GlobalIllumination = ResolveAxis( post.GlobalIlluminationMethod,
-                                              quality.As<GIMethod>( Parameter::GlobalIlluminationMethod ), rayQuery,
-                                              catalog.FragmentStores, catalog.MaxRenderArea, gBuffer,
-                                              std::span<const MethodRefusal<GIMethod>>{} );
-        out.Reflections = ResolveAxis( post.ReflectionsMethod,
-                                       quality.As<ReflectionMethod>( Parameter::ReflectionsMethod ), rayQuery,
-                                       catalog.FragmentStores, catalog.MaxRenderArea, gBuffer,
-                                       std::span<const MethodRefusal<ReflectionMethod>>{} );
+        out.GlobalIllumination = ResolveAxis(
+             post.GlobalIlluminationMethod, quality.As<GIMethod>( Parameter::GlobalIlluminationMethod ), rayQuery,
+             catalog.FragmentStores, catalog.MaxRenderArea, gBuffer,
+             std::span<const MethodRefusal<GIMethod>>( refusals.GlobalIllumination ) );
+        out.Reflections =
+             ResolveAxis( post.ReflectionsMethod, quality.As<ReflectionMethod>( Parameter::ReflectionsMethod ),
+                          rayQuery, catalog.FragmentStores, catalog.MaxRenderArea, gBuffer,
+                          std::span<const MethodRefusal<ReflectionMethod>>( refusals.Reflections ) );
         out.Shadows = ResolveAxis( post.ShadowsMethod, quality.As<ShadowMethod>( Parameter::ShadowsMethod ), rayQuery,
                                    catalog.FragmentStores, catalog.MaxRenderArea, gBuffer,
                                    std::span<const MethodRefusal<ShadowMethod>>( refusals.Shadows ) );
