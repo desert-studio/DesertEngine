@@ -214,7 +214,8 @@ namespace Desert::Graphic
         // The pipeline is built against the target's formats, and the target is recreated on a resize.
         if ( m_Text.IsInitialized() && m_TextTarget == target.get() )
             return BOOLSUCCESS;
-        if ( const auto initialized = m_Text.Init( target ); !initialized )
+        // The text renderer's objects are this view's ledger rows (Render2D::Init).
+        if ( const auto initialized = m_Text.Init( target, m_Owner.GetLedgerInstance() ); !initialized )
             return initialized;
         m_TextTarget = target.get();
         return BOOLSUCCESS;
