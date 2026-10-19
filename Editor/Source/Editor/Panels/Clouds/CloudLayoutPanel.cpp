@@ -1091,10 +1091,16 @@ namespace Desert::Editor
             if ( ImGui::IsMouseDown( ImGuiMouseButton_Right ) && !ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
                 stroke.Ink = paintingMask ? static_cast<float>( Assets::kCloudLayoutMaskNeutral ) / 255.0f : 0.0f;
 
-            if ( Assets::ExtendCloudLayoutStroke( m_Stroke, PaintPlane(), m_LastPaintTexel, texel, stroke ) > 0u )
-                m_CanvasImageDirty = true;
+            // A MOUSE OUTSIDE THE WINDOW HAS NO POSITION (ImGui reports -FLT_MAX), so the stroke holds its last
+            // point and resumes from it when the cursor comes back, instead of drawing a segment to infinity.
+            if ( ImGui::IsMousePosValid() )
+            {
+                if ( Assets::ExtendCloudLayoutStroke( m_Stroke, PaintPlane(), m_LastPaintTexel, texel, stroke ) >
+                     0u )
+                    m_CanvasImageDirty = true;
 
-            m_LastPaintTexel = texel;
+                m_LastPaintTexel = texel;
+            }
         }
         else if ( m_Painting )
         {

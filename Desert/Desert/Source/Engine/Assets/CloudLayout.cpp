@@ -967,6 +967,15 @@ namespace Desert::Assets
         const float hardness = std::clamp( brush.Hardness, 0.0f, 1.0f );
         const float inkByte  = std::clamp( brush.Ink, 0.0f, 1.0f ) * 255.0f;
 
+        // A SEGMENT NO CANVAS COULD HOLD IS REFUSED before the box is converted to integers. ImGui reports a
+        // mouse that left the window as -FLT_MAX; the box below overflowed its int conversion on it and the
+        // loop then walked billions of texels — the editor froze for good the moment a drag crossed the
+        // window's edge. A real drag is within a few canvases of the canvas; a million texels is not one.
+        constexpr float kFarthestTexel = 1.0e6f;
+        for ( const float v : { fromTexels.x, fromTexels.y, toTexels.x, toTexels.y } )
+            if ( !std::isfinite( v ) || std::fabs( v ) > kFarthestTexel )
+                return 0u;
+
         // THE BOX IS THE SEGMENT INFLATED BY THE RADIUS, then wrapped. Walking the whole canvas would be a
         // million distance evaluations for a stroke that touches a thousand texels, on every mouse move.
         const float minXf = std::min( fromTexels.x, toTexels.x ) - radius;
