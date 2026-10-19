@@ -58,7 +58,7 @@ namespace Common::Scalability
                CL::None,
                "DistanceFieldSceneData::SetPoolMiB - the brick atlas the finer mesh-field mips stream within" },
              { P::AmbientOcclusionSamples, G::PostProcess, "PostProcess.AmbientOcclusionSamples", 4, 32, CL::None,
-               "SSAORenderer kernel sampleCount (SSAO.shader MAX_SAMPLES = 32)" },
+               "SSAORenderer GTAO horizon taps per direction (SSAO.shader kMaxTaps = 32)" },
              { P::BloomMips, G::PostProcess, "PostProcess.BloomMips", 2, 6, CL::None,
                "BloomRenderer::SetMaxMips (SceneRenderer::BeginScene)" },
              { P::MotionBlurQuality, G::PostProcess, "PostProcess.MotionBlurQuality", 0, 2, CL::None,

@@ -94,13 +94,14 @@ TEST( UniformBlockLayout, SSAOUBIsTheSSAOMaterialsStruct )
     using T = Desert::Graphic::MaterialSSAO::SSAOUBData;
     ExpectTwin( "SSAO.shader", "SSAOUB",
                 {
-                     { "u_ViewProj", offsetof( T, ViewProj ) },
-                     { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
-                     { "u_CameraPos", offsetof( T, CameraPos ) },
-                     { "u_SSAOParams", offsetof( T, Params ) },
+                     { "InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
+                     { "WorldToView", offsetof( T, WorldToView ) },
+                     { "Target", offsetof( T, Target ) },
+                     { "Horizon", offsetof( T, Horizon ) },
+                     { "Temporal", offsetof( T, Temporal ) },
                 },
                 sizeof( T ) );
-    EXPECT_EQ( sizeof( T ), 160u );
+    EXPECT_EQ( sizeof( T ), 176u );
 }
 
 TEST( UniformBlockLayout, DeferredUBHasExactlyTheDeferredLightingMaterialsProperties )
