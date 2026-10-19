@@ -95,6 +95,9 @@ namespace Desert::Assets::Serialization
         float Clumping = 0.5f;
         /// The clump cell's side, cm.
         float ClumpSize = 35.0f;
+        /// 0..1: how far a blade moves from its grid place towards its clump's point (0 = stays on the jittered
+        /// grid, 1 = all of a clump's blades stand on its point). Gathers the field into tufts with open ground between.
+        float ClumpPull = 0.0f;
         /// Segments of a near blade (1..kGrassBladeMaxSegments); each farther level halves them.
         uint32_t Segments = 6;
         /// The distance, cm, over which a level is drawn before the next, coarser one.

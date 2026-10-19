@@ -5,10 +5,14 @@
 // every camera position; its seed is a hash of the cell. An instance is kept when its bilinear layer weight lies in
 // AllowedDensityRange and beats the cell's random draw (UE's RandomStream.GetFraction), when it is inside the view's
 // side planes, and - between StartCullDistance and EndCullDistance - when its fade draw beats the distance share
-// (the density falls to zero at EndCullDistance). Kept instances are appended to their bucket of Instances (one
+// (the density falls to zero at EndCullDistance) - and a kept one shrinks by the same share, UE's
+// PerInstanceFadeAmount as its grass materials spend it (scale to nothing at EndCullDistance), so the field thins and
+// lowers into the ground instead of ending at a line. Kept instances are appended to their bucket of Instances (one
 // mat4 each, the InstanceTransforms of Mesh/Surface/Vertex_Instanced.glslh / Vertex_GrassBlade.glslh): a mesh has one
 // bucket, a blade one per level of its strip, chosen by distance (GRASS-BLADE). A blade also follows its clump - the
-// nearest of a jittered grid of clump points (GoT's Voronoi clumps) lends it its facing, height and tint. GrassFinalize
+// nearest of a jittered grid of clump points (GoT's Voronoi clumps) lends it its facing, height and tint, and pulls it
+// towards itself by ClumpPull, so blades gather into tufts with open ground between them instead of standing on the
+// jittered grid (white of the grid's own blue noise). GrassFinalize
 // copies each bucket's count into its draw records.
 Shader "GrassGenerate"
 {
@@ -28,7 +32,7 @@ Shader "GrassGenerate"
             vec4  ScaleZ;    // x/y = ScaleZ range (up)
             uvec4 Info;      // x = layer, y = capacity, z = submesh count, w = seed
             uvec4 Buckets;   // x = bucket count, y = the bucket table's first word in Args
-            vec4  Blade;     // x = LodDistance (0: one bucket), y = ClumpSize cm, z = Clumping
+            vec4  Blade;     // x = LodDistance (0: one bucket), y = ClumpSize cm, z = Clumping, w = ClumpPull
         };
 
         ReadBuffer(0) Field
@@ -128,6 +132,33 @@ Shader "GrassGenerate"
             vec2  jitter   = vec2( Fraction( state ), Fraction( state ) ) * 2.0 - 1.0;
             vec2  world    = ( vec2( cell ) + 0.5 + jitter * p.Cull.w ) * cellSize;
 
+            uint  flags = floatBitsToUint( p.ScaleX.w );
+            bool  blade = ( flags & kFlagBlade ) != 0u;
+            uint  clumpSeed = 0u;
+            if ( blade )
+            {
+                // The nearest clump point of the 3x3 clump cells around the blade; the blade moves towards it.
+                vec2  clumpCell = floor( world / p.Blade.y );
+                float best      = 3.0e38;
+                vec2  clumpAt   = world;
+                for ( int dz = -1; dz <= 1; ++dz )
+                    for ( int dx = -1; dx <= 1; ++dx )
+                    {
+                        ivec2 c  = ivec2( clumpCell ) + ivec2( dx, dz );
+                        uint  h  = Hash( uint( c.x ) * 0x27d4eb2du ^ uint( c.y ) * 0x165667b1u ^ ( p.Info.w * 0x9e3779b9u ) );
+                        uint  hs = h;
+                        vec2  at = ( vec2( c ) + vec2( Fraction( hs ), Fraction( hs ) ) ) * p.Blade.y;
+                        float d  = dot( at - world, at - world );
+                        if ( d < best )
+                        {
+                            best      = d;
+                            clumpSeed = h;
+                            clumpAt   = at;
+                        }
+                    }
+                world = mix( world, clumpAt, p.Blade.w );
+            }
+
             float height, weight;
             if ( !SampleField( world, p.Info.x, height, weight ) )
                 return;
@@ -140,11 +171,11 @@ Shader "GrassGenerate"
             if ( distance > p.Cull.y )
                 return;
             float fade = Fraction( state );
-            if ( distance > p.Cull.x && fade < ( distance - p.Cull.x ) / max( p.Cull.y - p.Cull.x, 1.0 ) )
+            float faded = clamp( ( distance - p.Cull.x ) / max( p.Cull.y - p.Cull.x, 1.0 ), 0.0, 1.0 );
+            if ( fade < faded )
                 return;
 
             // UE FGrassBuilderBase::GetRandomScale (Z is up, the engine's Y).
-            uint  flags   = floatBitsToUint( p.ScaleX.w );
             float maxBias = ( flags & kFlagWeightAttenuates ) != 0u ? mix( 1.0 - p.Range.z, 1.0, weight ) : 1.0;
             float rx      = Fraction( state ) * maxBias;
             float ry      = Fraction( state ) * maxBias;
@@ -158,6 +189,7 @@ Shader "GrassGenerate"
             else
                 scale = vec3( mix( p.ScaleX.x, p.ScaleX.y, rx ), mix( p.ScaleZ.x, p.ScaleZ.y, rz ),
                               mix( p.ScaleX.x, p.ScaleX.y, rx ) );
+            scale *= 1.0 - faded;
 
             // Inside the view's side planes, by the instance's bounding sphere.
             float radius = p.Range.w * max( scale.x, max( scale.y, scale.z ) );
@@ -167,28 +199,9 @@ Shader "GrassGenerate"
                     return;
 
             float yaw = ( flags & kFlagRandomRotation ) != 0u ? Fraction( state ) * 6.28318530718 : 0.0;
-            bool  blade = ( flags & kFlagBlade ) != 0u;
             vec3  draws = vec3( 0.0 );
             if ( blade )
             {
-                // The nearest clump point of the 3x3 clump cells around the blade.
-                vec2  clumpCell = floor( world / p.Blade.y );
-                float best      = 3.0e38;
-                uint  clumpSeed = 0u;
-                for ( int dz = -1; dz <= 1; ++dz )
-                    for ( int dx = -1; dx <= 1; ++dx )
-                    {
-                        ivec2 c  = ivec2( clumpCell ) + ivec2( dx, dz );
-                        uint  h  = Hash( uint( c.x ) * 0x27d4eb2du ^ uint( c.y ) * 0x165667b1u ^ ( p.Info.w * 0x9e3779b9u ) );
-                        uint  hs = h;
-                        vec2  at = ( vec2( c ) + vec2( Fraction( hs ), Fraction( hs ) ) ) * p.Blade.y;
-                        float d  = dot( at - world, at - world );
-                        if ( d < best )
-                        {
-                            best      = d;
-                            clumpSeed = h;
-                        }
-                    }
                 float clumpYaw    = Fraction( clumpSeed ) * 6.28318530718;
                 float clumpHeight = mix( 0.7, 1.3, Fraction( clumpSeed ) );
                 float clumpTint   = Fraction( clumpSeed );
