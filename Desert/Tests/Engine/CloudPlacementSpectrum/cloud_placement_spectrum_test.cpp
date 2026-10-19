@@ -153,7 +153,7 @@ namespace
                                                           ( static_cast<float>( z ) + 0.5f ) * voxel );
                 const size_t    at    = static_cast<size_t>( z ) * side + x;
                 map[at] =
-                     CloudProceduralColumnKept( bake, side, x, z, CloudProceduralLocalWeathers( params, world ) )
+                     CloudProceduralColumnKept( bake, side, x, z, CloudProceduralLocalWeathers( params, world ), params.Coverage )
                           ? 1.0f
                           : 0.0f;
             }
@@ -3556,7 +3556,7 @@ TEST( CloudPlacementSpectrum, TheHorizonGapsAreNotClosedByTheRegionsRepeat )
             ++crossed;
             if ( !CloudProceduralColumnKept( baked.GetValue(), static_cast<uint32_t>( side ),
                                              static_cast<uint32_t>( x ), static_cast<uint32_t>( z ),
-                                             CloudProceduralLocalWeathers( params, world ) ) )
+                                             CloudProceduralLocalWeathers( params, world ), params.Coverage ) )
                 ++clear;
         }
     }
