@@ -335,7 +335,8 @@ namespace Desert::Migration
     //       (MigrateGIMethodLadderV63ToV64). v59..v63 are Windows' steps. Scenes and prefabs alike.
     inline constexpr int kSceneVersionGIMethodLadder = 64;
 
-    //  65 - THE DISPLAY TRANSFER IS THE sRGB OETF (RENDER-LOOK round 05). The composite encodes with the sRGB curve,
+    //  65 - THE DISPLAY TRANSFER IS THE sRGB OETF (RENDER-LOOK round 05). The composite encodes with the sRGB
+    //  curve,
     //       as UE does for its sRGB output device (GammaCorrectionCommon.ush LinearToSrgb), in place of
     //       pow(1 / Gamma): the transfer belongs to the display, not to a volume's look, so
     //       Core::PostProcessSettings lost Gamma. Every stated PostProcessVolume.Settings.Gamma - a record's and a

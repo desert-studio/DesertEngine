@@ -68,8 +68,12 @@ namespace Desert::Graphic::System
         void Resize( uint32_t width, uint32_t height );
 
         // Tonemap parameters, refreshed from SceneSettings each frame (SceneRenderer::BeginScene).
-        // The display transfer is not a parameter: the composite encodes with the sRGB OETF (SceneComposite.shader).
-        void SetParams( float exposure ) { m_Exposure = exposure; }
+        // The display transfer is not a parameter: the composite encodes with the sRGB OETF
+        // (SceneComposite.shader).
+        void SetParams( float exposure )
+        {
+            m_Exposure = exposure;
+        }
 
         // The scene's tonemapping curve. ACES is the default and the one the sky programme measures
         // against a UE frame; Reinhard is what every scene authored before 2026-08-19 was graded on.

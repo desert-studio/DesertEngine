@@ -33,7 +33,7 @@ namespace Desert::Graphic
         // through RDG::PassBindings, never here.
         void BindValues( const Params& params );
 
-        MPROPERTY( float, Exposure,            "u_Exposure",            1.0f )
+        MPROPERTY( float, Exposure, "u_Exposure", 1.0f )
         MPROPERTY( float, BloomIntensity,      "u_BloomIntensity",      0.0f )
         MPROPERTY( float, ExposureKey,         "u_ExposureKey",         0.18f )
         MPROPERTY( float, AutoExposureEnabled, "u_AutoExposureEnabled", 0.0f )

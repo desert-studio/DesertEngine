@@ -11,3 +11,12 @@ One gap per round. Everything else waits here with the round it was seen in.
 - [01] display transfer: pow(1/Gamma) instead of the sRGB OETF in SceneComposite (dark tones lifted differently than UE's sRGB encode).
 - [01] FIELD_Barn runs GI method 2 (ScreenSpace) -> no traced GI; SSAO is the only ambient occlusion in this scene (GTAO change matters most here).
 - [01] sun on the floor under grass: blades sub-texel in the cascades + content density; screen-space contact shadows would catch them but FIELD_Barn has ContactShadows false (content). Not chased.
+
+## Closed / judged in rounds 04-05 (RENDER-LOOK-2)
+- [01] specular occlusion -> round 04 REFUSED (invisible, <0.3/255 mean; patch kept in scratch r04_specular_occlusion.patch).
+- [01] display transfer -> round 05 IMPROVED (sRGB OETF, scene v65).
+- GTAO spatial/temporal filters (REMAINDER gap 3): not a round - FIELD_Barn runs TAA (GpuOrder log: "TemporalAA" after the
+  composite), and no 4x4 AO noise is visible in any r04/r05 view. Closes a visible gap only on a non-TAA path (MSAA/FXAA/None).
+
+## Seen in round 05 (r05 frames)
+- [05] barn's shaded wall: one value per face still (sky light flat) - same as [01]; now darker, not more modelled.
