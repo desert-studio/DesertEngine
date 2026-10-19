@@ -1182,6 +1182,11 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Range" ), Category( "Light" ), Range( 0.0f, 10000.0f ), Length, Summary )
         float Range = 1500.0f;
 
+        // Inner radius where attenuation == 1 (the point light's Min Radius); falloff runs from here to Range.
+        // 0 = point source. An imported FBX spot sets 100 cm, so InverseSquare reads Intensity / d^2 in metres.
+        PROPERTY( DisplayName( "Min Radius" ), Category( "Light" ), Range( 0.0f, 10000.0f ), Length, Advanced )
+        float MinRadius = 0.0f;
+
         PROPERTY( DisplayName( "Inner Cone" ), Category( "Light" ), Range( 0.0f, 89.0f ), Units( "deg" ) )
         float InnerConeAngle = 20.0f; // degrees — full intensity inside this half-angle
 

@@ -645,6 +645,7 @@ namespace
          { "Color", kSpotLight },
          { "Intensity", kSpotLight },
          { "Range", kSpotLight },
+         { "MinRadius", kSpotLight },
          { "InnerConeAngle", kSpotLight },
          { "OuterConeAngle", kSpotLight },
          { "Falloff", kSpotLight },

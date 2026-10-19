@@ -382,6 +382,30 @@ namespace Desert::Editor
         return BOOLSUCCESS;
     }
 
+    namespace
+    {
+        // THE SOURCE'S LIGHTS GO DOWN WITH IT (BISTRO-LIGHTS; UE FbxSceneImport places the file's light actors
+        // beside its meshes): one light entity per light its record states, under the placed root.
+        void PlaceRecordedLights( ::Desert::Core::Scene& scene, const uint64_t rootId,
+                                  const std::string& sourcePath )
+        {
+            auto ref = scene.FindEntityByID( Common::UUID( rootId ) );
+            if ( !ref )
+                return; // the pending root was undone before the import finished
+            const auto record = Assets::Serialization::ReadImportRecord( sourcePath );
+            if ( !record )
+            {
+                LOG_ERROR( "[Viewport] '{}': its lights are not placed: {}", sourcePath, record.GetError() );
+                return;
+            }
+            const auto& stated = record.GetValue();
+            if ( !stated || !stated->Lights )
+                return;
+            const auto placed = PlaceSourceLights( scene, ref->get(), *stated->Lights );
+            LOG_INFO( "[Viewport] '{}': placed {} light(s) the file states", sourcePath, placed.size() );
+        }
+    } // namespace
+
     void ViewportPanel::UpdateAsyncLoads()
     {
         if ( !m_AsyncLoader || !m_AssetManager )
@@ -403,6 +427,7 @@ namespace Desert::Editor
             if ( !resolved.Nodes.empty() )
             {
                 PlaceSplitSource( done.UserData, done.SourcePath, resolved.Nodes, dropTarget );
+                PlaceRecordedLights( *m_Scene, done.UserData, done.SourcePath );
                 continue;
             }
             if ( resolved.Handle.IsNull() )
@@ -444,6 +469,7 @@ namespace Desert::Editor
                               Runtime::ResourceRegistry::GetMeshService()->GetAsset( resolved.Handle ) )
                         transform.Translation = ActorDrop::PlacedOrigin(
                              *dropTarget, Geometry::LocalBounds( meshAsset->GetSubmeshes() ), transform.Scale );
+                PlaceRecordedLights( *m_Scene, done.UserData, done.SourcePath );
             }
         }
 
