@@ -168,7 +168,8 @@ namespace Desert::Graphic::System
         const uint32_t buckets     = variety.Blade ? static_cast<uint32_t>( submeshes.size() ) : 1u;
         const float    lodDistance = variety.Blade ? variety.Blade->LodDistance : 0.0f;
         // The nearest clump point lies within the 3x3 clump cells around the blade: at most 2 * sqrt(2) cells off.
-        const double moved = variety.Blade ? 2.0 * 1.41421356 * variety.Blade->ClumpSize * variety.Blade->ClumpPull : 0.0;
+        const double moved =
+             variety.Blade ? 2.0 * 1.41421356 * variety.Blade->ClumpSize * variety.Blade->ClumpPull : 0.0;
         // Every cell whose jittered instance can lie within its bucket's ring of the cull radius.
         std::vector<uint32_t> capacities( buckets );
         uint32_t              capacity = 0;
@@ -276,9 +277,9 @@ namespace Desert::Graphic::System
              buckets,
              static_cast<uint32_t>( GpuInstanceArgsOffset( static_cast<uint32_t>( submeshes.size() ) ) / 4u ), 0u,
              0u );
-        params.Blade = variety.Blade
-                            ? glm::vec4( lodDistance, variety.Blade->ClumpSize, variety.Blade->Clumping, variety.Blade->ClumpPull )
-                            : glm::vec4( 0.0f );
+        params.Blade = variety.Blade ? glm::vec4( lodDistance, variety.Blade->ClumpSize, variety.Blade->Clumping,
+                                                  variety.Blade->ClumpPull )
+                                     : glm::vec4( 0.0f );
         if ( const auto wrote = gpu.Params->SetData( &params, sizeof( params ) ); !wrote.IsSuccess() )
         {
             LOG_ERROR( "[Grass] the variety's parameters were not written: {}", wrote.GetError() );

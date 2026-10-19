@@ -62,8 +62,9 @@ namespace Desert::Assets::Serialization
                     const bool        finite = std::isfinite( b.Height ) && std::isfinite( b.Width ) &&
                                         std::isfinite( b.Taper ) && std::isfinite( b.Curvature ) &&
                                         std::isfinite( b.Stiffness ) && std::isfinite( b.DryTipShare ) &&
-                                        std::isfinite( b.DryTipLength ) && std::isfinite( b.Clumping ) && std::isfinite( b.ClumpPull ) &&
-                                        std::isfinite( b.ClumpSize ) && std::isfinite( b.LodDistance );
+                                        std::isfinite( b.DryTipLength ) && std::isfinite( b.Clumping ) &&
+                                        std::isfinite( b.ClumpPull ) && std::isfinite( b.ClumpSize ) &&
+                                        std::isfinite( b.LodDistance );
                     if ( !finite || !( b.Height > 0.0f ) || !( b.Width > 0.0f ) || !( b.ClumpSize > 0.0f ) ||
                          !( b.LodDistance > 0.0f ) )
                         return Common::MakeFormattedError<bool>( "grass variety {} (Blade): Height {}, Width {}, "
