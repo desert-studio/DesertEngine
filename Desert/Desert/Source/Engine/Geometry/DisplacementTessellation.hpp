@@ -147,9 +147,13 @@ namespace Desert::Geometry
         uint32_t                Weights                                      = 0; // B0 | B1 << 16
         uint32_t                SampleOffset                                 = 0;
         uint32_t                SampleCount                                  = 0;
-        bool                    operator==( const DisplacementPoint& ) const = default;
+        // The level its height is sampled at (the texture mip matches the diced edge): the cluster's level inside
+        // a triangle, the welded edge's (or welded vertex's) highest touching level on a border - so the record,
+        // and therefore the displaced position, is identical in every cluster that emits it.
+        uint32_t Level = 0;
+        bool     operator==( const DisplacementPoint& ) const = default;
     };
-    static_assert( sizeof( DisplacementPoint ) == 24 );
+    static_assert( sizeof( DisplacementPoint ) == 28 );
 
     // A height sample: the material of triangle Triangle's submesh, at barycentrics b0 | b1 << 16 in that
     // triangle's corner order (UV, channel and transform from the triangle's own vertices).

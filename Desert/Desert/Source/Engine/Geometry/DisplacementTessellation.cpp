@@ -642,11 +642,34 @@ namespace Desert::Geometry
                 else
                     m_Out.Samples.push_back( { m_Triangle, b[0] | ( b[1] << 16 ) } );
                 point.SampleCount = static_cast<uint32_t>( m_Out.Samples.size() ) - point.SampleOffset;
+                point.Level       = PointLevel( b, count, point.Welds[0] );
 
                 const uint32_t index = static_cast<uint32_t>( m_Out.Points.size() );
                 m_Out.Points.push_back( point );
                 m_Points.emplace( key, index );
                 return index;
+            }
+
+            uint32_t PointLevel( const Barycentric& b, uint32_t count, uint32_t weld ) const
+            {
+                if ( count == 3 )
+                    return m_Levels[m_Cluster];
+                if ( count == 2 )
+                {
+                    // The two non-zero corners span the source edge opposite the zero one.
+                    for ( uint32_t k = 0; k < 3; ++k )
+                        if ( b[k] == 0 )
+                        {
+                            Barycentric a{}, c{};
+                            a[( k + 1 ) % 3] = kBarycentricMax;
+                            c[( k + 2 ) % 3] = kBarycentricMax;
+                            return EdgeLevel( a, c );
+                        }
+                }
+                uint32_t level = m_Levels[m_Cluster];
+                for ( uint32_t i = m_Topology.WeldCornerOffset[weld]; i < m_Topology.WeldCornerOffset[weld + 1]; ++i )
+                    level = std::max<uint32_t>( level, m_Levels[m_Topology.TriangleCluster[m_Topology.WeldCorners[i] / 3]] );
+                return level;
             }
 
             static uint32_t Pack( const Barycentric& b )

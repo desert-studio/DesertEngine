@@ -5,6 +5,7 @@
 #include <Engine/Graphic/VertexBuffer.hpp>
 #include "Errors/MeshError.hpp"
 #include "MeshTypes.hpp"
+#include <Engine/Geometry/DisplacementTessellation.hpp>
 #include <Engine/Geometry/LODSelection.hpp>
 
 #include <Common/Core/ResultWithCodes.hpp>
@@ -84,6 +85,19 @@ namespace Desert
         void SetRayTracingGeometry( std::shared_ptr<Graphic::RayTracing::RayTracingGeometryResource> geometry )
         {
             m_RayTracingGeometry = std::move( geometry );
+        }
+
+        // THE MESH'S DISPLACEMENT TOPOLOGY (Geometry/DisplacementTessellation.hpp): welded LOD0, clusters, built at
+        // cook from the render data and attached by the loader when a section's material declares a Height and the
+        // asset's displacement mode is Runtime; null otherwise. DisplacementCache tessellates from it - the CPU
+        // vertex data is not kept by the mesh, so the topology is the displaced path's only source.
+        [[nodiscard]] const std::shared_ptr<const Geometry::DisplacementTopology>& GetDisplacementTopology() const
+        {
+            return m_DisplacementTopology;
+        }
+        void SetDisplacementTopology( std::shared_ptr<const Geometry::DisplacementTopology> topology )
+        {
+            m_DisplacementTopology = std::move( topology );
         }
 
         [[nodiscard]] virtual Common::BoolResultWithCodes<MeshError> Invalidate() = 0;
@@ -171,5 +185,6 @@ namespace Desert
         std::vector<Submesh>                    m_Submeshes;
         std::shared_ptr<const Assets::MeshDistanceFieldSlot> m_DistanceField;
         std::shared_ptr<const Assets::MeshCardsSlot>         m_Cards;
+        std::shared_ptr<const Geometry::DisplacementTopology> m_DisplacementTopology;
     };
 } // namespace Desert
