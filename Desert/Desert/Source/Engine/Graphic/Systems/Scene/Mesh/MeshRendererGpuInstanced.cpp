@@ -131,7 +131,7 @@ namespace Desert::Graphic::System
                 continue;
 
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[c] );
+                              m_CascadeCasterBias[c], m_ParallaxQuality );
             BindGpuInstancedBuffers( *caster, gpu );
             std::vector<glm::vec4> rows;
             const uint32_t         row = AppendRow( rows, EffectiveRow( parent, gpu.Material.get() ) );

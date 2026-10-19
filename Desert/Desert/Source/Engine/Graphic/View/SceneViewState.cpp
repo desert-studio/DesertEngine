@@ -18,6 +18,23 @@ namespace Desert::Graphic
                    a.Dim == b.Dim && a.Samples == b.Samples;
         }
 
+        // Bytes of one texture of @p desc: every mip of every layer, every sample.
+        [[nodiscard]] uint64_t TextureBytes( const RDG::TextureDesc& desc )
+        {
+            uint64_t bytes  = 0;
+            uint32_t width  = desc.Size.Width;
+            uint32_t height = desc.Size.Height;
+            uint32_t depth  = desc.Size.Depth;
+            for ( uint32_t mip = 0; mip < desc.Mips; ++mip )
+            {
+                bytes += Core::Formats::CalculateImageSize( width, height, desc.Format ) * depth;
+                width  = std::max( 1u, width / 2 );
+                height = std::max( 1u, height / 2 );
+                depth  = desc.Dim == RDG::TextureDim::Tex3D ? std::max( 1u, depth / 2 ) : depth;
+            }
+            return bytes * desc.Layers * desc.Samples;
+        }
+
         [[nodiscard]] bool IsFinite( const glm::mat4& m )
         {
             for ( int c = 0; c < 4; ++c )

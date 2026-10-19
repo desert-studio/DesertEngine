@@ -355,9 +355,9 @@ namespace Desert::Graphic::System
                     if ( !layers.ArrayNames[kind].empty() && layers.Arrays[kind] &&
                          !surface->SetTexture( layers.ArrayNames[kind], layers.Arrays[kind].get() ) )
                         LogRefusedTextureOverride( surface->GetShaderName(), layers.ArrayNames[kind] );
-                surface->SetTexture( "u_Heightmap", t.Heightmap );
-                materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap );
-                materials.VirtualShadow->SetTexture( "u_Heightmap", t.Heightmap );
+                surface->SetTexture( "u_Heightmap", t.Heightmap.get() );
+                materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap.get() );
+                materials.VirtualShadow->SetTexture( "u_Heightmap", t.Heightmap.get() );
                 if ( t.Weights.Weightmap != nullptr )
                 {
                     surface->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
