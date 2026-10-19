@@ -620,8 +620,6 @@ namespace Desert::Graphic
             // without local lights has none to add): black adds no local light, never the unshadowed grid loop.
             shadow.MegaLightsLocalLights = LocalLightsAreStochastic();
         }
-        inputs.MegaLightsDiffuse  = megaLights.Diffuse.IsValid() ? megaLights.Diffuse : refs.System.Black;
-        inputs.MegaLightsSpecular = megaLights.Specular.IsValid() ? megaLights.Specular : refs.System.Black;
         else if ( meshRenderer != nullptr )
             shadow.Sun = DeferredCascadeShadow{ .CascadeVP            = meshRenderer->GetCascadeViewProj(),
                                                 .Count                = meshRenderer->GetValidCascadeCount(),
@@ -629,6 +627,8 @@ namespace Desert::Graphic
                                                 .CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel(),
                                                 .CascadeDepthRange    = meshRenderer->GetCascadeDepthRange(),
                                                 .SourceTanHalf        = meshRenderer->GetSunSourceTanHalf() };
+        inputs.MegaLightsDiffuse  = megaLights.Diffuse.IsValid() ? megaLights.Diffuse : refs.System.Black;
+        inputs.MegaLightsSpecular = megaLights.Specular.IsValid() ? megaLights.Specular : refs.System.Black;
         // The composite marches the G-buffer depth, so its view always has one (GetContactShadowSettings).
         shadow.Contact                       = GetContactShadowSettings( frame, true );
         shadow.Filter                        = GetShadowFilterSettings();
