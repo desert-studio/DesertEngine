@@ -1,13 +1,12 @@
 // DesertAsset {"Kind":"Shader","Guid":"a1ace64b6cb84e3588046ff8d330f5aa","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "SSDTemporalAccumulation"
 {
-    // The screen-space denoiser's TEMPORAL ACCUMULATION, every signal (UE SSDTemporalAccumulation.usf).
+    // The screen-space denoiser's TEMPORAL ACCUMULATION of the reflections (UE SSDTemporalAccumulation.usf).
     //  1) REPROJECTION. The history is read where the pixel's signal was last frame. For reflections that is the
     //     REFLECTED point (UE's reflection reprojection): what lies d beyond the surface along the view ray (the
     //     virtual image a mirror forms; d = the coverage-weighted distance to the hit points of the 2x2 trace
     //     texels nearest the pixel, u_Trace / u_TraceRay), projected through last frame's camera - a reflection
-    //     stays on what it reflects while the camera moves; with nothing hit, the point at infinity. For diffuse
-    //     light d = 0: the surface point itself. The surface's own motion (its velocity less the camera's share)
+    //     stays on what it reflects while the camera moves; with nothing hit, the point at infinity. The surface's own motion (its velocity less the camera's share)
     //     is added, so a moving surface carries its signal.
     //  2) REJECTION (UE HISTORY_REJECTION_VAR_BOUNDARIES): the history is clamped, in luma/chroma (YCoCg) and
     //     coverage, to the mean +- 1.25 standard deviations of this frame's neighbourhood (5x5, 2 px apart); the further the
@@ -16,7 +15,7 @@ Shader "SSDTemporalAccumulation"
     //  3) ACCUMULATION BY SAMPLE COUNT (UE TargetedSampleCount): the history carries how many frames it holds
     //     (u_HistoryCount); a frame adds one, and the history may keep at most the target - 1. Reflections target
     //     the specular lobe's footprint in pixels (a sharp lobe needs few samples, a mirror's would be one - it
-    //     cannot average what it does not blur), floored at u_Params.w; diffuse light targets u_Params.z.
+    //     cannot average what it does not blur), floored at u_Params.z and capped at u_Params.y.
     //     new = (history * kept + current) / (kept + 1); count = kept + 1.
     // Everything is premultiplied (rgb * a, a) - Common/ScreenSpaceDenoise.glslh.
 
@@ -45,8 +44,8 @@ Shader "SSDTemporalAccumulation"
 
         PushConstant PushConstants
         {
-        	// x = 1 when u_History holds the view's previous frame, y = signal (kSSDSignal*),
-        	// z = the most frames a history may hold, w = the fewest a reflection targets
+        	// x = 1 when u_History holds the view's previous frame, y = the most frames a history may hold,
+        	// z = the fewest a reflection targets, w unused
         	vec4 u_Params;
         };
 
@@ -74,8 +73,7 @@ Shader "SSDTemporalAccumulation"
         	const ivec2 pixel    = ivec2(gl_GlobalInvocationID.xy);
         	if (pixel.x >= viewSize.x || pixel.y >= viewSize.y)
         		return;
-        	const int signal = int(u_Params.y + 0.5);
-        	if (!SSDPixelHasSignal(signal, texelFetch(u_GBufferNormal, pixel, 0)))
+        	if (!SSDPixelHasSignal(texelFetch(u_GBufferNormal, pixel, 0)))
         	{
         		imageStore(u_NewHistory, pixel, vec4(0.0));
         		imageStore(u_NewHistoryCount, pixel, vec4(0.0));
@@ -110,16 +108,12 @@ Shader "SSDTemporalAccumulation"
         	const vec3         V    = SSDViewVector(uv, ref.Position, u_InvJitteredViewProjection);
 
         	// --- The targeted sample count. ---
-        	float target = u_Params.z;
-        	if (signal == kSSDSignalReflections)
-        	{
-        		const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(u_GBufferDepth, pixel, 0).r, ref.Position,
-        		                                              1.0 / size, u_InvJitteredViewProjection);
-        		const vec3  nearPoint   = ReconstructWorldPosition(uv, 1.0, u_InvJitteredViewProjection);
-        		const vec2  radii       = SSDLobePixelRadii(ref.Roughness, abs(dot(ref.Normal, V)), pixelRadius,
-        		                                            distance(nearPoint, ref.Position));
-        		target = clamp(kSSDPi * radii.x * radii.y, u_Params.w, u_Params.z);
-        	}
+        	const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(u_GBufferDepth, pixel, 0).r, ref.Position,
+        	                                              1.0 / size, u_InvJitteredViewProjection);
+        	const vec3  nearPoint   = ReconstructWorldPosition(uv, 1.0, u_InvJitteredViewProjection);
+        	const vec2  radii       = SSDLobePixelRadii(ref.Roughness, abs(dot(ref.Normal, V)), pixelRadius,
+        	                                            distance(nearPoint, ref.Position));
+        	const float target      = clamp(kSSDPi * radii.x * radii.y, u_Params.z, u_Params.y);
 
         	// --- Reprojection: the reflected point (d = 0: the surface) plus the surface's own motion. ---
         	float historyCount = 0.0;
@@ -143,7 +137,7 @@ Shader "SSDTemporalAccumulation"
         				}
         			d = aSum > 0.0 ? dSum / aSum : 0.0;
         		}
-        		const vec4  reflected = signal == kSSDSignalReflections && current.a <= 0.0
+        		const vec4  reflected = current.a <= 0.0
         		                             ? vec4(-V, 0.0)
         		                             : vec4(ref.Position - V * d, 1.0);
         		vec2 surfaceNow, surfacePrev, reflectedPrev;

@@ -256,6 +256,62 @@ namespace Desert::Graphic
         uint32_t                                           m_WriterPass   = UINT32_MAX;
     };
 
+    // ---- THE VIEW'S SCREEN PROBE GATHER HISTORY (UE: FSceneViewState::Lumen.ScreenProbeGatherState) ---------
+    // The screen probe gather's temporal filter (GlobalIllumination::ScreenProbeGather, UE
+    // ScreenProbeTemporalReprojectionCS) accumulates the integrated diffuse, rough specular and backface diffuse
+    // of every pixel over frames. That accumulation is a view history: two scene views drawing one scene each
+    // reproject through their own previous frame, so it is owned here, never by the gather. The protocol is
+    // VolumetricCloudHistory's: last frame's set REGISTERED into the graph, this frame's set a TRANSIENT of the
+    // graph the temporal pass writes and the composite reads, EXTRACTED into the view after the frame; a frame
+    // without the pass (GI off, another method, the pass lost to a fault) drops the history, because the next
+    // frame's previous matrices describe this frame and nothing older. A camera cut or a teleport is the view's
+    // HistoryReset (ViewInputs::CameraCut): the pass reads ViewFrame::HistoryValid with RegisterPrevious, as the
+    // clouds do.
+    class ScreenProbeGatherHistory
+    {
+    public:
+        enum Texture : uint32_t
+        {
+            DiffuseIndirect = 0,     // rgb = irradiance / pi, a = the pixel's distance to the camera (cm)
+            RoughSpecularIndirect,   // rgb = radiance, a = 1
+            BackfaceDiffuseIndirect, // rgb = irradiance / pi from -N, a = 1
+            Guide,                   // xyz = world normal, w = frames accumulated (UE NumFramesAccumulated)
+            TextureCount
+        };
+        using Refs = std::array<RDG::TextureRef, TextureCount>;
+
+        // One texture of the set at @p extent (the G-buffer's): kGIFinalGather, the guide kGIFinalGatherGuide.
+        [[nodiscard]] static RDG::TextureDesc Desc( Texture texture, ViewExtent extent );
+
+        // Last frame's set at @p extent, registered into @p graph as "ScreenProbes.<name>.Previous"; every ref
+        // invalid when there is none (first frame, Reset, a frame without the temporal pass or with it lost to a
+        // fault, another extent). At most one call per graph, before CreateCurrent.
+        [[nodiscard]] Refs RegisterPrevious( RDG::Builder& graph, ViewExtent extent );
+        // This frame's set: transients of @p graph ("ScreenProbes.<name>") extracted into the view for the next
+        // frame. At most one call per graph.
+        [[nodiscard]] Refs CreateCurrent( RDG::Builder& graph, ViewExtent extent );
+        // The AddPass index of the temporal pass that writes the set (Builder::GetPassCount() before its
+        // AddPass), whose loss EndFrame checks. Not called -> the set counts as unwritten.
+        void SetWriterPass( uint32_t writerPass );
+
+        // After Execute succeeded: the extracted set becomes the previous one when its writer survived (@p
+        // report); otherwise, and when this frame created none, the next frame has no previous.
+        void EndFrame( const RDG::ExecuteReport& report );
+        void Reset();
+
+        [[nodiscard]] uint64_t HeldBytes() const;
+
+    private:
+        // [slot][Texture]
+        std::array<std::array<RDG::ExternalTexture, TextureCount>, 2> m_Slots;
+        ViewExtent                                                    m_PreviousExtent{};
+        ViewExtent                                                    m_CurrentExtent{};
+        uint32_t                                                      m_PreviousSlot = 0;
+        bool                                                          m_HasPrevious  = false;
+        bool                                                          m_Created      = false;
+        uint32_t                                                      m_WriterPass   = UINT32_MAX;
+    };
+
     // ---- Temporal history ------------------------------------------------------------------------------------
     //
     // The textures a temporal method carries from frame to frame, owned here as RDG externals and registered into
@@ -350,6 +406,8 @@ namespace Desert::Graphic
 
         [[nodiscard]] VolumetricCloudHistory&       Clouds();
         [[nodiscard]] const VolumetricCloudHistory& Clouds() const; // HeldBytes: SceneRenderer::HeldBytes
+        [[nodiscard]] ScreenProbeGatherHistory&       ScreenProbeGather();
+        [[nodiscard]] const ScreenProbeGatherHistory& ScreenProbeGather() const; // HeldBytes: SceneRenderer
         [[nodiscard]] TemporalHistory& History();
         [[nodiscard]] MotionHistory&   Motion();
 
@@ -366,7 +424,8 @@ namespace Desert::Graphic
         [[nodiscard]] uint64_t HeldBytes() const;
 
     private:
-        VolumetricCloudHistory m_Clouds;
+        VolumetricCloudHistory   m_Clouds;
+        ScreenProbeGatherHistory m_ScreenProbeGather;
 
         bool            m_HasCommitted = false;
         ViewFrame       m_Pending;                     // returned by the last BeginFrame, committed by EndFrame

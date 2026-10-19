@@ -1,6 +1,6 @@
 // DesertAsset {"Kind":"Shader","Guid":"ad572b5fc8784311a2fcc5a2d28adc9a","Versions":{"SHDR":1},"Dependencies":[]}
-// THE SCREEN PROBE GATHER, 4/4 — INTEGRATE (UE ScreenProbeIntegrateCS + the gather's temporal filter,
-// LumenScreenProbeGather.usf): one thread per G-buffer pixel.
+// THE SCREEN PROBE GATHER, 4/4 — INTEGRATE (UE ScreenProbeIntegrateCS, LumenScreenProbeGather.usf): one thread per
+// G-buffer pixel; the temporal filter that follows it is ScreenProbeTemporal.
 //   probes    the four uniform probes around the pixel, bilinear x how well each lies on the pixel's plane and
 //             faces its normal; a corner that misses takes the best adaptive probe of its tile (SPInterpolate, UE
 //             CalculateUpsampleInterpolationWeights). The placement put an adaptive probe wherever this test
@@ -27,10 +27,7 @@
 //             (ScreenProbeFilter) under the same weights, the radiance cache's at -N where no probe holds the pixel:
 //             the composite lets it through a two-sided leaf times its SubsurfaceColor (UE
 //             TwoSidedFoliageBackfaceDiffuse, DiffuseIndirectComposite's BackfaceDiffuseIndirect);
-//   temporal  blended with the pixel's reprojected history while the history's distance to the camera matches
-//             the pixel's (UE r.Lumen.ScreenProbeGather.Temporal, ~10 frames).
-// Output: diffuse.rgb + .a = the pixel's distance to the camera (the next frame's history test), specular.rgb,
-// backface.rgb.
+// Output: diffuse.rgb + .a = the pixel's distance to the camera, specular.rgb, backface.rgb.
 Shader "ScreenProbeIntegrate"
 {
     Compute
@@ -65,8 +62,6 @@ Shader "ScreenProbeIntegrate"
         Uniform(5) sampler2D u_ScreenProbeFiltered;
         Uniform(6) sampler2D u_GBufferDepth;
         Uniform(7) sampler2D u_GBufferB;
-        Uniform(8) sampler2D u_ScreenProbeDiffuseHistory;
-        Uniform(9) sampler2D u_ScreenProbeSpecularHistory;
         layout(binding = 10, rgba16f) restrict writeonly uniform image2D u_ScreenProbeDiffuseOut;
         layout(binding = 11, rgba16f) restrict writeonly uniform image2D u_ScreenProbeSpecularOut;
         ReadBuffer(12) RadianceCacheParamsUB
@@ -87,7 +82,6 @@ Shader "ScreenProbeIntegrate"
         {
             vec4 screenProbeBackface[];
         };
-        Uniform(18) sampler2D u_ScreenProbeBackfaceHistory;
         layout(binding = 19, rgba16f) restrict writeonly uniform image2D u_ScreenProbeBackfaceOut;
         Uniform(20) sampler2D u_ShortRangeAO; // xyz = bent normal, w = AO (ScreenProbeShortRangeAO)
         #define SCREEN_PROBES_DECLARED
@@ -95,11 +89,6 @@ Shader "ScreenProbeIntegrate"
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #include <Common/RadianceCache.glslh>
-
-        // The history's share of a reprojected pixel (UE: about ten frames accumulated).
-        #define SP_HISTORY_WEIGHT 0.9
-        // The relative change of the distance to the camera above which the history is another surface.
-        #define SP_HISTORY_DISTANCE_TOLERANCE 0.05
 
         // UE r.Lumen.ScreenProbeGather.MaxRoughnessToEvaluateRoughSpecular (and ...ForFoliage), both 0.8, and the
         // 0.2 fade of RoughReflectionsDiffuseLerp (LumenScreenProbeTileClassication.ush): at and above 0.8 the rough
@@ -299,29 +288,6 @@ Shader "ScreenProbeIntegrate"
                     backface = back.rgb;
             }
 
-            // ---- Temporal: the pixel's surface in last frame's view.
-            if ( ( screenProbeParams.atlas.z & SP_FLAG_HISTORY_VALID ) != 0u )
-            {
-                const vec4 clip = screenProbeParams.prevViewProjection * vec4( p, 1.0 );
-                if ( clip.w > 0.0 )
-                {
-                    const vec2 ndc    = clip.xy / clip.w;
-                    const vec2 prevUV = vec2( ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5 );
-                    if ( all( greaterThanEqual( prevUV, vec2( 0.0 ) ) ) && all( lessThanEqual( prevUV, vec2( 1.0 ) ) ) )
-                    {
-                        const vec4  history  = textureLod( u_ScreenProbeDiffuseHistory, prevUV, 0.0 );
-                        const float expected = length( p - screenProbeParams.prevCamera.xyz );
-                        if ( history.a > 0.0 && abs( history.a - expected ) < SP_HISTORY_DISTANCE_TOLERANCE * expected )
-                        {
-                            diffuse  = mix( diffuse, history.rgb, SP_HISTORY_WEIGHT );
-                            specular = mix( specular, textureLod( u_ScreenProbeSpecularHistory, prevUV, 0.0 ).rgb,
-                                            SP_HISTORY_WEIGHT );
-                            backface = mix( backface, textureLod( u_ScreenProbeBackfaceHistory, prevUV, 0.0 ).rgb,
-                                            SP_HISTORY_WEIGHT );
-                        }
-                    }
-                }
-            }
             imageStore( u_ScreenProbeDiffuseOut, pixel, vec4( diffuse, distance ) );
             imageStore( u_ScreenProbeSpecularOut, pixel, vec4( specular, 1.0 ) );
             imageStore( u_ScreenProbeBackfaceOut, pixel, vec4( backface, 1.0 ) );

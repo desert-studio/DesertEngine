@@ -38,15 +38,16 @@
 
 // std430 — must match GlobalIllumination::ScreenProbeParamsPayload (128 bytes).
 struct ScreenProbeParams {
-    mat4  prevViewProjection; // last frame's (unjittered) view-projection: the integrate's history
+    mat4  prevViewProjection; // last frame's (unjittered) view-projection: the screen trace's reprojection
     vec4  prevCamera;         // xyz = last frame's camera (cm)
+    vec4  jitter;             // xy = this frame's jitter in NDC, zw = last frame's (the temporal filter's history)
     uvec4 grid;               // xy = level-0 grid, z = uniform probes, w = adaptive probe budget
     uvec4 atlas;              // x = probes per atlas row, y = frame index, z = SP_FLAG_* below,
                               // w = the probes' jitter in pixels (x | y << 16)
 };
 
 // ScreenProbeParams.atlas.z — must match GlobalIllumination::kScreenProbe* (ScreenProbeGather.hpp).
-#define SP_FLAG_HISTORY_VALID  1u // the history is this view's
+#define SP_FLAG_HISTORY_VALID  1u // the temporal filter's history set is this view's previous frame
 #define SP_FLAG_SHORT_RANGE_AO 2u // the ShortRangeAO pass ran this frame: the integrate reads its bent normal + AO
 #define SP_FLAG_SCREEN_TRACE   4u // the scene colour history holds the previous frame: the screen trace runs
 

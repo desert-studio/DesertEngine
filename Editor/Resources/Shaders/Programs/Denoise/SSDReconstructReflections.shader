@@ -64,7 +64,7 @@ Shader "SSDReconstructReflections"
         	const ivec2 grid  = textureSize(u_TileMask, 0);
         	const ivec2 tile  = min(ivec2(floor((vec2(pixel) + 0.5) * vec2(grid) / vec2(viewSize))), grid - 1);
         	const vec4  gb    = texelFetch(u_GBufferNormal, pixel, 0);
-        	if (texelFetch(u_TileMask, tile, 0).r < 0.5 || !SSDPixelHasSignal(kSSDSignalReflections, gb))
+        	if (texelFetch(u_TileMask, tile, 0).r < 0.5 || !SSDPixelHasSignal(gb))
         	{
         		imageStore(u_Signal, pixel, vec4(0.0));
         		return;

@@ -1,0 +1,95 @@
+#ifndef SCREEN_PROBE_TEMPORAL_GLSLH
+#define SCREEN_PROBE_TEMPORAL_GLSLH
+// THE SCREEN PROBE GATHER'S HISTORY REPROJECTION — ported from UE 5.8
+// Shaders/Private/StochasticLighting/StochasticLightingTileClassification.usf (the Lumen history taps: the 2x2
+// bilinear footprint, each tap kept by a depth test and a normal test) and
+// Shaders/Private/Lumen/LumenScreenProbeGatherTemporal.ush (the weighted average of the kept taps), adapted: the
+// taps are tested where they are read (UE packs their validity into PackedPixelData in a classification pass);
+// the history keeps the distance to its camera in DiffuseIndirectHistory.a and the normal in HistoryGuide.xyz,
+// not the view's depth / normal history; the previous position comes from the view's velocity (xy only, so the
+// depth test expects the distance of the CURRENT world position from last frame's camera, exact for static
+// surfaces). The constants are for every pass of the gather's denoiser; the functions need
+// SCREEN_PROBE_HISTORY_DECLARED, defined by ScreenProbeDisocclusion and ScreenProbeTemporal after they declare
+// screenProbeParams, giFrame, Velocity, DiffuseIndirectHistory and HistoryGuide.
+
+// UE r.Lumen.ScreenProbeGather.Temporal.MaxFramesAccumulated.
+#define SP_TEMPORAL_MAX_FRAMES_ACCUMULATED 10.0
+// UE r.Lumen.ScreenProbeGather.Temporal.DistanceThreshold: the relative change of the distance above which a
+// tap is another surface (raised at grazing angles and dithered, as UE does, for the jitter's depth change).
+#define SP_TEMPORAL_DISTANCE_THRESHOLD 0.01
+// UE r.Lumen.ScreenProbeGather.Temporal.NormalThreshold, 45 degrees.
+#define SP_TEMPORAL_NORMAL_COS_THRESHOLD 0.70710678
+// UE r.Lumen.ScreenProbeGather.SpatialFilter.DisocclusionMaxFrames / DisocclusionFraction: a pixel whose history
+// holds fewer frames is disoccluded; a probe whose tile has more than that fraction of them filters harder.
+#define SP_DISOCCLUSION_MAX_FRAMES 4.0
+#define SP_DISOCCLUSION_FRACTION 0.4
+
+#ifdef SCREEN_PROBE_HISTORY_DECLARED
+// The history's 2x2 bilinear footprint around a pixel's previous position: the top-left tap and each tap's
+// weight (00, 10, 01, 11), zero where the tap failed a test or left the screen.
+struct SPHistoryTaps
+{
+    ivec2 origin;
+    vec4  weights;
+};
+
+// @p p / @p n: the pixel's world position and normal; @p noise: a [0, 1) value of the pixel (UE RandomScalar).
+// No tap is kept when the history is not this view's previous frame (SP_FLAG_HISTORY_VALID).
+SPHistoryTaps SPHistoryReproject( ivec2 pixel, vec3 p, vec3 n, float noise )
+{
+    SPHistoryTaps taps;
+    taps.origin  = ivec2( 0 );
+    taps.weights = vec4( 0.0 );
+    if ( ( screenProbeParams.atlas.z & SP_FLAG_HISTORY_VALID ) == 0u )
+        return taps;
+    // The surface at the pixel's centre sits at its unjittered NDC (ndc - jitter); last frame it sat at that minus
+    // the velocity; the history pixel holding it was rasterised with last frame's jitter.
+    const vec2 extent    = giFrame.screen.xy;
+    const vec2 uv        = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
+    const vec2 ndc       = vec2( uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0 );
+    const vec2 prevNdc   = ndc - screenProbeParams.jitter.xy - texelFetch( Velocity, pixel, 0 ).xy +
+                           screenProbeParams.jitter.zw;
+    const vec2 prevPixel = vec2( prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * 0.5 ) * extent - 0.5;
+    taps.origin          = ivec2( floor( prevPixel ) );
+    const vec2 f         = prevPixel - vec2( taps.origin );
+    const vec4 bilinear  = vec4( ( 1.0 - f.x ) * ( 1.0 - f.y ), f.x * ( 1.0 - f.y ), ( 1.0 - f.x ) * f.y, f.x * f.y );
+
+    const float expected  = length( p - screenProbeParams.prevCamera.xyz );
+    const float noV       = clamp( dot( n, normalize( giFrame.camera.xyz - p ) ), 0.0, 1.0 );
+    const float threshold = expected * SP_TEMPORAL_DISTANCE_THRESHOLD * mix( 0.5, 1.5, noise ) / mix( 0.1, 1.0, noV );
+    for ( int k = 0; k < 4; ++k )
+    {
+        const ivec2 tap = taps.origin + ivec2( k & 1, k >> 1 );
+        if ( any( lessThan( tap, ivec2( 0 ) ) ) || any( greaterThanEqual( tap, ivec2( extent ) ) ) )
+            continue;
+        const float distance = texelFetch( DiffuseIndirectHistory, tap, 0 ).a;
+        const vec3  normal   = texelFetch( HistoryGuide, tap, 0 ).xyz;
+        if ( distance > 0.0 && abs( distance - expected ) < threshold &&
+             dot( normal, n ) >= SP_TEMPORAL_NORMAL_COS_THRESHOLD )
+            taps.weights[k] = bilinear[k];
+    }
+    return taps;
+}
+
+bool SPHistoryAnyValid( SPHistoryTaps taps )
+{
+    return dot( taps.weights, vec4( 1.0 ) ) > 0.0;
+}
+
+// The kept taps of @p history, averaged by their weights (UE WeightedAverage).
+vec4 SPHistoryAverage( sampler2D history, SPHistoryTaps taps )
+{
+    vec4 sum = vec4( 0.0 );
+    for ( int k = 0; k < 4; ++k )
+        if ( taps.weights[k] > 0.0 )
+            sum += taps.weights[k] * texelFetch( history, taps.origin + ivec2( k & 1, k >> 1 ), 0 );
+    return sum / max( dot( taps.weights, vec4( 1.0 ) ), 1e-5 );
+}
+
+// The frames the history accumulated at the pixel (UE HistoryNumFramesAccumulated): 0 where no tap is kept.
+float SPHistoryFrames( SPHistoryTaps taps )
+{
+    return SPHistoryAnyValid( taps ) ? SPHistoryAverage( HistoryGuide, taps ).w : 0.0;
+}
+#endif // SCREEN_PROBE_HISTORY_DECLARED
+#endif

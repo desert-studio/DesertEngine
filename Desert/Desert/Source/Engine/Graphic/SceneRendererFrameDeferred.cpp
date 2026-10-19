@@ -535,7 +535,17 @@ namespace Desert::Graphic
              screenTrace.SceneHistory.IsValid() ? screenTrace.SceneHistory : refs.System.Black;
         gather.SceneColorHistoryReadable =
              screenTrace.HZB.IsValid() && screenTrace.SceneHistory.IsValid() && screenTrace.SceneHistoryReadable;
-        const auto gathered = m_ScreenProbeGather->AddPasses( graph, import, gather );
+        // The temporal filter's reprojection and the view's own history (SceneViewState, never the gather's).
+        gather.Velocity         = t.Velocity;
+        gather.JitterNdc        = frame.JitterNdc;
+        gather.PrevJitterNdc    = frame.PrevJitterNdc;
+        gather.ViewHistoryValid = frame.HistoryValid();
+        gather.Black            = refs.System.Black;
+        // THE ONE DECISION POINT of the gather's denoiser: a temporal method that denoises the raw lighting signals
+        // itself (DLSS Ray Reconstruction) takes the integrate's output instead. No method of this renderer does,
+        // so the gather denoises.
+        gather.Denoise = true;
+        const auto gathered = m_ScreenProbeGather->AddPasses( graph, import, gather, m_ViewState.ScreenProbeGather() );
         if ( !gathered )
         {
             LOG_ERROR( "[SceneRenderer] ScreenProbes: {}", gathered.GetError() );

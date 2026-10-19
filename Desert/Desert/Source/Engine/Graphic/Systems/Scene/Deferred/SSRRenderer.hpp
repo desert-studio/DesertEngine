@@ -353,7 +353,7 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache      m_TracedLayout;
         std::shared_ptr<ComputePipeline>      m_TracedPipeline;
         GlobalIllumination::Pipeline          m_TracedFor{};
-        ScreenSpaceDenoiser                   m_Denoiser{ DenoiserSignal::Reflections };
+        ScreenSpaceDenoiser                   m_Denoiser;
 
         uint32_t m_FrameIndex = 0;
     };

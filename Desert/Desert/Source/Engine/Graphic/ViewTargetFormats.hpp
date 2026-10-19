@@ -82,9 +82,13 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr ImageFormat kDenoiserSignal      = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kDenoiserSampleCount = ImageFormat::R32F;
     // The traced GI's final gather, per pixel: diffuse irradiance and specular radiance (rgb), written by the
-    // screen probe gather (GlobalIllumination::ScreenProbeGather, a history pair each) or the irradiance field
-    // gather (GlobalIllumination::IrradianceFieldGather, graph transients), read by the deferred composite.
+    // screen probe gather (GlobalIllumination::ScreenProbeGather: its temporal filter's output, which the view
+    // keeps as the next frame's history, ScreenProbeGatherHistory) or the irradiance field gather
+    // (GlobalIllumination::IrradianceFieldGather, graph transients), read by the deferred composite.
     inline constexpr ImageFormat kGIFinalGather = ImageFormat::RGBA16F;
+    // The screen probe gather's temporal guide, per pixel (ScreenProbeGatherHistory): the world normal and the
+    // frames the history accumulated.
+    inline constexpr ImageFormat kGIFinalGatherGuide = ImageFormat::RGBA16F;
 
     // EVERY SHADOW MAP IS ONE DEPTH-ONLY D32F IMAGE (UE: the shadow depth pass writes depth and nothing else,
     // ShadowDepthPixelShader.usf). The cascades (two per cascade: the sampled map and its cache of static casters,

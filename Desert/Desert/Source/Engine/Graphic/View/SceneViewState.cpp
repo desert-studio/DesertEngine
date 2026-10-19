@@ -170,6 +170,112 @@ namespace Desert::Graphic
         return bytes;
     }
 
+    // ---- ScreenProbeGatherHistory ---------------------------------------------------------------------------
+
+    namespace
+    {
+        constexpr std::array<std::string_view, ScreenProbeGatherHistory::TextureCount> kScreenProbeHistoryNames{
+             "ScreenProbes.DiffuseIndirect", "ScreenProbes.RoughSpecularIndirect",
+             "ScreenProbes.BackfaceDiffuseIndirect", "ScreenProbes.HistoryGuide" };
+        constexpr std::array<std::string_view, ScreenProbeGatherHistory::TextureCount> kScreenProbePreviousNames{
+             "ScreenProbes.DiffuseIndirect.Previous", "ScreenProbes.RoughSpecularIndirect.Previous",
+             "ScreenProbes.BackfaceDiffuseIndirect.Previous", "ScreenProbes.HistoryGuide.Previous" };
+
+        using ScreenProbeHistorySet = std::array<RDG::ExternalTexture, ScreenProbeGatherHistory::TextureCount>;
+
+        [[nodiscard]] bool AnyMissing( const ScreenProbeHistorySet& set )
+        {
+            return std::ranges::any_of( set, []( const RDG::ExternalTexture& texture ) { return !texture.Physical; } );
+        }
+    } // namespace
+
+    RDG::TextureDesc ScreenProbeGatherHistory::Desc( const Texture texture, const ViewExtent extent )
+    {
+        return RDG::TextureDesc{ .Size   = { .Width = extent.Width, .Height = extent.Height },
+                                 .Format = texture == Guide ? ViewTargetFormats::kGIFinalGatherGuide
+                                                            : ViewTargetFormats::kGIFinalGather };
+    }
+
+    ScreenProbeGatherHistory::Refs ScreenProbeGatherHistory::RegisterPrevious( RDG::Builder&    graph,
+                                                                               const ViewExtent extent )
+    {
+        m_Created    = false;
+        m_WriterPass = UINT32_MAX;
+        std::array<RDG::ExternalTexture, TextureCount>& previous = m_Slots[m_PreviousSlot];
+        // Another extent is another view size: the set describes pixels that no longer exist.
+        if ( !m_HasPrevious || AnyMissing( previous ) || m_PreviousExtent.Width != extent.Width ||
+             m_PreviousExtent.Height != extent.Height )
+            return {};
+        Refs refs;
+        for ( uint32_t i = 0; i < TextureCount; ++i )
+            refs[i] = graph.RegisterExternal( previous[i], kScreenProbePreviousNames[i] );
+        return refs;
+    }
+
+    ScreenProbeGatherHistory::Refs ScreenProbeGatherHistory::CreateCurrent( RDG::Builder&    graph,
+                                                                            const ViewExtent extent )
+    {
+        // The other slot held the set of two frames ago, which nothing registers any more; emptied first so a frame
+        // whose extraction does not happen leaves no stale image in it.
+        std::array<RDG::ExternalTexture, TextureCount>& next = m_Slots[m_PreviousSlot ^ 1u];
+        next                                                 = {};
+        Refs current;
+        for ( uint32_t i = 0; i < TextureCount; ++i )
+        {
+            current[i] = graph.CreateTexture( Desc( static_cast<Texture>( i ), extent ), kScreenProbeHistoryNames[i] );
+            graph.Extract( current[i], next[i], RDG::Access::SampledCompute );
+        }
+        m_CurrentExtent = extent;
+        m_Created       = true;
+        m_WriterPass    = UINT32_MAX;
+        return current;
+    }
+
+    void ScreenProbeGatherHistory::SetWriterPass( const uint32_t writerPass )
+    {
+        m_WriterPass = writerPass;
+    }
+
+    void ScreenProbeGatherHistory::EndFrame( const RDG::ExecuteReport& report )
+    {
+        const bool created = std::exchange( m_Created, false );
+        const bool lost    = m_WriterPass == UINT32_MAX ||
+                          std::ranges::find( report.FaultCulled, m_WriterPass ) != report.FaultCulled.end();
+        const uint32_t next = m_PreviousSlot ^ 1u;
+        if ( !created || lost || AnyMissing( m_Slots[next] ) )
+        {
+            // No set of THIS frame: nothing older may be reprojected through the next frame's previous matrices.
+            // The memory goes with it (a view without the screen probe gather holds none).
+            m_Slots       = {};
+            m_HasPrevious = false;
+            return;
+        }
+        m_PreviousSlot   = next;
+        m_PreviousExtent = m_CurrentExtent;
+        m_HasPrevious    = true;
+    }
+
+    void ScreenProbeGatherHistory::Reset()
+    {
+        m_Slots          = {};
+        m_PreviousExtent = {};
+        m_CurrentExtent  = {};
+        m_PreviousSlot   = 0;
+        m_HasPrevious    = false;
+        m_Created        = false;
+        m_WriterPass     = UINT32_MAX;
+    }
+
+    uint64_t ScreenProbeGatherHistory::HeldBytes() const
+    {
+        uint64_t bytes = 0;
+        for ( const std::array<RDG::ExternalTexture, TextureCount>& slot : m_Slots )
+            for ( const RDG::ExternalTexture& texture : slot )
+                if ( texture.Physical )
+                    bytes += TextureBytes( texture.Desc );
+        return bytes;
+    }
+
     // ---- TemporalHistory ------------------------------------------------------------------------------------
 
     bool HistoryTextureDesc::operator==( const HistoryTextureDesc& other ) const
@@ -407,6 +513,16 @@ namespace Desert::Graphic
         return m_Clouds;
     }
 
+    ScreenProbeGatherHistory& SceneViewState::ScreenProbeGather()
+    {
+        return m_ScreenProbeGather;
+    }
+
+    const ScreenProbeGatherHistory& SceneViewState::ScreenProbeGather() const
+    {
+        return m_ScreenProbeGather;
+    }
+
     TemporalHistory& SceneViewState::History()
     {
         return m_History;
@@ -428,6 +544,7 @@ namespace Desert::Graphic
                                          : ( m_Committed.JitterIndex + 1 ) % m_Committed.JitterSequenceLength;
         m_PendingFaultReset       = m_History.LostToFault( report );
         m_Clouds.EndFrame( report );
+        m_ScreenProbeGather.EndFrame( report );
         m_History.Swap();
         m_Motion.EndFrame();
     }
@@ -435,6 +552,7 @@ namespace Desert::Graphic
     void SceneViewState::Reset()
     {
         m_Clouds.Reset();
+        m_ScreenProbeGather.Reset();
         m_History.Release();
         m_Motion.Clear();
         m_HasCommitted            = false;

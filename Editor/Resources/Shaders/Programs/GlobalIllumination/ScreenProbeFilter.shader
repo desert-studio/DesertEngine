@@ -1,11 +1,8 @@
 // DesertAsset {"Kind":"Shader","Guid":"7548c0e5784f417ba082f07320812ea7","Versions":{"SHDR":1},"Dependencies":[]}
-// THE SCREEN PROBE GATHER, 3/4 — FILTER (UE ScreenProbeFilterGatherTracesCS + ScreenProbeComputeIrradianceCS /
-// ScreenProbeConvertToIrradianceCS, LumenScreenProbeFiltering.usf): one workgroup per probe, one thread per texel.
-//   spatial   each texel gathers the same direction from the uniform probes of the 3x3 tiles around the probe:
-//             a neighbour counts when it lies on this probe's plane (relative to the depth) and the point its ray
-//             found is seen from THIS probe within SP_FILTER_MAX_ANGLE of the direction (UE
-//             r.Lumen.ScreenProbeGather.SpatialFilterMaxRadianceHitAngle) — a neighbour's ray that hit a near
-//             wall this probe does not see adds nothing;
+// THE SCREEN PROBE GATHER, 3/4 — FILTER (UE ScreenProbeComputeIrradianceCS / ScreenProbeConvertToIrradianceCS,
+// LumenScreenProbeFiltering.usf): one workgroup per probe, one thread per texel, over the probes' radiance after
+// the spatial filter (ScreenProbeSpatialFilter, three passes; the traced radiance itself when the denoiser is
+// skipped):
 //   radiance  the filtered texels, with a one-texel border repeating the hemi-octahedron's edge (bilinear reads
 //             stay in the probe): the rough reflections' source;
 //   irradiance second-order SH of the filtered radiance, each texel weighted by its solid angle, convolved with
@@ -41,7 +38,7 @@ Shader "ScreenProbeFilter"
         {
             GIFrame giFrame;
         };
-        Uniform(4) sampler2D u_ScreenProbeTraced;
+        Uniform(4) sampler2D ScreenProbeRadiance; // rgb = radiance, a = hit distance, SP_RES² per probe
         layout(binding = 5, rgba16f) restrict writeonly uniform image2D u_ScreenProbeFiltered;
         WriteBuffer(6) ScreenProbeSHUB
         {
@@ -71,8 +68,6 @@ Shader "ScreenProbeFilter"
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #include <Common/RadianceCache.glslh>
 
-        #define SP_FILTER_MAX_ANGLE_COS 0.98480775 // cos 10 degrees
-
         shared vec3  s_Radiance[SP_RES * SP_RES];
         shared vec3  s_Direction[SP_RES * SP_RES];
         shared float s_SolidAngle[SP_RES * SP_RES];
@@ -98,32 +93,8 @@ Shader "ScreenProbeFilter"
             const mat3  frame  = SPProbeFrame( state.normal.xyz );
             const vec3  dir    = TexelDirection( frame, vec2( t ) + 0.5 );
 
-            // ---- Spatial filter over the uniform probes of the 3x3 tiles around this one (this one included).
-            const vec4  own    = texelFetch( u_ScreenProbeTraced, SPAtlasOrigin( probe, SP_RES ) + t, 0 );
-            vec3        sum    = own.rgb;
-            float       weight = 1.0;
-            const vec3  p      = state.position.xyz;
-            const ivec2 tile   = SPUniformTileOf( SPProbePixelOf( state ) );
-            for ( int y = -1; y <= 1; ++y )
-                for ( int x = -1; x <= 1; ++x )
-                {
-                    const uint other = SPUniformProbeAt( tile + ivec2( x, y ) );
-                    if ( other == SP_INVALID || other == probe )
-                        continue;
-                    const ScreenProbe neighbour = screenProbes[other];
-                    const float plane = abs( dot( neighbour.position.xyz - p, state.normal.xyz ) ) / state.position.w;
-                    if ( exp2( -10000.0 * plane * plane ) < 0.5 || dot( dir, neighbour.normal.xyz ) <= 0.0 )
-                        continue;
-                    const mat3 neighbourFrame = SPProbeFrame( neighbour.normal.xyz );
-                    const vec4 ray = texelFetch( u_ScreenProbeTraced,
-                                                 SPAtlasOrigin( other, SP_RES ) + SPProbeTexel( neighbourFrame, dir ), 0 );
-                    const vec3 hit = neighbour.position.xyz + dir * ray.a;
-                    if ( dot( normalize( hit - p ), dir ) < SP_FILTER_MAX_ANGLE_COS )
-                        continue;
-                    sum    += ray.rgb;
-                    weight += 1.0;
-                }
-            const vec3 radiance = sum / weight;
+            const vec3  radiance = texelFetch( ScreenProbeRadiance, SPAtlasOrigin( probe, SP_RES ) + t, 0 ).rgb;
+            const vec3  p        = state.position.xyz;
 
             // Solid angle of the texel: the area its four corners span on the sphere.
             const vec3 c00 = TexelDirection( frame, vec2( t ) );

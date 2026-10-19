@@ -15,8 +15,9 @@
 
 // THE SCREEN PROBE GATHER (GI-FINAL-GATHER) — the final gather of the traced GI methods, ported from UE Lumen's
 // LumenScreenProbeGather.cpp / LumenScreenProbeTracing.usf / LumenScreenProbeFiltering.usf /
-// LumenScreenProbeGather.usf / LumenScreenSpaceBentNormal.usf. Eleven compute passes a frame
-// (Programs/GlobalIllumination/ScreenProbe*.shader; the GPU records are Common/ScreenProbes.glslh):
+// LumenScreenProbeGather.usf / LumenScreenSpaceBentNormal.usf / LumenScreenProbeGatherTemporal.usf. Sixteen compute
+// passes a frame, eleven when the denoiser is skipped (Programs/GlobalIllumination/ScreenProbe*.shader; the GPU
+// records are Common/ScreenProbes.glslh):
 //   Place ×3   a uniform probe in every 16-pixel tile, at the frame's jitter (UE GetScreenTileJitter: Hammersley
 //              over 8 frames), then adaptive probes on the 8 and 4 pixel grids at the same jitter wherever the
 //              probes already placed cannot interpolate the pixel (UE ScreenProbeAdaptivePlacementCS), up to the
@@ -35,18 +36,29 @@
 //              FAR field (software: the global field) out to the world radiance cache's minimum trace distance,
 //              past which the cache's radiance answers (RadianceCacheRadianceAt; ScreenProbeTraceVoxelsCS). The
 //              legs hand one another each ray's state in a trace hit buffer (Common/ScreenProbeTracing.glslh).
-//   Filter     spatial filter across neighbouring probes with UE's hit-angle test; the filtered radiance (rough
-//              reflections) and its second-order SH irradiance (diffuse); the irradiance from behind the probe's
-//              surface, read from the world radiance cache at -N (a hemisphere probe holds nothing there).
+//   Disocclusion  per probe: the share of its tile's pixels whose history holds few frames (UE
+//              SpatialFilter.DisocclusionMaxFrames / DisocclusionFraction): the spatial filter relaxes there.
+//   SpatialFilter ×3  the probes' radiance filtered across neighbouring probes (UE ScreenProbeFilterGatherTracesCS,
+//              SpatialFilterNumPasses): weighted by the plane distance and the hit angle seen from the probe.
+//   Filter     the filtered radiance with its border (rough reflections) and its second-order SH irradiance
+//              (diffuse); the irradiance from behind the probe's surface, read from the world radiance cache at -N
+//              (a hemisphere probe holds nothing there).
 //   ShortRangeAO  per pixel: a bent normal and its AO from four cosine rays marched through the scene depth over
 //              2 % of the screen (UE ScreenSpaceShortRangeAOCS, r.Lumen.ScreenProbeGather.ShortRangeAO): the
 //              occluders between the pixel and its probes, a tile away, which the probes cannot see.
 //   Integrate  per pixel: the four uniform corners by plane and normal, each missed corner replaced by its
 //              tile's best adaptive probe; diffuse from the SH at the bent normal times the short-range AO, rough
 //              specular from GGX samples of the probes' radiance each weighted by its visibility in the bent cone
-//              (UE CalculateSpecularOcclusion), blended with the reprojected history. The composite therefore
-//              applies no SSAO to the gather (UE r.Lumen.DiffuseIndirect.SSAO 0). Only a pixel no probe holds
-//              after all that (the adaptive budget spent) reads the world radiance cache.
+//              (UE CalculateSpecularOcclusion). The composite therefore applies no SSAO to the gather (UE
+//              r.Lumen.DiffuseIndirect.SSAO 0). Only a pixel no probe holds after all that (the adaptive budget
+//              spent) reads the world radiance cache.
+//   Temporal   per pixel: the integrated diffuse, rough specular and backface diffuse blended with the view's
+//              history (SceneViewState ScreenProbeGatherHistory, UE FScreenProbeGatherTemporalState) reprojected by
+//              the velocity, each bilinear tap kept by a depth and a normal test, by 1 / (1 + frames accumulated)
+//              up to ten (UE ScreenProbeTemporalReprojectionCS): a disoccluded pixel restarts and converges in a
+//              few frames. A camera cut, a teleport or a resize is the view's HistoryReset: no tap is kept.
+// THE DENOISER (Disocclusion, SpatialFilter, Temporal) runs unless ScreenProbeGatherInputs::Denoise is false: a
+// temporal method that denoises the raw signals itself (DLSS Ray Reconstruction) takes the integrate's output.
 // The deferred composite reads the two results per pixel (one fetch each) in place of the sky's diffuse
 // irradiance and prefiltered radiance: no surface of a traced method reads the sky cube.
 //
@@ -66,22 +78,24 @@ namespace Desert::Graphic
     class Image2D;
     class Shader;
     class ComputePipeline;
+    class ScreenProbeGatherHistory; // Graphic/View/SceneViewState.hpp
 } // namespace Desert::Graphic
 
 namespace Desert::Graphic::GlobalIllumination
 {
-    // std430 — must match `struct ScreenProbeParams` in Common/ScreenProbes.glslh. 112 bytes.
+    // std430 — must match `struct ScreenProbeParams` in Common/ScreenProbes.glslh. 128 bytes.
     struct ScreenProbeParamsPayload
     {
         glm::mat4  PrevViewProjection{ 1.0f };
         glm::vec4  PrevCamera{ 0.0f };
+        glm::vec4  Jitter{ 0.0f }; // xy = this frame's jitter in NDC, zw = last frame's
         glm::uvec4 Grid{ 0u };  // xy = level-0 grid, z = uniform probes, w = adaptive probe budget
         glm::uvec4 Atlas{ 0u }; // x = probes per atlas row, y = frame index, z = kScreenProbe* flags below,
                                 // w = the frame's probe jitter in pixels (x | y << 16, ScreenProbeJitter)
     };
-    static_assert( sizeof( ScreenProbeParamsPayload ) == 112 );
+    static_assert( sizeof( ScreenProbeParamsPayload ) == 128 );
     // ScreenProbeParamsPayload::Atlas.z — must match SP_FLAG_* in Common/ScreenProbes.glslh.
-    inline constexpr uint32_t kScreenProbeHistoryValid = 1u; // the history is this view's
+    inline constexpr uint32_t kScreenProbeHistoryValid = 1u; // the temporal history is the view's previous frame
     inline constexpr uint32_t kScreenProbeShortRangeAO = 2u; // the ShortRangeAO pass ran: the integrate reads it
     inline constexpr uint32_t kScreenProbeScreenTrace  = 4u; // last frame's scene colour is readable: screen leg
 
@@ -170,6 +184,18 @@ namespace Desert::Graphic::GlobalIllumination
         bool     ShortRangeAO = true; // Scalability GlobalIllumination.ShortRangeAO: the ShortRangeAO pass runs
         glm::mat4          PrevViewProjection{ 1.0f }; // unjittered
         glm::vec3          PrevCameraPosition{ 0.0f };
+        // The temporal filter's reprojection: the view's velocity (FrameTransients::Velocity), this frame's and
+        // last frame's jitter (ViewFrame::JitterNdc / PrevJitterNdc), and whether the view's previous frame is a
+        // previous frame of this one (ViewFrame::HistoryValid: false after a cut, a teleport, a resize).
+        RDG::TextureRef Velocity;
+        glm::vec2       JitterNdc{ 0.0f };
+        glm::vec2       PrevJitterNdc{ 0.0f };
+        bool            ViewHistoryValid = false;
+        RDG::TextureRef Black; // the system black texture: the history's binding when the view has none
+        // The gather's denoiser (disocclusion, spatial filter, temporal filter) runs. False only where the view's
+        // temporal method denoises the raw signals itself (DLSS Ray Reconstruction): the one decision point is
+        // SceneRenderer's, this flag carries it.
+        bool Denoise = true;
         // The screen trace's (SceneRenderer::FrameScreenTrace): this frame's closest-depth HZB and the view's
         // scene colour history; the leg is skipped when either is invalid or the history is not last frame's.
         RDG::TextureRef HZB;
@@ -198,10 +224,11 @@ namespace Desert::Graphic::GlobalIllumination
         // The tracer-independent shaders and pipelines; the world legs' are acquired per tracer permutation.
         [[nodiscard]] Common::BoolResultStr Initialize();
 
-        // The gather of one frame, its passes added to @p graph after the radiance cache's update.
+        // The gather of one frame, its passes added to @p graph after the radiance cache's update. @p history:
+        // the view's (SceneViewState::ScreenProbeGather), read and written by the temporal filter.
         [[nodiscard]] Common::ResultStr<ScreenProbeGatherFrame>
         AddPasses( RDG::Builder& graph, const WorldRadianceCache::ImportImage& import,
-                   const ScreenProbeGatherInputs& inputs );
+                   const ScreenProbeGatherInputs& inputs, ScreenProbeGatherHistory& history );
 
     private:
         enum Program : uint32_t
@@ -212,8 +239,11 @@ namespace Desert::Graphic::GlobalIllumination
             CompactTraces,
             TraceNearField, // ScreenProbeTrace, a tracer permutation (EnsureTraceProgram)
             TraceFarField,  // the same program's far-field leg
+            Disocclusion,
+            SpatialFilter,
             Filter,
             Integrate,
+            Temporal,
             ProgramCount
         };
 
@@ -228,13 +258,8 @@ namespace Desert::Graphic::GlobalIllumination
         std::shared_ptr<Image2D>                m_Traced;   // SP_RES² texels per probe
         std::shared_ptr<Image2D>                m_Filtered; // (SP_RES + 2)² per probe
         std::shared_ptr<Image2D>                m_ShortRangeAO; // xyz = bent normal, w = AO, the G-buffer's extent
-        std::array<std::shared_ptr<Image2D>, 2> m_Diffuse;  // this frame's output / last frame's history
-        std::array<std::shared_ptr<Image2D>, 2> m_Specular;
-        std::array<std::shared_ptr<Image2D>, 2> m_Backface;
         glm::uvec2                              m_Extent{ 0u };
-        uint32_t                                m_AtlasRows    = 0;
-        uint32_t                                m_Current      = 0;
-        uint32_t                                m_FrameIndex   = 0;
-        bool                                    m_HistoryValid = false;
+        uint32_t                                m_AtlasRows  = 0;
+        uint32_t                                m_FrameIndex = 0;
     };
 } // namespace Desert::Graphic::GlobalIllumination

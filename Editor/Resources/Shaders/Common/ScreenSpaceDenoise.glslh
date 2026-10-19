@@ -1,9 +1,8 @@
 // The screen-space denoiser's shared kernel (UE ScreenSpaceDenoise: SSDSignalFramework.ush, SSDSpatialKernel.ush,
-// SSDTemporalAccumulation.usf), included by the four passes of System::ScreenSpaceDenoiser:
-//   Programs/Denoise/SSDReconstructReflections.shader - reflections: ratio estimator over the half-res trace
-//   Programs/Denoise/SSDReconstructDiffuse.shader     - diffuse indirect: bilateral spatial reconstruction
-//   Programs/Denoise/SSDTemporalAccumulation.shader   - both signals: reprojection, variance rejection, counting
-//   Programs/Denoise/SSDHistoryConvolution.shader     - both signals: bilateral post filter by the sample count
+// SSDTemporalAccumulation.usf), included by the three passes of System::ScreenSpaceDenoiser (the reflections):
+//   Programs/Denoise/SSDReconstructReflections.shader - ratio estimator over the half-res trace
+//   Programs/Denoise/SSDTemporalAccumulation.shader   - reprojection, variance rejection, counting
+//   Programs/Denoise/SSDHistoryConvolution.shader     - bilateral post filter by the sample count
 // A signal is (rgb, a): rgb = the radiance where the signal answered, a = the share it answered (the COVERAGE;
 // 1 - a is answered by the next source). Between the passes it travels PREMULTIPLIED (rgb * a, a): blending and
 // clamping straight colour would weigh a texel that answered nothing like one that answered everything.
@@ -12,17 +11,11 @@
 
 const float kSSDPi = 3.14159265358979;
 
-// ScreenSpaceDenoiser.hpp DenoiserSignal - the push constant's signal id.
-const int kSSDSignalReflections     = 0;
-const int kSSDSignalDiffuseIndirect = 1;
-
-// Whether the signal has anything to say at a pixel (UE: the per-signal shading-model gate). Reflections: the
-// trace's own gate (sky / too rough - Common/SSRGate.glslh); diffuse indirect: every surface pixel.
-bool SSDPixelHasSignal(int signal, vec4 gbufferNormal)
+// Whether the signal has anything to say at a pixel (UE: the per-signal shading-model gate): the trace's own gate
+// (sky / too rough - Common/SSRGate.glslh).
+bool SSDPixelHasSignal(vec4 gbufferNormal)
 {
-	if (signal == kSSDSignalReflections)
-		return SSRPixelCanReflect(gbufferNormal);
-	return dot(gbufferNormal.rgb, gbufferNormal.rgb) > 0.001;
+	return SSRPixelCanReflect(gbufferNormal);
 }
 
 // The scene data a bilateral weight compares (UE FSSDSampleSceneInfos): world position, normal, roughness.

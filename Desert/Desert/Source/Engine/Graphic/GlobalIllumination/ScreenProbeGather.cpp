@@ -1,17 +1,20 @@
 // Ported from UE 5.5 Engine/Source/Runtime/Renderer/Private/Lumen/LumenScreenProbeGather.cpp (the pass sequence:
-// uniform placement, adaptive placement per level, trace, filter + irradiance, integrate, temporal), adapted as
-// described in ScreenProbeGather.hpp.
+// uniform placement, adaptive placement per level, trace, filter + irradiance, integrate, temporal) and UE 5.8
+// LumenScreenProbeFiltering.cpp FilterScreenProbes (the spatial filter's passes and its disocclusion input),
+// adapted as described in ScreenProbeGather.hpp.
 #include <Engine/Graphic/GlobalIllumination/ScreenProbeGather.hpp>
 
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/Math/Rounding.hpp>
 
+#include <algorithm>
 #include <format>
 #include <limits>
 #include <span>
@@ -28,9 +31,14 @@ namespace Desert::Graphic::GlobalIllumination
     {
         using Common::Math::DivideRoundUp;
 
-        constexpr std::array<std::string_view, 8> kScreenProbeShaderNames{
-             "ScreenProbePlace", "ScreenProbeShortRangeAO", "ScreenProbeTraceScreen", "ScreenProbeCompactTraces",
-             "ScreenProbeTrace", "ScreenProbeTrace",        "ScreenProbeFilter",      "ScreenProbeIntegrate" };
+        constexpr std::array<std::string_view, 11> kScreenProbeShaderNames{
+             "ScreenProbePlace",         "ScreenProbeShortRangeAO", "ScreenProbeTraceScreen",
+             "ScreenProbeCompactTraces", "ScreenProbeTrace",        "ScreenProbeTrace",
+             "ScreenProbeDisocclusion",  "ScreenProbeSpatialFilter", "ScreenProbeFilter",
+             "ScreenProbeIntegrate",     "ScreenProbeTemporal" };
+
+        // UE r.Lumen.ScreenProbeGather.SpatialFilterNumPasses.
+        constexpr uint32_t kSpatialFilterPasses = 3;
 
         // The defines of the world legs' two permutations of ScreenProbeTrace (besides TracerVariant's).
         constexpr std::string_view kTraceNearFieldDefine = "SP_TRACE_NEAR_FIELD";
@@ -139,27 +147,16 @@ namespace Desert::Graphic::GlobalIllumination
         m_Traced               = CreateTarget( "ScreenProbes.Traced", row * res, layout.AtlasRows * res );
         m_Filtered = CreateTarget( "ScreenProbes.Filtered", row * ( res + 2u ), layout.AtlasRows * ( res + 2u ) );
         m_ShortRangeAO         = CreateTarget( "ScreenProbes.ShortRangeAO", extent.x, extent.y );
-        for ( uint32_t i = 0; i < 2; ++i )
-        {
-            m_Diffuse[i]  = CreateTarget( std::format( "ScreenProbes.Diffuse{}", i ), extent.x, extent.y,
-                                          ViewTargetFormats::kGIFinalGather );
-            m_Specular[i] = CreateTarget( std::format( "ScreenProbes.Specular{}", i ), extent.x, extent.y,
-                                          ViewTargetFormats::kGIFinalGather );
-            m_Backface[i] = CreateTarget( std::format( "ScreenProbes.Backface{}", i ), extent.x, extent.y,
-                                          ViewTargetFormats::kGIFinalGather );
-        }
-        if ( !m_Traced || !m_Filtered || !m_ShortRangeAO || !m_Diffuse[0] || !m_Diffuse[1] || !m_Specular[0] ||
-             !m_Specular[1] || !m_Backface[0] || !m_Backface[1] )
+        if ( !m_Traced || !m_Filtered || !m_ShortRangeAO )
             return Common::MakeError<bool>( "screen probes: an image could not be created" );
-        m_Extent       = extent;
-        m_AtlasRows    = layout.AtlasRows;
-        m_HistoryValid = false;
+        m_Extent    = extent;
+        m_AtlasRows = layout.AtlasRows;
         return BOOLSUCCESS;
     }
 
     Common::ResultStr<ScreenProbeGatherFrame>
     ScreenProbeGather::AddPasses( RDG::Builder& graph, const WorldRadianceCache::ImportImage& import,
-                                  const ScreenProbeGatherInputs& inputs )
+                                  const ScreenProbeGatherInputs& inputs, ScreenProbeGatherHistory& history )
     {
         if ( inputs.Extent.x == 0 || inputs.Extent.y == 0 || inputs.Extent.x >= 4096 || inputs.Extent.y >= 4096 )
             return Common::MakeFormattedError<ScreenProbeGatherFrame>(
@@ -182,33 +179,49 @@ namespace Desert::Graphic::GlobalIllumination
             return Common::MakeError<ScreenProbeGatherFrame>(
                  "screen probes: the screen trace's HZB or scene colour history is missing (bind the system black "
                  "texture when the view has none)" );
+        if ( !inputs.Velocity.IsValid() || !inputs.Black.IsValid() )
+            return Common::MakeError<ScreenProbeGatherFrame>(
+                 "screen probes: the view's velocity or the system black texture is missing (the temporal filter "
+                 "reprojects by the velocity and binds black for a history the view does not hold)" );
         const ScreenProbeLayout layout = MakeScreenProbeLayout( inputs.Extent, inputs.AdaptiveProbePercent );
         if ( const auto images = EnsureImages( inputs.Extent, layout ); !images )
             return Common::MakeError<ScreenProbeGatherFrame>( images.GetError() );
 
-        const uint32_t previous               = m_Current;
-        m_Current                             = 1u - m_Current;
-        const RDG::TextureRef traced          = import( m_Traced, "ScreenProbes.Traced" );
-        const RDG::TextureRef filtered        = import( m_Filtered, "ScreenProbes.Filtered" );
-        const RDG::TextureRef shortRangeAO    = import( m_ShortRangeAO, "ScreenProbes.ShortRangeAO" );
-        const RDG::TextureRef diffuse         = import( m_Diffuse[m_Current], "ScreenProbes.Diffuse" );
-        const RDG::TextureRef specular        = import( m_Specular[m_Current], "ScreenProbes.Specular" );
-        const RDG::TextureRef diffuseHistory  = import( m_Diffuse[previous], "ScreenProbes.DiffuseHistory" );
-        const RDG::TextureRef specularHistory = import( m_Specular[previous], "ScreenProbes.SpecularHistory" );
-        const RDG::TextureRef backface        = import( m_Backface[m_Current], "ScreenProbes.Backface" );
-        const RDG::TextureRef backfaceHistory = import( m_Backface[previous], "ScreenProbes.BackfaceHistory" );
+        const RDG::TextureRef traced       = import( m_Traced, "ScreenProbes.Traced" );
+        const RDG::TextureRef filtered     = import( m_Filtered, "ScreenProbes.Filtered" );
+        const RDG::TextureRef shortRangeAO = import( m_ShortRangeAO, "ScreenProbes.ShortRangeAO" );
+        // The integrate's output: this frame's lighting, which the temporal filter blends with the view's history
+        // (or the gather's result as it is when the denoiser is skipped).
+        using History = ScreenProbeGatherHistory;
+        const ViewExtent extent{ .Width = inputs.Extent.x, .Height = inputs.Extent.y };
+        const auto       integrated = [&]( const History::Texture texture, const char* name )
+        { return graph.CreateTexture( History::Desc( texture, extent ), name ); };
+        const RDG::TextureRef diffuse  = integrated( History::DiffuseIndirect, "ScreenProbes.Diffuse" );
+        const RDG::TextureRef specular = integrated( History::RoughSpecularIndirect, "ScreenProbes.Specular" );
+        const RDG::TextureRef backface = integrated( History::BackfaceDiffuseIndirect, "ScreenProbes.Backface" );
+
+        // The view's history set (UE FScreenProbeGatherTemporalState), read only when the view's previous frame is a
+        // previous frame of this one: not after a cut, a teleport or a resize (ViewFrame::HistoryValid).
+        History::Refs previous{};
+        if ( inputs.Denoise )
+            previous = history.RegisterPrevious( graph, extent );
+        const bool historyReadable =
+             inputs.Denoise && inputs.ViewHistoryValid &&
+             std::ranges::all_of( previous, []( const RDG::TextureRef& texture ) { return texture.IsValid(); } );
+        const auto historyOrBlack = [&]( const History::Texture texture )
+        { return historyReadable ? previous[texture] : inputs.Black; };
 
         ScreenProbeParamsPayload params;
         params.PrevViewProjection = inputs.PrevViewProjection;
         params.PrevCamera         = glm::vec4( inputs.PrevCameraPosition, 0.0f );
+        params.Jitter             = glm::vec4( inputs.JitterNdc, inputs.PrevJitterNdc );
         params.Grid               = glm::uvec4( layout.Grid, layout.UniformProbes, layout.AdaptiveProbes );
         const glm::uvec2 jitter   = ScreenProbeJitter( ++m_FrameIndex );
-        const uint32_t   flags    = ( m_HistoryValid ? kScreenProbeHistoryValid : 0u ) |
+        const uint32_t   flags    = ( historyReadable ? kScreenProbeHistoryValid : 0u ) |
                                ( inputs.ShortRangeAO ? kScreenProbeShortRangeAO : 0u ) |
                                ( inputs.SceneColorHistoryReadable ? kScreenProbeScreenTrace : 0u );
         params.Atlas =
              glm::uvec4( ScreenProbeLayout::kAtlasProbesRow, m_FrameIndex, flags, jitter.x | ( jitter.y << 16u ) );
-        m_HistoryValid = true;
 
         const RDG::BufferRef paramsBuffer =
              graph.CreateBuffer( RDG::BufferDesc{ sizeof( params ) }, "ScreenProbes.Params" );
@@ -417,6 +430,72 @@ namespace Desert::Graphic::GlobalIllumination
                     compact( "near field", CompactPush{ NearFieldEnd( inputs.Tracer.Pipeline.Tracer ), 0u } ) );
         traceWorld( TraceFarField, "ScreenProbes: Trace Far Field",
                     compact( "far field", CompactPush{ std::numeric_limits<float>::max(), 1u } ) );
+
+        // SPATIAL FILTER (UE FilterScreenProbes, SpatialFilterNumPasses): the disocclusion of every probe's tile,
+        // then three passes across neighbouring probes, each reading the last one's radiance.
+        RDG::TextureRef radiance = traced;
+        if ( inputs.Denoise )
+        {
+            const RDG::BufferRef disocclusion = graph.CreateBuffer(
+                 RDG::BufferDesc{ layout.Probes() * static_cast<uint64_t>( sizeof( float ) ) },
+                 "ScreenProbes.Disocclusion" );
+            {
+                ComputePipeline* const pipeline = m_Pipelines[Disocclusion].get();
+                graph.AddPass(
+                     "ScreenProbes: Disocclusion", RDG::PassFlags::Compute,
+                     [&]( RDG::PassBuilder& builder )
+                     {
+                         auto block = builder.Bindings( m_Layouts[Disocclusion].Get( m_Shaders[Disocclusion] ),
+                                                        Renderer::GetPipelineRouteFill( *pipeline ) );
+                         block.Storage( "ScreenProbeParamsUB", paramsBuffer, kR )
+                              .Storage( "ScreenProbeIndexUB", index, kR )
+                              .Storage( "ScreenProbesUB", probes, kR )
+                              .Storage( "GIFrameUB", inputs.GIFrame, kR )
+                              .Sampled( "Velocity", inputs.Velocity, kS, all, RDG::SamplerDesc::PointClamp() )
+                              .Sampled( "DiffuseIndirectHistory", historyOrBlack( History::DiffuseIndirect ), kS,
+                                        all, RDG::SamplerDesc::PointClamp() )
+                              .Sampled( "HistoryGuide", historyOrBlack( History::Guide ), kS, all,
+                                        RDG::SamplerDesc::PointClamp() )
+                              .Storage( "ScreenProbeDisocclusionUB", disocclusion, kW );
+                         gbuf( block );
+                     },
+                     [pipeline, probeGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     {
+                         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                         return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
+                     } );
+            }
+            constexpr uint32_t     res = ScreenProbeLayout::kTracedTexels;
+            const RDG::TextureDesc atlasDesc{
+                 .Size   = { .Width = ScreenProbeLayout::kAtlasProbesRow * res, .Height = layout.AtlasRows * res },
+                 .Format = Core::Formats::ImageFormat::RGBA16F };
+            for ( uint32_t pass = 0; pass < kSpatialFilterPasses; ++pass )
+            {
+                ComputePipeline* const pipeline = m_Pipelines[SpatialFilter].get();
+                const RDG::TextureRef  input    = radiance;
+                const RDG::TextureRef  output   = graph.CreateTexture( atlasDesc, "ScreenProbes.SpatialFiltered" );
+                graph.AddPass(
+                     "ScreenProbes: Spatial Filter", RDG::PassFlags::Compute,
+                     [&]( RDG::PassBuilder& builder )
+                     {
+                         builder
+                              .Bindings( m_Layouts[SpatialFilter].Get( m_Shaders[SpatialFilter] ),
+                                         Renderer::GetPipelineRouteFill( *pipeline ) )
+                              .Storage( "ScreenProbeParamsUB", paramsBuffer, kR )
+                              .Storage( "ScreenProbeIndexUB", index, kR )
+                              .Storage( "ScreenProbesUB", probes, kR )
+                              .Storage( "ScreenProbeDisocclusionUB", disocclusion, kR )
+                              .Sampled( "ScreenProbeRadiance", input, kS, all, RDG::SamplerDesc::PointClamp() )
+                              .Storage( "FilteredScreenProbeRadiance", output, kW );
+                     },
+                     [pipeline, probeGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     {
+                         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                         return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
+                     } );
+                radiance = output;
+            }
+        }
         {
             ComputePipeline* const pipeline = m_Pipelines[Filter].get();
             graph.AddPass(
@@ -429,7 +508,7 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "ScreenProbeIndexUB", index, kR )
                           .Storage( "ScreenProbesUB", probes, kR )
                           .Storage( "GIFrameUB", inputs.GIFrame, kR )
-                          .Sampled( "u_ScreenProbeTraced", traced, kS, all, RDG::SamplerDesc::PointClamp() )
+                          .Sampled( "ScreenProbeRadiance", radiance, kS, all, RDG::SamplerDesc::PointClamp() )
                           .Storage( "u_ScreenProbeFiltered", filtered, kW )
                           .Storage( "ScreenProbeSHUB", sh, kW )
                           .Storage( "ScreenProbeBackfaceUB", backfaceIrradiance, kW )
@@ -462,15 +541,9 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "GIFrameUB", inputs.GIFrame, kR )
                           .Storage( "ScreenProbeSHUB", sh, kR )
                           .Sampled( "u_ScreenProbeFiltered", filtered, kS, all, RDG::SamplerDesc::LinearClamp() )
-                          .Sampled( "u_ScreenProbeDiffuseHistory", diffuseHistory, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
-                          .Sampled( "u_ScreenProbeSpecularHistory", specularHistory, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
                           .Storage( "u_ScreenProbeDiffuseOut", diffuse, kW )
                           .Storage( "u_ScreenProbeSpecularOut", specular, kW )
                           .Storage( "ScreenProbeBackfaceUB", backfaceIrradiance, kR )
-                          .Sampled( "u_ScreenProbeBackfaceHistory", backfaceHistory, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() )
                           .Storage( "u_ScreenProbeBackfaceOut", backface, kW )
                           // A pixel no screen probe holds reads the world radiance cache in place.
                           .Storage( "RadianceCacheParamsUB", inputs.RadianceCache.Params, kR )
@@ -490,9 +563,56 @@ namespace Desert::Graphic::GlobalIllumination
                  } );
         }
 
-        return Common::MakeSuccess( ScreenProbeGatherFrame{ .Diffuse      = diffuse,
-                                                            .Specular     = specular,
-                                                            .Backface     = backface,
-                                                            .ShortRangeAO = inputs.ShortRangeAO } );
+        if ( !inputs.Denoise )
+            return Common::MakeSuccess( ScreenProbeGatherFrame{ .Diffuse      = diffuse,
+                                                                .Specular     = specular,
+                                                                .Backface     = backface,
+                                                                .ShortRangeAO = inputs.ShortRangeAO } );
+
+        // TEMPORAL FILTER (UE ScreenProbeTemporalReprojectionCS): this frame's lighting blended with the view's
+        // history into the view's new history set, which is also what the composite reads.
+        const History::Refs current = history.CreateCurrent( graph, extent );
+        {
+            ComputePipeline* const pipeline = m_Pipelines[Temporal].get();
+            const glm::uvec2 groups( DivideRoundUp( inputs.Extent.x, 8u ), DivideRoundUp( inputs.Extent.y, 8u ) );
+            history.SetWriterPass( graph.GetPassCount() );
+            graph.AddPass(
+                 "ScreenProbes: Temporal", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& builder )
+                 {
+                     using H    = History;
+                     auto block = builder.Bindings( m_Layouts[Temporal].Get( m_Shaders[Temporal] ),
+                                                    Renderer::GetPipelineRouteFill( *pipeline ) );
+                     block.Storage( "ScreenProbeParamsUB", paramsBuffer, kR )
+                          .Storage( "GIFrameUB", inputs.GIFrame, kR )
+                          .Sampled( "Velocity", inputs.Velocity, kS, all, RDG::SamplerDesc::PointClamp() )
+                          .Sampled( "DiffuseIndirect", diffuse, kS, all, RDG::SamplerDesc::PointClamp() )
+                          .Sampled( "RoughSpecularIndirect", specular, kS, all, RDG::SamplerDesc::PointClamp() )
+                          .Sampled( "BackfaceDiffuseIndirect", backface, kS, all, RDG::SamplerDesc::PointClamp() )
+                          .Sampled( "DiffuseIndirectHistory", historyOrBlack( H::DiffuseIndirect ), kS, all,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Sampled( "RoughSpecularIndirectHistory", historyOrBlack( H::RoughSpecularIndirect ), kS, all,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Sampled( "BackfaceDiffuseIndirectHistory", historyOrBlack( H::BackfaceDiffuseIndirect ), kS,
+                                    all, RDG::SamplerDesc::PointClamp() )
+                          .Sampled( "HistoryGuide", historyOrBlack( H::Guide ), kS, all,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Storage( "NewHistoryDiffuseIndirect", current[H::DiffuseIndirect], kW )
+                          .Storage( "NewHistoryRoughSpecularIndirect", current[H::RoughSpecularIndirect], kW )
+                          .Storage( "NewHistoryBackfaceDiffuseIndirect", current[H::BackfaceDiffuseIndirect], kW )
+                          .Storage( "NewHistoryGuide", current[H::Guide], kW );
+                     gbuf( block );
+                 },
+                 [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     return Renderer::DispatchCompute( bindings, *pipeline, groups.x, groups.y, 1u );
+                 } );
+        }
+        return Common::MakeSuccess(
+             ScreenProbeGatherFrame{ .Diffuse      = current[History::DiffuseIndirect],
+                                     .Specular     = current[History::RoughSpecularIndirect],
+                                     .Backface     = current[History::BackfaceDiffuseIndirect],
+                                     .ShortRangeAO = inputs.ShortRangeAO } );
     }
 } // namespace Desert::Graphic::GlobalIllumination
