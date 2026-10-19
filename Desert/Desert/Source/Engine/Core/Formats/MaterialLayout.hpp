@@ -146,23 +146,8 @@ namespace Desert::Core::Formats
         }
     }
 
-    constexpr const char* MaterialLayoutGlslType( ShaderValueType type )
-    {
-        switch ( type )
-        {
-            case ShaderValueType::Float:
-                return "float";
-            case ShaderValueType::Float2:
-                return "vec2";
-            case ShaderValueType::Float3:
-                return "vec3";
-            case ShaderValueType::Int:
-            case ShaderValueType::Bool:
-                return "int";
-            default:
-                return "vec4";
-        }
-    }
+    // MaterialLayoutGlslType — the GLSL type of a row parameter — lives in MaterialParamRow.hpp beside
+    // MaterialRowSlotValue, the bytes written for it: the two are one statement and are kept in one place.
 
     // THE builder. Params are the numeric properties in schema order (the walk MaterialParamSlot
     // repeats for MeshRenderer's instance overrides; ShippedShaderPasses holds the two equal), textures every
