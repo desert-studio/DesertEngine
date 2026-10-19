@@ -58,6 +58,12 @@ namespace Desert::Graphic::API::Vulkan
                               ->GetVulkanAllocator()
                               .get();
 
+        // A static buffer drops its host copy once the copy is on the device (below), so a second upload would
+        // send nothing: new contents are a new buffer (every mesh rebuild makes one).
+        if ( m_HostCopyReleased )
+            return Common::MakeFormattedError<bool>(
+                 "static vertex buffer of {} bytes uploaded again after its host copy was released", m_Size );
+
         if ( m_VulkanBuffer )
         {
             allocator->RT_DestroyBuffer( m_VulkanBuffer, m_MemoryAllocation );
@@ -180,7 +186,16 @@ namespace Desert::Graphic::API::Vulkan
             vkCmdCopyBuffer( copyCmdVal, stagingBuffer, m_VulkanBuffer, 1, &copyRegion );
 
             const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( copyCmdVal );
+            const bool uploaded = flushed.IsSuccess() && flushed.GetValue() == VK_SUCCESS;
             allocator->RT_ReleaseStaging( stagingBuffer, stagingBufferAllocationVAL, flushed );
+            // UE drops a static buffer's resource array once it is on the RHI (no bNeedsCPUAccess): nothing reads
+            // the host copy after the upload, and holding it doubled every mesh's geometry in the heap (~250 MB
+            // on B16_Bistro_Street). The mesh asset keeps its own arrays for the CPU readers.
+            if ( uploaded )
+            {
+                m_StorageBuffer.Release();
+                m_HostCopyReleased = true;
+            }
         }
         return Common::MakeSuccess( true );
     }
