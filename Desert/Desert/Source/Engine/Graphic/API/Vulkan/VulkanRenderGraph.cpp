@@ -591,6 +591,14 @@ namespace Desert::Graphic::API::Vulkan
             vmaDestroyBuffer( m_Allocator, m_Buffer, m_Allocation );
     }
 
+    std::span<const std::byte> VulkanRdgBuffer::ReadHost() const
+    {
+        if ( m_Mapped == nullptr )
+            return {};
+        InvalidateForHost();
+        return { static_cast<const std::byte*>( m_Mapped ), static_cast<size_t>( m_Size ) };
+    }
+
     void VulkanRdgBuffer::InvalidateForHost() const
     {
         if ( m_Mapped == nullptr )

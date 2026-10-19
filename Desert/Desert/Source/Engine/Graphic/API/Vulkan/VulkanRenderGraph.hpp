@@ -214,6 +214,8 @@ namespace Desert::Graphic::API::Vulkan
         }
         // Makes device writes visible to the host on non-coherent memory; no-op on coherent memory.
         void InvalidateForHost() const;
+        // RDG::IPhysicalBuffer: InvalidateForHost, then the mapped bytes (empty unless host-visible).
+        [[nodiscard]] std::span<const std::byte> ReadHost() const override;
 
     private:
         VulkanRdgBuffer() = default;

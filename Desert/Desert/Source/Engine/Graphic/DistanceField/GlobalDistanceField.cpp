@@ -4,6 +4,7 @@
 // instead of the page atlas and its coverage atlas, objects culled to update bricks on the CPU, one compute pass
 // per level that has bricks to rewrite.
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
+#include <Engine/Core/EngineContext.hpp>
 
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Graphic/Image.hpp>
@@ -16,13 +17,16 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <limits>
 #include <span>
 #include <tuple>
 #include <unordered_set>
+#include <utility>
 
 namespace Desert::Graphic::DistanceField
 {
@@ -81,6 +85,14 @@ namespace Desert::Graphic::DistanceField
             glm::uvec4               Counts{ 0u };
         };
         static_assert( sizeof( MeshSDFCullPayload ) == 304 );
+        // Common/MeshSDFGrid.glslh: MeshSDFGridHeaderStride, MeshSDFCullFeedbackUints.
+        constexpr uint32_t kGridHeaderStride  = 2u;
+        constexpr uint32_t kCullFeedbackUints = 4u;
+        // MeshSDFCullGrid.shader's push block: 0 = count, 1 = scatter.
+        struct MeshSDFCullGridPush
+        {
+            uint32_t Pass = 0;
+        };
 
         // The world plane of clip-space half-space row3 + sign * row(axis) >= 0, normalised.
         glm::vec4 ClipPlane( const glm::mat4& viewProjection, const int axis, const float sign )
@@ -218,7 +230,9 @@ namespace Desert::Graphic::DistanceField
         m_CompositePipeline = pipeline.GetValue();
         for ( const auto& [name, shader, cullPipeline] :
               { std::tuple{ "MeshSDFCullObjects", &m_CullObjectsShader, &m_CullObjectsPipeline },
-                std::tuple{ "MeshSDFCullGrid", &m_CullGridShader, &m_CullGridPipeline } } )
+                std::tuple{ "MeshSDFCullGrid", &m_CullGridShader, &m_CullGridPipeline },
+                std::tuple{ "MeshSDFCullGridOffsets", &m_CullOffsetsShader, &m_CullOffsetsPipeline },
+                std::tuple{ "MeshSDFCullGridSort", &m_CullSortShader, &m_CullSortPipeline } } )
         {
             *shader = shaders->GetByName( name );
             if ( !*shader )
@@ -533,7 +547,6 @@ namespace Desert::Graphic::DistanceField
         const float        kLogBias  = DFShared::DF_MESH_SDF_GRID_LOG_Z_OFFSET;
         const float        kZScale   = DFShared::DF_MESH_SDF_GRID_Z_SCALE;
         const float        kMaxDepth = DFShared::DF_MESH_SDF_GRID_MAX_DISTANCE;
-        constexpr uint32_t kStride = 1u + static_cast<uint32_t>( DFShared::DF_MESH_SDF_GRID_MAX_OBJECTS_PER_CELL );
         const uint32_t     slices =
              static_cast<uint32_t>( std::floor( std::log2( kMaxDepth * kLogScale + kLogBias ) * kZScale ) ) + 1u;
         const glm::uvec2 cells( ( view.Extent + kPixels - 1u ) / kPixels );
@@ -553,7 +566,30 @@ namespace Desert::Graphic::DistanceField
                                     ClipPlane( view.ViewProjection, 1, -1.0f ),
                                     glm::vec4( view.Forward, -glm::dot( view.Forward, view.CameraPosition ) ),
                                     glm::vec4( -view.Forward, glm::dot( view.Forward, view.CameraPosition ) + kMaxDepth ) };
-        cull.Counts             = glm::uvec4( fields.NumObjects, 0u, 0u, 0u );
+
+        // The lists' room: what earlier frames needed (ReadNearFieldFeedback), at least the first frame's guess
+        // per cell. It must fit the shaders' uint indices with the headers in front.
+        const uint32_t slot  = EngineContext::GetInstance().GetCurrentFrameIndex();
+        const uint32_t slots = EngineContext::GetInstance().GetMaxFramesInFlight();
+        if ( m_NearFieldFeedback.size() != slots )
+        {
+            m_NearFieldFeedback.assign( slots, RDG::ExternalBuffer{} );
+            m_NearFieldFeedbackStamp.assign( slots, 0u );
+        }
+        if ( slot >= slots )
+            return Common::MakeFormattedError<bool>( "near-field grid: frame slot {} of {}", slot, slots );
+        ReadNearFieldFeedback( slot );
+        m_NearFieldListRoom = std::max<uint64_t>(
+             m_NearFieldListRoom,
+             uint64_t{ total } * static_cast<uint64_t>( DFShared::DF_MESH_SDF_GRID_INITIAL_OBJECTS_PER_CELL ) );
+        const uint64_t gridUints = uint64_t{ total } * kGridHeaderStride + m_NearFieldListRoom;
+        if ( gridUints > std::numeric_limits<uint32_t>::max() )
+            return Common::MakeFormattedError<bool>(
+                 "near-field grid: {} cells and {} list entries do not fit 32-bit indices", total,
+                 m_NearFieldListRoom );
+        m_NearFieldStamp = m_NearFieldStamp == std::numeric_limits<uint32_t>::max() ? 1u : m_NearFieldStamp + 1u;
+        cull.Counts =
+             glm::uvec4( fields.NumObjects, static_cast<uint32_t>( m_NearFieldListRoom ), m_NearFieldStamp, 0u );
 
         const RDG::BufferRef params =
              graph.CreateBuffer( RDG::BufferDesc{ sizeof( cull ) }, "DistanceField.NearField.CullParams" );
@@ -563,8 +599,13 @@ namespace Desert::Graphic::DistanceField
         const RDG::BufferRef        culled = graph.CreateBuffer( RDG::BufferDesc{ culledInitial.size() * 4ull },
                                                                  "DistanceField.NearField.Culled" );
         graph.QueueBufferUpload( culled, std::as_bytes( std::span( culledInitial ) ) );
-        const RDG::BufferRef grid = graph.CreateBuffer( RDG::BufferDesc{ uint64_t{ total } * kStride * 4ull },
-                                                        "DistanceField.NearField.Grid" );
+        const RDG::BufferRef grid =
+             graph.CreateBuffer( RDG::BufferDesc{ gridUints * 4ull }, "DistanceField.NearField.Grid" );
+        // The scatter's (object, key) pairs, one per list entry, sorted into the grid's lists by step 5.
+        const RDG::BufferRef unsorted = graph.CreateBuffer( RDG::BufferDesc{ m_NearFieldListRoom * 8ull },
+                                                            "DistanceField.NearField.Unsorted" );
+        const RDG::BufferRef feedback = graph.CreateBuffer( RDG::BufferDesc{ kCullFeedbackUints * 4ull },
+                                                            "DistanceField.NearField.Feedback" );
 
         constexpr RDG::Access kR = RDG::Access::StorageRead;
         constexpr RDG::Access kW = RDG::Access::StorageWrite;
@@ -589,11 +630,16 @@ namespace Desert::Graphic::DistanceField
                      return Renderer::DispatchCompute( bindings, *pipeline, groups, 1u, 1u );
                  } );
         }
+        // Steps 2-5: count per froxel, the counts' prefix sum into the lists' first indices, scatter with the sort
+        // keys, each list sorted closest first.
+        const auto addGridPass = [&]( const uint32_t gridPass )
         {
-            ComputePipeline* const pipeline = m_CullGridPipeline.get();
-            const uint32_t         groups   = ( total + 63u ) / 64u;
+            ComputePipeline* const    pipeline = m_CullGridPipeline.get();
+            const uint32_t            groups   = ( total + 63u ) / 64u;
+            const MeshSDFCullGridPush push{ gridPass };
             graph.AddPass(
-                 std::format( "DistanceField: Near-field grid ({}x{}x{})", cells.x, cells.y, slices ),
+                 std::format( "DistanceField: Near-field grid {} ({}x{}x{})", gridPass == 0u ? "count" : "scatter",
+                              cells.x, cells.y, slices ),
                  RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
                  {
@@ -602,17 +648,102 @@ namespace Desert::Graphic::DistanceField
                           .Storage( "MeshSDFCullParamsUB", params, kR )
                           .Storage( "DFObjects", fields.Objects, kR )
                           .Storage( "MeshSDFCulledObjectsUB", culled, kR )
-                          .Storage( "MeshSDFGridCellsUB", grid, kW );
+                          .Storage( "MeshSDFGridCellsUB", grid, kW )
+                          .Storage( "MeshSDFGridUnsortedUB", unsorted, kW )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( MeshSDFCullGridPush ) ) );
                  },
-                 [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline, groups, push]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                      return Renderer::DispatchCompute( bindings, *pipeline, groups, 1u, 1u );
                  } );
+        };
+        addGridPass( 0u );
+        {
+            ComputePipeline* const pipeline = m_CullOffsetsPipeline.get();
+            graph.AddPass(
+                 std::format( "DistanceField: Near-field grid offsets ({} cells)", total ),
+                 RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     pass.Bindings( m_CullOffsetsLayout.Get( m_CullOffsetsShader ),
+                                    Renderer::GetPipelineRouteFill( *pipeline ) )
+                          .Storage( "MeshSDFCullParamsUB", params, kR )
+                          .Storage( "MeshSDFGridCellsUB", grid, kW )
+                          .Storage( "MeshSDFCullFeedbackUB", feedback, kW );
+                 },
+                 [pipeline]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     return Renderer::DispatchCompute( bindings, *pipeline, 1u, 1u, 1u );
+                 } );
         }
+        addGridPass( 1u );
+        {
+            // One workgroup per cell, 2D past the 65535 groups Vulkan guarantees per dimension.
+            constexpr uint32_t     kMaxGroups = 65535u;
+            ComputePipeline* const pipeline   = m_CullSortPipeline.get();
+            const uint32_t         groupsX    = std::min( total, kMaxGroups );
+            const uint32_t         groupsY    = ( total + groupsX - 1u ) / groupsX;
+            graph.AddPass(
+                 std::format( "DistanceField: Near-field grid sort ({} cells)", total ), RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     pass.Bindings( m_CullSortLayout.Get( m_CullSortShader ),
+                                    Renderer::GetPipelineRouteFill( *pipeline ) )
+                          .Storage( "MeshSDFCullParamsUB", params, kR )
+                          .Storage( "MeshSDFGridCellsUB", grid, kW )
+                          .Storage( "MeshSDFGridUnsortedUB", unsorted, kR );
+                 },
+                 [pipeline, groupsX, groupsY]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     return Renderer::DispatchCompute( bindings, *pipeline, groupsX, groupsY, 1u );
+                 } );
+        }
+        graph.Extract( feedback, m_NearFieldFeedback[slot], RDG::Access::HostRead );
+        m_NearFieldFeedbackStamp[slot] = m_NearFieldStamp;
         fields.NearFieldGrid          = grid;
         fields.NearFieldGridPlacement = cull.Grid;
         return BOOLSUCCESS;
+    }
+
+    void GlobalDistanceField::ReadNearFieldFeedback( const uint32_t slot )
+    {
+        RDG::ExternalBuffer& readback = m_NearFieldFeedback[slot];
+        const uint32_t       stamp    = std::exchange( m_NearFieldFeedbackStamp[slot], 0u );
+        if ( stamp == 0u || !readback.Physical )
+            return; // no cull ran in this slot yet, or its graph faulted before the extract
+        const std::span<const std::byte>         bytes = readback.Physical->ReadHost();
+        std::array<uint32_t, kCullFeedbackUints> values{};
+        if ( bytes.size() < sizeof( values ) )
+        {
+            LOG_ERROR( "[DistanceField] the near-field cull's feedback is not host-readable ({} bytes)",
+                       bytes.size() );
+            return;
+        }
+        std::memcpy( values.data(), bytes.data(), sizeof( values ) );
+        readback.Physical.reset();
+        const auto [needed, room, longest, written] = values;
+        if ( written != stamp )
+            return; // another cull's bytes: nothing to learn from them
+        if ( !m_NearFieldFeedbackLogged )
+        {
+            m_NearFieldFeedbackLogged = true;
+            LOG_INFO( "[DistanceField] near-field object lists: {} entries, the longest {}, room for {}", needed,
+                      longest, room );
+        }
+        if ( needed <= room )
+            return;
+        m_NearFieldListRoom = std::max( m_NearFieldListRoom, uint64_t{ needed } + uint64_t{ needed } / 4u );
+        // The other slots culled with the same room report the same refusal: one line per room.
+        if ( std::exchange( m_NearFieldRefusedRoom, room ) == room )
+            return;
+        LOG_WARN(
+             "[DistanceField] near-field object lists needed {} entries (longest {}), the grid had room for {}: "
+             "that frame's near field was refused (global field only); room for {} from now on",
+             needed, longest, room, m_NearFieldListRoom );
     }
 
     void GlobalDistanceField::LogStreaming()
