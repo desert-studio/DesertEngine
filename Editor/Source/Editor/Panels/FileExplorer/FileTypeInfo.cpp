@@ -73,6 +73,10 @@ namespace Desert::Editor
              FileTypeInfo{ FileType::WaterWaves, "Water Waves", { 0.20f, 0.55f, 0.85f, 1.00f }, ICON_MDI_WAVES },
              FileTypeInfo{
                   FileType::WorldParameters, "World Parameters", { 0.25f, 0.70f, 0.50f, 1.00f }, ICON_MDI_TUNE },
+             FileTypeInfo{ FileType::WeatherPreset,
+                           "Weather Preset",
+                           { 0.45f, 0.62f, 0.85f, 1.00f },
+                           ICON_MDI_WEATHER_RAINY },
              FileTypeInfo{ FileType::VFXDataChannel,
                            "VFX Data Channel",
                            { 0.95f, 0.70f, 0.20f, 1.00f },

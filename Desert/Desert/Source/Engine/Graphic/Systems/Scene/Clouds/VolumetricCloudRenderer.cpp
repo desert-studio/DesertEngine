@@ -1270,6 +1270,11 @@ namespace Desert::Graphic::System
             }
         }
 
+        // THE LAYER'S DYNAMIC PARAMETERS LAST (UE's material instance dynamic on the cloud material): what the world
+        // sets at runtime — the weather's Coverage (Core::WeatherState) — by the SAME names the `.demat` authors,
+        // through the same BuildCloudMaterialValues, so there is no second coverage path; last write wins.
+        for ( const auto& param : m_Data.DynamicParams )
+            overrides.Params.push_back( param );
         m_Material = BuildCloudMaterialValues( schema, overrides );
 
         // AND THE ONE VALUE OF THE MATERIAL THAT IS NOT A NUMBER: the authored medium, which is a body of

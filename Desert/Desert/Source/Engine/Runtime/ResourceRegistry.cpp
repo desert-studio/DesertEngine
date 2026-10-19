@@ -155,6 +155,12 @@ namespace Desert::Runtime
         return &worldParametersService;
     }
 
+    WeatherPresetService* ResourceRegistry::GetWeatherPresetService()
+    {
+        static WeatherPresetService weatherPresetService;
+        return &weatherPresetService;
+    }
+
     void ResourceRegistry::BindOnDemandAssets( const std::weak_ptr<Assets::AssetManager>& assets )
     {
         GetCloudNoiseService()->BindAssetManager( assets );
@@ -173,6 +179,7 @@ namespace Desert::Runtime
         GetPhysicsAssetService()->BindAssetManager( assets );
         GetVFXSystemService()->BindAssetManager( assets );
         GetWorldParametersService()->BindAssetManager( assets );
+        GetWeatherPresetService()->BindAssetManager( assets );
     }
 
     void ResourceRegistry::ClearAll()
@@ -181,6 +188,7 @@ namespace Desert::Runtime
         // font, icon and cloud services hand out views of, so it goes LAST.
         GetMaterialService()->Clear();
         GetWorldParametersService()->Clear();
+        GetWeatherPresetService()->Clear();
         GetMeshService()->Clear();
         GetSkyboxService()->Clear();
         GetTextureService()->Clear();

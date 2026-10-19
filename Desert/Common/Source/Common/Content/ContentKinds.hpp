@@ -86,6 +86,7 @@ namespace Common::Content
         Sound,
         VFXDataChannel,
         WorldParameters,
+        WeatherPreset,
         COUNT,
     };
 
@@ -191,6 +192,8 @@ namespace Common::Content
              // UE's UMaterialParameterCollection: named world values with defaults
              // (Engine/Assets/Serialization/WorldParameters.hpp).
              /* WorldParameters      */ { "WorldParameters", ".dworldparams", &P::WORLD_PARAMETERS_PATH },
+             // One weather as data (Engine/Assets/Serialization/WeatherPreset.hpp, WTH-STATE).
+             /* WeatherPreset        */ { "WeatherPreset", ".dweatherpreset", &P::WEATHER_PATH },
         } };
     }
 

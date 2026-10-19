@@ -668,6 +668,16 @@ namespace Desert::Core
             World::Foliage::RealizePrefabFoliage( *this );
         }
 
+        // THE WEATHER before the systems read the fog, the clouds and the wind: advanced by gameplay time (a
+        // script's Weather.set lands next frame's tick), and written at the active camera. In Edit the authored
+        // values show — the weather is world state, and the editor world does not run it.
+        if ( TicksGameplay() )
+        {
+            DESERT_PROFILE_SCOPE( "Weather" );
+            m_Weather.Tick( m_Registry, gameplayTs.GetSeconds() );
+            if ( const auto observer = GetActiveCamera() )
+                m_Weather.Apply( m_Registry, m_WorldParameters, observer->GetPosition() );
+        }
         {
             DESERT_PROFILE_SCOPE( "ECS Systems" );
             ExecuteSystems( gameplayTs );

@@ -177,6 +177,7 @@ namespace Common::Constants
             Fracture,
             WaterWaves,
             WorldParameters,
+            Weather,
             Input,
             PhysicsAsset,
             Cooked,
@@ -283,6 +284,8 @@ namespace Common::Constants
              // World parameter collections (`.dworldparams`, UE UMaterialParameterCollection): the scene's
              // World Parameters slot offers only what is scanned from here.
              /* WorldParameters */ { "WorldParameters/", DirRoot::Assets },
+             // Weather presets (`.dweatherpreset`, WTH-STATE): a weather zone's Preset slot offers what is scanned here.
+             /* Weather       */ { "Weather/", DirRoot::Assets },
              // Input actions and mapping contexts (`.deinputaction`, `.deinputcontext`, UE Enhanced Input).
              /* Input         */ { "Input/", DirRoot::Assets },
              // Physics assets (`.dephysasset`, UE UPhysicsAsset): the ragdoll bodies and joints of a skeleton.
@@ -633,6 +636,7 @@ namespace Common::Constants
         inline const std::filesystem::path& FRACTURE_PATH       = Detail::Slot( ContentDir::Fracture );
         inline const std::filesystem::path& WATER_WAVES_PATH    = Detail::Slot( ContentDir::WaterWaves );
         inline const std::filesystem::path& WORLD_PARAMETERS_PATH = Detail::Slot( ContentDir::WorldParameters );
+        inline const std::filesystem::path& WEATHER_PATH          = Detail::Slot( ContentDir::Weather );
         inline const std::filesystem::path& INPUT_PATH          = Detail::Slot( ContentDir::Input );
         inline const std::filesystem::path& PHYSICS_ASSET_PATH  = Detail::Slot( ContentDir::PhysicsAsset );
         inline const std::filesystem::path& COOKED_PATH         = Detail::Slot( ContentDir::Cooked );

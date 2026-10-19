@@ -36,6 +36,7 @@
 #include <memory>
 #include <optional>
 #include <Engine/Core/WorldParameterInstance.hpp>
+#include <Engine/Core/WeatherState.hpp>
 
 #include <string>
 #include <unordered_map>
@@ -377,6 +378,14 @@ namespace Desert::Core
         // Adopts (or keeps) the named collection. Refused with the reason when the collection cannot be read;
         // the instance then holds no parameters, so no material reads a stale value.
         Common::BoolResultStr SyncWorldParameters();
+
+        // THE WORLD'S WEATHER (Core/WeatherState.hpp, WTH-STATE): per WeatherZone, what it shows and the
+        // transition it is in. Ticked by gameplay time in OnUpdate before the systems, then applied at the active
+        // camera into the world parameters, the cloud layer's Coverage, the fog's density and the zones' wind.
+        [[nodiscard]] WeatherState& GetWeather()
+        {
+            return m_Weather;
+        }
 
         // The editor viewport's Realtime toggle (UE's viewport "Realtime"): while editing, whether the
         // world's preview time moves. An editor preference pushed every frame, never serialized with the
@@ -730,6 +739,7 @@ namespace Desert::Core
         SceneState                    m_State = SceneState::Edit;
         WorldTime                     m_WorldTime;
         WorldParameterInstance        m_WorldParameters;
+        WeatherState                  m_Weather;
         bool                          m_PreviewRealtime    = true;
         bool                          m_SingleFramePending = false; // RequestSingleFrame, consumed by OnUpdate
         entt::entity                  m_PlayerPawn     = entt::null; // see SetPlayerPawn

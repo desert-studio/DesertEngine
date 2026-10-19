@@ -43,6 +43,7 @@
 #include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/WaterWavesAsset.hpp>
 #include <Engine/Assets/WorldParametersAsset.hpp>
+#include <Engine/Assets/WeatherPresetAsset.hpp>
 #include <Engine/Assets/PhysicsAsset.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
@@ -994,6 +995,19 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::WorldParametersAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::WorldParametersAsset>( full, /*loadAfterCreate=*/false );
+                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
+            }
+            if ( type == "WeatherPresetAsset" )
+            {
+                // A weather zone's preset (ECS::WeatherZoneData::Preset). Announced, not read, as the collection
+                // above: WeatherPresetService reads the `.dweatherpreset` when the world's weather first needs it.
+                const std::filesystem::path named( path );
+                const std::filesystem::path full =
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                auto a = mgr.FindByPath<Assets::WeatherPresetAsset>( full );
+                if ( !a )
+                    a = m.CreateAsset<Assets::WeatherPresetAsset>( full, /*loadAfterCreate=*/false );
                 return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
             }
             if ( type == "PhysicsAsset" )

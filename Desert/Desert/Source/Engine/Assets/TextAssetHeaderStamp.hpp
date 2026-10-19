@@ -78,6 +78,9 @@ namespace Desert::Assets
     // header from its first version (WTH-PARAMS; Serialization/WorldParameters.hpp).
     inline constexpr uint32_t kWorldParametersSchemaTag     = Common::Content::FourCC( "WPRM" );
     inline constexpr uint32_t kWorldParametersSchemaVersion = 1;
+    // A .dweatherpreset: one weather as data, stated from its first version (WTH-STATE; Serialization/WeatherPreset.hpp).
+    inline constexpr uint32_t kWeatherPresetSchemaTag     = Common::Content::FourCC( "WTHP" );
+    inline constexpr uint32_t kWeatherPresetSchemaVersion = 1;
     // A <name>.<ext>.deimport: an imported source's record (its asset's GUID), stated from its first version
     // (FIX8; Serialization/ImportRecord.hpp).
     inline constexpr uint32_t kImportRecordSchemaTag     = Common::Content::FourCC( "DIMP" );

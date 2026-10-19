@@ -23,6 +23,7 @@
 #include "Services/Destruction/FractureService.hpp"
 #include "Services/Water/WaterWavesService.hpp"
 #include "Services/WorldParameters/WorldParametersService.hpp"
+#include "Services/Weather/WeatherPresetService.hpp"
 #include "Services/Physics/PhysicsAssetService.hpp"
 #include "Services/VFX/VFXSystemService.hpp"
 
@@ -75,6 +76,8 @@ namespace Desert::Runtime
         static WaterWavesService* GetWaterWavesService();
         // The `.dworldparams` collections scenes name (WTH-PARAMS): read on first ask, held as the assets.
         static WorldParametersService* GetWorldParametersService();
+        // The `.dweatherpreset` presets weather zones name (WTH-STATE): read on first ask, held as the assets.
+        static WeatherPresetService* GetWeatherPresetService();
         // The `.dephysasset` physics assets ragdolls name (RAG1b): read on demand, held as the assets, matched
         // against the mesh's skeleton by GUID.
         static PhysicsAssetService* GetPhysicsAssetService();
