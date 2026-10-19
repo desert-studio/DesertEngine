@@ -40,6 +40,8 @@ namespace Desert::Graphic
                     return "Spatial";
                 case Scal::Upscaler::TSR:
                     return "TSR";
+                case Scal::Upscaler::DLSSRayReconstruction:
+                    return "DLSSRayReconstruction";
             }
             return "<unknown Upscaler>";
         }
@@ -129,6 +131,8 @@ namespace Desert::Graphic
                 return Common::MakeSuccess( TemporalMethod::TSR );
             if ( upscaler == Scal::Upscaler::DLSS && kDlssBuilt )
                 return Common::MakeSuccess( TemporalMethod::DLSS );
+            if ( upscaler == Scal::Upscaler::DLSSRayReconstruction && kDlssBuilt )
+                return Common::MakeSuccess( TemporalMethod::DLSSRR );
             if ( upscaler == Scal::Upscaler::FSR && kFsrBuilt )
                 return Common::MakeSuccess( TemporalMethod::FSR );
             // The spatial upscale has no history and no jitter: the frame's temporal method is None, and only a
@@ -153,6 +157,9 @@ namespace Desert::Graphic
                  UpscalerName( upscaler ), split.RenderScalePercent );
         }
 
+        // Ray Reconstruction at 100 % is DLAA's network with the denoiser (Scalability IsNativeRayReconstruction).
+        if ( Scal::IsNativeRayReconstruction( path.Method, split.RenderScalePercent, upscaler ) && kDlssBuilt )
+            return Common::MakeSuccess( TemporalMethod::DLSSRR );
         if ( upscaler != Scal::Upscaler::None )
             return Common::MakeFormattedError<TemporalMethod>(
                  "SelectTemporalMethod: Upscaler {} at render scale {} % (Scalability Resolve never produces it: "

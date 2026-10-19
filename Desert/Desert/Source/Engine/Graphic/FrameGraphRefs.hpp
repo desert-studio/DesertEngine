@@ -47,6 +47,9 @@ namespace Desert::Graphic
         RDG::TextureRef LensFlare;      // LensFlareRenderer result           -> Tonemap
         RDG::TextureRef SSAO;           // SSAO factor                        -> deferred lighting
         RDG::TextureRef GIResolve;      // RSM-GI resolve (raw, pre-temporal) -> GI temporal / deferred lighting
+        // SSR's full-resolution trace ray (xyz the point each pixel's reflection came from, w log2 pdf, -126 no
+        // ray), set only when the temporal upscaler takes the reflection raw  -> TemporalUpscalerInputs
+        RDG::TextureRef ReflectionRay;
         RDG::TextureRef SceneColorCopy; // scene snapshot                     -> glass refraction
         // The opaque scene's device depth (the G-buffer depth, reversed-Z), set by the deferred composite; invalid
         // on the forward path, which has no depth before its meshes draw   -> contact shadows of the forward

@@ -360,6 +360,12 @@ namespace Desert::Graphic
                  "through it), the frame has none" );
             return {};
         }
+        // Raw under an upscaler that denoises (DLSS Ray Reconstruction): the full-resolution gather is the signal.
+        if ( m_TemporalUpscaler != nullptr && m_TemporalUpscaler->TakesRawLightingSignals() )
+        {
+            gi->SkipDenoise();
+            return gather;
+        }
         return gi->Denoise( graph, gather,
                             System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
                                                            .GBufferDepth  = gbufferDepth,
@@ -687,7 +693,11 @@ namespace Desert::Graphic
                        gbuffer.size() );
             return {};
         }
-        const std::optional<System::SSRRenderer::TraceTargets> traceTargets = ssr.Prepare();
+        // Raw under an upscaler that denoises (DLSS Ray Reconstruction): one trace per pixel, no denoiser.
+        const bool raw = m_TemporalUpscaler != nullptr && m_TemporalUpscaler->TakesRawLightingSignals();
+        const System::SSRRenderer::TraceResolution resolution =
+             raw ? System::SSRRenderer::TraceResolution::Full : System::SSRRenderer::TraceResolution::Half;
+        const std::optional<System::SSRRenderer::TraceTargets> traceTargets = ssr.Prepare( resolution );
         if ( !traceTargets )
             return {};
         const RDG::TextureRef velocity = textures.Transients.Velocity;
@@ -727,6 +737,7 @@ namespace Desert::Graphic
         settings.MaxDistance  = m_SSRMaxDistance;
         settings.Intensity    = m_SSRIntensity;
         settings.Thickness    = Common::Units::Metres( 0.5f ); // literature: 0.5 m
+        settings.Resolution   = resolution;
         graph.AddPass(
              "Deferred: SSR", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
@@ -740,6 +751,14 @@ namespace Desert::Graphic
              [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings, sceneHistoryReadable,
               seed]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return ssrPtr->RecordTrace( context, cameraPos, settings, sceneHistoryReadable, seed ); } );
+        if ( raw )
+        {
+            // The trace IS the per-pixel reflection (rgb radiance, a coverage: what the denoiser outputs), and
+            // its ray is where each pixel's reflection came from - the upscaler's specular hit distance.
+            ssr.SkipDenoise();
+            textures.Transients.ReflectionRay = traceRay;
+            return FrameSSR{ .Resolved = trace, .SceneHistory = sceneHistory };
+        }
         const RDG::TextureRef resolved =
              ssr.Denoise( graph,
                           System::ReflectionsDenoiserInputs{

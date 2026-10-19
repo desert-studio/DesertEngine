@@ -80,6 +80,11 @@ namespace Desert::Graphic
         // The engine's temporal super resolution (Graphic::TemporalSuperResolution, UE TSR): Upscaler::TSR below
         // 100 %. Vendor-neutral, pure compute; at 100 % the native method is TAA.
         TSR,
+        // NVIDIA DLSS Ray Reconstruction (Graphic::DLSSUpscaler of Streamline::DlssFeature::RayReconstruction):
+        // Upscaler::DLSSRayReconstruction below 100 %, and at 100 % under AntiAliasingMethod::DLAA. The upscaler
+        // that also denoises: the view's noisy lighting signals reach it raw (ITemporalUpscaler::
+        // TakesRawLightingSignals).
+        DLSSRR,
     };
 
     // TAA QUALITY. Read by the TAA/TAAU resolve shader as the TAA_QUALITY shader variant (one pipeline per level):

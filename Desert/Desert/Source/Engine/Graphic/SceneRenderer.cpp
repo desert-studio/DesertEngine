@@ -1044,9 +1044,20 @@ namespace Desert::Graphic
         // A vendor method its runtime stopped offering (DLSS after an exception inside its evaluation) renders
         // with the engine's method instead, said once per reason; the frame never waits on a method that cannot
         // write its output.
+        // Ray Reconstruction is refused also by the VIEW: it denoises traced lighting, so a view that traces none
+        // (or renders the forward path, which has no G-buffer for its guides) runs DLSS Super Resolution instead.
         const VendorMethodFallback vendor = ReplaceUnavailableVendorMethods(
              m_RenderedAntiAliasing, m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler ),
-             TemporalMethodUnavailable );
+             [this]( const TemporalMethod method ) -> std::string
+             {
+                 if ( method == TemporalMethod::DLSSRR )
+                     if ( std::string why = RayReconstructionRefusal(
+                               m_RenderMethods.Reflections.Effective, m_RenderMethods.GlobalIllumination.Effective,
+                               m_RenderMethods.Shadows.Effective, m_GBuffer != nullptr );
+                          !why.empty() )
+                         return why;
+                 return TemporalMethodUnavailable( method );
+             } );
         if ( vendor.Why != m_VendorFallbackSaid )
         {
             if ( !vendor.Why.empty() )
@@ -1922,6 +1933,11 @@ namespace Desert::Graphic
              .ThinGeometryCoverage = textures.Transients.ThinGeometryCoverage,
              .OpaqueLuma           = opaqueLuma,
              .Black                = textures.System.Black,
+             // The surface guides of an upscaler that takes the lighting raw (deferred path only).
+             .GBufferAlbedo = m_GBuffer ? textures.Colors( m_GBuffer, "GBuffer" )[0] : RDG::TextureRef{},
+             .GBufferNormal = m_GBuffer ? textures.Colors( m_GBuffer, "GBuffer" )[1] : RDG::TextureRef{},
+             .BrdfLut       = textures.Transients.BrdfLut,
+             .ReflectionRay = textures.Transients.ReflectionRay,
              .History              = histories,
              .PrevHistory          = temporal ? m_ViewState.UpscalerHistory() : nullptr,
              .Quality              = &m_Quality };

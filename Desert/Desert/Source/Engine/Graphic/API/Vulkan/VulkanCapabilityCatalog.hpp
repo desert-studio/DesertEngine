@@ -48,6 +48,9 @@ namespace Desert::Graphic::API::Vulkan
         // MTLFXTemporalScalerDescriptor.supportsDevice). FSR: FsrDeviceSupport below (the FidelityFX SDK is
         // linked, not loaded, and states its needs as device features).
         bool DlssAvailable    = false;
+        // DLSS Ray Reconstruction (Streamline sl.dlss_d): its own plugin, NGX feature and device requirements, so
+        // its own answer; offered only beside DlssAvailable.
+        bool DlssRayReconstructionAvailable = false;
         bool FsrAvailable     = false;
         bool XessAvailable    = false;
         bool MetalFxAvailable = false;

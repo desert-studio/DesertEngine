@@ -58,7 +58,8 @@ Shader "SSR"
         {
         	vec4 u_CameraPos;  // xyz = camera world position, w = per-frame seed (ray sequence + 2x2 rotation)
         	vec4 u_SSRParams;  // x = rays per texel, y = HZB iterations per ray, z = intensity, w = thickness (world)
-        	vec4 u_SSRParams2; // x = max ray distance (world), y = 1 when u_SceneColor holds last frame, zw unused
+        	vec4 u_SSRParams2; // x = max ray distance (world), y = 1 when u_SceneColor holds last frame, z = 1 full
+        	                   // resolution trace (SSRRenderer::TraceResolution::Full), w unused
         };
 
         LocalSize(8, 8, 1);
@@ -324,6 +325,26 @@ Shader "SSR"
         	// ownership does not, so every trace texel is written by exactly one thread. 8 texels per axis from
         	// (p0 - 1) / 2 reach source pixels p0 - 2 .. p0 + 15, beyond the 9 a tile can own. ---
         	ivec2 traceSize = imageSize(u_Trace);
+        	// --- FULL RESOLUTION (u_SSRParams2.z, SSRRenderer::TraceResolution::Full): one trace per pixel, the
+        	// raw signal a denoising temporal upscaler takes (DLSS Ray Reconstruction); no block rotation. The
+        	// tile's pixels p0 .. p1 - 1 (up to 9 per axis) are covered by the same 2x2 stride as the classify. ---
+        	if (u_SSRParams2.z > 0.5)
+        	{
+        		for (int oy = 0; oy < 2; oy++)
+        			for (int ox = 0; ox < 2; ox++)
+        			{
+        				ivec2 p = p0 + ivec2(gl_LocalInvocationID.xy) + ivec2(ox, oy) * 8;
+        				if (p.x >= p1.x || p.y >= p1.y || p.x >= traceSize.x || p.y >= traceSize.y)
+        					continue;
+        				if (ivec2(floor((vec2(p) + 0.5) / scale)) != tile)
+        					continue;
+        				vec4 fullRay   = vec4(0.0, 0.0, 0.0, -126.0);
+        				vec4 fullTrace = tileReflects ? TraceFrom(p, full, fullRay) : vec4(0.0);
+        				imageStore(u_Trace, p, fullTrace);
+        				imageStore(u_TraceRay, p, fullRay);
+        			}
+        		return;
+        	}
         	int   frame     = int(u_CameraPos.w);
         	ivec2 q         = max((p0 - 1) / 2, ivec2(0)) + ivec2(gl_LocalInvocationID.xy);
         	if (q.x >= traceSize.x || q.y >= traceSize.y)

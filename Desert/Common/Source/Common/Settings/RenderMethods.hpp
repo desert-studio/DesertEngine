@@ -106,6 +106,25 @@ namespace Common::Scalability
         return method == ShadowMethod::HardwareTraced || method == ShadowMethod::Stochastic;
     }
 
+    // ---- Which methods hand the frame a NOISY signal (stochastic rays or taps) that a denoiser cleans: the
+    // screen-space denoiser (Graphic::System::ScreenSpaceDenoiser), or the temporal upscaler that takes the
+    // signals raw (DLSS Ray Reconstruction, Graphic::ITemporalUpscaler::TakesRawLightingSignals). A method of this
+    // list that is not implemented yet is listed by what it will be, so its renderer lands into the same rule.
+    [[nodiscard]] constexpr bool IsDenoisedSignal( ReflectionMethod method )
+    {
+        return method == ReflectionMethod::ScreenSpace || method == ReflectionMethod::SoftwareTraced ||
+               method == ReflectionMethod::HardwareTraced || method == ReflectionMethod::PathTraced;
+    }
+    [[nodiscard]] constexpr bool IsDenoisedSignal( GIMethod method )
+    {
+        return method == GIMethod::ReflectiveShadowMaps || method == GIMethod::SoftwareTraced ||
+               method == GIMethod::HardwareTraced || method == GIMethod::PathTraced;
+    }
+    [[nodiscard]] constexpr bool IsDenoisedSignal( ShadowMethod method )
+    {
+        return method == ShadowMethod::HardwareTraced || method == ShadowMethod::Stochastic;
+    }
+
     // ---- The refusal every setter of a VIEW'S method applies (scene loader, Details, scripts) ----------------
     // Attached to the reflected fields as PROPERTY( Refuse( ... ) ); the value is the stored integer. Empty =
     // admitted; otherwise the reason, one sentence. A number that is no enumerator is refused by the reflection

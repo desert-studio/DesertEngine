@@ -7,8 +7,9 @@
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
+#include <array>
 #include <cstdint>
-#include <set>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -33,6 +34,18 @@
 // frames that recorded with it. Every viewport still held at device destruction is freed before slShutdown.
 namespace Desert::Graphic::Streamline
 {
+    // The two DLSS features the runtime drives, each its own Streamline plugin and NGX feature with its own device
+    // requirements and its own refusal: Super Resolution (sl.dlss, sl::kFeatureDLSS) and Ray Reconstruction
+    // (sl.dlss_d, sl::kFeatureDLSS_RR) - the upscaler that is also the denoiser of the noisy lighting signals,
+    // and takes the G-buffer's guides beside the colour. Same modes, same viewports, same constants.
+    enum class DlssFeature : uint8_t
+    {
+        SuperResolution,
+        RayReconstruction,
+    };
+    inline constexpr std::size_t kDlssFeatureCount = 2;
+    [[nodiscard]] std::string_view DlssFeatureName( DlssFeature feature );
+
     // The DLSS quality modes, by render-to-output ratio (the network is trained per mode). DLAA is the 100 % mode.
     enum class DlssMode : uint8_t
     {
@@ -56,6 +69,21 @@ namespace Desert::Graphic::Streamline
         uint32_t MaxHeight     = 0;
     };
 
+    // What one view's DLSS feature is created with. A change re-options the feature (slDLSSSetOptions), which
+    // Streamline answers by recreating the NGX feature when the mode, the output size or the preset differ.
+    struct DlssOptions
+    {
+        DlssFeature                     Feature      = DlssFeature::SuperResolution;
+        DlssMode                        Mode         = DlssMode::DLAA;
+        uint32_t                        OutputWidth  = 0;
+        uint32_t                        OutputHeight = 0;
+        Common::Scalability::DlssPreset Preset       = Common::Scalability::DlssPreset::Default; // for Mode
+        // For Mode under RayReconstruction (Ray Reconstruction has its own networks).
+        Common::Scalability::DlssRRPreset RRPreset = Common::Scalability::DlssRRPreset::Default;
+
+        [[nodiscard]] bool operator==( const DlssOptions& ) const = default;
+    };
+
     // One image as Streamline needs it on Vulkan: the handles, the layout it is in while DLSS runs, its usage.
     struct DlssImage
     {
@@ -73,8 +101,8 @@ namespace Desert::Graphic::Streamline
     // row-major M^T a row-vector convention multiplies by).
     struct DlssEvaluation
     {
-        uint32_t Viewport = 0;              // Runtime::AcquireViewport, options set by SetOptions
-        DlssMode Mode     = DlssMode::DLAA; // the mode SetOptions last set (named in errors)
+        uint32_t    Viewport = 0; // Runtime::AcquireViewport, options set by SetOptions
+        DlssOptions Options;      // what SetOptions last set (its Feature evaluates; the mode is named in errors)
 
         // THE VIEW'S SPLIT (ViewFrame::Split): what DLSS upscales from and to. The tags' extents are these, never
         // the images' sizes - an image may be larger than the view it holds (a pooled or not-yet-shrunk target),
@@ -89,6 +117,18 @@ namespace Desert::Graphic::Streamline
         DlssImage MotionVectors; // render extent
         DlssImage Output;        // output extent, RDG::Access::ExternalWrite (NGX writes and clears it)
         DlssImage Exposure;      // 1x1 R32F, the exposure multiplier (UpscalerExposure)
+
+        // RAY RECONSTRUCTION'S GUIDES (Options.Feature RayReconstruction only, render extent; DLSSUpscaler's
+        // "DLSS-RR: Guides" pass writes the first three from the G-buffer). UE's DLSS plugin hands the same set:
+        // diffuse albedo, specular albedo (the split-sum reflectance the composite multiplied the reflection by),
+        // world normal with roughness in w (sl::DLSSDNormalRoughnessMode::ePacked), and the specular hit distance
+        // of the traced reflection (world units), absent (Image null) where the view traces no reflection.
+        DlssImage DiffuseAlbedo;
+        DlssImage SpecularAlbedo;
+        DlssImage NormalRoughness;
+        DlssImage SpecularHitDistance;
+        glm::mat4 WorldToView{ 1.0f }; // the normals' space to the camera's: sl::DLSSDOptions::worldToCameraView
+        glm::mat4 ViewToWorld{ 1.0f };
 
         glm::mat4 ViewToClip{ 1.0f }; // unjittered projection
         glm::mat4 ClipToView{ 1.0f };
@@ -108,18 +148,6 @@ namespace Desert::Graphic::Streamline
         uint64_t  EngineFrame = 0;     // FrameManager absolute frame count: the frame token
     };
 
-    // What one view's DLSS feature is created with. A change re-options the feature (slDLSSSetOptions), which
-    // Streamline answers by recreating the NGX feature when the mode, the output size or the preset differ.
-    struct DlssOptions
-    {
-        DlssMode                        Mode         = DlssMode::DLAA;
-        uint32_t                        OutputWidth  = 0;
-        uint32_t                        OutputHeight = 0;
-        Common::Scalability::DlssPreset Preset       = Common::Scalability::DlssPreset::Default; // for Mode
-
-        [[nodiscard]] bool operator==( const DlssOptions& ) const = default;
-    };
-
     class Runtime final : public API::Vulkan::IVulkanDeviceExtension
     {
     public:
@@ -130,28 +158,31 @@ namespace Desert::Graphic::Streamline
         Runtime( const Runtime& )            = delete;
         Runtime& operator=( const Runtime& ) = delete;
 
-        // DLSS Super Resolution can evaluate on this device: Streamline loaded and initialised, the adapter
-        // supported, the device's requirements enabled, slSetVulkanInfo accepted.
-        [[nodiscard]] bool DlssReady() const;
-        // Why DlssReady() is false (empty while it is true or before the device exists).
-        [[nodiscard]] std::string DlssRefusal() const;
+        // @p feature can evaluate on this device: Streamline loaded and initialised, the adapter supported, the
+        // feature's device requirements enabled, slSetVulkanInfo accepted, its plugin's entry points resolved.
+        [[nodiscard]] bool Ready( DlssFeature feature ) const;
+        // Why Ready( @p feature ) is false (empty while it is true or before the device exists).
+        [[nodiscard]] std::string Refusal( DlssFeature feature ) const;
 
-        // The render extents @p mode accepts for an output of @p outputWidth x @p outputHeight.
-        [[nodiscard]] Common::ResultStr<DlssRenderRange> RenderRange( DlssMode mode, uint32_t outputWidth,
+        // The render extents @p mode of @p feature accepts for an output of @p outputWidth x @p outputHeight.
+        [[nodiscard]] Common::ResultStr<DlssRenderRange> RenderRange( DlssFeature feature, DlssMode mode,
+                                                                      uint32_t outputWidth,
                                                                       uint32_t outputHeight ) const;
 
-        // A new per-view viewport, unique for the runtime's life and never 0. The caller owns it until
-        // ReleaseViewport.
-        [[nodiscard]] uint32_t AcquireViewport();
-        // Frees the viewport's DLSS feature (slFreeResources) once no frame in flight uses it — the caller
-        // retires it through the frame ring. A no-op after device destruction (everything was freed there).
+        // A new per-view viewport of @p feature, unique for the runtime's life and never 0. The caller owns it
+        // until ReleaseViewport.
+        [[nodiscard]] uint32_t AcquireViewport( DlssFeature feature );
+        // Frees the viewport's feature (slFreeResources) once no frame in flight uses it — the caller retires it
+        // through the frame ring. A no-op after device destruction (everything was freed there).
         void ReleaseViewport( uint32_t viewport );
-        // Sets @p viewport's options (slDLSSSetOptions); returns the feature's estimated GPU bytes
-        // (slDLSSGetState), which the view counts as held by its history.
+        // Sets @p viewport's options (slDLSSSetOptions / slDLSSDSetOptions, by options.Feature, which must be the
+        // viewport's); returns the feature's estimated GPU bytes (slDLSSGetState / slDLSSDGetState), which the
+        // view counts as held by its history.
         [[nodiscard]] Common::ResultStr<uint64_t> SetOptions( uint32_t viewport, const DlssOptions& options );
 
-        // Records one DLSS evaluation of a viewport whose options are set into @p commandBuffer (constants, the
-        // five tagged images, evaluate).
+        // Records one evaluation of a viewport whose options are set into @p commandBuffer (constants, the tagged
+        // images, evaluate). Ray Reconstruction re-sets its options first: they carry this frame's camera
+        // matrices (the normals' space), which Streamline takes without recreating the feature.
         [[nodiscard]] Common::BoolResultStr Evaluate( VkCommandBuffer commandBuffer, const DlssEvaluation& input );
 
         // IVulkanDeviceExtension
@@ -167,16 +198,31 @@ namespace Desert::Graphic::Streamline
 
     private:
         struct Library; // the loaded interposer and its function table (StreamlineRuntime.cpp)
-        void Refuse( std::string reason );
+        struct FeatureState
+        {
+            bool        Candidate = false; // supported + requirements enabled on the device
+            bool        Ready     = false; // slSetVulkanInfo accepted, entry points resolved
+            std::string Refusal;
+        };
+        // One feature refuses itself; the other keeps its state.
+        void Refuse( DlssFeature feature, std::string reason );
+        // Streamline itself refuses (not loaded, not initialised, not an NVIDIA device): both features.
+        void                              RefuseAll( const std::string& reason );
+        [[nodiscard]] FeatureState&       StateOf( DlssFeature feature );
+        [[nodiscard]] const FeatureState& StateOf( DlssFeature feature ) const;
+        [[nodiscard]] bool                AnyCandidate() const;
+        // SetOptions under m_Mutex. @p worldToView / @p viewToWorld: Ray Reconstruction's camera (identity at
+        // creation, the frame's at evaluation). @p heldBytes: where the feature's estimate goes, null to skip it.
+        [[nodiscard]] Common::BoolResultStr SetOptionsLocked( uint32_t viewport, const DlssOptions& input,
+                                                              const glm::mat4& worldToView,
+                                                              const glm::mat4& viewToWorld, uint64_t* heldBytes );
 
-        mutable std::mutex       m_Mutex;
-        std::unique_ptr<Library> m_Library;
-        bool                     m_Initialized   = false; // slInit succeeded
-        bool                     m_DlssCandidate = false; // supported + requirements enabled on the device
-        bool                     m_DlssReady     = false; // slSetVulkanInfo accepted
-        std::string              m_Refusal;
-        std::vector<std::string> m_InstanceExtensionNames; // storage for InstanceExtensions()'s pointers
-        std::set<uint32_t>       m_Viewports;              // acquired and not yet released
+        mutable std::mutex                          m_Mutex;
+        std::unique_ptr<Library>                    m_Library;
+        bool                                        m_Initialized = false; // slInit succeeded
+        std::array<FeatureState, kDlssFeatureCount> m_Features;
+        std::vector<std::string>        m_InstanceExtensionNames; // storage for InstanceExtensions()'s pointers
+        std::map<uint32_t, DlssFeature> m_Viewports; // acquired and not yet released, by their feature
         uint32_t                 m_NextViewport = 1;
         uint64_t                 m_TokenFrame   = UINT64_MAX;
         void*                    m_Token        = nullptr; // sl::FrameToken* of m_TokenFrame

@@ -5,10 +5,15 @@
 #include <Engine/Graphic/View/UpscalerExposure.hpp>
 
 #include <map>
+#include <memory>
 #include <mutex>
 #include <tuple>
 
-// NVIDIA DLSS SUPER RESOLUTION as an ITemporalUpscaler (UE: the DLSS plugin's FDLSSUpscaler). Windows only
+// NVIDIA DLSS SUPER RESOLUTION and DLSS RAY RECONSTRUCTION as an ITemporalUpscaler (UE: the DLSS plugin's
+// FDLSSUpscaler, whose Ray Reconstruction mode is the same upscaler with the denoiser on). One class, one object per
+// Streamline::DlssFeature: the feature is the only difference in the passes (which plugin evaluates, which guides
+// are tagged), and everything else - the modes, the split, the jitter, the exposure, the per-view feature - is
+// shared. Windows only
 // (premake compiles Engine/Graphic/Upscalers/ on Windows alone and defines DESERT_UPSCALER_DLSS, which kDlssBuilt
 // in API/UpscalerBuild.hpp reads); selectable where Streamline::Runtime::DlssReady() - the catalog offers
 // Upscaler::DLSS and AntiAliasingMethod::DLAA only then.
@@ -31,18 +36,30 @@
 //
 // MATERIAL MIP BIAS is NVIDIA's rule (DLSS programming guide, "Mip-Map Bias"): log2(render / output) - 1, at
 // DLAA too.
+//
+// RAY RECONSTRUCTION (TemporalMethod::DLSSRR; Streamline sl::kFeatureDLSS_RR) is also the view's denoiser
+// (TakesRawLightingSignals): the renderer hands it the reflection traced at full resolution and the diffuse gather
+// undenoised, composited into the colour as usual, and a third pass, "DLSS-RR: Guides" (DLSSRRGuides.shader),
+// writes the guides it demodulates them with - diffuse and specular albedo from the G-buffer and the split-sum
+// table, the reflection's hit distance from SSR's ray - beside the G-buffer's normal + roughness, tagged as is.
+// Its presets are its own Scalability rows (Parameter::DlssRRPresetDLAA ..), its modes DLSS's.
 namespace Desert::Graphic
 {
     class DLSSUpscaler final : public ITemporalUpscaler
     {
     public:
-        DLSSUpscaler();
+        explicit DLSSUpscaler( Streamline::DlssFeature feature );
         ~DLSSUpscaler() override;
 
         [[nodiscard]] std::string_view DebugName() const override;
         [[nodiscard]] TemporalMethod   Method() const override
         {
-            return TemporalMethod::DLSS;
+            return m_Feature == Streamline::DlssFeature::RayReconstruction ? TemporalMethod::DLSSRR
+                                                                            : TemporalMethod::DLSS;
+        }
+        [[nodiscard]] bool TakesRawLightingSignals() const override
+        {
+            return m_Feature == Streamline::DlssFeature::RayReconstruction;
         }
         [[nodiscard]] bool                            Supports( const ResolutionSplit& split ) const override;
         [[nodiscard]] std::vector<HistoryTextureDesc>
@@ -53,9 +70,9 @@ namespace Desert::Graphic
         AddPasses( RDG::Builder& graph, const ViewFrame& frame,
                    const TemporalUpscalerInputs& inputs ) const override;
 
-        // Why DLSS cannot run on this device now (the Streamline runtime's refusal), empty while it can
+        // Why @p feature cannot run on this device now (the Streamline runtime's refusal), empty while it can
         // (TemporalMethodUnavailable).
-        [[nodiscard]] static std::string Unavailable();
+        [[nodiscard]] static std::string Unavailable( Streamline::DlssFeature feature );
 
         // The mode that resolves @p split, or why none does.
         [[nodiscard]] Common::ResultStr<Streamline::DlssMode> ModeFor( const ResolutionSplit& split ) const;
@@ -64,7 +81,21 @@ namespace Desert::Graphic
         [[nodiscard]] Common::ResultStr<Streamline::DlssRenderRange> RangeOf( Streamline::DlssMode mode,
                                                                               ViewExtent           output ) const;
 
-        UpscalerExposure m_Exposure;
+        // "DLSS-RR: Guides" (Ray Reconstruction only): the diffuse / specular albedo and specular hit distance
+        // transients, returned in that order.
+        struct Guides
+        {
+            RDG::TextureRef DiffuseAlbedo;
+            RDG::TextureRef SpecularAlbedo;
+            RDG::TextureRef SpecularHitDistance;
+        };
+        [[nodiscard]] Common::ResultStr<Guides> AddGuidesPass( RDG::Builder& graph, const ViewFrame& frame,
+                                                               const TemporalUpscalerInputs& inputs ) const;
+
+        const Streamline::DlssFeature m_Feature;
+        UpscalerExposure              m_Exposure;
+        struct GuidesPipeline; // the guides pass's compute pipeline, made on first record (DLSSUpscaler.cpp)
+        std::unique_ptr<GuidesPipeline> m_GuidesPipeline;
 
         // slDLSSGetOptimalSettings by (mode, output width, output height): asked every frame by Supports.
         mutable std::mutex m_RangeMutex;

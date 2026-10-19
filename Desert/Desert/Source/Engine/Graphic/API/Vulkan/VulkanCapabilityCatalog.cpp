@@ -75,7 +75,14 @@ namespace Desert::Graphic::API::Vulkan
         // Upscalers, best first. DLSS is NVIDIA-only even if a runtime claims otherwise; MetalFX exists only
         // through MoltenVK.
         if ( probe.DlssAvailable && probe.VendorId == kVendorNvidia )
+        {
             catalog.Upscalers.push_back( Upscaler::DLSS );
+            // After DLSS, not before it: Ray Reconstruction is better only on a view with noisy lighting signals
+            // to take, and a view without them refuses it (Graphic::RayReconstructionRefusal), so it is never
+            // the device's best upscaler as such.
+            if ( probe.DlssRayReconstructionAvailable )
+                catalog.Upscalers.push_back( Upscaler::DLSSRayReconstruction );
+        }
         if ( probe.XessAvailable )
             catalog.Upscalers.push_back( Upscaler::XeSS );
         if ( probe.MetalFxAvailable && probe.Portability )

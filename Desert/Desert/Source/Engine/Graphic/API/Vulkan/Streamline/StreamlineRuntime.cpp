@@ -15,6 +15,7 @@
 
 #include <sl.h>
 #include <sl_dlss.h>
+#include <sl_dlss_d.h>
 #include <sl_helpers.h>
 #include <sl_helpers_vk.h>
 #include <sl_security.h>
@@ -89,9 +90,30 @@ namespace Desert::Graphic::Streamline
             return sl::DLSSPreset::eDefault;
         }
 
-        // sl::DLSSOptions carries one preset per mode; only the running mode's is read, so the view's preset is
-        // written into that mode's slot and the rest stay Default.
-        void SetPreset( sl::DLSSOptions& options, const DlssMode mode, const sl::DLSSPreset preset )
+        sl::DLSSDPreset ToSl( const Common::Scalability::DlssRRPreset preset )
+        {
+            using Common::Scalability::DlssRRPreset;
+            switch ( preset )
+            {
+                case DlssRRPreset::Default:
+                    return sl::DLSSDPreset::eDefault;
+                case DlssRRPreset::D:
+                    return sl::DLSSDPreset::ePresetD;
+                case DlssRRPreset::E:
+                    return sl::DLSSDPreset::ePresetE;
+            }
+            return sl::DLSSDPreset::eDefault;
+        }
+
+        sl::Feature ToSl( const DlssFeature feature )
+        {
+            return feature == DlssFeature::RayReconstruction ? sl::kFeatureDLSS_RR : sl::kFeatureDLSS;
+        }
+
+        // sl::DLSSOptions / sl::DLSSDOptions carry one preset per mode; only the running mode's is read, so the
+        // view's preset is written into that mode's slot and the rest stay Default.
+        template <typename Options, typename Preset>
+        void SetPreset( Options& options, const DlssMode mode, const Preset preset )
         {
             switch ( mode )
             {
@@ -276,6 +298,18 @@ namespace Desert::Graphic::Streamline
         }
     } // namespace
 
+    std::string_view DlssFeatureName( const DlssFeature feature )
+    {
+        switch ( feature )
+        {
+            case DlssFeature::SuperResolution:
+                return "DLSS Super Resolution";
+            case DlssFeature::RayReconstruction:
+                return "DLSS Ray Reconstruction";
+        }
+        return "<unknown DlssFeature>";
+    }
+
     std::string_view DlssModeName( const DlssMode mode )
     {
         switch ( mode )
@@ -313,6 +347,10 @@ namespace Desert::Graphic::Streamline
         PFun_slDLSSGetOptimalSettings* GetOptimalSettings = nullptr;
         PFun_slDLSSSetOptions*         SetOptions         = nullptr;
         PFun_slDLSSGetState*           GetState           = nullptr;
+        // Ray Reconstruction's (sl.dlss_d), the same way.
+        PFun_slDLSSDGetOptimalSettings* RRGetOptimalSettings = nullptr;
+        PFun_slDLSSDSetOptions*         RRSetOptions         = nullptr;
+        PFun_slDLSSDGetState*           RRGetState           = nullptr;
         // The interposer's presentation proxies (manual hooking), resolved once slSetVulkanInfo has handed it the
         // device: each runs the plugins' before/after hooks (sl.common's presentCommon on vkQueuePresentKHR)
         // around the driver's entry point. Hooked = all of them resolved.
@@ -349,24 +387,47 @@ namespace Desert::Graphic::Streamline
         return "Streamline";
     }
 
-    bool Runtime::DlssReady() const
+    Runtime::FeatureState& Runtime::StateOf( const DlssFeature feature )
     {
-        const std::scoped_lock lock( m_Mutex );
-        return m_DlssReady;
+        return m_Features[static_cast<std::size_t>( feature )];
     }
 
-    std::string Runtime::DlssRefusal() const
+    const Runtime::FeatureState& Runtime::StateOf( const DlssFeature feature ) const
     {
-        const std::scoped_lock lock( m_Mutex );
-        return m_Refusal;
+        return m_Features[static_cast<std::size_t>( feature )];
     }
 
-    void Runtime::Refuse( std::string reason )
+    bool Runtime::AnyCandidate() const
     {
-        LOG_WARN( "[Streamline] DLSS is not offered: {}", reason );
-        m_Refusal       = std::move( reason );
-        m_DlssCandidate = false;
-        m_DlssReady     = false;
+        return std::any_of( m_Features.begin(), m_Features.end(),
+                            []( const FeatureState& state ) { return state.Candidate; } );
+    }
+
+    bool Runtime::Ready( const DlssFeature feature ) const
+    {
+        const std::scoped_lock lock( m_Mutex );
+        return StateOf( feature ).Ready;
+    }
+
+    std::string Runtime::Refusal( const DlssFeature feature ) const
+    {
+        const std::scoped_lock lock( m_Mutex );
+        return StateOf( feature ).Refusal;
+    }
+
+    void Runtime::Refuse( const DlssFeature feature, std::string reason )
+    {
+        LOG_WARN( "[Streamline] {} is not offered: {}", DlssFeatureName( feature ), reason );
+        FeatureState& state = StateOf( feature );
+        state.Refusal       = std::move( reason );
+        state.Candidate     = false;
+        state.Ready         = false;
+    }
+
+    void Runtime::RefuseAll( const std::string& reason )
+    {
+        for ( const DlssFeature feature : { DlssFeature::SuperResolution, DlssFeature::RayReconstruction } )
+            Refuse( feature, reason );
     }
 
     API::Vulkan::InstanceRequirements Runtime::InstanceExtensions()
@@ -378,7 +439,7 @@ namespace Desert::Graphic::Streamline
         {
             // The binaries are downloaded, not committed (ThirdParty/Streamline/manifest.json): a build made before
             // the fetch, or a package from a machine without it, lands here and says how to fix it.
-            Refuse( std::format( "{} is not next to the executable (not fetched? run `python "
+            RefuseAll( std::format( "{} is not next to the executable (not fetched? run `python "
                                  "scripts/Windows/FetchVendorBinaries.py`, then rebuild)",
                                  interposer.string() ) );
             return {};
@@ -387,14 +448,14 @@ namespace Desert::Graphic::Streamline
         // replaced DLL is code run inside this process).
         if ( !sl::security::verifyEmbeddedSignature( interposer.c_str() ) )
         {
-            Refuse( std::format( "{} carries no valid NVIDIA signature", interposer.string() ) );
+            RefuseAll( std::format( "{} carries no valid NVIDIA signature", interposer.string() ) );
             return {};
         }
         auto library    = std::make_unique<Library>();
         library->Module = LoadLibraryW( interposer.c_str() );
         if ( library->Module == nullptr )
         {
-            Refuse( std::format( "LoadLibrary({}) failed with Win32 error {}", interposer.string(),
+            RefuseAll( std::format( "LoadLibrary({}) failed with Win32 error {}", interposer.string(),
                                  GetLastError() ) );
             return {};
         }
@@ -410,13 +471,13 @@ namespace Desert::Graphic::Streamline
                 library->Resolve( library->FreeResources, "slFreeResources" ) } )
             if ( !resolved )
             {
-                Refuse( resolved.GetError() );
+                RefuseAll( resolved.GetError() );
                 return {};
             }
 
         const std::wstring                  pluginDirectory = directory.wstring();
         const std::array<const wchar_t*, 1> pluginPaths{ pluginDirectory.c_str() };
-        const std::array<sl::Feature, 1>    features{ sl::kFeatureDLSS };
+        const std::array<sl::Feature, 2>    features{ sl::kFeatureDLSS, sl::kFeatureDLSS_RR };
         sl::Preferences                     preferences;
         preferences.showConsole        = false;
         preferences.logLevel           = sl::LogLevel::eDefault;
@@ -435,153 +496,89 @@ namespace Desert::Graphic::Streamline
         preferences.renderAPI         = sl::RenderAPI::eVulkan;
         if ( const sl::Result result = library->Init( preferences, sl::kSDKVersion ); result != sl::Result::eOk )
         {
-            Refuse( std::format( "slInit failed: {}", ResultName( result ) ) );
+            RefuseAll( std::format( "slInit failed: {}", ResultName( result ) ) );
             return {};
         }
         m_Library     = std::move( library );
         m_Initialized = true;
 
-        sl::FeatureRequirements requirements;
-        if ( const sl::Result result = m_Library->GetFeatureRequirements( sl::kFeatureDLSS, requirements );
-             result != sl::Result::eOk )
-        {
-            Refuse( std::format( "slGetFeatureRequirements(DLSS) failed: {}", ResultName( result ) ) );
-            return {};
-        }
-        if ( ( static_cast<uint32_t>( requirements.flags ) &
-               static_cast<uint32_t>( sl::FeatureRequirementFlags::eVulkanSupported ) ) == 0 )
-        {
-            Refuse( "this Streamline build's DLSS plugin does not support Vulkan" );
-            return {};
-        }
         const auto system = vkb::SystemInfo::get_system_info( vkGetInstanceProcAddr );
         if ( !system )
         {
-            Refuse( std::format( "the Vulkan loader could not list instance extensions: {}",
-                                 system.error().message() ) );
+            RefuseAll( std::format( "the Vulkan loader could not list instance extensions: {}",
+                                    system.error().message() ) );
             return {};
         }
+        // Each feature states its own needs; one the loader cannot meet refuses that feature only.
+        for ( const DlssFeature feature : { DlssFeature::SuperResolution, DlssFeature::RayReconstruction } )
+        {
+            sl::FeatureRequirements requirements;
+            if ( const sl::Result result = m_Library->GetFeatureRequirements( ToSl( feature ), requirements );
+                 result != sl::Result::eOk )
+            {
+                Refuse( feature, std::format( "slGetFeatureRequirements({}) failed: {}", DlssFeatureName( feature ),
+                                              ResultName( result ) ) );
+                continue;
+            }
+            if ( ( static_cast<uint32_t>( requirements.flags ) &
+                   static_cast<uint32_t>( sl::FeatureRequirementFlags::eVulkanSupported ) ) == 0 )
+            {
+                Refuse( feature, "this Streamline build's plugin does not support Vulkan" );
+                continue;
+            }
+            std::vector<std::string> names;
+            bool                     available = true;
+            for ( uint32_t i = 0; i < requirements.vkNumInstanceExtensions && available; ++i )
+            {
+                const char* name = requirements.vkInstanceExtensions[i];
+                if ( !system.value().is_extension_available( name ) )
+                {
+                    Refuse( feature,
+                            std::format( "it needs the instance extension {}, which the loader does not offer", name ) );
+                    available = false;
+                }
+                names.emplace_back( name );
+            }
+            if ( !available )
+                continue;
+            for ( std::string& name : names )
+                if ( std::find( m_InstanceExtensionNames.begin(), m_InstanceExtensionNames.end(), name ) ==
+                     m_InstanceExtensionNames.end() )
+                    m_InstanceExtensionNames.push_back( std::move( name ) );
+            StateOf( feature ).Candidate = true; // until the device says otherwise
+        }
+        if ( !AnyCandidate() )
+            return {};
         API::Vulkan::InstanceRequirements instance;
         // NGX (DLSS) records its work through the driver directly with the handles slEvaluateFeature is given:
         // a validation layer that wraps handles would hand it ids the driver dereferences (the access violation
         // in nvoglv64 under slEvaluateFeature, Result::eErrorExceptionHandler).
         instance.PassesHandlesBesideTheLayers = true;
-        for ( uint32_t i = 0; i < requirements.vkNumInstanceExtensions; ++i )
-        {
-            const char* name = requirements.vkInstanceExtensions[i];
-            if ( !system.value().is_extension_available( name ) )
-            {
-                Refuse( std::format( "DLSS needs the instance extension {}, which the loader does not offer",
-                                     name ) );
-                return {};
-            }
-            m_InstanceExtensionNames.emplace_back( name );
-        }
         for ( const std::string& name : m_InstanceExtensionNames )
             instance.Extensions.push_back( name.c_str() );
-        m_DlssCandidate = true; // until the device says otherwise
         return instance;
     }
 
     void Runtime::OnPhysicalDeviceSelected( VkInstance /*instance*/, vkb::PhysicalDevice& device )
     {
         const std::scoped_lock lock( m_Mutex );
-        if ( !m_Initialized || !m_DlssCandidate )
+        if ( !m_Initialized || !AnyCandidate() )
             return;
         if ( device.properties.vendorID != kVendorNvidia )
         {
-            Refuse( std::format( "'{}' is not an NVIDIA device (vendor 0x{:04X})", device.properties.deviceName,
-                                 device.properties.vendorID ) );
+            RefuseAll( std::format( "'{}' is not an NVIDIA device (vendor 0x{:04X})", device.properties.deviceName,
+                                    device.properties.vendorID ) );
             return;
         }
-
-        sl::AdapterInfo adapter;
-        adapter.vkPhysicalDevice = device.physical_device;
-        sl::FeatureRequirements requirements;
-        const sl::Result requirementsResult = m_Library->GetFeatureRequirements( sl::kFeatureDLSS, requirements );
-        if ( const sl::Result result = m_Library->IsFeatureSupported( sl::kFeatureDLSS, adapter );
-             result != sl::Result::eOk )
-        {
-            const bool known = requirementsResult == sl::Result::eOk;
-            Refuse( std::format(
-                 "slIsFeatureSupported(DLSS) on '{}': {} (driver {}.{}.{} detected, {}.{}.{} required)",
-                 device.properties.deviceName, ResultName( result ),
-                 known ? requirements.driverVersionDetected.major : 0,
-                 known ? requirements.driverVersionDetected.minor : 0,
-                 known ? requirements.driverVersionDetected.build : 0,
-                 known ? requirements.driverVersionRequired.major : 0,
-                 known ? requirements.driverVersionRequired.minor : 0,
-                 known ? requirements.driverVersionRequired.build : 0 ) );
-            return;
-        }
-        if ( requirementsResult != sl::Result::eOk )
-        {
-            Refuse( std::format( "slGetFeatureRequirements(DLSS) failed: {}", ResultName( requirementsResult ) ) );
-            return;
-        }
-        // The engine creates one queue per family it uses; a feature asking for queues of its own would need the
-        // device created differently, which DLSS Super Resolution does not.
-        if ( requirements.vkNumComputeQueuesRequired != 0 || requirements.vkNumGraphicsQueuesRequired != 0 ||
-             requirements.vkNumOpticalFlowQueuesRequired != 0 )
-        {
-            Refuse(
-                 std::format( "DLSS asks for {} compute, {} graphics and {} optical-flow queues of its own; the "
-                              "engine's device creates none for it",
-                              requirements.vkNumComputeQueuesRequired, requirements.vkNumGraphicsQueuesRequired,
-                              requirements.vkNumOpticalFlowQueuesRequired ) );
-            return;
-        }
-
-        // Everything is checked before anything is enabled: a refusal leaves the device exactly as the engine
-        // asked for it.
         const uint32_t api = API::Vulkan::UsedApiVersion( device.properties.apiVersion );
         // Streamline's own Vulkan layer keeps per-object state in private data slots (vkCreatePrivateDataSlot,
         // the 1.3 entry point) and slGetFeatureRequirements does not list the feature: on an RTX 3070 Ti it
         // reported 0 Vulkan 1.3 features and sl.common then failed VUID-vkCreatePrivateDataSlot-privateData-04564.
         if ( api < VK_API_VERSION_1_3 )
         {
-            Refuse( std::format( "'{}' is a Vulkan {} device; Streamline creates private data slots through the "
-                                 "Vulkan 1.3 entry point",
-                                 device.properties.deviceName, API::Vulkan::FormatApiVersion( api ) ) );
-            return;
-        }
-        VkPhysicalDeviceVulkan12Features features12{ .sType =
-                                                          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
-        VkPhysicalDeviceVulkan13Features features13{ .sType =
-                                                          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
-        features13.privateData = VK_TRUE;
-        std::vector<const char*> extensionsByName;
-        for ( uint32_t i = 0; i < requirements.vkNumDeviceExtensions; ++i )
-        {
-            const char* name = requirements.vkDeviceExtensions[i];
-            if ( const CoreExtension* core = CoreFormOf( name, api ) )
-            {
-                if ( core->Feature12 != nullptr )
-                    features12.*( core->Feature12 ) = VK_TRUE;
-                if ( core->Feature13 != nullptr )
-                    features13.*( core->Feature13 ) = VK_TRUE;
-                continue;
-            }
-            if ( !device.is_extension_present( name ) )
-            {
-                Refuse( std::format( "'{}' lacks the device extension {} DLSS needs", device.properties.deviceName,
-                                     name ) );
-                return;
-            }
-            extensionsByName.push_back( name );
-        }
-        if ( const auto set = SetFeatures( kFeatures12, requirements.vkFeatures12, requirements.vkNumFeatures12,
-                                           features12, "1.2" );
-             !set )
-        {
-            Refuse( set.GetError() );
-            return;
-        }
-        if ( const auto set = SetFeatures( kFeatures13, requirements.vkFeatures13, requirements.vkNumFeatures13,
-                                           features13, "1.3" );
-             !set )
-        {
-            Refuse( set.GetError() );
+            RefuseAll( std::format( "'{}' is a Vulkan {} device; Streamline creates private data slots through the "
+                                    "Vulkan 1.3 entry point",
+                                    device.properties.deviceName, API::Vulkan::FormatApiVersion( api ) ) );
             return;
         }
         // What the DEVICE supports, asked of the device (vkGetPhysicalDeviceFeatures2). vkb's
@@ -593,43 +590,137 @@ namespace Desert::Graphic::Streamline
         VkPhysicalDeviceFeatures2 supported{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
                                              .pNext = &supported12 };
         vkGetPhysicalDeviceFeatures2( device.physical_device, &supported );
-        if ( const std::string_view missing = FirstMissingFeature( kFeatures12, features12, supported12 );
-             !missing.empty() )
-        {
-            Refuse( std::format( "'{}' lacks the Vulkan 1.2 feature {} DLSS needs", device.properties.deviceName,
-                                 missing ) );
-            return;
-        }
-        if ( const std::string_view missing = FirstMissingFeature( kFeatures13, features13, supported13 );
-             !missing.empty() )
-        {
-            Refuse( std::format( "'{}' lacks the Vulkan 1.3 feature {} DLSS needs", device.properties.deviceName,
-                                 missing ) );
-            return;
-        }
 
-        for ( const char* name : extensionsByName )
-            device.enable_extension_if_present( name );
-        // Merged by vkb into the engine's own VkPhysicalDeviceVulkan12/13Features (DeviceCapsProbe.cpp enables
-        // its bits into the same two structs): one chain, no per-extension feature struct beside it.
-        device.enable_extension_features_if_present( features12 );
-        device.enable_extension_features_if_present( features13 );
-        LOG_INFO( "[Streamline] DLSS requirements enabled on '{}': {} of {} device extensions by name (the rest "
-                  "as Vulkan {} core features), {} + {} features asked, privateData for Streamline's layer",
-                  device.properties.deviceName, extensionsByName.size(), requirements.vkNumDeviceExtensions,
-                  API::Vulkan::FormatApiVersion( api ), requirements.vkNumFeatures12, requirements.vkNumFeatures13 );
+        sl::AdapterInfo adapter;
+        adapter.vkPhysicalDevice = device.physical_device;
+        // Each feature is checked whole before anything of it is enabled: a refusal leaves the device exactly as
+        // the engine and the other feature asked for it.
+        for ( const DlssFeature feature : { DlssFeature::SuperResolution, DlssFeature::RayReconstruction } )
+        {
+            if ( !StateOf( feature ).Candidate )
+                continue;
+            const std::string_view  name = DlssFeatureName( feature );
+            sl::FeatureRequirements requirements;
+            const sl::Result requirementsResult = m_Library->GetFeatureRequirements( ToSl( feature ), requirements );
+            if ( const sl::Result result = m_Library->IsFeatureSupported( ToSl( feature ), adapter );
+                 result != sl::Result::eOk )
+            {
+                const bool known = requirementsResult == sl::Result::eOk;
+                Refuse( feature,
+                        std::format( "slIsFeatureSupported({}) on '{}': {} (driver {}.{}.{} detected, {}.{}.{} "
+                                     "required)",
+                                     name, device.properties.deviceName, ResultName( result ),
+                                     known ? requirements.driverVersionDetected.major : 0,
+                                     known ? requirements.driverVersionDetected.minor : 0,
+                                     known ? requirements.driverVersionDetected.build : 0,
+                                     known ? requirements.driverVersionRequired.major : 0,
+                                     known ? requirements.driverVersionRequired.minor : 0,
+                                     known ? requirements.driverVersionRequired.build : 0 ) );
+                continue;
+            }
+            if ( requirementsResult != sl::Result::eOk )
+            {
+                Refuse( feature, std::format( "slGetFeatureRequirements({}) failed: {}", name,
+                                              ResultName( requirementsResult ) ) );
+                continue;
+            }
+            // The engine creates one queue per family it uses; a feature asking for queues of its own would need
+            // the device created differently, which neither DLSS feature does.
+            if ( requirements.vkNumComputeQueuesRequired != 0 || requirements.vkNumGraphicsQueuesRequired != 0 ||
+                 requirements.vkNumOpticalFlowQueuesRequired != 0 )
+            {
+                Refuse( feature, std::format( "it asks for {} compute, {} graphics and {} optical-flow queues of "
+                                              "its own; the engine's device creates none for it",
+                                              requirements.vkNumComputeQueuesRequired,
+                                              requirements.vkNumGraphicsQueuesRequired,
+                                              requirements.vkNumOpticalFlowQueuesRequired ) );
+                continue;
+            }
+            VkPhysicalDeviceVulkan12Features features12{ .sType =
+                                                              VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+            VkPhysicalDeviceVulkan13Features features13{ .sType =
+                                                              VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+            features13.privateData = VK_TRUE;
+            std::vector<const char*> extensionsByName;
+            std::string              lacking;
+            for ( uint32_t i = 0; i < requirements.vkNumDeviceExtensions && lacking.empty(); ++i )
+            {
+                const char* extension = requirements.vkDeviceExtensions[i];
+                if ( const CoreExtension* core = CoreFormOf( extension, api ) )
+                {
+                    if ( core->Feature12 != nullptr )
+                        features12.*( core->Feature12 ) = VK_TRUE;
+                    if ( core->Feature13 != nullptr )
+                        features13.*( core->Feature13 ) = VK_TRUE;
+                    continue;
+                }
+                if ( !device.is_extension_present( extension ) )
+                    lacking = std::format( "'{}' lacks the device extension {} it needs", device.properties.deviceName,
+                                           extension );
+                extensionsByName.push_back( extension );
+            }
+            if ( !lacking.empty() )
+            {
+                Refuse( feature, lacking );
+                continue;
+            }
+            if ( const auto set = SetFeatures( kFeatures12, requirements.vkFeatures12, requirements.vkNumFeatures12,
+                                               features12, "1.2" );
+                 !set )
+            {
+                Refuse( feature, set.GetError() );
+                continue;
+            }
+            if ( const auto set = SetFeatures( kFeatures13, requirements.vkFeatures13, requirements.vkNumFeatures13,
+                                               features13, "1.3" );
+                 !set )
+            {
+                Refuse( feature, set.GetError() );
+                continue;
+            }
+            if ( const std::string_view missing = FirstMissingFeature( kFeatures12, features12, supported12 );
+                 !missing.empty() )
+            {
+                Refuse( feature, std::format( "'{}' lacks the Vulkan 1.2 feature {} it needs",
+                                              device.properties.deviceName, missing ) );
+                continue;
+            }
+            if ( const std::string_view missing = FirstMissingFeature( kFeatures13, features13, supported13 );
+                 !missing.empty() )
+            {
+                Refuse( feature, std::format( "'{}' lacks the Vulkan 1.3 feature {} it needs",
+                                              device.properties.deviceName, missing ) );
+                continue;
+            }
+
+            for ( const char* extension : extensionsByName )
+                device.enable_extension_if_present( extension );
+            // Merged by vkb into the engine's own VkPhysicalDeviceVulkan12/13Features (DeviceCapsProbe.cpp
+            // enables its bits into the same two structs, and the other DLSS feature's too): one chain, no
+            // per-extension feature struct beside it.
+            device.enable_extension_features_if_present( features12 );
+            device.enable_extension_features_if_present( features13 );
+            LOG_INFO( "[Streamline] {} requirements enabled on '{}': {} of {} device extensions by name (the rest "
+                      "as Vulkan {} core features), {} + {} features asked, privateData for Streamline's layer",
+                      name, device.properties.deviceName, extensionsByName.size(), requirements.vkNumDeviceExtensions,
+                      API::Vulkan::FormatApiVersion( api ), requirements.vkNumFeatures12,
+                      requirements.vkNumFeatures13 );
+        }
     }
 
     void Runtime::AmendCatalogProbe( API::Vulkan::CatalogProbe& probe ) const
     {
         const std::scoped_lock lock( m_Mutex );
-        probe.DlssAvailable = m_DlssCandidate;
+        probe.DlssAvailable = StateOf( DlssFeature::SuperResolution ).Candidate;
+        // Ray Reconstruction is offered beside Super Resolution only: its refusal falls back to it.
+        probe.DlssRayReconstructionAvailable =
+             probe.DlssAvailable && StateOf( DlssFeature::RayReconstruction ).Candidate;
     }
 
     void Runtime::OnDeviceCreated( const API::Vulkan::VulkanDeviceHandles& handles )
     {
         const std::scoped_lock lock( m_Mutex );
-        if ( !m_Initialized || !m_DlssCandidate )
+        if ( !m_Initialized || !AnyCandidate() )
             return;
         sl::VulkanInfo info;
         info.device         = handles.Device;
@@ -644,7 +735,7 @@ namespace Desert::Graphic::Streamline
         if ( const sl::Result result = m_Library->SetVulkanInfo( info ); result != sl::Result::eOk )
         {
             LOG_ERROR( "[Streamline] slSetVulkanInfo failed: {}", ResultName( result ) );
-            Refuse( std::format( "slSetVulkanInfo failed: {}", ResultName( result ) ) );
+            RefuseAll( std::format( "slSetVulkanInfo failed: {}", ResultName( result ) ) );
             return;
         }
         // Manual hooking (Streamline ProgrammingGuideManualHooking, Vulkan; sl_hooks.h "Mandatory - Vulkan"):
@@ -666,34 +757,50 @@ namespace Desert::Graphic::Streamline
                 m_Library->Resolve( hooks.vkDeviceWaitIdle, "vkDeviceWaitIdle" ) } )
             if ( !resolved )
             {
-                Refuse( std::format( "manual hooking: {}", resolved.GetError() ) );
+                RefuseAll( std::format( "manual hooking: {}", resolved.GetError() ) );
                 return;
             }
         m_Library->Hooked = true;
-        void*            getOptimal = nullptr;
-        void*            setOptions = nullptr;
-        void*            getState   = nullptr;
-        const sl::Result optimalResult =
-             m_Library->GetFeatureFunction( sl::kFeatureDLSS, "slDLSSGetOptimalSettings", getOptimal );
-        const sl::Result optionsResult =
-             m_Library->GetFeatureFunction( sl::kFeatureDLSS, "slDLSSSetOptions", setOptions );
-        const sl::Result stateResult =
-             m_Library->GetFeatureFunction( sl::kFeatureDLSS, "slDLSSGetState", getState );
-        if ( optimalResult != sl::Result::eOk || optionsResult != sl::Result::eOk ||
-             stateResult != sl::Result::eOk )
+        // Each feature's entry points from its own plugin; a plugin that does not answer refuses its feature.
+        const auto resolveFeature = [this]( const DlssFeature feature, const std::array<const char*, 3>& names,
+                                            const std::array<void**, 3>& slots )
         {
-            Refuse( std::format(
-                 "the DLSS plugin's entry points: slDLSSGetOptimalSettings {}, slDLSSSetOptions {}, "
-                 "slDLSSGetState {}",
-                 ResultName( optimalResult ), ResultName( optionsResult ), ResultName( stateResult ) ) );
-            return;
-        }
-        m_Library->GetOptimalSettings = reinterpret_cast<PFun_slDLSSGetOptimalSettings*>( getOptimal );
-        m_Library->SetOptions         = reinterpret_cast<PFun_slDLSSSetOptions*>( setOptions );
-        m_Library->GetState           = reinterpret_cast<PFun_slDLSSGetState*>( getState );
-        m_DlssReady                   = true;
-        m_Refusal.clear();
-        LOG_INFO( "[Streamline] DLSS Super Resolution ready" );
+            if ( !StateOf( feature ).Candidate )
+                return;
+            std::array<sl::Result, 3> results{};
+            for ( std::size_t i = 0; i < names.size(); ++i )
+                results[i] = m_Library->GetFeatureFunction( ToSl( feature ), names[i], *slots[i] );
+            if ( std::any_of( results.begin(), results.end(),
+                              []( const sl::Result result ) { return result != sl::Result::eOk; } ) )
+            {
+                Refuse( feature, std::format( "the plugin's entry points: {} {}, {} {}, {} {}", names[0],
+                                              ResultName( results[0] ), names[1], ResultName( results[1] ), names[2],
+                                              ResultName( results[2] ) ) );
+                return;
+            }
+            FeatureState& state = StateOf( feature );
+            state.Ready         = true;
+            state.Refusal.clear();
+            LOG_INFO( "[Streamline] {} ready", DlssFeatureName( feature ) );
+        };
+        void* getOptimal   = nullptr;
+        void* setOptions   = nullptr;
+        void* getState     = nullptr;
+        void* rrGetOptimal = nullptr;
+        void* rrSetOptions = nullptr;
+        void* rrGetState   = nullptr;
+        resolveFeature( DlssFeature::SuperResolution,
+                        { "slDLSSGetOptimalSettings", "slDLSSSetOptions", "slDLSSGetState" },
+                        { &getOptimal, &setOptions, &getState } );
+        resolveFeature( DlssFeature::RayReconstruction,
+                        { "slDLSSDGetOptimalSettings", "slDLSSDSetOptions", "slDLSSDGetState" },
+                        { &rrGetOptimal, &rrSetOptions, &rrGetState } );
+        m_Library->GetOptimalSettings   = reinterpret_cast<PFun_slDLSSGetOptimalSettings*>( getOptimal );
+        m_Library->SetOptions           = reinterpret_cast<PFun_slDLSSSetOptions*>( setOptions );
+        m_Library->GetState             = reinterpret_cast<PFun_slDLSSGetState*>( getState );
+        m_Library->RRGetOptimalSettings = reinterpret_cast<PFun_slDLSSDGetOptimalSettings*>( rrGetOptimal );
+        m_Library->RRSetOptions         = reinterpret_cast<PFun_slDLSSDSetOptions*>( rrSetOptions );
+        m_Library->RRGetState           = reinterpret_cast<PFun_slDLSSDGetState*>( rrGetState );
     }
 
     void Runtime::AmendPresentationDispatch( API::Vulkan::VulkanPresentationDispatch& dispatch ) const
@@ -715,48 +822,58 @@ namespace Desert::Graphic::Streamline
             return;
         // Views still holding a viewport (their histories are dropped after the device): free them here, before
         // slShutdown; their later ReleaseViewport finds the viewport gone and does nothing.
-        for ( const uint32_t viewport : m_Viewports )
-            if ( const sl::Result result =
-                      m_Library->FreeResources( sl::kFeatureDLSS, sl::ViewportHandle( viewport ) );
+        for ( const auto& [viewport, feature] : m_Viewports )
+            if ( const sl::Result result = m_Library->FreeResources( ToSl( feature ), sl::ViewportHandle( viewport ) );
                  result != sl::Result::eOk )
-                LOG_ERROR( "[Streamline] slFreeResources(DLSS, viewport {}) at device destruction: {}", viewport,
-                           ResultName( result ) );
+                LOG_ERROR( "[Streamline] slFreeResources({}, viewport {}) at device destruction: {}",
+                           DlssFeatureName( feature ), viewport, ResultName( result ) );
         m_Viewports.clear();
         if ( const sl::Result result = m_Library->Shutdown(); result != sl::Result::eOk )
             LOG_ERROR( "[Streamline] slShutdown: {}", ResultName( result ) );
         m_Library.reset();
-        m_Initialized   = false;
-        m_DlssCandidate = false;
-        m_DlssReady     = false;
-        m_Token         = nullptr;
+        m_Initialized = false;
+        m_Features    = {};
+        m_Token       = nullptr;
         m_TokenFrame    = UINT64_MAX;
     }
 
-    Common::ResultStr<DlssRenderRange> Runtime::RenderRange( const DlssMode mode, const uint32_t outputWidth,
+    Common::ResultStr<DlssRenderRange> Runtime::RenderRange( const DlssFeature feature, const DlssMode mode,
+                                                             const uint32_t outputWidth,
                                                              const uint32_t outputHeight ) const
     {
         const std::scoped_lock lock( m_Mutex );
-        if ( !m_DlssReady )
-            return Common::MakeFormattedError<DlssRenderRange>( "DLSS is not ready: {}", m_Refusal );
-        sl::DLSSOptions options;
-        options.mode         = ToSl( mode );
-        options.outputWidth  = outputWidth;
-        options.outputHeight = outputHeight;
+        const FeatureState&    state = StateOf( feature );
+        if ( !state.Ready )
+            return Common::MakeFormattedError<DlssRenderRange>( "{} is not ready: {}", DlssFeatureName( feature ),
+                                                                state.Refusal );
+        const auto range = [&]( auto& options, auto& settings, auto* getOptimal,
+                                const std::string_view call ) -> Common::ResultStr<DlssRenderRange>
+        {
+            options.mode         = ToSl( mode );
+            options.outputWidth  = outputWidth;
+            options.outputHeight = outputHeight;
+            if ( const sl::Result result = getOptimal( options, settings ); result != sl::Result::eOk )
+                return Common::MakeFormattedError<DlssRenderRange>( "{}({}, {}x{}): {}", call, DlssModeName( mode ),
+                                                                    outputWidth, outputHeight, ResultName( result ) );
+            return Common::MakeSuccess( DlssRenderRange{ .OptimalWidth  = settings.optimalRenderWidth,
+                                                         .OptimalHeight = settings.optimalRenderHeight,
+                                                         .MinWidth      = settings.renderWidthMin,
+                                                         .MinHeight     = settings.renderHeightMin,
+                                                         .MaxWidth      = settings.renderWidthMax,
+                                                         .MaxHeight     = settings.renderHeightMax } );
+        };
+        if ( feature == DlssFeature::RayReconstruction )
+        {
+            sl::DLSSDOptions         options;
+            sl::DLSSDOptimalSettings settings;
+            return range( options, settings, m_Library->RRGetOptimalSettings, "slDLSSDGetOptimalSettings" );
+        }
+        sl::DLSSOptions         options;
         sl::DLSSOptimalSettings settings;
-        if ( const sl::Result result = m_Library->GetOptimalSettings( options, settings );
-             result != sl::Result::eOk )
-            return Common::MakeFormattedError<DlssRenderRange>( "slDLSSGetOptimalSettings({}, {}x{}): {}",
-                                                                DlssModeName( mode ), outputWidth, outputHeight,
-                                                                ResultName( result ) );
-        return Common::MakeSuccess( DlssRenderRange{ .OptimalWidth  = settings.optimalRenderWidth,
-                                                     .OptimalHeight = settings.optimalRenderHeight,
-                                                     .MinWidth      = settings.renderWidthMin,
-                                                     .MinHeight     = settings.renderHeightMin,
-                                                     .MaxWidth      = settings.renderWidthMax,
-                                                     .MaxHeight     = settings.renderHeightMax } );
+        return range( options, settings, m_Library->GetOptimalSettings, "slDLSSGetOptimalSettings" );
     }
 
-    uint32_t Runtime::AcquireViewport()
+    uint32_t Runtime::AcquireViewport( const DlssFeature feature )
     {
         const std::scoped_lock lock( m_Mutex );
         // 0 is skipped on wrap: no viewport is 0. Viewports are released with their views, so a wrap never meets
@@ -764,29 +881,77 @@ namespace Desert::Graphic::Streamline
         uint32_t viewport = 0;
         while ( viewport == 0 || m_Viewports.contains( viewport ) )
             viewport = m_NextViewport++;
-        m_Viewports.insert( viewport );
+        m_Viewports.emplace( viewport, feature );
         return viewport;
     }
 
     void Runtime::ReleaseViewport( const uint32_t viewport )
     {
         const std::scoped_lock lock( m_Mutex );
-        if ( m_Viewports.erase( viewport ) == 0 || !m_Initialized )
+        const auto found = m_Viewports.find( viewport );
+        if ( found == m_Viewports.end() || !m_Initialized )
             return; // freed at device destruction already
+        const DlssFeature feature = found->second;
+        m_Viewports.erase( found );
         // eErrorInvalidParameter only means the viewport never evaluated: there was no feature to free.
-        if ( const sl::Result result =
-                  m_Library->FreeResources( sl::kFeatureDLSS, sl::ViewportHandle( viewport ) );
+        if ( const sl::Result result = m_Library->FreeResources( ToSl( feature ), sl::ViewportHandle( viewport ) );
              result != sl::Result::eOk && result != sl::Result::eErrorInvalidParameter )
-            LOG_ERROR( "[Streamline] slFreeResources(DLSS, viewport {}): {}", viewport, ResultName( result ) );
+            LOG_ERROR( "[Streamline] slFreeResources({}, viewport {}): {}", DlssFeatureName( feature ), viewport,
+                       ResultName( result ) );
     }
 
     Common::ResultStr<uint64_t> Runtime::SetOptions( const uint32_t viewport, const DlssOptions& input )
     {
         const std::scoped_lock lock( m_Mutex );
-        if ( !m_DlssReady )
-            return Common::MakeFormattedError<uint64_t>( "DLSS options: DLSS is not ready: {}", m_Refusal );
-        if ( !m_Viewports.contains( viewport ) )
-            return Common::MakeFormattedError<uint64_t>( "DLSS options: viewport {} was not acquired", viewport );
+        uint64_t               bytes = 0;
+        // At creation the camera is not known yet; Evaluate hands Ray Reconstruction this frame's.
+        if ( const auto set = SetOptionsLocked( viewport, input, glm::mat4( 1.0f ), glm::mat4( 1.0f ), &bytes ); !set )
+            return Common::MakeError<uint64_t>( set.GetError() );
+        return Common::MakeSuccess( bytes );
+    }
+
+    Common::BoolResultStr Runtime::SetOptionsLocked( const uint32_t viewport, const DlssOptions& input,
+                                                     const glm::mat4& worldToView, const glm::mat4& viewToWorld,
+                                                     uint64_t* const heldBytes )
+    {
+        const std::string_view name  = DlssFeatureName( input.Feature );
+        const FeatureState&    state = StateOf( input.Feature );
+        if ( !state.Ready )
+            return Common::MakeFormattedError( "{} options: it is not ready: {}", name, state.Refusal );
+        const auto owner = m_Viewports.find( viewport );
+        if ( owner == m_Viewports.end() )
+            return Common::MakeFormattedError( "{} options: viewport {} was not acquired", name, viewport );
+        if ( owner->second != input.Feature )
+            return Common::MakeFormattedError( "{} options: viewport {} was acquired for {}", name, viewport,
+                                               DlssFeatureName( owner->second ) );
+        const sl::ViewportHandle handle( viewport );
+
+        if ( input.Feature == DlssFeature::RayReconstruction )
+        {
+            sl::DLSSDOptions options;
+            options.mode            = ToSl( input.Mode );
+            options.outputWidth     = input.OutputWidth;
+            options.outputHeight    = input.OutputHeight;
+            options.colorBuffersHDR = sl::Boolean::eTrue;
+            // The G-buffer's normal carries the roughness in w (DLSSUpscaler's guide pass writes it so).
+            options.normalRoughnessMode = sl::DLSSDNormalRoughnessMode::ePacked;
+            options.worldToCameraView   = ToSl( worldToView );
+            options.cameraViewToWorld   = ToSl( viewToWorld );
+            SetPreset( options, input.Mode, ToSl( input.RRPreset ) );
+            if ( const sl::Result result = m_Library->RRSetOptions( handle, options ); result != sl::Result::eOk )
+                return Common::MakeFormattedError(
+                     "slDLSSDSetOptions(viewport {}, {}, preset {}, {}x{}): {}", viewport, DlssModeName( input.Mode ),
+                     Common::Scalability::kDlssRRPresetNames[static_cast<std::size_t>( input.RRPreset )],
+                     input.OutputWidth, input.OutputHeight, ResultName( result ) );
+            if ( heldBytes == nullptr )
+                return Common::MakeSuccess( true );
+            sl::DLSSDState rrState;
+            if ( const sl::Result result = m_Library->RRGetState( handle, rrState ); result != sl::Result::eOk )
+                return Common::MakeFormattedError( "slDLSSDGetState(viewport {}): {}", viewport,
+                                                   ResultName( result ) );
+            *heldBytes = rrState.estimatedVRAMUsageInBytes;
+            return Common::MakeSuccess( true );
+        }
 
         sl::DLSSOptions options;
         options.mode            = ToSl( input.Mode );
@@ -797,26 +962,30 @@ namespace Desert::Graphic::Streamline
         // multiplier FSR and the engine's TAA use), as UE hands DLSS its eye-adaptation exposure.
         options.useAutoExposure = sl::Boolean::eFalse;
         SetPreset( options, input.Mode, ToSl( input.Preset ) );
-        const sl::ViewportHandle handle( viewport );
         if ( const sl::Result result = m_Library->SetOptions( handle, options ); result != sl::Result::eOk )
-            return Common::MakeFormattedError<uint64_t>(
+            return Common::MakeFormattedError(
                  "slDLSSSetOptions(viewport {}, {}, preset {}, {}x{}): {}", viewport, DlssModeName( input.Mode ),
-                 Common::Scalability::kDlssPresetNames[static_cast<std::size_t>( input.Preset )],
-                 input.OutputWidth, input.OutputHeight, ResultName( result ) );
-        sl::DLSSState state;
-        if ( const sl::Result result = m_Library->GetState( handle, state ); result != sl::Result::eOk )
-            return Common::MakeFormattedError<uint64_t>( "slDLSSGetState(viewport {}): {}", viewport,
-                                                         ResultName( result ) );
-        return Common::MakeSuccess( state.estimatedVRAMUsageInBytes );
+                 Common::Scalability::kDlssPresetNames[static_cast<std::size_t>( input.Preset )], input.OutputWidth,
+                 input.OutputHeight, ResultName( result ) );
+        if ( heldBytes == nullptr )
+            return Common::MakeSuccess( true );
+        sl::DLSSState srState;
+        if ( const sl::Result result = m_Library->GetState( handle, srState ); result != sl::Result::eOk )
+            return Common::MakeFormattedError( "slDLSSGetState(viewport {}): {}", viewport, ResultName( result ) );
+        *heldBytes = srState.estimatedVRAMUsageInBytes;
+        return Common::MakeSuccess( true );
     }
 
     Common::BoolResultStr Runtime::Evaluate( VkCommandBuffer commandBuffer, const DlssEvaluation& input )
     {
         const std::scoped_lock lock( m_Mutex );
-        if ( !m_DlssReady )
-            return Common::MakeFormattedError( "DLSS evaluate: DLSS is not ready: {}", m_Refusal );
+        const DlssFeature      feature = input.Options.Feature;
+        const std::string_view name    = DlssFeatureName( feature );
+        const bool             rr      = feature == DlssFeature::RayReconstruction;
+        if ( !StateOf( feature ).Ready )
+            return Common::MakeFormattedError( "{} evaluate: it is not ready: {}", name, StateOf( feature ).Refusal );
         if ( !m_Viewports.contains( input.Viewport ) )
-            return Common::MakeFormattedError( "DLSS evaluate: viewport {} was not acquired", input.Viewport );
+            return Common::MakeFormattedError( "{} evaluate: viewport {} was not acquired", name, input.Viewport );
         // Every tagged image holds the extent it is tagged with: a smaller one is a view the graph did not size
         // for this split, and DLSS would read or write outside it.
         const auto holds = []( const DlssImage& image, const uint32_t width, const uint32_t height )
@@ -827,9 +996,9 @@ namespace Desert::Graphic::Streamline
              !holds( input.MotionVectors, input.RenderWidth, input.RenderHeight ) ||
              !holds( input.Output, input.OutputWidth, input.OutputHeight ) )
             return Common::MakeFormattedError(
-                 "DLSS evaluate (viewport {}): the view's split {}x{} -> {}x{} does not fit its images (color {}x{}, "
+                 "{} evaluate (viewport {}): the view's split {}x{} -> {}x{} does not fit its images (color {}x{}, "
                  "depth {}x{}, motion {}x{}, output {}x{})",
-                 input.Viewport, input.RenderWidth, input.RenderHeight, input.OutputWidth, input.OutputHeight,
+                 name, input.Viewport, input.RenderWidth, input.RenderHeight, input.OutputWidth, input.OutputHeight,
                  input.Color.Width, input.Color.Height, input.Depth.Width, input.Depth.Height,
                  input.MotionVectors.Width, input.MotionVectors.Height, input.Output.Width, input.Output.Height );
 
@@ -837,9 +1006,21 @@ namespace Desert::Graphic::Streamline
         // eErrorExceptionHandler: NGX faulted inside the driver), and nothing says the next frame fares better:
         // DLSS refuses itself for the device's life, with the call and its result as the reason, and the view
         // renders with the engine's method from the next frame on (TemporalMethodUnavailable).
-        const auto refuseEvaluation = [this]( std::string why ) -> Common::BoolResultStr
+        if ( rr && ( !holds( input.DiffuseAlbedo, input.RenderWidth, input.RenderHeight ) ||
+                     !holds( input.SpecularAlbedo, input.RenderWidth, input.RenderHeight ) ||
+                     !holds( input.NormalRoughness, input.RenderWidth, input.RenderHeight ) ||
+                     ( input.SpecularHitDistance.Image != VK_NULL_HANDLE &&
+                       !holds( input.SpecularHitDistance, input.RenderWidth, input.RenderHeight ) ) ) )
+            return Common::MakeFormattedError(
+                 "{} evaluate (viewport {}): a guide does not hold the render extent {}x{} (diffuse albedo {}x{}, "
+                 "specular albedo {}x{}, normal+roughness {}x{}, specular hit distance {}x{})",
+                 name, input.Viewport, input.RenderWidth, input.RenderHeight, input.DiffuseAlbedo.Width,
+                 input.DiffuseAlbedo.Height, input.SpecularAlbedo.Width, input.SpecularAlbedo.Height,
+                 input.NormalRoughness.Width, input.NormalRoughness.Height, input.SpecularHitDistance.Width,
+                 input.SpecularHitDistance.Height );
+        const auto refuseEvaluation = [this, feature]( std::string why ) -> Common::BoolResultStr
         {
-            Refuse( why );
+            Refuse( feature, why );
             return Common::MakeFormattedError( "{}", why );
         };
         if ( m_TokenFrame != input.EngineFrame )
@@ -884,18 +1065,27 @@ namespace Desert::Graphic::Streamline
              result != sl::Result::eOk )
             return refuseEvaluation(
                  std::format( "slSetConstants(viewport {}): {}", input.Viewport, ResultName( result ) ) );
+        if ( rr )
+            if ( const auto set = SetOptionsLocked( input.Viewport, input.Options, input.WorldToView,
+                                                    input.ViewToWorld, nullptr );
+                 !set )
+                return refuseEvaluation( set.GetError() );
 
         // Tagged locally, for this evaluation only: the images are graph resources valid for this pass, so nothing
         // is copied and nothing outlives the call.
-        sl::Resource                   color    = ToSl( input.Color );
-        sl::Resource                   depth    = ToSl( input.Depth );
-        sl::Resource                   motion   = ToSl( input.MotionVectors );
-        sl::Resource                   output   = ToSl( input.Output );
-        sl::Resource                   exposure = ToSl( input.Exposure );
-        const sl::Extent               render{ 0, 0, input.RenderWidth, input.RenderHeight };
-        const sl::Extent               full{ 0, 0, input.OutputWidth, input.OutputHeight };
-        const sl::Extent               texel{ 0, 0, 1, 1 };
-        std::array<sl::ResourceTag, 5> tags{
+        sl::Resource                 color          = ToSl( input.Color );
+        sl::Resource                 depth          = ToSl( input.Depth );
+        sl::Resource                 motion         = ToSl( input.MotionVectors );
+        sl::Resource                 output         = ToSl( input.Output );
+        sl::Resource                 exposure       = ToSl( input.Exposure );
+        sl::Resource                 diffuseAlbedo  = ToSl( input.DiffuseAlbedo );
+        sl::Resource                 specularAlbedo = ToSl( input.SpecularAlbedo );
+        sl::Resource                 normals        = ToSl( input.NormalRoughness );
+        sl::Resource                 hitDistance    = ToSl( input.SpecularHitDistance );
+        const sl::Extent             render{ 0, 0, input.RenderWidth, input.RenderHeight };
+        const sl::Extent             full{ 0, 0, input.OutputWidth, input.OutputHeight };
+        const sl::Extent             texel{ 0, 0, 1, 1 };
+        std::vector<sl::ResourceTag> tags{
              sl::ResourceTag( &color, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilPresent,
                               &render ),
              sl::ResourceTag( &depth, sl::kBufferTypeDepth, sl::ResourceLifecycle::eValidUntilPresent, &render ),
@@ -906,16 +1096,29 @@ namespace Desert::Graphic::Streamline
              sl::ResourceTag( &exposure, sl::kBufferTypeExposure, sl::ResourceLifecycle::eValidUntilPresent,
                               &texel ),
         };
-        const std::array<const sl::BaseStructure*, 6> inputs{ &viewport, &tags[0], &tags[1],
-                                                              &tags[2],  &tags[3], &tags[4] };
+        if ( rr )
+        {
+            tags.emplace_back( &diffuseAlbedo, sl::kBufferTypeAlbedo, sl::ResourceLifecycle::eValidUntilPresent,
+                               &render );
+            tags.emplace_back( &specularAlbedo, sl::kBufferTypeSpecularAlbedo,
+                               sl::ResourceLifecycle::eValidUntilPresent, &render );
+            tags.emplace_back( &normals, sl::kBufferTypeNormalRoughness, sl::ResourceLifecycle::eValidUntilPresent,
+                               &render );
+            if ( input.SpecularHitDistance.Image != VK_NULL_HANDLE )
+                tags.emplace_back( &hitDistance, sl::kBufferTypeSpecularHitDistance,
+                                   sl::ResourceLifecycle::eValidUntilPresent, &render );
+        }
+        std::vector<const sl::BaseStructure*> inputs{ &viewport };
+        for ( const sl::ResourceTag& tag : tags )
+            inputs.push_back( &tag );
         if ( const sl::Result result = m_Library->EvaluateFeature(
-                  sl::kFeatureDLSS, token, const_cast<const sl::BaseStructure**>( inputs.data() ),
+                  ToSl( feature ), token, const_cast<const sl::BaseStructure**>( inputs.data() ),
                   static_cast<uint32_t>( inputs.size() ), commandBuffer );
              result != sl::Result::eOk )
-            return refuseEvaluation( std::format( "slEvaluateFeature(DLSS, viewport {}, {} {}x{} -> {}x{}): {}",
-                                                  input.Viewport, DlssModeName( input.Mode ), input.RenderWidth,
-                                                  input.RenderHeight, input.OutputWidth, input.OutputHeight,
-                                                  ResultName( result ) ) );
+            return refuseEvaluation( std::format( "slEvaluateFeature({}, viewport {}, {} {}x{} -> {}x{}): {}", name,
+                                                  input.Viewport, DlssModeName( input.Options.Mode ),
+                                                  input.RenderWidth, input.RenderHeight, input.OutputWidth,
+                                                  input.OutputHeight, ResultName( result ) ) );
         return Common::MakeSuccess( true );
     }
 } // namespace Desert::Graphic::Streamline

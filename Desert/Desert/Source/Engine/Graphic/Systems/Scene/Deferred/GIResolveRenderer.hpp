@@ -127,6 +127,14 @@ namespace Desert::Graphic::System
             depth( "u_RSMDepth", inputs.RSMDepth );
         }
 
+        // The view's temporal upscaler takes this signal raw this frame (ITemporalUpscaler::
+        // TakesRawLightingSignals: DLSS Ray Reconstruction denoises it): the denoiser does not run, so its history
+        // stops being the previous frame's and is dropped - the frame it resumes on starts it afresh.
+        void SkipDenoise()
+        {
+            m_Denoiser.InvalidateHistory();
+        }
+
         // Pass 2 (GRAPH BUILD): the screen-space denoiser over @p gather - see ScreenSpaceDenoiser. Returns the
         // denoised indirect light the lighting reads (a transient of @p graph); invalid: not initialised.
         [[nodiscard]] RDG::TextureRef Denoise( RDG::Builder& graph, const RDG::TextureRef gather,

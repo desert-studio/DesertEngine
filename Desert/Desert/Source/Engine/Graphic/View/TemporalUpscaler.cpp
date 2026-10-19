@@ -47,7 +47,13 @@ namespace Desert::Graphic
             // UpscalerBuild.hpp); null is "no implementation", which SceneViewState::BeginFrame names.
             case TemporalMethod::DLSS:
 #if defined( DESERT_UPSCALER_DLSS )
-                return std::make_unique<DLSSUpscaler>();
+                return std::make_unique<DLSSUpscaler>( Streamline::DlssFeature::SuperResolution );
+#else
+                return nullptr;
+#endif
+            case TemporalMethod::DLSSRR:
+#if defined( DESERT_UPSCALER_DLSS )
+                return std::make_unique<DLSSUpscaler>( Streamline::DlssFeature::RayReconstruction );
 #else
                 return nullptr;
 #endif
@@ -65,7 +71,9 @@ namespace Desert::Graphic
     {
 #if defined( DESERT_UPSCALER_DLSS )
         if ( method == TemporalMethod::DLSS )
-            return DLSSUpscaler::Unavailable();
+            return DLSSUpscaler::Unavailable( Streamline::DlssFeature::SuperResolution );
+        if ( method == TemporalMethod::DLSSRR )
+            return DLSSUpscaler::Unavailable( Streamline::DlssFeature::RayReconstruction );
 #endif
         // The engine's methods run wherever the engine runs; FSR's backend never refuses itself after the
         // catalog offered it (Fsr3Upscaler reports a failed dispatch as that frame's error).
@@ -95,9 +103,59 @@ namespace Desert::Graphic
                 fallback.Upscaler = Upscaler::None;
             fallback.Why = why;
         };
-        replace( TemporalMethod::DLSS, AntiAliasingMethod::DLAA, Upscaler::DLSS );
+        // Ray Reconstruction first, onto DLSS Super Resolution (the same network without the denoiser), which the
+        // DLSS rule below then checks like any DLSS request.
+        if ( upscaler == Upscaler::DLSSRayReconstruction )
+            if ( const std::string why = unavailable( TemporalMethod::DLSSRR ); !why.empty() )
+            {
+                // The upscaler here is the vendor override UpscalerForScale reads: DLSS below 100 %, and at 100 %
+                // (under DLAA) it resolves to None, where DLAA is plain DLSS.
+                fallback.Upscaler = Upscaler::DLSS;
+                fallback.Why = std::format( "{}; DLSS Super Resolution instead", why );
+            }
+        const std::string rrWhy = fallback.Why;
+        const Upscaler    asked = fallback.Upscaler;
+        const auto        replaceDlss = [&]()
+        {
+            const bool native = fallback.AntiAliasing.Method == AntiAliasingMethod::DLAA;
+            if ( !native && asked != Upscaler::DLSS )
+                return;
+            const std::string why = unavailable( TemporalMethod::DLSS );
+            if ( why.empty() )
+                return;
+            if ( native )
+                fallback.AntiAliasing.Method = AntiAliasingMethod::TAA;
+            if ( asked == Upscaler::DLSS )
+                fallback.Upscaler = Upscaler::None;
+            fallback.Why = rrWhy.empty() ? why : std::format( "{}; {}", rrWhy, why );
+        };
+        replaceDlss();
         replace( TemporalMethod::FSR, AntiAliasingMethod::FSRNative, Upscaler::FSR );
         return fallback;
+    }
+
+    std::string RayReconstructionRefusal( const Common::Scalability::ReflectionMethod reflections,
+                                          const Common::Scalability::GIMethod         globalIllumination,
+                                          const Common::Scalability::ShadowMethod     shadows,
+                                          const bool                                  deferredPath )
+    {
+        namespace Scal = Common::Scalability;
+        if ( !deferredPath )
+            return "DLSS Ray Reconstruction reads its guides from the deferred G-buffer; this view renders the "
+                   "forward path";
+        if ( Scal::IsDenoisedSignal( reflections ) || Scal::IsDenoisedSignal( globalIllumination ) ||
+             Scal::IsDenoisedSignal( shadows ) )
+            return {};
+        return std::format( "DLSS Ray Reconstruction denoises traced lighting and this view traces none "
+                            "(Reflections.Method {}, GlobalIllumination.Method {}, Shadows.Method {})",
+                            Scal::kReflectionMethodNames[static_cast<std::size_t>( reflections )],
+                            Scal::kGIMethodNames[static_cast<std::size_t>( globalIllumination )],
+                            Scal::kShadowMethodNames[static_cast<std::size_t>( shadows )] );
+    }
+
+    bool ITemporalUpscaler::TakesRawLightingSignals() const
+    {
+        return false;
     }
 
     uint32_t ITemporalUpscaler::JitterSequenceLength( const ResolutionSplit& split ) const

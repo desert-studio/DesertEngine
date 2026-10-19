@@ -137,6 +137,15 @@ namespace Common::Scalability
         DlssPresetBalanced,
         DlssPresetPerformance,
         DlssPresetUltraPerformance,
+        // The Ray Reconstruction preset of each DLSS mode (DLSSUpscaler under Upscaler::DLSSRayReconstruction: the
+        // mode its split selects reads its row). Values: DlssRRPreset (CapabilityCatalog.hpp). Read only while
+        // Ray Reconstruction runs.
+        DlssRRPresetDLAA,
+        DlssRRPresetUltraQuality,
+        DlssRRPresetQuality,
+        DlssRRPresetBalanced,
+        DlssRRPresetPerformance,
+        DlssRRPresetUltraPerformance,
         // The engine's own temporal upscaler below 100 % when no vendor one is asked for, and the fallback of a
         // vendor upscaler the device does not offer. Values: EngineTemporalUpscaler (TAAU / TSR).
         TemporalUpscaler,
@@ -318,9 +327,11 @@ namespace Common::Scalability
     //   3. A value outside its spec range is clamped ("outside the parameter's range").
     //   4. A value its catalog list does not offer walks DOWN the list to the nearest offered value below it;
     //      if none, the list's front ("not offered by this device"). MSAACounts/AnisotropyLevels: largest offered
-    //      <= requested. Upscalers: DLSS/XeSS/MetalFX/FSR -> TAAU. AA methods: DLAA/FSRNative -> TAA.
+    //      <= requested. Upscalers: DLSS/XeSS/MetalFX/FSR -> TAAU; DLSSRayReconstruction -> DLSS where offered,
+    //      else TAAU. AA methods: DLAA/FSRNative -> TAA.
     //   5. Axis coupling: RenderScale < 100 and Upscaler None -> TAAU ("an upscaler is required below 100 %");
-    //      RenderScale >= 100 and Upscaler != None -> None ("upscaler unused at native/supersampled scale");
+    //      RenderScale >= 100 and Upscaler != None -> None ("upscaler unused at native/supersampled scale"),
+    //      except Ray Reconstruction under DLAA at exactly 100 % (IsNativeRayReconstruction);
     //      RenderScale < 100 -> AntiAliasingMethod effective = TAA unless it is DLAA/FSRNative matching the
     //      upscaler, which become that upscaler's temporal pass ("the upscaler anti-aliases below 100 %");
     //      AntiAliasingMethod MSAA with RenderScale != 100 -> FXAA ("MSAA renders at native scale only").
@@ -341,6 +352,16 @@ namespace Common::Scalability
     // above 100 % nothing upscales (None). Total: every (method, percent) has an upscaler. Shared by Resolve (the
     // game setting) and the renderer's per-view resolution (an editor viewport's Screen Percentage), so the two
     // cannot disagree.
+    // Ray Reconstruction is a DLSS network with the denoiser in it, so at 100 % it is DLAA's: the one case an
+    // upscaler value stays at native scale is Upscaler::DLSSRayReconstruction under AntiAliasingMethod::DLAA at
+    // exactly 100 % (UE: r.NGX.DLSS.DenoiserMode on top of DLAA). Above 100 % it never runs (DLSS takes no
+    // supersampled input). Read by Resolve step 5, UpscalerForScale and Graphic::SelectTemporalMethod.
+    [[nodiscard]] constexpr bool IsNativeRayReconstruction( const AntiAliasingMethod method, const int percent,
+                                                            const Upscaler upscaler )
+    {
+        return percent == 100 && method == AntiAliasingMethod::DLAA && upscaler == Upscaler::DLSSRayReconstruction;
+    }
+
     [[nodiscard]] Upscaler UpscalerForScale( AntiAliasingMethod method, int percent, Upscaler vendorOverride,
                                              EngineTemporalUpscaler engineTemporal );
 

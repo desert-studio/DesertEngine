@@ -92,6 +92,16 @@ namespace Desert::Graphic::System
 
         // The two images the trace writes and the tiled passes read, both transients of this frame's graph
         // (Builder::CreateTexture): the half-resolution trace and the tile mask (one texel per kTileSize tile).
+        // Where the trace runs. Half: the denoiser's input (one texel per 2x2 block, the block's pixel rotating
+        // every frame; the reconstruction brings it to full resolution). Full: one trace per pixel, the raw
+        // signal a temporal upscaler that denoises takes (ITemporalUpscaler::TakesRawLightingSignals; UE's DLSS
+        // plugin runs Lumen's reflections at full resolution under Ray Reconstruction for the same reason).
+        enum class TraceResolution : uint8_t
+        {
+            Half,
+            Full,
+        };
+
         struct TraceTargets
         {
             RDG::TextureDesc Trace;
@@ -102,7 +112,7 @@ namespace Desert::Graphic::System
         // Called while the frame graph is built, before any pass runs. The scene colour history stays this
         // renderer's: it follows the scene target here and a resize invalidates it. The trace targets are sized
         // from this frame's view and kept by no one. Nullopt: nothing to draw.
-        std::optional<TraceTargets> Prepare()
+        std::optional<TraceTargets> Prepare( const TraceResolution resolution )
         {
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target || !m_TracePipeline || !m_SceneColorHistoryFB )
@@ -117,10 +127,13 @@ namespace Desert::Graphic::System
                 m_SceneColorHistoryFB->Resize( w, h );
                 m_SceneColorHistory.Invalidate();
             }
+            const bool     full    = resolution == TraceResolution::Full;
+            const uint32_t traceW  = full ? w : HalfRes( w );
+            const uint32_t traceH  = full ? h : HalfRes( h );
             return TraceTargets{
-                 .Trace    = RDG::TextureDesc{ .Size   = { .Width = HalfRes( w ), .Height = HalfRes( h ) },
+                 .Trace    = RDG::TextureDesc{ .Size   = { .Width = traceW, .Height = traceH },
                                                .Format = ViewTargetFormats::kSSRTrace },
-                 .TraceRay = RDG::TextureDesc{ .Size   = { .Width = HalfRes( w ), .Height = HalfRes( h ) },
+                 .TraceRay = RDG::TextureDesc{ .Size   = { .Width = traceW, .Height = traceH },
                                                .Format = ViewTargetFormats::kSSRTraceRay },
                  .TileMask = RDG::TextureDesc{ .Size   = { .Width = TileGrid( w ), .Height = TileGrid( h ) },
                                                .Format = ViewTargetFormats::kSSRTileMask },
@@ -141,7 +154,8 @@ namespace Desert::Graphic::System
         {
             glm::vec4 CameraPos; // xyz = camera, w = per-frame seed (ray sequence + 2x2 rotation)
             glm::vec4 Params;    // x = rays per texel, y = HZB iterations per ray, z = intensity, w = thickness
-            glm::vec4 Params2;   // x = max ray distance, y = 1 when the scene colour history is last frame's
+            glm::vec4 Params2;   // x = max ray distance, y = 1 when the scene colour history is last frame's,
+                                 // z = 1 when the trace runs at full resolution (TraceResolution::Full)
         };
 
         // The trace's uniform block (SSR.shader SSRTraceUB, std140: two mat4), from the ViewFrame once per view
@@ -209,6 +223,8 @@ namespace Desert::Graphic::System
             float MaxDistance  = 0.0f;
             float Intensity    = 1.0f;
             float Thickness    = 0.0f;
+            // As Prepare was given this frame.
+            TraceResolution Resolution = TraceResolution::Half;
         };
         [[nodiscard]] Common::BoolResultStr RecordTrace( const RDG::PassContext& context,
                                                          const glm::vec4& cameraPos, const TraceSettings& settings,
@@ -222,7 +238,8 @@ namespace Desert::Graphic::System
                  glm::vec4( glm::vec3( cameraPos ), static_cast<float>( seed ) ),
                  glm::vec4( static_cast<float>( settings.RaysPerPixel ), static_cast<float>( settings.Iterations ),
                             settings.Intensity, settings.Thickness ),
-                 glm::vec4( settings.MaxDistance, sceneHistoryReadable ? 1.0f : 0.0f, 0.0f, 0.0f ) };
+                 glm::vec4( settings.MaxDistance, sceneHistoryReadable ? 1.0f : 0.0f,
+                            settings.Resolution == TraceResolution::Full ? 1.0f : 0.0f, 0.0f ) };
 
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
@@ -235,6 +252,14 @@ namespace Desert::Graphic::System
         [[nodiscard]] uint32_t NextTraceSeed()
         {
             return m_FrameIndex++ % 1024u;
+        }
+
+        // The view's temporal upscaler takes this signal raw this frame (ITemporalUpscaler::
+        // TakesRawLightingSignals: DLSS Ray Reconstruction denoises it): the denoiser does not run, so its history
+        // stops being the previous frame's and is dropped - the frame it resumes on starts it afresh.
+        void SkipDenoise()
+        {
+            m_Denoiser.InvalidateHistory();
         }
 
         // Pass 2 (GRAPH BUILD): the screen-space denoiser over this frame's trace - see ScreenSpaceDenoiser.

@@ -18,7 +18,13 @@
                 "AntiAliasing.DLSSPreset.Quality": "Default",
                 "AntiAliasing.DLSSPreset.Balanced": "Default",
                 "AntiAliasing.DLSSPreset.Performance": "Default",
-                "AntiAliasing.DLSSPreset.UltraPerformance": "Default"
+                "AntiAliasing.DLSSPreset.UltraPerformance": "Default",
+                "AntiAliasing.DLSSRRPreset.DLAA": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSRRPreset.Quality": "Default",
+                "AntiAliasing.DLSSRRPreset.Balanced": "Default",
+                "AntiAliasing.DLSSRRPreset.Performance": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraPerformance": "Default"
             },
             "Medium": {
                 "AntiAliasing.Method": "FXAA",
@@ -36,7 +42,13 @@
                 "AntiAliasing.DLSSPreset.Quality": "Default",
                 "AntiAliasing.DLSSPreset.Balanced": "Default",
                 "AntiAliasing.DLSSPreset.Performance": "Default",
-                "AntiAliasing.DLSSPreset.UltraPerformance": "Default"
+                "AntiAliasing.DLSSPreset.UltraPerformance": "Default",
+                "AntiAliasing.DLSSRRPreset.DLAA": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSRRPreset.Quality": "Default",
+                "AntiAliasing.DLSSRRPreset.Balanced": "Default",
+                "AntiAliasing.DLSSRRPreset.Performance": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraPerformance": "Default"
             },
             "High": {
                 "AntiAliasing.Method": "TAA",
@@ -54,7 +66,13 @@
                 "AntiAliasing.DLSSPreset.Quality": "Default",
                 "AntiAliasing.DLSSPreset.Balanced": "Default",
                 "AntiAliasing.DLSSPreset.Performance": "Default",
-                "AntiAliasing.DLSSPreset.UltraPerformance": "Default"
+                "AntiAliasing.DLSSPreset.UltraPerformance": "Default",
+                "AntiAliasing.DLSSRRPreset.DLAA": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSRRPreset.Quality": "Default",
+                "AntiAliasing.DLSSRRPreset.Balanced": "Default",
+                "AntiAliasing.DLSSRRPreset.Performance": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraPerformance": "Default"
             },
             "Epic": {
                 "AntiAliasing.Method": "TAA",
@@ -72,7 +90,13 @@
                 "AntiAliasing.DLSSPreset.Quality": "Default",
                 "AntiAliasing.DLSSPreset.Balanced": "Default",
                 "AntiAliasing.DLSSPreset.Performance": "Default",
-                "AntiAliasing.DLSSPreset.UltraPerformance": "Default"
+                "AntiAliasing.DLSSPreset.UltraPerformance": "Default",
+                "AntiAliasing.DLSSRRPreset.DLAA": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSRRPreset.Quality": "Default",
+                "AntiAliasing.DLSSRRPreset.Balanced": "Default",
+                "AntiAliasing.DLSSRRPreset.Performance": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraPerformance": "Default"
             },
             "Cinematic": {
                 "AntiAliasing.Method": "TAA",
@@ -90,7 +114,13 @@
                 "AntiAliasing.DLSSPreset.Quality": "Default",
                 "AntiAliasing.DLSSPreset.Balanced": "Default",
                 "AntiAliasing.DLSSPreset.Performance": "Default",
-                "AntiAliasing.DLSSPreset.UltraPerformance": "Default"
+                "AntiAliasing.DLSSPreset.UltraPerformance": "Default",
+                "AntiAliasing.DLSSRRPreset.DLAA": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSRRPreset.Quality": "Default",
+                "AntiAliasing.DLSSRRPreset.Balanced": "Default",
+                "AntiAliasing.DLSSRRPreset.Performance": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraPerformance": "Default"
             }
         },
         "ResolutionScale": {

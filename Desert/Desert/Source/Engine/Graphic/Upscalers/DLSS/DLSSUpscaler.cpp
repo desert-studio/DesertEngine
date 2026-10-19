@@ -5,8 +5,14 @@
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
+#include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 #include <algorithm>
 #include <array>
@@ -16,13 +22,39 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace Desert::Graphic
 {
     namespace
     {
-        constexpr const char* kPassName   = "DLSS";
-        constexpr const char* kOutputName = "DLSS.Output";
+        constexpr const char* kGuidesShaderName = "DLSSRRGuides";
+        constexpr const char* kGuidesPassName   = "DLSS-RR: Guides";
+        constexpr uint32_t    kGuidesGroupSize  = 8; // DLSSRRGuides.shader LocalSize
+        // DLSSRRGuides.shader's push block: u_InvJitteredViewProjection, u_CameraPos, u_Params.
+        struct GuidesPush
+        {
+            glm::mat4 InvJitteredViewProjection;
+            glm::vec4 CameraPos;
+            glm::vec4 Params; // xy render extent, z = 1 when the reflection ray is this frame's trace
+        };
+
+        const std::shared_ptr<const RDG::ShaderBindingLayout>& GuidesLayout()
+        {
+            using Kind = RDG::ShaderResourceKind;
+            static const std::shared_ptr<const RDG::ShaderBindingLayout> layout =
+                 std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
+                      .ShaderName = kGuidesShaderName,
+                      .Slots      = { { "u_GBufferAlbedo", Kind::SampledTexture },
+                                      { "u_GBufferNormal", Kind::SampledTexture },
+                                      { "u_GBufferDepth", Kind::SampledTexture },
+                                      { "u_BRDFLUTTexture", Kind::SampledTexture },
+                                      { "u_ReflectionRay", Kind::SampledTexture },
+                                      { "u_DiffuseAlbedo", Kind::StorageTexture },
+                                      { "u_SpecularAlbedo", Kind::StorageTexture },
+                                      { "u_SpecularHitDistance", Kind::StorageTexture } } } );
+            return layout;
+        }
         // What the post chain reads after the temporal resolve (TemporalAA's output is the same).
         constexpr auto kOutputFormat = Core::Formats::ImageFormat::RGBA16F;
 
@@ -60,6 +92,28 @@ namespace Desert::Graphic
                    render.Height >= range.MinHeight && render.Height <= range.MaxHeight;
         }
 
+        // The Scalability row that holds @p mode's Ray Reconstruction preset.
+        Common::Scalability::Parameter RRPresetParameter( const Streamline::DlssMode mode )
+        {
+            using Common::Scalability::Parameter;
+            switch ( mode )
+            {
+                case Streamline::DlssMode::UltraPerformance:
+                    return Parameter::DlssRRPresetUltraPerformance;
+                case Streamline::DlssMode::Performance:
+                    return Parameter::DlssRRPresetPerformance;
+                case Streamline::DlssMode::Balanced:
+                    return Parameter::DlssRRPresetBalanced;
+                case Streamline::DlssMode::Quality:
+                    return Parameter::DlssRRPresetQuality;
+                case Streamline::DlssMode::UltraQuality:
+                    return Parameter::DlssRRPresetUltraQuality;
+                case Streamline::DlssMode::DLAA:
+                    return Parameter::DlssRRPresetDLAA;
+            }
+            return Parameter::DlssRRPresetDLAA;
+        }
+
         // The Scalability row that holds @p mode's preset.
         Common::Scalability::Parameter PresetParameter( const Streamline::DlssMode mode )
         {
@@ -87,7 +141,8 @@ namespace Desert::Graphic
         class DlssHistory final : public ITemporalUpscalerHistory
         {
         public:
-            DlssHistory() : m_Viewport( Streamline::Runtime::Get().AcquireViewport() )
+            explicit DlssHistory( const Streamline::DlssFeature feature )
+                : m_Feature( feature ), m_Viewport( Streamline::Runtime::Get().AcquireViewport( feature ) )
             {
             }
 
@@ -109,7 +164,12 @@ namespace Desert::Graphic
 
             [[nodiscard]] std::string_view DebugName() const override
             {
-                return "DLSS";
+                return Streamline::DlssFeatureName( m_Feature );
+            }
+
+            [[nodiscard]] Streamline::DlssFeature Feature() const
+            {
+                return m_Feature;
             }
             [[nodiscard]] uint64_t HeldBytes() const override
             {
@@ -139,18 +199,52 @@ namespace Desert::Graphic
             }
 
         private:
+            const Streamline::DlssFeature          m_Feature;
             const uint32_t                         m_Viewport;
             std::optional<Streamline::DlssOptions> m_Options;
             uint64_t                               m_HeldBytes = 0;
         };
     } // namespace
 
-    DLSSUpscaler::DLSSUpscaler()  = default;
+    struct DLSSUpscaler::GuidesPipeline
+    {
+        std::mutex                       Mutex;
+        std::shared_ptr<ComputePipeline> Pipeline;
+
+        std::shared_ptr<ComputePipeline> Get( std::string& error )
+        {
+            const std::lock_guard lock( Mutex );
+            if ( Pipeline )
+                return Pipeline;
+            Runtime::ShaderService*       service = Runtime::ResourceRegistry::GetShaderService();
+            const std::shared_ptr<Shader> shader  = service ? service->GetByName( kGuidesShaderName ) : nullptr;
+            if ( !shader )
+            {
+                error = std::format( "{}: the shader '{}' is not registered - expected "
+                                     "Editor/Resources/Shaders/Programs/TemporalAA/DLSSRRGuides.shader",
+                                     kGuidesPassName, kGuidesShaderName );
+                return nullptr;
+            }
+            const auto built = ComputePipeline::Create( { .Shader = shader, .DebugName = kGuidesShaderName } );
+            if ( !built )
+            {
+                error = std::format( "{}: {}", kGuidesPassName, built.GetError() );
+                return nullptr;
+            }
+            Pipeline = built.GetValue();
+            return Pipeline;
+        }
+    };
+
+    DLSSUpscaler::DLSSUpscaler( const Streamline::DlssFeature feature )
+        : m_Feature( feature ), m_GuidesPipeline( std::make_unique<GuidesPipeline>() )
+    {
+    }
     DLSSUpscaler::~DLSSUpscaler() = default;
 
     std::string_view DLSSUpscaler::DebugName() const
     {
-        return "DLSS";
+        return m_Feature == Streamline::DlssFeature::RayReconstruction ? "DLSS-RR" : "DLSS";
     }
 
     Common::ResultStr<Streamline::DlssRenderRange> DLSSUpscaler::RangeOf( const Streamline::DlssMode mode,
@@ -160,7 +254,7 @@ namespace Desert::Graphic
         const auto             key = std::make_tuple( static_cast<uint8_t>( mode ), output.Width, output.Height );
         if ( const auto found = m_Ranges.find( key ); found != m_Ranges.end() )
             return found->second;
-        auto range = Streamline::Runtime::Get().RenderRange( mode, output.Width, output.Height );
+        auto range = Streamline::Runtime::Get().RenderRange( m_Feature, mode, output.Width, output.Height );
         m_Ranges.emplace( key, range );
         return range;
     }
@@ -168,14 +262,15 @@ namespace Desert::Graphic
     Common::ResultStr<Streamline::DlssMode> DLSSUpscaler::ModeFor( const ResolutionSplit& split ) const
     {
         const Streamline::Runtime& runtime = Streamline::Runtime::Get();
-        if ( !runtime.DlssReady() )
-            return Common::MakeFormattedError<Streamline::DlssMode>( "DLSS is not available: {}",
-                                                                     runtime.DlssRefusal() );
+        if ( !runtime.Ready( m_Feature ) )
+            return Common::MakeFormattedError<Streamline::DlssMode>(
+                 "{} is not available: {}", Streamline::DlssFeatureName( m_Feature ), runtime.Refusal( m_Feature ) );
         switch ( split.Mode )
         {
             case Common::Scalability::ScaleMode::Supersample:
-                return Common::MakeFormattedError<Streamline::DlssMode>(
-                     "DLSS does not take a supersampled input ({} %)", split.RenderScalePercent );
+                return Common::MakeFormattedError<Streamline::DlssMode>( "{} does not take a supersampled input ({} %)",
+                                                                         Streamline::DlssFeatureName( m_Feature ),
+                                                                         split.RenderScalePercent );
             case Common::Scalability::ScaleMode::Native:
                 return Common::MakeSuccess( Streamline::DlssMode::DLAA );
             case Common::Scalability::ScaleMode::Upscale:
@@ -208,17 +303,91 @@ namespace Desert::Graphic
         }
         if ( !best )
             return Common::MakeFormattedError<Streamline::DlssMode>(
-                 "no DLSS mode renders {}x{} for an output of {}x{} ({} %):{}", split.Render.Width,
+                 "no {} mode renders {}x{} for an output of {}x{} ({} %):{}", Streamline::DlssFeatureName( m_Feature ),
+                 split.Render.Width,
                  split.Render.Height, split.Output.Width, split.Output.Height, split.RenderScalePercent, tried );
         return Common::MakeSuccess( *best );
     }
 
-    std::string DLSSUpscaler::Unavailable()
+    std::string DLSSUpscaler::Unavailable( const Streamline::DlssFeature feature )
     {
         const Streamline::Runtime& runtime = Streamline::Runtime::Get();
-        if ( runtime.DlssReady() )
+        if ( runtime.Ready( feature ) )
             return {};
-        return std::format( "DLSS is not available: {}", runtime.DlssRefusal() );
+        return std::format( "{} is not available: {}", Streamline::DlssFeatureName( feature ),
+                            runtime.Refusal( feature ) );
+    }
+
+    Common::ResultStr<DLSSUpscaler::Guides> DLSSUpscaler::AddGuidesPass( RDG::Builder& graph, const ViewFrame& frame,
+                                                                         const TemporalUpscalerInputs& inputs ) const
+    {
+        const auto missing = [&]( const char* what ) -> Common::ResultStr<Guides>
+        {
+            return Common::MakeFormattedError<Guides>(
+                 "{}: the input {} is not a texture of this graph (Ray Reconstruction reads its guides from the "
+                 "deferred G-buffer)",
+                 DebugName(), what );
+        };
+        if ( !inputs.GBufferAlbedo.IsValid() )
+            return missing( "GBufferAlbedo" );
+        if ( !inputs.GBufferNormal.IsValid() )
+            return missing( "GBufferNormal" );
+        if ( !inputs.BrdfLut.IsValid() )
+            return missing( "BrdfLut" );
+        if ( !inputs.Black.IsValid() )
+            return missing( "Black" );
+
+        const uint32_t   width  = frame.Split.Render.Width;
+        const uint32_t   height = frame.Split.Render.Height;
+        RDG::TextureDesc albedoDesc;
+        albedoDesc.Size   = RDG::Extent3D{ width, height, 1 };
+        albedoDesc.Format = Core::Formats::ImageFormat::RGBA16F;
+        RDG::TextureDesc distanceDesc = albedoDesc;
+        distanceDesc.Format           = Core::Formats::ImageFormat::R32F;
+        const Guides guides{ .DiffuseAlbedo       = graph.CreateTexture( albedoDesc, "DLSS-RR.DiffuseAlbedo" ),
+                             .SpecularAlbedo      = graph.CreateTexture( albedoDesc, "DLSS-RR.SpecularAlbedo" ),
+                             .SpecularHitDistance = graph.CreateTexture( distanceDesc, "DLSS-RR.SpecularHitDistance" ) };
+        const bool            traced = inputs.ReflectionRay.IsValid();
+        const RDG::TextureRef ray    = traced ? inputs.ReflectionRay : inputs.Black;
+        const GuidesPush      push{ .InvJitteredViewProjection = frame.InvJitteredViewProjection,
+                                    .CameraPos                 = glm::vec4( frame.CameraPosition, 1.0f ),
+                                    .Params = glm::vec4( static_cast<float>( width ), static_cast<float>( height ),
+                                                         traced ? 1.0f : 0.0f, 0.0f ) };
+        GuidesPipeline* holder = m_GuidesPipeline.get();
+        graph.AddPass(
+             kGuidesPassName, RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Bindings( GuidesLayout(), RDG::OtherRouteFill{} )
+                      .Sampled( "u_GBufferAlbedo", inputs.GBufferAlbedo, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                      .Sampled( "u_GBufferNormal", inputs.GBufferNormal, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                      .Sampled( "u_GBufferDepth", inputs.SceneDepth, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                      .Sampled( "u_BRDFLUTTexture", inputs.BrdfLut, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
+                      .Sampled( "u_ReflectionRay", ray, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                                RDG::SamplerDesc::PointClamp() )
+                      .Storage( "u_DiffuseAlbedo", guides.DiffuseAlbedo, RDG::Access::StorageWrite, 0 )
+                      .Storage( "u_SpecularAlbedo", guides.SpecularAlbedo, RDG::Access::StorageWrite, 0 )
+                      .Storage( "u_SpecularHitDistance", guides.SpecularHitDistance, RDG::Access::StorageWrite, 0 )
+                      .PushConstantBytes( static_cast<uint32_t>( sizeof( GuidesPush ) ) );
+             },
+             [holder, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 std::string                            error;
+                 const std::shared_ptr<ComputePipeline> pipeline = holder->Get( error );
+                 if ( !pipeline )
+                     return Common::MakeError( error );
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline,
+                                                                 ( width + kGuidesGroupSize - 1 ) / kGuidesGroupSize,
+                                                                 ( height + kGuidesGroupSize - 1 ) / kGuidesGroupSize,
+                                                                 1 );
+             } );
+        return Common::MakeSuccess( guides );
     }
 
     bool DLSSUpscaler::Supports( const ResolutionSplit& split ) const
@@ -269,17 +438,21 @@ namespace Desert::Graphic
         if ( !mode )
             return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}: {}", DebugName(), mode.GetError() );
 
-        // The view's feature: its own from last frame, or a new one (first DLSS frame, after a reset or another
-        // method's history).
+        // The view's feature: its own from last frame, or a new one (first frame of this feature, after a reset
+        // or another method's history - DLSS Super Resolution's history is not Ray Reconstruction's).
         std::shared_ptr<ITemporalUpscalerHistory> history = inputs.PrevHistory;
-        if ( dynamic_cast<DlssHistory*>( history.get() ) == nullptr )
-            history = std::make_shared<DlssHistory>();
+        if ( const auto* own = dynamic_cast<DlssHistory*>( history.get() ); own == nullptr || own->Feature() != m_Feature )
+            history = std::make_shared<DlssHistory>( m_Feature );
         auto&                         feature = static_cast<DlssHistory&>( *history );
+        const bool                    rr      = m_Feature == Streamline::DlssFeature::RayReconstruction;
         const Streamline::DlssOptions options{
+             .Feature      = m_Feature,
              .Mode         = mode.GetValue(),
              .OutputWidth  = frame.Split.Output.Width,
              .OutputHeight = frame.Split.Output.Height,
-             .Preset = inputs.Quality->As<Common::Scalability::DlssPreset>( PresetParameter( mode.GetValue() ) ) };
+             .Preset = inputs.Quality->As<Common::Scalability::DlssPreset>( PresetParameter( mode.GetValue() ) ),
+             .RRPreset =
+                  inputs.Quality->As<Common::Scalability::DlssRRPreset>( RRPresetParameter( mode.GetValue() ) ) };
         if ( const auto applied = feature.Apply( options ); !applied )
             return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}: {}", DebugName(),
                                                                         applied.GetError() );
@@ -294,9 +467,20 @@ namespace Desert::Graphic
         outputDesc.Format            = kOutputFormat;
         const RDG::TextureRef output = graph.CreateTexture( outputDesc, kOutputName );
 
+        Guides guides;
+        if ( rr )
+        {
+            const Common::ResultStr<Guides> added = AddGuidesPass( graph, frame, inputs );
+            if ( !added )
+                return Common::MakeError<TemporalUpscalerOutputs>( added.GetError() );
+            guides = added.GetValue();
+        }
+
         Streamline::DlssEvaluation evaluation;
         evaluation.Viewport       = feature.Viewport();
-        evaluation.Mode           = mode.GetValue();
+        evaluation.Options        = options;
+        evaluation.WorldToView    = frame.View;
+        evaluation.ViewToWorld    = frame.InvView;
         evaluation.RenderWidth    = frame.Split.Render.Width;
         evaluation.RenderHeight   = frame.Split.Render.Height;
         evaluation.OutputWidth    = frame.Split.Output.Width;
@@ -327,30 +511,53 @@ namespace Desert::Graphic
         const RDG::TextureRef depth       = inputs.SceneDepth;
         const RDG::TextureRef velocity    = inputs.Velocity;
         const RDG::TextureRef exposureRef = exposure.GetValue();
+        const RDG::TextureRef normal      = rr ? inputs.GBufferNormal : RDG::TextureRef{};
+        const bool            traced      = rr && inputs.ReflectionRay.IsValid();
         graph.AddPass(
-             kPassName, RDG::PassFlags::Compute,
+             DebugName().data(), RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Read( color, RDG::Access::SampledCompute );
                  pass.Read( depth, RDG::Access::SampledCompute );
                  pass.Read( velocity, RDG::Access::SampledCompute );
                  pass.Read( exposureRef, RDG::Access::SampledCompute );
+                 if ( rr )
+                 {
+                     pass.Read( guides.DiffuseAlbedo, RDG::Access::SampledCompute );
+                     pass.Read( guides.SpecularAlbedo, RDG::Access::SampledCompute );
+                     pass.Read( normal, RDG::Access::SampledCompute );
+                     if ( traced )
+                         pass.Read( guides.SpecularHitDistance, RDG::Access::SampledCompute );
+                 }
                  // ExternalWrite, not StorageWrite: NGX also clears the output (vkCmdClearColorImage on a
                  // reset), which needs TRANSFER_DST usage and the transfer stage in the barrier into this pass.
                  pass.Write( output, RDG::Access::ExternalWrite );
              },
-             [evaluation, color, depth, velocity, exposureRef,
-              output]( RDG::PassContext& context ) mutable -> Common::BoolResultStr
+             [evaluation, color, depth, velocity, exposureRef, output, guides, normal, rr,
+              traced]( RDG::PassContext& context ) mutable -> Common::BoolResultStr
              {
                  const auto commandBuffer = API::Vulkan::VulkanRdgBackend::CommandBufferOf( context );
                  if ( !commandBuffer )
                      return Common::MakeError( commandBuffer.GetError() );
-                 const std::array<std::pair<Streamline::DlssImage*, std::pair<RDG::TextureRef, RDG::Access>>, 5>
-                      images{ { { &evaluation.Color, { color, RDG::Access::SampledCompute } },
-                                { &evaluation.Depth, { depth, RDG::Access::SampledCompute } },
-                                { &evaluation.MotionVectors, { velocity, RDG::Access::SampledCompute } },
-                                { &evaluation.Exposure, { exposureRef, RDG::Access::SampledCompute } },
-                                { &evaluation.Output, { output, RDG::Access::ExternalWrite } } } };
+                 std::vector<std::pair<Streamline::DlssImage*, std::pair<RDG::TextureRef, RDG::Access>>> images{
+                      { &evaluation.Color, { color, RDG::Access::SampledCompute } },
+                      { &evaluation.Depth, { depth, RDG::Access::SampledCompute } },
+                      { &evaluation.MotionVectors, { velocity, RDG::Access::SampledCompute } },
+                      { &evaluation.Exposure, { exposureRef, RDG::Access::SampledCompute } },
+                      { &evaluation.Output, { output, RDG::Access::ExternalWrite } } };
+                 if ( rr )
+                 {
+                     images.push_back(
+                          { &evaluation.DiffuseAlbedo, { guides.DiffuseAlbedo, RDG::Access::SampledCompute } } );
+                     images.push_back(
+                          { &evaluation.SpecularAlbedo, { guides.SpecularAlbedo, RDG::Access::SampledCompute } } );
+                     images.push_back( { &evaluation.NormalRoughness, { normal, RDG::Access::SampledCompute } } );
+                     // Not tagged where the view traced no reflection (the image stays null): RR then has no
+                     // hit distance rather than a field of zeros it would read as hits at the surface.
+                     if ( traced )
+                         images.push_back( { &evaluation.SpecularHitDistance,
+                                             { guides.SpecularHitDistance, RDG::Access::SampledCompute } } );
+                 }
                  for ( const auto& [target, source] : images )
                  {
                      auto image = ImageOf( context, source.first, source.second );

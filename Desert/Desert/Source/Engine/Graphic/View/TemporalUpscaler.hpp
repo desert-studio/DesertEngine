@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Settings/RenderMethods.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
@@ -77,6 +78,19 @@ namespace Desert::Graphic
         // The graph's System.Black (RDGSystemTextures.hpp): what an implementation binds where an input of its own
         // does not exist this frame (UE GSystemTextures BlackDummy), never another input standing in for it.
         RDG::TextureRef              Black;
+        // WHAT AN IMPLEMENTATION THAT TAKES THE LIGHTING SIGNALS RAW READS BESIDE THE COLOUR (TakesRawLightingSignals;
+        // UE: the scene textures the DLSS plugin's Ray Reconstruction reads its guides from). The surface each
+        // pixel shows, from the deferred G-buffer (RenderExtent; invalid on the forward path): base colour with
+        // metallic in a (ViewTargetFormats::kGBufferA), world normal with roughness in a (kGBufferB). The
+        // split-sum table the deferred composite weighs the reflection with (Renderer::GetBRDFTexture), so a
+        // guide's specular reflectance is the one the colour was made with.
+        RDG::TextureRef GBufferAlbedo;
+        RDG::TextureRef GBufferNormal;
+        RDG::TextureRef BrdfLut;
+        // The traced reflection's ray per pixel (FrameTransients::ReflectionRay: SSR's full-resolution trace ray,
+        // xyz the world point the reflection came from, w log2 pdf, -126 no ray), raw; invalid where the view
+        // traced no reflection this frame.
+        RDG::TextureRef ReflectionRay;
         std::span<const HistoryRefs> History; // one per HistoryDescs() entry, same order
         // The NewHistory this view's last frame returned; null on the view's first frame, after
         // SceneViewState::Reset and while the method is None. May be another implementation's (a method change):
@@ -116,6 +130,13 @@ namespace Desert::Graphic
         // Whether this implementation can resolve @p split (TAA: Render == Output or Supersample; TAAU: Upscale).
         // SceneViewState::BeginFrame refuses a mismatch with both values named.
         [[nodiscard]] virtual bool Supports( const ResolutionSplit& split ) const = 0;
+
+        // Whether this method is also the denoiser of the view's noisy lighting signals (UE: an upscaler that
+        // replaces IScreenSpaceDenoiser - DLSS Ray Reconstruction). True: the renderer hands the signals RAW -
+        // the reflection traced at full resolution, the diffuse gather as gathered - and the screen-space
+        // denoiser does not run (SceneRenderer AddFrameSSR / AddFrameGIResolve); the method reads the surface
+        // guides of TemporalUpscalerInputs. Default false: the signals arrive denoised.
+        [[nodiscard]] virtual bool TakesRawLightingSignals() const;
 
         // The histories this method carries between frames, at this split and quality. Empty for an
         // implementation whose history is internal to it (it then reads only ViewFrame::HistoryReset). @p quality
@@ -166,10 +187,23 @@ namespace Desert::Graphic
     // how the view hears of it before it builds a frame on that method.
     [[nodiscard]] std::string TemporalMethodUnavailable( TemporalMethod method );
 
+    // Why a view whose effective render methods are these cannot run DLSS Ray Reconstruction, empty while it can.
+    // Ray Reconstruction denoises ray-traced signals (NVIDIA: "RR replaces the denoisers"; UE's plugin offers it
+    // where Lumen or ray-traced effects run); a view with none would pay its guides for a plain DLSS, so it is
+    // refused by name and ReplaceUnavailableVendorMethods renders DLSS Super Resolution. The signals are the
+    // ones the screen-space denoiser would otherwise clean (Common::Scalability::IsDenoisedSignal), on the
+    // deferred path (@p deferredPath: the guides come from its G-buffer). PURE.
+    [[nodiscard]] std::string RayReconstructionRefusal( Common::Scalability::ReflectionMethod reflections,
+                                                        Common::Scalability::GIMethod         globalIllumination,
+                                                        Common::Scalability::ShadowMethod     shadows,
+                                                        bool                                  deferredPath );
+
     // The quality a view renders when a vendor method it resolves to is unavailable (@p unavailable: the reason
     // per method, TemporalMethodUnavailable in the renderer): the vendor's native AA becomes the engine's TAA and
     // the vendor's upscaler becomes None, which UpscalerForScale turns into the level's engine temporal upscaler
-    // (TAAU or TSR) below 100 %. Why is empty when nothing was replaced. PURE.
+    // (TAAU or TSR) below 100 %. DLSS Ray Reconstruction unavailable falls back to DLSS Super Resolution first
+    // (Upscaler::DLSS below 100 %, plain DLAA at it), and that to the engine's method when DLSS is unavailable
+    // too; Why names every step. Why is empty when nothing was replaced. PURE.
     struct VendorMethodFallback
     {
         Common::Scalability::PathAntiAliasing AntiAliasing;

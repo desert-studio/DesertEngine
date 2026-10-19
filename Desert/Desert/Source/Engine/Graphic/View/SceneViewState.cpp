@@ -59,6 +59,8 @@ namespace Desert::Graphic
                     return "FSR";
                 case TemporalMethod::TSR:
                     return "TSR";
+                case TemporalMethod::DLSSRR:
+                    return "DLSSRR";
             }
             return "<unknown TemporalMethod>";
         }
