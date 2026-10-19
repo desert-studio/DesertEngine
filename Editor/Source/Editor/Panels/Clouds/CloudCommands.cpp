@@ -46,9 +46,9 @@ namespace Desert::Editor
                                            selection.size() ) );
                                   const auto found = scene->FindEntityByID( selection.front() );
                                   if ( !found )
-                                      return Common::MakeError<bool>( std::format(
-                                           "Capture current sky: the selected {} is not in the scene",
-                                           selection.front().ToString() ) );
+                                      return Common::MakeError<bool>(
+                                           std::format( "Capture current sky: the selected {} is not in the scene",
+                                                        selection.front().ToString() ) );
                                   ECS::Entity layer = found->get();
                                   return CaptureCurrentSky( *scene, layer );
                               } } );
