@@ -13,7 +13,8 @@
 //   effective = the highest IMPLEMENTED method at or below
 //               min( the view's request (PostProcessSettings, blended from its volumes),
 //                    the machine's ceiling (Scalability *.Method, ResolvedQuality),
-//                    what the device can run (CapabilityCatalog: ray query for the traced methods),
+//                    what the device can run (CapabilityCatalog: ray query for the traced methods,
+//                    the ray tracing pipeline for PathTraced),
 //                    what the render path feeds (the G-buffer: NeedsGBuffer, deferred only) )
 //
 // Each axis records the FIRST limit that lowered it, so a downgrade names one cause. The renderer reads
@@ -27,6 +28,8 @@ namespace Desert::Graphic
         None = 0,       // rendered as requested
         Scalability,    // the machine's ceiling (Scalability "<Group>.Method") is lower
         Device,         // the device cannot run it (no ray query in the CapabilityCatalog)
+        DevicePipeline, // the device has no ray tracing pipeline (CapabilityCatalog RayTracingPipeline): PathTraced
+        PathTracerPair, // PathTraced on one of GI / reflections only: the path tracer is one integrator for both
         RenderPath,     // the view renders forward: no G-buffer for a method that reads one (NeedsGBuffer)
         NotImplemented, // declared, but this build has no renderer for it (only a ceiling can name one)
         FrameScene,     // this view-frame's ray-traced scene (TLAS, trace resources) could not be built
@@ -72,6 +75,15 @@ namespace Desert::Graphic
     // CascadedMaps with MethodLimit::FrameScene, so every pass of the frame (cascades, prepass, composite, forward)
     // reads one decision and the overlay / log name the cause. PURE. The next BeginScene resolves afresh.
     void LowerShadowsForFrame( RenderMethods& methods, bool rayTracedSceneReady );
+
+    // THE VIEW PATH-TRACES this frame: GI and reflections both resolved to PathTraced (they are one integrator,
+    // ResolveRenderMethods pairs them). The path tracer's image replaces the lit scene before post.
+    [[nodiscard]] bool PathTraced( const RenderMethods& methods );
+
+    // As LowerShadowsForFrame, for the path tracer: a path-traced view whose frame has no traceable scene (TLAS not
+    // built) is lowered here to HardwareTraced on both axes with MethodLimit::FrameScene, before any pass is
+    // declared, so the frame renders - and the overlay names - one decision. PURE.
+    void LowerPathTracingForFrame( RenderMethods& methods, bool rayTracedSceneReady );
 
     // One row per axis: "GI: ScreenSpace" or, lowered, "GI: HardwareTraced -> ScreenSpace (device: no ray query)".
     // The log line and the overlay print exactly these.

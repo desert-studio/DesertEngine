@@ -43,7 +43,13 @@ namespace Common::Scalability
                         // GI-FINAL-GATHER)
         HardwareTraced, // ray query: screen probes + radiance cache (GI-HWRT); the tracer record carries the frame's
                         // TLAS, segment records and instance -> surface-cache rows (MakeTracerFrame); RT device
-        PathTraced,     // reference / Cinematic (PATHTRACER); RT device                  — not implemented
+        // THE PATH TRACER (PATHTRACER; UE's Path Tracer, Renderer/Private/PathTracing): the view's whole lit image
+        // is a progressive Monte Carlo estimate over the same ray tracing pipeline and hit groups (next event
+        // estimation + MIS, the sky importance-sampled), accumulated per view. GI and reflections are ONE
+        // integrator there, so a frame path-traces only when both axes resolve to PathTraced
+        // (Graphic::ResolveRenderMethods couples them). Needs the ray tracing PIPELINE (NeedsRayTracingPipeline).
+        // Not implemented yet: the shaders (Programs/PathTracing) are in, the frame's renderer is not connected.
+        PathTraced,
     };
 
     enum class ReflectionMethod : int
@@ -59,7 +65,8 @@ namespace Common::Scalability
         HardwareTraced, // SoftwareTraced's pipeline with the ray-query tracer: the screen trace continued into the
                         // view's TLAS (alpha-tested), a hit lit from the surface cache, a miss answered by the
                         // captures, then the sky (RT-REFL; UE Lumen reflections, hardware ray tracing); RT device
-        PathTraced,     // reference (PATHTRACER); RT device                              — not implemented
+        PathTraced,     // the path tracer, GIMethod::PathTraced's other half (one integrator); RT pipeline device
+                        // — not implemented yet
     };
 
     enum class ShadowMethod : int
@@ -117,6 +124,21 @@ namespace Common::Scalability
     [[nodiscard]] constexpr bool NeedsRayQuery( ShadowMethod method )
     {
         return method == ShadowMethod::HardwareTraced || method == ShadowMethod::Stochastic;
+    }
+
+    // ---- ... and the ray tracing PIPELINE (CapabilityCatalog RayTracingPipeline: ray generation, hit groups, SBT;
+    // never on MoltenVK): the path tracer's paths shade every hit with its surface's own hit group. ---------------
+    [[nodiscard]] constexpr bool NeedsRayTracingPipeline( GIMethod method )
+    {
+        return method == GIMethod::PathTraced;
+    }
+    [[nodiscard]] constexpr bool NeedsRayTracingPipeline( ReflectionMethod method )
+    {
+        return method == ReflectionMethod::PathTraced;
+    }
+    [[nodiscard]] constexpr bool NeedsRayTracingPipeline( ShadowMethod /*method*/ )
+    {
+        return false;
     }
 
     // ---- What a method needs from the render path: the G-buffer (Core::RenderPath::Deferred). ------------------
