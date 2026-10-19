@@ -3,6 +3,8 @@
 #include <Engine/Assets/AssetBase.hpp>
 #include <Engine/Assets/CloudLayout.hpp>
 
+#include <memory>
+
 namespace Desert::Assets
 {
     /**
@@ -53,8 +55,25 @@ namespace Desert::Assets
 
         const CloudLayoutData& GetLayout() const
         {
+            return *m_Layout;
+        }
+
+        /// The pixels as a SHARED, IMMUTABLE revision. A bake running on a worker holds the revision it
+        /// started with, so an edit below can never free or change the texels under it.
+        [[nodiscard]] std::shared_ptr<const CloudLayoutData> SharedLayout() const
+        {
             return m_Layout;
         }
+
+        /**
+         * @brief Replaces the loaded pixels IN MEMORY, the file untouched — Unreal's dirty asset.
+         *
+         * The Cloud Layout document calls this at the end of every stroke so the scene's sky follows the
+         * brush; Save writes the same pixels to disk, and closing the document without saving reloads the
+         * file (LoadFromFile). Copy-on-write rather than an edit of the current revision: the bake
+         * parameters cache a share of it across frames and worker jobs read it while it is being replaced.
+         */
+        Common::BoolResultStr ReplaceLayout( CloudLayoutData layout );
 
         static AssetTypeID GetTypeID()
         {
@@ -72,7 +91,7 @@ namespace Desert::Assets
 
     private:
         Common::Content::AssetGuid m_Guid;
-        CloudLayoutData m_Layout;
-        bool            m_Ready = false;
+        std::shared_ptr<const CloudLayoutData> m_Layout = std::make_shared<const CloudLayoutData>();
+        bool                                   m_Ready  = false;
     };
 } // namespace Desert::Assets

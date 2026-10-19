@@ -710,9 +710,12 @@ namespace Desert::Assets
 
         CloudLayoutCanvas canvas;
         canvas.Side = side;
-        // WHITE, THE NEUTRAL (WX-PAINT): the painted W is `1 - PatternStrength * (1 - painted)`, so white leaves
-        // the slider's sky as it is and the brush carves clear sky out of it — Unreal's Layout starts here too.
-        canvas.Pattern.assign( static_cast<size_t>( side ) * side * kPatternBytesPerTexel, 255u );
+        // BLACK, CLEAR SKY (CLOUD-PAINT-FIX): the painted W is `1 - PatternStrength * (1 - painted)`, so a blank
+        // canvas bound at full strength is a clear sky and the brush PAINTS clouds where it goes — what an artist
+        // reaches for a painted sky to do. A white start made the first stroke carve a lane out of a busy sky,
+        // which at the shipped Coverage could not be told from the gaps around it. The panel's Fill lays white
+        // (or any ink) over a channel for the opposite workflow.
+        canvas.Pattern.assign( static_cast<size_t>( side ) * side * kPatternBytesPerTexel, 0u );
 
         return Common::MakeSuccess( std::move( canvas ) );
     }
