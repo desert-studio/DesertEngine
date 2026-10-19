@@ -465,8 +465,22 @@ namespace Desert::Graphic
 
     void ReflectionCaptureRenderer::AddPasses( RDG::Builder& graph, FrameTextures& textures, bool readsCaptures )
     {
+        // The capture list every lit pass binds (ReflectionCapturesUB), as this graph's buffer.
+        const auto publishList = [&graph, &textures]( const std::vector<std::byte>& list )
+        {
+            const RDG::BufferRef buffer =
+                 graph.CreateBuffer( RDG::BufferDesc{ list.size() }, "ReflectionCaptures.List" );
+            graph.QueueBufferUpload( buffer, list );
+            textures.Transients.ReflectionCaptures = buffer;
+        };
         if ( !EnsurePipelines() )
-            return; // logged once by MakeCompute; the composite then reports its unbound inputs by name
+        {
+            // No cube can be assembled on this device (logged once by MakeCompute): the empty list alone, so the
+            // lighting that binds it still draws and reads no capture. The views refuse the Reflections methods
+            // that read captures by FailedProgram()'s name (SceneRenderer::BeginScene).
+            publishList( PackReflectionCaptures( {}, {} ) );
+            return;
+        }
 
         constexpr size_t kRetiredKept = 3;
         if ( m_Retired.size() > kRetiredKept )
@@ -477,14 +491,9 @@ namespace Desert::Graphic
         const bool capturing = readsCaptures && std::has_single_bit( m_FaceSize );
         if ( !capturing )
         {
-            const RDG::TextureRef black =
+            textures.Transients.ReflectionCaptureCubes =
                  AcquireArray( graph, textures, m_Black, 1u, 1u, "ReflectionCaptures.Black" ).first;
-            const std::vector<std::byte> list = PackReflectionCaptures( {}, {} );
-            const RDG::BufferRef         buffer =
-                 graph.CreateBuffer( RDG::BufferDesc{ list.size() }, "ReflectionCaptures.List" );
-            graph.QueueBufferUpload( buffer, list );
-            textures.Transients.ReflectionCaptureCubes = black;
-            textures.Transients.ReflectionCaptures     = buffer;
+            publishList( PackReflectionCaptures( {}, {} ) );
             return;
         }
 
@@ -508,12 +517,7 @@ namespace Desert::Graphic
             m_FacesRenderedThisFrame = false;
         }
 
-        const std::vector<std::byte> list = PackReflectionCaptures( m_Captures, m_Captured );
-        const RDG::BufferRef         buffer =
-             graph.CreateBuffer( RDG::BufferDesc{ list.size() }, "ReflectionCaptures.List" );
-        graph.QueueBufferUpload( buffer, list );
-
         textures.Transients.ReflectionCaptureCubes = array;
-        textures.Transients.ReflectionCaptures     = buffer;
+        publishList( PackReflectionCaptures( m_Captures, m_Captured ) );
     }
 } // namespace Desert::Graphic
