@@ -24,7 +24,11 @@ Shader "TSRSpatialAntiAliasing"
 
         #include <Common/TSRCommon.glslh>
 
-        Uniform(1) sampler2D u_AntiAliasInput; // TSR.RejectShading: x LDR luma (UE InputSceneColorLdrLuma), y mask
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(3) sampler u_LinearClampSampler;
+        Uniform(1) texture2D u_AntiAliasInput; // TSR.RejectShading: x LDR luma (UE InputSceneColorLdrLuma), y mask
+        #define u_AntiAliasInput sampler2D(u_AntiAliasInput, u_LinearClampSampler)
         layout(binding = 2, r32ui) restrict writeonly uniform uimage2D u_AntiAliasing;
 
         float LumaAt(ivec2 p)

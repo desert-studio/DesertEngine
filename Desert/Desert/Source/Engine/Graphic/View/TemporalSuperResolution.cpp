@@ -110,8 +110,9 @@ namespace Desert::Graphic
     {
         static const auto layout =
              MakeLayout( kDilateVelocity, { { "TSRParamsBuffer", Kind::StorageBuffer },
-                                            { "u_SceneDepth", Kind::SampledTexture },
-                                            { "u_Velocity", Kind::SampledTexture },
+                                            { "u_SceneDepth", Kind::Texture },
+                                            { "u_Velocity", Kind::Texture },
+                                            { "u_PointClampSampler", Kind::Sampler },
                                             { "u_DilatedVelocity", Kind::StorageTexture },
                                             { "u_ClosestDepth", Kind::StorageTexture },
                                             { "TSRPrevAtomicBuffer", Kind::StorageBuffer },
@@ -125,14 +126,15 @@ namespace Desert::Graphic
         const auto slots = []( const bool withLuma )
         {
             std::vector<RDG::ShaderSlot> list{ { "TSRParamsBuffer", Kind::StorageBuffer },
-                                               { "u_SceneDepth", Kind::SampledTexture },
-                                               { "u_ThinGeometryCoverage", Kind::SampledTexture },
-                                               { "u_ReprojectedCoverage", Kind::SampledTexture },
-                                               { "u_ReprojectionBoundary", Kind::SampledTexture },
+                                               { "u_SceneDepth", Kind::Texture },
+                                               { "u_ThinGeometryCoverage", Kind::Texture },
+                                               { "u_ReprojectedCoverage", Kind::Texture },
+                                               { "u_ReprojectionBoundary", Kind::Texture },
+                                               { "u_PointClampSampler", Kind::Sampler },
                                                { "u_ThinGeometry", Kind::StorageTexture },
                                                { "u_CoverageOut", Kind::StorageTexture } };
             if ( withLuma )
-                list.push_back( { "u_FlickeringLuma", Kind::SampledTexture } );
+                list.push_back( { "u_FlickeringLuma", Kind::Texture } );
             return list;
         };
         static const auto withLuma = MakeLayout( kDetectThinGeometry, slots( true ) );
@@ -144,8 +146,9 @@ namespace Desert::Graphic
     {
         static const auto layout =
              MakeLayout( kMeasureFlickeringLuma, { { "TSRParamsBuffer", Kind::StorageBuffer },
-                                                   { "u_SceneColor", Kind::SampledTexture },
-                                                   { "u_Exposure", Kind::SampledTexture },
+                                                   { "u_SceneColor", Kind::Texture },
+                                                   { "u_Exposure", Kind::Texture },
+                                                   { "u_PointClampSampler", Kind::Sampler },
                                                    { "u_FlickeringLuma", Kind::StorageTexture } } );
         return layout;
     }
@@ -166,19 +169,21 @@ namespace Desert::Graphic
         const auto slots = []( const bool withCoverage )
         {
             std::vector<RDG::ShaderSlot> list{ { "TSRParamsBuffer", Kind::StorageBuffer },
-                                             { "u_DilatedVelocity", Kind::SampledTexture },
-                                             { "u_ClosestDepth", Kind::SampledTexture },
+                                             { "u_DilatedVelocity", Kind::Texture },
+                                             { "u_ClosestDepth", Kind::Texture },
                                              { "TSRPrevAtomicBuffer", Kind::StorageBuffer },
-                                             { "u_PrevGuide", Kind::SampledTexture },
-                                             { "u_PrevMoire", Kind::SampledTexture },
+                                             { "u_PrevGuide", Kind::Texture },
+                                             { "u_PrevMoire", Kind::Texture },
                                              { "u_ReprojectedGuide", Kind::StorageTexture },
                                              { "u_ReprojectedMoire", Kind::StorageTexture },
-                                             { "u_ResurrectionGuide", Kind::SampledTexture },
-                                             { "u_Exposure", Kind::SampledTexture },
+                                             { "u_ResurrectionGuide", Kind::Texture },
+                                             { "u_Exposure", Kind::Texture },
+                                             { "u_LinearClampSampler", Kind::Sampler },
+                                             { "u_PointClampSampler", Kind::Sampler },
                                              { "u_ResurrectedGuide", Kind::StorageTexture } };
             if ( withCoverage )
             {
-                list.push_back( { "u_PrevCoverage", Kind::SampledTexture } );
+                list.push_back( { "u_PrevCoverage", Kind::Texture } );
                 list.push_back( { "u_ReprojectedCoverage", Kind::StorageTexture } );
             }
             return list;
@@ -193,17 +198,18 @@ namespace Desert::Graphic
         const auto slots = []( const bool withThinGeometry )
         {
             std::vector<RDG::ShaderSlot> list{ { "TSRParamsBuffer", Kind::StorageBuffer },
-                                             { "u_SceneColor", Kind::SampledTexture },
-                                             { "u_Exposure", Kind::SampledTexture },
-                                             { "u_ReprojectedGuide", Kind::SampledTexture },
-                                             { "u_ReprojectedMoire", Kind::SampledTexture },
-                                             { "u_ResurrectedGuide", Kind::SampledTexture },
+                                             { "u_SceneColor", Kind::Texture },
+                                             { "u_Exposure", Kind::Texture },
+                                             { "u_ReprojectedGuide", Kind::Texture },
+                                             { "u_ReprojectedMoire", Kind::Texture },
+                                             { "u_ResurrectedGuide", Kind::Texture },
+                                             { "u_PointClampSampler", Kind::Sampler },
                                              { "u_HistoryRejection", Kind::StorageTexture },
                                              { "u_GuideOut", Kind::StorageTexture },
                                              { "u_MoireOut", Kind::StorageTexture },
                                              { "u_AntiAliasInput", Kind::StorageTexture } };
             if ( withThinGeometry )
-                list.push_back( { "u_ThinGeometry", Kind::SampledTexture } );
+                list.push_back( { "u_ThinGeometry", Kind::Texture } );
             return list;
         };
         static const auto withThinGeometry = MakeLayout( kRejectShading, slots( true ) );
@@ -215,7 +221,8 @@ namespace Desert::Graphic
     {
         static const auto layout =
              MakeLayout( kSpatialAntiAliasing, { { "TSRParamsBuffer", Kind::StorageBuffer },
-                                                 { "u_AntiAliasInput", Kind::SampledTexture },
+                                                 { "u_AntiAliasInput", Kind::Texture },
+                                                 { "u_LinearClampSampler", Kind::Sampler },
                                                  { "u_AntiAliasing", Kind::StorageTexture } } );
         return layout;
     }
@@ -224,14 +231,21 @@ namespace Desert::Graphic
     {
         const auto slots = []( const bool withOutput )
         {
-            std::vector<RDG::ShaderSlot> list{
-                 { "TSRParamsBuffer", Kind::StorageBuffer },    { "u_SceneColor", Kind::SampledTexture },
-                 { "u_Exposure", Kind::SampledTexture },        { "u_ResponsiveAA", Kind::SampledTexture },
-                 { "u_DilatedVelocity", Kind::SampledTexture }, { "u_HistoryRejection", Kind::SampledTexture },
-                 { "u_AntiAliasing", Kind::SampledTexture },    { "u_PrevHistory", Kind::SampledTexture },
-                 { "u_ClosestDepth", Kind::SampledTexture },    { "u_ReprojectionJacobian", Kind::SampledTexture },
-                 { "u_ReprojectionBoundary", Kind::SampledTexture },
-                 { "u_ResurrectionHistory", Kind::SampledTexture }, { "u_HistoryOut", Kind::StorageTexture } };
+            std::vector<RDG::ShaderSlot> list{ { "TSRParamsBuffer", Kind::StorageBuffer },
+                                               { "u_SceneColor", Kind::Texture },
+                                               { "u_Exposure", Kind::Texture },
+                                               { "u_ResponsiveAA", Kind::Texture },
+                                               { "u_DilatedVelocity", Kind::Texture },
+                                               { "u_HistoryRejection", Kind::Texture },
+                                               { "u_AntiAliasing", Kind::Texture },
+                                               { "u_PrevHistory", Kind::Texture },
+                                               { "u_ClosestDepth", Kind::Texture },
+                                               { "u_ReprojectionJacobian", Kind::Texture },
+                                               { "u_ReprojectionBoundary", Kind::Texture },
+                                               { "u_ResurrectionHistory", Kind::Texture },
+                                               { "u_LinearClampSampler", Kind::Sampler },
+                                               { "u_PointClampSampler", Kind::Sampler },
+                                               { "u_HistoryOut", Kind::StorageTexture } };
             if ( withOutput )
                 list.push_back( { "u_Output", Kind::StorageTexture } );
             return list;
@@ -244,8 +258,10 @@ namespace Desert::Graphic
     const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrResolveHistoryLayout()
     {
         static const auto layout = MakeLayout( kResolveHistory, { { "TSRParamsBuffer", Kind::StorageBuffer },
-                                                                  { "u_Exposure", Kind::SampledTexture },
-                                                                  { "u_History", Kind::SampledTexture },
+                                                                  { "u_Exposure", Kind::Texture },
+                                                                  { "u_History", Kind::Texture },
+                                                                  { "u_LinearClampSampler", Kind::Sampler },
+                                                                  { "u_PointClampSampler", Kind::Sampler },
                                                                   { "u_Output", Kind::StorageTexture } } );
         return layout;
     }
@@ -253,8 +269,9 @@ namespace Desert::Graphic
     const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrRecordPersistentFrameLayout()
     {
         static const auto layout = MakeLayout( kRecordPersistent, { { "TSRParamsBuffer", Kind::StorageBuffer },
-                                                                    { "u_Exposure", Kind::SampledTexture },
-                                                                    { "u_Source", Kind::SampledTexture },
+                                                                    { "u_Exposure", Kind::Texture },
+                                                                    { "u_Source", Kind::Texture },
+                                                                    { "u_PointClampSampler", Kind::Sampler },
                                                                     { "u_Destination", Kind::StorageTexture } } );
         return layout;
     }
@@ -635,8 +652,9 @@ namespace Desert::Graphic
              {
                  pass.Bindings( TsrDilateVelocityLayout(), RDG::OtherRouteFill{} )
                       .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                      .Sampled( "u_SceneDepth", inputs.SceneDepth, sampled, all, point )
-                      .Sampled( "u_Velocity", inputs.Velocity, sampled, all, point )
+                      .Texture( "u_SceneDepth", inputs.SceneDepth, sampled, all )
+                      .Texture( "u_Velocity", inputs.Velocity, sampled, all )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_DilatedVelocity", dilatedVelocity, RDG::Access::StorageWrite, 0 )
                       .Storage( "u_ClosestDepth", closestDepth, RDG::Access::StorageWrite, 0 )
                       .Storage( "TSRPrevAtomicBuffer", prevAtomic, RDG::Access::StorageWrite )
@@ -652,18 +670,20 @@ namespace Desert::Graphic
                  RDG::BindingBlockBuilder bindings =
                       pass.Bindings( TsrDecimateHistoryLayout( quality.ThinGeometryDetection ), RDG::OtherRouteFill{} );
                  bindings.Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                      .Sampled( "u_DilatedVelocity", dilatedVelocity, sampled, all, point )
-                      .Sampled( "u_ClosestDepth", closestDepth, sampled, all, point )
+                      .Texture( "u_DilatedVelocity", dilatedVelocity, sampled, all )
+                      .Texture( "u_ClosestDepth", closestDepth, sampled, all )
                       .Storage( "TSRPrevAtomicBuffer", prevAtomic, RDG::Access::StorageRead )
-                      .Sampled( "u_PrevGuide", guide.Previous, sampled, all, linear )
-                      .Sampled( "u_PrevMoire", moire.Previous, sampled, all, linear )
+                      .Texture( "u_PrevGuide", guide.Previous, sampled, all )
+                      .Texture( "u_PrevMoire", moire.Previous, sampled, all )
                       .Storage( "u_ReprojectedGuide", reprojectedGuide, RDG::Access::StorageWrite, 0 )
                       .Storage( "u_ReprojectedMoire", reprojectedMoire, RDG::Access::StorageWrite, 0 )
-                      .Sampled( "u_ResurrectionGuide", resurrectionGuide, sampled, all, linear )
-                      .Sampled( "u_Exposure", inputs.Exposure, sampled, all, point )
+                      .Texture( "u_ResurrectionGuide", resurrectionGuide, sampled, all )
+                      .Sampler( "u_LinearClampSampler", linear )
+                      .Sampler( "u_PointClampSampler", point )
+                      .Texture( "u_Exposure", inputs.Exposure, sampled, all )
                       .Storage( "u_ResurrectedGuide", resurrectedGuide, RDG::Access::StorageWrite, 0 );
                  if ( quality.ThinGeometryDetection )
-                     bindings.Sampled( "u_PrevCoverage", coverage.Previous, sampled, all, point )
+                     bindings.Texture( "u_PrevCoverage", coverage.Previous, sampled, all )
                           .Storage( "u_ReprojectedCoverage", reprojectedCoverage, RDG::Access::StorageWrite, 0 );
              },
              dispatch( kDecimateHistory, decimateDefines, render ) );
@@ -677,14 +697,15 @@ namespace Desert::Graphic
                      RDG::BindingBlockBuilder bindings =
                           pass.Bindings( TsrDetectThinGeometryLayout( intensityLines ), RDG::OtherRouteFill{} );
                      bindings.Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                          .Sampled( "u_SceneDepth", inputs.SceneDepth, sampled, all, point )
-                          .Sampled( "u_ThinGeometryCoverage", inputs.ThinGeometryCoverage, sampled, all, point )
-                          .Sampled( "u_ReprojectedCoverage", reprojectedCoverage, sampled, all, point )
-                          .Sampled( "u_ReprojectionBoundary", reprojBoundary, sampled, all, point )
+                          .Texture( "u_SceneDepth", inputs.SceneDepth, sampled, all )
+                          .Texture( "u_ThinGeometryCoverage", inputs.ThinGeometryCoverage, sampled, all )
+                          .Sampler( "u_PointClampSampler", point )
+                          .Texture( "u_ReprojectedCoverage", reprojectedCoverage, sampled, all )
+                          .Texture( "u_ReprojectionBoundary", reprojBoundary, sampled, all )
                           .Storage( "u_ThinGeometry", thinGeometry, RDG::Access::StorageWrite, 0 )
                           .Storage( "u_CoverageOut", coverage.Current, RDG::Access::StorageWrite, 0 );
                      if ( intensityLines )
-                         bindings.Sampled( "u_FlickeringLuma", inputs.OpaqueLuma, sampled, all, point );
+                         bindings.Texture( "u_FlickeringLuma", inputs.OpaqueLuma, sampled, all );
                  },
                  dispatch( kDetectThinGeometry, thinGeometryDefines, render, kThinGeometryTileOutput ) );
 
@@ -695,17 +716,18 @@ namespace Desert::Graphic
                  RDG::BindingBlockBuilder bindings =
                       pass.Bindings( TsrRejectShadingLayout( quality.ThinGeometryDetection ), RDG::OtherRouteFill{} );
                  bindings.Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                      .Sampled( "u_SceneColor", inputs.SceneColor, sampled, all, point )
-                      .Sampled( "u_Exposure", inputs.Exposure, sampled, all, point )
-                      .Sampled( "u_ReprojectedGuide", reprojectedGuide, sampled, all, point )
-                      .Sampled( "u_ReprojectedMoire", reprojectedMoire, sampled, all, point )
-                      .Sampled( "u_ResurrectedGuide", resurrectedGuide, sampled, all, point )
+                      .Texture( "u_SceneColor", inputs.SceneColor, sampled, all )
+                      .Texture( "u_Exposure", inputs.Exposure, sampled, all )
+                      .Texture( "u_ReprojectedGuide", reprojectedGuide, sampled, all )
+                      .Texture( "u_ReprojectedMoire", reprojectedMoire, sampled, all )
+                      .Texture( "u_ResurrectedGuide", resurrectedGuide, sampled, all )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_HistoryRejection", historyRejection, RDG::Access::StorageWrite, 0 )
                       .Storage( "u_GuideOut", guide.Current, RDG::Access::StorageWrite, 0 )
                       .Storage( "u_MoireOut", moire.Current, RDG::Access::StorageWrite, 0 )
                       .Storage( "u_AntiAliasInput", antiAliasInput, RDG::Access::StorageWrite, 0 );
                  if ( quality.ThinGeometryDetection )
-                     bindings.Sampled( "u_ThinGeometry", thinGeometry, sampled, all, point );
+                     bindings.Texture( "u_ThinGeometry", thinGeometry, sampled, all );
              },
              dispatch( kRejectShading, rejectDefines, render,
                        quality.ThinGeometryDetection ? kRejectShadingThinGeometryTile : kRejectShadingTile ) );
@@ -718,7 +740,8 @@ namespace Desert::Graphic
              {
                  pass.Bindings( TsrSpatialAntiAliasingLayout(), RDG::OtherRouteFill{} )
                       .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                      .Sampled( "u_AntiAliasInput", antiAliasInput, sampled, all, linear )
+                      .Texture( "u_AntiAliasInput", antiAliasInput, sampled, all )
+                      .Sampler( "u_LinearClampSampler", linear )
                       .Storage( "u_AntiAliasing", antiAliasing, RDG::Access::StorageWrite, 0 );
              },
              dispatch( kSpatialAntiAliasing, spatialDefines, render ) );
@@ -730,17 +753,19 @@ namespace Desert::Graphic
                  RDG::BindingBlockBuilder bindings =
                       pass.Bindings( TsrUpdateHistoryLayout( historyIsOutput ), RDG::OtherRouteFill{} );
                  bindings.Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                      .Sampled( "u_SceneColor", inputs.SceneColor, sampled, all, linear )
-                      .Sampled( "u_Exposure", inputs.Exposure, sampled, all, point )
-                      .Sampled( "u_ResponsiveAA", inputs.ResponsiveAA, sampled, all, point )
-                      .Sampled( "u_DilatedVelocity", dilatedVelocity, sampled, all, point )
-                      .Sampled( "u_HistoryRejection", historyRejection, sampled, all, point )
-                      .Sampled( "u_AntiAliasing", antiAliasing, sampled, all, point )
-                      .Sampled( "u_PrevHistory", color.Previous, sampled, all, linear )
-                      .Sampled( "u_ClosestDepth", closestDepth, sampled, all, point )
-                      .Sampled( "u_ReprojectionJacobian", reprojJacobian, sampled, all, point )
-                      .Sampled( "u_ReprojectionBoundary", reprojBoundary, sampled, all, point )
-                      .Sampled( "u_ResurrectionHistory", resurrectionColor, sampled, all, linear )
+                      .Texture( "u_SceneColor", inputs.SceneColor, sampled, all )
+                      .Texture( "u_Exposure", inputs.Exposure, sampled, all )
+                      .Texture( "u_ResponsiveAA", inputs.ResponsiveAA, sampled, all )
+                      .Texture( "u_DilatedVelocity", dilatedVelocity, sampled, all )
+                      .Texture( "u_HistoryRejection", historyRejection, sampled, all )
+                      .Texture( "u_AntiAliasing", antiAliasing, sampled, all )
+                      .Texture( "u_PrevHistory", color.Previous, sampled, all )
+                      .Texture( "u_ClosestDepth", closestDepth, sampled, all )
+                      .Texture( "u_ReprojectionJacobian", reprojJacobian, sampled, all )
+                      .Texture( "u_ReprojectionBoundary", reprojBoundary, sampled, all )
+                      .Texture( "u_ResurrectionHistory", resurrectionColor, sampled, all )
+                      .Sampler( "u_LinearClampSampler", linear )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_HistoryOut", color.Current, RDG::Access::StorageWrite, 0 );
                  if ( historyIsOutput )
                      bindings.Storage( "u_Output", sceneColorOutput, RDG::Access::StorageWrite, 0 );
@@ -754,8 +779,10 @@ namespace Desert::Graphic
                  {
                      pass.Bindings( TsrResolveHistoryLayout(), RDG::OtherRouteFill{} )
                           .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                          .Sampled( "u_Exposure", inputs.Exposure, sampled, all, point )
-                          .Sampled( "u_History", color.Current, sampled, all, linear )
+                          .Texture( "u_Exposure", inputs.Exposure, sampled, all )
+                          .Texture( "u_History", color.Current, sampled, all )
+                          .Sampler( "u_LinearClampSampler", linear )
+                          .Sampler( "u_PointClampSampler", point )
                           .Storage( "u_Output", sceneColorOutput, RDG::Access::StorageWrite, 0 );
                  },
                  dispatch( kResolveHistory, "", output ) );
@@ -772,8 +799,9 @@ namespace Desert::Graphic
                      {
                          pass.Bindings( TsrRecordPersistentFrameLayout(), RDG::OtherRouteFill{} )
                               .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                              .Sampled( "u_Exposure", inputs.Exposure, sampled, all, point )
-                              .Sampled( "u_Source", source, sampled, all, point )
+                              .Texture( "u_Exposure", inputs.Exposure, sampled, all )
+                              .Texture( "u_Source", source, sampled, all )
+                              .Sampler( "u_PointClampSampler", point )
                               .Storage( "u_Destination", destination, RDG::Access::StorageWrite, 0 );
                      },
                      dispatch( kRecordPersistent, std::format( "TSR_RECORD_GUIDE={}", guideVariant ), extent ) );
@@ -828,10 +856,11 @@ namespace Desert::Graphic
              {
                  pass.Bindings( TsrMeasureFlickeringLumaLayout(), RDG::OtherRouteFill{} )
                       .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                      .Sampled( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                      .Sampled( "u_Exposure", inputs.Exposure, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                      .Texture( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Texture( "u_Exposure", inputs.Exposure, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                       .Storage( "u_FlickeringLuma", luma, RDG::Access::StorageWrite, 0 );
              },
              [this, render]( RDG::PassContext& context ) -> Common::BoolResultStr

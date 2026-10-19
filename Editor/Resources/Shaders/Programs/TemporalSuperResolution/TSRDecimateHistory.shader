@@ -28,21 +28,31 @@ Shader "TSRDecimateHistory"
         #define TSR_THIN_GEOMETRY 0
         #endif
 
-        Uniform(1) sampler2D u_DilatedVelocity;
-        Uniform(2) sampler2D u_ClosestDepth;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(13) sampler u_LinearClampSampler;
+        Uniform(14) sampler u_PointClampSampler;
+        Uniform(1) texture2D u_DilatedVelocity;
+        #define u_DilatedVelocity sampler2D(u_DilatedVelocity, u_PointClampSampler)
+        Uniform(2) texture2D u_ClosestDepth;
+        #define u_ClosestDepth sampler2D(u_ClosestDepth, u_PointClampSampler)
         layout(std430, binding = 3) restrict readonly buffer TSRPrevAtomicBuffer
         {
             uint u_PrevAtomic[];
         };
-        Uniform(4) sampler2D u_PrevGuide; // previous TSR.History.Guide, RenderExtent (bilinear)
-        Uniform(5) sampler2D u_PrevMoire; // previous TSR.History.Moire, RenderExtent (bilinear)
+        Uniform(4) texture2D u_PrevGuide; // previous TSR.History.Guide, RenderExtent (bilinear)
+        #define u_PrevGuide sampler2D(u_PrevGuide, u_LinearClampSampler)
+        Uniform(5) texture2D u_PrevMoire; // previous TSR.History.Moire, RenderExtent (bilinear)
+        #define u_PrevMoire sampler2D(u_PrevMoire, u_LinearClampSampler)
         layout(binding = 6, rgba16f) restrict writeonly uniform image2D u_ReprojectedGuide;
         layout(binding = 7, rgba16f) restrict writeonly uniform image2D u_ReprojectedMoire;
-        Uniform(8) sampler2D u_ResurrectionGuide; // the persistent TSR.History.Guide.Persistent* frame, LINEAR
-        Uniform(9) sampler2D u_Exposure;          // 1x1 previous adapted luminance
+        Uniform(8) texture2D u_ResurrectionGuide; // the persistent TSR.History.Guide.Persistent* frame, LINEAR
+        #define u_ResurrectionGuide sampler2D(u_ResurrectionGuide, u_LinearClampSampler)
+        Uniform(9) texture2D u_Exposure;          // 1x1 previous adapted luminance
         layout(binding = 10, rgba16f) restrict writeonly uniform image2D u_ResurrectedGuide;
 #if TSR_THIN_GEOMETRY
-        Uniform(11) sampler2D u_PrevCoverage; // previous TSR.History.Coverage, RenderExtent
+        Uniform(11) texture2D u_PrevCoverage; // previous TSR.History.Coverage, RenderExtent
+        #define u_PrevCoverage sampler2D(u_PrevCoverage, u_PointClampSampler)
         layout(binding = 12, r32f) restrict writeonly uniform image2D u_ReprojectedCoverage;
 #endif
 
@@ -116,7 +126,7 @@ Shader "TSRDecimateHistory"
                     const vec2 resurrectionUv =
                          clamp(resurrectionScreen * vec2(0.5, -0.5) + 0.5, 0.5 / u_RenderSize, 1.0 - 0.5 / u_RenderSize);
                     const vec3 linearGuide = textureLod(u_ResurrectionGuide, resurrectionUv, 0.0).rgb;
-                    resurrected = vec4(LinearToGCS(linearGuide * TsrExposure(u_Exposure)), 1.0);
+                    resurrected = vec4(LinearToGCS(linearGuide * TsrExposure(u_Exposure, u_PointClampSampler)), 1.0);
                 }
             }
             imageStore(u_ResurrectedGuide, pixel, resurrected);

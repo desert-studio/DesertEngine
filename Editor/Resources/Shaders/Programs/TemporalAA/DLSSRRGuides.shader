@@ -23,11 +23,20 @@ Shader "DLSSRRGuides"
 
         LocalSize(8, 8, 1);
 
-        Uniform(0) sampler2D u_GBufferAlbedo;  // rgb base colour, a metallic (ViewTargetFormats::kGBufferA)
-        Uniform(1) sampler2D u_GBufferNormal;  // rgb world normal, a roughness (kGBufferB)
-        Uniform(2) sampler2D u_GBufferDepth;   // device depth, reversed-Z (0 = far)
-        Uniform(3) sampler2D u_BRDFLUTTexture; // split-sum table: u = N.V, v = roughness; rg = A, B
-        Uniform(4) sampler2D u_ReflectionRay;  // SSR full-resolution trace ray, or System.Black (u_Params.z = 0)
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(8) sampler u_PointClampSampler;
+        Uniform(9) sampler u_LinearClampSampler;
+        Uniform(0) texture2D u_GBufferAlbedo;  // rgb base colour, a metallic (ViewTargetFormats::kGBufferA)
+        #define u_GBufferAlbedo sampler2D(u_GBufferAlbedo, u_PointClampSampler)
+        Uniform(1) texture2D u_GBufferNormal;  // rgb world normal, a roughness (kGBufferB)
+        #define u_GBufferNormal sampler2D(u_GBufferNormal, u_PointClampSampler)
+        Uniform(2) texture2D u_GBufferDepth;   // device depth, reversed-Z (0 = far)
+        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
+        Uniform(3) texture2D u_BRDFLUTTexture; // split-sum table: u = N.V, v = roughness; rg = A, B
+        #define u_BRDFLUTTexture sampler2D(u_BRDFLUTTexture, u_LinearClampSampler)
+        Uniform(4) texture2D u_ReflectionRay;  // SSR full-resolution trace ray, or System.Black (u_Params.z = 0)
+        #define u_ReflectionRay sampler2D(u_ReflectionRay, u_PointClampSampler)
         layout(binding = 5, rgba16f) restrict writeonly uniform image2D u_DiffuseAlbedo;
         layout(binding = 6, rgba16f) restrict writeonly uniform image2D u_SpecularAlbedo;
         layout(binding = 7, r32f) restrict writeonly uniform image2D u_SpecularHitDistance;

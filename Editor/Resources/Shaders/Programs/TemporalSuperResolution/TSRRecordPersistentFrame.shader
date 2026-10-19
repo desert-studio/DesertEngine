@@ -21,8 +21,12 @@ Shader "TSRRecordPersistentFrame"
 
         #include <Common/TSRCommon.glslh>
 
-        Uniform(1) sampler2D u_Exposure; // 1x1 previous adapted luminance (the guide's exposure this frame)
-        Uniform(2) sampler2D u_Source;   // this frame's TSR.History.Color / TSR.History.Guide
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(4) sampler u_PointClampSampler;
+        Uniform(1) texture2D u_Exposure; // 1x1 previous adapted luminance (the guide's exposure this frame)
+        Uniform(2) texture2D u_Source;   // this frame's TSR.History.Color / TSR.History.Guide
+        #define u_Source sampler2D(u_Source, u_PointClampSampler)
         layout(binding = 3, rgba16f) restrict writeonly uniform image2D u_Destination;
 
         void main()
@@ -32,7 +36,7 @@ Shader "TSRRecordPersistentFrame"
             if (any(greaterThanEqual(pixel, ivec2(u_RenderSize))))
                 return;
             const vec4 guide = texelFetch(u_Source, pixel, 0);
-            imageStore(u_Destination, pixel, vec4(GCSToLinear(guide.rgb) / TsrExposure(u_Exposure), guide.a));
+            imageStore(u_Destination, pixel, vec4(GCSToLinear(guide.rgb) / TsrExposure(u_Exposure, u_PointClampSampler), guide.a));
         #else
             if (any(greaterThanEqual(pixel, ivec2(u_HistorySize))))
                 return;

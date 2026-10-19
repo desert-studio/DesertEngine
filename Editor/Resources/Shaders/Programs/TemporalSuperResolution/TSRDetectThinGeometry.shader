@@ -36,10 +36,17 @@ Shader "TSRDetectThinGeometry"
 
         #include <Common/TSRCommon.glslh>
 
-        Uniform(1) sampler2D u_SceneDepth;            // reversed-Z device depth, RenderExtent
-        Uniform(2) sampler2D u_ThinGeometryCoverage;  // the base passes': 0 / 0.5 / 1
-        Uniform(3) sampler2D u_ReprojectedCoverage;   // TSR.DecimateHistory: last frame's coverage history
-        Uniform(4) usampler2D u_ReprojectionBoundary; // TSR.DilateVelocity: low 4 bits the reprojection offset
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(8) sampler u_PointClampSampler;
+        Uniform(1) texture2D u_SceneDepth;            // reversed-Z device depth, RenderExtent
+        #define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
+        Uniform(2) texture2D u_ThinGeometryCoverage;  // the base passes': 0 / 0.5 / 1
+        #define u_ThinGeometryCoverage sampler2D(u_ThinGeometryCoverage, u_PointClampSampler)
+        Uniform(3) texture2D u_ReprojectedCoverage;   // TSR.DecimateHistory: last frame's coverage history
+        #define u_ReprojectedCoverage sampler2D(u_ReprojectedCoverage, u_PointClampSampler)
+        Uniform(4) utexture2D u_ReprojectionBoundary; // TSR.DilateVelocity: low 4 bits the reprojection offset
+        #define u_ReprojectionBoundary usampler2D(u_ReprojectionBoundary, u_PointClampSampler)
         layout(binding = 5, r32ui) restrict writeonly uniform uimage2D u_ThinGeometry;
         layout(binding = 6, r32f) restrict writeonly uniform image2D u_CoverageOut;
 
@@ -47,7 +54,8 @@ Shader "TSRDetectThinGeometry"
         #define TSR_THIN_INTENSITY_LINE 0
         #endif
         #if TSR_THIN_INTENSITY_LINE
-        Uniform(7) sampler2D u_FlickeringLuma; // TSR.MeasureFlickeringLuma: the opaque scene's luma, guide space
+        Uniform(7) texture2D u_FlickeringLuma; // TSR.MeasureFlickeringLuma: the opaque scene's luma, guide space
+        #define u_FlickeringLuma sampler2D(u_FlickeringLuma, u_PointClampSampler)
         // UE r.TSR.ThinGeometryDetection.Coverage.MinKeepLineContrast (0.30), .HighContrastLineFadeRate (0.1),
         // .HighContrastLineFadeRateInsideRegion (0.03), .HighContrastLineWeight (0.6): their defaults.
         const float kMinKeepLineContrast                  = 0.30;

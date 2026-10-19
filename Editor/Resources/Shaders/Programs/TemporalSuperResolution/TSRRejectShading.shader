@@ -55,11 +55,18 @@ Shader "TSRRejectShading"
 
         #include <Common/TSRCommon.glslh>
 
-        Uniform(1) sampler2D u_SceneColor;       // linear HDR, RenderExtent, jittered
-        Uniform(2) sampler2D u_Exposure;         // 1x1 previous adapted luminance
-        Uniform(3) sampler2D u_ReprojectedGuide; // rgb guide (GCS), a validity
-        Uniform(4) sampler2D u_ReprojectedMoire; // x flicker luma, y gradient, z total variation, w validity
-        Uniform(5) sampler2D u_ResurrectedGuide; // rgb guide (GCS), a 1 on screen in the resurrection frame
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(11) sampler u_PointClampSampler;
+        Uniform(1) texture2D u_SceneColor;       // linear HDR, RenderExtent, jittered
+        #define u_SceneColor sampler2D(u_SceneColor, u_PointClampSampler)
+        Uniform(2) texture2D u_Exposure;         // 1x1 previous adapted luminance
+        Uniform(3) texture2D u_ReprojectedGuide; // rgb guide (GCS), a validity
+        #define u_ReprojectedGuide sampler2D(u_ReprojectedGuide, u_PointClampSampler)
+        Uniform(4) texture2D u_ReprojectedMoire; // x flicker luma, y gradient, z total variation, w validity
+        #define u_ReprojectedMoire sampler2D(u_ReprojectedMoire, u_PointClampSampler)
+        Uniform(5) texture2D u_ResurrectedGuide; // rgb guide (GCS), a 1 on screen in the resurrection frame
+        #define u_ResurrectedGuide sampler2D(u_ResurrectedGuide, u_PointClampSampler)
         layout(binding = 6, rgba16f) restrict writeonly uniform image2D u_HistoryRejection;
         layout(binding = 7, rgba16f) restrict writeonly uniform image2D u_GuideOut;
         layout(binding = 8, rgba16f) restrict writeonly uniform image2D u_MoireOut;
@@ -70,7 +77,8 @@ Shader "TSRRejectShading"
         #endif
 
         #if TSR_THIN_GEOMETRY
-        Uniform(10) usampler2D u_ThinGeometry; // TSR.DetectThinGeometry: weight * 127 << 1 | cluster-hole bit
+        Uniform(10) utexture2D u_ThinGeometry; // TSR.DetectThinGeometry: weight * 127 << 1 | cluster-hole bit
+        #define u_ThinGeometry usampler2D(u_ThinGeometry, u_PointClampSampler)
         const int kTile  = 6;
         const int kApron = 5; // Blur3x3 -> MinMax3x3 -> lerp-clamped history's MinMax3x3 -> Median3x3 -> Min/Max3x3
         #else
@@ -308,7 +316,7 @@ Shader "TSRRejectShading"
             const ivec2 local               = ivec2(gl_LocalInvocationID.xy);
             const int   lane                = local.y * kLanes + local.x;
             const ivec2 origin              = ivec2(gl_WorkGroupID.xy) * kTile - kApron;
-            const float exposure            = TsrExposure(u_Exposure);
+            const float exposure            = TsrExposure(u_Exposure, u_PointClampSampler);
             // A lane past the output tile (thin geometry: 6x6 of 8x8) loads and filters, and writes nothing.
             const bool  ownsPixel           = all(lessThan(local, ivec2(kTile)));
             const ivec2 tileLocal           = min(local, ivec2(kTile - 1));

@@ -23,8 +23,13 @@ Shader "TSRDilateVelocity"
 
         #include <Common/TSRCommon.glslh>
 
-        Uniform(1) sampler2D u_SceneDepth; // reversed-Z device depth, RenderExtent
-        Uniform(2) sampler2D u_Velocity;   // NDC current - previous, RenderExtent
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(8) sampler u_PointClampSampler;
+        Uniform(1) texture2D u_SceneDepth; // reversed-Z device depth, RenderExtent
+        #define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
+        Uniform(2) texture2D u_Velocity;   // NDC current - previous, RenderExtent
+        #define u_Velocity sampler2D(u_Velocity, u_PointClampSampler)
         layout(binding = 3, rgba16f) restrict writeonly uniform image2D u_DilatedVelocity; // xy: NDC velocity
         layout(binding = 4, r32f) restrict writeonly uniform image2D u_ClosestDepth;       // device depth
         layout(std430, binding = 5) restrict buffer TSRPrevAtomicBuffer

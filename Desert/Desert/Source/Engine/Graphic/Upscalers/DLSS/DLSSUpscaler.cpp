@@ -46,18 +46,21 @@ namespace Desert::Graphic
             static const std::shared_ptr<const RDG::ShaderBindingLayout> layout =
                  std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
                       .ShaderName = kGuidesShaderName,
-                      .Slots      = { { "u_GBufferAlbedo", Kind::SampledTexture },
-                                      { "u_GBufferNormal", Kind::SampledTexture },
-                                      { "u_GBufferDepth", Kind::SampledTexture },
-                                      { "u_BRDFLUTTexture", Kind::SampledTexture },
-                                      { "u_ReflectionRay", Kind::SampledTexture },
+                      .Slots      = { { "u_GBufferAlbedo", Kind::Texture },
+                                      { "u_GBufferNormal", Kind::Texture },
+                                      { "u_GBufferDepth", Kind::Texture },
+                                      { "u_BRDFLUTTexture", Kind::Texture },
+                                      { "u_ReflectionRay", Kind::Texture },
+                                      { "u_PointClampSampler", Kind::Sampler },
+                                      { "u_LinearClampSampler", Kind::Sampler },
                                       { "u_DiffuseAlbedo", Kind::StorageTexture },
                                       { "u_SpecularAlbedo", Kind::StorageTexture },
                                       { "u_SpecularHitDistance", Kind::StorageTexture } } } );
             return layout;
         }
         // What the post chain reads after the temporal resolve (TemporalAA's output is the same).
-        constexpr auto kOutputFormat = Core::Formats::ImageFormat::RGBA16F;
+        constexpr auto        kOutputFormat = Core::Formats::ImageFormat::RGBA16F;
+        constexpr const char* kOutputName   = "DLSS.Output";
 
         // The quality modes below 100 %, best first.
         constexpr std::array kUpscaleModes{ Streamline::DlssMode::UltraQuality, Streamline::DlssMode::Quality,
@@ -355,16 +358,17 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( GuidesLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_GBufferAlbedo", inputs.GBufferAlbedo, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                      .Sampled( "u_GBufferNormal", inputs.GBufferNormal, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                      .Sampled( "u_GBufferDepth", inputs.SceneDepth, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                      .Sampled( "u_BRDFLUTTexture", inputs.BrdfLut, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
-                      .Sampled( "u_ReflectionRay", ray, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                                RDG::SamplerDesc::PointClamp() )
+                      .Texture( "u_GBufferAlbedo", inputs.GBufferAlbedo, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Texture( "u_GBufferNormal", inputs.GBufferNormal, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Texture( "u_GBufferDepth", inputs.SceneDepth, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Texture( "u_BRDFLUTTexture", inputs.BrdfLut, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Texture( "u_ReflectionRay", ray, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
                       .Storage( "u_DiffuseAlbedo", guides.DiffuseAlbedo, RDG::Access::StorageWrite, 0 )
                       .Storage( "u_SpecularAlbedo", guides.SpecularAlbedo, RDG::Access::StorageWrite, 0 )
                       .Storage( "u_SpecularHitDistance", guides.SpecularHitDistance, RDG::Access::StorageWrite, 0 )

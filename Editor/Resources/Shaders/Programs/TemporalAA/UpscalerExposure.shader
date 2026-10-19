@@ -10,7 +10,11 @@ Shader "UpscalerExposure"
 
         LocalSize(1, 1, 1);
 
-        Uniform(0) sampler2D u_AdaptedLuminance;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(2) sampler u_PointClampSampler;
+        Uniform(0) texture2D u_AdaptedLuminance;
+        #define u_AdaptedLuminance sampler2D(u_AdaptedLuminance, u_PointClampSampler)
         layout(binding = 1, r32f) restrict writeonly uniform image2D u_Exposure;
 
         void main()

@@ -12,8 +12,13 @@ Shader "TSRResolveHistory"
 
         #include <Common/TSRCommon.glslh>
 
-        Uniform(1) sampler2D u_Exposure; // 1x1 previous adapted luminance
-        Uniform(2) sampler2D u_History;  // this frame's TSR.History.Color, HistoryExtent
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(4) sampler u_LinearClampSampler;
+        Uniform(5) sampler u_PointClampSampler;
+        Uniform(1) texture2D u_Exposure; // 1x1 previous adapted luminance
+        Uniform(2) texture2D u_History;  // this frame's TSR.History.Color, HistoryExtent
+        #define u_History sampler2D(u_History, u_LinearClampSampler)
         layout(binding = 3, rgba16f) restrict writeonly uniform image2D u_Output;
 
         void main()
@@ -22,7 +27,7 @@ Shader "TSRResolveHistory"
             if (any(greaterThanEqual(pixel, ivec2(u_OutputSize))))
                 return;
 
-            const float exposure      = TsrExposure(u_Exposure);
+            const float exposure      = TsrExposure(u_Exposure, u_PointClampSampler);
             const vec2  historyPos    = (vec2(pixel) + 0.5) / u_OutputSize * u_HistorySize;
             const ivec2 base          = ivec2(floor(historyPos - 0.5)) - 1;
             const vec2  historyToOutput = u_OutputSize / u_HistorySize;

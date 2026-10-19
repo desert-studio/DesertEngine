@@ -57,9 +57,11 @@ float TsrLuma(vec3 c)
 }
 
 // The exposure the history was resolved under: AutoExposure's previous adapted luminance (as TemporalAA.shader).
-float TsrExposure(sampler2D exposureTexture)
+// The texture comes in separate with the pass's point sampler: a constructed sampler2D only at a lookup, never as a
+// function argument.
+float TsrExposure(texture2D exposureTexture, sampler pointSampler)
 {
-    return 1.0 / max(texelFetch(exposureTexture, ivec2(0), 0).r, 1e-4);
+    return 1.0 / max(texelFetch(sampler2D(exposureTexture, pointSampler), ivec2(0), 0).r, 1e-4);
 }
 
 // UE's guide colour space: the pre-exposed linear colour compressed as c / (c + 0.17).

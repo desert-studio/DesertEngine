@@ -36,24 +36,36 @@ Shader "TSRUpdateHistory"
 
         #include <Common/TSRCommon.glslh>
 
-        Uniform(1) sampler2D u_SceneColor;            // linear HDR, RenderExtent, jittered
-        Uniform(2) sampler2D u_Exposure;              // 1x1 previous adapted luminance
-        Uniform(3) sampler2D u_ResponsiveAA;          // R8 coverage of responsive translucency, RenderExtent
-        Uniform(4) sampler2D u_DilatedVelocity;       // TSR.DilateVelocity: the reprojection vector (NDC)
-        Uniform(5) sampler2D u_HistoryRejection;      // TSR.RejectShading
-        Uniform(6) usampler2D u_AntiAliasing;         // TSR.SpatialAntiAliasing: offset | noise << 8
-        Uniform(7) sampler2D u_PrevHistory;           // previous TSR.History.Color, HistoryExtent (bilinear)
-        Uniform(8) sampler2D u_ClosestDepth;          // TSR.DilateVelocity
-        Uniform(9) usampler2D u_ReprojectionJacobian; // TSR.DilateVelocity (r.TSR.ReprojectionField)
-        Uniform(10) usampler2D u_ReprojectionBoundary;
-        Uniform(11) sampler2D u_ResurrectionHistory;  // the persistent TSR.History.Color.Persistent* frame
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(14) sampler u_LinearClampSampler;
+        Uniform(15) sampler u_PointClampSampler;
+        Uniform(1) texture2D u_SceneColor;            // linear HDR, RenderExtent, jittered
+        #define u_SceneColor sampler2D(u_SceneColor, u_LinearClampSampler)
+        Uniform(2) texture2D u_Exposure;              // 1x1 previous adapted luminance
+        Uniform(3) texture2D u_ResponsiveAA;          // R8 coverage of responsive translucency, RenderExtent
+        #define u_ResponsiveAA sampler2D(u_ResponsiveAA, u_PointClampSampler)
+        Uniform(4) texture2D u_DilatedVelocity;       // TSR.DilateVelocity: the reprojection vector (NDC)
+        #define u_DilatedVelocity sampler2D(u_DilatedVelocity, u_PointClampSampler)
+        Uniform(5) texture2D u_HistoryRejection;      // TSR.RejectShading
+        #define u_HistoryRejection sampler2D(u_HistoryRejection, u_PointClampSampler)
+        Uniform(6) utexture2D u_AntiAliasing;         // TSR.SpatialAntiAliasing: offset | noise << 8
+        #define u_AntiAliasing usampler2D(u_AntiAliasing, u_PointClampSampler)
+        Uniform(7) texture2D u_PrevHistory;           // previous TSR.History.Color, HistoryExtent (bilinear)
+        Uniform(8) texture2D u_ClosestDepth;          // TSR.DilateVelocity
+        #define u_ClosestDepth sampler2D(u_ClosestDepth, u_PointClampSampler)
+        Uniform(9) utexture2D u_ReprojectionJacobian; // TSR.DilateVelocity (r.TSR.ReprojectionField)
+        #define u_ReprojectionJacobian usampler2D(u_ReprojectionJacobian, u_PointClampSampler)
+        Uniform(10) utexture2D u_ReprojectionBoundary;
+        #define u_ReprojectionBoundary usampler2D(u_ReprojectionBoundary, u_PointClampSampler)
+        Uniform(11) texture2D u_ResurrectionHistory;  // the persistent TSR.History.Color.Persistent* frame
         layout(binding = 12, rgba16f) restrict writeonly uniform image2D u_HistoryOut;
         #if TSR_WRITE_OUTPUT
         layout(binding = 13, rgba16f) restrict writeonly uniform image2D u_Output;
         #endif
 
         // 5-tap Catmull-Rom (the 4x4 kernel folded onto bilinear taps, corners dropped), as TemporalAA.shader.
-        vec3 SampleHistoryCatmullRom(sampler2D history, vec2 uv)
+        vec3 SampleHistoryCatmullRom(texture2D history, vec2 uv)
         {
             const vec2 size     = u_HistorySize;
             const vec2 position = uv * size;
@@ -67,18 +79,18 @@ Shader "TSRUpdateHistory"
             const vec2 tex0     = (texPos1 - 1.0) / size;
             const vec2 tex3     = (texPos1 + 2.0) / size;
             const vec2 tex12    = (texPos1 + w2 / w12) / size;
-            vec3 result = textureLod(history, vec2(tex12.x, tex0.y), 0.0).rgb * (w12.x * w0.y) +
-                          textureLod(history, vec2(tex0.x, tex12.y), 0.0).rgb * (w0.x * w12.y) +
-                          textureLod(history, vec2(tex12.x, tex12.y), 0.0).rgb * (w12.x * w12.y) +
-                          textureLod(history, vec2(tex3.x, tex12.y), 0.0).rgb * (w3.x * w12.y) +
-                          textureLod(history, vec2(tex12.x, tex3.y), 0.0).rgb * (w12.x * w3.y);
+            vec3 result = textureLod(sampler2D(history, u_LinearClampSampler), vec2(tex12.x, tex0.y), 0.0).rgb * (w12.x * w0.y) +
+                          textureLod(sampler2D(history, u_LinearClampSampler), vec2(tex0.x, tex12.y), 0.0).rgb * (w0.x * w12.y) +
+                          textureLod(sampler2D(history, u_LinearClampSampler), vec2(tex12.x, tex12.y), 0.0).rgb * (w12.x * w12.y) +
+                          textureLod(sampler2D(history, u_LinearClampSampler), vec2(tex3.x, tex12.y), 0.0).rgb * (w3.x * w12.y) +
+                          textureLod(sampler2D(history, u_LinearClampSampler), vec2(tex12.x, tex3.y), 0.0).rgb * (w12.x * w3.y);
             const float weight = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
             return max(result / weight, vec3(0.0)); // the negative lobes may undershoot
         }
 
-        vec4 SampleHistory(sampler2D history, vec2 uv)
+        vec4 SampleHistory(texture2D history, vec2 uv)
         {
-            const vec4 bilinear = textureLod(history, uv, 0.0);
+            const vec4 bilinear = textureLod(sampler2D(history, u_LinearClampSampler), uv, 0.0);
         #if TSR_UPDATE_QUALITY >= 2
             return vec4(SampleHistoryCatmullRom(history, uv), bilinear.a);
         #else
@@ -101,7 +113,7 @@ Shader "TSRUpdateHistory"
             if (any(greaterThanEqual(pixel, ivec2(u_HistorySize))))
                 return;
 
-            const float exposure = TsrExposure(u_Exposure);
+            const float exposure = TsrExposure(u_Exposure, u_PointClampSampler);
             const vec2  uv       = (vec2(pixel) + 0.5) / u_HistorySize;
             // The history pixel's centre in the JITTERED input (UE ViewportUVToInputPPCo = uv * size + jitter).
             vec2  inputPPCo  = (uv + u_JitterUv) * u_RenderSize;
