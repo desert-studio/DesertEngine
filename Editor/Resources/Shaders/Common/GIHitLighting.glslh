@@ -32,9 +32,10 @@
 #include <Common/GIFrame.glslh>
 #if !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
 #include <Common/SurfaceCacheSampling.glslh>
+#endif
+// Both lighting paths answer a hit with the direct-light BRDF (GIHitLightResponse), the in-place one included.
 #include <Mesh/BRDF.glslh>
 #include <Mesh/DirectLighting.glslh>
-#endif
 
 // The albedo of a hit the view does not see and no card holds (no material on a distance-field surface):
 // photographic middle grey, 0.18 linear.
