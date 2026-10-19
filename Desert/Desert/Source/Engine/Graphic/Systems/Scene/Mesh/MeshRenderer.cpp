@@ -7,6 +7,7 @@
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <algorithm>
+#include <optional>
 
 namespace Desert::Graphic::System
 {
@@ -26,24 +27,29 @@ namespace Desert::Graphic::System
             {
                 if ( !prop.bIsOverridden )
                     continue;
-                const auto slot = Core::Formats::MaterialParamSlot( material->GetSchema(), name );
-                if ( !slot || *slot >= row.size() )
-                    continue;
-                glm::vec4& dst = row[*slot];
-                std::visit(
-                     [&dst]( const auto& v )
+                // The authored value as a vec4, then written as the bytes of the parameter's declared type
+                // (Core::Formats::MaterialRowSlotValue, via SetMaterialParam) — an Int/Bool slot is an int.
+                // A value that is not row bytes (a matrix, a texture) is skipped.
+                const std::optional<glm::vec4> authored = std::visit(
+                     []( const auto& v ) -> std::optional<glm::vec4>
                      {
                          using T = std::decay_t<decltype( v )>;
                          if constexpr ( std::is_same_v<T, float> )
-                             dst = glm::vec4( v, 0.0f, 0.0f, 0.0f );
+                             return glm::vec4( v, 0.0f, 0.0f, 0.0f );
+                         else if constexpr ( std::is_same_v<T, int> || std::is_same_v<T, bool> )
+                             return glm::vec4( static_cast<float>( v ), 0.0f, 0.0f, 0.0f );
                          else if constexpr ( std::is_same_v<T, glm::vec2> )
-                             dst = glm::vec4( v, 0.0f, 0.0f );
+                             return glm::vec4( v, 0.0f, 0.0f );
                          else if constexpr ( std::is_same_v<T, glm::vec3> )
-                             dst = glm::vec4( v, dst.w );
+                             return glm::vec4( v, 0.0f );
                          else if constexpr ( std::is_same_v<T, glm::vec4> )
-                             dst = v;
+                             return v;
+                         else
+                             return std::nullopt;
                      },
                      prop.Value );
+                if ( authored )
+                    Core::Formats::SetMaterialParam( material->GetSchema(), row, name, *authored );
             }
             return row;
         }
