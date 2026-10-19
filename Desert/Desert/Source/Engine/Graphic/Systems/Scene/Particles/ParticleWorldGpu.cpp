@@ -255,7 +255,8 @@ namespace Desert::Graphic::System
                  "ParticleSteps", std::max( 1u, stepCapacity ) * kParticleStepStride, 1 );
         }
         return e.Steps && e.Counters && e.DispatchArgs && e.ChannelSpawns && e.EventTable && e.Events &&
-               e.AttributeFloats && e.AttributeInts && e.Params && e.Curves && e.DrawLayout;
+               e.AttributeFloats && e.AttributeInts && e.Params && e.Curves &&
+               std::ranges::all_of( e.DrawLayouts, []( const auto& layout ) { return layout != nullptr; } );
     }
 
     std::shared_ptr<ComputePipeline> ParticleWorldGpu::ProgramFor( const uint64_t key, const std::string& name,
@@ -369,8 +370,8 @@ namespace Desert::Graphic::System
         gpu.Curves = ShaderResources::StorageBuffer::Create(
              "VFXStackCurves", static_cast<uint32_t>( gpu.CurveFloats.size() * sizeof( float ) ), 9 );
         gpu.DrawColumns = DrawColumnsOf( compiled.GetValue(), entityId, emitter.Name );
-        gpu.DrawLayout =
-             ShaderResources::StorageBuffer::Create( "ParticleDrawLayout", kParticleDrawLayoutSize, 11 );
+        for ( auto& layout : gpu.DrawLayouts )
+            layout = ShaderResources::StorageBuffer::Create( "ParticleDrawLayout", kParticleDrawLayoutSize, 11 );
         gpu.NeedsReset = true;
     }
 
@@ -441,6 +442,15 @@ namespace Desert::Graphic::System
                      system.Emitters.resize( instances->System->Emitters.size() );
                      for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
                          BuildEmitter( system.Emitters[k], *instances->System, k, entityId );
+                     // Emitters linked by events tick in one stage (VFX::UnifyEventTickStages): the event
+                     // halves are ordered by step only inside one stage's chain.
+                     std::vector<VFX::VFXTickStage> stages;
+                     stages.reserve( system.Emitters.size() );
+                     for ( const ParticleEmitterGpu& gpu : system.Emitters )
+                         stages.push_back( gpu.TickStage );
+                     VFX::UnifyEventTickStages( *instances->System, stages );
+                     for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
+                         system.Emitters[k].TickStage = stages[k];
                      BuildSystemEvents( system, entityId );
                  }
 
@@ -585,14 +595,24 @@ namespace Desert::Graphic::System
         // emitter position a Local emitter's particles are drawn around (the one the simulation placed them by).
         ParticleDrawLayoutGpu layout = gpu.DrawColumns;
         // w = the slot the last compact (index StepCount) fills: the ribbon draw reads its alive count from it.
-        layout.Range                 = glm::uvec4( range.Count, range.Base, gpu.Local ? 1u : 0u, stepCount & 1u );
+        layout.Range = glm::uvec4( range.Count, range.Base, gpu.Local ? 1u : 0u, stepCount & 1u );
         layout.EmitterPos            = glm::vec4( worldPos, 0.0f );
         // Where the emitter stood at the tick before (a Local emitter's particles' previous world position is
         // taken around it); a fresh or restarted emitter has no previous tick: its particles are all born this
         // one.
         const bool hasPrevious = gpu.HasDrawnPos && !gpu.NeedsReset;
         layout.PrevEmitterPos  = glm::vec4( hasPrevious ? gpu.DrawnEmitterPos : worldPos, 0.0f );
-        if ( const auto drawn = gpu.DrawLayout->SetData( &layout, kParticleDrawLayoutSize ); !drawn.IsSuccess() )
+        // Previous: the layout the last tick drew its particles by (half, slot, emitter positions), read by the
+        // draws recorded before a PostOpaque emitter's simulation; with no previous tick nothing reads it
+        // (ParticleFrameEmitter::HasPrevious), and it is this tick's so the buffer never holds stale ranges.
+        const bool                   hasPreviousTick = gpu.HasLastHalf && !gpu.NeedsReset;
+        const ParticleDrawLayoutGpu& previous        = hasPreviousTick ? gpu.LastLayout : layout;
+        auto drawn = gpu.DrawLayouts[static_cast<std::size_t>( ParticleDrawTick::Current )]->SetData(
+             &layout, kParticleDrawLayoutSize );
+        if ( drawn.IsSuccess() )
+            drawn = gpu.DrawLayouts[static_cast<std::size_t>( ParticleDrawTick::Previous )]->SetData(
+                 &previous, kParticleDrawLayoutSize );
+        if ( !drawn.IsSuccess() )
         {
             LOG_ERROR( "[Particles] emitter {} sits out this tick, its draw layout did not upload: {}", entityId,
                        drawn.GetError() );
@@ -600,6 +620,7 @@ namespace Desert::Graphic::System
         }
         gpu.DrawnEmitterPos = worldPos;
         gpu.HasDrawnPos     = true;
+        gpu.LastLayout      = layout;
 
         for ( std::size_t r = 0; r < gpu.Renderers.size(); ++r )
         {

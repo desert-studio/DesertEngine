@@ -124,11 +124,10 @@ namespace Desert::Graphic::System
     };
 
     /**
-     * A NON-MESH CASTER OF THE SUN'S VIRTUAL SHADOW MAP (the terrain): registered beside IShadowCaster with
-     * MeshRenderer::AddVirtualShadowCaster. A separate interface, not more methods on IShadowCaster, because a
-     * caster of the cascades and the local lights need not draw into the virtual shadow map's pages: the opaque
-     * particles cast into the cascades and the point / spot views and do not (yet) record per-page culled draws,
-     * which the type now says instead of an empty implementation.
+     * A NON-MESH CASTER OF THE SUN'S VIRTUAL SHADOW MAP (the terrain, the opaque particles): registered beside
+     * IShadowCaster with MeshRenderer::AddVirtualShadowCaster. A separate interface, not more methods on
+     * IShadowCaster, because a caster of the cascades and the local lights need not draw into the virtual shadow
+     * map's pages.
      */
     class IVirtualShadowCaster
     {
@@ -149,7 +148,10 @@ namespace Desert::Graphic::System
         // @p parameters; the blocks follow the ones already declared on the node. Returns how many it declared
         // (0: nothing to draw). A caster that cannot draw into the virtual shadow map (its program or pipeline
         // refused) logs why once and declares none.
-        [[nodiscard]] virtual uint32_t DeclareVirtualShadow( RDG::PassBuilder&                   pass,
+        // @p level is the clipmap level the node draws (0..kVsmClipmapLevelCount): a caster whose material holds
+        // the level's matrix (a camera block written at record time) keeps one per level, since every level's
+        // node is recorded before any of them executes.
+        [[nodiscard]] virtual uint32_t DeclareVirtualShadow( RDG::PassBuilder& pass, uint32_t level,
                                                              const VirtualShadowBlockParameters& parameters ) = 0;
 
         // Draws the level through the blocks DeclareVirtualShadow declared (the first at @p firstBlock),
@@ -158,7 +160,7 @@ namespace Desert::Graphic::System
         // + k of
         // @p arguments (the node reads it as Access::IndirectArgs).
         [[nodiscard]] virtual Common::BoolResultStr
-        RecordVirtualShadow( const RDG::PassContext& context, uint32_t firstBlock, const glm::mat4& levelViewProj,
-                             RDG::BufferRef arguments, uint32_t firstRecord ) = 0;
+        RecordVirtualShadow( const RDG::PassContext& context, uint32_t level, uint32_t firstBlock,
+                             const glm::mat4& levelViewProj, RDG::BufferRef arguments, uint32_t firstRecord ) = 0;
     };
 } // namespace Desert::Graphic::System

@@ -144,8 +144,11 @@ namespace Desert::Core::Preprocess
     // header, Mesh/Surface/Pass_<Pass>.glslh) over the path's vertex header. Its <Path>.Forward cell is then a LIT
     // forward cell too (Pass_Forward.glslh, as Static.Forward), not the particle composite: the forward render
     // path draws it in its base pass with depth, velocity and the scene's lights and shadows
-    // (ParticleRenderer::BasePass), never in the particle pass.
-    inline constexpr std::array<std::string_view, 2> kSurfaceParticleOpaquePasses = { "GBuffer", "ShadowDepth" };
+    // (ParticleRenderer::BasePass), never in the particle pass. VirtualShadowDepth: the sun's virtual shadow map
+    // pages (ParticleRenderer's IVirtualShadowCaster), the mesh cells' Pass_VirtualShadowDepth over the path's
+    // caster vertex stage.
+    inline constexpr std::array<std::string_view, 3> kSurfaceParticleOpaquePasses = { "GBuffer", "ShadowDepth",
+                                                                                      "VirtualShadowDepth" };
     // Defined in both stages of a particle cell built on the particle composite header
     // (kSurfaceParticleSpritePassInclude): the cells the particle pass draws over the scene, which alone read the
     // scene depth behind them (Depth Fade, Mesh/Surface/SurfaceTypes.glslh).

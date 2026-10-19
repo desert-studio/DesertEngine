@@ -798,4 +798,34 @@ namespace Desert::VFX
         }
         return Common::MakeSuccess( std::move( rows ) );
     }
+    void UnifyEventTickStages( const Assets::Serialization::VFXSystemData& system, std::span<VFXTickStage> stages )
+    {
+        // Union-find over the emitters, one union per handler (source <-> consumer).
+        const std::size_t        count = std::min( stages.size(), system.Emitters.size() );
+        std::vector<std::size_t> parent( count );
+        for ( std::size_t i = 0; i < count; ++i )
+            parent[i] = i;
+        const auto root = [&parent]( std::size_t i )
+        {
+            while ( parent[i] != i )
+                i = parent[i] = parent[parent[i]];
+            return i;
+        };
+        for ( std::size_t consumer = 0; consumer < count; ++consumer )
+            for ( const Assets::Serialization::VFXEventHandler& handler : system.Emitters[consumer].EventHandlers )
+            {
+                const auto source = std::ranges::find_if( system.Emitters.begin(), system.Emitters.begin() + count,
+                                                          [&handler]( const auto& e )
+                                                          { return e.Name == handler.SourceEmitter; } );
+                if ( source == system.Emitters.begin() + count )
+                    continue;
+                parent[root( static_cast<std::size_t>( source - system.Emitters.begin() ) )] = root( consumer );
+            }
+        // The group's stage is its latest member's (PostOpaque > PreOpaque).
+        std::vector<VFXTickStage> latest( count, VFXTickStage::PreOpaque );
+        for ( std::size_t i = 0; i < count; ++i )
+            latest[root( i )] = std::max( latest[root( i )], stages[i] );
+        for ( std::size_t i = 0; i < count; ++i )
+            stages[i] = latest[root( i )];
+    }
 } // namespace Desert::VFX

@@ -475,7 +475,7 @@ namespace Desert::Graphic::System
         {
             ve.Declared     = false;
             ve.ViewSorted   = false;
-            ve.RibbonSorted = false;
+            ve.RibbonSorted = {};
         }
         for ( ViewDraw& draw : m_ViewDraws )
             draw.Declared = false;
@@ -509,8 +509,8 @@ namespace Desert::Graphic::System
             Common::BoolResultStr drawn = Renderer::ImportBuffer( gpu.Counters, ve.CountersImport );
             if ( drawn )
                 drawn = Renderer::ImportBuffer( gpu.AttributeFloats, ve.FloatsImport );
-            if ( drawn )
-                drawn = Renderer::ImportBuffer( gpu.DrawLayout, ve.DrawLayoutImport );
+            for ( std::size_t t = 0; t < kParticleDrawTickCount && drawn; ++t )
+                drawn = Renderer::ImportBuffer( gpu.DrawLayouts[t], ve.DrawLayoutImports[t] );
             if ( drawn )
                 drawn = Renderer::ImportBuffer( gpu.AttributeInts, ve.IntsImport );
             if ( !drawn )
@@ -568,8 +568,9 @@ namespace Desert::Graphic::System
             }
             ve.CountersRef = graph.RegisterExternal( ve.CountersImport, std::format( "ParticleCounters{}", i ) );
             ve.FloatsRef   = graph.RegisterExternal( ve.FloatsImport, std::format( "VFXAttributeFloats{}", i ) );
-            ve.DrawLayoutRef =
-                 graph.RegisterExternal( ve.DrawLayoutImport, std::format( "ParticleDrawLayout{}", i ) );
+            for ( std::size_t t = 0; t < kParticleDrawTickCount; ++t )
+                ve.DrawLayoutRefs[t] = graph.RegisterExternal(
+                     ve.DrawLayoutImports[t], std::format( "ParticleDrawLayout{}{}", i, t == 0 ? "" : ".Previous" ) );
             ve.IntsRef  = graph.RegisterExternal( ve.IntsImport, std::format( "VFXAttributeInts{}", i ) );
             ve.Declared = true;
         }
@@ -633,11 +634,15 @@ namespace Desert::Graphic::System
         m_CollisionViewRef = graph.RegisterExternal( m_CollisionViewImport, "ParticleCollisionView" );
     }
 
-    void ParticleRenderer::AddSortPasses( RDG::Builder& graph )
+    void ParticleRenderer::AddSortPasses( RDG::Builder& graph, const VFX::VFXTickStage at )
     {
-        m_SortKeysRef    = {};
-        m_SortedRef      = {};
-        m_RibbonOrderRef = {};
+        const auto atIndex         = static_cast<std::size_t>( at );
+        m_RibbonOrderRefs[atIndex] = {};
+        if ( at == VFX::VFXTickStage::PostOpaque )
+        {
+            m_SortKeysRef = {};
+            m_SortedRef   = {};
+        }
         if ( !m_Pool.Declared || !m_SortPipeline || m_World == nullptr || m_SceneRenderer == nullptr )
             return;
         const ViewFrame* view = m_SceneRenderer->GetViewFrame();
@@ -653,29 +658,35 @@ namespace Desert::Graphic::System
         {
             if ( !IsDrawable( draw ) )
                 continue;
-            // A ribbon's order is the view's nodes' and the light views' alike (RibbonID, then age): planned when
-            // the view sees the emitter or the row casts (an opaque ribbon); the back-to-front order is the view's
-            // alone.
+            // A ribbon's order is the view's nodes' and the light views' alike (RibbonID, then age), sorted where
+            // its draws are recorded: an opaque ribbon's before the G-buffer (planned when the view sees the
+            // emitter or the row casts), a blended one's before ParticlePass. The back-to-front order is the
+            // view's alone, ParticlePass's.
             const bool inView = m_ViewEmitters[draw.Emitter].InView;
             if ( draw.Renderer->Kind == VFXRendererKind::Ribbon )
             {
-                if ( inView || !draw.ShadowShader.empty() )
+                const bool casts     = !draw.ShadowShader.empty() || !draw.VirtualShadowShader.empty();
+                const bool drawnHere = draw.Opaque ? at == VFX::VFXTickStage::PreOpaque && ( inView || casts )
+                                                   : at == VFX::VFXTickStage::PostOpaque && inView;
+                if ( drawnHere )
                     ribbon[draw.Emitter] = 1u;
             }
-            else if ( inView && ParticleSpritesSort( draw.Cell->Blend ) )
+            else if ( at == VFX::VFXTickStage::PostOpaque && inView && ParticleSpritesSort( draw.Cell->Blend ) )
                 viewBlend[draw.Emitter] = draw.Cell->Blend;
         }
 
-        // The drawn half is the one the last compact (index StepCount) filled: alive half h = StepCount & 1 at
-        // [2 Base + h Count, 2 Base + (h + 1) Count), draw slot h.
+        // The sorted half is the one the draws recorded at @p at read (DrawHalf: this tick's last compact's, or a
+        // PostOpaque emitter's previous one before its simulation): alive half h at
+        // [2 Base + h Count, 2 Base + (h + 1) Count), draw slot h. A pre-simulation draw with no previous tick
+        // records nothing (HasDrawData): nothing to sort.
         std::vector<ParticleSortEmitter> emitters;
         for ( uint32_t i = 0; i < static_cast<uint32_t>( m_ViewEmitters.size() ); ++i )
         {
             const ViewEmitter& ve = m_ViewEmitters[i];
-            if ( !ve.Declared )
+            if ( !ve.Declared || !HasDrawData( ve, at ) )
                 continue;
             const ParticleEmitterGpu& gpu   = *ve.Frame->Gpu;
-            const uint32_t            half  = ve.Frame->StepCount & 1u;
+            const uint32_t            half  = DrawHalf( ve, at );
             const uint32_t            alive = 2u * gpu.Range.Base + half * gpu.Range.Count;
             if ( ParticleSpritesSort( viewBlend[i] ) )
                 emitters.push_back( { i, viewBlend[i], gpu.Range.Count, alive, half, ParticleSortKind::View } );
@@ -688,10 +699,17 @@ namespace Desert::Graphic::System
             return;
 
         const uint64_t aliveBytes              = uint64_t{ 2 } * m_World->Pool().Capacity * sizeof( uint32_t );
-        std::tie( m_SortKeysRef, m_SortedRef ) = CreateParticleSortBuffers( graph, plan, aliveBytes );
+        // The keys are this stage's scratch; the back-to-front order is PostOpaque's alone (no PreOpaque plan has
+        // a View range).
+        const auto [keys, sorted] = CreateParticleSortBuffers( graph, plan, aliveBytes );
+        if ( at == VFX::VFXTickStage::PostOpaque )
+        {
+            m_SortKeysRef = keys;
+            m_SortedRef   = sorted;
+        }
         if ( std::ranges::any_of( plan.Ranges, []( const ParticleSortRange& r )
                                   { return r.Kind == ParticleSortKind::Ribbon; } ) )
-            m_RibbonOrderRef = CreateParticleRibbonOrderBuffer( graph, aliveBytes );
+            m_RibbonOrderRefs[atIndex] = CreateParticleRibbonOrderBuffer( graph, aliveBytes );
         // The view depth is along the camera's forward axis from its position (cm): ParticleSortViewOf.
         const ParticleSortView sortView = ParticleSortViewOf( view->InvView );
         const glm::vec4        origin( sortView.Origin, 0.0f );
@@ -700,11 +718,11 @@ namespace Desert::Graphic::System
         {
             ViewEmitter& ve                               = m_ViewEmitters[range.Emitter];
             const bool   ribbons                          = range.Kind == ParticleSortKind::Ribbon;
-            ( ribbons ? ve.RibbonSorted : ve.ViewSorted ) = true;
-            const ParticleSortBuffers            buffers{ ve.FloatsRef,    ve.DrawLayoutRef,
-                                               m_Pool.AliveRef, ve.CountersRef,
-                                               m_SortKeysRef,   ribbons ? m_RibbonOrderRef : m_SortedRef,
-                                               ve.IntsRef };
+            ( ribbons ? ve.RibbonSorted[atIndex] : ve.ViewSorted ) = true;
+            const RDG::BufferRef      layout = ve.DrawLayoutRefs[static_cast<std::size_t>( DrawTickOf( ve, at ) )];
+            const RDG::BufferRef      order  = ribbons ? m_RibbonOrderRefs[atIndex] : sorted;
+            const ParticleSortBuffers buffers{ ve.FloatsRef, layout, m_Pool.AliveRef, ve.CountersRef,
+                                               keys,         order,  ve.IntsRef };
             const std::vector<ParticleSortStage> stages = ParticleSortStages( range.Length );
             for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
             {
@@ -715,7 +733,9 @@ namespace Desert::Graphic::System
                                   static_cast<uint32_t>( range.Kind ) ),
                      origin, forward };
                 graph.AddPass(
-                     ParticleSortPassName( range.Emitter, s, range.Kind ), RDG::PassFlags::Compute,
+                     std::format( "{} {}", ParticleSortPassName( range.Emitter, s, range.Kind ),
+                                  at == VFX::VFXTickStage::PreOpaque ? "PreOpaque" : "PostOpaque" ),
+                     RDG::PassFlags::Compute,
                      [this, buffers, stage]( RDG::PassBuilder& pass )
                      {
                          DeclareParticleSortStage(
@@ -818,11 +838,17 @@ namespace Desert::Graphic::System
                     : VFX::VFXTickStage::PreOpaque;
     }
 
-    uint32_t ParticleRenderer::DrawHalf( const ViewEmitter& ve, const VFX::VFXTickStage at ) const
+    ParticleDrawTick ParticleRenderer::DrawTickOf( const ViewEmitter& ve, const VFX::VFXTickStage at ) const
     {
         const bool before =
              ve.Frame->Gpu->TickStage == VFX::VFXTickStage::PostOpaque && at == VFX::VFXTickStage::PreOpaque;
-        return before ? ve.Frame->PreviousHalf : ( ve.Frame->StepCount & 1u );
+        return before ? ParticleDrawTick::Previous : ParticleDrawTick::Current;
+    }
+
+    uint32_t ParticleRenderer::DrawHalf( const ViewEmitter& ve, const VFX::VFXTickStage at ) const
+    {
+        return DrawTickOf( ve, at ) == ParticleDrawTick::Previous ? ve.Frame->PreviousHalf
+                                                                  : ( ve.Frame->StepCount & 1u );
     }
 
     bool ParticleRenderer::HasDrawData( const ViewEmitter& ve, const VFX::VFXTickStage at ) const
@@ -838,7 +864,7 @@ namespace Desert::Graphic::System
         switch ( draw.Renderer->Kind )
         {
             case VFXRendererKind::Ribbon:
-                return m_ViewEmitters[draw.Emitter].RibbonSorted;
+                return m_ViewEmitters[draw.Emitter].RibbonSorted[static_cast<std::size_t>( at )];
             case VFXRendererKind::Mesh:
                 return m_MeshArgsRefs[static_cast<std::size_t>( DrawSource( m_ViewEmitters[draw.Emitter], at ) )]
                      .IsValid();
@@ -881,6 +907,18 @@ namespace Desert::Graphic::System
                ( draw.StaticMesh != nullptr && !draw.Sections.empty() );
     }
 
+    bool ParticleRenderer::CastsVirtualShadow( const ViewDraw& draw ) const
+    {
+        return !draw.VirtualShadowShader.empty() && IsDrawable( draw ) &&
+               HasDrawArgs( draw, VFX::VFXTickStage::PreOpaque );
+    }
+
+    Core::Frustum ParticleRenderer::VirtualShadowFrustum( const uint32_t level ) const
+    {
+        const auto mesh = m_MeshRenderer.lock();
+        return Core::Frustum( mesh->GetShadowCasterViewProj( MeshRenderer::kVsmViewBase + level ), glm::mat4( 1.0f ) );
+    }
+
     bool ParticleRenderer::InFrustum( const ViewDraw& draw, const Core::Frustum& frustum ) const
     {
         return frustum.Intersects( m_ViewEmitters[draw.Emitter].Frame->WorldBounds );
@@ -915,6 +953,7 @@ namespace Desert::Graphic::System
         draw.GBufferCell = nullptr;
         draw.BaseCell    = nullptr;
         draw.ShadowShader.clear();
+        draw.VirtualShadowShader.clear();
         if ( draw.Cell == nullptr || Core::Formats::IsTranslucentBlend( draw.Cell->Blend ) ||
              m_SceneRenderer == nullptr )
             return;
@@ -945,6 +984,15 @@ namespace Desert::Graphic::System
             return;
         }
         draw.ShadowShader = *shadow;
+        // The virtual shadow map's cell (DShaderParser kSurfaceParticleOpaquePasses): a template compiled before
+        // it had one casts into the cascades and the local lights only, said once.
+        if ( const auto virtualShadow =
+                  TemplateCellShader( templateName, path, MeshPass::VirtualShadowDepth, IsRegisteredShader ) )
+            draw.VirtualShadowShader = *virtualShadow;
+        else if ( m_RefusedOpaque.emplace( std::format( "{}#vsm", templateName ), true ).second )
+            LOG_ERROR( "[Particles] the opaque particle template '{}' has no {} cell: its {} rows cast no virtual "
+                       "shadow",
+                       templateName, MeshCellFor( path, MeshPass::VirtualShadowDepth ), MeshVertexPathName( path ) );
         // Null (a refused pipeline, said by CellDrawFor) leaves the row undrawn.
         if ( deferred )
         {
@@ -973,8 +1021,9 @@ namespace Desert::Graphic::System
         const auto&           layout = cell.Layout.Get( cell.Pipeline->GetSpecification().Shader );
         auto block = declared.Bindings( layout, cell.Material->GetMaterialExecutor()->GetRouteFill() )
                           .Storage( "AttributeFloats", ve.FloatsRef, RDG::Access::StorageRead )
-                          .Storage( "DrawLayout", ve.DrawLayoutRef, RDG::Access::StorageRead )
-                          .Storage( "AliveList", ListFor( draw, cell ), RDG::Access::StorageRead )
+                          .Storage( "DrawLayout", ve.DrawLayoutRefs[static_cast<std::size_t>( DrawTickOf( ve, at ) )],
+                                    RDG::Access::StorageRead )
+                          .Storage( "AliveList", ListFor( draw, cell, at ), RDG::Access::StorageRead )
                           .Storage( "RendererParams", draw.RendererParamsRef, RDG::Access::StorageRead );
         if ( kind == VFXRendererKind::Ribbon )
             block.Storage( "AttributeInts", ve.IntsRef, RDG::Access::StorageRead )
@@ -986,13 +1035,14 @@ namespace Desert::Graphic::System
         return block;
     }
 
-    RDG::BufferRef ParticleRenderer::ListFor( const ViewDraw& draw, const CellDraw& cell ) const
+    RDG::BufferRef ParticleRenderer::ListFor( const ViewDraw& draw, const CellDraw& cell,
+                                              const VFX::VFXTickStage at ) const
     {
         // A blended sprite / mesh row reads its alive half back to front from this view's SortedAlive, a ribbon
         // row (blended or not) the view's RibbonOrder (AddSortPasses), both at the alive list's offsets; an opaque
         // / masked sprite or mesh row reads AliveList unsorted.
         if ( draw.Renderer->Kind == VFXRendererKind::Ribbon )
-            return m_RibbonOrderRef;
+            return m_RibbonOrderRefs[static_cast<std::size_t>( at )];
         return m_ViewEmitters[draw.Emitter].ViewSorted && ParticleSpritesSort( cell.Blend ) ? m_SortedRef
                                                                                             : m_Pool.AliveRef;
     }
@@ -1112,6 +1162,19 @@ namespace Desert::Graphic::System
                 spec.CullMode          = CullMode::None;
                 spec.DepthWriteEnabled = true;
                 spec.DepthCompareOp    = CompareOp::LessOrEqual;
+                spec.BlendEnable       = false;
+                break;
+            case CellNode::VirtualShadow:
+                // The virtual shadow map's caster state (TerrainRenderer::VirtualShadowPipeline, the mesh casters'
+                // MeshRenderer::EnsureVirtualShadowPipelines): the level's node has no attachment, so no depth
+                // test - the fragment keeps the nearest occluder itself (imageAtomicMax); depth clamp, so a
+                // particle nearer the sun than the level's range still writes.
+                ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
+                spec.TargetLayout      = RenderTargetLayout{};
+                spec.DepthTestEnabled  = false;
+                spec.DepthWriteEnabled = false;
+                spec.DepthClampEnable  = true;
+                spec.CullMode          = CullMode::None;
                 spec.BlendEnable       = false;
                 break;
             case CellNode::Base:
@@ -1497,6 +1560,131 @@ namespace Desert::Graphic::System
                 lit.push_back( cell );
             }
             cell->Material->SetMaterialIndex( draw.ShadowRows[cascade] );
+            cell->Material->Bind( cell->Instance.get() );
+            if ( auto drawn = RecordDraw( bindings, draw, *cell, VFX::VFXTickStage::PreOpaque );
+                 !drawn.IsSuccess() )
+                return drawn;
+        }
+        return BOOLSUCCESS;
+    }
+
+    void ParticleRenderer::AppendVirtualShadowEntries( std::vector<ShadowCasterEntry>& entries ) const
+    {
+        // The state the levels draw is the PreOpaque nodes' (DrawTickOf): a PreOpaque emitter's after this tick's
+        // steps, a PostOpaque one's after the previous tick's - the world's step serial past that state is the
+        // signature, so it changes exactly when the drawn particles do (a paused emitter keeps its pages).
+        for ( const ViewDraw& draw : m_ViewDraws )
+        {
+            if ( draw.VirtualShadowShader.empty() || !CanCast( draw ) )
+                continue;
+            const ViewEmitter&          ve      = m_ViewEmitters[draw.Emitter];
+            const ParticleFrameEmitter& frame   = *ve.Frame;
+            const bool                  current = DrawTickOf( ve, VFX::VFXTickStage::PreOpaque ) ==
+                                                  ParticleDrawTick::Current;
+            const uint32_t drawn = current ? frame.Push.Stack.x + frame.StepCount : frame.Push.Stack.x;
+            uint64_t   hash = 1469598103934665603ull;
+            const auto add  = [&hash]( const uint64_t value )
+            {
+                for ( uint32_t b = 0; b < 8u; ++b )
+                {
+                    hash ^= ( value >> ( 8u * b ) ) & 0xffu;
+                    hash *= 1099511628211ull;
+                }
+            };
+            add( frame.EntityId );
+            add( frame.Gpu->Index );
+            add( draw.RendererIndex );
+            add( drawn );
+            entries.push_back( { .Signature = hash, .Min = frame.WorldBounds.Min, .Max = frame.WorldBounds.Max } );
+        }
+    }
+
+    void ParticleRenderer::AppendVirtualShadowDraws( std::vector<VirtualShadowCasterDraw>& /*draws*/ ) const
+    {
+        // GPU-counted draws: no CPU record can carry them (the declaration says why); the levels cull by frustum.
+    }
+
+    uint32_t ParticleRenderer::DeclareVirtualShadow( RDG::PassBuilder& pass, const uint32_t level,
+                                                     const VirtualShadowBlockParameters& parameters )
+    {
+        if ( !m_Pool.Declared || m_MeshRenderer.expired() )
+            return 0;
+        const Core::Frustum frustum = VirtualShadowFrustum( level );
+        // Per VirtualShadowDepth cell of this level (its camera block is the level's, RecordVirtualShadow), BEFORE
+        // its blocks: the rows of the rows cast through it.
+        std::vector<CellDraw*> cells;
+        for ( ViewDraw& draw : m_ViewDraws )
+        {
+            if ( !CastsVirtualShadow( draw ) || !InFrustum( draw, frustum ) )
+                continue;
+            CellDraw* cell = CellDrawFor( draw.VirtualShadowShader, PathOf( draw.Renderer->Kind ),
+                                          CellNode::VirtualShadow, level );
+            if ( cell == nullptr )
+                continue; // refused, said once by CellDrawFor; RecordVirtualShadow skips it alike
+            if ( std::ranges::find( cells, cell ) == cells.end() )
+            {
+                cell->Rows.clear();
+                cells.push_back( cell );
+            }
+            if ( draw.VirtualShadowRows.size() <= level )
+                draw.VirtualShadowRows.resize( level + 1u, 0u );
+            MaterialInstance* instance     = draw.Instance != nullptr ? draw.Instance : cell->Instance.get();
+            draw.VirtualShadowRows[level] = MeshRendererDetail::AppendRow(
+                 cell->Rows, MeshRendererDetail::EffectiveRow( cell->Material.get(), instance ) );
+        }
+        for ( CellDraw* cell : cells )
+            UploadRows( *cell->Material, cell->Rows );
+
+        uint32_t blocks = 0;
+        for ( const ViewDraw& draw : m_ViewDraws )
+        {
+            if ( !CastsVirtualShadow( draw ) || !InFrustum( draw, frustum ) )
+                continue;
+            const CellDraw* cell = CellDrawFor( draw.VirtualShadowShader, PathOf( draw.Renderer->Kind ),
+                                                CellNode::VirtualShadow, level );
+            if ( cell == nullptr )
+                continue;
+            auto block = DeclareDrawBlock( pass, draw, *cell, VFX::VFXTickStage::PreOpaque );
+            // The virtual shadow map's frame data, page table, physical pool and level (VirtualShadowRaster.glslh).
+            parameters( block, *cell->Layout.Get( cell->Pipeline->GetSpecification().Shader ) );
+            ++blocks;
+        }
+        return blocks;
+    }
+
+    Common::BoolResultStr ParticleRenderer::RecordVirtualShadow( const RDG::PassContext& context, const uint32_t level,
+                                                                 const uint32_t   firstBlock,
+                                                                 const glm::mat4& levelViewProj,
+                                                                 const RDG::BufferRef /*arguments*/,
+                                                                 const uint32_t /*firstRecord*/ )
+    {
+        if ( !m_Pool.Declared || m_MeshRenderer.expired() )
+            return BOOLSUCCESS;
+        const Core::Frustum          frustum = VirtualShadowFrustum( level );
+        const ViewFrame*             view    = m_SceneRenderer->GetViewFrame();
+        const double                 clock   = view != nullptr ? view->TimeSeconds : 0.0;
+        std::vector<const CellDraw*> lit;
+        uint32_t                     block = firstBlock;
+        for ( const ViewDraw& draw : m_ViewDraws )
+        {
+            if ( !CastsVirtualShadow( draw ) || !InFrustum( draw, frustum ) )
+                continue;
+            const CellDraw* cell = CellDrawFor( draw.VirtualShadowShader, PathOf( draw.Renderer->Kind ),
+                                                CellNode::VirtualShadow, level );
+            if ( cell == nullptr )
+                continue;
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
+            if ( cell->Pipeline->GetReadiness() == PipelineReadiness::Compiling )
+                continue;
+            if ( std::ranges::find( lit, cell ) == lit.end() )
+            {
+                // The cell is this level's alone (CellNode::VirtualShadow, level). No caster bias: the virtual
+                // shadow map offsets its receivers along their normals instead ("VSM: Project").
+                WriteLightCamera( *cell->Material, glm::mat4( 1.0f ), levelViewProj, clock, CascadeCasterBias{},
+                                  view != nullptr ? view->Parallax : ParallaxQuality{} );
+                lit.push_back( cell );
+            }
+            cell->Material->SetMaterialIndex( draw.VirtualShadowRows[level] );
             cell->Material->Bind( cell->Instance.get() );
             if ( auto drawn = RecordDraw( bindings, draw, *cell, VFX::VFXTickStage::PreOpaque );
                  !drawn.IsSuccess() )

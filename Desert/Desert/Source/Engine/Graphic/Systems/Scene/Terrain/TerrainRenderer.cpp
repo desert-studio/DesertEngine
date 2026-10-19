@@ -686,9 +686,11 @@ namespace Desert::Graphic::System
         return m_VirtualShadowPipeline.get();
     }
 
-    uint32_t TerrainRenderer::DeclareVirtualShadow( RDG::PassBuilder&                   pass,
+    uint32_t TerrainRenderer::DeclareVirtualShadow( RDG::PassBuilder& pass, const uint32_t /*level*/,
                                                     const VirtualShadowBlockParameters& parameters )
     {
+        // The level's matrix reaches the terrain's draws per draw (RecordDraws), not through a block written at
+        // record time: one set of blocks serves every level.
         if ( m_FrameDraws.empty() )
             return 0;
         const GraphicsPipeline* pipeline = VirtualShadowPipeline();
@@ -706,6 +708,7 @@ namespace Desert::Graphic::System
     }
 
     Common::BoolResultStr TerrainRenderer::RecordVirtualShadow( const RDG::PassContext& context,
+                                                                const uint32_t /*level*/,
                                                                 const uint32_t          firstBlock,
                                                                 const glm::mat4&        levelViewProj,
                                                                 const RDG::BufferRef    arguments,

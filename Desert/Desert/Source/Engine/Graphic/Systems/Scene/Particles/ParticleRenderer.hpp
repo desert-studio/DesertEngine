@@ -71,7 +71,7 @@ namespace Desert::Graphic::System
     // velocity, the scene's lights, cascades, sky and cloud shadow, as a forward static mesh. On both it casts
     // through its ParticleMesh.ShadowDepth cell into the sun's cascades and the point / spot lights' views, from
     // inside the mesh renderer's shadow passes (IShadowCaster).
-    class ParticleRenderer final : public RenderSystem, public IShadowCaster
+    class ParticleRenderer final : public RenderSystem, public IShadowCaster, public IVirtualShadowCaster
     {
     public:
         using RenderSystem::RenderSystem;
@@ -124,6 +124,24 @@ namespace Desert::Graphic::System
         // sphere reaches; their particles move every frame (Moving). A light no such emitter reaches is not
         // redrawn for them.
         [[nodiscard]] LocalShadowReach LocalShadowReachOf( const glm::vec3& centre, float radius ) const override;
+
+        // THE SUN'S VIRTUAL SHADOW MAP (UE: a Niagara opaque renderer casts into the VSM through the non-Nanite
+        // page raster). Every opaque / masked row with a <Path>.VirtualShadowDepth cell draws into each clipmap
+        // level whose casters' frustum holds its emitter's fixed bounds, from the state the PreOpaque nodes read
+        // (DrawHalf( PreOpaque ): a PostOpaque emitter's previous tick), with its own GPU-written draw arguments.
+        // The particles move with every step, so an emitter's box is a new entry each tick it stepped (its
+        // cached pages are drawn again, as UE invalidates a movable primitive's pages).
+        void AppendVirtualShadowEntries( std::vector<ShadowCasterEntry>& entries ) const override;
+        // No records: a particle draw's counts are written on the GPU (the compact's Counters slot, the mesh
+        // rows' MeshDrawArgs), which a CPU record of "VSM: Cull Casters" cannot carry. The level's frustum test
+        // of the emitter's bounds (DeclareVirtualShadow / RecordVirtualShadow) culls instead, and only the pages
+        // the level draws this frame take the depth (Common/VirtualShadowRaster.glslh).
+        void AppendVirtualShadowDraws( std::vector<VirtualShadowCasterDraw>& draws ) const override;
+        [[nodiscard]] uint32_t DeclareVirtualShadow( RDG::PassBuilder& pass, uint32_t level,
+                                                     const VirtualShadowBlockParameters& parameters ) override;
+        [[nodiscard]] Common::BoolResultStr
+        RecordVirtualShadow( const RDG::PassContext& context, uint32_t level, uint32_t firstBlock,
+                             const glm::mat4& levelViewProj, RDG::BufferRef arguments, uint32_t firstRecord ) override;
 
         // Drops this view's emitter instances and imports (IRenderSystem::OnSceneReplaced, kind 2). m_Materials is
         // keyed by the raw entt entity value, which a fresh registry hands out from zero again. The GPU particle
@@ -183,11 +201,14 @@ namespace Desert::Graphic::System
                                                       VFX::VFXTickStage stage );
         void DeclareSimulateBindings( RDG::PassBuilder& pass, uint32_t step, VFX::VFXTickStage stage ) const;
 
-        // VFX-08: this view's back-to-front sort of every emitter with a translucent / additive row, and the
-        // ribbon order of every emitter with a Ribbon row (ParticleSortGraph.hpp ParticleSortKind), one Compute
-        // node per stage, after the simulation and before ParticlePass. Every view adds its own (the key is the
-        // view depth), whether or not it claimed the simulation. Call after ImportFrameBuffers.
-        void AddSortPasses( RDG::Builder& graph );
+        // VFX-08: the sorts the draws recorded at @p at read (ParticleSortGraph.hpp ParticleSortKind), one Compute
+        // node per sort stage. PreOpaque (after the PreOpaque simulation, before the G-buffer): the ribbon order of
+        // every emitter with an opaque / masked Ribbon row - the G-buffer, the base pass and every shadow view
+        // draw it, from the half DrawHalf( PreOpaque ) names. PostOpaque (after the PostOpaque simulation, before
+        // ParticlePass): the back-to-front order of every emitter with a translucent / additive row and the ribbon
+        // order of its blended Ribbon rows, of this tick's half. Every view adds its own (the key is the view
+        // depth), whether or not it claimed the simulation. Call after ImportFrameBuffers, once per stage.
+        void AddSortPasses( RDG::Builder& graph, VFX::VFXTickStage at );
 
         // VFX-RENDER: the indexed-indirect commands of this view's Mesh renderer rows (UE
         // FNiagaraGPUInstanceCountManager::UpdateDrawIndirectBuffers): one Compute node per mesh row, after the
@@ -221,6 +242,8 @@ namespace Desert::Graphic::System
             GBuffer,   // GBufferPass: the G-buffer, depth written
             Shadow,    // a shadow view - a sun cascade or a local light's (standard-Z), depth written
             Base,      // BasePass: the scene target on the forward path, lit, depth written
+            // a "VSM: Raster" level: no attachment, the fragment atomic-maxes into the physical pool
+            VirtualShadow,
         };
 
         // One renderer row's material in this view: the asset its instance was built from, the runtime instance of
@@ -261,8 +284,9 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer         IntsImport; // also read by the ribbon order and the ribbon draw (RibbonID)
             RDG::ExternalBuffer         ParamsImport;
             RDG::ExternalBuffer         CurvesImport;
-            RDG::ExternalBuffer DrawLayoutImport; // where the sorts and the draws read the drawn attributes
-            RDG::BufferRef              DrawLayoutRef;
+            // Where the sorts and the draws read the drawn attributes, per ParticleDrawTick (DrawTickOf).
+            std::array<RDG::ExternalBuffer, kParticleDrawTickCount> DrawLayoutImports;
+            std::array<RDG::BufferRef, kParticleDrawTickCount>      DrawLayoutRefs;
             RDG::BufferRef              FloatsRef;
             RDG::BufferRef              IntsRef;
             RDG::BufferRef              ParamsRef;
@@ -279,7 +303,8 @@ namespace Desert::Graphic::System
             // The light views cull it by their own frusta (shadows) and the simulation runs either way.
             bool InView       = true;
             bool ViewSorted   = false; // its blended draws read m_SortedRef, not AliveList
-            bool RibbonSorted = false; // its ribbon draws read m_RibbonOrderRef
+            // Per draw stage (VFXTickStage): its ribbon draws recorded there read m_RibbonOrderRefs[stage].
+            std::array<bool, 2> RibbonSorted{};
         };
 
         // One LOD 0 section of a mesh row's static mesh (Renderer::RenderMesh's submesh walk): its index range and
@@ -318,6 +343,10 @@ namespace Desert::Graphic::System
             uint32_t              GBufferRow = 0;
             uint32_t              BaseRow    = 0;
             std::vector<uint32_t> ShadowRows; // per shadow view
+            // Its <Path>.VirtualShadowDepth cell shader (empty: the template has none - the row casts into the
+            // cascades and the local lights, not the virtual shadow map, said once), and its rows there per level.
+            std::string           VirtualShadowShader;
+            std::vector<uint32_t> VirtualShadowRows;
             // The row's settings (ParticleRendererParamsGpu), RendererParams in every particle vertex header.
             RDG::ExternalBuffer RendererParamsImport;
             RDG::BufferRef      RendererParamsRef;
@@ -337,10 +366,17 @@ namespace Desert::Graphic::System
         // PostOpaque emitter with no previous tick, whose pre-simulation draws record nothing.
         [[nodiscard]] VFX::VFXTickStage DrawSource( const ViewEmitter& ve, VFX::VFXTickStage at ) const;
         [[nodiscard]] uint32_t          DrawHalf( const ViewEmitter& ve, VFX::VFXTickStage at ) const;
+        // The tick whose layout (half, counter slot, emitter positions) a draw recorded at @p at binds: Previous
+        // exactly where DrawHalf is the previous half.
+        [[nodiscard]] ParticleDrawTick DrawTickOf( const ViewEmitter& ve, VFX::VFXTickStage at ) const;
         [[nodiscard]] bool              HasDrawData( const ViewEmitter& ve, VFX::VFXTickStage at ) const;
         // Whether an opaque / masked row will cast this frame, asked before the graph imports anything
         // (LocalShadowReachOf): a shadow cell, a cell, and for a mesh row a resident mesh.
         bool CanCast( const ViewDraw& draw ) const;
+        // Whether the row draws into the virtual shadow map's levels this frame (a VirtualShadowDepth cell, drawable,
+        // its PreOpaque arguments), and the level's casters' frustum (MeshRenderer's view kVsmViewBase + level).
+        bool CastsVirtualShadow( const ViewDraw& draw ) const;
+        [[nodiscard]] Core::Frustum VirtualShadowFrustum( uint32_t level ) const;
         // Whether a light view whose casters draw with @p frustum holds the row's emitter (its WorldBounds).
         bool InFrustum( const ViewDraw& draw, const Core::Frustum& frustum ) const;
         // Whether ParticlePass draws @p draw this frame - the one condition its Declare and its exec both walk the
@@ -369,7 +405,7 @@ namespace Desert::Graphic::System
                                VFX::VFXTickStage at ) const;
         // The particle list @p draw reads through @p cell: the view's RibbonOrder for a ribbon, the view's
         // SortedAlive for a blended row of a sorted emitter, the alive list otherwise.
-        RDG::BufferRef ListFor( const ViewDraw& draw, const CellDraw& cell ) const;
+        RDG::BufferRef ListFor( const ViewDraw& draw, const CellDraw& cell, VFX::VFXTickStage at ) const;
         // The row's draws through @p cell, bound by @p bindings, in any node: a mesh row's indexed-indirect draws,
         // one per section; a sprite / ribbon row's six vertices per particle from its Counters slot, faced to the
         // view's camera (pushed: the light views face them as the camera sees them, UE's dependent view).
@@ -399,7 +435,9 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache m_MeshArgsLayout;
         RDG::BufferRef                   m_SortKeysRef;
         RDG::BufferRef                   m_SortedRef;      // this view's SortedAlive, valid while any ViewSorted
-        RDG::BufferRef                   m_RibbonOrderRef; // this view's RibbonOrder, valid while any RibbonSorted
+        // Per draw stage, this view's RibbonOrder (of the half the draws recorded there read), valid while any
+        // RibbonSorted[stage].
+        std::array<RDG::BufferRef, 2> m_RibbonOrderRefs;
         // Per tick stage, this view's mesh draw commands (AddMeshDrawArgsPasses).
         std::array<RDG::BufferRef, 2>    m_MeshArgsRefs;
         // The shaders' binding layouts, kept between frames (re-derived on a swapped or reloaded shader).

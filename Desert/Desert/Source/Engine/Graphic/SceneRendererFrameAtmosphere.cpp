@@ -81,7 +81,10 @@ namespace Desert::Graphic
         // frame's particles in the G-buffer, the base pass and the shadow views.
         if ( particles->ClaimsSimulation() )
             AddParticleSimulationSteps( graph, *particles, VFX::VFXTickStage::PreOpaque );
-        // VFX-RENDER: the mesh rows' indexed-indirect commands of every node before the PostOpaque chain.
+        // The ribbon order the opaque ribbons are drawn by in the G-buffer, the base pass and the shadow views (of
+        // the half they read: a PostOpaque emitter's previous one), then the mesh rows' indexed-indirect commands
+        // of every node before the PostOpaque chain (VFX-RENDER).
+        particles->AddSortPasses( graph, VFX::VFXTickStage::PreOpaque );
         particles->AddMeshDrawArgsPasses( graph, VFX::VFXTickStage::PreOpaque );
     }
 
@@ -99,7 +102,7 @@ namespace Desert::Graphic
             AddParticleSimulationSteps( graph, *particles, VFX::VFXTickStage::PostOpaque );
         // VFX-08: every view sorts its own translucent / additive emitters back to front (the key is its view
         // depth); after both chains' last Compact and before ParticlePass.
-        particles->AddSortPasses( graph );
+        particles->AddSortPasses( graph, VFX::VFXTickStage::PostOpaque );
         particles->AddMeshDrawArgsPasses( graph, VFX::VFXTickStage::PostOpaque );
     }
 

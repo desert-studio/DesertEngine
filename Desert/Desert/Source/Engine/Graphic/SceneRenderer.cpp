@@ -529,7 +529,12 @@ namespace Desert::Graphic
                 // A renderer built without cascades has no target and nothing to cast into.
                 const auto& meshSystem = SP_CAST( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
                 if ( meshSystem )
+                {
                     particleSystem->SetMeshRenderer( meshSystem );
+                    // And into the sun's virtual shadow map's pages beside the terrain (IVirtualShadowCaster): the
+                    // levels are the mesh renderer's, whatever the cascades.
+                    meshSystem->AddVirtualShadowCaster( particleSystem );
+                }
                 if ( meshSystem && meshSystem->GetCascadeFramebuffer() )
                 {
                     particleSystem->SetCascadeTarget( meshSystem->GetCascadeFramebuffer() );

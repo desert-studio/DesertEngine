@@ -28,11 +28,11 @@ namespace Desert::Graphic
              { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth", nullptr,
                "Instanced.VirtualShadowDepth" },
              { "ParticleSprite.Forward", "ParticleSprite.GBuffer", nullptr, "ParticleSprite.ShadowDepth", nullptr,
-               nullptr },
+               "ParticleSprite.VirtualShadowDepth" },
              { "ParticleMesh.Forward", "ParticleMesh.GBuffer", nullptr, "ParticleMesh.ShadowDepth", nullptr,
-               nullptr },
+               "ParticleMesh.VirtualShadowDepth" },
              { "ParticleRibbon.Forward", "ParticleRibbon.GBuffer", nullptr, "ParticleRibbon.ShadowDepth", nullptr,
-               nullptr },
+               "ParticleRibbon.VirtualShadowDepth" },
         };
     } // namespace
 

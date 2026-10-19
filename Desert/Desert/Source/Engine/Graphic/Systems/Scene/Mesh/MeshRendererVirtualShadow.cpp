@@ -459,7 +459,7 @@ namespace Desert::Graphic::System
                          if ( const auto caster = entry.Caster.lock() )
                          {
                              entry.FirstBlock = nextBlock;
-                             nextBlock += caster->DeclareVirtualShadow( pass, parameters );
+                             nextBlock += caster->DeclareVirtualShadow( pass, level, parameters );
                          }
                      }
                  },
@@ -474,7 +474,8 @@ namespace Desert::Graphic::System
                          if ( !caster )
                              continue; // gone since the setup: its draws went with it
                          if ( auto cast =
-                                   caster->RecordVirtualShadow( context, entry.FirstBlock, m_CascadeCasterVP[view],
+                                   caster->RecordVirtualShadow( context, level, entry.FirstBlock,
+                                                                m_CascadeCasterVP[view],
                                                                 arguments, entry.FirstRecord );
                               !cast.IsSuccess() )
                              return cast;

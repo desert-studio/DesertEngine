@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -168,6 +169,20 @@ namespace Desert::VFX
     /// The contract host functions (Common/VFXParticleContract.glslh) that read this frame's scene (UE: the data
     /// interface functions whose RequiresDepthBuffer() is true). A stack whose GLSL calls one ticks PostOpaque.
     inline constexpr std::array<std::string_view, 1> kVFXSceneReadHostFunctions = { "VFX_SceneDepthCollide" };
+
+    /**
+     * EMITTERS LINKED BY EVENTS TICK IN ONE STAGE. An Event Handler reads the events its source raised in the
+     * previous fixed STEP (Common/VFXEvents.glslh: a channel's two halves alternate by the system's event step
+     * serial), which holds only while the source's step s runs before the consumer's step s + 1 - the order of one
+     * stage's chain (AddParticleSimulationSteps interleaves its emitters step by step). A source in the other
+     * stage would run all its steps before or after the consumer's, and a consumer would read a half the source
+     * already overwrote or has not written yet. So every emitter of a group connected by EventHandlers (in either
+     * direction) takes the LATEST stage of its members: PostOpaque if any of them reads the scene. The cost is the
+     * PostOpaque one-frame lag of the group's opaque rows (VFXTickStage), never an out-of-order event.
+     * @p stages holds each emitter's own stage (VFXCompiledEmitter::TickStage) in emitter order and is rewritten
+     * in place; a handler naming no emitter of @p system links nothing (ValidateVFXSystemData refuses it).
+     */
+    void UnifyEventTickStages( const Assets::Serialization::VFXSystemData& system, std::span<VFXTickStage> stages );
 
     /// One emitter's compiled stack.
     struct VFXCompiledEmitter

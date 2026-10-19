@@ -15,6 +15,8 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -138,6 +140,16 @@ namespace Desert::Graphic::System
     };
     static_assert( sizeof( ParticleDrawLayoutGpu ) == kParticleDrawLayoutSize );
 
+    // WHICH TICK a draw reads (ParticleEmitterGpu::DrawLayouts): this tick's state, or the tick before - what a
+    // PostOpaque emitter's draws recorded before its simulation read (UE: a PostOpaque emitter's opaque renderers
+    // draw the previous frame's data). The half, the counter slot and the emitter position all come from it.
+    enum class ParticleDrawTick : uint8_t
+    {
+        Current,
+        Previous,
+    };
+    inline constexpr std::size_t kParticleDrawTickCount = 2;
+
     // One renderer row's settings as the mesh and ribbon vertex paths read them (binding 14): Mode.x = the row's
     // facing (VFXMeshFacing / VFXRibbonFacing value), Values.x = the ribbon's UVTiling, Values.y = the seconds the
     // simulation advanced this tick (step count x fixed step): the mesh path's previous position for the velocity
@@ -182,10 +194,16 @@ namespace Desert::Graphic::System
         std::shared_ptr<ShaderResources::StorageBuffer> AttributeInts;
         std::shared_ptr<ShaderResources::StorageBuffer> Params;
         std::shared_ptr<ShaderResources::StorageBuffer> Curves;
-        // Where the sprite draw and the sort read the drawn attributes in AttributeFloats (VFX-SPRITE-DRAW): its
-        // columns are the compiled layout's, its range and emitter position are re-uploaded every tick.
-        std::shared_ptr<ShaderResources::StorageBuffer> DrawLayout;
-        ParticleDrawLayoutGpu                           DrawColumns;
+        // Where the draws and the sorts read the drawn attributes in AttributeFloats (VFX-SPRITE-DRAW), one per
+        // ParticleDrawTick: Current = this tick's (its alive half / draw slot in Range.w, its emitter positions),
+        // Previous = the tick before's, what a PostOpaque emitter's draws recorded BEFORE its simulation read with
+        // the previous half (ParticleRenderer::DrawTickOf). The columns are the compiled layout's; both are
+        // re-uploaded every tick (Previous = LastLayout), so a draw reads the half, the counter slot and the
+        // emitter position of ONE tick.
+        std::array<std::shared_ptr<ShaderResources::StorageBuffer>, kParticleDrawTickCount> DrawLayouts;
+        ParticleDrawLayoutGpu                                                                DrawColumns;
+        // The layout the last tick uploaded as Current (valid while HasLastHalf): next tick's Previous.
+        ParticleDrawLayoutGpu LastLayout;
         // VFX-PARAMS: the emitter's event table (uploaded with the parameters every tick) and its SYSTEM's event
         // buffer (one persistent buffer shared by the system's emitters: GPU-written, read the step after).
         std::shared_ptr<ShaderResources::StorageBuffer> EventTable;

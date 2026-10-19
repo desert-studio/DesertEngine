@@ -101,12 +101,12 @@ namespace Desert::Graphic::System
         }
 
         void AppendVirtualShadowEntries( std::vector<ShadowCasterEntry>& entries ) const override;
-        [[nodiscard]] uint32_t DeclareVirtualShadow( RDG::PassBuilder&                   pass,
+        [[nodiscard]] uint32_t DeclareVirtualShadow( RDG::PassBuilder& pass, uint32_t level,
                                                      const VirtualShadowBlockParameters& parameters ) override;
         void AppendVirtualShadowDraws( std::vector<VirtualShadowCasterDraw>& draws ) const override;
         [[nodiscard]] Common::BoolResultStr
-        RecordVirtualShadow( const RDG::PassContext& context, uint32_t firstBlock, const glm::mat4& levelViewProj,
-                             RDG::BufferRef arguments, uint32_t firstRecord ) override;
+        RecordVirtualShadow( const RDG::PassContext& context, uint32_t level, uint32_t firstBlock,
+                             const glm::mat4& levelViewProj, RDG::BufferRef arguments, uint32_t firstRecord ) override;
 
         void Submit( const TerrainDrawData& data )
         {
