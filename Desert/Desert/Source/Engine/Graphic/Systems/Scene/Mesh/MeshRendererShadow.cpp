@@ -953,7 +953,7 @@ namespace Desert::Graphic::System
                 uint32_t                     BoneOffset = 0;
                 uint64_t                     Hidden     = 0;
             };
-            std::vector<OpaqueCaster> casters;
+            std::vector<OpaqueCaster> opaqueCasters;
             for ( const auto& sd : m_SkinnedQueue )
             {
                 if ( sd.Mesh == nullptr || !sd.CastShadows || sd.BoneMatrices.empty() )
@@ -990,14 +990,14 @@ namespace Desert::Graphic::System
                 }
                 if ( opaqueVisible == 0 )
                     continue;
-                casters.push_back( { &sd, static_cast<uint32_t>( skinBones.size() ), ~opaqueVisible } );
+                opaqueCasters.push_back( { &sd, static_cast<uint32_t>( skinBones.size() ), ~opaqueVisible } );
                 skinBones.insert( skinBones.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );
             }
-            if ( !casters.empty() )
+            if ( !opaqueCasters.empty() )
             {
                 skinMat->UploadBones( skinBones );
                 const std::span<const GpuObjectMotion> rows = m_ScratchMotionRows.Rows;
-                for ( const OpaqueCaster& caster : casters )
+                for ( const OpaqueCaster& caster : opaqueCasters )
                 {
                     // The cached pose when the skin cache holds this primitive (one skinning per frame).
                     const GpuObjectMotion row =
