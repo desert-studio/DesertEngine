@@ -1,0 +1,88 @@
+#ifndef DESERT_EMISSIVE_LIGHTS_SAMPLING_GLSLH
+#define DESERT_EMISSIVE_LIGHTS_SAMPLING_GLSLH
+
+// Sampling the scene's emissive triangles (Common/EmissiveLights.glslh): the consumer has declared the four buffers
+// (emissiveSegments, emissiveLookup, emissiveTriangles, emissivePower) before including this header.
+
+#include <Common/EmissiveLights.glslh>
+
+
+// The total power of the list (the tree's root); 0 = no emissive triangle.
+float EmissiveLightsTotal(uint leaves, uint levels)
+{
+    return emissivePower[EmissivePowerLevelOffset(leaves, levels - 1u)];
+}
+
+// The probability the tree picks @p triangle.
+float EmissiveLightsPickPdf(uint triangle, uint leaves, uint levels)
+{
+    const float total = EmissiveLightsTotal(leaves, levels);
+    return total > 0.0 ? emissivePower[triangle] / total : 0.0;
+}
+
+// One triangle in proportion to its power, by descending the tree from the root. @p u in [0, 1) is consumed (each
+// level rescales it into the branch taken, so one number drives the whole descent). The total must be > 0.
+uint EmissiveLightsPick(float u, uint leaves, uint levels)
+{
+    uint node = 0u;
+    for (uint level = levels - 1u; level > 0u; --level)
+    {
+        const uint  below = EmissivePowerLevelOffset(leaves, level - 1u) + 2u * node;
+        const float left  = emissivePower[below];
+        const float sum   = left + emissivePower[below + 1u];
+        const float p     = sum > 0.0 ? left / sum : 1.0;
+        if (u < p)
+        {
+            u    = u / p;
+            node = 2u * node;
+        }
+        else
+        {
+            u    = (u - p) / (1.0 - p);
+            node = 2u * node + 1u;
+        }
+        u = min(u, 0.99999994);
+    }
+    return node;
+}
+
+// The list's row of the triangle a hit met (gl_InstanceID, gl_GeometryIndexEXT, gl_PrimitiveID of the hit), or
+// kEmissiveNone when that segment is not in the list. @p instances: the TLAS instance count the list was built for.
+uint EmissiveLightsTriangleOfHit(uint instance, uint geometry, uint primitive, uint instances)
+{
+    if (instance >= instances)
+        return kEmissiveNone;
+    const uint base = emissiveLookup[instance];
+    if (base == kEmissiveNone)
+        return kEmissiveNone;
+    const uint segment = emissiveLookup[base + geometry];
+    if (segment == kEmissiveNone || primitive >= emissiveSegments[segment].TriangleCount)
+        return kEmissiveNone;
+    return emissiveSegments[segment].FirstTriangle + primitive;
+}
+
+// A point uniformly distributed over the triangle's area (Shirley's square-root map).
+vec3 EmissiveLightsSamplePoint(EmissiveTriangle t, vec2 u)
+{
+    const float s = sqrt(u.x);
+    return t.P0Area.xyz + t.Edge1Power.xyz * (s * (1.0 - u.y)) + t.Edge2Segment.xyz * (s * u.y);
+}
+
+// The unit geometric normal of the triangle (its winding's side; emission is two-sided, consumers take |cos|).
+vec3 EmissiveLightsNormal(EmissiveTriangle t)
+{
+    return normalize(cross(t.Edge1Power.xyz, t.Edge2Segment.xyz));
+}
+
+// The solid-angle density of a point on triangle @p t seen from @p distance along a direction whose cosine with the
+// triangle's normal is @p cosLight, given the probability @p pickPdf the tree picked it: area pdf 1 / A turned into
+// solid angle by d^2 / |cos|.
+float EmissiveLightsSolidAnglePdf(EmissiveTriangle t, float pickPdf, float distance, float cosLight)
+{
+    const float c = abs(cosLight);
+    if (c <= 0.0 || t.P0Area.w <= 0.0)
+        return 0.0;
+    return pickPdf * distance * distance / (c * t.P0Area.w);
+}
+
+#endif

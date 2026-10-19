@@ -15,6 +15,12 @@
 // 2018) instead of UE's per-shading-model lobes; point and spot lights are the engine's delta sources with their
 // authored falloff (Mesh/LightSources.glslh) instead of UE's spherical area lights; a PCG hash sequence instead of
 // UE's scrambled Sobol (FRandomSequence); a box pixel filter.
+//
+// THE EMISSIVE SURFACES AS LIGHTS (Common/EmissiveLights.glslh, the scene's one emissive triangle list): next event
+// estimation picks a triangle by its power and a point uniformly on it, as its own strategy beside the analytic
+// lights (NVIDIA RTXDI: one sample per light kind), and a material ray that meets emission takes the power-heuristic
+// weight against that sampler. The light ray to the point is a material ray: its closest hit is the sampled triangle
+// when nothing occludes it, and the hit group returns the material's emission there (a textured emission included).
 Shader "PathTracer"
 {
     Pass "PathTracing"
@@ -28,6 +34,7 @@ Shader "PathTracer"
             #include <Mesh/LightSources.glslh>
             #include <Mesh/DirectLighting.glslh>
             #include <Common/RayTracingPayload.glslh>
+            #include <Common/EmissiveLights.glslh>
 
             layout(binding = 1) uniform accelerationStructureEXT u_SceneTLAS;
             // The view's running sum (rgb) of every path since the last reset; a = the paths summed.
@@ -53,6 +60,25 @@ Shader "PathTracer"
             Uniform(8) textureCube u_EnvSpecularTex;
             #define u_EnvSpecularTex samplerCube(u_EnvSpecularTex, u_LinearClampSampler)
 
+            // The scene's emissive triangles (RayTracing::EmissiveLightsFrame).
+            layout(std430, binding = 9) readonly buffer EmissiveSegmentsUB
+            {
+                EmissiveSegment emissiveSegments[];
+            };
+            layout(std430, binding = 10) readonly buffer EmissiveLookupUB
+            {
+                uint emissiveLookup[];
+            };
+            layout(std430, binding = 11) readonly buffer EmissiveTrianglesUB
+            {
+                EmissiveTriangle emissiveTriangles[];
+            };
+            layout(std430, binding = 12) readonly buffer EmissivePowerUB
+            {
+                float emissivePower[];
+            };
+            #include <Common/EmissiveLightsSampling.glslh>
+
             #define PATH_TRACING_SKY_RADIANCE u_SkyRadiance
             #define PATH_TRACING_SKY_PDF      skyPdf
             #include <Common/PathTracingSky.glslh>
@@ -64,6 +90,7 @@ Shader "PathTracer"
                 uvec4 u_Counts; // x = point lights, y = spot lights, z = paths already summed (0: overwrite), w = max bounces
                 uvec4 u_Sky;    // x = sky side S (0: no sky light), y = its pyramid levels, z = frame seed, w = paths this frame (>= 1)
                 vec4  u_Sun;    // x = sin of half the sun's source angle (0: a delta direction), y = pixel spread angle
+                uvec4 u_Emissive; // x = emissive triangles, y = power tree leaves, z = its levels, w = TLAS instances of the list
             };
 
             // ---- Random numbers: a PCG hash chain per pixel and path (UE: FRandomSequence). ----
@@ -188,12 +215,16 @@ Shader "PathTracer"
 
             // ---- Rays. ----
             // The material ray: the hit's surface into the payload (HitT < 0: a miss).
-            void PathTracingTraceMaterial(vec3 origin, vec3 direction, float coneWidth)
+            void PathTracingTraceMaterialTo(vec3 origin, vec3 direction, float coneWidth, float distance)
             {
                 payload.HitT       = -1.0;
                 payload.ConeWidth  = coneWidth;
                 payload.ConeSpread = u_Sun.y;
-                traceRayEXT(u_SceneTLAS, gl_RayFlagsNoneEXT, 0xFFu, 0u, 0u, 0u, origin, 0.0, direction, 1.0e9, 0);
+                traceRayEXT(u_SceneTLAS, gl_RayFlagsNoneEXT, 0xFFu, 0u, 0u, 0u, origin, 0.0, direction, distance, 0);
+            }
+            void PathTracingTraceMaterial(vec3 origin, vec3 direction, float coneWidth)
+            {
+                PathTracingTraceMaterialTo(origin, direction, coneWidth, 1.0e9);
             }
 
             // The light ray: any hit (the any-hit stages still cut masked holes) ends it; the miss stage writes
@@ -324,6 +355,69 @@ Shader "PathTracer"
                 return PathTracingBsdfCos(m, N, V, light.L) * light.Radiance / pickPdf;
             }
 
+            // ---- The emissive triangles. ----
+            bool PathTracingHasEmissive()
+            {
+                return u_Emissive.x > 0u && EmissiveLightsTotal(u_Emissive.y, u_Emissive.z) > 0.0;
+            }
+
+            // The list's row of the triangle the last material ray met (kEmissiveNone: not in the list).
+            uint PathTracingEmissiveTriangleOfHit()
+            {
+                return EmissiveLightsTriangleOfHit(payload.InstanceIndex, payload.GeometryIndex, payload.PrimitiveIndex,
+                                                   u_Emissive.w);
+            }
+
+            // Next event estimation over the emissive triangles from @p origin (the vertex's offset origin, @p coneWidth
+            // its ray cone): a triangle by power, a point by area, its solid-angle density weighed against the material's.
+            vec3 PathTracingSampleEmissive(PathTracingMaterial m, vec3 N, vec3 V, vec3 origin, float coneWidth,
+                                           inout uint rng)
+            {
+                const float pick = PathTracingRandom(rng);
+                const vec2  u    = PathTracingRandom2(rng);
+                if (!PathTracingHasEmissive())
+                    return vec3(0.0);
+                const uint triangle = EmissiveLightsPick(pick, u_Emissive.y, u_Emissive.z);
+                if (triangle >= u_Emissive.x)
+                    return vec3(0.0);
+                const EmissiveTriangle t       = emissiveTriangles[triangle];
+                const vec3             toPoint = EmissiveLightsSamplePoint(t, u) - origin;
+                const float            dist    = length(toPoint);
+                if (dist <= 0.0)
+                    return vec3(0.0);
+                const vec3 L = toPoint / dist;
+                if (dot(N, L) <= 0.0)
+                    return vec3(0.0);
+                const float lightPdf = EmissiveLightsSolidAnglePdf(
+                    t, EmissiveLightsPickPdf(triangle, u_Emissive.y, u_Emissive.z), dist, dot(EmissiveLightsNormal(t), L));
+                if (lightPdf <= 0.0)
+                    return vec3(0.0);
+                // Past the point by a margin, so the closest hit can land on the sampled triangle itself; anything
+                // else it meets first occludes it.
+                PathTracingTraceMaterialTo(origin, L, coneWidth, dist * 1.001 + 0.1);
+                if (payload.HitT < 0.0 || PathTracingEmissiveTriangleOfHit() != triangle)
+                    return vec3(0.0);
+                const float weight = PathTracingMISWeightPower(lightPdf, PathTracingBsdfPdf(m, N, V, L));
+                return PathTracingBsdfCos(m, N, V, L) * payload.Emissive * weight / lightPdf;
+            }
+
+            // The weight of emission a material ray met (drawn with density @p bsdfPdf along @p dir; < 0: the camera
+            // ray): the power heuristic against the emissive sampler's density of the same point from the vertex the
+            // ray left. A surface not in the list cannot be sampled as a light, so its emission takes the whole weight.
+            float PathTracingEmissiveHitWeight(vec3 dir, float bsdfPdf)
+            {
+                if (bsdfPdf < 0.0 || !PathTracingHasEmissive())
+                    return 1.0;
+                const uint triangle = PathTracingEmissiveTriangleOfHit();
+                if (triangle >= u_Emissive.x)
+                    return 1.0;
+                const EmissiveTriangle t        = emissiveTriangles[triangle];
+                const float            lightPdf = EmissiveLightsSolidAnglePdf(
+                    t, EmissiveLightsPickPdf(triangle, u_Emissive.y, u_Emissive.z), payload.HitT,
+                    dot(EmissiveLightsNormal(t), dir));
+                return PathTracingMISWeightPower(bsdfPdf, lightPdf);
+            }
+
             // What a material ray that left the scene sees: the sky, and the sun's disc when it has a size. Weighted
             // against the light sampler of the vertex it left (lightPickSky / lightPickSun: that vertex's choice
             // probabilities; bsdfPdf < 0: a camera ray, nothing to weigh).
@@ -382,8 +476,9 @@ Shader "PathTracer"
                     const vec3 P = origin + dir * payload.HitT;
                     const vec3 N = payload.Normal;
                     const vec3 V = -dir;
-                    // No light is sampled on emissive surfaces, so the material ray takes their whole weight.
-                    radiance += throughput * payload.Emissive;
+                    // Emission the material ray met, weighed against the emissive light sampler.
+                    if (any(greaterThan(payload.Emissive, vec3(0.0))))
+                        radiance += throughput * payload.Emissive * PathTracingEmissiveHitWeight(dir, bsdfPdf);
 
                     const PathTracingMaterial m = PathTracingMaterialOf(N, V);
                     coneWidth += u_Sun.y * payload.HitT;
@@ -392,6 +487,7 @@ Shader "PathTracer"
                     const vec3  next  = P + N * (0.05 + 1.0e-5 * length(P - cameraUB.CameraPos));
                     const float total = PathTracingEstimateTotal(P);
                     radiance += throughput * PathTracingSampleLights(m, P, N, V, next, total, rng);
+                    radiance += throughput * PathTracingSampleEmissive(m, N, V, next, coneWidth, rng);
                     if (bounce >= u_Counts.w)
                         break;
 

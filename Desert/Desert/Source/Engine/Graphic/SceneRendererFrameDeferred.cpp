@@ -31,6 +31,7 @@
 #include <functional>
 #include <initializer_list>
 #include <map>
+#include <optional>
 #include <memory>
 #include <span>
 #include <atomic>
@@ -991,7 +992,7 @@ namespace Desert::Graphic
     }
 
     uint64_t SceneRenderer::PathTracingSceneHash( const GlobalIllumination::GIFramePayload& giFrame,
-                                                  const uint64_t                            environment ) const
+                                                  const uint64_t environment, const uint64_t emissive ) const
     {
         System::PathTracer::SceneHasher         hash;
         const RayTracing::RayTracingSceneFrame& rt = m_RayTracingScene.GetFrame();
@@ -1019,7 +1020,55 @@ namespace Desert::Graphic
         // The rows' values: a material parameter edited in place moves them.
         hash.Values( std::span<const glm::vec4>( m_ReflectionHitGroups.Rows ) );
         hash.Value( Runtime::ResourceRegistry::GetMaterialService()->GetInvalidationVersion() );
+        hash.Value( emissive );
         return hash.Get();
+    }
+
+    Common::ResultStr<RayTracing::EmissiveLightsFrame> SceneRenderer::AddFrameEmissiveLights( RDG::Builder& graph )
+    {
+        using Result = RayTracing::EmissiveLightsFrame;
+        if ( !m_RayTracingScene.GetFrame().Built )
+            return Common::MakeError<Result>(
+                 "the emissive lights are built from the view's TLAS, which this frame "
+                 "did not build" );
+        // The estimate the tree's powers are made of: the segment's emissive colour x intensity in the row the
+        // raster draws it with. A landscape tile's hit group emits nothing (TerrainRayHit), a whole-entity
+        // override has no surface row.
+        const auto radianceOf = []( const RayTracing::RayTracingSegmentRecord& segment ) -> glm::vec3
+        {
+            if ( segment.LandscapeTile != RayTracing::kNoLandscapeTile )
+                return glm::vec3( 0.0f );
+            const auto* material = dynamic_cast<const DataDrivenMaterial*>( segment.SurfaceMaterial );
+            if ( material == nullptr )
+                return glm::vec3( 0.0f );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast): EffectiveRow reads the instance's overrides
+            const Core::Formats::MaterialParamRow row = System::MeshRendererDetail::EffectiveRow(
+                 material, const_cast<MaterialInstance*>( segment.Instance ) );
+            const Core::Formats::MaterialLayout& layout = material->GetMaterialLayout();
+            const std::optional<glm::vec4>       color =
+                 MaterialBinder::ReadRowParam( layout, row, RayTracing::kSurfaceEmissiveColorParam );
+            const std::optional<glm::vec4> intensity =
+                 MaterialBinder::ReadRowParam( layout, row, RayTracing::kSurfaceEmissiveIntensityParam );
+            if ( !color || !intensity )
+                return glm::vec3( 0.0f );
+            return glm::vec3( *color ) * intensity->x;
+        };
+        auto list = RayTracing::BuildEmissiveTriangleList( m_RayTracingScene.GetInstances().Instances,
+                                                           m_RayTracingScene.GetPrimitives(),
+                                                           m_RayTracingScene.GetSegmentRecords(), radianceOf );
+        if ( !list )
+            return Common::MakeError<Result>( list.GetError() );
+        if ( list.GetValue().SkippedDeformedSegments != m_ReportedEmissiveDeformed )
+        {
+            m_ReportedEmissiveDeformed = list.GetValue().SkippedDeformedSegments;
+            if ( m_ReportedEmissiveDeformed > 0u )
+                LOG_WARN(
+                     "[SceneRenderer] {}: {} emissive segments of deformed meshes are not in the emissive light "
+                     "list (their BLAS reads skinned positions the attribute stream does not hold); their "
+                     "emission is met by material rays alone",
+                     m_ViewResources.GetName(), m_ReportedEmissiveDeformed );
+        }
+        return m_EmissiveLights.AddPasses( graph, list.GetValue() );
     }
 
     Common::BoolResultStr SceneRenderer::AddFramePathTracing( RDG::Builder& graph, FrameTextures& textures,
@@ -1072,11 +1121,15 @@ namespace Desert::Graphic
         inputs.SpotLightCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
         inputs.EnvSpecular     = SceneViewInputsOf( textures.GraphRefs() ).EnvSpecular;
         inputs.HitGroups       = &m_ReflectionHitGroups;
+        auto emissive          = AddFrameEmissiveLights( graph );
+        if ( !emissive )
+            return Common::MakeError( emissive.GetError() );
+        inputs.Emissive = emissive.GetValue();
         // The sun's disc (UE: the directional light's SourceAngle is its full angular diameter).
         inputs.SunSinHalfAngle = std::sin( glm::radians( m_SunSourceAngleDegrees ) * 0.5f );
         // The angle one pixel subtends at the centre of the view: the camera ray's cone (ray cone LOD).
         inputs.PixelSpread     = std::atan( 2.0f / ( frame.Projection[1][1] * static_cast<float>( extent.y ) ) );
-        inputs.SceneHash       = PathTracingSceneHash( giFrame, GetEnvironmentIdentity() );
+        inputs.SceneHash       = PathTracingSceneHash( giFrame, GetEnvironmentIdentity(), inputs.Emissive.Hash );
         inputs.DynamicGeometry = rt.DynamicGeometry;
         return pathTracer->AddPasses( graph, sceneColor, frame, inputs, m_PathTracingSettings );
     }

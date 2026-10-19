@@ -7,6 +7,7 @@
 #include <Engine/Graphic/RayTracingPipeline.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Graphic/Systems/RayTracing/EmissiveLightsRenderer.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -51,8 +52,13 @@ namespace Desert::Graphic::System
     // pyramid of its weights is reduced level by level (PathTracerSky.shader "Prepare" / "Reduce"); the paths
     // importance-sample it (Common/PathTracingSky.glslh).
     //
+    // THE EMISSIVE SURFACES (RayTracing::EmissiveLightsFrame, the scene's one emissive triangle list): each vertex
+    // also samples one emissive triangle by power and a point on it, a strategy of its own beside the analytic
+    // lights, and emission met by a material ray is weighed against it (PathTracer.shader). The list's hash is in
+    // the scene hash, so a changed emitter restarts the sum.
+    //
     // Not here (each is UE's and a task of its own): a denoiser (UE's is a plugin over albedo/normal guides),
-    // emissive light sampling, transmission, participating media, a Sobol sequence, pixel filters other than a
+    // transmission, participating media, a Sobol sequence, pixel filters other than a
     // box.
     class PathTracer final : public RenderSystem
     {
@@ -80,6 +86,7 @@ namespace Desert::Graphic::System
             RDG::TextureRef EnvSpecular; // the environment cube (System.BlackCube without one)
             // This frame's hit group table; its Templates built the pipeline (EnsurePipeline).
             const RayTracing::RayTracingHitGroupTable* HitGroups = nullptr;
+            RayTracing::EmissiveLightsFrame            Emissive; // this frame's emissive triangle list (Valid)
             float    SunSinHalfAngle = 0.0f; // sin of half the sun's SourceAngle (0: a delta direction)
             float    PixelSpread     = 0.0f; // the angle one pixel covers (the ray cone)
             uint64_t SceneHash       = 0;
@@ -211,6 +218,8 @@ namespace Desert::Graphic::System
                 return Common::MakeError( "PathTracer: the pipelines were not made (Initialize, EnsurePipeline)" );
             if ( inputs.HitGroups == nullptr )
                 return Common::MakeError( "PathTracer: the frame has no hit group table" );
+            if ( !inputs.Emissive.Valid )
+                return Common::MakeError( "PathTracer: the frame has no emissive triangle list" );
             const auto sceneDesc = graph.GetTextureDesc( sceneColor );
             if ( !sceneDesc )
                 return Common::MakeError( sceneDesc.GetError() );
@@ -265,6 +274,7 @@ namespace Desert::Graphic::System
             glm::uvec4 Counts; // point lights, spot lights, paths already summed (0: overwrite), max bounces
             glm::uvec4 Sky;    // sky side S, its levels, frame seed, paths this frame
             glm::vec4  Sun;    // sin of half the sun's angle, pixel spread angle
+            glm::uvec4 Emissive; // emissive triangles, power tree leaves, its levels, TLAS instances of the list
         };
         struct SkyPush
         {
@@ -389,7 +399,9 @@ namespace Desert::Graphic::System
             const TracePush push{
                  glm::uvec4( inputs.PointLightCount, inputs.SpotLightCount, m_Summed, m_MaxBounces ),
                  glm::uvec4( sky.Side, sky.Levels, m_Restarts, traced ),
-                 glm::vec4( inputs.SunSinHalfAngle, inputs.PixelSpread, 0.0f, 0.0f ) };
+                 glm::vec4( inputs.SunSinHalfAngle, inputs.PixelSpread, 0.0f, 0.0f ),
+                 glm::uvec4( inputs.Emissive.TriangleCount, inputs.Emissive.Leaves, inputs.Emissive.Levels,
+                             inputs.Emissive.InstanceCount ) };
             graph.AddPass(
                  "PathTracing: Trace", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -404,6 +416,10 @@ namespace Desert::Graphic::System
                           .Storage( "SpotLightsUB", inputs.SpotLights, kR )
                           .Storage( "u_SkyRadiance", sky.Radiance, kR )
                           .Storage( "PathTracingSkyPdfUB", sky.Pdf, kR )
+                          .Storage( "EmissiveSegmentsUB", inputs.Emissive.Segments, kR )
+                          .Storage( "EmissiveLookupUB", inputs.Emissive.Lookup, kR )
+                          .Storage( "EmissiveTrianglesUB", inputs.Emissive.Triangles, kR )
+                          .Storage( "EmissivePowerUB", inputs.Emissive.Power, kR )
                           .Texture( "u_EnvSpecularTex", inputs.EnvSpecular, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
                           .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )

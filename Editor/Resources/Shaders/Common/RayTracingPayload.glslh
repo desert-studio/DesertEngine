@@ -10,7 +10,9 @@
 //   in   ConeWidth / ConeSpread: the ray cone at the origin (cm) and its spread (radians), for the hit's texture LOD;
 //   out  HitT < 0: the ray met nothing (the miss stage wrote it); otherwise the hit's distance (cm) and, from a
 //        closest hit, its material: BaseColor, Metallic, Roughness, Emissive, the shading normal (world, unit,
-//        facing the ray) and Flags bit0 = the ray met the front face.
+//        facing the ray) and Flags bit0 = the ray met the front face; which triangle it is: the TLAS instance
+//        (gl_InstanceID), the geometry index in its BLAS and the primitive (Common/RayTracingHitTriangle.glslh
+//        DesertRayHitIdentify), what a light list keyed by triangle looks a hit up by (Common/EmissiveLights.glslh).
 struct DesertRayPayload
 {
     vec3  BaseColor;
@@ -22,7 +24,9 @@ struct DesertRayPayload
     float ConeWidth;
     float ConeSpread;
     uint  Flags;
-    float Pad;
+    uint  InstanceIndex;
+    uint  GeometryIndex;
+    uint  PrimitiveIndex;
 };
 
 const uint kDesertRayPayloadFrontFace = 1u;

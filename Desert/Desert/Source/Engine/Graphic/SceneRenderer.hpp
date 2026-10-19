@@ -82,6 +82,7 @@
 
 #include <Engine/Graphic/IRenderSystem.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
+#include <Engine/Graphic/Systems/RayTracing/EmissiveLightsRenderer.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
@@ -929,7 +930,14 @@ namespace Desert::Graphic
         // groups' templates, records and material rows, and the material service's invalidations. @p environment:
         // GetEnvironmentIdentity().
         [[nodiscard]] uint64_t PathTracingSceneHash( const GlobalIllumination::GIFramePayload& giFrame,
-                                                     uint64_t                                  environment ) const;
+                                                     uint64_t environment, uint64_t emissive ) const;
+        // THE SCENE'S EMISSIVE TRIANGLE LIST in this frame's graph (RayTracing::EmissiveLights.hpp): built from
+        // this frame's TLAS instances and segment records (a built m_RayTracingScene), each segment's emission
+        // estimated from its material's effective row; m_EmissiveLights keeps the GPU list and rebuilds it when
+        // its hash moves. Every consumer of emissive lights reads the frame this returns. @p emissive in
+        // PathTracingSceneHash: its Hash.
+        [[nodiscard]] Common::ResultStr<RayTracing::EmissiveLightsFrame>
+        AddFrameEmissiveLights( RDG::Builder& graph );
         // The view's path tracer system on first use (latched like EnsureSSRResources); false lowers the frame
         // (LowerPathTracingForFrame).
         bool EnsurePathTracerResources();
@@ -1175,6 +1183,10 @@ namespace Desert::Graphic
         // the next frame's build replaces it), the default surface's material for segments without a template,
         // and whether a hit-lighting request the device cannot run was reported.
         RayTracing::RayTracingHitGroupTable m_ReflectionHitGroups;
+        // The scene's emissive triangles as lights, kept on the GPU across frames (AddFrameEmissiveLights).
+        RayTracing::EmissiveLightsRenderer m_EmissiveLights;
+        // Emissive segments of deformed primitives left out of the list, as last reported (a change logs once).
+        uint32_t                            m_ReportedEmissiveDeformed = 0;
         std::shared_ptr<DataDrivenMaterial> m_ReflectionDefaultSurface;
         bool                                m_ReportedHitLightingDevice = false;
         // Templates already reported as shading on the default hit group (no compiled `RayTracing.Hit` cell):
