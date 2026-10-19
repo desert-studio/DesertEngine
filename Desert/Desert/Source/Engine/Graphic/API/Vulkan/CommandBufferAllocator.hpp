@@ -3,18 +3,27 @@
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 
 #include <cstddef>
+#include <map>
+#include <memory>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace Desert::Graphic::API::Vulkan
 {
-    // Must be >= the swapchain image count (set later by VulkanSwapChain).
-    // CommandBufferAllocator is created before the swapchain exists, so we can't
-    // read FrameManager here — allocate for the maximum supported in-flight count.
-    static constexpr uint32_t k_MaxCommandPoolFrames = 3U;
-
+    /// ONE-OFF COMMAND BUFFERS (staging copies of meshes, textures, mip chains, readbacks) come from a command
+    /// pool OWNED BY THE RECORDING THREAD, one per thread and queue family, created on that thread's first
+    /// request. A VkCommandPool is externally synchronised for as long as ANY of its buffers is being
+    /// recorded (vkBeginCommandBuffer .. vkEndCommandBuffer, every vkCmd* between), so a pool shared by the
+    /// upload threads would need a lock held across the whole recording; a pool per thread needs none
+    /// (the same split as UE's FVulkanCommandBufferPool per context). Only the owning thread ever calls into
+    /// its pool: a buffer released from another thread is queued on the pool and freed by its owner.
     class CommandBufferAllocator : public Common::Singleton<CommandBufferAllocator>
     {
+        struct OneShotPool;
+
     public:
         CommandBufferAllocator( const std::shared_ptr<VulkanLogicalDevice>& device );
 
@@ -26,12 +35,12 @@ namespace Desert::Graphic::API::Vulkan
         Common::ResultStr<VkResult> RT_FlushCommandBufferGraphic( VkCommandBuffer commandBuffer );
         Common::ResultStr<VkResult> RT_FlushCommandBufferTransferOps( VkCommandBuffer commandBuffer );
 
-        /// A one-off graphics submission that nobody waited for: the buffer, the pool that allocated it and
-        /// the fence its completion signals. The buffer is freed only by RT_ReleaseSubmitted.
+        /// A one-off graphics submission that nobody waited for: the buffer, the thread pool that allocated it
+        /// and the fence its completion signals. The buffer is freed only by RT_ReleaseSubmitted.
         struct Submitted
         {
             VkCommandBuffer Buffer = VK_NULL_HANDLE;
-            VkCommandPool   Pool   = VK_NULL_HANDLE;
+            OneShotPool*    Pool   = nullptr;
             VkFence         Fence  = VK_NULL_HANDLE;
         };
 
@@ -46,7 +55,8 @@ namespace Desert::Graphic::API::Vulkan
         /// Waits for the fence (normally already signalled), then frees the buffer and destroys the fence.
         void RT_ReleaseSubmitted( const Submitted& submitted );
 
-        /// Destroys the nine command pools, and with them every command buffer ever allocated from one.
+        /// Destroys every thread's command pools, and with them every command buffer ever allocated from one.
+        /// No thread may be recording a one-off buffer by then.
         /// EXPLICIT, because this object is a Common::Singleton: its unique_ptr is a namespace-scope
         /// static, so a destructor would run at __cxa_finalize, long after vkDestroyDevice. Called from
         /// VulkanContext::Shutdown, which the device's own teardown reaches while the device is alive.
@@ -56,38 +66,41 @@ namespace Desert::Graphic::API::Vulkan
         /// Nonzero at teardown means a caller took one and never returned it.
         [[nodiscard]] std::size_t OutstandingOneShotCount() const;
 
-        const auto& GetCommandGraphicPool() const
-        {
-            return m_CommandGraphicPool;
-        }
-
-        const auto& GetCommandComputePool() const
-        {
-            return m_ComputeCommandPool;
-        }
-
     private:
-        /// Frees @p commandBuffer from the pool it was actually allocated from, after its fence.
-        Common::ResultStr<VkResult> FlushOneShot( VkCommandBuffer commandBuffer, VkQueue queue );
-        /// vkAllocateCommandBuffers and the pool record, under m_PoolMutex.
-        VkResult AllocateOneShot( const VkCommandBufferAllocateInfo& allocateInfo,
-                                  VkCommandBuffer&                   commandBuffer );
+        /// One thread's pool for one queue family. Handle and Owner never change after creation;
+        /// PendingFree is written by other threads and is guarded by m_PoolMutex.
+        struct OneShotPool
+        {
+            VkCommandPool                Handle = VK_NULL_HANDLE;
+            std::thread::id              Owner;
+            std::vector<VkCommandBuffer> PendingFree;
+        };
 
-        /// GUARDS m_OneShotPools AND vkAllocate/vkFreeCommandBuffers on the nine pools. One-off uploads are
-        /// flushed from whichever thread creates the texture or mesh; an unordered_map written from two
-        /// threads is undefined behaviour, and a VkCommandPool must be externally synchronised as well.
+        /// Allocates (and optionally begins) a primary buffer from the calling thread's pool for @p family.
+        Common::ResultStr<VkCommandBuffer> AllocateOneShot( uint32_t family, bool begin );
+        /// Submits @p commandBuffer, waits for it, then releases it to the pool it actually came from.
+        Common::ResultStr<VkResult> FlushOneShot( VkCommandBuffer commandBuffer, VkQueue queue );
+        /// Frees @p commandBuffer now if the calling thread owns @p pool, else queues it for the owner.
+        /// The buffer must not be pending execution. Called without m_PoolMutex held.
+        void ReleaseOneShot( OneShotPool& pool, VkCommandBuffer commandBuffer );
+
+        /// GUARDS m_ThreadPools, m_OneShotPools and every pool's PendingFree. Never held across a vkCmd*:
+        /// the Vulkan calls on a pool are made by its owning thread only, which is what synchronises them.
         mutable std::mutex m_PoolMutex;
 
-        /// WHICH POOL EACH ONE-OFF BUFFER CAME FROM. Not recomputed at flush time from the current frame
-        /// index, which is what the three Flush functions used to do: the index can advance between the
-        /// allocation and the flush, and vkFreeCommandBuffers against a pool that did not allocate the
-        /// buffer is undefined behaviour, not a diagnosable mistake. Recording it is also what lets a
-        /// flush of a buffer this allocator never handed out be REFUSED by name instead of guessed at.
-        std::unordered_map<VkCommandBuffer, VkCommandPool> m_OneShotPools;
+        /// The pools, keyed by (thread, queue family). Pools are never destroyed before Destroy(), so a
+        /// OneShotPool* in m_OneShotPools or in a Submitted stays valid for the allocator's whole life.
+        std::map<std::pair<std::thread::id, uint32_t>, std::unique_ptr<OneShotPool>> m_ThreadPools;
 
-        std::vector<VkCommandPool> m_CommandGraphicPool;
-        std::vector<VkCommandPool> m_ComputeCommandPool;
-        std::vector<VkCommandPool> m_TransferOpsCommandPool;
+        /// WHICH POOL EACH ONE-OFF BUFFER CAME FROM — recorded, not recomputed at flush time: the flush may
+        /// run on another thread, and vkFreeCommandBuffers against a pool that did not allocate the buffer
+        /// is undefined behaviour. Recording it is also what lets a flush of a buffer this allocator never
+        /// handed out be REFUSED by name instead of guessed at.
+        std::unordered_map<VkCommandBuffer, OneShotPool*> m_OneShotPools;
+
+        uint32_t m_GraphicsFamily    = 0;
+        uint32_t m_ComputeFamily     = 0;
+        uint32_t m_TransferOpsFamily = 0;
 
         VkQueue m_GraphicsQueue;
         VkQueue m_ComputeQueue;
