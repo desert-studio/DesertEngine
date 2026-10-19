@@ -355,6 +355,11 @@ namespace Desert::Core::Formats
         // offers the pipeline (CapabilityCatalog RayTracingMode::RayTracingPipeline): their SPIR-V needs the
         // RayTracingKHR capability, which no other device can take a module of.
         std::vector<std::string> RayTracingPassNames;
+        // THE NAMED PASS THE DEFAULT PROGRAM IS, or empty when the default program is the shader's own top-level
+        // stage set: a surface template's default cell (kSurfaceDefaultCell), or the first named pass of a shader
+        // that has no top-level stages (DShaderParser). "<Shader>/<DefaultPassName>" and "<Shader>" are ONE
+        // program - registered, cooked and built once (Preprocess::IsDefaultProgramPass), never compiled twice.
+        std::string DefaultPassName;
 
         // THE BODY OF A `Medium { ... }` BLOCK — a PROGRAM FRAGMENT, not a stage.
         //

@@ -133,10 +133,9 @@ namespace Desert::Runtime
         // DSL multi-pass shaders: every named pass is its own program, addressable as
         // "<Shader>/<Pass>" (e.g. GetByName("Unlit/Shadow")).
         //
-        // A surface template's default cell is NOT compiled a second time: the default program above IS that cell
-        // (IsSurfaceDefaultCell), so its "<Template>/<Cell>" name answers the same object.
-        const bool surfaceTemplate =
-             Core::Preprocess::DShaderParser::MayDeclareSurface( shaderAsset->GetShaderContent() );
+        // The pass the default program IS (a surface template's default cell, or the first named pass of a shader
+        // without top-level stages: ShaderProgramMeta::DefaultPassName) is NOT compiled a second time: its
+        // "<Shader>/<Pass>" name answers the default program above, the same object.
         // Ray tracing passes exist on a device with the ray tracing pipeline alone (ShaderProgramMeta::
         // RayTracingPassNames); elsewhere their names stay unregistered and a pass that asks for one refuses, naming
         // the device (Graphic::RayTracingPipeline::Create). The DEVICE's catalog, not QualityState's copy of it:
@@ -155,7 +154,7 @@ namespace Desert::Runtime
             if ( !rayTracingPipeline &&
                  std::find( rayTracingPasses.begin(), rayTracingPasses.end(), passName ) != rayTracingPasses.end() )
                 continue;
-            if ( Core::Preprocess::IsSurfaceDefaultCell( surfaceTemplate, passName ) )
+            if ( Core::Preprocess::IsDefaultProgramPass( shader->GetProgramMeta(), passName ) )
             {
                 m_PassShaders[std::format( "{}/{}", shader->GetName(), passName )] = shader;
                 continue;
