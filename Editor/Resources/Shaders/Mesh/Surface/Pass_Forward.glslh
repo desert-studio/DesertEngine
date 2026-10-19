@@ -47,6 +47,9 @@ directionLights;
 // one). 13 and 14 were the cascades 1..3, which are one array now.
 layout( binding = 13 ) uniform sampler u_LinearRepeatSampler;
 layout( binding = 14 ) uniform sampler u_LinearClampSampler;
+// THE MEGALIGHTS TRANSLUCENCY VOLUME (Shadows Stochastic): on, the local lights come from it, shadowed, in place of
+// the light-grid loop below; off, its block says so and the loop runs.
+#include <Common/MegaLightsVolume.glslh>
 
 #ifdef DESERT_SUN_SHADOW_SCREEN_MASK
 // "Shadows: Ray Traced Sun" (the permutation the deferred path draws a forward mesh with when the sun is ray
@@ -174,15 +177,31 @@ void main()
                                                                   directionLights.directionLights.ColorIntensity.a,
                                                              shadow ),
                                              surface, payload );
-    // Point and spot lights: those of this pixel's froxel, in the order the full loop summed them (points, then
-    // spots), each with its contact shadow (the payload carries the length, 0 = none). An overflowed cell (more
-    // lights than its list holds) is shaded by every light: slower, never wrong.
+    // Point and spot lights under Shadows Stochastic: the MegaLights volume at this point (UE MegaLights'
+    // translucency volume), shadowed by its traced samples - its dominant light through the shading model, the
+    // rest as incident light from every direction, which the ambient's Indirect carries (the volume holds no
+    // surface, so no contact shadow either).
+    vec3 localIndirect = vec3( 0.0 );
+    if ( MegaLightsVolumeOn() )
+    {
+        const MegaLightsVolumeLighting volume = MegaLightsVolumeLightingAt( gl_FragCoord.xy, i.WorldPosition, N );
+        DesertLight                    local;
+        local.L        = volume.L;
+        local.Radiance = volume.Radiance;
+        local.Shadow   = 1.0;
+        light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX, local, surface, payload );
+        localIndirect = volume.Ambient;
+    }
+    // Otherwise those of this pixel's froxel, in the order the full loop summed them (points, then spots), each with
+    // its contact shadow (the payload carries the length, 0 = none). An overflowed cell (more lights than its list
+    // holds) is shaded by every light: slower, never wrong.
     const uint cell       = LightGridCellAt( lightGrid, gl_FragCoord.xy, i.WorldPosition );
     const uint cellCount  = lightGridCells[cell];
     const bool overflowed = LightGridCellOverflowed( lightGrid, cellCount );
     const uint listOffset = LightGridListOffset( lightGrid, cell );
-    const uint lightCount =
-         overflowed ? lightsMetadata.PointLightCount + lightsMetadata.SpotLightCount : cellCount;
+    const uint lightCount = MegaLightsVolumeOn() ? 0u
+                            : overflowed           ? lightsMetadata.PointLightCount + lightsMetadata.SpotLightCount
+                                                   : cellCount;
     for ( uint j = 0u; j < lightCount; j++ )
     {
         const uint index = overflowed ? j : lightGridCells[listOffset + j];
@@ -235,9 +254,11 @@ void main()
         return;
     }
 
-    // Occlusion attenuates only the ambient; the forward path has no indirect-bounce gather (zero), the one
-    // difference from the deferred composite's call, visible in the argument list.
+    // Occlusion attenuates only the ambient; the forward path has no indirect-bounce gather, the one difference from
+    // the deferred composite's call, visible in the argument list: its Indirect is the MegaLights volume's
+    // isotropic local light (zero when the volume is off).
     const vec3 ambient = DesertEvaluateShadingModelAmbient(
-         DESERT_SHADING_MODEL_INDEX, DesertSampleAmbient( surface, vec3( 0.0 ), s.AmbientOcclusion ), surface, payload );
+         DESERT_SHADING_MODEL_INDEX, DesertSampleAmbient( surface, localIndirect, s.AmbientOcclusion ), surface,
+         payload );
     oColor = vec4( light + ambient + s.Emissive, 1.0 );
 }

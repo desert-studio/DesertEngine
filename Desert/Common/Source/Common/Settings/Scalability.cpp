@@ -129,6 +129,12 @@ namespace Common::Scalability
                "(MegaLights kernel)" },
              { P::ShadowMegaLightsDownsampleFactor, G::Shadows, "Shadows.MegaLightsDownsampleFactor", 1, 2,
                CL::None, "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (sample pixels per side)" },
+             { P::ShadowMegaLightsVolumeTilePixels, G::Shadows, "Shadows.MegaLightsVolumeTilePixels", 8, 64,
+               CL::None, "SceneRenderer::BeginScene -> MegaLightsVolumeRenderer::AddPasses (froxel edge, px)" },
+             { P::ShadowMegaLightsVolumeSlices, G::Shadows, "Shadows.MegaLightsVolumeSlices", 16, 128, CL::None,
+               "SceneRenderer::BeginScene -> MegaLightsVolumeRenderer::AddPasses (depth slices)" },
+             { P::ShadowMegaLightsVolumeSamples, G::Shadows, "Shadows.MegaLightsVolumeSamples", 1, 4, CL::None,
+               "SceneRenderer::BeginScene -> MegaLightsVolumeRenderer::AddPasses (traced samples per froxel)" },
              { P::ScreenSpaceGISamples, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceSamples", 4, 64,
                CL::None,
                "SceneRenderer::BeginScene -> MaterialDeferredLighting (u_ScreenSpaceGI.x: DeferredLighting.shader "

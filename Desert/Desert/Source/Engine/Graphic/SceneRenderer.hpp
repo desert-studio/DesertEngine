@@ -86,6 +86,7 @@
 #include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/MegaLights.hpp>
+#include <Engine/Graphic/Systems/Scene/Shadows/MegaLightsVolume.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/RayTracedSunShadow.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
 #include <Engine/Graphic/Systems/Scene/PathTracing/PathTracer.hpp>
@@ -838,6 +839,12 @@ namespace Desert::Graphic
                                                        const std::vector<RDG::TextureRef>& gbuffer,
                                                        const ViewFrame&                    frame );
         bool                       EnsureMegaLightsResources();
+        // The MegaLights translucency volume (System::MegaLightsVolumeRenderer) into FrameTransients::
+        // MegaLightsVolume, sliced over @p lightGrid's depth range: on under Stochastic with a local light, the
+        // neutral block (System::AddMegaLightsVolumeOff) otherwise or - logged - when its pass could not be
+        // declared.
+        void AddFrameMegaLightsVolume( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                       const LightGridParamsPayload& lightGrid );
         // This frame's sun shadow is the virtual shadow map (the Shadows method resolved to VirtualMaps).
         [[nodiscard]] bool SunShadowIsVirtual() const;
         // THE ONE ANSWER TO "is the sun shadowed from a screen mask this frame" (the ray-traced sun or the virtual
@@ -969,7 +976,9 @@ namespace Desert::Graphic
                            const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
         // The view's lights as graph buffers and its light grid ("LightGrid" compute node), into
         // FrameTransients::Lights — before the first lit node, on both paths.
-        void AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // Returns the grid's parameters (a default payload, logged, when the view has no DeferredLightingSystem).
+        LightGridParamsPayload AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures,
+                                                  const ViewFrame& frame );
         // The WORLD layout of the same lights ("LightGridWorld" compute node: the radiance cache's clipmap cells
         // around the camera), into FrameTransients::Lights.World* — only when WorldLightGridRead().
         void AddFrameLightGridWorld( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
@@ -1322,6 +1331,12 @@ namespace Desert::Graphic
         System::MegaLightsQuality  m_MegaLightsQuality;
         bool                       m_MegaLightsReady  = false;
         bool                       m_MegaLightsFailed = false;
+        // The MegaLights translucency volume (per view: its history is this view's), created on the first frame
+        // that needs it; its quality (Shadows.MegaLightsVolume*, Shadows.MegaLightsMaxHistory) taken each
+        // BeginScene.
+        System::MegaLightsVolumeRenderer m_MegaLightsVolume;
+        System::MegaLightsVolumeQuality  m_MegaLightsVolumeQuality;
+        bool                             m_MegaLightsVolumeReady = false;
         // "Shadows: Virtual Shadow Map" (per view: the page cache is this view's), created on the first frame that
         // resolves the sun to VirtualMaps; its quality (Shadows.Virtual*) taken each BeginScene.
         System::VirtualShadowMapRenderer m_VirtualShadowMap;

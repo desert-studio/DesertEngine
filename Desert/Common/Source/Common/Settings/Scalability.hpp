@@ -174,6 +174,14 @@ namespace Common::Scalability
         ShadowMegaLightsMaxHistory,
         ShadowMegaLightsDenoiserRadius,
         ShadowMegaLightsDownsampleFactor,
+        // The MegaLights translucency volume (System::MegaLightsVolumeRenderer; UE MegaLights' volume, sampled by
+        // the forward and translucent surfaces): its froxel edge in render pixels (UE r.MegaLights.Volume's grid
+        // cell, the fog grid's 16 px times DownsampleFactor), its depth slices over the light grid's near..far
+        // (logarithmic), and the traced light samples per froxel per frame (UE NumSamplesPerVoxel).
+        // 8..64, 16..128, 1..4.
+        ShadowMegaLightsVolumeTilePixels,
+        ShadowMegaLightsVolumeSlices,
+        ShadowMegaLightsVolumeSamples,
         // GI ScreenSpace: the one-bounce gather's samples per pixel (DeferredLighting.shader GatherIndirectGI,
         // u_ScreenSpaceGI.x). 4..64
         ScreenSpaceGISamples,

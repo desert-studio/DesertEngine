@@ -345,14 +345,15 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    LightGridParamsPayload SceneRenderer::AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures,
+                                                             const ViewFrame& frame )
     {
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
         if ( deferred == nullptr )
         {
             LOG_ERROR( "[SceneRenderer] LightGrid: no DeferredLightingSystem, the view has no light grid" );
-            return;
+            return {};
         }
         // The grid is cut over the view's render extent (the scene target and the G-buffer are both drawn at it),
         // with the matrices the geometry is rasterised with (the jittered projection: a pixel's cell is the one
@@ -375,6 +376,7 @@ namespace Desert::Graphic
              { deferred->DeclareGridBindings( pass, lights, LightGridLayout::Frustum ); },
              [deferred, cells = glm::uvec3( grid.Size )]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return deferred->RecordGrid( context, cells ); } );
+        return grid;
     }
 
     bool SceneRenderer::RadianceCacheRuns() const

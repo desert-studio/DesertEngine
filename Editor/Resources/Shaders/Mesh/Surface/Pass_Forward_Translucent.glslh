@@ -3,9 +3,10 @@
 // nowhere else: the renderer sends an object here because its material's TEMPLATE is translucent
 // (ShaderProgramMeta::Blend), never because of a parameter value. The surface is clear glass: the scene behind
 // it (u_SceneColor, bent by the normal and s.Refraction) tinted by s.BaseColor, mixed by Schlick Fresnel into
-// the sky's reflection, plus the sun's specular hotspot under the cloud shadow. Written opaque: the refracted
+// the sky's reflection, plus the sun's specular hotspot under the cloud shadow and, under Shadows Stochastic, the
+// local lights' hotspot from the MegaLights volume. Written opaque: the refracted
 // scene already carries the background; the highlight also loses the sun's contact shadow. It declares what it
-// reads and nothing else (no cascade maps, no irradiance, no BRDF LUT, no local lights); the slots keep the numbers
+// reads and nothing else (no cascade maps, no irradiance, no BRDF LUT, no light grid); the slots keep the numbers
 // the rest of the mesh family uses.
 DESERT_SURFACE_VARYINGS( in )
 
@@ -33,6 +34,10 @@ directionLights;
 // these, bound by the pass with the inputs; 13 and 14, as in Pass_Forward.glslh.
 layout( binding = 13 ) uniform sampler u_LinearRepeatSampler;
 layout( binding = 14 ) uniform sampler u_LinearClampSampler;
+// THE MEGALIGHTS TRANSLUCENCY VOLUME (UE MegaLights' translucency volume, Shadows Stochastic): the local lights'
+// highlights on the glass, shadowed by MegaLights' traced samples. Off (any other Shadows method) it reads as no
+// light: the glass has no other local light.
+#include <Common/MegaLightsVolume.glslh>
 
 // The specular cube is the ONE environment binding glass reads: a mirror term at grazing angles, not an ambient.
 layout( binding = 8 ) uniform textureCube u_EnvSpecularTex;
@@ -117,7 +122,12 @@ void main()
     const vec3 envRefl = ApplySkyGain( texture( u_EnvSpecularTex, SkyLookDirection( R, skyLook.YawCosSin.xy ) ).rgb,
                                        skyLook.Gain.rgb );
 
-    oColor = vec4( mix( refracted, envRefl, fresnel ) + vec3( spec ) + s.Emissive, 1.0 );
+    // The local lights' hotspot: the volume's dominant light with the same tight lobe as the sun's (its isotropic
+    // rest has no highlight to give clear glass).
+    const MegaLightsVolumeLighting local = MegaLightsVolumeLightingAt( gl_FragCoord.xy, v_Surface.WorldPosition, N );
+    const vec3 localSpec = pow( max( dot( N, normalize( V + local.L ) ), 0.0 ), 128.0 ) * local.Radiance;
+
+    oColor = vec4( mix( refracted, envRefl, fresnel ) + vec3( spec ) + localSpec + s.Emissive, 1.0 );
 #ifdef DESERT_SURFACE_RESPONSIVE_AA
     oResponsiveAA = vec4( 1.0, 0.0, 0.0, 1.0 );
 #endif
