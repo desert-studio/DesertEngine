@@ -17,7 +17,6 @@ namespace Desert::Graphic
             // caller can be wrong about which number meant which operator.
             Core::TonemapOperator Operator;
             float                 Exposure;
-            float                 Gamma;
             float                 BloomIntensity;
             float                 ExposureKey;
             bool                  AutoExposure;
@@ -35,7 +34,6 @@ namespace Desert::Graphic
         void BindValues( const Params& params );
 
         MPROPERTY( float, Exposure,            "u_Exposure",            1.0f )
-        MPROPERTY( float, Gamma,               "u_Gamma",               2.2f )
         MPROPERTY( float, BloomIntensity,      "u_BloomIntensity",      0.0f )
         MPROPERTY( float, ExposureKey,         "u_ExposureKey",         0.18f )
         MPROPERTY( float, AutoExposureEnabled, "u_AutoExposureEnabled", 0.0f )

@@ -335,7 +335,15 @@ namespace Desert::Migration
     //       (MigrateGIMethodLadderV63ToV64). v59..v63 are Windows' steps. Scenes and prefabs alike.
     inline constexpr int kSceneVersionGIMethodLadder = 64;
 
-    static_assert( kSceneVersionGIMethodLadder == kSceneVersion,
+    //  65 - THE DISPLAY TRANSFER IS THE sRGB OETF (RENDER-LOOK round 05). The composite encodes with the sRGB curve,
+    //       as UE does for its sRGB output device (GammaCorrectionCommon.ush LinearToSrgb), in place of
+    //       pow(1 / Gamma): the transfer belongs to the display, not to a volume's look, so
+    //       Core::PostProcessSettings lost Gamma. Every stated PostProcessVolume.Settings.Gamma - a record's and a
+    //       prefab override's delta - is dropped, whatever its value: no value of it has a meaning now
+    //       (MigrateDisplayTransferV64ToV65). Scenes and prefabs alike.
+    inline constexpr int kSceneVersionDisplayTransfer = 65;
+
+    static_assert( kSceneVersionDisplayTransfer == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -657,6 +665,17 @@ namespace Desert::Migration
     // kSceneVersionGIMethodLadder states, in the record and in every prefab override. PURE.
     GIMethodLadderReport MigrateGIMethodLadderV63ToV64( std::vector<Assets::EntityData>& entities );
 
+    // What MigrateDisplayTransferV64ToV65 did to one file.
+    struct DisplayTransferReport
+    {
+        std::size_t              Dropped = 0; // PostProcessVolume.Settings.Gamma keys removed
+        std::vector<std::string> Refused;     // a Settings block that is not an object
+    };
+
+    // Drops every PostProcessVolume.Settings.Gamma kSceneVersionDisplayTransfer names, in the record and in every
+    // prefab override. PURE.
+    DisplayTransferReport MigrateDisplayTransferV64ToV65( std::vector<Assets::EntityData>& entities );
+
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
     bool MigrateHLODLayersV49ToV50( SceneSerialized& scene );
@@ -939,6 +958,9 @@ namespace Desert::Migration
         bool                 GIMethodLadderRaised = false; // below kSceneVersionGIMethodLadder
         GIMethodLadderReport GIMethodLadder;
 
+        bool                  DisplayTransferRaised = false; // below kSceneVersionDisplayTransfer
+        DisplayTransferReport DisplayTransfer;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -953,7 +975,7 @@ namespace Desert::Migration
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
                    RenderMethodsRaised || ScriptDefaultsRaised || LightUnitsRaised || SkySunFromLightRaised ||
-                   SunCalendarRaised || GIMethodLadderRaised;
+                   SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised;
         }
     };
 

@@ -9,7 +9,6 @@ namespace Desert::Graphic
     void MaterialTonemap::BindValues( const Params& params )
     {
         SetExposure( params.Exposure );
-        SetGamma( params.Gamma );
         SetBloomIntensity( params.BloomIntensity );
         SetExposureKey( params.ExposureKey );
         SetAutoExposureEnabled( params.AutoExposure ? 1.0f : 0.0f );

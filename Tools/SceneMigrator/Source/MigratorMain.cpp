@@ -527,6 +527,10 @@ namespace
             out << " scene v" << Desert::Migration::kSceneVersionSunCalendar << "->v"
                 << Desert::Migration::kSceneVersionGIMethodLadder << " (" << report.GIMethodLadder.Restated
                 << " GI method(s) re-stated on today's ladder)";
+        if ( report.DisplayTransferRaised && report.DisplayTransfer.Dropped > 0 )
+            out << " scene v" << Desert::Migration::kSceneVersionGIMethodLadder << "->v"
+                << Desert::Migration::kSceneVersionDisplayTransfer << " (" << report.DisplayTransfer.Dropped
+                << " Gamma key(s) dropped: the display transfer is the sRGB OETF)";
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

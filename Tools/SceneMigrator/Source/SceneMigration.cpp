@@ -1293,6 +1293,48 @@ namespace Desert::Migration
         return report;
     }
 
+    DisplayTransferReport MigrateDisplayTransferV64ToV65( std::vector<Assets::EntityData>& entities )
+    {
+        DisplayTransferReport report;
+
+        const auto drop = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false;
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 rfl::json::write( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           if ( !DropKey( settings, "Gamma" ) )
+                               return false;
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           ++report.Dropped;
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            drop( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    drop( override_.Components, who );
+        }
+        return report;
+    }
+
     SkySunFromLightReport MigrateSkySunFromLightV56ToV57( std::vector<Assets::EntityData>& entities )
     {
         SkySunFromLightReport report;
@@ -3876,6 +3918,18 @@ namespace Desert::Migration
                 if ( !report.GIMethodLadder.Refused.empty() )
                 {
                     report.Refused = RefusedWhole( name, report.GIMethodLadder.Refused );
+                    return;
+                }
+            }
+
+            // The display transfer is the sRGB OETF: PostProcessSettings lost Gamma (RENDER-LOOK round 05).
+            if ( statedSceneVersion < kSceneVersionDisplayTransfer )
+            {
+                report.DisplayTransferRaised = true;
+                report.DisplayTransfer       = MigrateDisplayTransferV64ToV65( entities );
+                if ( !report.DisplayTransfer.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.DisplayTransfer.Refused );
                     return;
                 }
             }

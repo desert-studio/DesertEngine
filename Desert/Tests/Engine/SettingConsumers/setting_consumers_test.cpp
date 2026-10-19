@@ -558,7 +558,6 @@ namespace
          { "DistanceFieldShadows", kRenderMethods },
          { "Tonemapper", kSceneRenderer },
          { "Exposure", kSceneRenderer },
-         { "Gamma", kSceneRenderer },
          { "WhitePoint", kSceneRenderer },
          { "AutoExposure", kSceneRenderer },
          { "AutoExposureKey", kSceneRenderer },
