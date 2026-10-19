@@ -104,6 +104,7 @@
                 "IntensityUnits": 0,
                 "Radius": 1200.0,
                 "MinRadius": 0.0,
+                "SourceRadius": 0.0,
                 "Falloff": 1,
                 "ShowRadius": false,
                 "CastShadows": true,
