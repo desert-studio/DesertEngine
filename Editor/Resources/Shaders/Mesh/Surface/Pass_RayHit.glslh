@@ -11,7 +11,7 @@
 //   any hit      Masked templates only (DESERT_SURFACE_RAY_ANY_HIT): the template's OpacityMask against its clip
 //                value, ignoreIntersectionEXT below it - the same test the masked cells' DESERT_SURFACE_CLIP makes.
 //
-// The hit's texture LOD is the ray cone's (SurfaceTypes.glslh g_DesertRayHitLod): the payload carries the cone at
+// The hit's texture LOD is the ray cone's (Common/BindlessTextures.glslh g_DesertRayHitLod): the payload carries the cone at
 // the ray's origin, the hit widens it by the distance and divides by the triangle's world-per-UV footprint.
 
 #include <Common/RayTracingHitTriangle.glslh>
