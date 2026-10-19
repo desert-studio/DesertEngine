@@ -1401,7 +1401,15 @@ namespace Desert::Graphic
                        gbuffer.size() );
             return {};
         }
-        const std::optional<System::SSRRenderer::TraceTargets> traceTargets = ssr.Prepare();
+        if ( !System::SSRRenderer::IsSupportedDownsampleFactor( m_ViewProfile.ReflectionDownsampleFactor ) )
+        {
+            LOG_ERROR( "[SceneRenderer] Deferred: Reflections.DownsampleFactor is {}, the reflection trace knows 1 "
+                       "and 2",
+                       m_ViewProfile.ReflectionDownsampleFactor );
+            return {};
+        }
+        const std::optional<System::SSRRenderer::TraceTargets> traceTargets =
+             ssr.Prepare( m_ViewProfile.ReflectionDownsampleFactor );
         if ( !traceTargets || !screenTrace.HZB.IsValid() )
             return {};
         const RDG::TextureRef velocity = textures.Transients.Velocity;
@@ -1438,6 +1446,7 @@ namespace Desert::Graphic
         settings.MaxDistance  = m_SSRMaxDistance;
         settings.Intensity    = m_SSRIntensity;
         settings.Thickness    = Common::Units::Metres( 0.5f ); // literature: 0.5 m
+        settings.DownsampleFactor = traceTargets->DownsampleFactor;
         // SoftwareTraced / HardwareTraced: the rays the screen does not answer go on through the reflections'
         // tracer (ReflectionsTracer, TracedReads).
         std::optional<System::SSRRenderer::TracedReads> traced;
@@ -1501,7 +1510,8 @@ namespace Desert::Graphic
                                                              .TraceRay             = traceRay,
                                                              .TileMask             = tiles,
                                                              .TraceSeed            = seed,
-                                                             .ReconstructionRadius = m_ReflectionDenoiserRadius },
+                                                             .ReconstructionRadius = m_ReflectionDenoiserRadius,
+                                                             .DownsampleFactor     = traceTargets->DownsampleFactor },
                           System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
                                                          .GBufferDepth  = inputs[2],
                                                          .Velocity      = velocity,

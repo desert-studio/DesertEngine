@@ -1,11 +1,12 @@
 // DesertAsset {"Kind":"Shader","Guid":"3a2336ad2876438d915c69470c31e245","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "SSR"
 {
-    // Screen-space reflections: tile classification and the half-resolution trace, in ONE compute dispatch.
+    // Screen-space reflections: tile classification and the trace (full or half resolution,
+    // Reflections.DownsampleFactor), in ONE compute dispatch.
     // One workgroup per screen tile (grid = ceil(size / 8), tiles stretched over the
     // target). The workgroup first decides whether any pixel of its tile passes the trace's G-buffer gate
     // (Common/SSRGate.glslh) and writes that verdict to the tile mask the denoiser's reconstruction reads;
-    // then it traces the half-resolution texels whose source pixel the tile owns - or writes 0 for them when
+    // then it traces the trace texels whose source pixel the tile owns - or writes 0 for them when
     // nothing in the tile can reflect. Every trace texel is written every frame, so the target needs no clear,
     // and the classify costs no pass of its own (it used to be a dispatch, and before that a render pass).
     //
@@ -102,14 +103,18 @@ Shader "SSR"
         	return;
         #endif
 
-        	// --- Trace: the half-resolution texels whose source pixel THIS tile owns. A pixel's owner is the tile
-        	// whose quad rasterizes it (floor((x + 0.5) / scale)); the stretched ranges above overlap by a pixel,
-        	// ownership does not, so every trace texel is written by exactly one thread. 8 texels per axis from
-        	// (p0 - 1) / 2 reach source pixels p0 - 2 .. p0 + 15, beyond the 9 a tile can own. ---
+        	// --- Trace: the trace texels whose source pixel THIS tile owns. A pixel's owner is the tile whose quad
+        	// rasterizes it (floor((x + 0.5) / scale)); the stretched ranges above overlap by a pixel, ownership does
+        	// not, so every trace texel is written by exactly one thread. The tile owns at most 8 pixels per axis
+        	// (scale <= 8), starting at `first` (p0, or p0 + 1 when p0 is the previous tile's); 8 texels per axis
+        	// from (first - (factor - 1)) / factor reach all of them at either factor (factor 1: first .. first + 7;
+        	// factor 2: source pixels from below first to at least first + 13, the rotation included). ---
         	ivec2 traceSize = imageSize(u_Trace);
         	int   frame     = int(u_CameraPos.w);
-        	ivec2 q         = max((p0 - 1) / 2, ivec2(0)) + ivec2(gl_LocalInvocationID.xy);
-        	ivec2 src       = min(q * 2 + ivec2(frame & 1, (frame >> 1) & 1), full - 1);
+        	int   factor    = int(u_SSRParams3.x + 0.5);
+        	ivec2 first     = p0 + ivec2(notEqual(ivec2(floor((vec2(p0) + 0.5) / scale)), tile));
+        	ivec2 q         = max((first - (factor - 1)) / factor, ivec2(0)) + ivec2(gl_LocalInvocationID.xy);
+        	ivec2 src       = SSRTraceSourcePixel(q, factor, frame, full);
         	const bool owns = q.x < traceSize.x && q.y < traceSize.y && ivec2(floor((vec2(src) + 0.5) / scale)) == tile;
 
         	bool nearField = false;
@@ -188,7 +193,7 @@ Shader "SSR"
     }
 
     // THE HIT-LIT TRACE (Reflections.HitLighting on the hardware tracer; System::SSRRenderer::EnsureHitLightingProgram):
-    // the same texel trace as the compute above, launched over the half-resolution trace by the ray tracing pipeline
+    // the same texel trace as the compute above, launched over the trace (its resolution) by the ray tracing pipeline
     // (Graphic/RayTracingPipeline.hpp) after the compute's classify. One thread per trace texel; a texel whose source
     // pixel's tile does not reflect writes 0, exactly as the compute writes it. The miss stage only says "missed": the
     // sky and the captures answer a miss in the composite, as for every traced ray.
@@ -208,7 +213,7 @@ Shader "SSR"
             	const ivec2 grid  = imageSize(u_TileMask);
             	const vec2  scale = vec2(full) / vec2(grid);
             	const int   frame = int(u_CameraPos.w);
-            	const ivec2 src   = min(q * 2 + ivec2(frame & 1, (frame >> 1) & 1), full - 1);
+            	const ivec2 src   = SSRTraceSourcePixel(q, int(u_SSRParams3.x + 0.5), frame, full);
             	const ivec2 tile  = min(ivec2(floor((vec2(src) + 0.5) / scale)), grid - 1);
             	vec4 ray   = vec4(0.0, 0.0, 0.0, -126.0);
             	vec4 trace = imageLoad(u_TileMask, tile).r > 0.5 ? TraceFrom(src, full, false, ray) : vec4(0.0);

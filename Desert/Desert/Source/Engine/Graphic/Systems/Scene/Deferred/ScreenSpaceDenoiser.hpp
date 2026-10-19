@@ -43,9 +43,9 @@ namespace Desert::Graphic::System
         RDG::TextureRef Black;         // the system black texture (a history that does not exist yet)
     };
 
-    // What SSR hands the reflections denoiser (UE IScreenSpaceDenoiser::FReflectionsInputs): its half-resolution
-    // trace, the trace texels' hit points + pdfs, the tile mask, and the seed of the 2x2 block rotation the trace
-    // used this frame (the reconstruction finds each texel's source pixel from it).
+    // What SSR hands the reflections denoiser (UE IScreenSpaceDenoiser::FReflectionsInputs): its trace (full or
+    // half resolution), the trace texels' hit points + pdfs, the tile mask, and the seed of the 2x2 block rotation
+    // a half-resolution trace used this frame (the reconstruction finds each texel's source pixel from it).
     struct ReflectionsDenoiserInputs
     {
         RDG::TextureRef Trace;
@@ -55,6 +55,10 @@ namespace Desert::Graphic::System
         // The reconstruction's kernel, trace texels per side from the centre (Scalability
         // Reflections.DenoiserRadius; UE r.Reflections.Denoiser.ReconstructionSamples). 2 = 5x5.
         uint32_t ReconstructionRadius = 2;
+        // The trace's pixels per side per texel (SSRRenderer::TraceTargets::DownsampleFactor, Scalability
+        // Reflections.DownsampleFactor): 1 = every pixel traced; 2 = one pixel of each 2x2 block, rotated by
+        // TraceSeed.
+        uint32_t DownsampleFactor = 2;
     };
 
     // What a diffuse-indirect producer hands the denoiser (UE FDiffuseIndirectInputs): its full-resolution
@@ -193,18 +197,19 @@ namespace Desert::Graphic::System
                           .Uniform( "DenoiserViewUB", uniforms )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
                  },
-                 [this, seed = in.TraceSeed, radius = in.ReconstructionRadius, width,
-                  height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [this, seed = in.TraceSeed, radius = in.ReconstructionRadius, factor = in.DownsampleFactor,
+                  width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Denoise: Reflections Reconstruction" );
-                     const glm::vec4 push( static_cast<float>( seed ), static_cast<float>( radius ), 0.0f, 0.0f );
+                     const glm::vec4 push( static_cast<float>( seed ), static_cast<float>( radius ),
+                                           static_cast<float>( factor ), 0.0f );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                      return Renderer::GetInstance().DispatchCompute( bindings, *m_ReconstructPipeline,
                                                                      Groups( width ), Groups( height ), 1 );
                  } );
             return AddTemporalAndConvolution( graph, signal, in.Trace, in.TraceRay, scene, frame, uniforms, width,
-                                              height );
+                                              height, MinSampleCountReflections( in.DownsampleFactor ) );
         }
 
         // UE IScreenSpaceDenoiser::DenoiseDiffuseIndirect. As DenoiseReflections, for diffuse light (the history
@@ -277,7 +282,7 @@ namespace Desert::Graphic::System
                                                                      Groups( width ), Groups( height ), 1 );
                  } );
             return AddTemporalAndConvolution( graph, signal, scene.Black, scene.Black, scene, frame, uniforms,
-                                              width, height );
+                                              width, height, 1.0f );
         }
 
     public:
@@ -329,18 +334,23 @@ namespace Desert::Graphic::System
                                                                      Groups( width ), Groups( height ), 1 );
                  } );
             return AddTemporalAndConvolution( graph, signal, scene.Black, scene.Black, scene, frame, uniforms,
-                                              width, height );
+                                              width, height, 1.0f );
         }
 
         // The view-independent constants of a signal (UE's per-signal TARGETED_SAMPLE_COUNT): the most frames a
-        // pixel's history may hold, and the fewest a reflection's lobe targets - the trace is half resolution,
-        // one pixel of each 2x2 block per frame, so a pixel has its own sample once every four frames.
+        // pixel's history may hold.
         static constexpr float kMaxSampleCountReflections     = 16.0f;
         static constexpr float kMaxSampleCountDiffuseIndirect = 32.0f;
         // UE's shadow-visibility history (TARGETED_SAMPLE_COUNT of the shadow mask): a penumbra follows its
         // occluder, so it holds fewer frames than bounce light.
         static constexpr float kMaxSampleCountShadowVisibility = 8.0f;
-        static constexpr float kMinSampleCountReflections     = 4.0f;
+        // The fewest frames a reflection's lobe targets: a trace of one pixel per factor x factor block (one per
+        // frame, rotating) gives a pixel its own sample once every factor^2 frames - 4 at half resolution, every
+        // frame at full.
+        [[nodiscard]] static constexpr float MinSampleCountReflections( const uint32_t downsampleFactor )
+        {
+            return static_cast<float>( downsampleFactor * downsampleFactor );
+        }
 
         // The formats of the denoiser's images (ViewMemory counts them).
         static constexpr Core::Formats::ImageFormat kSignalFormat      = ViewTargetFormats::kDenoiserSignal;
@@ -459,13 +469,15 @@ namespace Desert::Graphic::System
             return { accumulation, count };
         }
 
-        // @p trace / @p traceRay: the reflections' half-res trace and hit points, from which the temporal pass
+        // @p trace / @p traceRay: the reflections' trace and hit points, from which the temporal pass
         // estimates the distance to the reflected point (diffuse: the black texture - the surface itself).
+        // @p minSampleCount: the fewest frames a reflection's lobe targets (MinSampleCountReflections; 1 for the
+        // other signals, which target MaxSampleCount).
         RDG::TextureRef AddTemporalAndConvolution( RDG::Builder& graph, const RDG::TextureRef signal,
                                                    const RDG::TextureRef trace, const RDG::TextureRef traceRay,
                                                    const DenoiserSceneTextures& scene, const ViewFrame& frame,
                                                    const RDG::BufferRef uniforms, const uint32_t width,
-                                                   const uint32_t height )
+                                                   const uint32_t height, const float minSampleCount )
         {
             const std::string prefix   = SignalName( m_Signal ) + ".History";
             HistorySlot& previous = m_Slots[m_Parity];
@@ -481,10 +493,8 @@ namespace Desert::Graphic::System
                  AcquireSlot( graph, next, width, height, prefix + std::to_string( 1u - m_Parity ) );
             m_Parity = 1u - m_Parity;
 
-            const bool      reflections = m_Signal == DenoiserSignal::Reflections;
             const glm::vec4 temporalPush( readable ? 1.0f : 0.0f, static_cast<float>( m_Signal ),
-                                          MaxSampleCount( m_Signal ),
-                                          reflections ? kMinSampleCountReflections : 1.0f );
+                                          MaxSampleCount( m_Signal ), minSampleCount );
             HistorySlot*    stamped = &next;
             graph.AddPass(
                  "Denoise: Temporal Accumulation", RDG::PassFlags::Compute,

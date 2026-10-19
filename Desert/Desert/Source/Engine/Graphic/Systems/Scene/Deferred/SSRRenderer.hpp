@@ -33,8 +33,9 @@ namespace Desert::Graphic::System
     // lighting composes (DeferredLighting.shader u_SSR).
     //  1) CLASSIFY + TRACE (SSR.shader, compute, one workgroup per kTileSize x kTileSize screen tile): the tile
     //     is marked in the tile mask when any pixel passes the trace's G-buffer gate (sky / too rough -
-    //     Common/SSRGate.glslh), and the same workgroup then traces at HALF resolution (as UE's SSR at its lower
-    //     qualities), from a block pixel that rotates every frame so the temporal accumulation sees all four:
+    //     Common/SSRGate.glslh), and the same workgroup then traces at the resolution Reflections.DownsampleFactor
+    //     names (UE r.Lumen.Reflections.DownsampleFactor): 1 = every pixel; 2 = HALF resolution, from the pixel of
+    //     each 2x2 block that rotates every frame so the temporal accumulation sees all four:
     //     Reflections.RaysPerPixel GGX-VNDF rays per texel, each walked over the closest-depth HZB
     //     (HZBRenderer, Common/HZBTrace.glslh), combined with the ratio estimator (rgb = radiance of the hits,
     //     a = the share of the lobe they answered) and written with the texel's representative hit point + pdf
@@ -42,7 +43,8 @@ namespace Desert::Graphic::System
     //     it was (a moving object is read where it was - no trail): the view's scene colour history
     //     (SceneColorHistoryRenderer, shared with SSGI), which this frame's scene copy refills (UE: the previous
     //     frame's scene colour).
-    //  2) DENOISE (ScreenSpaceDenoiser::DenoiseReflections): reconstruction at full resolution (the ratio
+    //  2) DENOISE (ScreenSpaceDenoiser::DenoiseReflections): reconstruction at full resolution from either trace
+    //     (the ratio
     //     estimator over the neighbouring trace texels, bilateral by depth plane and specular lobe), temporal
     //     accumulation through the reflected point with variance rejection, and the history convolution. The
     //     tile mask lets the reconstruction skip the tiles that reflect nothing.
@@ -197,36 +199,51 @@ namespace Desert::Graphic::System
         }
 
         // The two images the trace writes and the tiled passes read, both transients of this frame's graph
-        // (Builder::CreateTexture): the half-resolution trace and the tile mask (one texel per kTileSize tile).
+        // (Builder::CreateTexture): the trace (one texel per DownsampleFactor x DownsampleFactor pixel block) and the
+        // tile mask (one texel per kTileSize tile).
         struct TraceTargets
         {
             RDG::TextureDesc Trace;
             RDG::TextureDesc TraceRay; // the trace texels' hit points + ray pdfs (SSR.shader u_TraceRay)
             RDG::TextureDesc TileMask;
+            // The factor the targets were sized for: the trace's push (TraceSettings) and the denoiser's
+            // reconstruction (ReflectionsDenoiserInputs) take it from here, so all three agree within a frame.
+            uint32_t DownsampleFactor = 2;
         };
 
+        // The trace resolutions the shaders know (SSR.shader's source pixel, SSDReconstructReflections' block
+        // rotation): every pixel, or one pixel of each 2x2 block. Scalability Reflections.DownsampleFactor's range.
+        [[nodiscard]] static constexpr bool IsSupportedDownsampleFactor( const uint32_t factor )
+        {
+            return factor == 1u || factor == 2u;
+        }
+
         // Called while the frame graph is built, before any pass runs. The trace targets are sized from this
-        // frame's view and kept by no one. Nullopt: nothing to draw.
-        std::optional<TraceTargets> Prepare()
+        // frame's view and @p downsampleFactor (IsSupportedDownsampleFactor; the caller reports any other) and kept
+        // by no one. Nullopt: nothing to draw.
+        std::optional<TraceTargets> Prepare( const uint32_t downsampleFactor )
         {
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target || !m_TracePipeline )
                 return std::nullopt;
             const uint32_t w = target->GetFramebufferWidth();
             const uint32_t h = target->GetFramebufferHeight();
-            if ( w == 0u || h == 0u )
+            if ( w == 0u || h == 0u || !IsSupportedDownsampleFactor( downsampleFactor ) )
                 return std::nullopt;
+            const uint32_t traceW = TraceExtent( w, downsampleFactor );
+            const uint32_t traceH = TraceExtent( h, downsampleFactor );
             return TraceTargets{
-                 .Trace    = RDG::TextureDesc{ .Size   = { .Width = HalfRes( w ), .Height = HalfRes( h ) },
+                 .Trace    = RDG::TextureDesc{ .Size   = { .Width = traceW, .Height = traceH },
                                                .Format = ViewTargetFormats::kSSRTrace },
-                 .TraceRay = RDG::TextureDesc{ .Size   = { .Width = HalfRes( w ), .Height = HalfRes( h ) },
+                 .TraceRay = RDG::TextureDesc{ .Size   = { .Width = traceW, .Height = traceH },
                                                .Format = ViewTargetFormats::kSSRTraceRay },
                  .TileMask = RDG::TextureDesc{ .Size   = { .Width = TileGrid( w ), .Height = TileGrid( h ) },
                                                .Format = ViewTargetFormats::kSSRTileMask },
+                 .DownsampleFactor = downsampleFactor,
             };
         }
 
-        // Pass 1, the "Deferred: SSR" compute node: classify + half-resolution trace, one dispatch (one workgroup
+        // Pass 1, the "Deferred: SSR" compute node: classify + trace, one dispatch (one workgroup
         // per tile), writing @p trace and @p tiles. gbuffer = the camera G-buffer's graph textures (albedo/normal/
         // depth at 0/1/2); sceneHistory = the view's scene colour history, imported (last frame's lit opaque
         // scene); hzb = this frame's closest-depth hierarchy (HZBRenderer); velocity = the view's velocity target
@@ -240,7 +257,9 @@ namespace Desert::Graphic::System
         {
             glm::vec4 CameraPos; // xyz = camera, w = per-frame seed (ray sequence + 2x2 rotation)
             glm::vec4 Params;    // x = rays per texel, y = HZB iterations per ray, z = intensity, w = thickness
-            glm::vec4 Params2;   // x = max ray distance, y = 1 when the scene colour history is last frame's
+            glm::vec4 Params2;   // x = max ray distance, y = 1 when the scene colour history is last frame's,
+                                 // z = mesh SDF trace distance, w = mesh SDF end distance from the camera
+            glm::vec4 Params3;   // x = the trace's downsample factor (TraceTargets::DownsampleFactor), yzw unused
         };
 
         // The trace's uniform block (SSR.shader SSRTraceUB, std140: two mat4), from the ViewFrame once per view
@@ -356,6 +375,8 @@ namespace Desert::Graphic::System
             bool  Traced                       = false;
             float MeshSDFTraceDistance         = 0.0f;
             float MeshSDFEndDistanceFromCamera = 0.0f;
+            // TraceTargets::DownsampleFactor of this frame's targets.
+            uint32_t DownsampleFactor = 2;
         };
         [[nodiscard]] Common::BoolResultStr RecordTrace( const RDG::PassContext& context,
                                                          const glm::vec4& cameraPos, const TraceSettings& settings,
@@ -365,12 +386,7 @@ namespace Desert::Graphic::System
             // Each pass is timed on its own because EnableSSR's default is a budget decision
             // (SceneSettings.hpp), and the whole-pass line cannot say which part to cut.
             DESERT_PROFILE_PASS( "SSR: Classify + Trace" );
-            const TracePush push{
-                 glm::vec4( glm::vec3( cameraPos ), static_cast<float>( seed ) ),
-                 glm::vec4( static_cast<float>( settings.RaysPerPixel ), static_cast<float>( settings.Iterations ),
-                            settings.Intensity, settings.Thickness ),
-                 glm::vec4( settings.MaxDistance, sceneHistoryReadable ? 1.0f : 0.0f,
-                            settings.MeshSDFTraceDistance, settings.MeshSDFEndDistanceFromCamera ) };
+            const TracePush push = MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed );
             ComputePipeline* const pipeline = settings.Traced ? m_TracedPipeline.get() : m_TracePipeline.get();
             if ( pipeline == nullptr )
                 return Common::MakeError( "SSR: the traced reflections' program was not made this frame" );
@@ -392,19 +408,15 @@ namespace Desert::Graphic::System
             DESERT_PROFILE_PASS( "SSR: Hit-lit trace" );
             if ( !m_HitLightingPipeline )
                 return Common::MakeError( "SSR: the hit-lit pipeline was not made this frame" );
-            const TracePush push{
-                 glm::vec4( glm::vec3( cameraPos ), static_cast<float>( seed ) ),
-                 glm::vec4( static_cast<float>( settings.RaysPerPixel ), static_cast<float>( settings.Iterations ),
-                            settings.Intensity, settings.Thickness ),
-                 glm::vec4( settings.MaxDistance, sceneHistoryReadable ? 1.0f : 0.0f,
-                            settings.MeshSDFTraceDistance, settings.MeshSDFEndDistanceFromCamera ) };
+            const TracePush push = MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed );
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-            return Renderer::TraceRays( bindings, *m_HitLightingPipeline, hits, HalfRes( Width() ),
-                                        HalfRes( Height() ) );
+            return Renderer::TraceRays( bindings, *m_HitLightingPipeline, hits,
+                                        TraceExtent( Width(), settings.DownsampleFactor ),
+                                        TraceExtent( Height(), settings.DownsampleFactor ) );
         }
 
-        // GRAPH BUILD: this frame's trace seed (the ray sequence and the 2x2 block rotation), advancing the frame
+        // GRAPH BUILD: this frame's trace seed (the ray sequence and, at factor 2, the 2x2 block rotation), advancing the frame
         // count. Taken once per frame, before the trace and the denoiser's reconstruction are added.
         [[nodiscard]] uint32_t NextTraceSeed()
         {
@@ -420,6 +432,19 @@ namespace Desert::Graphic::System
         }
 
     private:
+        // The push constants of both trace entry points (SSR.shader's compute and its "HitLighting" ray generation).
+        static TracePush MakeTracePush( const glm::vec4& cameraPos, const TraceSettings& settings,
+                                        const bool sceneHistoryReadable, const uint32_t seed )
+        {
+            return TracePush{ glm::vec4( glm::vec3( cameraPos ), static_cast<float>( seed ) ),
+                              glm::vec4( static_cast<float>( settings.RaysPerPixel ),
+                                         static_cast<float>( settings.Iterations ), settings.Intensity,
+                                         settings.Thickness ),
+                              glm::vec4( settings.MaxDistance, sceneHistoryReadable ? 1.0f : 0.0f,
+                                         settings.MeshSDFTraceDistance, settings.MeshSDFEndDistanceFromCamera ),
+                              glm::vec4( static_cast<float>( settings.DownsampleFactor ), 0.0f, 0.0f, 0.0f ) };
+        }
+
         // The traced permutation's reads (SSR.shader DESERT_REFLECTIONS_TRACED), by the names its includes
         // declare.
         static void DeclareTracedReads( RDG::BindingBlockBuilder& block, const TracedReads& traced )
@@ -465,7 +490,7 @@ namespace Desert::Graphic::System
         {
             return ( pixels + kTileSize - 1u ) / kTileSize;
         }
-        // The trace's size: one texel per 2x2 block, rounded up so an odd edge column still has a block.
+        // The view's size in pixels (the trace's is TraceExtent of it).
         [[nodiscard]] uint32_t Width() const
         {
             return m_TargetFramebuffer.lock()->GetFramebufferWidth();
@@ -474,9 +499,11 @@ namespace Desert::Graphic::System
         {
             return m_TargetFramebuffer.lock()->GetFramebufferHeight();
         }
-        static uint32_t HalfRes( uint32_t pixels )
+        // The trace's size along one axis: one texel per @p factor pixels, rounded up so a partial edge block still
+        // has a texel.
+        static uint32_t TraceExtent( const uint32_t pixels, const uint32_t factor )
         {
-            return ( pixels + 1u ) / 2u;
+            return ( pixels + factor - 1u ) / factor;
         }
 
         std::shared_ptr<Shader>               m_TraceShader;

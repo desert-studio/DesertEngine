@@ -141,6 +141,9 @@ namespace Common::Scalability
                "GatherIndirectGI samples)" },
              { P::ReflectionDenoiserRadius, G::Reflections, "Reflections.DenoiserRadius", 1, 3, CL::None,
                "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseReflections (reconstruction kernel)" },
+             { P::ReflectionDownsampleFactor, G::Reflections, "Reflections.DownsampleFactor", 1, 2, CL::None,
+               "SceneRenderer::BeginScene -> SSRRenderer::Prepare (trace resolution) + "
+               "ScreenSpaceDenoiser::DenoiseReflections (2x2 block rotation)" },
              { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
              { P::TextureStreamingPoolMiB, G::Textures, "Textures.StreamingPoolMiB", 256, 16384, CL::None,
                std::nullopt },
