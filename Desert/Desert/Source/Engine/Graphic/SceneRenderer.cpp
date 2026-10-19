@@ -1733,34 +1733,6 @@ namespace Desert::Graphic
         return BOOLSUCCESS;
     }
 
-    // Capability gate of EnsureSSRResources. SSR accumulates into RGBA32F targets that are sampled and blended,
-    // so a device that cannot do that cannot run it.
-    //
-    // IT ASKS ABOUT THE FORMAT IT ACTUALLY USES. This used to read the cached
-    // `DeviceCapabilities::SupportsFloatRenderTargets` bool while the comment above it claimed to "read
-    // the introspection layer (Engine::Device) rather than assuming — the whole point of it". The bool
-    // IS an assumption: VulkanDevice computes it once at init for one hardcoded format
-    // (VK_FORMAT_R32G32B32A32_SFLOAT) against one hardcoded feature set, so every later reader inherits
-    // whichever format the initialiser happened to pick. Reading it here was a comment describing the
-    // code somebody meant to write.
-    //
-    // `Device::IsFormatSupported` is that code, and until now it had no caller anywhere — it stood in
-    // the PureVirtualCensus register, and its own doc comment says "Prefer this over adding another
-    // Supports<Feature> bool", which made the recommended question the one nobody asked. The three bits
-    // below map exactly onto the three VkFormatFeatureFlags the cached bool hardcodes, so the ANSWER is
-    // unchanged today; what changes is that the question now names its format, and a second float target
-    // in another format gets a truthful answer instead of this one's.
-    bool SceneRenderer::HasFloatRenderTargetSupport() const
-    {
-        const auto device = EngineContext::GetInstance().GetDevice();
-        if ( !device )
-            return false;
-        return device->IsFormatSupported( ViewTargetFormats::kSceneColor,
-                                          static_cast<Engine::FormatUsage>( Engine::FormatUsage_Sampled |
-                                                                            Engine::FormatUsage_ColorAttachment |
-                                                                            Engine::FormatUsage_Blendable ) );
-    }
-
     // EnsureSSRResources is LAZY on purpose: every PreviewViewport owns a SceneRenderer, so allocating its
     // full-screen targets eagerly multiplied them (and the system's own ping-pong accumulation pair) by the number
     // of live previews — for a feature a preview never enables. It runs outside any render pass, and goes through
@@ -2007,19 +1979,6 @@ namespace Desert::Graphic
             return true;
         if ( m_SSRResourcesFailed || !m_ViewProfile.ScreenSpaceReflections )
             return false;
-
-        // Same gate as GI: the trace target and the denoiser's history are sampled float targets
-        // (ViewTargetFormats::kSSRTrace / kDenoiserSignal). A device without them refuses the methods that trace
-        // the screen by name, like a program that did not build: the next BeginScene resolves Reflections below
-        // them (MethodLimit::Program) instead of rendering a method whose pass never runs.
-        if ( !HasFloatRenderTargetSupport() )
-        {
-            RefuseProgramMethods( kScreenTraceReflectionMethods, "SSR",
-                                  "the device does not report the float scene colour format as a sampled, "
-                                  "blendable colour attachment" );
-            m_SSRResourcesFailed = true;
-            return false;
-        }
 
         Renderer::GetInstance().WaitDeviceIdle();
 

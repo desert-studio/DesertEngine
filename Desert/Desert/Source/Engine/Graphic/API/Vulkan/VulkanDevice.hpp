@@ -138,8 +138,6 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] Engine::DeviceMemoryReport        QueryMemory() const override;
         [[nodiscard]] virtual std::string               GetName() const override;
         [[nodiscard]] Common::BoolResultStr             PersistPipelineCache() override;
-        [[nodiscard]] bool IsFormatSupported( ::Desert::Core::Formats::ImageFormat format,
-                                              Engine::FormatUsage                  usage ) const override;
 
         const auto& GetPhysicalDevice() const
         {
