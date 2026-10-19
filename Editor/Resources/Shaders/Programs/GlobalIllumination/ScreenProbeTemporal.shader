@@ -2,15 +2,19 @@
 // Ported from UE 5.8 Shaders/Private/Lumen/LumenScreenProbeGatherTemporal.usf ScreenProbeTemporalReprojectionCS
 // (the history weights, NumFramesAccumulated and the 1 / (1 + frames) blend of the diffuse, rough specular and
 // backface diffuse), adapted: the history taps are tested here (Common/ScreenProbeTemporal.glslh, UE's
-// classification pass: depth reprojected by the velocity's depth, the foliage threshold and material test); no
-// fast-update mode (UE's LightIsMoving is the traces' moving fraction, set by the trace passes from the hit's
-// velocity, which they do not produce: REMAINDER-GI-DENOISE); the short-range AO is not accumulated separately
-// (it is already in the integrated diffuse and specular).
+// classification pass: depth reprojected by the velocity's depth, the foliage threshold and material test); the
+// fast-update mode as UE's (:486-500: LightIsMoving - the traces' moving share, ScreenProbeFilter, interpolated by
+// the integrate into the rough specular's alpha - turns into a fast-update amount that caps the frames the history
+// may hold; the amount kept in the new rough specular history's alpha, UE's FastUpdateMode_NumFramesAccumulated)
+// without its neighbourhood clamp (UE r.Lumen.ScreenProbeGather.Temporal.FastUpdateModeUseNeighborhoodClamp,
+// off by default); the short-range AO is not accumulated separately (it is already in the integrated diffuse and
+// specular).
 // THE SCREEN PROBE GATHER, TEMPORAL FILTER: one thread per G-buffer pixel. The integrated lighting of this frame
 // blended with the pixel's reprojected history, by how many frames the history holds: a pixel the history does
 // not hold (disoccluded, off-screen last frame, a cut) restarts at this frame's value and converges in a few
-// frames (1/2, 1/3, ...), a held one keeps up to SP_TEMPORAL_MAX_FRAMES_ACCUMULATED. Writes the view's new history
-// set (SceneViewState ScreenProbeGatherHistory), which the deferred composite reads this frame.
+// frames (1/2, 1/3, ...), a held one keeps up to SP_TEMPORAL_MAX_FRAMES_ACCUMULATED - fewer where the probes'
+// rays hit something moving relative to them (fast update: moving lighting leaves no trail). Writes the view's new
+// history set (SceneViewState ScreenProbeGatherHistory), which the deferred composite reads this frame.
 Shader "ScreenProbeTemporal"
 {
     Compute
@@ -33,10 +37,10 @@ Shader "ScreenProbeTemporal"
         Uniform(3) sampler2D u_GBufferB;
         Uniform(4) sampler2D Velocity;                 // NDC.xyz current - previous (View/Velocity.hpp)
         Uniform(5) sampler2D DiffuseIndirect;          // this frame's integrate
-        Uniform(6) sampler2D RoughSpecularIndirect;
+        Uniform(6) sampler2D RoughSpecularIndirect;    // .a = LightIsMoving (ScreenProbeIntegrate)
         Uniform(7) sampler2D BackfaceDiffuseIndirect;
         Uniform(8) sampler2D DiffuseIndirectHistory;   // the view's previous set
-        Uniform(9) sampler2D RoughSpecularIndirectHistory;
+        Uniform(9) sampler2D RoughSpecularIndirectHistory; // .a = the fast-update amount
         Uniform(10) sampler2D BackfaceDiffuseIndirectHistory;
         Uniform(11) sampler2D HistoryGuide;
         layout(binding = 12, rgba16f) restrict writeonly uniform image2D NewHistoryDiffuseIndirect;
@@ -80,23 +84,36 @@ Shader "ScreenProbeTemporal"
             const float distance = max( length( p - giFrame.camera.xyz ), 1e-3 );
             const bool  foliage  = SPPixelIsFoliage( pixel );
 
-            vec3 diffuse  = texelFetch( DiffuseIndirect, pixel, 0 ).rgb;
-            vec3 specular = texelFetch( RoughSpecularIndirect, pixel, 0 ).rgb;
-            vec3 backface = texelFetch( BackfaceDiffuseIndirect, pixel, 0 ).rgb;
+            vec3        diffuse       = texelFetch( DiffuseIndirect, pixel, 0 ).rgb;
+            const vec4  newSpecular   = texelFetch( RoughSpecularIndirect, pixel, 0 );
+            vec3        specular      = newSpecular.rgb;
+            const float lightIsMoving = newSpecular.a;
+            vec3        backface      = texelFetch( BackfaceDiffuseIndirect, pixel, 0 ).rgb;
 
             const float         noise = TemporalNoise( uvec2( pixel ), screenProbeParams.atlas.y );
             const SPHistoryTaps taps  = SPHistoryReproject( pixel, depth, p, n, foliage, noise );
-            float frames = 0.0;
-            if ( SPHistoryAnyValid( taps ) )
+            float frames         = 0.0;
+            float fastUpdateOut  = 0.0; // UE OutFastUpdateModeAmount: this frame's amount, into the history
+            if ( ( screenProbeParams.atlas.z & SP_FLAG_HISTORY_VALID ) != 0u )
             {
-                frames            = min( SPHistoryFrames( taps ) + 1.0, SP_TEMPORAL_MAX_FRAMES_ACCUMULATED );
-                const float alpha = 1.0 / ( 1.0 + frames );
-                diffuse  = mix( SPHistoryAverage( DiffuseIndirectHistory, taps ).rgb, diffuse, alpha );
-                specular = mix( SPHistoryAverage( RoughSpecularIndirectHistory, taps ).rgb, specular, alpha );
-                backface = mix( SPHistoryAverage( BackfaceDiffuseIndirectHistory, taps ).rgb, backface, alpha );
+                // UE (VALID_HISTORY): this frame's amount from the moving share, held at least at the history's
+                // (it stabilises the amount and keeps propagating around where the moving object was last frame).
+                const vec4 historySpecular = SPHistoryAverage( RoughSpecularIndirectHistory, taps );
+                fastUpdateOut              = SPFastUpdateModeAmount( lightIsMoving );
+                const float fastUpdate =
+                     max( fastUpdateOut, min( historySpecular.a, SP_TEMPORAL_MAX_FAST_UPDATE_MODE_AMOUNT ) );
+                if ( SPHistoryAnyValid( taps ) )
+                {
+                    frames = min( min( SPHistoryFrames( taps ) + 1.0, SP_TEMPORAL_MAX_FRAMES_ACCUMULATED ),
+                                  ( 1.0 - fastUpdate ) * SP_TEMPORAL_MAX_FRAMES_ACCUMULATED );
+                    const float alpha = 1.0 / ( 1.0 + frames );
+                    diffuse  = mix( SPHistoryAverage( DiffuseIndirectHistory, taps ).rgb, diffuse, alpha );
+                    specular = mix( historySpecular.rgb, specular, alpha );
+                    backface = mix( SPHistoryAverage( BackfaceDiffuseIndirectHistory, taps ).rgb, backface, alpha );
+                }
             }
             imageStore( NewHistoryDiffuseIndirect, pixel, vec4( diffuse, distance ) );
-            imageStore( NewHistoryRoughSpecularIndirect, pixel, vec4( specular, 1.0 ) );
+            imageStore( NewHistoryRoughSpecularIndirect, pixel, vec4( specular, fastUpdateOut ) );
             imageStore( NewHistoryBackfaceDiffuseIndirect, pixel, vec4( backface, 1.0 ) );
             imageStore( NewHistoryGuide, pixel, vec4( n, SPPackGuideW( frames, foliage ) ) );
         }

@@ -21,11 +21,15 @@ const int DF_ASSET_STRIDE     = 1 + DF_ASSET_MIP_STRIDE * DF_NUM_MIPS;
 // scale (the box distance, exact under a non-uniform scale), the world box's minimum and maximum corners (xyz, cm;
 // UE FDFObjectBounds - the near field's cull), last the object's flags (UE FDFObjectData's flags) in .x and its
 // instance-table row in .y (both uint bits; the row GDF_OBJECT_GRID_INVALID when the surface cache holds no cards):
-// what the object grid lists and what a near-field hit reads its cards by.
-const int DF_OBJECT_STRIDE = 8;
+// what the object grid lists and what a near-field hit reads its cards by; then three affine rows taking a world
+// point on the object this frame to where it was last frame (previous world x inverse world; UE
+// GetPrevWorldPositionFromGPUSceneInstanceIndex: WorldToLocal then PrevLocalToWorld) - a near-field hit's world
+// velocity (the screen probe trace's moving test).
+const int DF_OBJECT_STRIDE = 11;
 const int DF_OBJECT_ROW_BOUNDS_MIN = 5;
 const int DF_OBJECT_ROW_BOUNDS_MAX = 6;
 const int DF_OBJECT_ROW_FLAGS = 7;
+const int DF_OBJECT_ROW_TO_PREVIOUS_WORLD = 8;
 // Flag bits of DF_OBJECT_ROW_FLAGS' .x: the mesh is mostly two-sided (foliage, UE bMostlyTwoSided).
 const int DF_OBJECT_FLAG_MOSTLY_TWO_SIDED = 1;
 

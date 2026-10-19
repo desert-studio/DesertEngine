@@ -81,6 +81,12 @@ struct GIHit {
     uint  primitive; // triangle within the instance (hardware only; software: 0)
     vec2  barycentrics; // of the triangle (hardware only; software: 0)
     bool  frontFace;
+    // How far, world cm, the hit point moved since last frame (UE FConeTraceResult.WorldVelocity /
+    // CalcPrevTranslatedWorldPositionFromGPUSceneInstanceIndex: the hit object's previous transform), valid when
+    // motionKnown: a hit that knows its object (the mesh SDF near field's). A global-field hit has no object
+    // identity and no motion (UE TraceVoxels writes no moving trace).
+    vec3  velocity;
+    bool  motionKnown;
 };
 
 struct GITraceResult {

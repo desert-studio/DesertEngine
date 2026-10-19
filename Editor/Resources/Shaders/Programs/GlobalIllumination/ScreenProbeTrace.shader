@@ -86,6 +86,10 @@ Shader "ScreenProbeTrace"
         {
             uint screenProbeCompactTexels[]; // probe * SP_RES² + texel
         };
+        ReadBuffer(14) ScreenProbeSpeedUB
+        {
+            float screenProbeSpeed[]; // per probe, world cm per frame (ScreenProbePlace): the moving test
+        };
 
         // 32..42: the tracer's own resources (Common/GITracer.glslh, GI_TRACER_BINDING below).
         Uniform(16) samplerCube u_EnvSpecularTex;
@@ -111,6 +115,14 @@ Shader "ScreenProbeTrace"
         #if !defined( SP_TRACE_NEAR_FIELD ) && !defined( SP_TRACE_FAR_FIELD )
         #define SP_TRACE_FAR_FIELD 1 // the registered default compile (no pass dispatches it)
         #endif
+
+        // UE IsTraceMoving on a world hit: only a hit whose tracer knows its object's motion (GIHit.motionKnown:
+        // the mesh SDF near field) can be moving; a global-field hit is not (UE TraceVoxels writes bMoving false).
+        bool SPTraceHitMoving( uint probe, SPTexelRay texel, GIHit hit )
+        {
+            const float probeDepth = ( giFrame.viewProjection * vec4( texel.position, 1.0 ) ).w;
+            return hit.motionKnown && SPIsTraceMoving( screenProbeSpeed[probe], probeDepth, hit.velocity );
+        }
 
         void main()
         {
@@ -142,17 +154,23 @@ Shader "ScreenProbeTrace"
             if ( near.hit )
             {
                 imageStore( u_ScreenProbeTraced, at, vec4( GIHitRadiance( near.surface, dir ), near.surface.distance ) );
-                screenProbeTraceHit[slot] = SPEncodeTraceHit( near.surface.distance, true, false );
+                screenProbeTraceHit[slot] =
+                     SPEncodeTraceHit( near.surface.distance, true, SPTraceHitMoving( probe, texel, near.surface ), false );
             }
             else
                 screenProbeTraceHit[slot] =
-                     SPEncodeTraceHit( farStart, false, texel.coverage.valid && farStart >= texel.tMax );
+                     SPEncodeTraceHit( farStart, false, false, texel.coverage.valid && farStart >= texel.tMax );
 #else
             // The far field, then the radiance cache's far field, then the sky.
             vec4                result;
-            const GITraceResult far = GITraceFarField( ray );
+            bool                moving = false;
+            const GITraceResult far    = GITraceFarField( ray );
+            bool                hit    = far.hit;
             if ( far.hit )
+            {
                 result = vec4( GIHitRadiance( far.surface, dir ), far.surface.distance );
+                moving = SPTraceHitMoving( probe, texel, far.surface );
+            }
             else
             {
                 const vec4 cache = texel.coverage.valid ? RadianceCacheRadianceAt( origin, N, dir, texel.noise.z )
@@ -167,9 +185,14 @@ Shader "ScreenProbeTrace"
                     const GITraceResult rest = texel.coverage.valid ? GITraceRay( ray ) : far;
                     result = rest.hit ? vec4( GIHitRadiance( rest.surface, dir ), rest.surface.distance )
                                       : vec4( GIMissRadiance( dir ), SP_TRACE_DISTANCE );
+                    hit    = rest.hit;
+                    moving = rest.hit && SPTraceHitMoving( probe, texel, rest.surface );
                 }
             }
             imageStore( u_ScreenProbeTraced, at, result );
+            // The ray's final state (UE TraceVoxels and the far-field ray tracing pass write theirs): the filter
+            // reads its moving bit.
+            screenProbeTraceHit[slot] = SPEncodeTraceHit( result.a, hit, moving, false );
 #endif
         }
     }

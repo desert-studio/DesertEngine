@@ -46,6 +46,11 @@ Shader "ScreenProbeTraceScreen"
         layout(binding = 6, rgba16f) restrict writeonly uniform image2D u_ScreenProbeTraced;
         Uniform(7) sampler2D u_HZB;               // this frame's closest-depth hierarchy (all mips, point)
         Uniform(8) sampler2D u_SceneColorHistory; // last frame's lit opaque scene (SceneColorHistoryRenderer)
+        ReadBuffer(9) ScreenProbeSpeedUB
+        {
+            float screenProbeSpeed[]; // per probe, world cm per frame (ScreenProbePlace)
+        };
+        Uniform(10) sampler2D Velocity; // NDC.xyz current - previous (View/Velocity.hpp): a hit's world motion
 
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
@@ -83,6 +88,7 @@ Shader "ScreenProbeTraceScreen"
             bool  hit;      // radiance holds last frame's lit scene at the hit
             vec3  radiance;
             float distance; // the hit's, or where the next leg starts (0: from the probe)
+            vec3  velocity; // a hit's world motion this frame, cm (UE HitWorldVelocity)
         };
 
         // UE ScreenProbeTraceScreenTexturesCS (LumenScreenProbeTracing.usf:57-370, the HZB-traversal permutation):
@@ -96,6 +102,7 @@ Shader "ScreenProbeTraceScreen"
             result.hit      = false;
             result.radiance = vec3( 0.0 );
             result.distance = 0.0;
+            result.velocity = vec3( 0.0 );
             vec3 originScreen;
             if ( !SPProjectToScreen( origin, originScreen ) || any( lessThan( originScreen.xy, vec2( 0.0 ) ) ) ||
                  any( greaterThan( originScreen.xy, vec2( 1.0 ) ) ) )
@@ -162,6 +169,13 @@ Shader "ScreenProbeTraceScreen"
             result.hit      = true;
             result.radiance = textureLod( u_SceneColorHistory, prevUV, 0.0 ).rgb;
             result.distance = hitDistance;
+            // UE: the hit's position minus where its velocity says it was last frame (GetHistoryScreenPosition at
+            // the hit; TAA jitter included, as UE notes). Only the moving test reads it.
+            const ivec2 velocityTexel = clamp( ivec2( walk.Position.xy * vec2( textureSize( Velocity, 0 ) ) ),
+                                               ivec2( 0 ), textureSize( Velocity, 0 ) - 1 );
+            const vec3 previousNdc = SPPreviousSurfaceNdc( screenProbeParams, walk.Position.xy, surfaceZ,
+                                                           texelFetch( Velocity, velocityTexel, 0 ).xyz );
+            result.velocity = surface - SPPreviousWorldPosition( screenProbeParams, previousNdc );
             return result;
         }
 
@@ -183,14 +197,17 @@ Shader "ScreenProbeTraceScreen"
                 {
                     imageStore( u_ScreenProbeTraced, SPAtlasOrigin( probe, SP_RES ) + ray.texel,
                                 vec4( screen.radiance, screen.distance ) );
-                    screenProbeTraceHit[slot] = SPEncodeTraceHit( screen.distance, true, false );
+                    const float probeDepth = ( giFrame.viewProjection * vec4( ray.position, 1.0 ) ).w;
+                    const bool  moving = SPIsTraceMoving( screenProbeSpeed[probe], probeDepth, screen.velocity );
+                    screenProbeTraceHit[slot] = SPEncodeTraceHit( screen.distance, true, moving, false );
                     return;
                 }
                 distance = min( screen.distance, ray.tMax );
             }
             // The world legs go on from here along the same ray (UE VoxelTraceStartDistance); a ray the screen walked
             // all the way has reached the radiance cache.
-            screenProbeTraceHit[slot] = SPEncodeTraceHit( distance, false, ray.coverage.valid && distance >= ray.tMax );
+            screenProbeTraceHit[slot] =
+                 SPEncodeTraceHit( distance, false, false, ray.coverage.valid && distance >= ray.tMax );
         }
     }
 }

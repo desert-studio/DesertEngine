@@ -72,8 +72,9 @@ namespace Desert::Graphic::DistanceField
         };
         static_assert( sizeof( GdfViewPush ) == 128, "the engine's push block cap" );
         // The object record's rows as AddUpdatePasses writes them: the world box, then the flags last.
-        static_assert( DFShared::DF_OBJECT_STRIDE == 8 && DFShared::DF_OBJECT_ROW_BOUNDS_MIN == 5 &&
-                       DFShared::DF_OBJECT_ROW_BOUNDS_MAX == 6 );
+        static_assert( DFShared::DF_OBJECT_STRIDE == 11 && DFShared::DF_OBJECT_ROW_BOUNDS_MIN == 5 &&
+                       DFShared::DF_OBJECT_ROW_BOUNDS_MAX == 6 && DFShared::DF_OBJECT_ROW_FLAGS == 7 &&
+                       DFShared::DF_OBJECT_ROW_TO_PREVIOUS_WORLD == 8 );
 
         // std430 `struct MeshSDFCullParams` of Common/MeshSDFGrid.glslh.
         struct MeshSDFCullPayload
@@ -365,7 +366,7 @@ namespace Desert::Graphic::DistanceField
         m_Tracked = std::move( current );
 
         // The object buffer: world -> volume rows, the volume extent with the distance scale, the asset record,
-        // the world box, the flags.
+        // the world box, the flags, the world -> previous world rows.
         std::vector<glm::vec4> objectData;
         objectData.reserve( placed.size() * kGdfObjectStride );
         for ( const auto& p : placed )
@@ -399,6 +400,11 @@ namespace Desert::Graphic::DistanceField
             // near-field hit reads its cards by (one record for the composite and the trace).
             objectData.push_back(
                  glm::vec4( std::bit_cast<float>( flags ), std::bit_cast<float>( p.Object->Row ), 0.0f, 0.0f ) );
+            // DF_OBJECT_ROW_TO_PREVIOUS_WORLD: this frame's world point on the object -> where it was last frame.
+            const glm::mat4 toPrevious = glm::transpose( p.Object->PrevWorld * glm::inverse( p.Object->World ) );
+            objectData.push_back( toPrevious[0] );
+            objectData.push_back( toPrevious[1] );
+            objectData.push_back( toPrevious[2] );
         }
 
         FrameField frame;

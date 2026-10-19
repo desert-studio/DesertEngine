@@ -239,6 +239,13 @@ namespace Desert::Graphic::GlobalIllumination
              RDG::BufferDesc{ layout.Probes() * ScreenProbeLayout::kSHCoefficients * 16ull }, "ScreenProbes.SH" );
         const RDG::BufferRef backfaceIrradiance =
              graph.CreateBuffer( RDG::BufferDesc{ layout.Probes() * 16ull }, "ScreenProbes.BackfaceIrradiance" );
+        // The fast update's chain (UE ScreenProbeWorldSpeed -> the trace hit's moving bit -> ScreenProbeMoving ->
+        // LightIsMoving): each probe's world speed (the placement), and the share of its rays that hit something
+        // moving relative to it (the filter, from the trace hit buffer).
+        const RDG::BufferRef speed = graph.CreateBuffer(
+             RDG::BufferDesc{ layout.Probes() * static_cast<uint64_t>( sizeof( float ) ) }, "ScreenProbes.Speed" );
+        const RDG::BufferRef moving = graph.CreateBuffer(
+             RDG::BufferDesc{ layout.Probes() * static_cast<uint64_t>( sizeof( float ) ) }, "ScreenProbes.Moving" );
 
         constexpr RDG::Access kW   = RDG::Access::StorageWrite;
         constexpr RDG::Access kR   = RDG::Access::StorageRead;
@@ -268,6 +275,8 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "ScreenProbeIndexUB", index, kW )
                           .Storage( "ScreenProbesUB", probes, kW )
                           .Storage( "GIFrameUB", inputs.GIFrame, kR )
+                          .Storage( "ScreenProbeSpeedUB", speed, kW )
+                          .Sampled( "Velocity", inputs.Velocity, kS, all, RDG::SamplerDesc::PointClamp() )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( uint32_t ) ) );
                      gbuf( block );
                  },
@@ -329,7 +338,9 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "u_ScreenProbeTraced", traced, kW )
                           .Sampled( "u_HZB", inputs.HZB, kS, all, RDG::SamplerDesc::PointClamp() )
                           .Sampled( "u_SceneColorHistory", inputs.SceneColorHistory, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() );
+                                    RDG::SamplerDesc::LinearClamp() )
+                          .Storage( "ScreenProbeSpeedUB", speed, kR )
+                          .Sampled( "Velocity", inputs.Velocity, kS, all, RDG::SamplerDesc::PointClamp() );
                  },
                  [pipeline, probeGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -402,9 +413,10 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "RadianceCacheParamsUB", inputs.RadianceCache.Params, kR )
                           .Storage( "RadianceCacheIndirectionUB", inputs.RadianceCache.Indirection, kR )
                           .Storage( "RadianceCacheProbesUB", inputs.RadianceCache.Probes, kR )
-                          .Storage( "ScreenProbeTraceHitUB", traceHit, program == TraceNearField ? kW : kR )
+                          .Storage( "ScreenProbeTraceHitUB", traceHit, kW )
                           .Storage( "ScreenProbeCompactAllocatorUB", list.Allocator, kR )
-                          .Storage( "ScreenProbeCompactTexelsUB", list.Texels, kR );
+                          .Storage( "ScreenProbeCompactTexelsUB", list.Texels, kR )
+                          .Storage( "ScreenProbeSpeedUB", speed, kR );
                      DeclareTracerReads( block, inputs.Tracer );
                      if ( readsCards )
                          DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
@@ -518,6 +530,8 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "u_ScreenProbeFiltered", filtered, kW )
                           .Storage( "ScreenProbeSHUB", sh, kW )
                           .Storage( "ScreenProbeBackfaceUB", backfaceIrradiance, kW )
+                          .Storage( "ScreenProbeTraceHitUB", traceHit, kR )
+                          .Storage( "ScreenProbeMovingUB", moving, kW )
                           .Storage( "RadianceCacheParamsUB", inputs.RadianceCache.Params, kR )
                           .Storage( "RadianceCacheIndirectionUB", inputs.RadianceCache.Indirection, kR )
                           .Storage( "RadianceCacheProbesUB", inputs.RadianceCache.Probes, kR )
@@ -551,6 +565,7 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "u_ScreenProbeSpecularOut", specular, kW )
                           .Storage( "ScreenProbeBackfaceUB", backfaceIrradiance, kR )
                           .Storage( "u_ScreenProbeBackfaceOut", backface, kW )
+                          .Storage( "ScreenProbeMovingUB", moving, kR )
                           // A pixel no screen probe holds reads the world radiance cache in place.
                           .Storage( "RadianceCacheParamsUB", inputs.RadianceCache.Params, kR )
                           .Storage( "RadianceCacheIndirectionUB", inputs.RadianceCache.Indirection, kR )

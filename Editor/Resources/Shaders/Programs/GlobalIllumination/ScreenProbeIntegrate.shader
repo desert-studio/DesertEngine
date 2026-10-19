@@ -84,6 +84,10 @@ Shader "ScreenProbeIntegrate"
         };
         layout(binding = 19, rgba16f) restrict writeonly uniform image2D u_ScreenProbeBackfaceOut;
         Uniform(20) sampler2D u_ShortRangeAO; // xyz = bent normal, w = AO (ScreenProbeShortRangeAO)
+        ReadBuffer(21) ScreenProbeMovingUB
+        {
+            float screenProbeMoving[]; // per probe, the share of its rays that are moving (ScreenProbeFilter)
+        };
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
@@ -228,6 +232,10 @@ Shader "ScreenProbeIntegrate"
             vec3  diffuse  = vec3( 0.0 );
             vec3  specular = vec3( 0.0 );
             vec3  backface = vec3( 0.0 );
+            // UE LightIsMoving (LumenScreenProbeGather.usf:1450-1454): the held probes' moving shares under the
+            // diffuse's weights; 0 where no probe holds the pixel (UE: lighting not valid). It rides in the rough
+            // specular's alpha, which nothing else reads, to the temporal filter's fast update.
+            float lightIsMoving = 0.0;
             // The probes that hold the pixel and their weights: the diffuse reads every one, each GGX sample one of
             // them picked by weight (UE r.Lumen.ScreenProbeGather.StochasticInterpolation) - four radiance fetches a
             // pixel instead of four per probe (Bistro's backlit crown: 7.1 ms of integrate, then a GPU watchdog).
@@ -241,6 +249,10 @@ Shader "ScreenProbeIntegrate"
                     if ( heldW[i] > 0.0 )
                         diffuse += heldW[i] * ProbeIrradiance( heldId[i], bent );
                 diffuse *= ao / total;
+                for ( int i = 0; i < 4; ++i )
+                    if ( heldW[i] > 0.0 )
+                        lightIsMoving += heldW[i] * screenProbeMoving[heldId[i]];
+                lightIsMoving /= total;
                 float backTotal = 0.0;
                 for ( int i = 0; i < 4; ++i )
                     if ( heldW[i] > 0.0 )
@@ -289,7 +301,7 @@ Shader "ScreenProbeIntegrate"
             }
 
             imageStore( u_ScreenProbeDiffuseOut, pixel, vec4( diffuse, distance ) );
-            imageStore( u_ScreenProbeSpecularOut, pixel, vec4( specular, 1.0 ) );
+            imageStore( u_ScreenProbeSpecularOut, pixel, vec4( specular, lightIsMoving ) );
             imageStore( u_ScreenProbeBackfaceOut, pixel, vec4( backface, 1.0 ) );
         }
     }

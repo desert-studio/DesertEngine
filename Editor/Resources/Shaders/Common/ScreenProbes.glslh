@@ -47,6 +47,23 @@ struct ScreenProbeParams {
                               // w = the probes' jitter in pixels (x | y << 16)
 };
 
+// UE GetHistoryScreenPosition: where the surface seen at @p uv (top-left) with @p deviceDepth sat last frame, as
+// last frame's unjittered NDC.xyz - its unjittered NDC minus the velocity (NDC.xyz current - previous,
+// View/Velocity.hpp), in xy and in device depth (UE VELOCITY_ENCODE_DEPTH).
+vec3 SPPreviousSurfaceNdc( ScreenProbeParams params, vec2 uv, float deviceDepth, vec3 velocity )
+{
+    const vec2 ndc = vec2( uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0 );
+    return vec3( ndc - params.jitter.xy - velocity.xy, deviceDepth - velocity.z );
+}
+
+// UE GetPrevTranslatedWorldPosition: the world position, cm, of last frame's NDC.xyz @p previousNdc
+// (SPPreviousSurfaceNdc). A surface's world velocity is its position minus this one.
+vec3 SPPreviousWorldPosition( ScreenProbeParams params, vec3 previousNdc )
+{
+    const vec4 world = params.prevInvViewProjection * vec4( previousNdc, 1.0 );
+    return world.xyz / world.w;
+}
+
 // ScreenProbeParams.atlas.z — must match GlobalIllumination::kScreenProbe* (ScreenProbeGather.hpp).
 #define SP_FLAG_HISTORY_VALID  1u // the temporal filter's history set is this view's previous frame
 #define SP_FLAG_SHORT_RANGE_AO 2u // the ShortRangeAO pass ran this frame: the integrate reads its bent normal + AO

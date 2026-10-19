@@ -8,10 +8,10 @@
 // Shaders/Private/Lumen/LumenScreenProbeGatherTemporal.ush (the weighted average of the kept taps), adapted: the
 // taps are tested where they are read (UE packs their validity into PackedPixelData in a classification pass);
 // the history keeps the distance to its camera in DiffuseIndirectHistory.a (the view's depth history: UE
-// DepthHistoryTexture holds scene depth, this the distance, which the plane of a grazing wall does not foreshorten)
-// and the normal + frames + foliage flag in HistoryGuide (UE NormalAndShadingInfoHistory and
-// FastUpdateMode_NumFramesAccumulated); the surface's position of last frame is the inverse previous
-// view-projection of its previous NDC.xyz (the velocity carries the device depth's change, UE
+// DepthHistoryTexture holds scene depth, this the distance, which the plane of a grazing wall does not foreshorten),
+// the normal + frames + foliage flag in HistoryGuide (UE NormalAndShadingInfoHistory and the frames of
+// FastUpdateMode_NumFramesAccumulated) and the fast-update amount in RoughSpecularIndirectHistory.a; the surface's
+// position of last frame is the inverse previous view-projection of its previous NDC.xyz (the velocity carries the device depth's change, UE
 // VELOCITY_ENCODE_DEPTH), so a surface moving toward or away from the camera keeps its history.
 // The constants are for every pass of the gather's denoiser; the functions need SCREEN_PROBE_HISTORY_DECLARED,
 // defined by ScreenProbeDisocclusion and ScreenProbeTemporal after they declare screenProbeParams, giFrame,
@@ -31,6 +31,21 @@
 // holds fewer frames is disoccluded; a probe whose tile has more than that fraction of them filters harder.
 #define SP_DISOCCLUSION_MAX_FRAMES 4.0
 #define SP_DISOCCLUSION_FRACTION 0.4
+// UE r.Lumen.ScreenProbeGather.Temporal.FractionOfLightingMovingForFastUpdateMode and MaxFastUpdateModeAmount: the
+// share of moving rays at which the history goes fully fast, and the most of it the fast update may drop (the
+// history always keeps (1 - this) x SP_TEMPORAL_MAX_FRAMES_ACCUMULATED frames' worth).
+#define SP_TEMPORAL_FRACTION_OF_LIGHTING_MOVING_FOR_FAST_UPDATE_MODE 0.1
+#define SP_TEMPORAL_MAX_FAST_UPDATE_MODE_AMOUNT 0.9
+
+// UE LumenScreenProbeGatherTemporal.usf:488-489: the fast-update amount of a pixel whose LightIsMoving (the probes'
+// moving share, ScreenProbeIntegrate) is @p lightIsMoving - nothing below a fifth of the fraction, then linear.
+float SPFastUpdateModeAmount( float lightIsMoving )
+{
+    const float amount =
+         clamp( lightIsMoving / SP_TEMPORAL_FRACTION_OF_LIGHTING_MOVING_FOR_FAST_UPDATE_MODE, 0.0, 1.0 );
+    return clamp( min( ( amount - 0.2 ) / 0.8, SP_TEMPORAL_MAX_FAST_UPDATE_MODE_AMOUNT ), 0.0, 1.0 );
+}
+
 // HistoryGuide.w = frames accumulated (<= SP_TEMPORAL_MAX_FRAMES_ACCUMULATED) + this for a foliage pixel: both
 // exact in RGBA16F (UE packs its foliage bit with the shading info, its frames with the fast-update amount).
 #define SP_HISTORY_GUIDE_FOLIAGE 16.0
@@ -83,9 +98,8 @@ SPHistoryTaps SPHistoryReproject( ivec2 pixel, float deviceDepth, vec3 p, vec3 n
     // rasterised with last frame's jitter.
     const vec2 extent      = giFrame.screen.xy;
     const vec2 uv          = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
-    const vec2 ndc         = vec2( uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0 );
-    const vec4 velocity    = texelFetch( Velocity, pixel, 0 );
-    const vec3 prevSurface = vec3( ndc - screenProbeParams.jitter.xy - velocity.xy, deviceDepth - velocity.z );
+    const vec3 prevSurface =
+         SPPreviousSurfaceNdc( screenProbeParams, uv, deviceDepth, texelFetch( Velocity, pixel, 0 ).xyz );
     const vec2 prevNdc     = prevSurface.xy + screenProbeParams.jitter.zw;
     const vec2 prevPixel   = vec2( prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * 0.5 ) * extent - 0.5;
     taps.origin            = ivec2( floor( prevPixel ) );
@@ -94,8 +108,8 @@ SPHistoryTaps SPHistoryReproject( ivec2 pixel, float deviceDepth, vec3 p, vec3 n
 
     // UE ReprojectedSceneDepth: where the surface was last frame, as last frame's camera saw it - the value the
     // history holds for it when it is the same surface, moving or not.
-    const vec4  prevWorld = screenProbeParams.prevInvViewProjection * vec4( prevSurface, 1.0 );
-    const float expected  = length( prevWorld.xyz / prevWorld.w - screenProbeParams.prevCamera.xyz );
+    const float expected =
+         length( SPPreviousWorldPosition( screenProbeParams, prevSurface ) - screenProbeParams.prevCamera.xyz );
     const float noV       = clamp( dot( n, normalize( giFrame.camera.xyz - p ) ), 0.0, 1.0 );
     const float relative  = foliage ? SP_TEMPORAL_DISTANCE_THRESHOLD_FOR_FOLIAGE : SP_TEMPORAL_DISTANCE_THRESHOLD;
     const float threshold = expected * relative * mix( 0.5, 1.5, noise ) / mix( 0.1, 1.0, noV );

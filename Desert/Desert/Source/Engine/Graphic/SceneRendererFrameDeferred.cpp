@@ -768,25 +768,35 @@ namespace Desert::Graphic
         // One object per volume of the mesh's field, each owning the whole field (an aliasing pointer: the
         // volume lives as long as the field it belongs to). A mesh whose field is still being derived (the
         // asynchronous queue) is not in it yet.
+        // Each object also carries where the view drew it last frame (UE: the instance's PrevLocalToWorld, which
+        // a near-field hit's velocity reads): a static draw's motion row (BuildObjectMotions ran before any pass);
+        // an instanced batch's instances have no motion record of their own and did not move.
         const auto place = [&objects, &rows]( const void*                                                 mesh,
                                               const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
-                                              const glm::mat4& world, const bool mostlyTwoSided )
+                                              const glm::mat4& world, const glm::mat4& prevWorld,
+                                              const bool mostlyTwoSided )
         {
             const auto     it  = rows.find( SurfaceCache::SurfaceCacheScene::PlacementKey( mesh, world ) );
             const uint32_t row = it != rows.end() ? it->second : DistanceField::kNoObjectGridRow;
             for ( const Assets::MeshDistanceFieldVolume& volume : field->Volumes )
-                objects.push_back( { std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ),
-                                     world, row, mostlyTwoSided } );
+                objects.push_back( DistanceField::GlobalDistanceFieldObject{
+                     .Field = std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ),
+                     .World = world,
+                     .PrevWorld      = prevWorld,
+                     .Row            = row,
+                     .MostlyTwoSided = mostlyTwoSided } );
         };
+        const auto& motionRows = meshRenderer->GetObjectMotionRows().Rows;
         for ( const auto& draw : meshRenderer->GetStaticQueue() )
             if ( draw.Mesh != nullptr )
                 if ( const auto field = draw.Mesh->GetDistanceField() )
-                    place( draw.Mesh, field, draw.Transform, draw.Mesh->IsDistanceFieldMostlyTwoSided() );
+                    place( draw.Mesh, field, draw.Transform, motionRows[draw.MotionRow].PrevWorld,
+                           draw.Mesh->IsDistanceFieldMostlyTwoSided() );
         for ( const auto& ism : meshRenderer->GetInstancedQueue() )
             if ( ism.Mesh != nullptr && ism.Transforms )
                 if ( const auto field = ism.Mesh->GetDistanceField() )
                     for ( const glm::mat4& world : *ism.Transforms )
-                        place( ism.Mesh, field, world, ism.Mesh->IsDistanceFieldMostlyTwoSided() );
+                        place( ism.Mesh, field, world, world, ism.Mesh->IsDistanceFieldMostlyTwoSided() );
 
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };

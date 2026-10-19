@@ -516,6 +516,12 @@ namespace Desert::Graphic::System
         {
             return m_StaticQueue;
         }
+        // This frame's motion rows (BuildObjectMotions), indexed by a queued record's MotionRow: the CPU readers
+        // of a primitive's previous world (the global distance field's objects).
+        [[nodiscard]] const ObjectMotionRows& GetObjectMotionRows() const
+        {
+            return m_ScratchMotionRows;
+        }
         [[nodiscard]] const std::vector<InstancedMeshRenderData>& GetInstancedQueue() const
         {
             return m_InstancedQueue;

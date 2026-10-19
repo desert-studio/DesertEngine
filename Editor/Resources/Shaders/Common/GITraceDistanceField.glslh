@@ -190,6 +190,14 @@ GITraceResult GITraceNearField( GITraceInput ray, out float farStart )
             result.surface.barycentrics = vec2( 0.0 );
             result.surface.normal       = normal;
             result.surface.frontFace    = dot( normal, ray.direction ) < 0.0;
+            // The hit object's world -> previous world rows (UE CalculateMeshSDFDerivedData, bCalculateHitVelocity).
+            const uint motionBase = hitObject * uint( DF_OBJECT_STRIDE ) + uint( DF_OBJECT_ROW_TO_PREVIOUS_WORLD );
+            const vec4 hitAt      = vec4( result.surface.position, 1.0 );
+            const vec3 previous   = vec3( dot( u_DFObjects[motionBase + 0u], hitAt ),
+                                          dot( u_DFObjects[motionBase + 1u], hitAt ),
+                                          dot( u_DFObjects[motionBase + 2u], hitAt ) );
+            result.surface.velocity    = result.surface.position - previous;
+            result.surface.motionKnown = true;
             farStart                    = tHit;
             return result;
         }
@@ -230,6 +238,8 @@ GITraceResult GITraceFarField( GITraceInput ray )
     result.surface.barycentrics  = vec2( 0.0 );
     result.surface.frontFace     = true;
     result.surface.normal        = -ray.direction;
+    result.surface.velocity      = vec3( 0.0 );
+    result.surface.motionKnown   = false;
     const int level = march.Level >= 0 ? march.Level : GlobalDistanceFieldLevelAt( result.surface.position, GI_TRACE_GDF_LEVELS );
     if ( level >= 0 )
     {

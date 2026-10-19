@@ -6,7 +6,9 @@
 // ray from its probe, its texel and the frame, and hand one another the ray's state in the TRACE HIT buffer: one uint
 // per traced texel (probe * SP_RES² + texel), UE's EncodeProbeRayDistance - the distance the ray has been answered to
 // (a hit's, or how far the legs so far found nothing), bit 0 = a hit (its radiance is in ScreenProbes.Traced), bit
-// 31 = the ray reached the radiance cache's coverage (only the far field's cache and sky are left).
+// 1 = the hit is MOVING relative to the probe (UE IsTraceMoving: the filter's per-probe moving fraction drives the
+// temporal filter's fast update), bit 31 = the ray reached the radiance cache's coverage (only the far field's
+// cache and sky are left).
 //
 // Needs Common/ScreenProbes.glslh read (SCREEN_PROBES_DECLARED: screenProbeParams, screenProbeIndex, screenProbes).
 // The texel's ray (SPMakeTexelRay) is defined when Common/RadianceCache.glslh was included before, with
@@ -16,17 +18,37 @@
 #define SP_TRACE_DISTANCE 20000.0
 
 #define SP_TRACE_HIT_BIT     0x00000001u
+#define SP_TRACE_MOVING_BIT  0x00000002u
 #define SP_TRACE_REACHED_BIT 0x80000000u
 
-uint SPEncodeTraceHit( float distance, bool hit, bool reachedCache )
+// UE r.Lumen.ScreenProbeGather.Temporal.RelativeSpeedDifferenceToConsiderLightingMoving: the difference between the
+// probe's world speed and its hit's, per cm of the probe's scene depth, above which the ray's lighting is moving.
+#define SP_RELATIVE_SPEED_DIFFERENCE_TO_CONSIDER_LIGHTING_MOVING 0.005
+
+// UE EncodeProbeRayDistance (LumenScreenProbeCommon.ush): the same bits.
+uint SPEncodeTraceHit( float distance, bool hit, bool moving, bool reachedCache )
 {
     return ( floatBitsToUint( max( distance, 0.0 ) ) & 0x7FFFFFFCu ) | ( hit ? SP_TRACE_HIT_BIT : 0u ) |
-           ( reachedCache ? SP_TRACE_REACHED_BIT : 0u );
+           ( moving ? SP_TRACE_MOVING_BIT : 0u ) | ( reachedCache ? SP_TRACE_REACHED_BIT : 0u );
 }
 
 float SPTraceHitDistance( uint encoded )
 {
     return uintBitsToFloat( encoded & 0x7FFFFFFCu );
+}
+
+bool SPTraceMoving( uint encoded )
+{
+    return ( encoded & SP_TRACE_MOVING_BIT ) != 0u;
+}
+
+// UE IsTraceMoving (LumenScreenProbeTracingCommon.ush:28, its VELOCITY_IS_ACCURATE 0 form): the ray's hit moved
+// differently from the probe - @p probeSpeed is the probe's world speed (cm per frame, ScreenProbePlace's
+// ScreenProbes.Speed), @p probeSceneDepth its view depth (cm), @p hitVelocity the hit's world motion this frame.
+bool SPIsTraceMoving( float probeSpeed, float probeSceneDepth, vec3 hitVelocity )
+{
+    return abs( probeSpeed - length( hitVelocity ) ) / max( probeSceneDepth, 100.0 ) >
+           SP_RELATIVE_SPEED_DIFFERENCE_TO_CONSIDER_LIGHTING_MOVING;
 }
 
 // Whether @p probe holds a probe this frame (the uniform ones, then as many adaptive ones as were placed).

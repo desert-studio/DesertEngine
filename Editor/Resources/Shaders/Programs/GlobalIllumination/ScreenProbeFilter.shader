@@ -11,7 +11,12 @@
 //             two-sided leaf lets through (UE r.Lumen.ScreenProbeGather.TwoSidedFoliageBackfaceDiffuse, which
 //             evaluates the full-sphere probe at -N). This probe is a hemisphere around +N and holds nothing behind
 //             it, so the back hemisphere is read from the world radiance cache, the full-sphere probes its own rays
-//             end in (RadianceCacheIrradianceAt at -N, DDGI-visibility weighted): one read per probe.
+//             end in (RadianceCacheIrradianceAt at -N, DDGI-visibility weighted): one read per probe;
+//   moving    the share of the probe's traced rays whose hit moved relative to it (the trace hit buffer's moving
+//             bit, Common/ScreenProbeTracing.glslh): UE ScreenProbeTraceMoving accumulated in the composite and
+//             averaged per probe by ScreenProbeCalculateMovingCS (LumenScreenProbeFiltering.usf:126-154,
+//             1003-1075) - one pass here, since every traced texel is one ray of equal weight (no importance
+//             sampling). The integrate interpolates it per pixel, the temporal filter's fast update reads it.
 Shader "ScreenProbeFilter"
 {
     Compute
@@ -62,8 +67,17 @@ Shader "ScreenProbeFilter"
         {
             vec4 screenProbeBackface[]; // rgb = irradiance / pi from -N, a = 1 when the cache answered
         };
+        ReadBuffer(13) ScreenProbeTraceHitUB
+        {
+            uint screenProbeTraceHit[]; // per traced texel (Common/ScreenProbeTracing.glslh)
+        };
+        WriteBuffer(14) ScreenProbeMovingUB
+        {
+            float screenProbeMoving[]; // per probe, the share of its rays that are moving (UE ScreenProbeMoving)
+        };
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
+        #include <Common/ScreenProbeTracing.glslh>
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #include <Common/RadianceCache.glslh>
@@ -71,6 +85,7 @@ Shader "ScreenProbeFilter"
         shared vec3  s_Radiance[SP_RES * SP_RES];
         shared vec3  s_Direction[SP_RES * SP_RES];
         shared float s_SolidAngle[SP_RES * SP_RES];
+        shared float s_Moving[SP_RES * SP_RES];
 
         vec3 TexelDirection( mat3 frame, vec2 texel )
         {
@@ -104,6 +119,7 @@ Shader "ScreenProbeFilter"
             s_Radiance[texel]   = radiance;
             s_Direction[texel]  = dir;
             s_SolidAngle[texel] = 0.5 * ( length( cross( c10 - c00, c01 - c00 ) ) + length( cross( c10 - c11, c01 - c11 ) ) );
+            s_Moving[texel]     = SPTraceMoving( screenProbeTraceHit[probe * SP_RES * SP_RES + texel] ) ? 1.0 : 0.0;
 
             // ---- The filtered radiance with its border.
             const ivec2 tileOrigin = SPAtlasOrigin( probe, SP_TILE ) + 1;
@@ -148,6 +164,14 @@ Shader "ScreenProbeFilter"
                 const vec3  v        = toCamera / max( length( toCamera ), 1e-3 );
                 const vec4  cache    = RadianceCacheIrradianceAt( p, -state.normal.xyz, v, 0.5 );
                 screenProbeBackface[probe] = cache.a > 0.0 ? vec4( cache.rgb, 1.0 ) : vec4( 0.0 );
+            }
+            // ---- Moving: one thread.
+            else if ( texel == 10u )
+            {
+                float moving = 0.0;
+                for ( uint i = 0u; i < SP_RES * SP_RES; ++i )
+                    moving += s_Moving[i];
+                screenProbeMoving[probe] = moving / float( SP_RES * SP_RES );
             }
         }
     }
