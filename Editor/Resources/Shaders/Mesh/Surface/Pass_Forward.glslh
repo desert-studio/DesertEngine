@@ -124,15 +124,32 @@ layout( binding = 21 ) uniform CloudShadowUB
 // dispatch the registry generates. This pass names no model.
 #include <Generated/ShadingModels.glslh>
 
+#ifdef DESERT_SURFACE_PARALLAX
+// The Pixel Depth Offset only moves the fragment away from the eye: a smaller depth in this reverse-Z view.
+layout( depth_less ) out float gl_FragDepth;
+#endif
+
 void main()
 {
     // First, before any debug view returns early: a debug colour is still the same surface at the same depth.
     oVelocity = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip );
-    const SurfaceInput i =
+    SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
                               v_Surface.VertexColor, gl_FrontFacing );
     DESERT_SURFACE_CLIP( i );
     const SurfaceOutput s = EvaluateSurface( i );
+#ifdef DESERT_SURFACE_PARALLAX
+    // The relief's depth and motion (SurfaceParallax.glslh), and the point it lights: the moved one, so its cascade
+    // lookup, contact shadows and light-grid cell are the relief's, as the deferred composite's reconstruction is.
+    {
+        gl_FragDepth  = DesertPixelDepthOffsetDepth( i, s );
+        vec4 clip     = v_Surface.Clip;
+        vec4 prevClip = v_Surface.PrevClip;
+        DesertPixelDepthOffsetVelocity( i, s, clip, prevClip );
+        oVelocity       = DesertVelocity( clip, prevClip );
+        i.WorldPosition = DesertPixelDepthOffsetPosition( i, s );
+    }
+#endif
 
     const vec3 N = DesertSurfaceWorldNormal( i, s );
 
@@ -164,6 +181,8 @@ void main()
          sunVisibility * ContactShadowFactor( i.WorldPosition, N, sunDir, u_SunContactShadow, subsurfaceOpacity );
     if ( s.ReceiveSunShadows < 0.5 )
         shadow = 1.0;
+    // The relief's own shadow (SurfaceParallax.glslh) is the surface's geometry, not a receiver toggle: always applied.
+    shadow *= s.SunSelfShadow;
     shadow *= CloudShadowFactor( i.WorldPosition );
 
     vec3 light = vec3( 0.0 );

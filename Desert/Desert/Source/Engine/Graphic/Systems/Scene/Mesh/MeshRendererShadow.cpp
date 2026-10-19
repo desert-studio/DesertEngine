@@ -397,7 +397,10 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::IsMaskedSurface( const DataDrivenMaterial* material )
     {
-        return material != nullptr && ShadowCasterCellFor( material->GetSchema().Blend ) == ShadowCasterCell::Own;
+        // Own caster cell: a Masked surface (its holes) or a `.Parallax` one (its relief's depth).
+        return material != nullptr &&
+               ShadowCasterCellFor( material->GetSchema().Blend, IsParallaxCell( material->GetShaderName() ) ) ==
+                    ShadowCasterCell::Own;
     }
 
     MeshRenderer::SectionShading MeshRenderer::ShadingOf( const StaticMeshRenderData& data )
@@ -627,7 +630,7 @@ namespace Desert::Graphic::System
         // Shadow vert computes Projection*View*Transform; feed the combined cascade matrix as
         // Projection and identity as View, matching u_LightViewProj[c] on the lit side.
         m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                                             m_CascadeCasterBias[c] );
+                                             m_CascadeCasterBias[c], m_ParallaxQuality );
         const MaterialExecutor* casterExecutor = m_ShadowMaterial[c]->GetMaterialExecutor();
         // The pipelines of the view's caster cells: the cascades' and local views' depth attachment, or the
         // virtual shadow map's attachment-less pool raster (IsVirtualShadowView).
@@ -944,7 +947,7 @@ namespace Desert::Graphic::System
         {
             auto* skinMat = m_ShadowSkinnedMaterial[c].get();
             skinMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                                     m_CascadeCasterBias[c] );
+                                     m_CascadeCasterBias[c], m_ParallaxQuality );
 
             auto& skinBones = m_ScratchBones;
             skinBones.clear();
@@ -1035,7 +1038,7 @@ namespace Desert::Graphic::System
         {
             auto* instMat = m_ShadowInstancedMaterial[c].get();
             instMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                                     m_CascadeCasterBias[c] );
+                                     m_CascadeCasterBias[c], m_ParallaxQuality );
             if ( auto* sb = instMat->Get<StorageBufferProperty>( "InstanceTransforms" ) )
                 sb->SetRawData( instTransforms.data(),
                                 static_cast<uint32_t>( instTransforms.size() * sizeof( glm::mat4 ) ) );
@@ -1063,7 +1066,7 @@ namespace Desert::Graphic::System
         {
             auto& set = *m_ScratchMaskedSets[i];
             WriteLightCamera( *set.Caster, glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[c] );
+                              m_CascadeCasterBias[c], m_ParallaxQuality );
             if ( auto* sb = set.Caster->Get<StorageBufferProperty>( "Materials" ) )
             {
                 sb->SetRawData( set.Rows.data(), static_cast<uint32_t>( set.Rows.size() * sizeof( glm::vec4 ) ) );

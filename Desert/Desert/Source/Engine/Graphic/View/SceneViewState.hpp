@@ -93,6 +93,9 @@ namespace Desert::Graphic
         TemporalAAQuality                     Quality  = TemporalAAQuality::Medium;
 
         double TimeSeconds = 0.0; // the view's clock (scene time; paused scene -> unchanged -> DeltaSeconds 0)
+
+        ParallaxQuality Parallax;                   // ResolvedQuality Shading.Parallax*Steps
+        glm::vec3       SunDirection{ 0.0f };       // toward the scene's directional light; zero = none
     };
 
     // ---- Previous per-object data -------------------------------------------------------------------------

@@ -134,7 +134,13 @@ TEST( CameraUBLayout, CppStructHasTheStd140OffsetsOfTheGlslBlock )
          { "MaterialMipBias", offsetof( Camera, MaterialMipBias ) },
          { "ShadowSlopeBias", offsetof( Camera, ShadowSlopeBias ) },
          { "ShadowSlopeClamp", offsetof( Camera, ShadowSlopeClamp ) },
+         { "ParallaxMinSteps", offsetof( Camera, ParallaxMinSteps ) },
+         { "SunDirection", offsetof( Camera, SunDirection ) },
+         { "ParallaxMaxSteps", offsetof( Camera, ParallaxMaxSteps ) },
+         { "ParallaxShadowSteps", offsetof( Camera, ParallaxShadowSteps ) },
          { "CameraPad0", offsetof( Camera, Pad0 ) },
+         { "CameraPad1", offsetof( Camera, Pad1 ) },
+         { "CameraPad2", offsetof( Camera, Pad2 ) },
     };
 
     ASSERT_EQ( block.Members.size(), cpp.size() )
@@ -145,7 +151,7 @@ TEST( CameraUBLayout, CppStructHasTheStd140OffsetsOfTheGlslBlock )
         EXPECT_EQ( block.Members[i].Offset, cpp[i].Offset ) << cpp[i].Name;
     }
     EXPECT_EQ( block.Size, sizeof( Camera ) );
-    EXPECT_EQ( sizeof( Camera ), 448u );
+    EXPECT_EQ( sizeof( Camera ), 480u );
 }
 
 TEST( CameraUBLayout, MakeCameraUBCopiesTheViewFrame )

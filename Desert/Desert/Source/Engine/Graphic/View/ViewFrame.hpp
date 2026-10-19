@@ -143,6 +143,18 @@ namespace Desert::Graphic
     //     ViewProjection — unjittered, or the overlay shimmers by the jitter;
     //   * sky / clouds ray directions: InvViewProjection of the unjittered matrices plus JitterNdc applied to the
     //     pixel's NDC, so the sky jitters with the geometry it is resolved together with.
+    // The parallax occlusion march's step counts (Mesh/Surface/SurfaceParallax.glslh): the machine's, from the
+    // Scalability group Shading (Shading.ParallaxMinSteps / MaxSteps / ShadowSteps). MaxSteps at a grazing view,
+    // MinSteps head-on; ShadowSteps for the relief's self-shadow toward the sun.
+    struct ParallaxQuality
+    {
+        int32_t MinSteps    = 0;
+        int32_t MaxSteps    = 0;
+        int32_t ShadowSteps = 0;
+
+        bool operator==( const ParallaxQuality& ) const = default;
+    };
+
     struct ViewFrame
     {
         uint64_t FrameIndex = 0; // this view's frame count (SceneViewState), not the engine's
@@ -193,6 +205,14 @@ namespace Desert::Graphic
         // stage adds to its clip depth (Common/ShadowCasterBias.glslh). 0 for every other view.
         float ShadowSlopeBias  = 0.0f;
         float ShadowSlopeClamp = 0.0f;
+
+        // The machine's parallax steps (ViewInputs::Parallax). A light view carries its scene view's
+        // (Graphic::WriteLightCamera): the casters march the same relief the view does, or the shadow of a brick
+        // wall would be the shadow of a different wall.
+        ParallaxQuality Parallax;
+        // The main directional light TOWARD the sun, normalized; zero when the scene has none. The relief's
+        // self-shadow traces toward it in the G-buffer and forward passes.
+        glm::vec3 SunDirection{ 0.0f };
 
         // Time of this frame and of the view's previous frame, seconds. Readers: foliage/grass wind evaluated at
         // both times for the previous vertex position; particles integrate their previous position over Delta.

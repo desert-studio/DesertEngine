@@ -340,6 +340,30 @@ namespace Desert::Core::Formats
         bool operator==( const SurfaceOpacityMask& ) const = default;
     };
 
+    // THE SURFACE'S HEIGHT, as the template's `Height` line states it (DShaderParser). One definition read by
+    // parallax occlusion (the generated DesertSurfaceHeight*() of the surface cells, Mesh/Surface/SurfaceParallax.glslh)
+    // AND by mesh displacement (which evaluates the same values from the material row), so relief and silhouette
+    // cannot disagree. Mirrors SurfaceOpacityMask. The names a material uses are `Height` (Texture2D, 0..1) and
+    // `HeightScale` (Float, centimetres); the line names them, so no reader spells a literal. Present exactly when
+    // the template declares Height; a material that assigns the texture draws the template's `.Parallax` cells.
+    struct SurfaceHeight
+    {
+        std::string Texture;      // a Texture2D parameter of the template's Properties (0 = bottom, 1 = top)
+        std::string ChannelParam; // a Float parameter holding the channel (0 = R .. 3 = A); empty = Channel
+        uint32_t    Channel = 0;  // the fixed channel when ChannelParam is empty
+        uint32_t    UVSet   = 0;  // 0 = SurfaceInput.UV0, 1 = UV1
+        // The UV transform, as SurfaceOpacityMask's: all three empty = the UV set as it stands, or all three named.
+        std::string TilingParam;   // Vec2
+        std::string OffsetParam;   // Vec2
+        std::string RotationParam; // Float, radians
+        std::string ScaleParam;    // Float, CENTIMETRES between height 0 and height 1 (HeightScale)
+        std::string CenterParam;   // Float 0..1, the height that stays at the geometric surface (UE Displacement
+                                   // Center); empty = 0. Parallax shows relief BELOW the surface: a template that
+                                   // uses it names a centre (StandardSurface: HeightCenter, default 1)
+
+        bool operator==( const SurfaceHeight& ) const = default;
+    };
+
     struct ShaderProgramMeta
     {
         std::vector<ShaderParam> Params;
@@ -387,6 +411,9 @@ namespace Desert::Core::Formats
         SurfaceBlendMode Blend = SurfaceBlendMode::Opaque;
         // The mask a Masked template cuts with (see SurfaceOpacityMask); nullopt for every other program.
         std::optional<SurfaceOpacityMask> OpacityMask;
+        // The surface height a template declares with its `Height` line (see SurfaceHeight); nullopt for every other
+        // program. Assigning its texture selects the template's `.Parallax` cells (Graphic::ParallaxCellOf).
+        std::optional<SurfaceHeight> Height;
 
         // A program fragment and nothing else: no stages of its own, so it compiles to no modules and is
         // never used to build a pipeline. ShaderService registers it by name without complaining that it

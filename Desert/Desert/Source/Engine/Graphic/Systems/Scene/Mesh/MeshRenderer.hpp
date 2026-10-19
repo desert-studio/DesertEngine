@@ -358,6 +358,13 @@ namespace Desert::Graphic::System
         // The scene time of the view's PREVIOUS frame (ViewFrame::PrevTimeSeconds; equal to this frame's on a
         // history reset), handed over by SceneRenderer::OnUpdate: the instanced view passes evaluate the wind at
         // it for the instances' velocity (PackViewInstanceWind).
+        // The machine's parallax steps (SceneRenderer::BeginScene, Shading.Parallax*Steps): the light cameras of the
+        // cascades carry them (WriteLightCamera), so a parallax caster marches the relief as the view does.
+        void SetParallaxQuality( const ParallaxQuality& parallax )
+        {
+            m_ParallaxQuality = parallax;
+        }
+
         void SetPrevWorldTimeSeconds( double seconds )
         {
             m_PrevWorldTimeSeconds = seconds;
@@ -1585,6 +1592,7 @@ namespace Desert::Graphic::System
         std::vector<GenericDraw>                 m_ScratchGenericDraws;
         std::vector<std::pair<DataDrivenMaterial*, MaterialRows>> m_ScratchGenericRows;
         float                                                     m_WorldTimeSeconds = 0.0f;
+        ParallaxQuality                                           m_ParallaxQuality;
         double                                                    m_PrevWorldTimeSeconds = 0.0;
         // BuildObjectMotions' output: the rows and both frames' palettes (CPU scratch, capacity kept) and the
         // per-(frame x view) buffers they are uploaded into (StorageBuffer::Create non-persistent: one copy per

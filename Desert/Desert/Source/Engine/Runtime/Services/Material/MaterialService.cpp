@@ -13,6 +13,8 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <algorithm>
+
 namespace Desert::Runtime
 {
     namespace
@@ -156,6 +158,23 @@ namespace Desert::Runtime
     // registered shaders. CreateSurfaceMaterial builds by it and MaterialService::CellOf answers by it, so "can
     // this draw here" and "what draws here" cannot disagree.
     // @p asset is a BASE material (an instance's cells are its base's); the error names material, template, cell.
+    // Whether the material ASSIGNS the height map its template's `Height` line names (Core::Formats::SurfaceHeight):
+    // the one condition for the template's `.Parallax` cells (UE: the static permutation of a wired POM node). A
+    // material that leaves the slot empty draws the base cells and pays nothing for its template's relief.
+    static bool AssignsSurfaceHeight( const Assets::MaterialAsset& asset, const std::string& templateName )
+    {
+        const auto shader = ResourceRegistry::GetShaderService()->GetByName( templateName );
+        if ( shader == nullptr || !shader->GetProgramMeta().Height )
+            return false;
+        const auto* surface = dynamic_cast<const Assets::SurfaceMaterialAsset*>( &asset );
+        if ( surface == nullptr )
+            return false;
+        const std::string& height = shader->GetProgramMeta().Height->Texture;
+        const auto&        slots  = surface->Data().Textures;
+        return std::any_of( slots.begin(), slots.end(),
+                            [&]( const auto& t ) { return t.Name == height && !t.Guid.empty(); } );
+    }
+
     static Common::ResultStr<std::string> CellShaderOf( const Assets::MaterialAsset& asset,
                                                         Graphic::MeshVertexPath path, Graphic::MeshPass pass )
     {
@@ -169,6 +188,17 @@ namespace Desert::Runtime
                  "block carries no skinning, instancing or G-buffer stage.",
                  asset.GetMetadata().Filepath.generic_string(), templateName, Graphic::MeshVertexPathName( path ),
                  Graphic::MeshPassName( pass ) ) );
+        if ( Graphic::MeshCellPath( *cell ) && AssignsSurfaceHeight( asset, templateName ) )
+        {
+            std::string parallax = Graphic::ParallaxCellOf( *cell );
+            if ( ResourceRegistry::GetShaderService()->GetByName( parallax ) == nullptr )
+                return Common::MakeError<std::string>( std::format(
+                     "Material '{}' assigns the height map of the template '{}', whose parallax cell '{}' is not "
+                     "registered (it failed to compile) — the ({} x {}) draw is refused rather than drawn flat.",
+                     asset.GetMetadata().Filepath.generic_string(), templateName, parallax,
+                     Graphic::MeshVertexPathName( path ), Graphic::MeshPassName( pass ) ) );
+            return Common::MakeSuccess( std::move( parallax ) );
+        }
         return Common::MakeSuccess( std::move( *cell ) );
     }
 

@@ -279,6 +279,8 @@ namespace Desert::Graphic
                                            static_cast<float>( f.Split.Output.Width ) );
 
         f.HistoryReset = reset;
+        f.Parallax     = inputs.Parallax;
+        f.SunDirection = inputs.SunDirection;
 
         m_Pending               = f;
         m_PendingCameraIdentity = inputs.CameraIdentity;

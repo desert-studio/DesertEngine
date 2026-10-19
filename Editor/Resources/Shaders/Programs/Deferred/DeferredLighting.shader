@@ -460,6 +460,8 @@ Shader "DeferredLighting"
         	                     ? DESERT_SUN_SHADOW(worldPos, N, L, cascade) *
         	                           ContactShadowFactor(worldPos, N, L, u_SunContactShadow, subsurfaceOpacity)
         	                     : 1.0;
+        	// The relief's own shadow (parallax occlusion, the word's SUN_SELF_SHADOW field): geometry, always applied.
+        	shadow        *= DesertSunSelfShadow(word);
         	shadow        *= CloudShadowFactor(worldPos);
         	vec3  radiance = u_LightColor.rgb * u_LightColor.a;
 
