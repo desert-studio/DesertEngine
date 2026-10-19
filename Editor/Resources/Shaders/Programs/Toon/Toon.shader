@@ -2,7 +2,10 @@
 // The Toon surface template: StandardSurface's surface (the same maps, the same Properties) lit by the Toon
 // shading model (ShadingModels/Toon.shadingmodel) instead of DefaultLit. The model is data — this template names
 // it and writes its payload, CustomData0 = Bands and CustomData1 = RimWidth (UE's CustomData pins); no pass and no
-// C++ names Toon. It declares no Import block: the importer never picks it, a material chooses it.
+// C++ names Toon. It declares no Import block: the importer never picks it, a material chooses it. A cut-out toon
+// surface is ToonMasked (BlendMode Masked, UE's Masked blend mode on a Toon material), never this one with a threshold
+// parameter: a clip inside EvaluateSurface is a `discard` in every cell, and the ray tracing hit group's closest-hit
+// stage has none (glslang refuses it) - the masked template clips in its any-hit stage instead (Pass_RayHit.glslh).
 Shader "Toon"
 {
     Domain Surface
@@ -17,14 +20,10 @@ Shader "Toon"
         Float       AOStrength ("Ambient Occlusion", Range(0,1), Category("Surface")) = 1
         Color       EmissiveColor ("Emissive", Category("Surface")) = (0, 0, 0, 1)
         Float       EmissiveIntensity ("Emissive Intensity", Range(0,100), Category("Surface")) = 1
-        Float       AlphaCutoff ("Alpha Cutoff", Range(0,1), Category("Surface")) = 0
         Vec2        UVTiling ("UV Tiling", Category("Surface")) = (1, 1)
         Vec2        UVOffset ("UV Offset", Category("Surface")) = (0, 0)
         Float       UVRotation ("UV Rotation", Range(-3.14159,3.14159), Category("Surface")) = 0
         Float       NormalScale ("Normal Scale", Range(0,4), Category("Surface")) = 1
-        // Which channel of u_OpacityTexture is the mask: 0 = R of a separate opacity map, 3 = A (the importer binds the
-        // albedo texture itself there for a glTF MASK). Stated, never guessed from the bound texture's size.
-        Float       OpacityChannel ("Opacity Channel", Range(0,3), Category("Surface")) = 0
         // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
         // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
@@ -41,7 +40,6 @@ Shader "Toon"
         // written down so the guard is a fast path rather than the only thing standing between an empty
         // slot and a wrong normal.
         Texture2D   u_NormalTexture ("Normal Map", Category("Textures")) = "normal"
-        Texture2D   u_OpacityTexture ("Opacity Map", Category("Textures"))
         // Packed glTF-style: R = occlusion, G = roughness, B = metallic, each multiplying its factor; white when empty.
         Texture2D   u_ORMTexture ("ORM Map", Category("Textures"))
         Texture2D   u_EmissiveTexture ("Emissive Map", Category("Textures"))
@@ -61,9 +59,6 @@ Shader "Toon"
             if ( tiling.y <= 0.0 ) tiling.y = 1.0;
             const vec2 uv = SurfaceTransformUV( SurfaceSelectUV( i.UV0, i.UV0, 0 ), u_Material.UVOffset, tiling,
                                             u_Material.UVRotation );
-            const float mask = SampleBindless( u_Material.u_OpacityTexture, uv )[int( u_Material.OpacityChannel )];
-            if ( u_Material.AlphaCutoff > 0.0 && mask < u_Material.AlphaCutoff )
-                discard;
             s.BaseColor = SurfaceBaseColor( u_Material.AlbedoColor.rgb,
                                         SampleBindless( u_Material.u_AlbedoTexture, uv ).rgb, vec3( 1.0 ) );
             const ivec2 normalSize = BindlessTextureSize( u_Material.u_NormalTexture, 0 );
@@ -81,7 +76,6 @@ Shader "Toon"
             s.CustomData0       = u_Material.Bands;
             s.CustomData1       = u_Material.RimWidth;
             s.SampledTextureCount = float( int( BindlessTextureSize( u_Material.u_AlbedoTexture, 0 ).x > 1 ) + int( normalSize.x > 1 ) +
-                                           int( BindlessTextureSize( u_Material.u_OpacityTexture, 0 ).x > 1 ) +
                                            int( BindlessTextureSize( u_Material.u_ORMTexture, 0 ).x > 1 ) +
                                            int( BindlessTextureSize( u_Material.u_EmissiveTexture, 0 ).x > 1 ) );
             return s;

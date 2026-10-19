@@ -1175,6 +1175,9 @@ namespace Desert::Graphic
         // What this view renders for GI / reflections / shadows: Graphic::ResolveRenderMethods of the view's
         // request, the machine's ceiling and the device, refreshed in BeginScene. The passes read `.Effective`.
         RenderMethods           m_RenderMethods;
+        // The methods the view's renderers could not build a program for on this device (set once, when the
+        // DeferredLightingRenderer initialises), an input of every ResolveRenderMethods.
+        ProgramRefusals m_ProgramRefusals;
         // The view's TLAS (built when a resolved method traces rays; RT-SHADOWS reads GetFrame().Tlas).
         RayTracing::RayTracingSceneRenderer m_RayTracingScene;
         // Hit-lit reflections: this frame's hit group table (BuildReflectionHitGroups; the pass reads it at exec,

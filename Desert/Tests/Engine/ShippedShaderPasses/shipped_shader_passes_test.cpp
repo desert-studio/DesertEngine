@@ -383,6 +383,7 @@ TEST( ShippedShaderPasses, AGeneratedMaterialRowAlwaysArrivesWithThePushConstant
          "TerrainGBuffer.shader",
          "TextSDF.shader",
          "Toon.shader",            // SHM1: the Toon shading model ships its own program
+         "ToonMasked.shader",      // RT1016-MAC-3: the Toon surface cut out (BlendMode Masked)
          "UIMatRadialGlow.shader", // VIDEO-STUDIO: the continuous radial falloff (sun halo)
          "UIMatRadialWipe.shader",
          "Unlit.shader",

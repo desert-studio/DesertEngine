@@ -6,6 +6,7 @@
 #include <Engine/Core/PostProcessSettings.hpp>
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 // WHAT A VIEW RENDERS: THE ONE RESOLUTION OF THE THREE RENDER METHODS (Common/Settings/RenderMethods.hpp).
@@ -14,6 +15,7 @@
 //               min( the view's request (PostProcessSettings, blended from its volumes),
 //                    the machine's ceiling (Scalability *.Method, ResolvedQuality),
 //                    what the device can run (CapabilityCatalog: ray query for the traced methods),
+//                    what the view's renderers built on it (ProgramRefusals: a program only that method needs),
 //                    what the render path feeds (the G-buffer: NeedsGBuffer, deferred only) )
 //
 // Each axis records the FIRST limit that lowered it, so a downgrade names one cause. The renderer reads
@@ -31,6 +33,7 @@ namespace Desert::Graphic
         NotImplemented, // declared, but this build has no renderer for it (only a ceiling can name one)
         FrameScene,     // this view-frame's ray-traced scene (TLAS, trace resources) could not be built
         RenderArea,     // the device's framebuffer / viewport is below the method's render area (NeedsRenderArea)
+        Program,        // a program only this method needs did not build on this device (ProgramRefusals)
     };
 
     template <typename Method>
@@ -40,12 +43,30 @@ namespace Desert::Graphic
         Method      Ceiling{};   // the machine's Scalability value
         Method      Effective{}; // what the frame renders
         MethodLimit Limit = MethodLimit::None;
+        // Limit == Program: the program that did not build (MethodRefusal::Program, static storage).
+        std::string_view Program;
 
         [[nodiscard]] bool Lowered() const
         {
             return Effective != Requested;
         }
         bool operator==( const ResolvedMethod& ) const = default;
+    };
+
+    // A method one of the view's renderers cannot draw on this device because a program ONLY that method needs did
+    // not build (DeferredLightingRenderer: the MegaLights composite is Stochastic's alone). The method is refused
+    // by name and the resolution walks on down its ladder; the renderer and every other method keep working. A
+    // program every method needs failing is the renderer's own initialisation error, never a refusal.
+    template <typename Method>
+    struct MethodRefusal
+    {
+        Method           Refused{};
+        std::string_view Program; // the program's debug name, static storage
+    };
+    // Only Shadows has a renderer with a per-method program today.
+    struct ProgramRefusals
+    {
+        std::vector<MethodRefusal<Common::Scalability::ShadowMethod>> Shadows;
     };
 
     struct RenderMethods
@@ -61,11 +82,12 @@ namespace Desert::Graphic
     };
 
     // PURE: no log, no globals. `gBuffer` = the view renders this frame on the deferred path (SceneRenderer's
-    // m_RenderPath, after a debug view forced forward), so a method that reads the G-buffer can run.
+    // m_RenderPath, after a debug view forced forward), so a method that reads the G-buffer can run. `refusals` =
+    // the methods the view's renderers could not build a program for (ProgramRefusals).
     [[nodiscard]] RenderMethods ResolveRenderMethods( const Core::PostProcessSettings&              post,
                                                       const Common::Scalability::ResolvedQuality&   quality,
                                                       const Common::Scalability::CapabilityCatalog& catalog,
-                                                      bool                                          gBuffer );
+                                                      bool gBuffer, const ProgramRefusals& refusals );
 
     // THE FRAME'S SUN-SHADOW PATH, decided ONCE per view-frame before any pass is declared
     // (SceneRenderer::OnUpdate, right after the view's TLAS is declared): a Shadows method that traces rays
