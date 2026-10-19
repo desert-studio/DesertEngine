@@ -8,6 +8,9 @@
 #include <Common/MaterialTransport.glslh>
 
 DESERT_SURFACE_VARYINGS( in )
+#ifdef DESERT_SURFACE_WEATHER
+#include <Mesh/Surface/SurfaceWeather.glslh>
+#endif
 
 layout( location = 0 ) out vec4 oGBufferA;        // BaseColor.rgb, Metallic.a
 layout( location = 1 ) out vec4 oGBufferB;        // world Normal.rgb, Roughness.a
@@ -25,7 +28,12 @@ void main()
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
                               v_Surface.VertexColor, gl_FrontFacing );
     DESERT_SURFACE_CLIP( i );
+#ifdef DESERT_SURFACE_WEATHER
+    // The material's weather response (Mesh/Surface/SurfaceWeather.glslh), before anything reads the surface.
+    const SurfaceOutput s = DesertApplySurfaceWeather( i, EvaluateSurface( i ) );
+#else
     const SurfaceOutput s = EvaluateSurface( i );
+#endif
     oGBufferA        = vec4( s.BaseColor, s.Metallic );
     oGBufferB        = vec4( DesertSurfaceWorldNormal( i, s ), max( s.Roughness, 0.04 ) );
     const uvec2 word =

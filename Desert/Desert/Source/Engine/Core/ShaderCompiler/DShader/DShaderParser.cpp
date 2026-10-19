@@ -1646,7 +1646,7 @@ namespace Desert::Core::Preprocess
                                               const RawBlock& surface, const RawBlock& include,
                                               const std::string& autoDecls, const SurfaceBlendMode blend,
                                               const std::string_view shadingModelDefine, const bool responsiveAA,
-                                              const std::string& opacityMaskFunction )
+                                              const std::string& opacityMaskFunction, const bool weather )
         {
             const bool        masked   = blend == SurfaceBlendMode::Masked;
             const bool        particle = path == kSurfaceParticleSpritePath;
@@ -1660,6 +1660,14 @@ namespace Desert::Core::Preprocess
                  particle ? std::format( "#define {} 1\n", kSurfaceParticleSpriteDefine ) : std::string(),
                  responsiveAA ? std::format( "#define {} 1\n", kSurfaceResponsiveAADefine ) : std::string(),
                  kSurfaceShadingModelDefine, shadingModelDefine );
+            // A lit mesh pass of a template whose row carries the weather response (kSurfaceWeatherDefine).
+            const bool wets =
+                 weather && ( pass == "Forward" || pass == "GBuffer" ) && !particle && path != kSurfaceRayHitPath;
+            const std::string weatherDefines =
+                 wets ? std::format( "#define {} 1\n#define {} {:#010x}u\n", kSurfaceWeatherDefine,
+                                     kSurfaceWetnessKeyDefine,
+                                     Assets::Serialization::WorldParameterKey( kSurfaceWetnessParameter ) )
+                      : std::string();
             // The sprite path has its own pass header whatever the blend: the mesh Forward / glass headers light a
             // mesh, the sprite header composites a particle.
             const bool        rayHit      = path == kSurfaceRayHitPath;
@@ -1688,10 +1696,10 @@ namespace Desert::Core::Preprocess
                      // biased fetch (Mesh/Surface/SurfaceTypes.glslh SurfaceSampleMaterial) and the camera block.
                      // The world's parameters are declared only into a cell whose surface reads one: reflection
                      // keeps a declared buffer, and every other surface must not ask its renderer to bind it.
-                     std::format( "{}#define {} 1\n#include <{}>\n{}#line {}\n{}\n{}#include <{}>\n", defines,
-                                  kSurfaceSamplesMaterialDefine, kSurfaceTypesInclude,
-                                  readsWorld ? std::format( "#include <{}>\n", kWorldParametersInclude )
-                                             : std::string(),
+                     std::format( "{}{}#define {} 1\n#include <{}>\n{}#line {}\n{}\n{}#include <{}>\n", defines,
+                                  weatherDefines, kSurfaceSamplesMaterialDefine, kSurfaceTypesInclude,
+                                  readsWorld || wets ? std::format( "#include <{}>\n", kWorldParametersInclude )
+                                                     : std::string(),
                                   surface.StartLine > 0 ? surface.StartLine - 1 : 0, lowered,
                                   masked ? opacityMaskFunction : std::string(), passInclude );
             }
@@ -2354,6 +2362,50 @@ namespace Desert::Core::Preprocess
             return fail();
         }
 
+        // THE SURFACE'S WEATHER RESPONSE (kSurfaceRespondsToWeatherParam, DShaderParser.hpp): appended to the row
+        // of every lit Opaque / Masked template, after the authored parameters so no authored slot moves.
+        const bool respondsToWeather = surfaceBlock && propInfo.UBBinding.has_value() &&
+                                       !Formats::IsTranslucentBlend( result.Surface.Blend );
+        if ( respondsToWeather )
+        {
+            for ( const std::string_view reserved : { kSurfaceRespondsToWeatherParam, kSurfacePorosityParam } )
+                for ( const auto& p : result.Meta.Params )
+                    if ( p.Name == reserved )
+                    {
+                        err = { c.Line,
+                                std::format( "'{}' is the engine's weather-response parameter of every lit "
+                                             "Surface template; rename the template's own",
+                                             reserved ) };
+                        return fail();
+                    }
+            const auto weatherParam = []( const std::string_view name, const std::string_view display,
+                                          const std::string_view tooltip, const float value )
+            {
+                ShaderParam p;
+                p.Name        = std::string( name );
+                p.DisplayName = std::string( display );
+                p.Category    = "Weather";
+                p.Tooltip     = std::string( tooltip );
+                p.Type        = ShaderValueType::Float;
+                p.Widget      = ShaderParamWidget::Slider;
+                p.Timing      = ShaderParamTiming::Immediate;
+                p.Min         = 0.0f;
+                p.Max         = 1.0f;
+                p.Default     = glm::vec4( value, 0.0f, 0.0f, 0.0f );
+                return p;
+            };
+            result.Meta.Params.push_back( weatherParam(
+                 kSurfaceRespondsToWeatherParam, "Responds To Weather",
+                 "How much the world's Wetness reaches this surface: 1 = fully, 0 = never (a covered or indoor "
+                 "surface)",
+                 1.0f ) );
+            result.Meta.Params.push_back( weatherParam(
+                 kSurfacePorosityParam, "Porosity",
+                 "How much water the surface soaks up when wet: 1 = asphalt, soil, wood (darker, glossier), 0 = "
+                 "glazed tile, plastic, glass (unchanged until water stands on it). Metal never darkens",
+                 0.5f ) );
+        }
+
         result.Meta.LayoutBindings  = MaterialLayoutBindings{ propInfo.UBBinding, propInfo.TextureBinding };
         result.Layout               = BuildMaterialLayout( result.Meta );
         // The reserved scene-read range (Core::kSceneReadBindingFirst, ShaderGraphBindings.hpp) is declared into
@@ -2501,7 +2553,8 @@ namespace Desert::Core::Preprocess
                         cell.Stages.emplace(
                              stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock, includeBlock,
                                                               autoDecls, result.Surface.Blend, shadingModelDefine,
-                                                              result.Surface.ResponsiveAA, opacityMaskFunction ) );
+                                                              result.Surface.ResponsiveAA, opacityMaskFunction,
+                                                              respondsToWeather ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
@@ -2532,10 +2585,10 @@ namespace Desert::Core::Preprocess
                         if ( stage == ShaderStage::AnyHit && !masked )
                             continue;
                         cell.Stages.emplace(
-                             stage, AssembleSurfaceCellStage( stage, kSurfaceRayHitPath, kSurfaceRayHitPass,
-                                                              *surfaceBlock, includeBlock, rayHitAutoDecls,
-                                                              result.Surface.Blend, shadingModelDefine,
-                                                              result.Surface.ResponsiveAA, opacityMaskFunction ) );
+                             stage, AssembleSurfaceCellStage(
+                                         stage, kSurfaceRayHitPath, kSurfaceRayHitPass, *surfaceBlock,
+                                         includeBlock, rayHitAutoDecls, result.Surface.Blend, shadingModelDefine,
+                                         result.Surface.ResponsiveAA, opacityMaskFunction, false ) );
                     }
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Meta.RayTracingPassNames.push_back( cell.Name );
@@ -2553,11 +2606,11 @@ namespace Desert::Core::Preprocess
                 cell.Name  = SurfaceCellName( kSurfaceParticleSpritePath, kSurfaceParticleSpritePass );
                 cell.State = cellState;
                 for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
-                    cell.Stages.emplace(
-                         stage, AssembleSurfaceCellStage( stage, kSurfaceParticleSpritePath,
-                                                          kSurfaceParticleSpritePass, *surfaceBlock, includeBlock,
-                                                          autoDecls, result.Surface.Blend, shadingModelDefine,
-                                                          result.Surface.ResponsiveAA, opacityMaskFunction ) );
+                    cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                     stage, kSurfaceParticleSpritePath, kSurfaceParticleSpritePass,
+                                                     *surfaceBlock, includeBlock, autoDecls, result.Surface.Blend,
+                                                     shadingModelDefine, result.Surface.ResponsiveAA,
+                                                     opacityMaskFunction, false ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );
