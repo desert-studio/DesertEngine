@@ -27,5 +27,6 @@ namespace Desert::Editor
     /// Wind Offset += the layer's drift, and the drift back to zero, as one undoable edit — the drawn sky
     /// does not move. Refused, with the entity named, when `layer` has no Volumetric Cloud component or
     /// when there is no drift to capture (the editor's sky stands still outside Play).
-    [[nodiscard]] Common::BoolResultStr CaptureCurrentSky( const Core::Scene& scene, ECS::Entity& layer );
+    [[nodiscard]] Common::BoolResultStr CaptureCurrentSky( const ::Desert::Core::Scene& scene,
+                                                           ::Desert::ECS::Entity&       layer );
 } // namespace Desert::Editor

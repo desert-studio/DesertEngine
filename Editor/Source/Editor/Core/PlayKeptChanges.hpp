@@ -39,7 +39,7 @@ namespace Desert::Editor::PlayKeptChanges
     /// Called by PlaySession::Stop after the restore: each kept change runs through
     /// Commands::MutateEntityUndoable on its entity, then the list is empty. An entity the restored world
     /// does not have (one Play spawned) drops its change, and the log says so.
-    void ApplyTo( Core::Scene& restored );
+    void ApplyTo( ::Desert::Core::Scene& restored );
 
     /// Called by PlaySession::Play: a new session starts with nothing kept.
     void Clear();

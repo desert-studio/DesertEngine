@@ -22,7 +22,7 @@ namespace Desert::Editor
         }
     } // namespace
 
-    Common::BoolResultStr CaptureCurrentSky( const Core::Scene& scene, ECS::Entity& layer )
+    Common::BoolResultStr CaptureCurrentSky( const ::Desert::Core::Scene& scene, ::Desert::ECS::Entity& layer )
     {
         const std::string& name = layer.GetComponent<ECS::TagComponent>().Tag;
         if ( !layer.HasComponent<ECS::VolumetricCloudComponent>() )
@@ -40,7 +40,7 @@ namespace Desert::Editor
         const Common::UUID uuid     = layer.GetComponent<ECS::UUIDComponent>().UUID;
         Commands::MutateEntityUndoable( uuid, [&cloud, captured] { Fold( cloud, captured ); } );
 
-        if ( scene.GetState() != Core::Scene::SceneState::Edit )
+        if ( scene.GetState() != ::Desert::Core::Scene::SceneState::Edit )
         {
             PlayKeptChanges::Keep( uuid, "Capture current sky",
                                    [captured]( ECS::Entity& authored )

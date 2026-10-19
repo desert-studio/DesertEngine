@@ -42,7 +42,7 @@ namespace Desert::Editor::PlayKeptChanges
         Changes().push_back( { entity, std::move( key ), std::move( apply ) } );
     }
 
-    void ApplyTo( Core::Scene& restored )
+    void ApplyTo( ::Desert::Core::Scene& restored )
     {
         // Moved out first: an apply that kept another change (it should not) must not grow the list the
         // loop walks.
