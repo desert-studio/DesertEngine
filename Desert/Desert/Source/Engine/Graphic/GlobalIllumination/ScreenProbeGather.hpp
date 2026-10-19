@@ -15,7 +15,7 @@
 
 // THE SCREEN PROBE GATHER (GI-FINAL-GATHER) — the final gather of the traced GI methods, ported from UE Lumen's
 // LumenScreenProbeGather.cpp / LumenScreenProbeTracing.usf / LumenScreenProbeFiltering.usf /
-// LumenScreenProbeGather.usf / LumenScreenSpaceBentNormal.usf. Seven compute passes a frame
+// LumenScreenProbeGather.usf / LumenScreenSpaceBentNormal.usf. Eleven compute passes a frame
 // (Programs/GlobalIllumination/ScreenProbe*.shader; the GPU records are Common/ScreenProbes.glslh):
 //   Place ×3   a uniform probe in every 16-pixel tile, at the frame's jitter (UE GetScreenTileJitter: Hammersley
 //              over 8 frames), then adaptive probes on the 8 and 4 pixel grids at the same jitter wherever the
@@ -25,14 +25,16 @@
 //              probe is listed under the uniform tile it falls in (UE ScreenTileAdaptiveProbeHeader / Indices),
 //              and a pixel whose uniform corner misses it takes the best adaptive probe of that corner's tile (UE
 //              CalculateUpsampleInterpolationWeights).
-//   Trace      8x8 rays per probe, each in UE's order of legs (LumenScreenProbeTracing.usf): the SCREEN over the
-//              view's HZB, a hit returning last frame's lit scene (ScreenProbeTraceScreenTexturesCS); then, from
-//              where the screen trace left off, the GI ray contract (TracerVariant / DeclareTracerReads: the pass
-//              names no tracer resource) out to the world radiance cache's minimum trace distance - for the
-//              software tracer the mesh SDFs of the view's near-field froxel grid first
-//              (ScreenProbeTraceMeshSDFsCS over LumenMeshSDFCulling's grid,
-//              GlobalDistanceField::AddNearFieldCullPasses), then the global field; past it the cache's radiance
-//              is the far field (RadianceCacheRadianceAt).
+//   Trace ×5   8x8 rays per probe, in UE's passes (LumenScreenProbeTracing.cpp TraceScreenProbes): the SCREEN over
+//              the view's HZB, a hit returning last frame's lit scene (ScreenProbeTraceScreenTexturesCS); the rays
+//              it left open COMPACTED into a dense list with its indirect arguments (ScreenProbeCompactTracesCS);
+//              from where the screen left off, the GI ray contract's NEAR field over that list (TracerVariant /
+//              DeclareTracerReads: the passes name no tracer resource; software: the mesh SDFs of the view's
+//              near-field froxel grid, ScreenProbeTraceMeshSDFsCS over LumenMeshSDFCulling's grid,
+//              GlobalDistanceField::AddNearFieldCullPasses); every ray still without a hit compacted again; its
+//              FAR field (software: the global field) out to the world radiance cache's minimum trace distance,
+//              past which the cache's radiance answers (RadianceCacheRadianceAt; ScreenProbeTraceVoxelsCS). The
+//              legs hand one another each ray's state in a trace hit buffer (Common/ScreenProbeTracing.glslh).
 //   Filter     spatial filter across neighbouring probes with UE's hit-angle test; the filtered radiance (rough
 //              reflections) and its second-order SH irradiance (diffuse); the irradiance from behind the probe's
 //              surface, read from the world radiance cache at -N (a hemisphere probe holds nothing there).
@@ -193,10 +195,10 @@ namespace Desert::Graphic::GlobalIllumination
         ScreenProbeGather( const ScreenProbeGather& )            = delete;
         ScreenProbeGather& operator=( const ScreenProbeGather& ) = delete;
 
-        // The tracer-independent shaders and pipelines; Trace's is acquired per tracer permutation.
+        // The tracer-independent shaders and pipelines; the world legs' are acquired per tracer permutation.
         [[nodiscard]] Common::BoolResultStr Initialize();
 
-        // The gather of one frame, its seven passes added to @p graph after the radiance cache's update.
+        // The gather of one frame, its passes added to @p graph after the radiance cache's update.
         [[nodiscard]] Common::ResultStr<ScreenProbeGatherFrame>
         AddPasses( RDG::Builder& graph, const WorldRadianceCache::ImportImage& import,
                    const ScreenProbeGatherInputs& inputs );
@@ -206,7 +208,10 @@ namespace Desert::Graphic::GlobalIllumination
         {
             Place = 0,
             ShortRangeAO,
-            Trace,
+            TraceScreen,
+            CompactTraces,
+            TraceNearField, // ScreenProbeTrace, a tracer permutation (EnsureTraceProgram)
+            TraceFarField,  // the same program's far-field leg
             Filter,
             Integrate,
             ProgramCount

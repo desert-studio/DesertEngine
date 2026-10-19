@@ -131,17 +131,27 @@ bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tSt
     return false;
 }
 
-GITraceResult GITraceRay( GITraceInput ray )
+// The dither seed of @p ray (UE bDitheredTransparency): the ray itself - every consumer already jitters its rays per
+// frame, so the noise moves with them; the near and the far field of one ray draw the same seed.
+uint GITraceSeed( GITraceInput ray )
+{
+    const uvec3 o = floatBitsToUint( ray.origin );
+    const uvec2 d = floatBitsToUint( ray.direction.xy );
+    return ( o.x * 73856093u ) ^ ( o.y * 19349663u ) ^ ( o.z * 83492791u ) ^ ( d.x * 2654435761u ) ^
+           ( d.y * 2246822519u );
+}
+
+// THE NEAR FIELD (UE TraceMeshSDFs): the mesh SDFs of the origin's froxel from ray.tMin, up to
+// DF_MESH_SDF_TRACE_DISTANCE. @p farStart is where the far field goes on after a miss: the near field's end when the
+// origin's froxel listed the objects (the list holds every object the ray can reach before it), ray.tMin outside the
+// grid.
+GITraceResult GITraceNearField( GITraceInput ray, out float farStart )
 {
     GITraceResult result;
     result.hit = false;
-    // A gather ray passes foliage stochastically (UE bDitheredTransparency); a shadow ray stops on it. The dither's
-    // seed is the ray itself: every consumer already jitters its rays per frame, so the noise moves with them.
-    const bool  dithered = ( ray.flags & GI_TRACE_SHADOW_RAY ) == 0u;
-    const uvec3 o        = floatBitsToUint( ray.origin );
-    const uvec2 d        = floatBitsToUint( ray.direction.xy );
-    const uint  seed     = ( o.x * 73856093u ) ^ ( o.y * 19349663u ) ^ ( o.z * 83492791u ) ^ ( d.x * 2654435761u ) ^
-                      ( d.y * 2246822519u );
+    // A gather ray passes foliage stochastically (UE bDitheredTransparency); a shadow ray stops on it.
+    const bool dithered = ( ray.flags & GI_TRACE_SHADOW_RAY ) == 0u;
+    const uint seed     = GITraceSeed( ray );
 
     // The near field: the objects of the origin's froxel, the closest hit. The list holds every object the ray can
     // reach before DF_MESH_SDF_TRACE_DISTANCE (each within that of the froxel), uncapped, closest to the froxel first:
@@ -180,12 +190,25 @@ GITraceResult GITraceRay( GITraceInput ray )
             result.surface.barycentrics = vec2( 0.0 );
             result.surface.normal       = normal;
             result.surface.frontFace    = dot( normal, ray.direction ) < 0.0;
+            farStart                    = tHit;
             return result;
         }
         // The global field goes on from where the near field ended (UE: the global SDF trace starts at the mesh
         // SDF trace distance).
         globalStart = nearEnd;
     }
+    farStart = globalStart;
+    return result;
+}
+
+// THE FAR FIELD (UE TraceVoxels: the global SDF) from ray.tMin to ray.tMax.
+GITraceResult GITraceFarField( GITraceInput ray )
+{
+    GITraceResult result;
+    result.hit          = false;
+    const bool dithered = ( ray.flags & GI_TRACE_SHADOW_RAY ) == 0u;
+    const uint seed     = GITraceSeed( ray );
+    float      globalStart = ray.tMin;
     // Never before the far field's own offset is reached (GIRayBias.farOffset: a ray that left its surface by the
     // near field's few cm would re-enter it in the coarse field).
     globalStart = max( globalStart, ray.farTMin );
@@ -216,6 +239,17 @@ GITraceResult GITraceRay( GITraceInput ray )
     }
     result.surface.frontFace = dot( result.surface.normal, ray.direction ) < 0.0;
     return result;
+}
+
+// The whole walk: the near field, then the far field from where it ended.
+GITraceResult GITraceRay( GITraceInput ray )
+{
+    float               farStart;
+    const GITraceResult near = GITraceNearField( ray, farStart );
+    if ( near.hit )
+        return near;
+    ray.tMin = farStart;
+    return GITraceFarField( ray );
 }
 
 // Visibility only: 1 when nothing of the field lies between @p origin and @p maxT along @p direction.

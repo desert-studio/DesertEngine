@@ -1,30 +1,26 @@
 // DesertAsset {"Kind":"Shader","Guid":"1d3e01f044e7489da669573cc6e7a7b4","Versions":{"SHDR":1},"Dependencies":[]}
-// THE SCREEN PROBE GATHER, 2/4 — TRACE (UE LumenScreenProbeTracing.usf: ScreenProbeTraceScreenTexturesCS, then
-// ScreenProbeTraceMeshSDFsCS, then ScreenProbeTraceVoxelsCS with the radiance cache's far field, here one dispatch):
-// one workgroup per probe, one ray per hemi-octahedral texel, jittered inside its texel every frame. A ray goes
-// through two legs, the second starting where the first left off:
-//   SCREEN    over this frame's closest-depth HZB (Common/HZBTrace.glslh, the walk SSR uses); a hit within the
-//             depth buffer's thickness returns LAST frame's lit scene where the hit was (the view's scene colour
-//             history, reprojected by the camera - UE GetHistoryScreenPosition), which carries every bounce the
-//             view has lit so far. The walk goes only as far as the world legs would (the radiance cache's
-//             coverage); every point it crossed in front of the depth buffer is certain, so a ray it does not answer
-//             (off the screen, out of steps, behind a surface, stopped by something thin) goes on from the last such
-//             point (UE bWriteDepthOnMiss), and one that walked the whole way leaves the world legs nothing to do.
-//   WORLD     the GI ray contract (Common/GITracing.glslh: the permutation's tracer, GIHitRadiance on a hit) from
-//             where the screen left off - the software tracer marches the mesh SDFs of the view's near-field
-//             froxel grid first (UE LumenMeshSDFCulling; a hit reads its object's cards first), then the global
-//             field - only as far as the world radiance cache's coverage asks
-//             (minTraceDistanceBeforeCache: past it the cache's probes see what the ray would); a ray that gets
-//             there without a hit reads the cache's RADIANCE in its direction at the probe, from the probes that
-//             see it (RadianceCacheRadianceAt, UE SampleRadianceCacheInterpolated). Outside the cache, or where its
-//             probes have not traced yet, the ray goes on to the full trace distance and the sky.
-// The program is compiled per tracer (GlobalIllumination::TracerVariant); it names none. .a keeps the distance the
-// ray's radiance came from (the filter's angle test).
+// THE SCREEN PROBE TRACE, 3/3 — THE WORLD (UE LumenScreenProbeTracing.usf ScreenProbeTraceMeshSDFsCS, then
+// ScreenProbeTraceVoxelsCS with the radiance cache's far field): one thread per ray the screen
+// (ScreenProbeTraceScreen.shader) left open, read from the compacted list (ScreenProbeCompactTraces.shader) and
+// rebuilt from its probe and texel (Common/ScreenProbeTracing.glslh). Two permutations, two passes, each going on from
+// where the previous leg left off along the same ray (the trace hit buffer's distance; UE VoxelTraceStartDistance):
+//   SP_TRACE_NEAR_FIELD  the GI ray contract's near field (Common/GITracing.glslh GITraceNearField: the software
+//             tracer's mesh SDFs of the view's near-field froxel grid, UE LumenMeshSDFCulling; a hit reads its
+//             object's cards first) over the rays not past its end; a hit's radiance goes to ScreenProbes.Traced, a
+//             miss hands the far field where it goes on.
+//   SP_TRACE_FAR_FIELD   over every ray with no hit: the contract's far field (GITraceFarField: the global field) only
+//             as far as the world radiance cache's coverage asks (minTraceDistanceBeforeCache: past it the cache's
+//             probes see what the ray would); a ray that gets there without a hit reads the cache's RADIANCE in its
+//             direction at the probe, from the probes that see it (RadianceCacheRadianceAt, UE
+//             SampleRadianceCacheInterpolated). Outside the cache, or where its probes have not traced yet, the ray
+//             goes on to the full trace distance and the sky.
+// The program is compiled per tracer (GlobalIllumination::TracerVariant) and per leg; it names no tracer. .a keeps the
+// distance the ray's radiance came from (the filter's angle test).
 Shader "ScreenProbeTrace"
 {
     Compute
     {
-        LocalSize(8, 8, 1);
+        LocalSize(64, 1, 1);
 
         #include <Common/GIFrame.glslh>
         #include <Common/ScreenProbes.glslh>
@@ -78,6 +74,18 @@ Shader "ScreenProbeTrace"
         {
             RadianceCacheProbe radianceCacheProbes[];
         };
+        Buffer(11) ScreenProbeTraceHitUB
+        {
+            uint screenProbeTraceHit[];
+        };
+        ReadBuffer(12) ScreenProbeCompactAllocatorUB
+        {
+            uint screenProbeCompactAllocator; // the rays listed
+        };
+        ReadBuffer(13) ScreenProbeCompactTexelsUB
+        {
+            uint screenProbeCompactTexels[]; // probe * SP_RES² + texel
+        };
 
         // 32..42: the tracer's own resources (Common/GITracer.glslh, GI_TRACER_BINDING below).
         Uniform(16) samplerCube u_EnvSpecularTex;
@@ -91,6 +99,7 @@ Shader "ScreenProbeTrace"
 
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
+        #include <Common/ScreenProbeTracing.glslh>
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #define RADIANCE_CACHE_RADIANCE_ATLAS u_RadianceCacheRadianceAtlas
@@ -99,205 +108,69 @@ Shader "ScreenProbeTrace"
         #include <Common/GITracer.glslh>
         #define GI_SURFACE_CACHE_BINDING 25
         #include <Common/GIHitLighting.glslh>
-        Uniform(43) sampler2D u_HZB;               // this frame's closest-depth hierarchy (all mips, point)
-        Uniform(44) sampler2D u_SceneColorHistory; // last frame's lit opaque scene (SceneColorHistoryRenderer)
-        #include <Common/HZBTrace.glslh>
-
-        // How far a ray looks before it is a miss, cm (UE r.Lumen.MaxTraceDistance; the radiance cache's own).
-        #define SP_TRACE_DISTANCE 20000.0
-        // The screen leg (UE r.Lumen.ScreenProbeGather.ScreenTraces.HZBTraversal.*, LumenScreenProbeTracing.cpp:66-93):
-        // the walk's step budget (MaxIterations); how far behind the depth buffer's surface a stop still counts as a
-        // hit, as a share of the surface's view depth (RelativeDepthThickness); the mip-0 texels past a hit that must
-        // stay behind the depth for the hit to be certain (NumThicknessStepsToDetermineCertainty).
-        #define SP_SCREEN_ITERATIONS 50
-        #define SP_SCREEN_RELATIVE_THICKNESS 0.02
-        #define SP_SCREEN_THICKNESS_STEPS 4
-        // cm the screen ray leaves the probe's surface along its normal (SSR's).
-        #define SP_SCREEN_BIAS 2.0
-        // cm a world leg starts before the point up to which the screen was certain (twice UE's mesh SDF
-        // SurfaceBias, 5 cm; SSR.shader's kWorldStartBackoff): the world's surface stands off the depth buffer's.
-        #define SP_WORLD_START_BACKOFF 10.0
-
-        // World -> (uv, deviceZ) of the G-buffer's (jittered) projection, uv top-left (the engine's flipped
-        // viewport). False behind the camera.
-        bool SPProjectToScreen( vec3 p, out vec3 screen )
-        {
-            const vec4 clip = giFrame.viewProjection * vec4( p, 1.0 );
-            if ( clip.w <= 0.0 )
-                return false;
-            screen = vec3( clip.xy / clip.w * vec2( 0.5, -0.5 ) + 0.5, clip.z / clip.w );
-            return true;
-        }
-
-        // The screen leg's verdict for one ray.
-        struct SPScreenTrace
-        {
-            bool  hit;      // radiance holds last frame's lit scene at the hit
-            vec3  radiance;
-            float distance; // the hit's, or where the next leg starts (0: from the probe)
-        };
-
-        // UE ScreenProbeTraceScreenTexturesCS (LumenScreenProbeTracing.usf:57-370, the HZB-traversal permutation):
-        // the walk from @p origin (world, biased) along @p dir only as far as @p tMax, the distance past which the
-        // radiance cache answers (UE TraceDistance = min(MaxTraceDistance, MinTraceDistanceBeforeInterpolation)).
-        // Whatever the screen does not answer, the world legs go on with from the last point the walk found in front
-        // of the depth buffer (UE writes the trace distance on every miss of the HZB walk, bWriteDepthOnMiss).
-        SPScreenTrace SPTraceScreen( vec3 origin, vec3 dir, float tMax, float noise )
-        {
-            SPScreenTrace result;
-            result.hit      = false;
-            result.radiance = vec3( 0.0 );
-            result.distance = 0.0;
-            vec3 originScreen;
-            if ( !SPProjectToScreen( origin, originScreen ) || any( lessThan( originScreen.xy, vec2( 0.0 ) ) ) ||
-                 any( greaterThan( originScreen.xy, vec2( 1.0 ) ) ) )
-                return result; // UE: the bias pushed the start off the screen
-            // The segment's end: tMax along, cut at 0.99 of the way to the camera plane so it projects (UE TraceHZB).
-            const float originW = ( giFrame.viewProjection * vec4( origin, 1.0 ) ).w;
-            const float dw      = ( giFrame.viewProjection * vec4( dir, 0.0 ) ).w;
-            const float endDistance = dw < 0.0 ? min( 0.99 * originW / -dw, tMax ) : tMax;
-            vec3 endScreen;
-            if ( !SPProjectToScreen( origin + dir * endDistance, endScreen ) )
-                return result;
-            const HZBTraceResult walk = HZBTraceScreen( originScreen, endScreen, SP_SCREEN_ITERATIONS );
-            if ( !walk.Stopped )
-            {
-                // In front of every surface it passed, as far as it got: certain that far. The whole segment up to
-                // tMax: nothing on screen before the trace's end, the world legs have nothing left to do.
-                if ( walk.ReachedEnd && !walk.Clipped && endDistance >= tMax )
-                {
-                    result.distance = tMax;
-                    return result;
-                }
-                const vec3 reached =
-                     ReconstructWorldPosition( walk.Position.xy, walk.Position.z, giFrame.invViewProjection );
-                result.distance = min( max( distance( origin, reached ) - SP_WORLD_START_BACKOFF, 0.0 ), tMax );
-                return result;
-            }
-            // The stop's thickness (UE TraceHZB: the ray's view depth behind the surface's, relative to it).
-            const float surfaceZ  = texelFetch( u_HZB, clamp( ivec2( walk.Position.xy * vec2( textureSize( u_HZB, 0 ) ) ),
-                                                              ivec2( 0 ), textureSize( u_HZB, 0 ) - 1 ), 0 ).r;
-            const vec3  rayAt     = ReconstructWorldPosition( walk.Position.xy, walk.Position.z, giFrame.invViewProjection );
-            const vec3  surface   = ReconstructWorldPosition( walk.Position.xy, surfaceZ, giFrame.invViewProjection );
-            const float rayDepth  = ( giFrame.viewProjection * vec4( rayAt, 1.0 ) ).w;
-            const float viewDepth = ( giFrame.viewProjection * vec4( surface, 1.0 ) ).w;
-            if ( rayDepth - viewDepth >= SP_SCREEN_RELATIVE_THICKNESS * viewDepth ||
-                 HZBThinSurfaceAhead( walk, originScreen, SP_SCREEN_THICKNESS_STEPS ) )
-            {
-                // Behind the depth buffer's first layer, or stopped by something thin: the world legs go on from
-                // the last point the walk saw in front of the depth.
-                const vec3 visible =
-                     ReconstructWorldPosition( walk.LastVisible.xy, walk.LastVisible.z, giFrame.invViewProjection );
-                result.distance = min( max( distance( origin, visible ) - SP_WORLD_START_BACKOFF, 0.0 ), tMax );
-                return result;
-            }
-            const float hitDistance = distance( origin, surface );
-            if ( hitDistance >= tMax )
-            {
-                result.distance = tMax; // nothing on screen before the trace's end
-                return result;
-            }
-            // Where the hit was last frame (UE GetHistoryScreenPosition: the camera's motion).
-            const vec4 prevClip = screenProbeParams.prevViewProjection * vec4( surface, 1.0 );
-            const vec2 prevUV   = prevClip.w > 0.0 ? prevClip.xy / prevClip.w * vec2( 0.5, -0.5 ) + 0.5 : vec2( -1.0 );
-            // UE: no hit near the screen's edge (dithered by the vignette), nor where last frame did not see it; the
-            // next leg starts just before the surface the screen found (the depth there was certain).
-            const float vignette = min( HZBScreenEdgeFade( walk.Position.xy ),
-                                        any( lessThan( prevUV, vec2( 0.0 ) ) ) || any( greaterThan( prevUV, vec2( 1.0 ) ) )
-                                             ? 0.0
-                                             : HZBScreenEdgeFade( prevUV ) );
-            if ( vignette < noise )
-            {
-                result.distance = max( hitDistance - SP_WORLD_START_BACKOFF, 0.0 );
-                return result;
-            }
-            result.hit      = true;
-            result.radiance = textureLod( u_SceneColorHistory, prevUV, 0.0 ).rgb;
-            result.distance = hitDistance;
-            return result;
-        }
-
-        // Per texel and frame: a jitter inside the texel and a dither (PCG hash).
-        vec3 TexelNoise( uint probe, uint texel, uint frame )
-        {
-            uvec3 v = uvec3( probe, texel, frame ) * 1664525u + 1013904223u;
-            v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
-            v ^= v >> 16u;
-            v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
-            return vec3( v & 0xFFFFu ) / 65536.0;
-        }
+        #if !defined( SP_TRACE_NEAR_FIELD ) && !defined( SP_TRACE_FAR_FIELD )
+        #define SP_TRACE_FAR_FIELD 1 // the registered default compile (no pass dispatches it)
+        #endif
 
         void main()
         {
-            const uint probe = gl_WorkGroupID.x;
-            const uint uniformProbes = screenProbeParams.grid.z;
-            if ( probe >= uniformProbes &&
-                 probe - uniformProbes >= min( screenProbeIndex[0], screenProbeParams.grid.w ) )
+            if ( gl_GlobalInvocationID.x >= screenProbeCompactAllocator )
                 return;
-            const ScreenProbe state = screenProbes[probe];
-            if ( state.position.w <= 0.0 )
-                return;
-
-            const uint  texel  = gl_LocalInvocationIndex;
-            const ivec2 t      = ivec2( texel % SP_RES, texel / SP_RES );
-            const vec3  noise  = TexelNoise( probe, texel, screenProbeParams.atlas.y );
-            const vec2  o      = ( vec2( t ) + noise.xy ) / float( SP_RES ) * 2.0 - 1.0;
-            const vec3  N      = state.normal.xyz;
-            const vec3  P      = state.position.xyz;
-            const vec3  dir    = SPProbeFrame( N ) * SPHemiOctDecode( o );
-            const GITraceBias bias   = GIRayBias( state.position.xyz, N, dir );
-            const vec3        origin = state.position.xyz + N * bias.nearOffset;
+            const uint       slot  = screenProbeCompactTexels[gl_GlobalInvocationID.x];
+            const uint       probe = slot / ( SP_RES * SP_RES );
+            const SPTexelRay texel = SPMakeTexelRay( probe, slot % ( SP_RES * SP_RES ) );
+            const uint       state = screenProbeTraceHit[slot];
+            const vec3       N     = texel.normal;
+            const vec3       dir   = texel.direction;
+            const GITraceBias bias   = GIRayBias( texel.position, N, dir );
+            const vec3        origin = texel.position + N * bias.nearOffset;
+            const ivec2       at     = SPAtlasOrigin( probe, SP_RES ) + texel.texel;
 
             GITraceInput ray;
             ray.origin    = origin;
-            ray.tMin      = 0.0;
+            ray.tMin      = min( SPTraceHitDistance( state ), texel.tMax );
             ray.farTMin   = GIFarFieldTMin( bias, N, dir );
             ray.direction = dir;
-            ray.tMax      = SP_TRACE_DISTANCE;
+            ray.tMax      = texel.tMax;
             // The cone of one texel: the hemisphere's 2 pi over SP_RES^2 texels, as a cone's half angle.
             ray.coneAngle = sqrt( 2.0 / float( SP_RES * SP_RES ) );
             ray.flags     = 0u;
 
-            const RadianceCacheCoverage coverage = RadianceCacheCoverageAt( radianceCache, origin, noise.z );
-            if ( coverage.valid )
-                ray.tMax = min( coverage.minTraceDistanceBeforeCache, SP_TRACE_DISTANCE );
-
-            // 1. THE SCREEN; the world legs go on from where it left off along the same ray (UE
-            //    VoxelTraceStartDistance).
-            if ( ( screenProbeParams.atlas.z & SP_FLAG_SCREEN_TRACE ) != 0u )
-            {
-                const SPScreenTrace screen = SPTraceScreen( P + N * SP_SCREEN_BIAS, dir, ray.tMax, noise.z );
-                if ( screen.hit )
-                {
-                    imageStore( u_ScreenProbeTraced, SPAtlasOrigin( probe, SP_RES ) + t,
-                                vec4( screen.radiance, screen.distance ) );
-                    return;
-                }
-                ray.tMin = min( screen.distance, ray.tMax );
-            }
-
-            // 2. THE WORLD (the near field's mesh SDFs, then the global field), then the radiance cache's far
-            //    field, then the sky.
-            vec4                result;
-            const GITraceResult near = GITraceRay( ray );
+#if defined( SP_TRACE_NEAR_FIELD )
+            float               farStart;
+            const GITraceResult near = GITraceNearField( ray, farStart );
             if ( near.hit )
-                result = vec4( GIHitRadiance( near.surface, dir ), near.surface.distance );
+            {
+                imageStore( u_ScreenProbeTraced, at, vec4( GIHitRadiance( near.surface, dir ), near.surface.distance ) );
+                screenProbeTraceHit[slot] = SPEncodeTraceHit( near.surface.distance, true, false );
+            }
+            else
+                screenProbeTraceHit[slot] =
+                     SPEncodeTraceHit( farStart, false, texel.coverage.valid && farStart >= texel.tMax );
+#else
+            // The far field, then the radiance cache's far field, then the sky.
+            vec4                result;
+            const GITraceResult far = GITraceFarField( ray );
+            if ( far.hit )
+                result = vec4( GIHitRadiance( far.surface, dir ), far.surface.distance );
             else
             {
-                const vec4 far = coverage.valid ? RadianceCacheRadianceAt( origin, N, dir, noise.z ) : vec4( 0.0, 0.0, 0.0, -1.0 );
-                if ( far.a > 0.0 )
-                    result = vec4( far.rgb, SP_TRACE_DISTANCE );
+                const vec4 cache = texel.coverage.valid ? RadianceCacheRadianceAt( origin, N, dir, texel.noise.z )
+                                                        : vec4( 0.0, 0.0, 0.0, -1.0 );
+                if ( cache.a > 0.0 )
+                    result = vec4( cache.rgb, SP_TRACE_DISTANCE );
                 else
                 {
                     // No cache answer: the rest of the ray traced here, so a new cell is neither black nor sky.
-                    ray.tMin = ray.tMax;
-                    ray.tMax = SP_TRACE_DISTANCE;
-                    const GITraceResult rest = coverage.valid ? GITraceRay( ray ) : near;
+                    ray.tMin                 = ray.tMax;
+                    ray.tMax                 = SP_TRACE_DISTANCE;
+                    const GITraceResult rest = texel.coverage.valid ? GITraceRay( ray ) : far;
                     result = rest.hit ? vec4( GIHitRadiance( rest.surface, dir ), rest.surface.distance )
                                       : vec4( GIMissRadiance( dir ), SP_TRACE_DISTANCE );
                 }
             }
-            imageStore( u_ScreenProbeTraced, SPAtlasOrigin( probe, SP_RES ) + t, result );
+            imageStore( u_ScreenProbeTraced, at, result );
+#endif
         }
     }
 }

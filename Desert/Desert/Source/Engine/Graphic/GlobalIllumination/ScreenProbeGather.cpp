@@ -13,18 +13,47 @@
 #include <Common/Core/Math/Rounding.hpp>
 
 #include <format>
+#include <limits>
 #include <span>
 #include <string>
 
 namespace Desert::Graphic::GlobalIllumination
 {
+    namespace DFShared
+    {
+#include <Common/DistanceFieldShared.glslh>
+    } // namespace DFShared
+
     namespace
     {
         using Common::Math::DivideRoundUp;
 
-        constexpr std::array<std::string_view, 5> kScreenProbeShaderNames{
-             "ScreenProbePlace", "ScreenProbeShortRangeAO", "ScreenProbeTrace", "ScreenProbeFilter",
-             "ScreenProbeIntegrate" };
+        constexpr std::array<std::string_view, 8> kScreenProbeShaderNames{
+             "ScreenProbePlace", "ScreenProbeShortRangeAO", "ScreenProbeTraceScreen", "ScreenProbeCompactTraces",
+             "ScreenProbeTrace", "ScreenProbeTrace",        "ScreenProbeFilter",      "ScreenProbeIntegrate" };
+
+        // The defines of the world legs' two permutations of ScreenProbeTrace (besides TracerVariant's).
+        constexpr std::string_view kTraceNearFieldDefine = "SP_TRACE_NEAR_FIELD";
+        constexpr std::string_view kTraceFarFieldDefine  = "SP_TRACE_FAR_FIELD";
+
+        // ScreenProbeCompactArgsUB: x = groups, y = z = 1 (a dispatch's three counts; w unused); the allocator: 0.
+        constexpr std::array<uint32_t, 4> kCompactArgsReset{ 0u, 1u, 1u, 0u };
+        constexpr uint32_t                kCompactAllocatorReset = 0u;
+
+        // The near field's end along a ray (ScreenProbeCompactTraces' u_MaxDistance for the near-field list): the
+        // software tracer's mesh SDFs trace up to DF_MESH_SDF_TRACE_DISTANCE (GITraceNearField); a ray the screen
+        // took past it has nothing left there.
+        [[nodiscard]] float NearFieldEnd( const Tracer tracer )
+        {
+            return tracer == Tracer::SoftwareDistanceField ? DFShared::DF_MESH_SDF_TRACE_DISTANCE
+                                                           : std::numeric_limits<float>::max();
+        }
+
+        struct CompactPush
+        {
+            float    MaxDistance;
+            uint32_t FarField;
+        };
 
         constexpr std::array<std::string_view, ScreenProbeLayout::kLevels> kPlaceNames{
              "ScreenProbes: Place Uniform", "ScreenProbes: Place Adaptive 8", "ScreenProbes: Place Adaptive 4" };
@@ -56,8 +85,8 @@ namespace Desert::Graphic::GlobalIllumination
         const auto shaders = Runtime::ResourceRegistry::GetShaderService();
         for ( uint32_t program = 0; program < ProgramCount; ++program )
         {
-            if ( program == Trace )
-                continue; // a tracer permutation, EnsureTraceProgram
+            if ( program == TraceNearField || program == TraceFarField )
+                continue; // tracer permutations, EnsureTraceProgram
             m_Shaders[program] = shaders->GetByName( std::string( kScreenProbeShaderNames[program] ) );
             if ( !m_Shaders[program] )
                 return Common::MakeFormattedError<bool>( "screen probes: shader {} not found",
@@ -74,22 +103,29 @@ namespace Desert::Graphic::GlobalIllumination
 
     Common::BoolResultStr ScreenProbeGather::EnsureTraceProgram( const Pipeline& pipeline )
     {
-        if ( m_Shaders[Trace] && m_Pipelines[Trace] && pipeline == m_TraceProgramFor )
+        if ( m_Pipelines[TraceNearField] && m_Pipelines[TraceFarField] && pipeline == m_TraceProgramFor )
             return BOOLSUCCESS;
-        const std::string name( kScreenProbeShaderNames[Trace] );
-        auto              shader =
-             Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, TracerVariant( pipeline ) );
-        if ( !shader )
-            return Common::MakeFormattedError<bool>( "screen probes: shader {} ({}, {}) did not compile", name,
-                                                     TracerDefine( pipeline.Tracer ),
-                                                     HitLightingDefine( pipeline.Hits ) );
-        auto compute = ComputePipeline::Create(
-             { .Shader = shader, .DebugName = std::format( "{} ({})", name, TracerDefine( pipeline.Tracer ) ) } );
-        if ( !compute )
-            return Common::MakeFormattedError<bool>( "screen probes: {}: {}", name, compute.GetError() );
-        m_Shaders[Trace]   = std::move( shader );
-        m_Pipelines[Trace] = compute.GetValue();
-        m_TraceProgramFor  = pipeline;
+        for ( const auto& [program, leg] : { std::pair{ TraceNearField, kTraceNearFieldDefine },
+                                             std::pair{ TraceFarField, kTraceFarFieldDefine } } )
+        {
+            const std::string   name( kScreenProbeShaderNames[program] );
+            Core::ShaderVariant variant = TracerVariant( pipeline );
+            variant.Defines.emplace_back( leg );
+            auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, variant );
+            if ( !shader )
+                return Common::MakeFormattedError<bool>( "screen probes: shader {} ({}, {}, {}) did not compile",
+                                                         name, TracerDefine( pipeline.Tracer ),
+                                                         HitLightingDefine( pipeline.Hits ), leg );
+            auto compute = ComputePipeline::Create(
+                 { .Shader    = shader,
+                   .DebugName = std::format( "{} ({}, {})", name, TracerDefine( pipeline.Tracer ), leg ) } );
+            if ( !compute )
+                return Common::MakeFormattedError<bool>( "screen probes: {} ({}): {}", name, leg,
+                                                         compute.GetError() );
+            m_Shaders[program]   = std::move( shader );
+            m_Pipelines[program] = compute.GetValue();
+        }
+        m_TraceProgramFor = pipeline;
         return BOOLSUCCESS;
     }
 
@@ -251,15 +287,93 @@ namespace Desert::Graphic::GlobalIllumination
                  } );
         }
 
-        const uint32_t probeGroups = layout.Probes();
+        // TRACE (UE LumenScreenProbeTracing.cpp TraceScreenProbes): the screen; the rays it left open compacted;
+        // the tracer's near field over them; every ray still without a hit compacted; the far field, the radiance
+        // cache and the sky over those. Each ray's state between the legs: the trace hit buffer
+        // (Common/ScreenProbeTracing.glslh).
+        const uint32_t       probeGroups = layout.Probes();
+        constexpr uint32_t   kTexels     = ScreenProbeLayout::kTracedTexels * ScreenProbeLayout::kTracedTexels;
+        const uint64_t       rayBytes    = static_cast<uint64_t>( probeGroups ) * kTexels * sizeof( uint32_t );
+        const RDG::BufferRef traceHit = graph.CreateBuffer( RDG::BufferDesc{ rayBytes }, "ScreenProbes.TraceHit" );
         {
-            ComputePipeline* const pipeline = m_Pipelines[Trace].get();
+            ComputePipeline* const pipeline = m_Pipelines[TraceScreen].get();
             graph.AddPass(
-                 "ScreenProbes: Trace", RDG::PassFlags::Compute,
+                 "ScreenProbes: Trace Screen", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& builder )
                  {
-                     auto block = builder.Bindings( m_Layouts[Trace].Get( m_Shaders[Trace] ),
+                     auto block = builder.Bindings( m_Layouts[TraceScreen].Get( m_Shaders[TraceScreen] ),
                                                     Renderer::GetPipelineRouteFill( *pipeline ) );
+                     block.Storage( "ScreenProbeParamsUB", paramsBuffer, kR )
+                          .Storage( "ScreenProbeIndexUB", index, kR )
+                          .Storage( "ScreenProbesUB", probes, kR )
+                          .Storage( "GIFrameUB", inputs.GIFrame, kR )
+                          .Storage( "RadianceCacheParamsUB", inputs.RadianceCache.Params, kR )
+                          .Storage( "ScreenProbeTraceHitUB", traceHit, kW )
+                          .Storage( "u_ScreenProbeTraced", traced, kW )
+                          .Sampled( "u_HZB", inputs.HZB, kS, all, RDG::SamplerDesc::PointClamp() )
+                          .Sampled( "u_SceneColorHistory", inputs.SceneColorHistory, kS, all,
+                                    RDG::SamplerDesc::LinearClamp() );
+                 },
+                 [pipeline, probeGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
+                 } );
+        }
+
+        // One compaction: the open rays' list and its dispatch arguments (ScreenProbeCompactTraces.shader).
+        struct Compacted
+        {
+            RDG::BufferRef Args;      // the world leg's dispatch (IndirectArgs)
+            RDG::BufferRef Allocator; // the rays listed
+            RDG::BufferRef Texels;
+        };
+        const auto compact = [&]( const std::string_view name, const CompactPush push ) -> Compacted
+        {
+            const Compacted list{ graph.CreateBuffer( RDG::BufferDesc{ sizeof( kCompactArgsReset ) },
+                                                      std::format( "ScreenProbes.CompactArgs ({})", name ) ),
+                                  graph.CreateBuffer( RDG::BufferDesc{ sizeof( kCompactAllocatorReset ) },
+                                                      std::format( "ScreenProbes.CompactAllocator ({})", name ) ),
+                                  graph.CreateBuffer( RDG::BufferDesc{ rayBytes },
+                                                      std::format( "ScreenProbes.CompactTexels ({})", name ) ) };
+            graph.QueueBufferUpload( list.Args, std::as_bytes( std::span( kCompactArgsReset ) ) );
+            graph.QueueBufferUpload( list.Allocator, std::as_bytes( std::span( &kCompactAllocatorReset, 1 ) ) );
+            ComputePipeline* const pipeline = m_Pipelines[CompactTraces].get();
+            graph.AddPass(
+                 std::format( "ScreenProbes: Compact Traces ({})", name ), RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& builder )
+                 {
+                     auto block = builder.Bindings( m_Layouts[CompactTraces].Get( m_Shaders[CompactTraces] ),
+                                                    Renderer::GetPipelineRouteFill( *pipeline ) );
+                     block.Storage( "ScreenProbeParamsUB", paramsBuffer, kR )
+                          .Storage( "ScreenProbeIndexUB", index, kR )
+                          .Storage( "ScreenProbesUB", probes, kR )
+                          .Storage( "ScreenProbeTraceHitUB", traceHit, kR )
+                          .Storage( "ScreenProbeCompactArgsUB", list.Args, kW )
+                          .Storage( "ScreenProbeCompactAllocatorUB", list.Allocator, kW )
+                          .Storage( "ScreenProbeCompactTexelsUB", list.Texels, kW )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( CompactPush ) ) );
+                 },
+                 [pipeline, probeGroups, push]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
+                 } );
+            return list;
+        };
+
+        // One world leg over a compacted list, one thread per ray (ScreenProbeTrace.shader's permutation).
+        const auto traceWorld = [&]( const Program program, const std::string_view name, const Compacted list )
+        {
+            ComputePipeline* const pipeline = m_Pipelines[program].get();
+            graph.AddPass(
+                 name, RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& builder )
+                 {
+                     auto block = builder.Bindings( m_Layouts[program].Get( m_Shaders[program] ),
+                                                    Renderer::GetPipelineRouteFill( *pipeline ) );
+                     builder.Read( list.Args, RDG::Access::IndirectArgs );
                      block.Storage( "ScreenProbeParamsUB", paramsBuffer, kR )
                           .Storage( "ScreenProbeIndexUB", index, kR )
                           .Storage( "ScreenProbesUB", probes, kR )
@@ -270,7 +384,10 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "LightGridWorldCellsUB", inputs.WorldGridCells, kR )
                           .Storage( "RadianceCacheParamsUB", inputs.RadianceCache.Params, kR )
                           .Storage( "RadianceCacheIndirectionUB", inputs.RadianceCache.Indirection, kR )
-                          .Storage( "RadianceCacheProbesUB", inputs.RadianceCache.Probes, kR );
+                          .Storage( "RadianceCacheProbesUB", inputs.RadianceCache.Probes, kR )
+                          .Storage( "ScreenProbeTraceHitUB", traceHit, program == TraceNearField ? kW : kR )
+                          .Storage( "ScreenProbeCompactAllocatorUB", list.Allocator, kR )
+                          .Storage( "ScreenProbeCompactTexelsUB", list.Texels, kR );
                      DeclareTracerReads( block, inputs.Tracer );
                      if ( readsCards )
                          DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
@@ -287,17 +404,19 @@ namespace Desert::Graphic::GlobalIllumination
                                     RDG::SamplerDesc::LinearClamp() )
                           .Sampled( "u_RadianceCacheRadianceAtlas", inputs.RadianceCache.Radiance, kS, all,
                                     RDG::SamplerDesc::LinearClamp() )
-                          .Storage( "u_ScreenProbeTraced", traced, kW )
-                          .Sampled( "u_HZB", inputs.HZB, kS, all, RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_SceneColorHistory", inputs.SceneColorHistory, kS, all,
-                                    RDG::SamplerDesc::LinearClamp() );
+                          .Storage( "u_ScreenProbeTraced", traced, kW );
                  },
-                 [pipeline, probeGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline, args = list.Args]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
+                     return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, 0u );
                  } );
-        }
+        };
+
+        traceWorld( TraceNearField, "ScreenProbes: Trace Near Field",
+                    compact( "near field", CompactPush{ NearFieldEnd( inputs.Tracer.Pipeline.Tracer ), 0u } ) );
+        traceWorld( TraceFarField, "ScreenProbes: Trace Far Field",
+                    compact( "far field", CompactPush{ std::numeric_limits<float>::max(), 1u } ) );
         {
             ComputePipeline* const pipeline = m_Pipelines[Filter].get();
             graph.AddPass(

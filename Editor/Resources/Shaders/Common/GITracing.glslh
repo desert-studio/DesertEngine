@@ -11,6 +11,11 @@
 //   GITraceRay         the walk. DESERT_GI_TRACER_SOFTWARE: the mesh SDFs near the origin, then the global SDF march
 //                      (GLOBAL-SDF, GITraceDistanceField);
 //                      DESERT_GI_TRACER_HARDWARE: rayQueryEXT over the scene TLAS (RT-SCENE, GI-HWRT).
+//   GITraceNearField / GITraceFarField  the walk's two legs, for a consumer that runs them as separate passes over
+//                      the rays still open (the screen probe gather, UE TraceMeshSDFs then TraceVoxels over compacted
+//                      traces): GITraceRay = the near field, then on a miss the far field from its farStart.
+//                      Software: the mesh SDFs of the origin's froxel / the global SDF. A tracer with one leg (the
+//                      ray query) answers the whole ray in the near field (farStart = tMax) and misses in the far.
 //   GITraceVisibility  visibility only, 1 when nothing lies within @p maxT of @p origin along @p direction (the far
 //                      field from @p farTMin on) — the shadow ray of hit lighting (and of the cards' lighting where
 //                      no shadow map covers them).
@@ -91,6 +96,8 @@ struct GITraceBias {
 };
 
 GITraceResult GITraceRay( GITraceInput ray );
+GITraceResult GITraceNearField( GITraceInput ray, out float farStart );
+GITraceResult GITraceFarField( GITraceInput ray );
 float         GITraceVisibility( vec3 origin, vec3 direction, float farTMin, float maxT );
 GITraceBias   GIRayBias( vec3 position, vec3 normal, vec3 direction );
 vec3          GIMoveOutOfGeometry( vec3 position, float clearance, float maxOffset );
