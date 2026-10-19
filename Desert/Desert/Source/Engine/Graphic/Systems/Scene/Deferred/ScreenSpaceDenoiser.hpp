@@ -31,6 +31,7 @@ namespace Desert::Graphic::System
         Reflections      = 0, // SSR (and, later, ray-traced reflections): specular, lobe-aware
         DiffuseIndirect  = 1, // RSM-GI (and, later, SSGI / ray-traced GI): diffuse, normal-aware
         ShadowVisibility = 2, // a light's penumbra mask (ray-traced sun shadow): penumbra-sized, normal-aware
+        DirectSpecular   = 3, // MegaLights' specular direct light: lobe-aware, reprojected through the surface
     };
 
     // The view's scene textures every pass of the denoiser compares its taps with (graph textures of the frame).
@@ -64,6 +65,17 @@ namespace Desert::Graphic::System
         RDG::TextureRef Signal;
         // The reconstruction's kernel, taps per side from the centre (UE r.*.Denoiser.ReconstructionSamples;
         // MegaLights: Scalability Shadows.MegaLightsDenoiserRadius). 2 = 5x5.
+        uint32_t ReconstructionRadius = 2;
+    };
+
+    // What MegaLights hands the denoiser's specular signal (UE MegaLights denoises its specular lighting apart from
+    // the diffuse): its full-resolution demodulated specular light, rgb = light, a = 1 on a surface. The diffuse
+    // half goes through DiffuseIndirectDenoiserInputs, so a glossy highlight never gets the diffuse kernel.
+    struct DirectSpecularDenoiserInputs
+    {
+        RDG::TextureRef Signal;
+        // The reconstruction's kernel, taps per side from the centre (Shadows.MegaLightsDenoiserRadius), shrunk
+        // further by each pixel's specular lobe (SSDReconstructDirectSpecular.shader). 2 = 5x5.
         uint32_t ReconstructionRadius = 2;
     };
 
@@ -204,15 +216,41 @@ namespace Desert::Graphic::System
         {
             if ( m_Signal != DenoiserSignal::DiffuseIndirect || !m_ReconstructPipeline )
                 return {};
+            return DenoiseSurfaceSignal( graph, in.Signal, in.ReconstructionRadius, scene, frame, width, height,
+                                         "Denoise: Diffuse Reconstruction" );
+        }
+
+        // As DenoiseDiffuseIndirect, for MegaLights' specular direct light: the reconstruction and the history
+        // convolution weigh each tap by the agreement of the specular lobes (UE BILATERAL_TOKOYASHI), the history
+        // is reprojected through the surface (a light's highlight moves with it, not with a reflected point).
+        [[nodiscard]] RDG::TextureRef DenoiseDirectSpecular( RDG::Builder&                       graph,
+                                                             const DirectSpecularDenoiserInputs& in,
+                                                             const DenoiserSceneTextures&        scene,
+                                                             const ViewFrame& frame, const uint32_t width,
+                                                             const uint32_t height )
+        {
+            if ( m_Signal != DenoiserSignal::DirectSpecular || !m_ReconstructPipeline )
+                return {};
+            return DenoiseSurfaceSignal( graph, in.Signal, in.ReconstructionRadius, scene, frame, width, height,
+                                         "Denoise: Direct Specular Reconstruction" );
+        }
+
+    private:
+        // The full-resolution surface signals (diffuse indirect, direct specular): one reconstruction pass of this
+        // signal's program, then the shared temporal accumulation and history convolution.
+        RDG::TextureRef DenoiseSurfaceSignal( RDG::Builder& graph, const RDG::TextureRef input,
+                                              const uint32_t reconstructionRadius, const DenoiserSceneTextures& scene,
+                                              const ViewFrame& frame, const uint32_t width, const uint32_t height,
+                                              const std::string_view passName )
+        {
             const RDG::BufferRef  uniforms = UploadViewUniforms( graph, frame );
             const RDG::TextureRef signal =
                  graph.CreateTexture( Desc( width, height, kSignalFormat ), "SSD.Signal" );
             graph.SetFaultDefault( signal, RDG::FaultDefault::Black );
-            // x = the kernel's taps per side from the centre (SSDReconstructDiffuse.shader).
-            const glm::vec4 push( static_cast<float>( std::max( in.ReconstructionRadius, 1u ) ), 0.0f, 0.0f,
-                                  0.0f );
+            // x = the kernel's taps per side from the centre (SSDReconstructDiffuse / SSDReconstructDirectSpecular).
+            const glm::vec4 push( static_cast<float>( std::max( reconstructionRadius, 1u ) ), 0.0f, 0.0f, 0.0f );
             graph.AddPass(
-                 "Denoise: Diffuse Reconstruction", RDG::PassFlags::Compute,
+                 passName, RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_ReconstructLayout.Get( m_ReconstructShader ),
@@ -222,15 +260,14 @@ namespace Desert::Graphic::System
                           .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                           .Texture( "u_GBufferDepth", scene.GBufferDepth, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Texture( "u_Input", in.Signal, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
+                          .Texture( "u_Input", input, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                           .Storage( "u_Signal", signal, RDG::Access::StorageWrite )
                           .Uniform( "DenoiserViewUB", uniforms )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
                  },
                  [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
-                     DESERT_PROFILE_PASS( "Denoise: Diffuse Reconstruction" );
+                     DESERT_PROFILE_PASS( "Denoise: Surface Reconstruction" );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                      return Renderer::GetInstance().DispatchCompute( bindings, *m_ReconstructPipeline,
@@ -240,6 +277,7 @@ namespace Desert::Graphic::System
                                               width, height );
         }
 
+    public:
         // UE IScreenSpaceDenoiser::DenoiseShadowVisibilityMasks. As DenoiseDiffuseIndirect, for a light's penumbra
         // mask: the reconstruction's kernel is the penumbra's width (closest occluder * tan(angle / 2)), the history
         // is reprojected through the surface. Returns the denoised visibility (r; rgb equal, a = 1). A light of
@@ -325,6 +363,8 @@ namespace Desert::Graphic::System
                     return "SSDReconstructDiffuse";
                 case DenoiserSignal::ShadowVisibility:
                     return "SSDReconstructShadowVisibility";
+                case DenoiserSignal::DirectSpecular:
+                    return "SSDReconstructDirectSpecular";
             }
             return "SSDReconstructDiffuse"; // unreachable: the switch names every signal (-Wswitch)
         }
@@ -340,6 +380,8 @@ namespace Desert::Graphic::System
                     return "SSD.Diffuse";
                 case DenoiserSignal::ShadowVisibility:
                     return "SSD.ShadowVisibility";
+                case DenoiserSignal::DirectSpecular:
+                    return "SSD.DirectSpecular";
             }
             return "SSD.Diffuse"; // unreachable: the switch names every signal (-Wswitch)
         }
@@ -354,6 +396,8 @@ namespace Desert::Graphic::System
                     return kMaxSampleCountDiffuseIndirect;
                 case DenoiserSignal::ShadowVisibility:
                     return kMaxSampleCountShadowVisibility;
+                case DenoiserSignal::DirectSpecular:
+                    return kMaxSampleCountReflections; // a highlight follows the light as fast as a reflection
             }
             return kMaxSampleCountDiffuseIndirect; // unreachable: the switch names every signal (-Wswitch)
         }

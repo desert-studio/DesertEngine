@@ -25,7 +25,7 @@ Shader "DeferredLighting"
         // scene (real procedural sky / skybox + grid) shows through.
 
         // DESERT_MEGALIGHTS (Shadows Stochastic, DeferredLightingRenderer's MegaLights program): the local lights
-        // arrive as MegaLights' denoised lighting (u_MegaLightsLighting below), so this program reads neither the
+        // arrive as MegaLights' denoised lighting (u_MegaLightsDiffuse / u_MegaLightsSpecular below), so this program reads neither the
         // light rows nor their shadow maps.
         #ifndef DESERT_MEGALIGHTS
         #include <Mesh/PointLight.glslh>      // binding 6  (SSBO PointLightsUB) + BRDF
@@ -310,9 +310,12 @@ Shader "DeferredLighting"
         #include <Mesh/LocalLightShadow.glslh>
         #else
         // MegaLights' local lighting (System::MegaLightsRenderer: ReSTIR DI over the light grid, ray-query visibility,
-        // the screen-space denoiser), demodulated: rgb * MegaLightsReflectance of this texel is its light.
-        Uniform(32) texture2D u_MegaLightsLighting;
-        #define u_MegaLightsLighting sampler2D(u_MegaLightsLighting, u_PointClampSampler)
+        // the screen-space denoiser), as two demodulated signals: diffuse * MegaLightsDiffuseReflectance plus
+        // specular * MegaLightsSpecularReflectance of this texel is its light.
+        Uniform(32) texture2D u_MegaLightsDiffuse;
+        #define u_MegaLightsDiffuse sampler2D(u_MegaLightsDiffuse, u_PointClampSampler)
+        Uniform(33) texture2D u_MegaLightsSpecular;
+        #define u_MegaLightsSpecular sampler2D(u_MegaLightsSpecular, u_PointClampSampler)
         #include <Mesh/MegaLightsDemodulation.glslh>
         #endif
 
@@ -463,10 +466,12 @@ Shader "DeferredLighting"
         	// casts shadows — the lights of this pixel's froxel only, in the order the full loop would sum them. An
         	// overflowed cell (more lights than its list holds) is shaded by every light: slower, never wrong.
         	// Under MegaLights the same lights arrive sampled, traced and denoised: the texel remodulated by the
-        	// reflectance it was demodulated with ("MegaLights: Shade Samples").
+        	// reflectances they were demodulated with ("MegaLights: Shade Samples"), diffuse and specular apart.
         #ifdef DESERT_MEGALIGHTS
-        	result += texelFetch(u_MegaLightsLighting, ivec2(gl_FragCoord.xy), 0).rgb *
-        	          MegaLightsReflectance(albedo, metallic, roughness, N, view);
+        	result += texelFetch(u_MegaLightsDiffuse, ivec2(gl_FragCoord.xy), 0).rgb *
+        	              MegaLightsDiffuseReflectance(albedo, metallic) +
+        	          texelFetch(u_MegaLightsSpecular, ivec2(gl_FragCoord.xy), 0).rgb *
+        	              MegaLightsSpecularReflectance(albedo, metallic, roughness, N, view);
         #else
         	const uint cell  = LightGridCellAt(lightGrid, gl_FragCoord.xy, worldPos);
         	const uint count = lightGridCells[cell];

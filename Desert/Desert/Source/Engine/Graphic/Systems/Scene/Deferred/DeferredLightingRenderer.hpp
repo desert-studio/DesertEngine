@@ -46,9 +46,10 @@ namespace Desert::Graphic::System
         // modes).
         RDG::TextureRef GIDiffuse;
         RDG::TextureRef GISpecular;
-        // MegaLights' denoised, demodulated local lighting (System::MegaLightsRenderer), or System.Black; bound by
-        // the MegaLights program only (DeferredShadowInput::MegaLightsLocalLights).
-        RDG::TextureRef MegaLights;
+        // MegaLights' denoised, demodulated local lighting, diffuse and specular (System::MegaLightsRenderer), or
+        // System.Black; bound by the MegaLights program only (DeferredShadowInput::MegaLightsLocalLights).
+        RDG::TextureRef MegaLightsDiffuse;
+        RDG::TextureRef MegaLightsSpecular;
         // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
         SceneViewInputs View;
     };
@@ -321,7 +322,8 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
             // The light rows and their shadow views: the light-grid loop's. The MegaLights program reads
             // MegaLights' lighting instead.
             if ( m_Active == kMegaLightsProgram )
-                block.Texture( "u_MegaLightsLighting", inputs.MegaLights, kRead, kWhole );
+                block.Texture( "u_MegaLightsDiffuse", inputs.MegaLightsDiffuse, kRead, kWhole )
+                     .Texture( "u_MegaLightsSpecular", inputs.MegaLightsSpecular, kRead, kWhole );
             else
                 block.Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
                      .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )

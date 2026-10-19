@@ -904,7 +904,8 @@ namespace Desert::Graphic
              .SamplesPerPixel = quality.As<uint32_t>( Parameter::ShadowMegaLightsSamplesPerPixel ),
              .SpatialSamples  = quality.As<uint32_t>( Parameter::ShadowMegaLightsSpatialSamples ),
              .MaxHistory      = quality.As<uint32_t>( Parameter::ShadowMegaLightsMaxHistory ),
-             .DenoiserRadius  = quality.As<uint32_t>( Parameter::ShadowMegaLightsDenoiserRadius ) };
+             .DenoiserRadius  = quality.As<uint32_t>( Parameter::ShadowMegaLightsDenoiserRadius ),
+             .DownsampleFactor = quality.As<uint32_t>( Parameter::ShadowMegaLightsDownsampleFactor ) };
         m_ReflectionDenoiserRadius            = quality.As<uint32_t>( Parameter::ReflectionDenoiserRadius );
         m_ScreenSpaceGISamples                = quality.As<int>( Parameter::ScreenSpaceGISamples );
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
@@ -1131,16 +1132,6 @@ namespace Desert::Graphic
         {
             DESERT_PROFILE_PASS( "Shadow: UpdateCascades" );
             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateCascades();
-        }
-
-        // The point and spot lights' shadow views, the same boundary: tiles of the atlas allocated (and the atlas
-        // itself, on the first light that casts), each light's ShadowView written into its payload, and the views
-        // whose cached depth is stale marked for this frame's graph (MeshRenderer::LocalShadowPasses).
-        {
-            DESERT_PROFILE_PASS( "Shadow: UpdateLocalShadows" );
-            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-                 ->UpdateLocalShadows( m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights,
-                                       m_SpotLightShadows );
         }
 
         // Morph targets blend before anything skins (UE: the morph update precedes the GPU skin passes): its own
@@ -1462,6 +1453,17 @@ namespace Desert::Graphic
                  !sunTraced || ( tlas && m_RayTracingScene.GetFrame().Built && EnsureRayTracedShadowResources() &&
                                  ( !LocalLightsAreStochastic() || EnsureMegaLightsResources() ) ) );
             ReportRenderMethods( m_RenderMethods );
+            // The point and spot lights' shadow views, once the frame's Shadows method is final (and before the
+            // maps are imported): tiles of the atlas allocated (and the atlas itself, on the first light that
+            // casts), each light's ShadowView written into its payload, and the views whose cached depth is stale
+            // marked for this frame's graph (MeshRenderer::LocalShadowPasses). Under Stochastic MegaLights traces
+            // the local lights: no map is drawn for any (UE: MegaLights lights render no shadow depths).
+            {
+                DESERT_PROFILE_PASS( "Shadow: UpdateLocalShadows" );
+                UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
+                     ->UpdateLocalShadows( m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights,
+                                           m_SpotLightShadows, !LocalLightsAreStochastic() );
+            }
             // The cascade budget follows the FRAME's answer: a frame that fell back to CascadedMaps draws the full
             // ShadowQuality cascades, the low-detail Shadows.RayTracedTranslucency* ones only while the sun is
             // ray traced. Then the maps are imported at that budget, before any pass reads them.
@@ -1554,9 +1556,9 @@ namespace Desert::Graphic
                       : RDG::TextureRef{};
             // Shadows Stochastic: the local lights sampled, traced and denoised by MegaLights, which the
             // composite's MegaLights program reads in place of its light-grid loop.
-            const RDG::TextureRef megaLights = LocalLightsAreStochastic()
-                                                    ? AddFrameMegaLights( graph, textures, gbuffer, frame )
-                                                    : RDG::TextureRef{};
+            const System::MegaLightsLighting megaLights = LocalLightsAreStochastic()
+                                                               ? AddFrameMegaLights( graph, textures, gbuffer, frame )
+                                                               : System::MegaLightsLighting{};
             AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, sunShadowMask, megaLights,
                                meshRenderer, lightDir, lightColor, frame );
             AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask );
@@ -1773,9 +1775,9 @@ namespace Desert::Graphic
         return true;
     }
 
-    RDG::TextureRef SceneRenderer::AddFrameMegaLights( RDG::Builder& graph, FrameTextures& textures,
-                                                       const std::vector<RDG::TextureRef>& gbuffer,
-                                                       const ViewFrame&                    frame )
+    System::MegaLightsLighting SceneRenderer::AddFrameMegaLights( RDG::Builder& graph, FrameTextures& textures,
+                                                                  const std::vector<RDG::TextureRef>& gbuffer,
+                                                                  const ViewFrame&                    frame )
     {
         const auto pointCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
         const auto spotCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
@@ -1803,8 +1805,12 @@ namespace Desert::Graphic
                                                          .PointLights = pointCount,
                                                          .SpotLights  = spotCount,
                                                          .Width       = frame.Split.Render.Width,
-                                                         .Height      = frame.Split.Render.Height };
-        const Common::ResultStr<RDG::TextureRef> lighting =
+                                                         .Height      = frame.Split.Render.Height,
+                                                         // The G-buffer depth is the opaque scene: the march has
+                                                         // something to hit (as the composite's contact shadows).
+                                                         .ContactShadowView = SceneResources::ContactShadowViewVector(
+                                                              GetContactShadowSettings( frame, true ) ) };
+        const Common::ResultStr<System::MegaLightsLighting> lighting =
              m_MegaLights.AddPasses( graph, inputs, m_MegaLightsQuality, frame );
         if ( !lighting )
         {

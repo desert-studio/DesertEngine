@@ -1,64 +1,59 @@
 // DesertAsset {"Kind":"Shader","Guid":"f6a297e9567f40af9a49e58a6416b044","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "MegaLightsShadeSamples"
 {
-    // "MegaLights: Shade Samples" (UE MegaLightsShadeLightSamples): each final reservoir's light is traced once more
-    // from THIS pixel (the spatial reuse brought neighbours' lights whose visibility was theirs), shaded through the
-    // texel's shading model unshadowed and weighed by the reservoir's W and that visibility; the mean of the pixel's
-    // reservoirs, divided by the surface's reflectance (Mesh/MegaLightsDemodulation.glslh), is the noisy local
-    // lighting the denoiser filters. The shaded reservoirs - an occluded one with no weight - and the pixel's
-    // surface are next frame's temporal history.
+    // "MegaLights: Shade Samples" (UE MegaLightsShadeLightSamples), at RENDER resolution: every render pixel shades
+    // the traced reservoirs of its sample pixel (Common/MegaLights.glslh MegaLightsSamplePixelOf - the
+    // half-resolution samples upsampled as UE's ShadeLightSamples does) with ITS OWN surface: the light through the
+    // texel's shading model unshadowed, times the reservoir's W, which "MegaLights: Trace Samples" already scaled by
+    // the sample's visibility - no ray here. The shading model's specular lobe (EvaluateSpecular) and the rest
+    // (diffuse) are written apart, each the mean of the reservoirs divided by its own reflectance
+    // (Mesh/MegaLightsDemodulation.glslh): the two noisy signals the denoiser filters separately.
 
     Compute
     {
-        #define RAY_QUERY_VISIBILITY_TLAS_BINDING      7
-        #define RAY_QUERY_VISIBILITY_GEOMETRY_BINDING  8
-        #define RAY_QUERY_VISIBILITY_MATERIALS_BINDING 9
-        #include <Common/RayQueryVisibility.glslh>
         Uniform sampler u_PointClampSampler;
         #define MEGALIGHTS_SHADING
-        #define MEGALIGHTS_TRACE
         #include <Common/MegaLights.glslh>
 
-        Uniform(10) texture2D u_Reservoirs; // "MegaLights: Spatial Resampling"
+        Uniform(10) texture2D u_Reservoirs; // "MegaLights: Trace Samples", sample-pixel sized
         #define u_Reservoirs sampler2D(u_Reservoirs, u_PointClampSampler)
-        layout(binding = 11, rgba32f) writeonly uniform image2D u_OutReservoirs; // next frame's history
-        layout(binding = 15, rgba16f) writeonly uniform image2D u_OutLighting;   // rgb = demodulated light, a = 1
-        layout(binding = 17, rgba16f) writeonly uniform image2D u_OutSurface;    // xyz = normal, w = clip w (0 = none)
+        layout(binding = 15, rgba16f) writeonly uniform image2D u_OutDiffuse;  // rgb = demodulated diffuse, a = 1
+        layout(binding = 18, rgba16f) writeonly uniform image2D u_OutSpecular; // rgb = demodulated specular, a = 1
 
         LocalSize(8, 8, 1);
 
         void main()
         {
-        	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+        	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy); // a render pixel
         	const ivec2 size  = MegaLightsViewSize();
         	if (pixel.x >= size.x || pixel.y >= size.y)
         		return;
-        	const uint            samples = MegaLightsSamplesPerPixel();
-        	const MegaLightsPixel p       = MegaLightsLoadPixel(pixel);
-        	vec3                  light   = vec3(0.0);
-        	for (uint k = 0u; k < samples; ++k)
-        	{
-        		const ivec2         texel = MegaLightsReservoirTexel(pixel, k);
-        		MegaLightsReservoir r     = MegaLightsUnpackReservoir(texelFetch(u_Reservoirs, texel, 0));
-        		if (!p.Valid)
-        			r = MegaLightsEmptyReservoir();
-        		else if (r.Light >= 0 && r.W > 0.0)
-        		{
-        			if (MegaLightsVisibility(p.Position, p.N, r.Light) > 0.0)
-        				light += MegaLightsUnshadowed(p, r.Light) * r.W;
-        			else
-        				r.W = 0.0;
-        		}
-        		imageStore(u_OutReservoirs, texel, MegaLightsPackReservoir(r));
-        	}
+        	const MegaLightsPixel p = MegaLightsLoadPixel(pixel);
         	if (!p.Valid)
         	{
-        		imageStore(u_OutLighting, pixel, vec4(0.0));
-        		imageStore(u_OutSurface, pixel, vec4(0.0));
+        		imageStore(u_OutDiffuse, pixel, vec4(0.0));
+        		imageStore(u_OutSpecular, pixel, vec4(0.0));
         		return;
         	}
-        	imageStore(u_OutLighting, pixel, vec4(light / (float(samples) * p.Reflectance), 1.0));
-        	imageStore(u_OutSurface, pixel, vec4(p.N, p.ViewDepth));
+        	const uint  samples     = MegaLightsSamplesPerPixel();
+        	const ivec2 samplePixel = MegaLightsSamplePixelOf(pixel);
+        	vec3        diffuse     = vec3(0.0);
+        	vec3        specular    = vec3(0.0);
+        	for (uint k = 0u; k < samples; ++k)
+        	{
+        		const MegaLightsReservoir r =
+        		     MegaLightsUnpackReservoir(texelFetch(u_Reservoirs, MegaLightsReservoirTexel(samplePixel, k), 0));
+        		if (r.Light < 0 || r.Light >= MegaLightsLightCount() || r.W <= 0.0)
+        			continue;
+        		vec3 d;
+        		vec3 s;
+        		MegaLightsUnshadowedLobes(p, r.Light, d, s);
+        		diffuse += d * r.W;
+        		specular += s * r.W;
+        	}
+        	const float scale = 1.0 / float(samples);
+        	imageStore(u_OutDiffuse, pixel, vec4(diffuse * scale / p.DiffuseReflectance, 1.0));
+        	imageStore(u_OutSpecular, pixel, vec4(specular * scale / p.SpecularReflectance, 1.0));
         }
     }
 }

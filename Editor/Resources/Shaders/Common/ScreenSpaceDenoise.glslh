@@ -17,6 +17,13 @@ const float kSSDPi = 3.14159265358979;
 const int kSSDSignalReflections     = 0;
 const int kSSDSignalDiffuseIndirect = 1;
 const int kSSDSignalShadowVisibility = 2;
+const int kSSDSignalDirectSpecular   = 3;
+
+// The signals whose taps are weighed by the agreement of the specular lobes (reflections, MegaLights' specular).
+bool SSDSignalIsSpecular(int signal)
+{
+	return signal == kSSDSignalReflections || signal == kSSDSignalDirectSpecular;
+}
 
 // Whether the signal has anything to say at a pixel (UE: the per-signal shading-model gate). Reflections: the
 // trace's own gate (sky / too rough - Common/SSRGate.glslh); diffuse indirect and shadow visibility: every

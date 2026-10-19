@@ -78,6 +78,7 @@ namespace
         m.Inputs = std::move( inputs );
         m.Body =
              "vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P ) { return vec3( 0.0 ); }\n"
+             "vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P ) { return vec3( 0.0 ); }\n"
              "vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P ) { return vec3( 0.0 ); }\n";
         m.SourcePath =
              std::filesystem::path( "ShadingModels" ) / ( name + std::string( SM::kShadingModelExtension ) );

@@ -1079,6 +1079,12 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Min Radius" ), Category( "Light" ), Range( 0.0f, 10000.0f ), Length, Advanced )
         float MinRadius = 0.0f;
 
+        // UE ULocalLightComponent::SourceRadius: the emitter is a sphere of this radius, not a point. Traced
+        // shadows (MegaLights, Shadows Stochastic) aim each ray at a point of that sphere, so a shadow is sharp
+        // at its caster and widens with the distance to the receiver. 0 = a point (a hard shadow).
+        PROPERTY( DisplayName( "Source Radius" ), Category( "Light" ), Range( 0.0f, 1000.0f ), Length, Advanced )
+        float SourceRadius = 0.0f;
+
         PROPERTY( DisplayName( "Falloff" ), Category( "Light" ), Advanced )
         LightFalloff Falloff = LightFalloff::InverseSquare; // UE bUseInverseSquaredFalloff, on by default
 
@@ -1180,6 +1186,12 @@ namespace Desert::ECS
 
         PROPERTY( DisplayName( "Outer Cone" ), Category( "Light" ), Range( 0.0f, 90.0f ), Units( "deg" ), Summary )
         float OuterConeAngle = 30.0f; // degrees — zero intensity outside this half-angle
+
+        // UE ULocalLightComponent::SourceRadius: the emitter is a sphere of this radius, not a point. Traced
+        // shadows (MegaLights, Shadows Stochastic) aim each ray at a point of that sphere, so a shadow is sharp
+        // at its caster and widens with the distance to the receiver. 0 = a point (a hard shadow).
+        PROPERTY( DisplayName( "Source Radius" ), Category( "Light" ), Range( 0.0f, 1000.0f ), Length, Advanced )
+        float SourceRadius = 0.0f;
 
         PROPERTY( DisplayName( "Falloff" ), Category( "Light" ), Advanced )
         LightFalloff Falloff = LightFalloff::InverseSquare; // UE bUseInverseSquaredFalloff, on by default

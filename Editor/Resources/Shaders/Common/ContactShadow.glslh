@@ -1,6 +1,11 @@
 #ifndef CONTACT_SHADOW_GLSLH
 #define CONTACT_SHADOW_GLSLH
 
+// Every fragment includer marches from its own fragment; only a compute includer names its pixel.
+#ifndef CONTACT_SHADOW_PIXEL
+#define CONTACT_SHADOW_PIXEL gl_FragCoord.xy
+#endif
+
 // CONTACT SHADOWS — a short screen-space ray from the shaded pixel toward the light, marched through the scene
 // depth (UE: ShadowRayCast in DeferredLightingCommon.ush, the light's ContactShadowLength). It catches the
 // occlusion the shadow maps are too coarse or too biased to hold: a chair leg on the floor, a frame against the
@@ -13,6 +18,9 @@
 //     #define CONTACT_SHADOW_DEPTH   <sampler2D>  the opaque scene's device depth (nearest): the deferred composite's
 //                                                 u_GBufferDepth, the forward passes' u_SceneDepth
 //     #define CONTACT_SHADOW_VP      <mat4>       the matrix that depth was rasterised with (jittered)
+//     #define CONTACT_SHADOW_PIXEL   <vec2>       the render pixel the march's dither is keyed on: a fragment
+//                                                 program's gl_FragCoord.xy; a compute pass (MegaLights) names
+//                                                 the pixel it traces for
 // and declares the ShadowUB block (SceneResources::ShadowUBData), whose
 //     vec4 u_ContactShadowView;  x = ray steps (Scalability Shadows.ContactShadowSteps; 0 = off),
 //                                y = tan(vertical FOV / 2), z = dither frame (0..7), w unused
@@ -83,7 +91,7 @@ float ContactShadowRayCast(vec3 worldPosition, vec3 L, float rayLength, out vec2
 	// (UE: "avoid self-intersection with the start pixel", exact because the depth is point-sampled).
 	const float startDepth = textureLod(CONTACT_SHADOW_DEPTH, rayStartUVz.xy, 0.0).r;
 
-	const float stepOffset = ContactShadowDither(gl_FragCoord.xy, u_ContactShadowView.z) - 0.5;
+	const float stepOffset = ContactShadowDither(CONTACT_SHADOW_PIXEL, u_ContactShadowView.z) - 0.5;
 	float       sampleTime = stepOffset * stepFraction + stepFraction;
 
 	for (int i = 0; i < steps; i++)
