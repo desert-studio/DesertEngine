@@ -23,7 +23,8 @@
 // Emission is NOT the model's: the pass adds SurfaceOutput.Emissive after both calls, for every model. So Unlit is
 // the model whose functions all return vec3( 0.0 ) — the texel is its emission, with no special case anywhere.
 //
-// Who includes what. The registry (ShadingModelRegistry) generates ShadingModels.generated.glslh, which includes
+// Who includes what. The registry (ShadingModelRegistry) generates the VIRTUAL Generated/ShadingModels.glslh (no file:
+// the includer answers it with GenerateGlsl()'s text, ShadingModelManifest.hpp kGeneratedInclude), which includes
 // this file, then every model body, then the dispatch:
 //   vec3  DesertEvaluateShadingModel( int index, DesertLight L, DesertSurface S, DesertPayload P );
 //   vec3  DesertEvaluateShadingModelSpecular( int index, DesertLight L, DesertSurface S, DesertPayload P );

@@ -48,12 +48,28 @@ namespace Desert::Graphic
         RDG::BufferRef WorldGridCells;  // written by "LightGridWorld"
     };
 
+    // THE MEGALIGHTS TRANSLUCENCY VOLUME of a view (System::MegaLightsVolumeRenderer;
+    // Common/MegaLightsVolume.glslh): the view's frustum cut into froxels, each holding the local lights' incident
+    // radiance as L1 spherical harmonics, one RGBA16F volume per colour channel (L0, L1 x y z). The forward and
+    // translucent surfaces read their local lights from it, shadowed, under Shadows Stochastic. Off (any other
+    // Shadows method, or no local light) it is a block whose Size.w is 0 and System.Black3D in the three slots:
+    // the forward cell then loops the light grid, the glass adds nothing. Set by
+    // SceneRenderer::AddFrameMegaLightsVolume right after the light grid; invalid refs before it, as the grid's.
+    struct MegaLightsVolumeRefs
+    {
+        RDG::BufferRef                 Params;   // "MegaLights.Volume.Params", MegaLightsVolumeReadParams
+        std::array<RDG::TextureRef, 3> Lighting; // R, G, B
+    };
+
     struct FrameTransients
     {
         RDG::TextureRef Bloom;          // BloomRenderer chain (mip 0 read)   -> Tonemap
         RDG::TextureRef LightShafts;    // LightShaftRenderer result          -> Tonemap
         RDG::TextureRef LensFlare;      // LensFlareRenderer result           -> Tonemap
         RDG::TextureRef SSAO;           // SSAO factor                        -> deferred lighting
+        // SSR's full-resolution trace ray (xyz the point each pixel's reflection came from, w log2 pdf, -126 no
+        // ray), set only when the temporal upscaler takes the reflection raw  -> TemporalUpscalerInputs
+        RDG::TextureRef ReflectionRay;
         RDG::TextureRef SceneColorCopy; // scene snapshot                     -> glass refraction
         // The opaque scene's device depth (the G-buffer depth, reversed-Z), set by the deferred composite; invalid
         // on the forward path, which has no depth before its meshes draw   -> contact shadows of the forward
@@ -78,6 +94,9 @@ namespace Desert::Graphic
         // The view's responsive-AA mask (ViewRasterTargets.hpp CreateViewResponsiveAA): a colour slot of the scene
         // target only, written by ResponsiveAA translucency (glass, particles)   -> TAA
         RDG::TextureRef ResponsiveAA;
+        // The view's thin-geometry coverage (ViewRasterTargets.hpp CreateViewThinGeometryCoverage): a colour slot of
+        // the scene target and of the G-buffer, written by the passes that write the view's depth   -> TSR
+        RDG::TextureRef ThinGeometryCoverage;
         // The scene/view inputs every lit pass samples (UE: the view uniform buffer's shadow / sky /
         // PreIntegratedGF textures), imported once per graph by SceneRenderer::ImportSceneViewTextures before any
         // node is added: the sun's cascade array (MeshRenderer::AcquireCascadeMaps, layer c = cascade c; a cleared
@@ -102,6 +121,8 @@ namespace Desert::Graphic
         RDG::TextureRef SkyViewLut;
         // The view's lights and light grid (ViewLightBuffers); invalid refs until AddFrameLightGrid ran.
         ViewLightBuffers Lights;
+        // The MegaLights translucency volume (MegaLightsVolumeRefs); invalid refs until AddFrameMegaLightsVolume.
+        MegaLightsVolumeRefs MegaLightsVolume;
         // The global distance field brought up to this frame (SceneRenderer::AddFrameGlobalDistanceField,
         // imported: DistanceField::GlobalDistanceField owns the clipmaps) and its clipmap parameters (centre.xyz
         // cm, voxel cm); invalid refs when nothing of the frame reads it   -> the radiance cache's trace, "Debug:
@@ -172,6 +193,9 @@ namespace Desert::Graphic
         // SceneRenderer::AddFrameRayTracedSunShadow), read by a forward draw's DESERT_SUN_SHADOW_SCREEN_MASK
         // permutation in place of the cascades. Invalid when the sun is not ray traced (nothing then reads it).
         RDG::TextureRef SunShadowMask;
+        // The MegaLights translucency volume (MegaLightsVolumeRefs): its block and three volumes, bound where the
+        // layout reads them (the forward and translucent cells, Common/MegaLightsVolume.glslh).
+        MegaLightsVolumeRefs MegaLightsVolume;
 
         // Each distinct texture once (System.White fills several slots): what the node declares as read.
         [[nodiscard]] std::vector<RDG::TextureRef> Refs() const
@@ -186,6 +210,8 @@ namespace Desert::Graphic
             for ( const RDG::TextureRef ref :
                   { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, ReflectionCaptureCubes, LocalShadowAtlas,
                     SceneDepth, SceneShadingWord, SunShadowMask } )
+                add( ref );
+            for ( const RDG::TextureRef ref : MegaLightsVolume.Lighting )
                 add( ref );
             return refs;
         }
@@ -219,6 +245,10 @@ namespace Desert::Graphic
     // A READER of the world layout's cells (Mesh/LightGrid.glslh, LIGHT_GRID_WORLD_CELLS); the build shader writes
     // either layout through kLightGridCellsBlockName.
     inline constexpr std::string_view kLightGridWorldCellsBlockName = "LightGridWorldCellsUB";
+    // The MegaLights translucency volume's names (Common/MegaLightsVolume.glslh): its block and its three volumes.
+    inline constexpr std::string_view                kMegaLightsVolumeBlockName = "MegaLightsVolumeUB";
+    inline constexpr std::array<std::string_view, 3> kMegaLightsVolumeNames     = {
+         "u_MegaLightsVolumeR", "u_MegaLightsVolumeG", "u_MegaLightsVolumeB" };
 
     [[nodiscard]] inline SceneViewInputs SceneViewInputsOf( const FrameGraphRefs& refs )
     {
@@ -236,6 +266,11 @@ namespace Desert::Graphic
         inputs.SceneShadingWord       = t.SceneShadingWord.IsValid() ? t.SceneShadingWord : refs.System.ZeroUint;
         inputs.LightGridParams        = t.Lights.GridParams;
         inputs.LightGridCells         = t.Lights.GridCells;
+        // Before AddFrameMegaLightsVolume the volumes read as zero; the block stays invalid, as the grid's.
+        inputs.MegaLightsVolume = t.MegaLightsVolume;
+        for ( RDG::TextureRef& channel : inputs.MegaLightsVolume.Lighting )
+            if ( !channel.IsValid() )
+                channel = refs.System.Black3D;
         return inputs;
     }
 
@@ -298,6 +333,10 @@ namespace Desert::Graphic
             // Read with texelFetch at the hit texel (an integer format is never filtered).
             bind( kSceneViewSceneShadingWordName, inputs.SceneShadingWord, kPoint,
                   RDG::SamplerDesc::PointClamp() );
+            // Trilinear between froxel centres, clamped at the frustum's edges (Common/MegaLightsVolume.glslh).
+            for ( std::size_t channel = 0; channel < kMegaLightsVolumeNames.size(); ++channel )
+                bind( kMegaLightsVolumeNames[channel], inputs.MegaLightsVolume.Lighting[channel], kClamp,
+                      RDG::SamplerDesc::LinearClamp() );
         }
     } // namespace SceneViewDetail
 
@@ -333,8 +372,12 @@ namespace Desert::Graphic
             block.Storage( kSceneViewReflectionListName, inputs.ReflectionCaptures, RDG::Access::StorageRead );
         // The light grid, where the shader reads it. A frame graph without the grid (no AddFrameLightGrid) hands
         // invalid refs, and a shader that reads the grid then faults its pass by name rather than reading nothing.
-        for ( const auto& [name, buffer] : { std::pair{ kLightGridParamsBlockName, inputs.LightGridParams },
-                                             std::pair{ kLightGridCellsBlockName, inputs.LightGridCells } } )
+        // The MegaLights volume's block likewise (invalid before AddFrameMegaLightsVolume: a reader faults by
+        // name).
+        for ( const auto& [name, buffer] :
+              { std::pair{ kLightGridParamsBlockName, inputs.LightGridParams },
+                std::pair{ kLightGridCellsBlockName, inputs.LightGridCells },
+                std::pair{ kMegaLightsVolumeBlockName, inputs.MegaLightsVolume.Params } } )
             if ( SceneViewDetail::LayoutReadsBuffer( layout, name ) )
                 block.Storage( name, buffer, RDG::Access::StorageRead );
     }

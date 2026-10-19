@@ -28,6 +28,10 @@ layout( location = 0 ) out vec4 oColor;
 // the same surface's motion into the one velocity texture the G-buffer pass cleared (Graphic::kVelocityFormat).
 #include <Common/ObjectMotion.glslh>
 layout( location = 1 ) out vec2 oVelocity;
+// The view's thin-geometry coverage (slot 3 of the scene target, Common/ThinGeometryCoverage.glslh, included after
+// the generated dispatch below), as the G-buffer pass writes it: this pass writes the view's depth. Slot 2
+// (responsive AA) is translucency's, not written here.
+layout( location = 3 ) out float oThinGeometryCoverage;
 
 struct DirectionLight
 {
@@ -47,6 +51,9 @@ directionLights;
 // one). 13 and 14 were the cascades 1..3, which are one array now.
 layout( binding = 13 ) uniform sampler u_LinearRepeatSampler;
 layout( binding = 14 ) uniform sampler u_LinearClampSampler;
+// THE MEGALIGHTS TRANSLUCENCY VOLUME (Shadows Stochastic): on, the local lights come from it, shadowed, in place of
+// the light-grid loop below; off, its block says so and the loop runs.
+#include <Common/MegaLightsVolume.glslh>
 
 #ifdef DESERT_SUN_SHADOW_SCREEN_MASK
 // "Shadows: Ray Traced Sun" (the permutation the deferred path draws a forward mesh with when the sun is ray
@@ -123,6 +130,10 @@ layout( binding = 21 ) uniform CloudShadowUB
 // THE lighting of this pass: the template's model (DESERT_SHADING_MODEL_INDEX, defined by the parser) through the
 // dispatch the registry generates. This pass names no model.
 #include <Generated/ShadingModels.glslh>
+// After the dispatch, not before: it includes the generated models itself, and a model included ahead of the
+// whole AmbientIBL text above takes its sampler-less half (DefaultLit.shadingmodel), leaving this lighting pass
+// without DesertSampleAmbient.
+#include <Common/ThinGeometryCoverage.glslh>
 
 #ifdef DESERT_SURFACE_PARALLAX
 // The Pixel Depth Offset only moves the fragment away from the eye: a smaller depth in this reverse-Z view.
@@ -132,7 +143,8 @@ layout( depth_less ) out float gl_FragDepth;
 void main()
 {
     // First, before any debug view returns early: a debug colour is still the same surface at the same depth.
-    oVelocity = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip );
+    oVelocity             = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip );
+    oThinGeometryCoverage = DesertThinGeometryCoverage( DESERT_SHADING_MODEL_INDEX );
     SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
                               v_Surface.VertexColor, gl_FrontFacing );
@@ -193,15 +205,31 @@ void main()
                                                                   directionLights.directionLights.ColorIntensity.a,
                                                              shadow ),
                                              surface, payload );
-    // Point and spot lights: those of this pixel's froxel, in the order the full loop summed them (points, then
-    // spots), each with its contact shadow (the payload carries the length, 0 = none). An overflowed cell (more
-    // lights than its list holds) is shaded by every light: slower, never wrong.
+    // Point and spot lights under Shadows Stochastic: the MegaLights volume at this point (UE MegaLights'
+    // translucency volume), shadowed by its traced samples - its dominant light through the shading model, the
+    // rest as incident light from every direction, which the ambient's Indirect carries (the volume holds no
+    // surface, so no contact shadow either).
+    vec3 localIndirect = vec3( 0.0 );
+    if ( MegaLightsVolumeOn() )
+    {
+        const MegaLightsVolumeLighting volume = MegaLightsVolumeLightingAt( gl_FragCoord.xy, i.WorldPosition, N );
+        DesertLight                    local;
+        local.L        = volume.L;
+        local.Radiance = volume.Radiance;
+        local.Shadow   = 1.0;
+        light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX, local, surface, payload );
+        localIndirect = volume.Ambient;
+    }
+    // Otherwise those of this pixel's froxel, in the order the full loop summed them (points, then spots), each with
+    // its contact shadow (the payload carries the length, 0 = none). An overflowed cell (more lights than its list
+    // holds) is shaded by every light: slower, never wrong.
     const uint cell       = LightGridCellAt( lightGrid, gl_FragCoord.xy, i.WorldPosition );
     const uint cellCount  = lightGridCells[cell];
     const bool overflowed = LightGridCellOverflowed( lightGrid, cellCount );
     const uint listOffset = LightGridListOffset( lightGrid, cell );
-    const uint lightCount =
-         overflowed ? lightsMetadata.PointLightCount + lightsMetadata.SpotLightCount : cellCount;
+    const uint lightCount = MegaLightsVolumeOn() ? 0u
+                            : overflowed           ? lightsMetadata.PointLightCount + lightsMetadata.SpotLightCount
+                                                   : cellCount;
     for ( uint j = 0u; j < lightCount; j++ )
     {
         const uint index = overflowed ? j : lightGridCells[listOffset + j];
@@ -254,9 +282,11 @@ void main()
         return;
     }
 
-    // Occlusion attenuates only the ambient; the forward path has no indirect-bounce gather (zero), the one
-    // difference from the deferred composite's call, visible in the argument list.
+    // Occlusion attenuates only the ambient; the forward path has no indirect-bounce gather, the one difference from
+    // the deferred composite's call, visible in the argument list: its Indirect is the MegaLights volume's
+    // isotropic local light (zero when the volume is off).
     const vec3 ambient = DesertEvaluateShadingModelAmbient(
-         DESERT_SHADING_MODEL_INDEX, DesertSampleAmbient( surface, vec3( 0.0 ), s.AmbientOcclusion ), surface, payload );
+         DESERT_SHADING_MODEL_INDEX, DesertSampleAmbient( surface, localIndirect, s.AmbientOcclusion ), surface,
+         payload );
     oColor = vec4( light + ambient + s.Emissive, 1.0 );
 }

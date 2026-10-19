@@ -44,6 +44,7 @@ Shader "TerrainRayHit"
                 payload.Emissive  = vec3( 0.0 );
                 payload.Normal    = N;
                 payload.Flags     = gl_HitKindEXT == gl_HitKindFrontFacingTriangleEXT ? kDesertRayPayloadFrontFace : 0u;
+                DesertRayHitIdentify();
             }
         }
 

@@ -110,6 +110,15 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceRayHitPass          = "Hit";
     inline constexpr std::string_view kSurfaceRayHitPassInclude   = "Mesh/Surface/Pass_RayHit.glslh";
     inline constexpr std::string_view kSurfaceRayHitRecordInclude = "Common/RayTracingHitRecord.glslh";
+    // THE TRANSLUCENT FRONT LAYER CELL (UE: EMeshPass::FrontLayerTranslucencyGBuffer, FrontLayerTranslucency.usf
+    // MainPS). Every `BlendMode Translucent` template gets `Static.FrontLayer` after its Forward cells: the static
+    // vertex path and Mesh/Surface/Pass_FrontLayer.glslh, which writes the surface's world normal + roughness and
+    // its motion, depth-tested and depth-written, so the nearest translucent surface of each pixel is left in the
+    // front layer's G-buffer for the reflection trace (Reflections.TranslucentFrontLayer). Additive templates add
+    // light and reflect nothing: no cell.
+    inline constexpr std::string_view kSurfaceFrontLayerPath        = "Static";
+    inline constexpr std::string_view kSurfaceFrontLayerPass        = "FrontLayer";
+    inline constexpr std::string_view kSurfaceFrontLayerPassInclude = "Mesh/Surface/Pass_FrontLayer.glslh";
     // Defined in both stages of every cell of a `BlendMode Translucent` template (the sprite pass blends on it).
     inline constexpr std::string_view kSurfaceTranslucentDefine = "DESERT_SURFACE_TRANSLUCENT";
     // Defined in every cell of a `ResponsiveAA` template (UE: the material's bResponsiveAA): the translucent pass

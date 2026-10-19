@@ -36,6 +36,7 @@ namespace Desert::Graphic::API::Vulkan
         FillModeNonSolid,
         SamplerAnisotropy,
         TextureCompressionBC,
+        StorageImageWriteWithoutFormat,
         PortabilitySubset,
         MemoryBudget,
         // Vulkan 1.2 / 1.3 — asked for and recorded; VKF2 makes them required when it starts using them.

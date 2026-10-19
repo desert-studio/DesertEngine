@@ -23,6 +23,7 @@ namespace Desert::Graphic::API::Vulkan
         // The integer sampled fallback (usampler2D; RDG System.ZeroUint): a float image in an integer binding is a
         // format mismatch. Sampled 2D only - no integer cube, volume or storage image is read anywhere.
         CreateFallbackTexture2D( Core::Formats::ImageFormat::RG32_UINT );
+        CreateBlackTexture3D();
     }
 
     const std::shared_ptr<Image2D>&
@@ -218,6 +219,33 @@ namespace Desert::Graphic::API::Vulkan
         }
     }
 
+    const std::shared_ptr<Image3D>& VulkanFallbackTextures::GetBlackTexture3D() const
+    {
+        return m_BlackTexture3D;
+    }
+
+    // The zero volume: every channel 0, alpha too (a volume of light keeps a coefficient in alpha, so an opaque
+    // black would be light along +z).
+    void VulkanFallbackTextures::CreateBlackTexture3D()
+    {
+        const Core::Formats::Image3DSpecification spec = {
+             .Tag        = "VulkanFallbackTextures-Black3D",
+             .Width      = 1,
+             .Height     = 1,
+             .Depth      = 1,
+             .Format     = Core::Formats::ImageFormat::RGBA8F,
+             .Data       = std::vector<unsigned char>{ 0, 0, 0, 0 },
+             .Properties = Core::Formats::ImageProperties::Sample,
+        };
+        auto texture = std::make_shared<VulkanImage3D>( spec );
+        if ( const Common::BoolResultStr created = texture->RT_Invalidate(); !created )
+        {
+            LOG_ERROR( "VulkanFallbackTextures: the black volume could not be created: {}", created.GetError() );
+            return;
+        }
+        m_BlackTexture3D = texture;
+    }
+
     void VulkanFallbackTextures::CreateFallbackStorageImage3D( Core::Formats::ImageFormat format )
     {
         Core::Formats::Image3DSpecification spec = {
@@ -283,6 +311,9 @@ namespace Desert::Graphic::API::Vulkan
 
         for ( auto& storageImage : m_FallbackStorageImages3D )
             release( storageImage.second );
+
+        if ( m_BlackTexture3D )
+            release( m_BlackTexture3D );
 
         if ( !firstError.empty() )
             return Common::MakeError( firstError );

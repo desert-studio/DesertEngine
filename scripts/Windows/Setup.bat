@@ -119,6 +119,15 @@ REM tree that lost them must be repairable from Windows, not only from a Mac.
 call :fetch_reflectcpp
 
 REM ---------------------------------------------------------------------------
+REM 4b. Vendor runtime binaries (the DLSS runtime, NVIDIA Streamline): DOWNLOADED, never committed.
+REM     ThirdParty\Streamline\manifest.json pins the release and every file's SHA-256; the script fetches
+REM     the archive, checks it and writes ThirdParty\Streamline\bin\x64 (gitignored). Re-running with the
+REM     files in place touches nothing. Without them everything still generates and builds; the build
+REM     prints which file is missing, the editor and game report DLSS unavailable, the packager refuses.
+REM ---------------------------------------------------------------------------
+call :fetch_vendor_binaries
+
+REM ---------------------------------------------------------------------------
 REM 5. premake5 — fetched, not vendored.
 REM     This step used to run "%ROOT%\vendor\bin\premake5.exe" unconditionally. That file has never
 REM     been in the repository and cannot be: .gitignore excludes *.exe. Every clean checkout failed
@@ -534,6 +543,18 @@ if errorlevel 1 (
 REM A clone that exits 0 without producing the file we need is a silent wrong answer, so check the
 REM file rather than the exit code alone.
 if not exist "%ROOT%\!SENTINEL!" call :fail "!DEST! was cloned but !SENTINEL! is missing"
+exit /b 0
+
+REM --- vendor runtime binaries -----------------------------------------------
+:fetch_vendor_binaries
+echo --- Vendor runtime binaries (scripts\Windows\FetchVendorBinaries.py)
+where python >NUL 2>&1
+if errorlevel 1 (
+    call :fail "Python 3 not found in PATH: it fetches ThirdParty\Streamline\bin\x64 (winget install --id Python.Python.3.11 -e)"
+    exit /b 0
+)
+python "%ROOT%\scripts\Windows\FetchVendorBinaries.py"
+if errorlevel 1 call :fail "fetching the DLSS runtime into ThirdParty\Streamline\bin\x64 (the [ERROR] line above names why)"
 exit /b 0
 
 REM --- reflect-cpp -----------------------------------------------------------

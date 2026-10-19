@@ -1802,6 +1802,7 @@ namespace Desert::Core::Preprocess
         for ( const std::string_view pass : kSurfaceCellPasses )
             includes.push_back( SurfacePassInclude( pass, SurfaceBlendMode::Opaque ) );
         includes.emplace_back( kSurfaceTranslucentPassInclude );
+        includes.emplace_back( kSurfaceFrontLayerPassInclude );
         includes.push_back( SurfaceVertexInclude( kSurfaceParticleSpritePath ) );
         includes.emplace_back( kSurfaceParticleSpritePassInclude );
         includes.emplace_back( kSurfaceRayHitPassInclude );
@@ -2621,6 +2622,25 @@ namespace Desert::Core::Preprocess
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
                 }
+
+            // THE TRANSLUCENT FRONT LAYER CELL (kSurfaceFrontLayerPass): a Translucent template's surface into the
+            // front layer's G-buffer, after its Forward cells (their order is unchanged).
+            if ( result.Surface.Blend == SurfaceBlendMode::Translucent )
+            {
+                DShaderPass cell;
+                cell.Name  = SurfaceCellName( kSurfaceFrontLayerPath, kSurfaceFrontLayerPass );
+                cell.State = cellState;
+                for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                    cell.Stages.emplace(
+                         stage, AssembleSurfaceCellStage( stage, kSurfaceFrontLayerPath, kSurfaceFrontLayerPass,
+                                                          *surfaceBlock, includeBlock, autoDecls,
+                                                          result.Surface.Blend, shadingModelDefine,
+                                                          result.Surface.ResponsiveAA, opacityMaskFunction,
+                                                          false, heightFunctions ) );
+                result.Meta.PassNames.push_back( cell.Name );
+                result.Surface.Cells.push_back( cell.Name );
+                result.Passes.push_back( std::move( cell ) );
+            }
 
             // THE RAY TRACING HIT CELL (UE: the material's ray tracing hit group, FRayTracingMeshCommand's
             // closest-hit / any-hit shaders), after the mesh cells: the same surface function between the shared

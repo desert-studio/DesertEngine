@@ -55,6 +55,8 @@ namespace Desert::Graphic::API::Vulkan
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::samplerAnisotropy );
                 case Capability::TextureCompressionBC:
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::textureCompressionBC );
+                case Capability::StorageImageWriteWithoutFormat:
+                    return EnableCore10( device, &VkPhysicalDeviceFeatures::shaderStorageImageWriteWithoutFormat );
 
                 case Capability::Swapchain:
                 case Capability::PortabilitySubset:

@@ -208,6 +208,12 @@ namespace Desert::Graphic
     // found by that role — MaterialService::DefaultSurfaceTemplate), never from a literal here.
     std::optional<std::string> MeshShaderFor( std::string_view templateName, MeshVertexPath path, MeshPass pass );
 
+    // THE TRANSLUCENT FRONT LAYER CELL of the translucent template @p templateName ("<Template>/Static.FrontLayer",
+    // DShaderParser kSurfaceFrontLayerPass): the program that writes the template's surface into the front layer's
+    // G-buffer (Reflections.TranslucentFrontLayer). Outside the (path x pass) table: one cell, of translucent
+    // templates only, drawn by one pass. Empty when no template is named.
+    std::optional<std::string> FrontLayerShaderFor( std::string_view templateName );
+
     // THE ONE RULE of which (path x pass) cells a material on the template @p templateName HAS, and the shader
     // that draws each. A template with a Surface block registers every cell of the table ("<Template>/<Cell>"),
     // and the cell is MeshShaderFor. A template with no Surface block registers no cells: it is drawn by its own

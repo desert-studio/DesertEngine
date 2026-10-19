@@ -1,0 +1,45 @@
+{
+    "Name": "NVIDIA Streamline SDK",
+    "Version": "2.14.1",
+    "Url": "https://github.com/NVIDIA-RTX/Streamline/releases/download/v2.14.1/streamline-sdk-v2.14.1.zip",
+    "ArchiveSha256": "92c4d954631a1710da86ca3fa8d5034f2b9503838c95fc4ae977ae149319781b",
+    "Destination": "bin/x64",
+    "Files": [
+        {
+            "Archive": "bin/x64/NvLowLatencyVk.dll",
+            "Sha256": "2a77dc3e1c724b7eea5755be0ae7423752e79a2459fae72181a9f00e3507e5d6"
+        },
+        {
+            "Archive": "bin/x64/nvngx_dlss.dll",
+            "Sha256": "3975567b8943c53acce397f2b72380092f84f162d00b0d2c7d08a1025c563983"
+        },
+        {
+            "Archive": "bin/x64/nvngx_dlss.license.txt",
+            "Sha256": "3027f23ca5a46dd9cb8183fbd522983a86f64d7daac5982912bf9f214671f294"
+        },
+        {
+            "Archive": "bin/x64/nvngx_dlssd.dll",
+            "Sha256": "4bc7ea5fcb2f32cf86bc2cb072e8d2860914a0be511cbdcb2fc206c1d9d83b80"
+        },
+        {
+            "Archive": "bin/x64/reflex.license.txt",
+            "Sha256": "ebf83c07fb3b2939908c3795d887afde3161c89a28ba391724efc784ce1bdabe"
+        },
+        {
+            "Archive": "bin/x64/sl.common.dll",
+            "Sha256": "82924a8954dd671e09351c5de0eb87ad0eb25b944cc9f9ab955ca1d9950de15d"
+        },
+        {
+            "Archive": "bin/x64/sl.dlss.dll",
+            "Sha256": "73bf52c0cfaa5900a8f3f4a91306e4625e7cca696dfb305aae44c9f97b582e1f"
+        },
+        {
+            "Archive": "bin/x64/sl.dlss_d.dll",
+            "Sha256": "026b9f4f9ea848f2f5aa0e2024fc6b1c885f57eea5d41078124dba14f873b86b"
+        },
+        {
+            "Archive": "bin/x64/sl.interposer.dll",
+            "Sha256": "8c87c9499461da561edd529aa9bf7831d67d7b94ebb1c1a5ed54ef4934e1ea4c"
+        }
+    ]
+}

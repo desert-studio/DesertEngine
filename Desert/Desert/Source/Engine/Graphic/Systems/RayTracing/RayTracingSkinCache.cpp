@@ -350,7 +350,10 @@ namespace Desert::Graphic::RayTracing
                 if ( entry.BlasReady )
                 {
                     const RayTracingGeometryResource* shared = entry.Geometry.get();
-                    primitives[request.Primitive].Geometry   = shared;
+                    RayTracingPrimitive&              target = primitives[request.Primitive];
+                    target.Geometry                          = shared;
+                    target.DeformedPositionsAddress          = entry.Streams->GetDeviceAddress();
+                    target.DeformedPositions                 = StreamsIn( graph, entry );
                     blasOut.push_back( StorageIn( graph, entry ) );
                 }
                 continue;
@@ -379,8 +382,11 @@ namespace Desert::Graphic::RayTracing
                                    .ScratchBytes = prepared.GetValue().ScratchBytes } );
 
             // Through the base: EncodeInstanceRows reads Geometry back as a RayTracingGeometryResource.
-            const RayTracingGeometryResource* blas = entry.Geometry.get();
-            primitives[request.Primitive].Geometry = blas;
+            const RayTracingGeometryResource* blas   = entry.Geometry.get();
+            RayTracingPrimitive&              target = primitives[request.Primitive];
+            target.Geometry                          = blas;
+            target.DeformedPositionsAddress          = entry.Streams->GetDeviceAddress();
+            target.DeformedPositions                 = StreamsIn( graph, entry );
         }
         return BOOLSUCCESS;
     }

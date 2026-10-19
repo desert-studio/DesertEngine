@@ -90,6 +90,10 @@ project "Runtime"
 
     filter "system:windows"
         defines { "DESERT_PLATFORM_WINDOWS" }
+    filter {}
+
+    -- The DLSS runtime next to the game's executable (Desert/Dependencies.lua).
+    DesertCopyStreamlineRuntime()
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }

@@ -216,4 +216,31 @@ namespace Desert::Graphic
         return GraphColor{ mask.Resolved, targetSamples > 1 ? mask.Multisample : RDG::TextureRef{},
                            RDG::ClearValue{}, GraphColorResolve::Average };
     }
+
+    // The view's thin-geometry coverage of this graph (FrameTransients::ThinGeometryCoverage,
+    // ViewTargetFormats::kThinGeometryCoverage): one transient at the render extent, a colour slot of the scene
+    // target (kSceneTargetThinGeometryCoverageSlot) and of the G-buffer (kGBufferThinGeometryCoverageSlot), cleared
+    // to 0 (nothing drawn) by their first writer like the velocity. At MSAA a multisampled twin resolved by SAMPLE 0:
+    // the value names a material class (0 / 0.5 / 1), and an average would invent a class no surface has.
+    inline ViewVelocity CreateViewThinGeometryCoverage( RDG::Builder& graph, const RDG::Extent3D extent,
+                                                        const uint32_t samples )
+    {
+        RDG::TextureDesc desc;
+        desc.Size   = extent;
+        desc.Format = ViewTargetFormats::kThinGeometryCoverage;
+        ViewVelocity coverage;
+        coverage.Resolved = graph.CreateTexture( desc, "ThinGeometryCoverage" );
+        if ( samples > 1 )
+        {
+            desc.Samples         = samples;
+            coverage.Multisample = graph.CreateTexture( desc, "ThinGeometryCoverage.Multisample" );
+        }
+        return coverage;
+    }
+
+    inline GraphColor ThinGeometryCoverageColor( const ViewVelocity& coverage, const uint32_t targetSamples )
+    {
+        return GraphColor{ coverage.Resolved, targetSamples > 1 ? coverage.Multisample : RDG::TextureRef{},
+                           RDG::ClearValue{}, GraphColorResolve::SampleZero };
+    }
 } // namespace Desert::Graphic

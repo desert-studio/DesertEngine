@@ -82,12 +82,16 @@
 
 #include <Engine/Graphic/IRenderSystem.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
+#include <Engine/Graphic/Systems/RayTracing/EmissiveLightsRenderer.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/MegaLights.hpp>
+#include <Engine/Graphic/Systems/Scene/Shadows/MegaLightsVolume.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/RayTracedSunShadow.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
+#include <Engine/Graphic/Systems/Scene/PathTracing/PathTracer.hpp>
+#include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
 
 namespace Desert::Core
 {
@@ -790,6 +794,7 @@ namespace Desert::Graphic
             RDG::TextureRef    Color;
             RDG::TextureRef    Velocity;
             RDG::TextureRef    ResponsiveAA; // never read; cleared by its first overlay writer (OwnClears)
+            RDG::TextureRef    ThinGeometryCoverage; // never read; cleared by its first overlay writer (OwnClears)
             RDG::TextureRef    Depth;
             [[nodiscard]] bool IsValid() const
             {
@@ -837,6 +842,12 @@ namespace Desert::Graphic
                                                        const std::vector<RDG::TextureRef>& gbuffer,
                                                        const ViewFrame&                    frame );
         bool                       EnsureMegaLightsResources();
+        // The MegaLights translucency volume (System::MegaLightsVolumeRenderer) into FrameTransients::
+        // MegaLightsVolume, sliced over @p lightGrid's depth range: on under Stochastic with a local light, the
+        // neutral block (System::AddMegaLightsVolumeOff) otherwise or - logged - when its pass could not be
+        // declared.
+        void AddFrameMegaLightsVolume( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                       const LightGridParamsPayload& lightGrid );
         // This frame's sun shadow is the virtual shadow map (the Shadows method resolved to VirtualMaps).
         [[nodiscard]] bool SunShadowIsVirtual() const;
         // THE ONE ANSWER TO "is the sun shadowed from a screen mask this frame" (the ray-traced sun or the virtual
@@ -884,8 +895,9 @@ namespace Desert::Graphic
         // no PopulateSceneDepth pipeline, the upscaler's refusal) is RENDERED WITHOUT IT: ERROR "rendered without
         // the temporal resolve this frame: <why>", an invalid set, and the caller draws the overlays into the
         // scene target and post-processes the scene colour.
+        // @p opaqueLuma: what the method's AddOpaquePasses returned this frame (TemporalUpscalerInputs::OpaqueLuma).
         OverlayTargets AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
-                                         RDG::TextureRef exposure );
+                                         RDG::TextureRef exposure, RDG::TextureRef opaqueLuma );
         // AutoExposure's build-time step (Prepare advances its ping-pong), taken before the temporal node so that
         // node and the exposure nodes agree on which image is last frame's: returns the imported previous
         // adapted luminance ("AutoExposure.Previous"); invalid when no exposure runs this frame.
@@ -916,9 +928,26 @@ namespace Desert::Graphic
         // a generic program's DESERT_SUN_SHADOW_SCREEN_MASK permutation reads it (SceneViewInputs.SunShadowMask).
         void AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
                               RDG::TextureRef sunShadowMask );
+        // THE TRANSLUCENT FRONT LAYER of the frame (UE FFrontLayerTranslucencyData, Reflections.TranslucentFrontLayer):
+        // the nearest translucent surface's normal + roughness, motion and depth ("Translucency: Front Layer G-buffer",
+        // Mesh/Surface/Pass_FrontLayer.glslh), graph transients of the frame - the surface AddFrameSSR's front layer
+        // renderer starts its rays from.
+        struct FrontLayerSurface
+        {
+            RDG::TextureRef Normal;
+            RDG::TextureRef Velocity;
+            RDG::TextureRef Depth;
+        };
+        // What the glass reads of it: the denoised reflection and the depth it belongs to. Invalid both: no front layer.
+        struct FrameFrontLayer
+        {
+            RDG::TextureRef Reflection;
+            RDG::TextureRef Depth;
+        };
         // @p sceneCopy: this frame's scene snapshot (FrameTransients::SceneColorCopy); invalid -> no glass node.
         void AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
-                            System::MeshRenderer* meshRenderer );
+                            System::MeshRenderer* meshRenderer ,
+                           const FrameFrontLayer& frontLayer );
         // The water surface (WATER-W6), into the scene target with depth, after the scene copy and before the
         // glass.
         void AddFrameWater( RDG::Builder& graph, FrameTextures& textures );
@@ -945,6 +974,29 @@ namespace Desert::Graphic
         void AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures );
         // The shader resolves of the scene target's SampleZero graph colours ("Velocity: Resolve", MSAA only).
         void AddFrameGraphColorResolves( RDG::Builder& graph, FrameTextures& textures );
+        // THE PATH-TRACED FRAME (PathTraced( m_RenderMethods ), after the G-buffer): System::PathTracer's restart,
+        // trace and resolve over the scene colour, fed this frame's TLAS, hit groups, camera, GI record, lights and
+        // environment, and the hash of what the accumulation integrated (PathTracingSceneHash). An error names
+        // what was refused.
+        [[nodiscard]] Common::BoolResultStr AddFramePathTracing( RDG::Builder& graph, FrameTextures& textures,
+                                                                 const ViewFrame& frame );
+        // What a path-traced view's sum stands on besides the camera (UE: the path tracer's invalidation on any
+        // scene change): the TLAS rows, the lights, the GI record (sun, sky look), the environment, the hit
+        // groups' templates, records and material rows, and the material service's invalidations. @p environment:
+        // GetEnvironmentIdentity().
+        [[nodiscard]] uint64_t PathTracingSceneHash( const GlobalIllumination::GIFramePayload& giFrame,
+                                                     uint64_t environment, uint64_t emissive ) const;
+        // THE SCENE'S EMISSIVE TRIANGLE LIST in this frame's graph (RayTracing::EmissiveLights.hpp): built from
+        // this frame's TLAS instances and segment records (a built m_RayTracingScene), each segment's emission
+        // estimated from its material's effective row; m_EmissiveLights keeps the static part on the GPU and
+        // rebuilds it when its hash moves, and expands the skinned primitives' segments every frame from the skin
+        // cache's positions (RayTracingPrimitive::DeformedPositions). Every consumer of emissive lights reads the
+        // frame this returns. @p emissive in PathTracingSceneHash: its Hash.
+        [[nodiscard]] Common::ResultStr<RayTracing::EmissiveLightsFrame>
+        AddFrameEmissiveLights( RDG::Builder& graph );
+        // The view's path tracer system on first use (latched like EnsureSSRResources); false lowers the frame
+        // (LowerPathTracingForFrame).
+        bool EnsurePathTracerResources();
 
         // The scene sample count the device can run for `requested` (the method's effective count).
         // Recreates the scene target at `samples` when it differs (an anti-aliasing change), next frame.
@@ -953,7 +1005,9 @@ namespace Desert::Graphic
                            const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
         // The view's lights as graph buffers and its light grid ("LightGrid" compute node), into
         // FrameTransients::Lights — before the first lit node, on both paths.
-        void AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // Returns the grid's parameters (a default payload, logged, when the view has no DeferredLightingSystem).
+        LightGridParamsPayload AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures,
+                                                  const ViewFrame& frame );
         // The WORLD layout of the same lights ("LightGridWorld" compute node: the radiance cache's clipmap cells
         // around the camera), into FrameTransients::Lights.World* — only when WorldLightGridRead().
         void AddFrameLightGridWorld( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
@@ -990,7 +1044,12 @@ namespace Desert::Graphic
         // hardware tracer's GIInstanceSurfaceCacheRows: made by the first reader of the frame, kept in
         // m_TracedFrameShared. Invalid with no surface cache or no TLAS.
         [[nodiscard]] RDG::BufferRef AddFrameInstanceSurfaceCacheRows( RDG::Builder& graph );
-        // This frame's GI record (GlobalIllumination::GIFramePayload, "GIFrameUB") for a G-buffer of @p extent.
+        // This frame's GI record for a G-buffer of @p extent: the payload (also what the path tracer hashes), and
+        // the payload uploaded as "GIFrameUB".
+        [[nodiscard]] GlobalIllumination::GIFramePayload MakeFrameGIPayload( const ViewFrame& frame,
+                                                                             const glm::vec4& lightDir,
+                                                                             const glm::vec4& lightColor,
+                                                                             glm::uvec2       extent );
         [[nodiscard]] RDG::BufferRef AddFrameGIRecord( RDG::Builder& graph, const ViewFrame& frame,
                                                        const glm::vec4& lightDir, const glm::vec4& lightColor,
                                                        glm::uvec2 extent );
@@ -1056,13 +1115,25 @@ namespace Desert::Graphic
         RDG::TextureRef AddFrameHZB( RDG::Builder& graph, FrameTextures& textures );
         // SSR's trace + denoiser over @p screenTrace, before the lighting. Resolved: the reflection the lighting
         // composes (u_SSR); invalid when SSR did not run.
+        // Reflections.TranslucentFrontLayer of the resolved quality.
+        [[nodiscard]] bool TranslucentFrontLayerReflections() const;
+        // The front layer's G-buffer, then its reflections through the "FrontLayerReflectionsSystem" (an SSRRenderer
+        // tracing from TranslucentFrontLayer: the same tracer, hit lighting and denoiser as the opaque reflections).
+        // Empty: no translucent object is visible, or the reflections could not run (said by the step that refused).
+        FrameFrontLayer AddFrameTranslucentFrontLayer( RDG::Builder& graph, FrameTextures& textures,
+                                                       System::MeshRenderer*               meshRenderer,
+                                                       const std::vector<RDG::TextureRef>& gbuffer,
+                                                       const FrameScreenTrace& screenTrace, const ViewFrame& frame );
+        bool m_FrontLayerReflectionsFailed = false;
+
         struct FrameSSR
         {
             RDG::TextureRef Resolved;
         };
         FrameSSR AddFrameSSR( RDG::Builder& graph, FrameTextures& textures, System::SSRRenderer& ssr,
                               const std::vector<RDG::TextureRef>& gbuffer, const FrameScreenTrace& screenTrace,
-                              const ViewFrame& frame );
+                              const ViewFrame& frame ,
+                              const FrontLayerSurface* frontLayer = nullptr );
         void AddFrameParticlesSimulate( RDG::Builder& graph );
         // MESH-PB1: imports this frame's scene/view inputs (CSM cascades, the environment's cubes, the BRDF LUT)
         // into FrameTransients before any node is added; what is absent stays invalid (SceneViewInputsOf).
@@ -1118,6 +1189,8 @@ namespace Desert::Graphic
         Common::Scalability::AntiAliasingMethod m_AAMode = Common::Scalability::AntiAliasingMethod::FXAA;
         // The anti-aliasing this view's frames ACTUALLY render, as ViewInputs::AntiAliasing (BeginScene).
         Common::Scalability::PathAntiAliasing m_RenderedAntiAliasing;
+        // The vendor-method fallback last logged (ReplaceUnavailableVendorMethods::Why): logged when it changes.
+        std::string                        m_VendorFallbackSaid;
         bool                               m_BloomEnabled = false;
 
         // Lens flare, refreshed from SceneSettings each BeginScene. The tint is held apart from the rest
@@ -1209,6 +1282,8 @@ namespace Desert::Graphic
         // the next frame's build replaces it), the default surface's material for segments without a template,
         // and whether a hit-lighting request the device cannot run was reported.
         RayTracing::RayTracingHitGroupTable m_ReflectionHitGroups;
+        // The scene's emissive triangles as lights, kept on the GPU across frames (AddFrameEmissiveLights).
+        RayTracing::EmissiveLightsRenderer  m_EmissiveLights;
         std::shared_ptr<DataDrivenMaterial> m_ReflectionDefaultSurface;
         bool                                m_ReportedHitLightingDevice = false;
         // Templates already reported as shading on the default hit group (no compiled `RayTracing.Hit` cell):
@@ -1253,6 +1328,10 @@ namespace Desert::Graphic
         uint32_t m_ReflectionDenoiserRadius = 2;
         // GlobalIllumination.ScreenSpaceSamples (Scalability): the screen-space gather's samples per pixel.
         int m_ScreenSpaceGISamples = 12;
+        // PathTracing.SamplesPerPixel / PathsPerFrame / MaxBounces (Scalability), taken each BeginScene.
+        System::PathTracer::Settings m_PathTracingSettings;
+        bool                         m_PathTracerReady  = false;
+        bool                         m_PathTracerFailed = false;
         // The mesh distance-field brick pool, MiB (Scalability GlobalIllumination.DistanceFieldPoolMiB): what the
         // global distance field's atlas holds and its finer mips stream within.
         uint32_t m_DistanceFieldPoolMiB = 256;
@@ -1303,6 +1382,12 @@ namespace Desert::Graphic
         System::MegaLightsQuality  m_MegaLightsQuality;
         bool                       m_MegaLightsReady  = false;
         bool                       m_MegaLightsFailed = false;
+        // The MegaLights translucency volume (per view: its history is this view's), created on the first frame
+        // that needs it; its quality (Shadows.MegaLightsVolume*, Shadows.MegaLightsMaxHistory) taken each
+        // BeginScene.
+        System::MegaLightsVolumeRenderer m_MegaLightsVolume;
+        System::MegaLightsVolumeQuality  m_MegaLightsVolumeQuality;
+        bool                             m_MegaLightsVolumeReady = false;
         // "Shadows: Virtual Shadow Map" (per view: the page cache is this view's), created on the first frame that
         // resolves the sun to VirtualMaps; its quality (Shadows.Virtual*) taken each BeginScene.
         System::VirtualShadowMapRenderer m_VirtualShadowMap;

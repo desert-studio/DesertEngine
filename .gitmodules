@@ -49,3 +49,6 @@
 [submodule "ThirdParty/luau"]
 	path = ThirdParty/luau
 	url = https://github.com/luau-lang/luau.git
+[submodule "ThirdParty/FidelityFX-SDK"]
+	path = ThirdParty/FidelityFX-SDK
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK.git

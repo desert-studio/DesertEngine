@@ -49,6 +49,18 @@ namespace Desert::Graphic
         return std::format( "{}/{}", templateName, cell );
     }
 
+    std::optional<std::string> FrontLayerShaderFor( std::string_view templateName )
+    {
+        // A material names its template, or (a generic override) one of the template's cells: the template is the
+        // name before the cell.
+        templateName = templateName.substr( 0, templateName.find( '/' ) );
+        if ( templateName.empty() )
+            return std::nullopt;
+        return std::format( "{}/{}", templateName,
+                            Core::Preprocess::SurfaceCellName( Core::Preprocess::kSurfaceFrontLayerPath,
+                                                               Core::Preprocess::kSurfaceFrontLayerPass ) );
+    }
+
     std::optional<std::string> TemplateCellShader( std::string_view templateName, MeshVertexPath path,
                                                    MeshPass                                       pass,
                                                    const std::function<bool( std::string_view )>& isRegistered )

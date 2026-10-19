@@ -111,9 +111,10 @@ namespace Desert::Graphic::RayTracing
         // hidden and non-opaque segments) and appends ONE build request per BLAS not yet built in @p frame to
         // @p buildsOut - its vertex input is the entry's streams (the current positions SkinFrame wrote), so the
         // RT scene's one "RayTracingScene.DynamicGeometry" pass refits / builds it without a second skinning - and
-        // points the primitive's Geometry at it. @p primitives[firstSkinned + i] is MeshRenderer's skinned record
-        // i. A BLAS an earlier view of the frame built is appended to @p blasOut for this view's TLAS pass to
-        // read. Off, or an entry without skinned streams: the primitive keeps Geometry null (counted
+        // points the primitive's Geometry at it (and its DeformedPositions at the streams, registered in @p
+        // graph, for the other readers of the posed positions). @p primitives[firstSkinned + i] is MeshRenderer's
+        // skinned record i. A BLAS an earlier view of the frame built is appended to @p blasOut for this view's
+        // TLAS pass to read. Off, or an entry without skinned streams: the primitive keeps Geometry null (counted
         // RayTracingSkip::Skinned), logged once.
         [[nodiscard]] Common::BoolResultStr AddPasses( RDG::Builder& graph, const System::MeshRenderer& meshes,
                                                        std::span<RayTracingPrimitive> primitives,

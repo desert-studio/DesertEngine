@@ -45,9 +45,13 @@ namespace Desert::Graphic::API::Vulkan
         bool     SeparateComputeFamily = false; // a compute-capable family without graphics
 
         // Third-party upscaler runtimes, each true only when its SDK is integrated AND its runtime loaded AND it
-        // reported the device as supported (NGX "DLSS available", ffx context created, XeSS query, MetalFX
-        // MTLFXTemporalScalerDescriptor.supportsDevice). None is integrated at SCAL1-C0: all false.
+        // reported the device as supported (NGX "DLSS available", XeSS query, MetalFX
+        // MTLFXTemporalScalerDescriptor.supportsDevice). FSR: FsrDeviceSupport below (the FidelityFX SDK is
+        // linked, not loaded, and states its needs as device features).
         bool DlssAvailable    = false;
+        // DLSS Ray Reconstruction (Streamline sl.dlss_d): its own plugin, NGX feature and device requirements, so
+        // its own answer; offered only beside DlssAvailable.
+        bool DlssRayReconstructionAvailable = false;
         bool FsrAvailable     = false;
         bool XessAvailable    = false;
         bool MetalFxAvailable = false;
@@ -59,8 +63,8 @@ namespace Desert::Graphic::API::Vulkan
     // PURE. The rules (each list's comment in CapabilityCatalog.hpp says who reads it):
     //   MSAACounts        = counts in Color & Depth, ascending from 1.
     //   AntiAliasing      = None, FXAA, SMAA, TAA always; MSAA iff a count > 1; FSRNative iff FSR; DLAA iff DLSS.
-    //   Upscalers         = None, TAAU always; then DLSS (NVIDIA only), FSR, XeSS, MetalFX (Portability only)
-    //                       each iff available — best first: DLSS, XeSS, MetalFX, FSR, TAAU, None.
+    //   Upscalers         = None, TAAU, TSR always; then DLSS (NVIDIA only), FSR, XeSS, MetalFX (Portability only)
+    //                       each iff available — best first: DLSS, XeSS, MetalFX, FSR, TSR, TAAU, None.
     //   RayTracingModes   = None; RayQuery iff RayQuery+AccelerationStructure present; RayTracingPipeline iff
     //                       present and not Portability.
     //   FragmentStores    = FragmentStoresAndAtomics present.
@@ -74,6 +78,20 @@ namespace Desert::Graphic::API::Vulkan
     //   Class             = Discrete / Integrated from Type; AppleUnified for Apple vendor id.
     //   RenderScale.Max   = min(200, 100 * MaxImageDimension2D / output dimension at the reference 3840)
     [[nodiscard]] Common::Scalability::CapabilityCatalog BuildCapabilityCatalog( const CatalogProbe& probe );
+
+    // PURE. THE FSR GATE (CatalogProbe::FsrAvailable): whether this binary and this device can run the AMD
+    // FidelityFX FSR 3.1 upscaler (Graphic::Fsr3Upscaler). Success, or an error naming the device and EVERY
+    // missing piece — not the first:
+    //   * @p built false: this binary has no FSR (kFsrBuilt, Engine/Graphic/API/UpscalerBuild.hpp) — the SDK's
+    //     shader compiler is a Windows binary, so every macOS (MoltenVK) build is refused here by that name;
+    //   * the device's Vulkan version below 1.2: the SDK's SPIR-V is compiled for --target-env vulkan1.2
+    //     (sdk/src/backends/vk/CMakeShadersFSR3Upscaler.txt);
+    //   * Capability::StorageImageWriteWithoutFormat absent: the upscaled-output binding is a storage image
+    //     written without a format.
+    // ProbeCatalog logs the error once; the catalog then never offers Upscaler::FSR / AntiAliasingMethod::
+    // FSRNative, so Scalability Resolve walks a saved FSR down to the level's engine temporal upscaler (TAAU or
+    // TSR) / TAA (rule 4) with that reason.
+    [[nodiscard]] Common::BoolResultStr FsrDeviceSupport( const DeviceCaps& caps, bool built );
 
     // The probe's driver half: fills CatalogProbe from the physical device and (when non-null) the surface.
     // Implemented beside DeviceCapsProbe.cpp; the only caller is VulkanPhysicalDevice construction plus the first

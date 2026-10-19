@@ -95,6 +95,11 @@ namespace Desert::Graphic
         // PrimitiveInstances, SSAO targets...). The heap and not the placed resource is the row because
         // placed resources alias: a row per resource would count the same bytes once per alias.
         TransientHeap,
+        // A vendor upscaler's own device memory (the FSR / DLSS context, its internal images and pipelines):
+        // allocated by the vendor runtime, not by our allocator, so the size is what the runtime reports
+        // (ffxFsr3UpscalerContextGetGpuMemoryUsage, Streamline's estimated VRAM) and the row is opened by the
+        // view's upscaler history that holds the context.
+        VendorUpscaler,
 
         // NOT a kind: the number of them. A new kind is added ABOVE this line and turns
         // Desert/Tests/Engine/AssetEviction red until it is named in ResourceKindName.
@@ -138,6 +143,8 @@ namespace Desert::Graphic
                 return "TopLevelAccelerationStructure";
             case ResourceKind::TransientHeap:
                 return "TransientHeap";
+            case ResourceKind::VendorUpscaler:
+                return "VendorUpscaler";
             case ResourceKind::Count:
                 return "Count";
         }

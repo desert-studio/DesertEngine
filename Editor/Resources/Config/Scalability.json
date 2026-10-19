@@ -5,27 +5,122 @@
             "Low": {
                 "AntiAliasing.Method": "FXAA",
                 "AntiAliasing.Samples": 1,
-                "AntiAliasing.TemporalQuality": 0
+                "AntiAliasing.TemporalQuality": 0,
+                "AntiAliasing.TemporalUpscaler": "TAAU",
+                "AntiAliasing.TSR.HistoryScreenPercentage": 100,
+                "AntiAliasing.TSR.HistoryUpdateQuality": 0,
+                "AntiAliasing.TSR.ShadingRejectionFlickering": 0,
+                "AntiAliasing.TSR.RejectionAntiAliasingQuality": 0,
+                "AntiAliasing.TSR.ReprojectionField": 0,
+                "AntiAliasing.TSR.Resurrection": 0,
+                "AntiAliasing.DLSSPreset.DLAA": "Default",
+                "AntiAliasing.DLSSPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSPreset.Quality": "Default",
+                "AntiAliasing.DLSSPreset.Balanced": "Default",
+                "AntiAliasing.DLSSPreset.Performance": "Default",
+                "AntiAliasing.DLSSPreset.UltraPerformance": "Default",
+                "AntiAliasing.DLSSRRPreset.DLAA": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSRRPreset.Quality": "Default",
+                "AntiAliasing.DLSSRRPreset.Balanced": "Default",
+                "AntiAliasing.DLSSRRPreset.Performance": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraPerformance": "Default"
             },
             "Medium": {
                 "AntiAliasing.Method": "FXAA",
                 "AntiAliasing.Samples": 1,
-                "AntiAliasing.TemporalQuality": 1
+                "AntiAliasing.TemporalQuality": 1,
+                "AntiAliasing.TemporalUpscaler": "TAAU",
+                "AntiAliasing.TSR.HistoryScreenPercentage": 100,
+                "AntiAliasing.TSR.HistoryUpdateQuality": 1,
+                "AntiAliasing.TSR.ShadingRejectionFlickering": 0,
+                "AntiAliasing.TSR.RejectionAntiAliasingQuality": 1,
+                "AntiAliasing.TSR.ReprojectionField": 0,
+                "AntiAliasing.TSR.Resurrection": 1,
+                "AntiAliasing.DLSSPreset.DLAA": "Default",
+                "AntiAliasing.DLSSPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSPreset.Quality": "Default",
+                "AntiAliasing.DLSSPreset.Balanced": "Default",
+                "AntiAliasing.DLSSPreset.Performance": "Default",
+                "AntiAliasing.DLSSPreset.UltraPerformance": "Default",
+                "AntiAliasing.DLSSRRPreset.DLAA": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSRRPreset.Quality": "Default",
+                "AntiAliasing.DLSSRRPreset.Balanced": "Default",
+                "AntiAliasing.DLSSRRPreset.Performance": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraPerformance": "Default"
             },
             "High": {
                 "AntiAliasing.Method": "TAA",
                 "AntiAliasing.Samples": 1,
-                "AntiAliasing.TemporalQuality": 2
+                "AntiAliasing.TemporalQuality": 2,
+                "AntiAliasing.TemporalUpscaler": "TAAU",
+                "AntiAliasing.TSR.HistoryScreenPercentage": 100,
+                "AntiAliasing.TSR.HistoryUpdateQuality": 2,
+                "AntiAliasing.TSR.ShadingRejectionFlickering": 1,
+                "AntiAliasing.TSR.RejectionAntiAliasingQuality": 1,
+                "AntiAliasing.TSR.ReprojectionField": 1,
+                "AntiAliasing.TSR.Resurrection": 1,
+                "AntiAliasing.DLSSPreset.DLAA": "Default",
+                "AntiAliasing.DLSSPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSPreset.Quality": "Default",
+                "AntiAliasing.DLSSPreset.Balanced": "Default",
+                "AntiAliasing.DLSSPreset.Performance": "Default",
+                "AntiAliasing.DLSSPreset.UltraPerformance": "Default",
+                "AntiAliasing.DLSSRRPreset.DLAA": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSRRPreset.Quality": "Default",
+                "AntiAliasing.DLSSRRPreset.Balanced": "Default",
+                "AntiAliasing.DLSSRRPreset.Performance": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraPerformance": "Default"
             },
             "Epic": {
                 "AntiAliasing.Method": "TAA",
                 "AntiAliasing.Samples": 1,
-                "AntiAliasing.TemporalQuality": 2
+                "AntiAliasing.TemporalQuality": 2,
+                "AntiAliasing.TemporalUpscaler": "TSR",
+                "AntiAliasing.TSR.HistoryScreenPercentage": 200,
+                "AntiAliasing.TSR.HistoryUpdateQuality": 3,
+                "AntiAliasing.TSR.ShadingRejectionFlickering": 1,
+                "AntiAliasing.TSR.RejectionAntiAliasingQuality": 2,
+                "AntiAliasing.TSR.ReprojectionField": 1,
+                "AntiAliasing.TSR.Resurrection": 1,
+                "AntiAliasing.DLSSPreset.DLAA": "Default",
+                "AntiAliasing.DLSSPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSPreset.Quality": "Default",
+                "AntiAliasing.DLSSPreset.Balanced": "Default",
+                "AntiAliasing.DLSSPreset.Performance": "Default",
+                "AntiAliasing.DLSSPreset.UltraPerformance": "Default",
+                "AntiAliasing.DLSSRRPreset.DLAA": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSRRPreset.Quality": "Default",
+                "AntiAliasing.DLSSRRPreset.Balanced": "Default",
+                "AntiAliasing.DLSSRRPreset.Performance": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraPerformance": "Default"
             },
             "Cinematic": {
                 "AntiAliasing.Method": "TAA",
                 "AntiAliasing.Samples": 1,
-                "AntiAliasing.TemporalQuality": 2
+                "AntiAliasing.TemporalQuality": 2,
+                "AntiAliasing.TemporalUpscaler": "TSR",
+                "AntiAliasing.TSR.HistoryScreenPercentage": 200,
+                "AntiAliasing.TSR.HistoryUpdateQuality": 3,
+                "AntiAliasing.TSR.ShadingRejectionFlickering": 1,
+                "AntiAliasing.TSR.RejectionAntiAliasingQuality": 2,
+                "AntiAliasing.TSR.ReprojectionField": 1,
+                "AntiAliasing.TSR.Resurrection": 1,
+                "AntiAliasing.DLSSPreset.DLAA": "Default",
+                "AntiAliasing.DLSSPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSPreset.Quality": "Default",
+                "AntiAliasing.DLSSPreset.Balanced": "Default",
+                "AntiAliasing.DLSSPreset.Performance": "Default",
+                "AntiAliasing.DLSSPreset.UltraPerformance": "Default",
+                "AntiAliasing.DLSSRRPreset.DLAA": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraQuality": "Default",
+                "AntiAliasing.DLSSRRPreset.Quality": "Default",
+                "AntiAliasing.DLSSRRPreset.Balanced": "Default",
+                "AntiAliasing.DLSSRRPreset.Performance": "Default",
+                "AntiAliasing.DLSSRRPreset.UltraPerformance": "Default"
             }
         },
         "ResolutionScale": {
@@ -172,7 +267,10 @@
                 "Shadows.MegaLightsSpatialSamples": 0,
                 "Shadows.MegaLightsMaxHistory": 0,
                 "Shadows.MegaLightsDenoiserRadius": 1,
-                "Shadows.MegaLightsDownsampleFactor": 2
+                "Shadows.MegaLightsDownsampleFactor": 2,
+                "Shadows.MegaLightsVolumeTilePixels": 32,
+                "Shadows.MegaLightsVolumeSlices": 32,
+                "Shadows.MegaLightsVolumeSamples": 1
             },
             "Medium": {
                 "Shadows.Cascades": 3,
@@ -197,7 +295,10 @@
                 "Shadows.MegaLightsSpatialSamples": 2,
                 "Shadows.MegaLightsMaxHistory": 8,
                 "Shadows.MegaLightsDenoiserRadius": 2,
-                "Shadows.MegaLightsDownsampleFactor": 2
+                "Shadows.MegaLightsDownsampleFactor": 2,
+                "Shadows.MegaLightsVolumeTilePixels": 16,
+                "Shadows.MegaLightsVolumeSlices": 64,
+                "Shadows.MegaLightsVolumeSamples": 1
             },
             "High": {
                 "Shadows.Cascades": 4,
@@ -222,7 +323,10 @@
                 "Shadows.MegaLightsSpatialSamples": 3,
                 "Shadows.MegaLightsMaxHistory": 16,
                 "Shadows.MegaLightsDenoiserRadius": 2,
-                "Shadows.MegaLightsDownsampleFactor": 2
+                "Shadows.MegaLightsDownsampleFactor": 2,
+                "Shadows.MegaLightsVolumeTilePixels": 16,
+                "Shadows.MegaLightsVolumeSlices": 64,
+                "Shadows.MegaLightsVolumeSamples": 1
             },
             "Epic": {
                 "Shadows.Cascades": 4,
@@ -247,7 +351,10 @@
                 "Shadows.MegaLightsSpatialSamples": 4,
                 "Shadows.MegaLightsMaxHistory": 20,
                 "Shadows.MegaLightsDenoiserRadius": 2,
-                "Shadows.MegaLightsDownsampleFactor": 2
+                "Shadows.MegaLightsDownsampleFactor": 2,
+                "Shadows.MegaLightsVolumeTilePixels": 16,
+                "Shadows.MegaLightsVolumeSlices": 64,
+                "Shadows.MegaLightsVolumeSamples": 2
             },
             "Cinematic": {
                 "Shadows.Cascades": 4,
@@ -272,7 +379,10 @@
                 "Shadows.MegaLightsSpatialSamples": 6,
                 "Shadows.MegaLightsMaxHistory": 30,
                 "Shadows.MegaLightsDenoiserRadius": 3,
-                "Shadows.MegaLightsDownsampleFactor": 2
+                "Shadows.MegaLightsDownsampleFactor": 2,
+                "Shadows.MegaLightsVolumeTilePixels": 16,
+                "Shadows.MegaLightsVolumeSlices": 96,
+                "Shadows.MegaLightsVolumeSamples": 2
             }
         },
         "GlobalIllumination": {
@@ -293,7 +403,10 @@
                 "GlobalIllumination.ScreenSpaceSamples": 6,
                 "GlobalIllumination.ScreenProbeDownsample": 32,
                 "GlobalIllumination.ScreenProbeTracedTexels": 8,
-                "GlobalIllumination.IrradianceFieldProbesPerFrame": 66
+                "GlobalIllumination.IrradianceFieldProbesPerFrame": 66,
+                "PathTracing.PathsPerFrame": 1,
+                "PathTracing.MaxBounces": 4,
+                "PathTracing.SamplesPerPixel": 64
             },
             "Medium": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 128,
@@ -312,7 +425,10 @@
                 "GlobalIllumination.ScreenSpaceSamples": 8,
                 "GlobalIllumination.ScreenProbeDownsample": 32,
                 "GlobalIllumination.ScreenProbeTracedTexels": 8,
-                "GlobalIllumination.IrradianceFieldProbesPerFrame": 66
+                "GlobalIllumination.IrradianceFieldProbesPerFrame": 66,
+                "PathTracing.PathsPerFrame": 1,
+                "PathTracing.MaxBounces": 8,
+                "PathTracing.SamplesPerPixel": 256
             },
             "High": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 384,
@@ -331,7 +447,10 @@
                 "GlobalIllumination.ScreenSpaceSamples": 12,
                 "GlobalIllumination.ScreenProbeDownsample": 16,
                 "GlobalIllumination.ScreenProbeTracedTexels": 8,
-                "GlobalIllumination.IrradianceFieldProbesPerFrame": 66
+                "GlobalIllumination.IrradianceFieldProbesPerFrame": 66,
+                "PathTracing.PathsPerFrame": 1,
+                "PathTracing.MaxBounces": 16,
+                "PathTracing.SamplesPerPixel": 1024
             },
             "Epic": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 384,
@@ -350,7 +469,10 @@
                 "GlobalIllumination.ScreenSpaceSamples": 16,
                 "GlobalIllumination.ScreenProbeDownsample": 16,
                 "GlobalIllumination.ScreenProbeTracedTexels": 8,
-                "GlobalIllumination.IrradianceFieldProbesPerFrame": 100
+                "GlobalIllumination.IrradianceFieldProbesPerFrame": 100,
+                "PathTracing.PathsPerFrame": 2,
+                "PathTracing.MaxBounces": 32,
+                "PathTracing.SamplesPerPixel": 4096
             },
             "Cinematic": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 512,
@@ -369,7 +491,10 @@
                 "GlobalIllumination.ScreenSpaceSamples": 32,
                 "GlobalIllumination.ScreenProbeDownsample": 8,
                 "GlobalIllumination.ScreenProbeTracedTexels": 16,
-                "GlobalIllumination.IrradianceFieldProbesPerFrame": 233
+                "GlobalIllumination.IrradianceFieldProbesPerFrame": 233,
+                "PathTracing.PathsPerFrame": 4,
+                "PathTracing.MaxBounces": 32,
+                "PathTracing.SamplesPerPixel": 16384
             }
         },
         "Reflections": {
@@ -379,7 +504,9 @@
                 "Reflections.RaysPerPixel": 1,
                 "Reflections.Method": "Captures",
                 "Reflections.DenoiserRadius": 1,
-                "Reflections.HitLighting": 0
+                "Reflections.DownsampleFactor": 2,
+                "Reflections.HitLighting": 0,
+                "Reflections.TranslucentFrontLayer": 0
             },
             "Medium": {
                 "Reflections.MaxSteps": 32,
@@ -387,7 +514,9 @@
                 "Reflections.RaysPerPixel": 1,
                 "Reflections.Method": "ScreenSpace",
                 "Reflections.DenoiserRadius": 1,
-                "Reflections.HitLighting": 0
+                "Reflections.DownsampleFactor": 2,
+                "Reflections.HitLighting": 0,
+                "Reflections.TranslucentFrontLayer": 0
             },
             "High": {
                 "Reflections.MaxSteps": 48,
@@ -395,7 +524,9 @@
                 "Reflections.RaysPerPixel": 2,
                 "Reflections.Method": "HardwareTraced",
                 "Reflections.DenoiserRadius": 2,
-                "Reflections.HitLighting": 0
+                "Reflections.DownsampleFactor": 2,
+                "Reflections.HitLighting": 0,
+                "Reflections.TranslucentFrontLayer": 1
             },
             "Epic": {
                 "Reflections.MaxSteps": 64,
@@ -403,7 +534,9 @@
                 "Reflections.RaysPerPixel": 4,
                 "Reflections.Method": "HardwareTraced",
                 "Reflections.DenoiserRadius": 2,
-                "Reflections.HitLighting": 0
+                "Reflections.DownsampleFactor": 2,
+                "Reflections.HitLighting": 0,
+                "Reflections.TranslucentFrontLayer": 1
             },
             "Cinematic": {
                 "Reflections.MaxSteps": 96,
@@ -411,7 +544,9 @@
                 "Reflections.RaysPerPixel": 8,
                 "Reflections.Method": "HardwareTraced",
                 "Reflections.DenoiserRadius": 3,
-                "Reflections.HitLighting": 1
+                "Reflections.DownsampleFactor": 1,
+                "Reflections.HitLighting": 1,
+                "Reflections.TranslucentFrontLayer": 1
             }
         },
         "PostProcess": {
