@@ -360,7 +360,6 @@ namespace Desert::Graphic
                                           const glm::vec4& lightColor, const FrameScreenTrace& screenTrace,
                                           const ViewFrame& frame )
     {
-        m_TracedFrameShared = {};
         if ( !RadianceCacheRuns() )
             return;
         FrameTransients& t = textures.Transients;

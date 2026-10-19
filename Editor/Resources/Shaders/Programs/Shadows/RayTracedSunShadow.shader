@@ -14,6 +14,7 @@ Shader "RayTracedSunShadow"
         #define RAY_QUERY_VISIBILITY_MATERIALS_BINDING 4
         #include <Common/RayQueryVisibility.glslh>
         #include <Common/ConeSampling.glslh>
+        #include <Common/ReconstructPosition.glslh>
 
         // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
         // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
@@ -51,8 +52,8 @@ Shader "RayTracedSunShadow"
                 return;
             }
             const vec2 uv       = ( vec2( pixel ) + 0.5 ) / vec2( size );
-            const vec4 world    = u_InvJitteredViewProjection * vec4( uv * 2.0 - 1.0, depth, 1.0 );
-            const vec3 position = world.xyz / world.w;
+            // Common/ReconstructPosition.glslh: (0,0) is the top-left pixel and NDC +y is up.
+            const vec3 position = ReconstructWorldPosition( uv, depth, u_InvJitteredViewProjection );
             const vec3 normal   = normalize( texelFetch( u_GBufferNormal, pixel, 0 ).rgb );
             const vec3 toSun    = normalize( u_DirectionToSun.xyz );
             // UE r.RayTracing.NormalBias: off the surface along its normal, on the side facing the light.
