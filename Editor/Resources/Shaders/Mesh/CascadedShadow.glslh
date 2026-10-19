@@ -40,7 +40,8 @@
 //         vec4 u_DebugParams;       // x = show normals (>0.5), y = light debug (>0.5); z,w reserved
 //         vec4 u_CascadeTexelWorld; // per-cascade world size of one shadow-map texel (x..w = cascade 0..3)
 //         vec4 u_CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (x..w = cascade 0..3)
-//         vec4 u_ContactShadowView; // the view's contact shadow march (Common/ContactShadow.glslh)
+//         vec4 u_ContactShadowView; // the view's contact shadow march (Common/ContactShadow.glslh); its z, the
+//                                   // view's dither frame, also turns the soft filter's disc below
 //         vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5)
 //     };
 //
@@ -109,9 +110,14 @@ const int   kBlockerSearchTaps   = 16;
 const int   kFilterTaps          = 32;
 const float kGoldenAngle         = 2.39996323;
 
-// Jimenez 2014, the noise UE's shadow filters turn their discs by.
-float shadowInterleavedGradientNoise(vec2 pixel)
+// Jimenez 2014, the noise UE's shadow filters turn their discs by: InterleavedGradientNoise(SvPosition,
+// View.StateFrameIndexMod8). The frame (u_ContactShadowView.z, the view's dither frame 0..7, the one the contact
+// march offsets by) turns the disc every frame, so the temporal filter averages eight discs into the penumbra. With
+// the pixel alone the turn was the same every frame: a wide penumbra (a leaf's shadow metres under it) kept a
+// fixed stipple no history could resolve.
+float shadowInterleavedGradientNoise(vec2 pixel, float frame)
 {
+	pixel += frame * 5.588238;
 	return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
 }
 
@@ -161,7 +167,7 @@ float sampleCascade(int c, vec3 worldPos, vec3 N, float NdotL)
 	vec2  texel      = 1.0 / size;
 	float depthRange = max(u_CascadeDepthRange[c], 1e-3);   // world cm per unit of map depth
 	float tanHalf    = u_ShadowParams.x;                     // tan(sun source angle / 2)
-	float phi        = 6.28318531 * shadowInterleavedGradientNoise(gl_FragCoord.xy);
+	float phi        = 6.28318531 * shadowInterleavedGradientNoise(gl_FragCoord.xy, u_ContactShadowView.z);
 
 	// THE RECEIVER PLANE across the kernel. A tap `r` centimetres from the centre reads a map texel of the
 	// receiver's own plane that lies r * tan(theta) nearer the sun at most (theta: the receiver's angle to the
