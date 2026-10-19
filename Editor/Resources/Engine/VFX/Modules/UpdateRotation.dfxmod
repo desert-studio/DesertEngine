@@ -7,7 +7,7 @@ Module "UpdateRotation"
     Attribute SpriteRotation float
     Attribute SpriteRotationRate float
     Attribute PhysicsRotationalDrag float
-    Input RateScale float
+    Input RateScale float Units=x Range=0..10 Default=1
 
     // Engine VFX module UpdateRotation (port of UE NiagaraStatelessModule_SpriteRotationRate.ush:8-21, stepped):
     // the rate first decays by this step's rotational drag (Drag, above this module), then turns the sprite by

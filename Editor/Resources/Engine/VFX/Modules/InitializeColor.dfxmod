@@ -6,7 +6,7 @@ Module "InitializeColor"
     Description "Sets a newborn's colour."
     Attribute Color vec4
     Attribute InitialColor vec4
-    Input Color vec4
+    Input Color vec4 Range=0..1 Default=1,1,1,1
 
     // Engine VFX module InitializeColor (UE Initialize Particle's Color, NiagaraStatelessModule_
     // InitializeParticle.ush): the newborn's linear RGBA colour. A Random-source range is UE's colour min/max. It also

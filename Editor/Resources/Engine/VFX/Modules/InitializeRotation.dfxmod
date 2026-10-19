@@ -6,8 +6,8 @@ Module "InitializeRotation"
     Description "Sets a newborn's sprite rotation and rotation rate."
     Attribute SpriteRotation float
     Attribute SpriteRotationRate float
-    Input Rotation float
-    Input RotationRate float
+    Input Rotation float Units=deg Range=0..360 Default=0
+    Input RotationRate float Units=deg/s Range=-720..720 Default=0
 
     // Engine VFX module InitializeRotation (UE Initialize Particle's Sprite Rotation + the rate of
     // NiagaraStatelessModule_SpriteRotationRate.ush:8-21): the newborn's sprite rotation (degrees) and its rotation

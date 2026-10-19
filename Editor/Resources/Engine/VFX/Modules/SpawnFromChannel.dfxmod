@@ -12,14 +12,14 @@ Module "SpawnFromChannel"
     Attribute SpriteSize vec2
     Attribute InitialSpriteSize vec2
     Input Channel int
-    Input ParticlesPerEntry int
-    Input MaxEntriesPerFrame int
-    Input MaxDistance float
-    Input Position vec3
+    Input ParticlesPerEntry int Range=1..1000 Default=1
+    Input MaxEntriesPerFrame int Range=1..4096 Default=64
+    Input MaxDistance float Units=cm Range=0..100000 Default=0
+    Input Position vec3 Units=cm
     Input Direction vec3
     Input Color vec4
-    Input Lifetime float
-    Input Size float
+    Input Lifetime float Units=s
+    Input Size float Units=cm
     Input Filter float
     Input FilterOp int
     Input FilterValue float

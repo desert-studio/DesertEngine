@@ -329,6 +329,15 @@ namespace Desert::Editor
         // copy, so an edit shows without an Apply).
         void SetVolumeMaterial( const Assets::AssetHandle& material );
 
+        // THE VFX SYSTEM EDITOR'S PREVIEW (UE: the Niagara System editor's preview component). The target carries
+        // a VFXComponent naming @p system - the document's working copy, published to the VFXSystemService under a
+        // generated handle - so the scene's own VFXWorld simulates it exactly as a level would; a new publish is a
+        // new system and the effect starts over. Framed once, on the system's fixed bounds; later calls keep the
+        // camera. A null handle clears the pane. The caller makes the pane realtime (particles move).
+        void SetVFXSystem( const Assets::AssetHandle& system );
+        // Every emitter of the previewed system starts over (VFXWorld::Restart).
+        void RestartVFX();
+
         void Clear();
 
         // WHAT THE CALLER KNOWS ABOUT ITS SUBJECT that this widget cannot see: the parameter values of the
@@ -466,6 +475,8 @@ namespace Desert::Editor
 
         // Remove the skinned preview's components, so one kind of content fills the pane at a time.
         void DropSkinned();
+        // Remove the effect preview's VFXComponent (same reason).
+        void DropEffect();
         // Put the animator at m_AnimationTime. False while the scene has not built the animator yet (the
         // first frame after SetSkinnedMesh): the render gate must not settle on the bind pose.
         bool ApplyAnimationTime();

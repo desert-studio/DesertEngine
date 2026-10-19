@@ -1,7 +1,10 @@
 #pragma once
 
 #include <Engine/Assets/AssetBase.hpp>
+#include <Engine/VFX/VFXModuleCatalog.hpp>
 #include <Engine/VFX/VFXModuleFormat.hpp>
+
+#include <vector>
 
 namespace Desert::Assets
 {
@@ -67,4 +70,9 @@ namespace Desert::Assets
         [[nodiscard]] Common::ResultStr<VFX::VFXModuleDefinition>
         Resolve( const Common::Content::AssetGuid& guid ) const override;
     };
+
+    /// THE MODULE CATALOG the VFX System editor offers (UE: the module picker): every VFXModule row of the
+    /// ContentRegistry, engine library and project Content alike, resolved and sorted by category then name.
+    /// A row that does not resolve is an error naming it — a picker that silently drops a module hides it.
+    Common::ResultStr<std::vector<VFX::VFXModuleInfo>> ReadVFXModuleCatalog();
 } // namespace Desert::Assets

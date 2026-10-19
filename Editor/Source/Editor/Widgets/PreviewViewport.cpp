@@ -18,6 +18,7 @@
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/ECS/System/AnimationECSSystem.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
@@ -520,6 +521,7 @@ namespace Desert::Editor
 
         EnsureInit();
         DropSkinned();
+        DropEffect();
 
         auto& smc = m_Target.GetComponent<ECS::StaticMeshComponent>();
         ECS::ClearEditableMesh( smc );
@@ -661,6 +663,7 @@ namespace Desert::Editor
         ++m_ContentRevision;
         EnsureInit();
         DropSkinned();
+        DropEffect();
 
         auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
         smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
@@ -699,6 +702,7 @@ namespace Desert::Editor
         EnsureInit();
 
         DropSkinned();
+        DropEffect();
         // Nothing rides the mesh path in this mode — the ball is the external pass's draw (see the
         // header for why it is not a primitive with a scratch material).
         auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
@@ -769,6 +773,7 @@ namespace Desert::Editor
         EnsureInit();
         if ( !m_Inited )
             return;
+        DropEffect();
 
         // Nothing rides the mesh path: a medium has no surface to put on a primitive (see the header).
         auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
@@ -855,6 +860,68 @@ namespace Desert::Editor
         // The main scene's hot-reload path does the same before its own InvalidateByShader.
         Graphic::Renderer::GetInstance().WaitDeviceIdle();
         m_Renderer->GetPipelineCache().InvalidateByShader( shader );
+    }
+
+    void PreviewViewport::DropEffect()
+    {
+        if ( m_Target && m_Target.HasComponent<ECS::VFXComponent>() )
+            m_Target.RemoveComponent<ECS::VFXComponent>();
+    }
+
+    void PreviewViewport::SetVFXSystem( const Assets::AssetHandle& system )
+    {
+        ++m_ContentRevision;
+        if ( static_cast<uint64_t>( system ) == 0 )
+        {
+            Clear();
+            return;
+        }
+        EnsureInit();
+
+        if ( !m_Target.HasComponent<ECS::VFXComponent>() )
+        {
+            DropSkinned();
+            // The target draws no mesh: the effect is the content (one kind at a time, as in SetMesh).
+            auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
+            smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+            smc.Primitive.reset();
+            smc.MaterialSlots.clear();
+            smc.RuntimeMaterialInstances.clear();
+            ECS::ClearEditableMesh( smc );
+            auto& tc       = m_Target.GetComponent<ECS::TransformComponent>();
+            tc.Translation = glm::vec3( 0.0f );
+            tc.Rotation    = glm::vec3( 0.0f );
+            if ( m_CubemapPass )
+                m_CubemapPass->ClearSource();
+
+            m_Target.AddComponent<ECS::VFXComponent>().Data.AutoActivate = true;
+
+            // Framed on the system's fixed bounds (cm, UE FixedBounds): what the author said the effect fills.
+            Assets::Serialization::VFXBounds bounds;
+            if ( const auto resolved = Runtime::ResourceRegistry::GetVFXSystemService()->Get( system );
+                 resolved.IsSuccess() && resolved.GetValue() )
+                bounds = resolved.GetValue()->Bounds;
+            const glm::vec3 half = glm::max( ( bounds.Max - bounds.Min ) * 0.5f, glm::vec3( 25.0f ) );
+            m_MeshHandle      = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+            m_Fill            = Fill::Object;
+            m_HasContent      = true;
+            m_Framed          = true;
+            m_Focus              = ( bounds.Max + bounds.Min ) * 0.5f;
+            m_FrameHalfExtent = half;
+            m_FrameRadius     = RadiusOfHalfExtent( half );
+            m_FrameIsRound    = false;
+            ResetView();
+        }
+        m_Target.GetComponent<ECS::VFXComponent>().Data.System = system;
+    }
+
+    void PreviewViewport::RestartVFX()
+    {
+        if ( !m_Target || !m_Target.HasComponent<ECS::VFXComponent>() )
+            return;
+        m_Scene->GetVFXWorld().Restart(
+             static_cast<uint64_t>( m_Target.GetComponent<ECS::UUIDComponent>().UUID ) );
+        ++m_ContentRevision;
     }
 
     void PreviewViewport::DropSkinned()
@@ -1087,6 +1154,7 @@ namespace Desert::Editor
         if ( !m_Inited )
             return;
         DropSkinned();
+        DropEffect();
 
         auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
         smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );

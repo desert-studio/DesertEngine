@@ -6,7 +6,7 @@ Module "Gravity"
     Description "Adds a constant acceleration to the accumulated force."
     Attribute PhysicsForce vec3
     Attribute Mass float
-    Input Gravity vec3
+    Input Gravity vec3 Units=cm/s2 Range=-2000..2000 Default=0,-980,0
 
     // Engine VFX module Gravity (UE Niagara Content/Modules/Update/Forces/GravityForce): adds a constant
     // acceleration to the particle's accumulated force. Centimetres per second squared (world units = cm).

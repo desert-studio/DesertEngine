@@ -4,6 +4,6 @@ Module "SpawnBurst"
     Stage EmitterUpdate
     Category Spawn
     Description "Spawns SpawnCount particles once per loop, SpawnTime seconds into it."
-    Input SpawnCount int
-    Input SpawnTime float
+    Input SpawnCount int Range=0..5000 Default=50
+    Input SpawnTime float Units=s Range=0..10 Default=0
 }

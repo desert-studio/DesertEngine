@@ -5,10 +5,10 @@ Module "ShapeCone"
     Category Location
     Description "Places a newborn inside a cone."
     Attribute Position vec3
-    Input Angle float
-    Input Length float
-    Input Axis vec3
-    Input Offset vec3
+    Input Angle float Units=deg Range=0..180 Default=30
+    Input Length float Units=cm Range=0..5000 Default=100
+    Input Axis vec3 Range=-1..1 Default=0,1,0
+    Input Offset vec3 Units=cm Range=-5000..5000 Default=0,0,0
 
     // Engine VFX module ShapeCone (UE Shape Location, primitive Cone): a point at distance Length from the
     // apex along a direction inside the cone of half-angle Angle (degrees) around Axis — the direction drawn as UE's

@@ -1309,9 +1309,7 @@ namespace Desert::ECS
     {
         COMPONENT( Key( "VFX" ), Block( Data ), Run( ActorsAndUI ) )
         VFXComponentData Data;
-
-        // One-shot restart from the editor (every emitter of the system starts over). Transient - not reflected.
-        bool RequestRestart = false;
+        // A restart is a command to the scene's VFXWorld (VFXWorld::Restart), not state of the component.
     };
 
     // ============================================================

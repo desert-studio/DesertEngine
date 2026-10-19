@@ -4,5 +4,5 @@ Module "SpawnRate"
     Stage EmitterUpdate
     Category Spawn
     Description "Spawns particles at a rate per second while a loop is active."
-    Input SpawnRate float
+    Input SpawnRate float Units=1/s Range=0..5000 Default=100
 }

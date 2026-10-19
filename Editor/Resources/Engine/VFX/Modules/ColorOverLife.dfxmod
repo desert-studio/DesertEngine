@@ -6,7 +6,7 @@ Module "ColorOverLife"
     Description "Scales the initial colour by a curve over the particle's normalized age."
     Attribute Color vec4
     Attribute InitialColor vec4
-    Input Scale vec4
+    Input Scale vec4 Range=0..1 Default=1,1,1,1
 
     // Engine VFX module ColorOverLife (port of UE NiagaraStatelessModule_ScaleColor.ush:5-11): the colour is
     // the initial colour times Scale, which is a Curve over the particle's normalised age (VFX-05) or a Value.

@@ -1,5 +1,7 @@
 #include "VFXEmitterSpawn.hpp"
 
+#include <Engine/VFX/VFXModuleCatalog.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -32,11 +34,20 @@ namespace Desert::VFX
 
     namespace
     {
-        struct CpuInput
+        // The inputs the C++ reads: the CPU contract (VFXModuleCatalog.hpp), which the stack compiler holds the
+        // module's `.dfxmod` to, so a row checked here is checked against the file's declaration too.
+        std::span<const VFXModuleDecl> CpuInputs( const VFXEngineCpuModule& module )
         {
-            const char*     Name;
-            S::VFXValueType Type;
-        };
+            return CpuModuleContract( module.Guid );
+        }
+
+        const VFXModuleDecl* CpuDecl( const VFXEngineCpuModule& module, const std::string_view input )
+        {
+            for ( const VFXModuleDecl& d : CpuInputs( module ) )
+                if ( d.Name == input )
+                    return &d;
+            return nullptr;
+        }
 
         // The scalar an EmitterUpdate input carries: its Value, or the User.* row it is bound to - kept as the
         // row's index and read per instance at each step (the placement may override it), its default beside it.
@@ -90,22 +101,23 @@ namespace Desert::VFX
         }
 
         // The module's inputs, in @p declared order, each exactly once with its declared type.
-        Common::ResultStr<std::vector<SpawnScalar>> ReadInputs( const S::VFXSystemData&      system,
-                                                                const S::VFXModuleUse&       use,
-                                                                const std::vector<CpuInput>& declared,
-                                                                const std::string&           where )
+        Common::ResultStr<std::vector<SpawnScalar>> ReadInputs( const S::VFXSystemData&        system,
+                                                                const S::VFXModuleUse&         use,
+                                                                std::span<const VFXModuleDecl> declared,
+                                                                const std::string&             where )
         {
             using Result = std::vector<SpawnScalar>;
             for ( const S::VFXModuleInput& in : use.Inputs )
                 if ( std::none_of( declared.begin(), declared.end(),
-                                   [&]( const CpuInput& d ) { return in.Name == d.Name; } ) )
+                                   [&]( const VFXModuleDecl& d ) { return in.Name == d.Name; } ) )
                     return Common::MakeFormattedError<Result>( "{} input '{}': the module declares no such input",
                                                                where, in.Name );
             Result values;
-            for ( const CpuInput& d : declared )
+            for ( const VFXModuleDecl& d : declared )
             {
                 const auto        in      = std::find_if( use.Inputs.begin(), use.Inputs.end(),
-                                                          [&]( const S::VFXModuleInput& x ) { return x.Name == d.Name; } );
+                                                          [&]( const S::VFXModuleInput& x )
+                                                          { return x.Name == d.Name; } );
                 const std::string inWhere = std::format( "{} input '{}'", where, d.Name );
                 if ( in == use.Inputs.end() )
                     return Common::MakeFormattedError<Result>( "{}: declared by the module and not given",
@@ -133,16 +145,17 @@ namespace Desert::VFX
         Common::ResultStr<VFXChannelSpawnModule> ReadChannelSpawn( const S::VFXModuleUse& use,
                                                                    const std::string&     where )
         {
-            using Result                                              = VFXChannelSpawnModule;
-            static constexpr std::array<std::string_view, 12> kInputs = {
-                 "Channel",     "ParticlesPerEntry", "MaxEntriesPerFrame",
-                 "MaxDistance", "Position",          "Direction",
-                 "Color",       "Lifetime",          "Filter",
-                 "FilterOp",    "FilterValue",       "Size" };
+            using Result = VFXChannelSpawnModule;
             for ( const S::VFXModuleInput& in : use.Inputs )
-                if ( std::find( kInputs.begin(), kInputs.end(), in.Name ) == kInputs.end() )
+            {
+                const VFXModuleDecl* decl = CpuDecl( kVFXSpawnFromChannelModule, in.Name );
+                if ( decl == nullptr )
                     return Common::MakeFormattedError<Result>( "{} input '{}': the module declares no such input",
                                                                where, in.Name );
+                if ( in.Type != decl->Type )
+                    return Common::MakeFormattedError<Result>(
+                         "{} input '{}': the row's type disagrees with the module's", where, in.Name );
+            }
 
             Result                   m;
             const S::VFXModuleInput* channel = FindInput( use, "Channel" );
@@ -155,8 +168,7 @@ namespace Desert::VFX
                 return Common::MakeFormattedError<Result>( "{} input 'Channel': '{}' names no channel", where,
                                                            *channel->Binding );
 
-            const auto value = [&]( const char* name, const S::VFXValueType type,
-                                    const bool required ) -> Common::ResultStr<float>
+            const auto value = [&]( const char* name, const bool required ) -> Common::ResultStr<float>
             {
                 const S::VFXModuleInput* in = FindInput( use, name );
                 if ( in == nullptr )
@@ -166,32 +178,27 @@ namespace Desert::VFX
                              "{} input '{}': declared by the module and not given", where, name );
                     return Common::MakeSuccess( 0.0f );
                 }
-                if ( in->Type != type )
-                    return Common::MakeFormattedError<float>(
-                         "{} input '{}': the row's type disagrees with the module's", where, name );
                 if ( in->Source != S::VFXInputSource::Value || !in->Value || !std::isfinite( in->Value->x ) )
                     return Common::MakeFormattedError<float>( "{} input '{}': a finite Value is required", where,
                                                               name );
                 return Common::MakeSuccess( in->Value->x );
             };
-            const auto field = [&]( const char*           name,
-                                    const S::VFXValueType type ) -> Common::ResultStr<std::string>
+            const auto field = [&]( const char* name ) -> Common::ResultStr<std::string>
             {
                 const S::VFXModuleInput* in = FindInput( use, name );
                 if ( in == nullptr )
                     return Common::MakeSuccess( std::string() );
                 const std::string prefix = std::format( "{}{}.", S::kVFXDataChannelPrefix, m.Channel );
-                if ( in->Type != type || in->Source != S::VFXInputSource::Binding || !in->Binding ||
+                if ( in->Source != S::VFXInputSource::Binding || !in->Binding ||
                      !in->Binding->starts_with( prefix ) || in->Binding->size() == prefix.size() )
                     return Common::MakeFormattedError<std::string>(
-                         "{} input '{}': a Binding {}<field> of the module's type is required", where, name,
-                         prefix );
+                         "{} input '{}': a Binding {}<field> is required", where, name, prefix );
                 return Common::MakeSuccess( in->Binding->substr( prefix.size() ) );
             };
 
-            const auto perEntry   = value( "ParticlesPerEntry", S::VFXValueType::Int, true );
-            const auto maxEntries = value( "MaxEntriesPerFrame", S::VFXValueType::Int, true );
-            const auto distance   = value( "MaxDistance", S::VFXValueType::Float, false );
+            const auto perEntry   = value( "ParticlesPerEntry", true );
+            const auto maxEntries = value( "MaxEntriesPerFrame", true );
+            const auto distance   = value( "MaxDistance", false );
             for ( const auto* r : { &perEntry, &maxEntries, &distance } )
                 if ( !r->IsSuccess() )
                     return Common::MakeError<Result>( r->GetError() );
@@ -203,12 +210,12 @@ namespace Desert::VFX
             m.MaxEntriesPerFrame = static_cast<std::uint32_t>( maxEntries.GetValue() );
             m.MaxDistance        = distance.GetValue();
 
-            const auto position  = field( "Position", S::VFXValueType::Vec3 );
-            const auto direction = field( "Direction", S::VFXValueType::Vec3 );
-            const auto filter    = field( "Filter", S::VFXValueType::Float );
-            const auto color     = field( "Color", S::VFXValueType::Vec4 );
-            const auto lifetime  = field( "Lifetime", S::VFXValueType::Float );
-            const auto size      = field( "Size", S::VFXValueType::Float );
+            const auto position  = field( "Position" );
+            const auto direction = field( "Direction" );
+            const auto filter    = field( "Filter" );
+            const auto color     = field( "Color" );
+            const auto lifetime  = field( "Lifetime" );
+            const auto size      = field( "Size" );
             for ( const auto* r : { &position, &direction, &filter, &color, &lifetime, &size } )
                 if ( !r->IsSuccess() )
                     return Common::MakeError<Result>( r->GetError() );
@@ -228,8 +235,8 @@ namespace Desert::VFX
                                                                where );
                 return Common::MakeSuccess( std::move( m ) );
             }
-            const auto op    = value( "FilterOp", S::VFXValueType::Int, true );
-            const auto bound = value( "FilterValue", S::VFXValueType::Float, true );
+            const auto op    = value( "FilterOp", true );
+            const auto bound = value( "FilterValue", true );
             if ( !op.IsSuccess() )
                 return Common::MakeError<Result>( op.GetError() );
             if ( !bound.IsSuccess() )
@@ -266,7 +273,7 @@ namespace Desert::VFX
                                                    m, use.Module.Path, use.Module.Guid );
             if ( UsesModule( use, kVFXSpawnRateModule ) )
             {
-                auto in = ReadInputs( system, use, { { "SpawnRate", S::VFXValueType::Float } }, where );
+                auto in = ReadInputs( system, use, CpuInputs( kVFXSpawnRateModule ), where );
                 if ( !in.IsSuccess() )
                     return Common::MakeError<Result>( in.GetError() );
                 const SpawnScalar rate = in.GetValue()[0];
@@ -280,9 +287,7 @@ namespace Desert::VFX
             }
             else if ( UsesModule( use, kVFXSpawnBurstModule ) )
             {
-                auto in = ReadInputs(
-                     system, use,
-                     { { "SpawnCount", S::VFXValueType::Int }, { "SpawnTime", S::VFXValueType::Float } }, where );
+                auto in = ReadInputs( system, use, CpuInputs( kVFXSpawnBurstModule ), where );
                 if ( !in.IsSuccess() )
                     return Common::MakeError<Result>( in.GetError() );
                 // A constant is checked here; a User-bound value is the placement's and is checked where it is

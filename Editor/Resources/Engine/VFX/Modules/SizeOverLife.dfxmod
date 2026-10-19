@@ -6,7 +6,7 @@ Module "SizeOverLife"
     Description "Scales the initial sprite size by a curve over the normalized age."
     Attribute SpriteSize vec2
     Attribute InitialSpriteSize vec2
-    Input Scale vec2
+    Input Scale vec2 Units=x Range=0..100 Default=1,1
 
     // Engine VFX module SizeOverLife (port of UE NiagaraStatelessModule_ScaleSpriteSize.ush:6-16): the sprite
     // size is the initial size times Scale, a Curve over the normalised age (VFX-05) or a Value — UE's CurveScale is

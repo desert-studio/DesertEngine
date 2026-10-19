@@ -6,7 +6,7 @@ Module "InitializeSpriteSize"
     Description "Sets a newborn's sprite size in centimetres."
     Attribute SpriteSize vec2
     Attribute InitialSpriteSize vec2
-    Input Size vec2
+    Input Size vec2 Units=cm Range=0..1000 Default=20,20
 
     // Engine VFX module InitializeSpriteSize (UE Initialize Particle's Sprite Size): the newborn's sprite width
     // and height in centimetres. A Random-source range is UE's size min/max (non-uniform; a uniform range is the same

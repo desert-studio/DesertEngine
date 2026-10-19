@@ -5,10 +5,10 @@ Module "AddVelocityInCone"
     Category Velocity
     Description "Gives a newborn a velocity inside a cone around an axis."
     Attribute Velocity vec3
-    Input Speed float
-    Input Angle float
-    Input Falloff float
-    Input Axis vec3
+    Input Speed float Units=cm/s Range=0..5000 Default=100
+    Input Angle float Units=deg Range=0..180 Default=30
+    Input Falloff float Range=0..1 Default=0
+    Input Axis vec3 Range=-1..1 Default=0,1,0
 
     // Engine VFX module AddVelocityInCone (port of UE NiagaraStatelessModule_SolveVelocitiesAndForces.ush:
     // 104-121, cone velocity): a direction at an angle uniform in [0, Angle] (degrees) from Axis, at a uniform

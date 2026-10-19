@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -32,11 +33,27 @@ namespace Desert::VFX
 
     class VFXModuleResolver; // VFXModuleFormat.hpp
 
-    /// One `Attribute <Name> <type>` or `Input <Name> <type>` line of a module.
+    /// The slider bounds an `Input` line states with `Range=<min>..<max>` (UE: the module input's UIMin / UIMax).
+    struct VFXInputRange
+    {
+        float Min = 0.0f;
+        float Max = 0.0f;
+
+        [[nodiscard]] bool operator==( const VFXInputRange& ) const = default;
+    };
+
+    /// One `Attribute <Name> <type>` or `Input <Name> <type> [Units=<unit>] [Range=<min>..<max>]
+    /// [Default=<c0>,<c1>...]` line of a module. Units, Range and Default are the input's EDITOR metadata (UE:
+    /// the module input's DisplayUnit, UIMin / UIMax and default value): the VFX System editor labels and bounds
+    /// its widgets with them and fills a newly added module's row from Default (one number per component of the
+    /// type; absent = zero); the compiler ignores them.
     struct VFXModuleDecl
     {
-        std::string  Name;
-        VFXValueType Type = VFXValueType::Float;
+        std::string                  Name;
+        VFXValueType                 Type = VFXValueType::Float;
+        std::string                  Units; ///< "cm", "cm/s", "deg", "s", "1/s"... empty: a plain number
+        std::optional<VFXInputRange> Range{};
+        std::optional<glm::vec4>     Default{}; ///< the unused components are zero
 
         [[nodiscard]] bool operator==( const VFXModuleDecl& ) const = default;
     };
@@ -46,7 +63,8 @@ namespace Desert::VFX
      *
      * The block opens with declaration lines — `Attribute <Name> <float|vec2|vec3|vec4|int|bool>` (a particle
      * attribute the module reads or writes as `p.<Name>`) and `Input <Name> <type>` (a value the stack row
-     * supplies, read as `i.<Name>`) — and the rest is GLSL defining
+     * supplies, read as `i.<Name>`; optionally followed by `Units=<unit>`, `Range=<min>..<max>` and
+     * `Default=<c0>,<c1>...`, the editor's metadata, never on an Attribute) — and the rest is GLSL defining
      * `void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )`.
      */
     struct VFXParticleModule

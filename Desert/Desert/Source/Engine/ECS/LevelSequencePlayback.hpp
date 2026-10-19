@@ -169,7 +169,8 @@ namespace Desert::ECS
      * Action then runs once, on an Instant key or where a ranged key begins:
      *   PlaySound          the clip path goes to `Sounds()`; LevelSequenceSystem plays it one-shot (this host
      *                      stays registry-only, so the suite needs no audio device)
-     *   ActivateParticles  the bound entity's Particle Emitter is enabled and restarted
+     *   ActivateParticles  the bound entity's VFX component is activated and its UUID goes to `VFXRestarts()`;
+     *                      LevelSequenceSystem restarts it in the scene's VFXWorld
      *   CallScript         {function, key name} queued on the bound entity's ScriptComponent; ScriptSystem calls
      *                      the function on every started slot with the key's name
      * A particle or script action with no bound entity, or one without that component, is REFUSED by name.
@@ -209,6 +210,11 @@ namespace Desert::ECS
         {
             return m_Sounds;
         }
+        /// The entity UUIDs of the Activate Particles actions fired, in firing order.
+        [[nodiscard]] const std::vector<uint64_t>& VFXRestarts() const
+        {
+            return m_VFXRestarts;
+        }
         /// A refusal found outside the seam's calls (a Subsequence section the step cannot play).
         void Refuse( std::string message )
         {
@@ -225,6 +231,7 @@ namespace Desert::ECS
         std::vector<std::string>      m_Refusals;
         std::vector<std::string>      m_Fired;
         std::vector<std::string>      m_Sounds;
+        std::vector<uint64_t>         m_VFXRestarts;
     };
 
     /// One actor's playback state: the transport and the evaluator over the asset's sequence.
@@ -251,6 +258,8 @@ namespace Desert::ECS
         std::vector<std::string>    FiredEvents;
         /// The clip paths of the PlaySound actions fired this step, in firing order.
         std::vector<std::string> Sounds;
+        /// The entity UUIDs whose VFX system an Activate Particles action restarts (VFX::VFXWorld::Restart).
+        std::vector<uint64_t> VFXRestarts;
     };
 
     /**

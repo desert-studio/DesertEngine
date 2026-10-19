@@ -14,6 +14,7 @@
 #include <memory>
 #include <unordered_map>
 #include <span>
+#include <unordered_set>
 #include <vector>
 
 namespace Desert::VFX
@@ -106,8 +107,8 @@ namespace Desert::VFX
         }
 
         // One scene update. `seconds` is the scene's own time for this update: the editor delta in Edit,
-        // the gameplay delta in Play, zero while paused. Consumes VFXComponent::RequestRestart and
-        // the data channels' entries written since the last tick.
+        // the gameplay delta in Play, zero while paused. Consumes the Restart requests and the data
+        // channels' entries written since the last tick.
         void Tick( entt::registry& registry, double seconds );
 
         // DesiredAge: the next ticks replay to `age` (a backwards seek resets every instance first).
@@ -122,6 +123,18 @@ namespace Desert::VFX
 
         // A world emptied with its scene: the clock back to zero, every instance forgotten.
         void Clear();
+
+        // UE UNiagaraComponent::ResetSystem: the system the entity @p entityUuid plays starts over on the next
+        // Tick, every emitter from its plan (the editor's Restart, a sequence's Activate Particles). A command to
+        // the world, not state of the component; a request for an entity that plays nothing that tick is dropped.
+        void Restart( std::uint64_t entityUuid )
+        {
+            m_Restarts.insert( entityUuid );
+        }
+        [[nodiscard]] bool IsRestartPending( std::uint64_t entityUuid ) const
+        {
+            return m_Restarts.contains( entityUuid );
+        }
 
         [[nodiscard]] const Clock& GetClock() const
         {
@@ -170,6 +183,7 @@ namespace Desert::VFX
         std::uint64_t                                      m_LastGeneration = 0;
         std::uint64_t                                      m_TickSerial     = 0;
         VFXDataChannels                                    m_Channels;
+        std::unordered_set<std::uint64_t>                  m_Restarts; // entity UUIDs (Restart)
         mutable std::unique_ptr<WorldGpuState>             m_GpuState;
     };
 } // namespace Desert::VFX

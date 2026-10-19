@@ -183,7 +183,23 @@ namespace Desert::VFX
         for ( const VFXModuleDecl& a : module.Block.Attributes )
             std::format_to( std::back_inserter( out ), "    Attribute {} {}\n", a.Name, GlslTypeName( a.Type ) );
         for ( const VFXModuleDecl& in : module.Block.Inputs )
-            std::format_to( std::back_inserter( out ), "    Input {} {}\n", in.Name, GlslTypeName( in.Type ) );
+        {
+            // The editor metadata goes back in the order ParseModuleBlock accepts it, so a save round-trips.
+            std::format_to( std::back_inserter( out ), "    Input {} {}", in.Name, GlslTypeName( in.Type ) );
+            if ( !in.Units.empty() )
+                std::format_to( std::back_inserter( out ), " Units={}", in.Units );
+            if ( in.Range )
+                std::format_to( std::back_inserter( out ), " Range={}..{}", in.Range->Min, in.Range->Max );
+            if ( in.Default )
+            {
+                out += " Default=";
+                const uint32_t components = Assets::Serialization::ComponentCount( in.Type );
+                for ( uint32_t c = 0; c < components; ++c )
+                    std::format_to( std::back_inserter( out ), "{}{}", c == 0 ? "" : ",",
+                                    ( *in.Default )[static_cast<int>( c )] );
+            }
+            out += '\n';
+        }
         // The body carries its own leading blank or comment lines (ParseModuleBlock keeps them with the GLSL).
         out += module.Block.Body;
         if ( !out.ends_with( '\n' ) )

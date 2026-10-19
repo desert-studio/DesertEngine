@@ -6,8 +6,8 @@ Module "Drag"
     Description "Adds linear and rotational drag, per second."
     Attribute PhysicsDrag float
     Attribute PhysicsRotationalDrag float
-    Input Drag float
-    Input RotationalDrag float
+    Input Drag float Units=1/s Range=0..20 Default=1
+    Input RotationalDrag float Units=1/s Range=0..20 Default=1
 
     // Engine VFX module Drag (UE Niagara Content/Modules/Update/Forces/Drag): adds a linear drag and a
     // rotational drag, both per second, to the particle's accumulators for this step. SolveForcesAndVelocity turns the

@@ -6,6 +6,9 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/VFS.hpp>
 
+#include <algorithm>
+#include <tuple>
+
 namespace Desert::Assets
 {
     VFXModuleAsset::VFXModuleAsset( const Common::Filepath& filepath )
@@ -108,5 +111,24 @@ namespace Desert::Assets
                  Common::Content::AssetGuidToText( guid ),
                  Common::Content::AssetGuidToText( parsed.GetValue().Guid ) );
         return parsed;
+    }
+
+    Common::ResultStr<std::vector<VFX::VFXModuleInfo>> ReadVFXModuleCatalog()
+    {
+        using Result = std::vector<VFX::VFXModuleInfo>;
+        const RegistryVFXModuleResolver resolver;
+        Result                          catalog;
+        for ( const ContentRegistry::PickerRow& row : ContentRegistry::Rows( Common::Content::ContentKind::VFXModule ) )
+        {
+            if ( !row.Guid )
+                return Common::MakeFormattedError<Result>( "VFX module '{}' states no GUID in its header", row.Key );
+            auto module = resolver.Resolve( *row.Guid );
+            if ( !module )
+                return Common::MakeFormattedError<Result>( "VFX module '{}': {}", row.Key, module.GetError() );
+            catalog.push_back( VFX::MakeModuleInfo( module.GetValue(), row.Key ) );
+        }
+        std::ranges::sort( catalog, []( const VFX::VFXModuleInfo& a, const VFX::VFXModuleInfo& b )
+                           { return std::tie( a.Category, a.DisplayName ) < std::tie( b.Category, b.DisplayName ); } );
+        return Common::MakeSuccess( std::move( catalog ) );
     }
 } // namespace Desert::Assets
