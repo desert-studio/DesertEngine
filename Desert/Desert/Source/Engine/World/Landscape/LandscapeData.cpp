@@ -134,9 +134,11 @@ namespace Desert::World::Landscape
         {
             return 1u << static_cast<uint32_t>( c );
         }
-        constexpr uint32_t kHeightConsumers =
-             ConsumerBit( LandscapeDirtyConsumer::Gpu ) | ConsumerBit( LandscapeDirtyConsumer::Physics );
-        constexpr uint32_t kWeightConsumers = ConsumerBit( LandscapeDirtyConsumer::Weights );
+        constexpr uint32_t kHeightConsumers = ConsumerBit( LandscapeDirtyConsumer::Gpu ) |
+                                              ConsumerBit( LandscapeDirtyConsumer::Physics ) |
+                                              ConsumerBit( LandscapeDirtyConsumer::Grass );
+        constexpr uint32_t kWeightConsumers =
+             ConsumerBit( LandscapeDirtyConsumer::Weights ) | ConsumerBit( LandscapeDirtyConsumer::Grass );
         // The visibility layer also cuts the collider (LandscapeCollision reads it for holes).
         constexpr uint32_t kVisibilityConsumers =
              kWeightConsumers | ConsumerBit( LandscapeDirtyConsumer::Physics );

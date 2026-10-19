@@ -337,6 +337,9 @@ namespace Desert::Graphic::System
                  IsVisibleInView( frustum, sd.Transform, Geometry::LocalBounds( sd.Mesh->GetSubmeshes() ) ) )
                 movable = true;
         }
+        for ( const auto& gpu : m_GpuInstancedQueue )
+            if ( gpu.CastShadows )
+                movable = true; // regenerated around the camera every frame
         return hash.Value;
     }
 
@@ -1045,6 +1048,10 @@ namespace Desert::Graphic::System
                             material->Bind( draw.Instance );
                         } } );
         }
+
+        // The GPU-generated sections move with the camera (and sway): every frame, over the cache.
+        if ( drawMovable )
+            BuildGpuInstancedShadowDraws( c, list );
     }
     RDG::TextureRef MeshRenderer::AcquireCascadeMaps( RDG::Builder& graph )
     {

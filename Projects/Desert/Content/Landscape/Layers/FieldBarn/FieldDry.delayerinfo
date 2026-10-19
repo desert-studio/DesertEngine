@@ -3,9 +3,11 @@
         "Kind": "LandscapeLayerInfo",
         "Guid": "c39ddb7d5965f1c080b50b71c51a6db6",
         "Versions": {
-            "LLYI": 3
+            "LLYI": 4
         },
-        "Dependencies": []
+        "Dependencies": [
+            "060537443b0e446f8973f6ce45b7e4fc"
+        ]
     },
     "LayerName": "FieldDry",
     "Hardness": 0.5,
@@ -14,5 +16,11 @@
         0.3,
         0.27,
         0.11
+    ],
+    "GrassTypes": [
+        {
+            "Guid": "060537443b0e446f8973f6ce45b7e4fc",
+            "Path": "Landscape/Grass/FieldBarn/DryMeadow.degrasstype"
+        }
     ]
 }

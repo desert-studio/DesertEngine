@@ -37,6 +37,8 @@
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
+#include <Engine/Graphic/GpuInstances.hpp>
+#include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
@@ -69,6 +71,11 @@ namespace Desert::Graphic::System
             uint32_t                FirstInstance     = 0;
             uint64_t                HiddenSubmeshMask = 0;
             uint32_t                LodLevel          = 0;
+            // A GPU-generated instanced draw (GpuInstances.hpp): each drawn submesh reads its record at
+            // GpuInstanceArgsOffset( submesh ) of this graph buffer (InstanceCount / FirstInstance unused), and the
+            // node declares the reads of it and of Instances (the transforms its material binds).
+            RDG::BufferRef IndirectArgs{};
+            RDG::BufferRef IndirectInstances{};
             // The per-draw material state the draw records with (transform push constant, material row, bone
             // offset, wind, the instance's descriptor bind), written in exec right before the draw - the same
             // order as before the split. Empty: the draw has none.
@@ -247,6 +254,22 @@ namespace Desert::Graphic::System
             InstanceCullDistance CullDistance;
             // The field's foliage type's wind (FO-7) at this frame's gameplay time; still for any other ISM.
             InstanceWind Wind;
+        };
+
+        // An instanced section whose transforms and count the GPU wrote this frame (GpuInstances.hpp): the landscape
+        // grass. Drawn through the material's (Instanced x pass) cell like an ISM, but with a material copy of its
+        // own (MaterialService::GetViewVariant keyed by Key) whose InstanceTransforms is the producer's buffer.
+        struct GpuInstancedRenderData
+        {
+            class Desert::Mesh*                             Mesh = nullptr;
+            MaterialInstancePtr                             Material;
+            uint64_t                                        HiddenSubmeshes = 0;
+            bool                                            CastShadows     = true;
+            InstanceWind                                    Wind;
+            std::shared_ptr<ShaderResources::StorageBuffer> Instances;
+            const GpuInstanceRefs*                          Refs = nullptr; // the producer's, this frame
+            // Stable per section across frames: the view-variant key (several cascades: Key * kMaxCascades + c).
+            uint32_t Key = 0;
         };
 
         // A static mesh drawn with a generic data-driven material. Two producers:
@@ -519,6 +542,7 @@ namespace Desert::Graphic::System
         void SubmitMesh( const MeshRenderData& data );
         void SubmitGenericMesh( const GenericMeshRenderData& data );
         void SubmitInstancedMesh( const InstancedMeshRenderData& data );
+        void SubmitGpuInstanced( const GpuInstancedRenderData& data );
 
         /// ISM instances the last geometry pass drew, after the frustum and the cull distance: what a
         /// foliage type's CullDistance is measured by (FO-5). The shadow cascades are not counted.
@@ -1150,6 +1174,15 @@ namespace Desert::Graphic::System
         // UE-style Instanced Static Meshes (one entity = N instances). Folded into the shared instanced
         // pipeline/SSBO alongside the auto-batched static meshes (geometry + shadow passes).
         std::vector<InstancedMeshRenderData> m_InstancedQueue;
+        std::vector<GpuInstancedRenderData>  m_GpuInstancedQueue;
+        // The (material copy, its instance) of each GPU-instanced section and pass/cascade, keyed by the view key.
+        std::unordered_map<uint32_t, MaterialInstancePtr> m_GpuInstancedInstances;
+        uint64_t                                          m_GpuInstancedStamp = 0;
+        // MeshRendererGpuInstanced.cpp: the GPU-instanced sections into a geometry list (the pass's instanced
+        // cell) and into a cascade's movable list (their own masked caster, or the shared instanced caster).
+        void BuildGpuInstancedDraws( MeshRendererDetail::MeshDrawList& list, GraphicsPipeline* instancedPipeline,
+                                     MeshPass pass, const SceneFrameBinding& frameState );
+        void BuildGpuInstancedShadowDraws( uint32_t cascade, MeshRendererDetail::MeshDrawList& list );
 
     private:
         // m_StaticMaterialFallback and m_SkinnedMaterialFallback stood here. The first was constructed

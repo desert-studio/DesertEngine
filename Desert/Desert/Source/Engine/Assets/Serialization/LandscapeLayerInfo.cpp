@@ -3,9 +3,11 @@
 #include <Engine/World/Landscape/LandscapeData.hpp>
 
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Common/Json/Json.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -28,8 +30,32 @@ namespace Desert::Assets::Serialization
         if ( !std::isfinite( c.r ) || !std::isfinite( c.g ) || !std::isfinite( c.b ) )
             return Common::MakeFormattedError<bool>(
                  "layer '{}' has LayerUsageDebugColor ({}, {}, {}), not finite", data.LayerName, c.r, c.g, c.b );
+        for ( size_t i = 0; i < data.GrassTypes.size(); ++i )
+        {
+            const AssetGuidRef& type = data.GrassTypes[i];
+            if ( const auto guid = Common::Content::AssetGuidFromText( type.Guid );
+                 !guid || guid.GetValue().IsNull() )
+                return Common::MakeFormattedError<bool>(
+                     "layer '{}' grass type {} names no well-formed GUID ('{}')", data.LayerName, i, type.Guid );
+            for ( size_t j = 0; j < i; ++j )
+                if ( data.GrassTypes[j].Guid == type.Guid )
+                    return Common::MakeFormattedError<bool>( "layer '{}' names grass type '{}' twice ({} and {})",
+                                                             data.LayerName, type.Path, j, i );
+        }
         return BOOLSUCCESS;
     }
+
+    namespace
+    {
+        // The header's Dependencies of a layer: its grass types, in list order (validation refuses a repeat).
+        std::vector<std::string> GrassDependencies( const LandscapeLayerInfoData& data )
+        {
+            std::vector<std::string> out;
+            for ( const AssetGuidRef& type : data.GrassTypes )
+                out.push_back( type.Guid );
+            return out;
+        }
+    } // namespace
 
     Common::ResultStr<LandscapeLayerInfoData> ParseLandscapeLayerInfo( const std::string& text )
     {
@@ -57,12 +83,18 @@ namespace Desert::Assets::Serialization
         if ( auto valid = ValidateLandscapeLayerInfoData( data ); !valid )
             return Common::MakeFormattedError<LandscapeLayerInfoData>( "{}", valid.GetError() );
 
-        // A layer info references no other asset, so a stated Dependency is an edge the registry would
-        // follow to something this file never names.
-        if ( data.Header && !data.Header->Dependencies.empty() )
-            return Common::MakeFormattedError<LandscapeLayerInfoData>(
-                 "the header states {} Dependencies; layer '{}' references no asset",
-                 data.Header->Dependencies.size(), data.LayerName );
+        // A layer info references exactly its grass types, so any other stated Dependency is an edge the
+        // registry would follow to something this file never names.
+        if ( data.Header )
+        {
+            const auto  expected = GrassDependencies( data );
+            const auto& stated   = data.Header->Dependencies;
+            if ( stated.size() != expected.size() ||
+                 !std::is_permutation( stated.begin(), stated.end(), expected.begin() ) )
+                return Common::MakeFormattedError<LandscapeLayerInfoData>(
+                     "the header states {} Dependencies; layer '{}' references exactly its {} grass type(s)",
+                     stated.size(), data.LayerName, expected.size() );
+        }
 
         return Common::MakeSuccess( std::move( data ) );
     }
@@ -73,6 +105,7 @@ namespace Desert::Assets::Serialization
         out.Header = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::LandscapeLayerInfo,
                                               LandscapeLayerInfoTextSubsystems() );
         out.Header->Dependencies.clear();
+        out.Header->Dependencies = GrassDependencies( data );
         return Common::Json::Write( out );
     }
 

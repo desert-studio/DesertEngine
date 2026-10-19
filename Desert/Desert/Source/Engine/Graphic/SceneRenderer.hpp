@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 #include <Engine/Graphic/InstanceCullDistance.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
@@ -278,6 +279,9 @@ namespace Desert::Graphic
         // the Terrain pipeline reading the tile's R16 copy, surfaced with its root's material and layers.
         void SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile,
                                   const MaterialOverrides& overrides, const System::LandscapeWeightDraw& weights );
+
+        // Submit one landscape root's grass for this frame (from LandscapeECSSystem via DrawLandscapeGrassCommand).
+        void SubmitLandscapeGrass( System::GrassFieldDraw draw );
 
         // Submit one water zone for this frame (from WaterZoneECSSystem via WaterZoneCommand): its quadtree is
         // walked from the main camera and its tiles drawn by the water renderer (WATER-W6).

@@ -71,6 +71,7 @@ namespace Desert::Runtime
         // frame, so re-registering the flattened table IS the whole of the reload — no scene to refresh.
         void PollUIThemes( Assets::AssetManager& assetManager );
         void PollLandscapeLayerInfos( Assets::AssetManager& assetManager );
+        void PollLandscapeGrassTypes( Assets::AssetManager& assetManager );
         // No scene argument: nothing in a scene caches a prefab's payload - its readers ask the asset each
         // time they need it - so re-reading the asset is the whole of the reload.
         void PollPrefabs( Assets::AssetManager& assetManager );

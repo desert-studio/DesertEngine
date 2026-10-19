@@ -61,7 +61,14 @@ namespace Desert::Assets
     // v2 (GR-1): the layer named a grass type by {Guid, Path}, the header's one Dependency.
     // v3 (LS-16): that field left with the landscape grass generator; the header states no Dependencies.
     inline constexpr uint32_t kLandscapeLayerInfoSchemaTag     = Common::Content::FourCC( "LLYI" );
-    inline constexpr uint32_t kLandscapeLayerInfoSchemaVersion = 3;
+    // v4 (GRASS-GPU): the layer names the `.degrasstype`s it grows (GrassTypes, any number, {Guid, Path}); their
+    // GUIDs are the header's Dependencies.
+    inline constexpr uint32_t kLandscapeLayerInfoSchemaVersion = 4;
+    // A .degrasstype: the landscape grass type file layout (UE ULandscapeGrassType). v1/v2 were GR-1/GR-2's,
+    // removed in LS-16b with no file left; v3 (GRASS-GPU): GrassVarieties, each with a Kind, its meshes the
+    // Dependencies.
+    inline constexpr uint32_t kLandscapeGrassTypeSchemaTag     = Common::Content::FourCC( "LGRT" );
+    inline constexpr uint32_t kLandscapeGrassTypeSchemaVersion = 3;
     // A .dfx: the VFX system file layout, stated in the header from its first version (VFX-02).
     inline constexpr uint32_t kVFXSystemSchemaTag     = Common::Content::FourCC( "VFXS" );
     inline constexpr uint32_t kVFXSystemSchemaVersion = 1;

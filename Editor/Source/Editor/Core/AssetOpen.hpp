@@ -67,6 +67,7 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::StringTable:
             case Assets::AssetTypeID::ShaderGraph:
             case Assets::AssetTypeID::LandscapeLayerInfo: // edited in the landscape panel's layer list
+            case Assets::AssetTypeID::LandscapeGrassType: // authored as text; no grass type editor yet
             case Assets::AssetTypeID::FoliageType:        // edited in the foliage panel
             case Assets::AssetTypeID::VFXSystem:          // the VFX System editor is VFX-12
             case Assets::AssetTypeID::Fracture:           // the Fracture Mode panel arrives with DST-02

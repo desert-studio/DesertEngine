@@ -1,3 +1,4 @@
+#include <Engine/Graphic/GpuInstances.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
@@ -706,10 +707,49 @@ namespace Desert::Graphic::API::Vulkan
                                                          uint32_t firstInstance, uint64_t hiddenSubmeshMask,
                                                          uint32_t lodLevel )
     {
+        return RecordMesh( bindings, pipeline, mesh, transform, material, instanceCount, firstInstance,
+                           hiddenSubmeshMask, lodLevel, nullptr );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirect( const RDG::PassBindings& bindings,
+                                                                 const GraphicsPipeline&  pipeline,
+                                                                 const Mesh& mesh, const glm::mat4& transform,
+                                                                 const MaterialExecutor& material,
+                                                                 RDG::BufferRef args, uint64_t hiddenSubmeshMask )
+    {
+        return RecordMesh( bindings, pipeline, mesh, transform, material, 1u, 0u, hiddenSubmeshMask, 0u, &args );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::RecordMesh( const RDG::PassBindings& bindings,
+                                                         const GraphicsPipeline& pipeline, const Mesh& mesh,
+                                                         const glm::mat4&        transform,
+                                                         const MaterialExecutor& material, uint32_t instanceCount,
+                                                         uint32_t firstInstance, uint64_t hiddenSubmeshMask,
+                                                         uint32_t lodLevel, const RDG::BufferRef* indirect )
+    {
         DESERT_PROFILE_FUNC();
         const std::string_view pass = bindings.GetContext().GetPassName();
         if ( instanceCount == 0u )
             return Common::MakeFormattedError( "{}: a mesh draw of zero instances", pass );
+        // A GPU-instanced draw: the argument records, one per submesh after the header (GpuInstances.hpp).
+        VkBuffer indirectBuffer = VK_NULL_HANDLE;
+        if ( indirect != nullptr )
+        {
+            const auto declared = bindings.GetContext().GetBuffer( *indirect, RDG::Access::IndirectArgs );
+            if ( !declared )
+                return Common::MakeFormattedError( "{}: indirect mesh arguments: {}", pass, declared.GetError() );
+            if ( GpuInstanceArgsOffset( static_cast<uint32_t>( mesh.GetSubmeshes().size() ) ) >
+                 declared.GetValue().Desc->Bytes )
+                return Common::MakeFormattedError( "{}: '{}' ({} bytes) holds no record for each of the {} submeshes",
+                                                   pass, declared.GetValue().Name, declared.GetValue().Desc->Bytes,
+                                                   mesh.GetSubmeshes().size() );
+            const auto buffer = VulkanRdgBackend::BufferOf( declared.GetValue() );
+            if ( !buffer )
+                return Common::MakeFormattedError( "{}: indirect mesh arguments: {}", pass, buffer.GetError() );
+            if ( !mesh.GetIndexBuffer() )
+                return Common::MakeFormattedError( "{}: an indirect mesh draw needs an indexed mesh", pass );
+            indirectBuffer = buffer.GetValue()->GetBuffer();
+        }
         // The push block is the per-submesh transform the material carries (written below for each submesh).
         if ( !bindings.GetPushConstants().empty() )
             return Common::MakeFormattedError(
@@ -792,6 +832,13 @@ namespace Desert::Graphic::API::Vulkan
             if ( !indexBuffer )
             {
                 DrawCounted( submesh.VertexCount, instanceCount, submesh.VertexOffset, firstInstance );
+                continue;
+            }
+            if ( indirectBuffer != VK_NULL_HANDLE )
+            {
+                vkCmdDrawIndexedIndirect( m_CurrentCommandBuffer, indirectBuffer,
+                                          GpuInstanceArgsOffset( static_cast<uint32_t>( si ) ), 1,
+                                          static_cast<uint32_t>( kGpuInstanceArgsRecordBytes ) );
                 continue;
             }
             uint32_t drawOffset = submesh.IndexOffset;

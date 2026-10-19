@@ -3,9 +3,11 @@
         "Kind": "LandscapeLayerInfo",
         "Guid": "0e67a9bfdff1b3cd7ed50e27dadc465e",
         "Versions": {
-            "LLYI": 3
+            "LLYI": 4
         },
-        "Dependencies": []
+        "Dependencies": [
+            "e33b5f1214a2456a9e9ec34d0e0f2846"
+        ]
     },
     "LayerName": "FieldGrass",
     "Hardness": 0.5,
@@ -14,5 +16,11 @@
         0.11,
         0.17,
         0.045
+    ],
+    "GrassTypes": [
+        {
+            "Guid": "e33b5f1214a2456a9e9ec34d0e0f2846",
+            "Path": "Landscape/Grass/FieldBarn/Meadow.degrasstype"
+        }
     ]
 }
