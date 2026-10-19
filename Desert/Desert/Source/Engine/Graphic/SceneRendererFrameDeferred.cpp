@@ -1058,16 +1058,6 @@ namespace Desert::Graphic
                                                            m_RayTracingScene.GetSegmentRecords(), radianceOf );
         if ( !list )
             return Common::MakeError<Result>( list.GetError() );
-        if ( list.GetValue().SkippedDeformedSegments != m_ReportedEmissiveDeformed )
-        {
-            m_ReportedEmissiveDeformed = list.GetValue().SkippedDeformedSegments;
-            if ( m_ReportedEmissiveDeformed > 0u )
-                LOG_WARN(
-                     "[SceneRenderer] {}: {} emissive segments of deformed meshes are not in the emissive light "
-                     "list (their BLAS reads skinned positions the attribute stream does not hold); their "
-                     "emission is met by material rays alone",
-                     m_ViewResources.GetName(), m_ReportedEmissiveDeformed );
-        }
         return m_EmissiveLights.AddPasses( graph, list.GetValue() );
     }
 

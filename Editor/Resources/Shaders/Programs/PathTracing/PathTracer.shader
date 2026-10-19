@@ -77,6 +77,19 @@ Shader "PathTracer"
             {
                 float emissivePower[];
             };
+            // Its dynamic part: the skinned primitives' emissive triangles of this frame's pose.
+            layout(std430, binding = 13) readonly buffer EmissiveDynamicSegmentsUB
+            {
+                EmissiveSegment emissiveDynamicSegments[];
+            };
+            layout(std430, binding = 14) readonly buffer EmissiveDynamicTrianglesUB
+            {
+                EmissiveTriangle emissiveDynamicTriangles[];
+            };
+            layout(std430, binding = 15) readonly buffer EmissiveDynamicPowerUB
+            {
+                float emissiveDynamicPower[];
+            };
             #include <Common/EmissiveLightsSampling.glslh>
 
             #define PATH_TRACING_SKY_RADIANCE u_SkyRadiance
@@ -90,7 +103,8 @@ Shader "PathTracer"
                 uvec4 u_Counts; // x = point lights, y = spot lights, z = paths already summed (0: overwrite), w = max bounces
                 uvec4 u_Sky;    // x = sky side S (0: no sky light), y = its pyramid levels, z = frame seed, w = paths this frame (>= 1)
                 vec4  u_Sun;    // x = sin of half the sun's source angle (0: a delta direction), y = pixel spread angle
-                uvec4 u_Emissive; // x = emissive triangles, y = power tree leaves, z = its levels, w = TLAS instances of the list
+                uvec4 u_Emissive;        // the static part: x = triangles, y = power tree leaves, z = its levels, w = TLAS instances of the lookup
+                uvec4 u_EmissiveDynamic; // the dynamic part: x = triangles, y = power tree leaves, z = its levels
             };
 
             // ---- Random numbers: a PCG hash chain per pixel and path (UE: FRandomSequence). ----
@@ -358,14 +372,15 @@ Shader "PathTracer"
             // ---- The emissive triangles. ----
             bool PathTracingHasEmissive()
             {
-                return u_Emissive.x > 0u && EmissiveLightsTotal(u_Emissive.y, u_Emissive.z) > 0.0;
+                return EmissiveLightsTriangleCount(u_Emissive, u_EmissiveDynamic) > 0u &&
+                       EmissiveLightsTotal(u_Emissive, u_EmissiveDynamic) > 0.0;
             }
 
             // The list's row of the triangle the last material ray met (kEmissiveNone: not in the list).
             uint PathTracingEmissiveTriangleOfHit()
             {
                 return EmissiveLightsTriangleOfHit(payload.InstanceIndex, payload.GeometryIndex, payload.PrimitiveIndex,
-                                                   u_Emissive.w);
+                                                   u_Emissive);
             }
 
             // Next event estimation over the emissive triangles from @p origin (the vertex's offset origin, @p coneWidth
@@ -377,10 +392,10 @@ Shader "PathTracer"
                 const vec2  u    = PathTracingRandom2(rng);
                 if (!PathTracingHasEmissive())
                     return vec3(0.0);
-                const uint triangle = EmissiveLightsPick(pick, u_Emissive.y, u_Emissive.z);
-                if (triangle >= u_Emissive.x)
+                const uint triangle = EmissiveLightsPick(pick, u_Emissive, u_EmissiveDynamic);
+                if (triangle >= EmissiveLightsTriangleCount(u_Emissive, u_EmissiveDynamic))
                     return vec3(0.0);
-                const EmissiveTriangle t       = emissiveTriangles[triangle];
+                const EmissiveTriangle t       = EmissiveLightsTriangle(triangle, u_Emissive);
                 const vec3             toPoint = EmissiveLightsSamplePoint(t, u) - origin;
                 const float            dist    = length(toPoint);
                 if (dist <= 0.0)
@@ -389,7 +404,7 @@ Shader "PathTracer"
                 if (dot(N, L) <= 0.0)
                     return vec3(0.0);
                 const float lightPdf = EmissiveLightsSolidAnglePdf(
-                    t, EmissiveLightsPickPdf(triangle, u_Emissive.y, u_Emissive.z), dist, dot(EmissiveLightsNormal(t), L));
+                    t, EmissiveLightsPickPdf(triangle, u_Emissive, u_EmissiveDynamic), dist, dot(EmissiveLightsNormal(t), L));
                 if (lightPdf <= 0.0)
                     return vec3(0.0);
                 // Past the point by a margin, so the closest hit can land on the sampled triangle itself; anything
@@ -409,11 +424,11 @@ Shader "PathTracer"
                 if (bsdfPdf < 0.0 || !PathTracingHasEmissive())
                     return 1.0;
                 const uint triangle = PathTracingEmissiveTriangleOfHit();
-                if (triangle >= u_Emissive.x)
+                if (triangle >= EmissiveLightsTriangleCount(u_Emissive, u_EmissiveDynamic))
                     return 1.0;
-                const EmissiveTriangle t        = emissiveTriangles[triangle];
+                const EmissiveTriangle t        = EmissiveLightsTriangle(triangle, u_Emissive);
                 const float            lightPdf = EmissiveLightsSolidAnglePdf(
-                    t, EmissiveLightsPickPdf(triangle, u_Emissive.y, u_Emissive.z), payload.HitT,
+                    t, EmissiveLightsPickPdf(triangle, u_Emissive, u_EmissiveDynamic), payload.HitT,
                     dot(EmissiveLightsNormal(t), dir));
                 return PathTracingMISWeightPower(bsdfPdf, lightPdf);
             }

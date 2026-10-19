@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Common/Core/Profiler.hpp>
+#include <Engine/Assets/FrameRetireQueue.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Pipeline.hpp>
@@ -274,7 +276,8 @@ namespace Desert::Graphic::System
             glm::uvec4 Counts; // point lights, spot lights, paths already summed (0: overwrite), max bounces
             glm::uvec4 Sky;    // sky side S, its levels, frame seed, paths this frame
             glm::vec4  Sun;    // sin of half the sun's angle, pixel spread angle
-            glm::uvec4 Emissive; // emissive triangles, power tree leaves, its levels, TLAS instances of the list
+            glm::uvec4 Emissive;        // EmissiveLightsFrame::StaticParams
+            glm::uvec4 EmissiveDynamic; // EmissiveLightsFrame::DynamicParams
         };
         struct SkyPush
         {
@@ -311,8 +314,14 @@ namespace Desert::Graphic::System
         // before it is read: its frame restarts, so the trace overwrites (Counts.z = 0) every pixel.
         RDG::TextureRef AcquireAccumulation( RDG::Builder& graph, const uint32_t width, const uint32_t height )
         {
+            const auto& frames = ::Desert::Engine::FrameManager::GetInstance();
+            m_RetiringAccumulation.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
             if ( m_Accumulation.Built && m_Accumulation.Width == width && m_Accumulation.Height == height )
                 return graph.RegisterExternal( m_Accumulation.Texture, "PathTracing.Accumulation" );
+            // The previous size's sum is parked, not dropped: the frames recorded before this one may still be
+            // tracing into it or resolving it on the GPU.
+            if ( m_Accumulation.Texture.Physical )
+                m_RetiringAccumulation.Park( std::move( m_Accumulation.Texture ), frames.GetAbsoluteFrameCount() );
             m_Accumulation.Texture = {};
             m_Stamp.Invalidate();
             const RDG::TextureRef created =
@@ -400,8 +409,7 @@ namespace Desert::Graphic::System
                  glm::uvec4( inputs.PointLightCount, inputs.SpotLightCount, m_Summed, m_MaxBounces ),
                  glm::uvec4( sky.Side, sky.Levels, m_Restarts, traced ),
                  glm::vec4( inputs.SunSinHalfAngle, inputs.PixelSpread, 0.0f, 0.0f ),
-                 glm::uvec4( inputs.Emissive.TriangleCount, inputs.Emissive.Leaves, inputs.Emissive.Levels,
-                             inputs.Emissive.InstanceCount ) };
+                 inputs.Emissive.StaticParams(), inputs.Emissive.DynamicParams() };
             graph.AddPass(
                  "PathTracing: Trace", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -416,10 +424,13 @@ namespace Desert::Graphic::System
                           .Storage( "SpotLightsUB", inputs.SpotLights, kR )
                           .Storage( "u_SkyRadiance", sky.Radiance, kR )
                           .Storage( "PathTracingSkyPdfUB", sky.Pdf, kR )
-                          .Storage( "EmissiveSegmentsUB", inputs.Emissive.Segments, kR )
+                          .Storage( "EmissiveSegmentsUB", inputs.Emissive.Static.Segments, kR )
                           .Storage( "EmissiveLookupUB", inputs.Emissive.Lookup, kR )
-                          .Storage( "EmissiveTrianglesUB", inputs.Emissive.Triangles, kR )
-                          .Storage( "EmissivePowerUB", inputs.Emissive.Power, kR )
+                          .Storage( "EmissiveTrianglesUB", inputs.Emissive.Static.Triangles, kR )
+                          .Storage( "EmissivePowerUB", inputs.Emissive.Static.Power, kR )
+                          .Storage( "EmissiveDynamicSegmentsUB", inputs.Emissive.Dynamic.Segments, kR )
+                          .Storage( "EmissiveDynamicTrianglesUB", inputs.Emissive.Dynamic.Triangles, kR )
+                          .Storage( "EmissiveDynamicPowerUB", inputs.Emissive.Dynamic.Power, kR )
                           .Texture( "u_EnvSpecularTex", inputs.EnvSpecular, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
                           .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
@@ -484,6 +495,8 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache m_ResolveLayout;
 
         AccumulationTarget m_Accumulation;
+        // Accumulations a resize replaced, kept until no frame in flight can still read them.
+        Assets::FrameRetireQueue<RDG::ExternalTexture> m_RetiringAccumulation;
         PassHistoryStamp   m_Stamp;               // the view frame whose resolve last stood behind the sum
         uint32_t           m_Summed      = 0;     // paths per pixel in the sum
         uint32_t           m_MaxBounces  = 0;     // the bounces the sum was traced with

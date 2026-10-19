@@ -1,8 +1,10 @@
 // DesertAsset {"Kind":"Shader","Guid":"b7e41c2d95a84f6e8a0d3c51f29e7a64","Versions":{"SHDR":1},"Dependencies":[]}
 // THE SCENE'S EMISSIVE TRIANGLES (Common/EmissiveLights.glslh; RayTracing::EmissiveLightsRenderer): "Build" expands
 // the emissive segments of the list into world triangles and their powers, "Reduce" sums the power tree level by
-// level. Run when the list changes (its hash), kept across frames otherwise. NVIDIA RTXDI PrepareLights is the
-// model (one thread per emissive triangle, the mesh's own buffers read by address, world transform applied, its
+// level - once per part of the list: the static part when its hash changes (kept across frames otherwise), the
+// dynamic part (the skinned primitives' segments, read from the skin cache's positions) every frame. NVIDIA RTXDI
+// PrepareLights is the model (one thread per emissive triangle, the positions its BLAS was built from read by
+// address, world transform applied, its
 // power from the material's emission), adapted: the power tree is a buffer of levels (as the path tracer's sky
 // pdf, PathTracerSky.shader) instead of a PDF texture's mips.
 Shader "EmissiveLights"

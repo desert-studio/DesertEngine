@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Settings/RenderMethods.hpp>
+#include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
 
 #include <glm/glm.hpp>
@@ -116,6 +117,13 @@ namespace Desert::Graphic::RayTracing
         uint32_t                SegmentRecordCount = 0;
         RayTracingPrimitiveKind Kind               = RayTracingPrimitiveKind::Static;
         const void*             DeformedMesh       = nullptr; // skinned only: the SkinnedMesh it skins
+        // Skinned only, set with Geometry by RayTracingSkinCache::AddPasses: the skin-cache stream the BLAS was
+        // built from this frame (current positions at the buffer's start, kDeformedPositionLayout) - its device
+        // address and its registration in the graph being declared, so a reader of the deformed positions (the
+        // emissive light list) reads the very bytes the BLAS did, ordered after the skin pass. 0 / invalid: no
+        // BLAS this frame.
+        uint64_t       DeformedPositionsAddress = 0;
+        RDG::BufferRef DeformedPositions;
         // A mesh with no uploader BLAS (Mesh::GetRayTracingGeometry null, e.g. a DynamicMesh): the RT scene's
         // procedural cache builds its (mesh, Submeshes) BLAS in "RayTracingScene.DynamicGeometry" and fills
         // Geometry (RayTracingProceduralGeometry.hpp). Instanced rows keep Kind Instanced.
