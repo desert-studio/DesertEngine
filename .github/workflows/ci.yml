@@ -1158,6 +1158,16 @@ jobs:
       # BEFORE, the numbers to compare the first unity run against (ccache + MultiToolTask, run
       # 35863890019): Build step Release 74.7 min, Debug 36.0, Shipping 26.2; whole job Release 80.2,
       # Debug 57, Shipping 29. The owner's working figure for the Windows job today: 1.5-2 h.
+      # VENDOR RUNTIME BINARIES (owner 10-15): the DLSS runtime is downloaded by Setup.bat step 4b
+      # (FetchVendorBinaries.py, ~276 MB) and never committed. Keyed on the manifest that pins every file's
+      # SHA-256, so a new release is a new key; with the files restored the script touches nothing.
+      - name: Restore vendor runtime binaries
+        id: vendor-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ThirdParty\Streamline\bin\x64
+          key: vendor-bin-${{ hashFiles('ThirdParty/Streamline/manifest.json') }}
+
       - name: Setup dependencies + generate projects
         shell: cmd
         # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it: Desert/premake5.lua
@@ -1166,6 +1176,15 @@ jobs:
         run: |
           set "CI="
           scripts\Windows\Setup.bat --unity
+
+      # Written by a push to dev only — see "THE CACHE IS WRITTEN BY dev ONLY" on the sanitizers job.
+      - name: Save vendor runtime binaries
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.vendor-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ThirdParty\Streamline\bin\x64
+          key: vendor-bin-${{ hashFiles('ThirdParty/Streamline/manifest.json') }}
 
       # ── THE COMPILER CACHE, WITHIN ONE BUILD ────────────────────────────────────────────────────
       #
