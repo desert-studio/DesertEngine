@@ -364,7 +364,9 @@ namespace Desert::Graphic::RDG
     BindingBlockBuilder& BindingBlockBuilder::Storage( std::string_view shaderName, BufferRef buffer,
                                                        Access declared )
     {
-        m_Pass.DeclareBuffer( buffer, declared, IsWriteAccess( declared ), "Bindings.Storage" );
+        // The call names the shader binding, so an invalid handle says WHICH input the pass was never given.
+        m_Pass.DeclareBuffer( buffer, declared, IsWriteAccess( declared ),
+                              fmt::format( "Bindings.Storage[{}]", shaderName ) );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
              { std::string( shaderName ), ShaderResourceKind::StorageBuffer, ResourceKind::Buffer, buffer.Index,
                declared, SubresourceRange::All(), std::nullopt } );

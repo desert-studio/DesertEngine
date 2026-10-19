@@ -220,7 +220,7 @@ bool TraceWorld(vec3 worldPos, vec3 N, vec3 L, float start, bool nearField, floa
 	// view's per-pixel spread, so the hit's texture LOD is the one the reflected footprint sees.
 	const float pixelSpread = 2.0 / (abs(cameraUB.Projection[1][1]) * float(textureSize(u_GBufferNormal, 0).y));
 	payload.HitT       = -1.0;
-	payload.ConeWidth  = pixelSpread * distance(u_CameraPos.xyz, worldPos);
+	payload.ConeWidth  = pixelSpread * distance(cameraUB.CameraPos, worldPos);
 	payload.ConeSpread = pixelSpread;
 	traceRayEXT(u_SceneTLAS, gl_RayFlagsNoneEXT, RAY_TRACING_MASK_OPAQUE, 0u, 1u, 0u, ray.origin, ray.tMin, L, ray.tMax,
 	            0);
