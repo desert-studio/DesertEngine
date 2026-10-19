@@ -105,7 +105,7 @@ namespace Desert::Graphic::System
             {
                 Stage&           program = m_Stages[stage];
                 std::string_view name    = kShaderNames[stage];
-                program.Shader           = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
+                program.Shader           = Runtime::ResourceRegistry::GetShaderService()->GetByName( std::string( name ) );
                 if ( !program.Shader )
                     return Common::MakeError( std::format( "MegaLights: shader {} not found", name ) );
                 const auto pipeline =
