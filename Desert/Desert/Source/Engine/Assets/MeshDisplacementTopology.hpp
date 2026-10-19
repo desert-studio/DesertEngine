@@ -31,7 +31,7 @@ namespace Desert::Assets
     inline constexpr Common::DDC::Deriver kDisplacementTopologyDeriver{
          "DisplacementTopology", ".dtop", { 0x961BEDE8AFB27933ULL, 0xE857895C98F055FEULL } };
     // Bump when the build produces different bytes for the same input.
-    inline constexpr uint32_t kDisplacementTopologyBuilderVersion = 2; // 2: min-cut graph clusters
+    inline constexpr uint32_t kDisplacementTopologyBuilderVersion = 3; // 2: min-cut graph clusters, 3: multilevel
 
     [[nodiscard]] uint64_t DisplacementTopologyDerivedDataKey( uint64_t renderDataKey );
 

@@ -308,10 +308,14 @@ namespace Desert::Geometry
         };
 
         // Graph partitioning of one submesh's triangles into clusters of at most kDisplacementClusterTriangles,
-        // minimising the welded edges cut (UE: FGraphPartitioner over METIS in the Nanite builder; METIS is not
-        // vendored here, so this is a recursive bisection of the same graph: pseudo-peripheral BFS growth followed
-        // by Fiduccia-Mattheyses refinement under an exact balance window). Compact clusters with short borders
-        // mean fewer level seams: a border edge dices at the higher of its two clusters' levels.
+        // minimising the welded edges cut. Compact clusters with short borders mean fewer level seams: a border edge
+        // dices at the higher of its two clusters' levels, and every border point is evaluated once per cluster.
+        // UE: FGraphPartitioner over METIS (not vendored here). This is METIS's own scheme for k-way-by-recursive-
+        // bisection (Karypis & Kumar 1998), ported in place: each bisection COARSENS the triangle graph by
+        // heavy-edge matching until it is small, PARTITIONS the coarsest graph by weighted BFS growth from several
+        // seeds, and UNCOARSENS level by level with Fiduccia-Mattheyses refinement at each level. A single-level
+        // FM on a large submesh only polishes the BFS front locally; the coarse levels move whole regions at once,
+        // which is what gives METIS-quality (short, straight) borders, in time linear in the triangle count.
         class ClusterPartitioner
         {
         public:
@@ -319,7 +323,6 @@ namespace Desert::Geometry
                 : m_Topology( topology ), m_LocalOf( triangleCount, kNone )
             {
             }
-
             // Reorders @p tris so every emitted range [first, second) is one cluster.
             void Partition( std::vector<uint32_t>& tris, size_t begin, size_t end,
                             std::vector<std::pair<size_t, size_t>>& out )
@@ -340,16 +343,14 @@ namespace Desert::Geometry
                                              ? count - kRight * kDisplacementClusterTriangles
                                              : 1;
                 const size_t target   = count * kLeft / parts;
-
                 BuildGraph( tris, begin, end );
-                GrowInitial( target );
-                Refine( lowLeft, highLeft, target );
-
+                Bisect( Window{ lowLeft, highLeft, target } );
                 // Side 0 first, each side in ascending triangle order (a deterministic cook).
-                std::vector<uint32_t> left;
-                std::vector<uint32_t> right;
+                const std::vector<uint8_t>& side = m_Levels.front().Side;
+                std::vector<uint32_t>       left;
+                std::vector<uint32_t>       right;
                 for ( uint32_t v = 0; v < m_Nodes.size(); ++v )
-                    ( m_Side[v] == 0 ? left : right ).push_back( m_Nodes[v] );
+                    ( side[v] == 0 ? left : right ).push_back( m_Nodes[v] );
                 for ( const uint32_t t : m_Nodes )
                     m_LocalOf[t] = kNone;
                 std::copy( left.begin(), left.end(), tris.begin() + static_cast<std::ptrdiff_t>( begin ) );
@@ -362,8 +363,37 @@ namespace Desert::Geometry
 
         private:
             static constexpr uint32_t kNone = std::numeric_limits<uint32_t>::max();
+            // Coarsening stops at this many nodes (METIS CoarsenTo for a bisection is of this order) or when a
+            // matching pass shrinks the graph by less than kMinShrink (the graph is a star or a matching saturated).
+            static constexpr uint32_t kCoarsestNodes = 128;
+            static constexpr double   kMinShrink     = 0.95;
+            // Initial partitions tried on the coarsest graph (METIS niparts for GGGP); the lowest cut is kept.
+            static constexpr uint32_t kInitialSeeds = 4;
 
-            // Adjacency of the range's triangles through shared welded edges (CSR, ascending neighbours).
+            // The left side's weight bounds (in triangles) and the weight it aims for.
+            struct Window
+            {
+                size_t Low    = 0;
+                size_t High   = 0;
+                size_t Target = 0;
+            };
+            // One level of the hierarchy: a weighted graph (CSR, ascending neighbours), its sides, and the node of the
+            // next coarser level each node was merged into.
+            struct Level
+            {
+                std::vector<uint32_t> Weight; // triangles merged into the node
+                std::vector<uint32_t> Offset;
+                std::vector<uint32_t> Adjacency;
+                std::vector<uint32_t> EdgeWeight; // welded edges between the two nodes
+                std::vector<uint32_t> CoarseOf;
+                std::vector<uint8_t>  Side;
+                [[nodiscard]] uint32_t Nodes() const
+                {
+                    return static_cast<uint32_t>( Weight.size() );
+                }
+            };
+
+            // Level 0: the range's triangles, adjacent through shared welded edges.
             void BuildGraph( const std::vector<uint32_t>& tris, size_t begin, size_t end )
             {
                 m_Nodes.assign( tris.begin() + static_cast<std::ptrdiff_t>( begin ),
@@ -371,8 +401,10 @@ namespace Desert::Geometry
                 std::sort( m_Nodes.begin(), m_Nodes.end() );
                 for ( uint32_t v = 0; v < m_Nodes.size(); ++v )
                     m_LocalOf[m_Nodes[v]] = v;
-                m_AdjacencyOffset.assign( m_Nodes.size() + 1, 0 );
-                m_Adjacency.clear();
+                m_Levels.assign( 1, Level{} );
+                Level& g = m_Levels.front();
+                g.Weight.assign( m_Nodes.size(), 1 );
+                g.Offset.assign( m_Nodes.size() + 1, 0 );
                 std::vector<uint32_t> around;
                 for ( uint32_t v = 0; v < m_Nodes.size(); ++v )
                 {
@@ -390,38 +422,170 @@ namespace Desert::Geometry
                         }
                     }
                     std::sort( around.begin(), around.end() );
-                    around.erase( std::unique( around.begin(), around.end() ), around.end() );
-                    m_Adjacency.insert( m_Adjacency.end(), around.begin(), around.end() );
-                    m_AdjacencyOffset[v + 1] = static_cast<uint32_t>( m_Adjacency.size() );
+                    // Two triangles may share more than one welded edge (a folded strip): each one is cut.
+                    for ( size_t i = 0; i < around.size(); )
+                    {
+                        size_t j = i;
+                        while ( j < around.size() && around[j] == around[i] )
+                            ++j;
+                        g.Adjacency.push_back( around[i] );
+                        g.EdgeWeight.push_back( static_cast<uint32_t>( j - i ) );
+                        i = j;
+                    }
+                    g.Offset[v + 1] = static_cast<uint32_t>( g.Adjacency.size() );
+                }
+            }
+
+            // Heavy-edge matching (METIS SHEM): nodes in ascending degree order each take the unmatched neighbour
+            // over the heaviest edge (ties: lighter merged node, then lower id) unless the merged node would outweigh
+            // @p maxWeight. Returns false when the graph no longer shrinks.
+            [[nodiscard]] bool Coarsen( uint32_t maxWeight )
+            {
+                Level&         fine  = m_Levels.back();
+                const uint32_t n     = fine.Nodes();
+                std::vector<uint32_t> order( n );
+                std::iota( order.begin(), order.end(), 0u );
+                std::stable_sort( order.begin(), order.end(),
+                                  [&fine]( uint32_t a, uint32_t b )
+                                  {
+                                      return fine.Offset[a + 1] - fine.Offset[a] < fine.Offset[b + 1] - fine.Offset[b];
+                                  } );
+                std::vector<uint32_t> match( n, kNone );
+                for ( const uint32_t v : order )
+                {
+                    if ( match[v] != kNone )
+                        continue;
+                    uint32_t best = v;
+                    for ( uint32_t i = fine.Offset[v]; i < fine.Offset[v + 1]; ++i )
+                    {
+                        const uint32_t u = fine.Adjacency[i];
+                        if ( match[u] != kNone || fine.Weight[u] + fine.Weight[v] > maxWeight )
+                            continue;
+                        if ( best == v )
+                        {
+                            best = u;
+                            continue;
+                        }
+                        const uint32_t bi = static_cast<uint32_t>(
+                             std::find( fine.Adjacency.begin() + fine.Offset[v],
+                                        fine.Adjacency.begin() + fine.Offset[v + 1], best ) -
+                             fine.Adjacency.begin() );
+                        const uint32_t we = fine.EdgeWeight[i];
+                        const uint32_t wb = fine.EdgeWeight[bi];
+                        if ( we > wb || ( we == wb && fine.Weight[u] < fine.Weight[best] ) )
+                            best = u;
+                    }
+                    match[v]    = best;
+                    match[best] = v;
+                }
+                fine.CoarseOf.assign( n, kNone );
+                uint32_t coarseCount = 0;
+                for ( uint32_t v = 0; v < n; ++v )
+                    if ( fine.CoarseOf[v] == kNone )
+                    {
+                        fine.CoarseOf[v]        = coarseCount;
+                        fine.CoarseOf[match[v]] = coarseCount;
+                        ++coarseCount;
+                    }
+                if ( static_cast<double>( coarseCount ) > kMinShrink * static_cast<double>( n ) )
+                    return false;
+
+                Level coarse;
+                coarse.Weight.assign( coarseCount, 0 );
+                coarse.Offset.assign( coarseCount + 1, 0 );
+                std::vector<std::vector<uint32_t>> members( coarseCount );
+                for ( uint32_t v = 0; v < n; ++v )
+                {
+                    coarse.Weight[fine.CoarseOf[v]] += fine.Weight[v];
+                    members[fine.CoarseOf[v]].push_back( v );
+                }
+                std::vector<uint32_t> slot( coarseCount, kNone );
+                std::vector<uint32_t> touched;
+                std::vector<uint32_t> weights;
+                for ( uint32_t c = 0; c < coarseCount; ++c )
+                {
+                    touched.clear();
+                    for ( const uint32_t v : members[c] )
+                        for ( uint32_t i = fine.Offset[v]; i < fine.Offset[v + 1]; ++i )
+                        {
+                            const uint32_t u = fine.CoarseOf[fine.Adjacency[i]];
+                            if ( u == c )
+                                continue; // the matched edge collapses inside the node
+                            if ( slot[u] == kNone )
+                            {
+                                slot[u] = static_cast<uint32_t>( touched.size() );
+                                touched.push_back( u );
+                                weights.push_back( 0 );
+                            }
+                            weights[slot[u]] += fine.EdgeWeight[i];
+                        }
+                    std::vector<std::pair<uint32_t, uint32_t>> row;
+                    row.reserve( touched.size() );
+                    for ( size_t i = 0; i < touched.size(); ++i )
+                    {
+                        row.emplace_back( touched[i], weights[i] );
+                        slot[touched[i]] = kNone;
+                    }
+                    weights.clear();
+                    std::sort( row.begin(), row.end() );
+                    for ( const auto& [u, w] : row )
+                    {
+                        coarse.Adjacency.push_back( u );
+                        coarse.EdgeWeight.push_back( w );
+                    }
+                    coarse.Offset[c + 1] = static_cast<uint32_t>( coarse.Adjacency.size() );
+                }
+                m_Levels.push_back( std::move( coarse ) );
+                return true;
+            }
+
+            void Bisect( const Window& window )
+            {
+                // METIS bounds a coarse node's weight by 1.5 x total / CoarsenTo, so the coarsest graph can still be
+                // balanced.
+                const size_t   total     = m_Nodes.size();
+                const uint32_t maxWeight = static_cast<uint32_t>(
+                     std::max<size_t>( 2, ( 3 * total ) / ( 2 * static_cast<size_t>( kCoarsestNodes ) ) ) );
+                while ( m_Levels.back().Nodes() > kCoarsestNodes && Coarsen( maxWeight ) )
+                {
+                }
+                InitialPartition( m_Levels.back(), window );
+                for ( size_t l = m_Levels.size() - 1; l > 0; --l )
+                {
+                    Level& fine = m_Levels[l - 1];
+                    fine.Side.resize( fine.Nodes() );
+                    for ( uint32_t v = 0; v < fine.Nodes(); ++v )
+                        fine.Side[v] = m_Levels[l].Side[fine.CoarseOf[v]];
+                    Refine( fine, window );
                 }
             }
 
             // The last node a BFS from @p seed reaches inside seed's component.
-            [[nodiscard]] uint32_t FarthestFrom( uint32_t seed ) const
+            [[nodiscard]] static uint32_t FarthestFrom( const Level& g, uint32_t seed )
             {
-                std::vector<uint8_t>  seen( m_Nodes.size(), 0 );
+                std::vector<uint8_t>  seen( g.Nodes(), 0 );
                 std::vector<uint32_t> queue{ seed };
                 seen[seed] = 1;
                 for ( size_t head = 0; head < queue.size(); ++head )
                 {
                     const uint32_t v = queue[head];
-                    for ( uint32_t i = m_AdjacencyOffset[v]; i < m_AdjacencyOffset[v + 1]; ++i )
-                        if ( !seen[m_Adjacency[i]] )
+                    for ( uint32_t i = g.Offset[v]; i < g.Offset[v + 1]; ++i )
+                        if ( !seen[g.Adjacency[i]] )
                         {
-                            seen[m_Adjacency[i]] = 1;
-                            queue.push_back( m_Adjacency[i] );
+                            seen[g.Adjacency[i]] = 1;
+                            queue.push_back( g.Adjacency[i] );
                         }
                 }
                 return queue.back();
             }
 
-            // BFS growth of side 0 from a pseudo-peripheral node (George-Liu: two sweeps) up to @p target nodes.
-            void GrowInitial( size_t target )
+            // BFS growth of side 0 from @p seed until its weight reaches the target; a component exhausted
+            // continues in the next one (a submesh of disconnected pieces).
+            static void Grow( Level& g, uint32_t seed, size_t target )
             {
-                const uint32_t nodeCount = static_cast<uint32_t>( m_Nodes.size() );
-                m_Side.assign( nodeCount, 1 );
-                const uint32_t        seed = FarthestFrom( FarthestFrom( 0 ) );
-                std::vector<uint8_t>  seen( nodeCount, 0 );
+                const uint32_t n = g.Nodes();
+                g.Side.assign( n, 1 );
+                std::vector<uint8_t>  seen( n, 0 );
                 std::vector<uint32_t> queue;
                 uint32_t              nextSeed = 0;
                 auto                  enqueue  = [&]( uint32_t v )
@@ -430,75 +594,129 @@ namespace Desert::Geometry
                     queue.push_back( v );
                 };
                 enqueue( seed );
-                for ( size_t head = 0, grown = 0; grown < target; ++head, ++grown )
+                size_t grown = 0;
+                for ( size_t head = 0; grown < target; ++head )
                 {
                     if ( head == queue.size() )
                     {
-                        // The component is exhausted: continue in the next one (a submesh of disconnected pieces).
-                        while ( seen[nextSeed] )
+                        while ( nextSeed < n && seen[nextSeed] )
                             ++nextSeed;
+                        if ( nextSeed == n )
+                            break;
                         enqueue( nextSeed );
                     }
                     const uint32_t v = queue[head];
-                    m_Side[v]        = 0;
-                    for ( uint32_t i = m_AdjacencyOffset[v]; i < m_AdjacencyOffset[v + 1]; ++i )
-                        if ( !seen[m_Adjacency[i]] )
-                            enqueue( m_Adjacency[i] );
+                    g.Side[v]        = 0;
+                    grown += g.Weight[v];
+                    for ( uint32_t i = g.Offset[v]; i < g.Offset[v + 1]; ++i )
+                        if ( !seen[g.Adjacency[i]] )
+                            enqueue( g.Adjacency[i] );
                 }
             }
 
-            // Cut edges removed minus cut edges added if @p v changes side.
-            [[nodiscard]] int32_t Gain( uint32_t v ) const
+            [[nodiscard]] static uint64_t Cut( const Level& g )
             {
-                int32_t gain = 0;
-                for ( uint32_t i = m_AdjacencyOffset[v]; i < m_AdjacencyOffset[v + 1]; ++i )
-                    gain += m_Side[m_Adjacency[i]] != m_Side[v] ? 1 : -1;
+                uint64_t cut = 0;
+                for ( uint32_t v = 0; v < g.Nodes(); ++v )
+                    for ( uint32_t i = g.Offset[v]; i < g.Offset[v + 1]; ++i )
+                        cut += g.Side[g.Adjacency[i]] != g.Side[v] ? g.EdgeWeight[i] : 0u;
+                return cut / 2;
+            }
+
+            [[nodiscard]] static size_t LeftWeight( const Level& g )
+            {
+                size_t left = 0;
+                for ( uint32_t v = 0; v < g.Nodes(); ++v )
+                    left += g.Side[v] == 0 ? g.Weight[v] : 0u;
+                return left;
+            }
+
+            // Growth from a pseudo-peripheral node (George-Liu, two sweeps) and from evenly spaced nodes, each refined;
+            // the lowest cut wins (ties: the window, then the balance, then the earlier seed).
+            void InitialPartition( Level& g, const Window& window )
+            {
+                const uint32_t        n = g.Nodes();
+                std::vector<uint32_t> seeds{ FarthestFrom( g, FarthestFrom( g, 0 ) ) };
+                for ( uint32_t s = 1; s < kInitialSeeds && s < n; ++s )
+                    seeds.push_back( static_cast<uint32_t>( static_cast<uint64_t>( n ) * s / kInitialSeeds ) );
+                std::vector<uint8_t> bestSide;
+                std::tuple<bool, uint64_t, size_t> bestKey{ false, 0, 0 };
+                for ( const uint32_t seed : seeds )
+                {
+                    Grow( g, seed, window.Target );
+                    Refine( g, window );
+                    const size_t left = LeftWeight( g );
+                    const bool   in   = left >= window.Low && left <= window.High;
+                    const std::tuple<bool, uint64_t, size_t> key{
+                         !in, Cut( g ), left > window.Target ? left - window.Target : window.Target - left };
+                    if ( bestSide.empty() || key < bestKey )
+                    {
+                        bestKey  = key;
+                        bestSide = g.Side;
+                    }
+                }
+                g.Side = std::move( bestSide );
+            }
+
+            // Cut weight removed minus cut weight added if @p v changes side.
+            [[nodiscard]] static int64_t Gain( const Level& g, uint32_t v )
+            {
+                int64_t gain = 0;
+                for ( uint32_t i = g.Offset[v]; i < g.Offset[v + 1]; ++i )
+                    gain += g.Side[g.Adjacency[i]] != g.Side[v] ? static_cast<int64_t>( g.EdgeWeight[i] )
+                                                                 : -static_cast<int64_t>( g.EdgeWeight[i] );
                 return gain;
             }
 
-            // Fiduccia-Mattheyses passes: move the best legal unlocked node, keep the best prefix of the pass (the
-            // lowest cut, then the closest balance), stop when a pass no longer lowers the cut.
-            void Refine( size_t lowLeft, size_t highLeft, size_t target )
+            // Weighted Fiduccia-Mattheyses passes. A move is legal when it keeps the left weight inside the window
+            // or moves it toward the window. The pass keeps its best prefix - inside the window first, then the
+            // lowest cut, then the closest balance - and passes repeat while one improves that order. On level 0
+            // (every weight 1) a start outside the window always walks into it, so the final bisection is exact.
+            static void Refine( Level& g, const Window& window )
             {
-                const uint32_t nodeCount = static_cast<uint32_t>( m_Nodes.size() );
-                size_t         leftSize  = 0;
-                for ( const uint8_t s : m_Side )
-                    leftSize += s == 0 ? 1u : 0u;
-                auto distance = [target]( size_t size ) { return size > target ? size - target : target - size; };
-                using HeapItem = std::pair<int32_t, int64_t>; // (gain, -node): equal gains take the lower node
+                const uint32_t n        = g.Nodes();
+                size_t         leftSize = LeftWeight( g );
+                auto           distance = [&window]( size_t size )
+                { return size > window.Target ? size - window.Target : window.Target - size; };
+                auto outside = [&window]( size_t size ) { return size < window.Low || size > window.High; };
+                using HeapItem = std::pair<int64_t, int64_t>; // (gain, -node): equal gains take the lower node
                 for ( ;; )
                 {
-                    std::vector<int32_t>                         gain( nodeCount );
-                    std::vector<uint8_t>                         locked( nodeCount, 0 );
+                    std::vector<int64_t>                         gain( n );
+                    std::vector<uint8_t>                         locked( n, 0 );
                     std::array<std::priority_queue<HeapItem>, 2> heaps;
-                    for ( uint32_t v = 0; v < nodeCount; ++v )
+                    for ( uint32_t v = 0; v < n; ++v )
                     {
-                        gain[v] = Gain( v );
-                        heaps[m_Side[v]].emplace( gain[v], -static_cast<int64_t>( v ) );
+                        gain[v] = Gain( g, v );
+                        heaps[g.Side[v]].emplace( gain[v], -static_cast<int64_t>( v ) );
                     }
                     std::vector<uint32_t> moves;
-                    int64_t               cumulative    = 0;
-                    int64_t               best          = 0;
-                    size_t                bestMoves     = 0;
-                    size_t                bestImbalance = distance( leftSize );
+                    int64_t               cumulative = 0;
+                    // (outside the window, -cut gain, imbalance): lower is better.
+                    std::tuple<bool, int64_t, size_t> best{ outside( leftSize ), 0, distance( leftSize ) };
+                    const auto                        start     = best;
+                    size_t                            bestMoves = 0;
                     for ( ;; )
                     {
-                        // The top valid entry of each side; a side may give only while the window allows it.
                         std::array<int64_t, 2> candidate{ -1, -1 };
                         for ( uint32_t s = 0; s < 2; ++s )
                         {
-                            const bool legal = s == 0 ? leftSize > lowLeft : leftSize < highLeft;
-                            while ( legal && !heaps[s].empty() )
+                            while ( !heaps[s].empty() )
                             {
-                                const auto [g, negNode] = heaps[s].top();
-                                const uint32_t v        = static_cast<uint32_t>( -negNode );
-                                if ( locked[v] || m_Side[v] != s || gain[v] != g )
+                                const auto [gv, negNode] = heaps[s].top();
+                                const auto v             = static_cast<uint32_t>( -negNode );
+                                if ( locked[v] || g.Side[v] != s || gain[v] != gv )
                                 {
                                     heaps[s].pop(); // stale entry
                                     continue;
                                 }
-                                candidate[s] = v;
-                                break;
+                                const size_t w     = g.Weight[v];
+                                const size_t after = s == 0 ? leftSize - w : leftSize + w;
+                                const bool   toward =
+                                     s == 0 ? leftSize > window.High : leftSize < window.Low;
+                                if ( !outside( after ) || toward )
+                                    candidate[s] = v;
+                                break; // the side's best node is not legal: the side gives nothing now
                             }
                         }
                         if ( candidate[0] < 0 && candidate[1] < 0 )
@@ -506,52 +724,50 @@ namespace Desert::Geometry
                         uint32_t from = candidate[0] < 0 ? 1u : 0u;
                         if ( candidate[0] >= 0 && candidate[1] >= 0 )
                         {
-                            const int32_t g0 = gain[static_cast<uint32_t>( candidate[0] )];
-                            const int32_t g1 = gain[static_cast<uint32_t>( candidate[1] )];
+                            const int64_t g0 = gain[static_cast<uint32_t>( candidate[0] )];
+                            const int64_t g1 = gain[static_cast<uint32_t>( candidate[1] )];
                             // Equal gains: move toward the target balance.
-                            from = g0 != g1 ? ( g0 > g1 ? 0u : 1u ) : ( leftSize > target ? 0u : 1u );
+                            from = g0 != g1 ? ( g0 > g1 ? 0u : 1u ) : ( leftSize > window.Target ? 0u : 1u );
                         }
-                        const uint32_t v = static_cast<uint32_t>( candidate[from] );
+                        const auto v = static_cast<uint32_t>( candidate[from] );
                         heaps[from].pop();
                         locked[v] = 1;
                         cumulative += gain[v];
-                        m_Side[v] = static_cast<uint8_t>( 1u - from );
-                        leftSize  = from == 0 ? leftSize - 1 : leftSize + 1;
+                        g.Side[v] = static_cast<uint8_t>( 1u - from );
+                        leftSize  = from == 0 ? leftSize - g.Weight[v] : leftSize + g.Weight[v];
                         moves.push_back( v );
-                        for ( uint32_t i = m_AdjacencyOffset[v]; i < m_AdjacencyOffset[v + 1]; ++i )
+                        for ( uint32_t i = g.Offset[v]; i < g.Offset[v + 1]; ++i )
                         {
-                            const uint32_t u = m_Adjacency[i];
+                            const uint32_t u = g.Adjacency[i];
                             if ( locked[u] )
                                 continue;
-                            gain[u] = Gain( u );
-                            heaps[m_Side[u]].emplace( gain[u], -static_cast<int64_t>( u ) );
+                            gain[u] = Gain( g, u );
+                            heaps[g.Side[u]].emplace( gain[u], -static_cast<int64_t>( u ) );
                         }
-                        const size_t imbalance = distance( leftSize );
-                        if ( cumulative > best || ( cumulative == best && imbalance < bestImbalance ) )
+                        const std::tuple<bool, int64_t, size_t> key{ outside( leftSize ), -cumulative,
+                                                                     distance( leftSize ) };
+                        if ( key < best )
                         {
-                            best          = cumulative;
-                            bestMoves     = moves.size();
-                            bestImbalance = imbalance;
+                            best      = key;
+                            bestMoves = moves.size();
                         }
                     }
                     // Undo the moves past the best prefix.
                     for ( size_t i = moves.size(); i > bestMoves; --i )
                     {
                         const uint32_t v = moves[i - 1];
-                        leftSize         = m_Side[v] == 0 ? leftSize - 1 : leftSize + 1;
-                        m_Side[v]        = static_cast<uint8_t>( 1u - m_Side[v] );
+                        leftSize         = g.Side[v] == 0 ? leftSize - g.Weight[v] : leftSize + g.Weight[v];
+                        g.Side[v]        = static_cast<uint8_t>( 1u - g.Side[v] );
                     }
-                    if ( best <= 0 )
+                    if ( !( best < start ) )
                         break;
                 }
             }
 
             const DisplacementTopology& m_Topology;
             std::vector<uint32_t>       m_LocalOf; // mesh triangle -> node of the current range, kNone outside
-            std::vector<uint32_t>       m_Nodes;   // node -> mesh triangle, ascending
-            std::vector<uint32_t>       m_AdjacencyOffset;
-            std::vector<uint32_t>       m_Adjacency;
-            std::vector<uint8_t>        m_Side;
+            std::vector<uint32_t>       m_Nodes;   // level-0 node -> mesh triangle, ascending
+            std::vector<Level>          m_Levels;  // finest first
         };
 
         uint32_t FloatBits( float v )
