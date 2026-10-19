@@ -1,0 +1,118 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "70ceaec0dcb4fdc2dbb00f61df5cc3ae",
+        "Versions": {
+            "MATL": 5
+        },
+        "Dependencies": [
+            "acb8d06bbe1a49dc95c2f5ebdddb4c33",
+            "f50e1906935f1494a857c4268ffab84b",
+            "ae6312e57f7feab10c8520a1a7d35395",
+            "b8918ce0b71847d2463324b1f4fe96ff",
+            "ccc516e7f8fa631d0a00fe4a2a9f3793"
+        ]
+    },
+    "Shader": {
+        "Guid": "acb8d06bbe1a49dc95c2f5ebdddb4c33",
+        "Path": "engine:Shaders/Programs/Surface/FoliageSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [
+                1.32,
+                1.12,
+                0.62,
+                1.0
+            ]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [
+                1.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "NormalScale",
+            "Value": [
+                1.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "EmissiveColor",
+            "Value": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ]
+        },
+        {
+            "Name": "OpacityMaskClipValue",
+            "Value": [
+                0.35,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "OpacityChannel",
+            "Value": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "SubsurfaceColor",
+            "Value": [
+                0.75,
+                0.62,
+                0.22,
+                1.0
+            ]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "u_AlbedoTexture",
+            "Guid": "f50e1906935f1494a857c4268ffab84b",
+            "Path": "assets:Environments/FieldBarn/Meshes/grass_medium_01/textures/grass_medium_01_diff_2k.detex"
+        },
+        {
+            "Name": "u_ORMTexture",
+            "Guid": "ae6312e57f7feab10c8520a1a7d35395",
+            "Path": "assets:Environments/FieldBarn/Meshes/grass_medium_01/textures/grass_medium_01_arm_2k_ORMTexture.detex"
+        },
+        {
+            "Name": "u_NormalTexture",
+            "Guid": "b8918ce0b71847d2463324b1f4fe96ff",
+            "Path": "assets:Environments/FieldBarn/Meshes/grass_medium_01/textures/grass_medium_01_nor_gl_2k.detex"
+        },
+        {
+            "Name": "u_OpacityTexture",
+            "Guid": "ccc516e7f8fa631d0a00fe4a2a9f3793",
+            "Path": "assets:Textures/FieldBarn/grass_medium_01_alpha_2k.detex"
+        }
+    ],
+    "CloudAssets": [],
+    "TwoSided": true
+}

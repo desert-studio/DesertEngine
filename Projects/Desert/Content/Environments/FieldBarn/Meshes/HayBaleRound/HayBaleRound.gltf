@@ -1,0 +1,213 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "FIELD-BARN-2 props.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "HayBaleRound",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "HayBaleRound",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "material": 0
+    },
+    {
+     "attributes": {
+      "POSITION": 3,
+      "NORMAL": 4,
+      "TEXCOORD_0": 5
+     },
+     "material": 1
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "M_HayBaleRound_Side",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     1.05,
+     0.93,
+     0.66,
+     1.0
+    ],
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicRoughnessTexture": {
+     "index": 1
+    },
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   },
+   "normalTexture": {
+    "index": 2
+   },
+   "occlusionTexture": {
+    "index": 1
+   }
+  },
+  {
+   "name": "M_HayBaleRound_Face",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     0.95,
+     0.82,
+     0.55,
+     1.0
+    ],
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicRoughnessTexture": {
+     "index": 1
+    },
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   },
+   "normalTexture": {
+    "index": 2
+   },
+   "occlusionTexture": {
+    "index": 1
+   }
+  }
+ ],
+ "textures": [
+  {
+   "source": 0
+  },
+  {
+   "source": 1
+  },
+  {
+   "source": 2
+  }
+ ],
+ "images": [
+  {
+   "uri": "../../Textures/riet_01/riet_01_Diffuse_2k.jpg"
+  },
+  {
+   "uri": "../../Textures/riet_01/riet_01_arm_2k.jpg"
+  },
+  {
+   "uri": "../../Textures/riet_01/riet_01_nor_gl_2k.jpg"
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 960,
+   "type": "VEC3",
+   "min": [
+    -0.6,
+    -0.04,
+    -0.75
+   ],
+   "max": [
+    0.6,
+    1.46,
+    0.75
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 960,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 960,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5126,
+   "count": 240,
+   "type": "VEC3",
+   "min": [
+    -0.6,
+    -0.01750000000000007,
+    -0.7275
+   ],
+   "max": [
+    0.6,
+    1.4375,
+    0.7275
+   ]
+  },
+  {
+   "bufferView": 4,
+   "componentType": 5126,
+   "count": 240,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 5,
+   "componentType": 5126,
+   "count": 240,
+   "type": "VEC2"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 11520
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 11520,
+   "byteLength": 11520
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 23040,
+   "byteLength": 7680
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 30720,
+   "byteLength": 2880
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 33600,
+   "byteLength": 2880
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 36480,
+   "byteLength": 1920
+  }
+ ],
+ "buffers": [
+  {
+   "uri": "HayBaleRound.bin",
+   "byteLength": 38400
+  }
+ ]
+}

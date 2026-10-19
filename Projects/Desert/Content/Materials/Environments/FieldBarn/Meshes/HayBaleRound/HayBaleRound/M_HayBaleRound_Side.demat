@@ -1,0 +1,58 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "bcefb1f6ec554658d7558d8bdf5155c5",
+        "Versions": {
+            "MATL": 5
+        },
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "b3dee7dc87409f31417c67821cb1332a", "92ccda6af6127d3ac32bd6e3a5383427", "186302e7c170f6c90550c22c534e2ef8"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/Surface/StandardSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [1.0499999523162842, 0.9300000071525574, 0.6600000262260437, 1.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "AOStrength",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "NormalScale",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "EmissiveColor",
+            "Value": [0.0, 0.0, 0.0, 1.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "u_AlbedoTexture",
+            "Guid": "b3dee7dc87409f31417c67821cb1332a",
+            "Path": "assets:Environments/FieldBarn/Textures/riet_01/riet_01_Diffuse_2k.detex"
+        },
+        {
+            "Name": "u_ORMTexture",
+            "Guid": "92ccda6af6127d3ac32bd6e3a5383427",
+            "Path": "assets:Environments/FieldBarn/Textures/riet_01/riet_01_arm_2k.detex"
+        },
+        {
+            "Name": "u_NormalTexture",
+            "Guid": "186302e7c170f6c90550c22c534e2ef8",
+            "Path": "assets:Environments/FieldBarn/Textures/riet_01/riet_01_nor_gl_2k.detex"
+        }
+    ],
+    "CloudAssets": []
+}
