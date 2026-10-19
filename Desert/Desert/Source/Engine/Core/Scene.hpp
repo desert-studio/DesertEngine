@@ -15,6 +15,10 @@
 #include "SceneEntityIndex.hpp"
 #include "SceneViewList.hpp"
 #include "WorldTime.hpp"
+#include "DebugDraw.hpp"
+#if DESERT_DEV_INSTRUMENTS
+#include <Engine/GameplayDebugger/GameplayDebugger.hpp>
+#endif
 #include "SceneGeneration.hpp"
 
 #include <Common/Core/ResultStr.hpp>
@@ -571,6 +575,31 @@ namespace Desert::Core
         // (Graphic::ExtensionPass). A repeated name replaces the earlier pass.
         void                                                RegisterExtensionPass( Graphic::ExtensionPass&& pass );
         void                                                UnregisterExtensionPass( const std::string& name );
+        // THE SCENE'S DEBUG DRAWING (UE: the world's line batchers): what DebugDraw:: calls and the DebugDraw
+        // script library add, and what every view of this scene draws (SceneRenderer::BeginScene). Aged at the top
+        // of OnUpdate, before the systems that draw into it.
+        [[nodiscard]] DebugDrawWorld& GetDebugDraw()
+        {
+            return m_DebugDraw;
+        }
+        [[nodiscard]] const DebugDrawWorld& GetDebugDraw() const
+        {
+            return m_DebugDraw;
+        }
+#if DESERT_DEV_INSTRUMENTS
+        // THE SCENE'S GAMEPLAY DEBUGGER (UE: the local player's gameplay debugger replicator): the ` overlay about
+        // one entity. Ticked in OnUpdate right after the systems (the scripts' switches and this frame's keys are
+        // in); draws into GetDebugDraw. Not in a player's build.
+        [[nodiscard]] Debug::GameplayDebugger& GetGameplayDebugger()
+        {
+            return m_GameplayDebugger;
+        }
+        [[nodiscard]] const Debug::GameplayDebugger& GetGameplayDebugger() const
+        {
+            return m_GameplayDebugger;
+        }
+#endif
+
         [[nodiscard]] const Graphic::ExtensionPassRegistry& GetExtensionPasses() const
         {
             return m_ExtensionPasses;
@@ -731,6 +760,13 @@ namespace Desert::Core
 
         // See GetLedgerInstance. Declared BEFORE the members it is handed to.
         Graphic::ResourceOwnerInstance m_LedgerInstance = Graphic::ResourceOwnerInstance::NewScene();
+        // See GetDebugDraw.
+        DebugDrawWorld m_DebugDraw;
+#if DESERT_DEV_INSTRUMENTS
+        // See GetGameplayDebugger.
+        Debug::GameplayDebugger m_GameplayDebugger;
+#endif
+
         // See GetReflectionCaptures. Never null: made by both constructors.
         std::unique_ptr<Graphic::ReflectionCaptureRenderer> m_ReflectionCaptures;
         // See GetRayTracingCache. Never null: made by both constructors.

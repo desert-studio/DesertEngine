@@ -127,6 +127,9 @@ namespace Desert::Graphic
     /// "view #3 41 rows 182.40 MiB (the view's budget); scene #1 12 rows 9.10 MiB (scene-shared, the
     /// scene's own budget entry)" — the [ViewMemory] line.
     [[nodiscard]] std::string FormatViewLedgerMemory( const ViewLedgerMemory& memory );
+#if DESERT_DEV_INSTRUMENTS
+    class DebugDrawRenderer;
+#endif
 
     class SceneRenderer final
     {
@@ -1250,6 +1253,11 @@ namespace Desert::Graphic
         RayTracing::RayTracingSceneCache* m_FrameRayTracingCache = nullptr;
         // The scene's local-light shadow cache, the same bracket (GetFrameLocalShadows).
         LocalShadowCache* m_FrameLocalShadows = nullptr;
+#if DESERT_DEV_INSTRUMENTS
+        // The gameplay debug drawing of the scene BeginScene was handed (Core/DebugDraw.hpp): this view's lines
+        // and strings passes, fed the scene's store by BeginScene and emptied by EndScene. Made on first use.
+        std::unique_ptr<DebugDrawRenderer> m_DebugDraw;
+#endif
 
     public:
         // --- UI glass (backdrop blur) -----------------------------------------------------------
