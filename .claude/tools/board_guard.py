@@ -12,8 +12,9 @@ and a lead decision went only into an agent's REMAINDER. Rules (lead session onl
 3. Writing a lead decision into a REMAINDER.md gets a reminder: the decision goes into the card body.
 4. A card set to «На проверке»/«Сделано» unblocks its dependents. Owner 10-14: «почему не сделан UI панели?» —
    SCR-DETAILS («Владелец назвал», «после SCR-PORT») lay in the backlog 5 days after SCR-PORT-2 was done. Until a
-   notion-query-data-sources whose SQL names the code AND «Владелец назвал» is run, agent launches are refused and
-   the turn may not end: every owner-named card waiting on that code is either launched or reported to the owner.
+   notion-query-data-sources whose SQL names «Владелец назвал» is run, agent launches are refused: every owner-named
+   card waiting on a handed-in code is either launched or reported to the owner. One query clears every pending code;
+   the turn may end meanwhile (owner 10-19: blocking Stop re-ran the lead's whole turn after each hand-in).
 
 State: ~/.claude/board_guard_state.json {pages: {page_id: code}, writes: {code: t}, pending: {code: t}, agents: {id: code}}.
 """
@@ -102,7 +103,7 @@ UNBLOCK_SQL = ("SELECT \"Код\",\"Статус\",\"Название\" FROM \"c
 
 def unblock_reason(codes):
     return ("сдано " + ", ".join(codes) + " — проверь, что ждало этого среди карточек «Владелец назвал»: "
-            "notion-query-data-sources, SQL с кодом и «Владелец назвал», напр. " + UNBLOCK_SQL.format(codes=" ".join(codes)) +
+            "один notion-query-data-sources с «Владелец назвал» на все сданные коды, напр. " + UNBLOCK_SQL.format(codes=" ".join(codes)) +
             " (затем открой карточки, где в теле «после <КОД>»). Ждавшее — запустить сразу или назвать владельцу причину "
             "(владелец 10-14: SCR-DETAILS 5 дней в бэклоге после SCR-PORT-2).")
 
@@ -133,8 +134,8 @@ def main():
         if late and not data.get("stop_hook_active"):
             emit({"decision": "block", "reason": "[board_guard] Агенты сдали, карточки не обновлены: " + ", ".join(late) +
                   ". Приём = карточка: Статус (На проверке/Сделано/В работе), «Кто ведёт», итог и остаток в теле."})
-        if s["unblock"] and not data.get("stop_hook_active"):
-            emit({"decision": "block", "reason": "[board_guard] " + unblock_reason(sorted(s["unblock"]))})
+        # Rule 4 is NOT enforced at Stop (owner 10-19: a blocked Stop re-ran the whole lead turn after every
+        # hand-in); it is enforced before the next Agent launch, where the check actually changes what runs.
         sys.exit(0)
 
     if event == "PostToolUse" and tool.startswith("mcp__notion__"):
@@ -157,8 +158,8 @@ def main():
         elif tool.endswith("notion-query-data-sources"):
             sql = json.dumps(tin, ensure_ascii=False)
             if "Владелец назвал" in sql:
-                for code in [c for c in s["unblock"] if re.search(r"(?<![A-Z0-9-])" + re.escape(c) + r"(?![A-Z0-9])", sql)]:
-                    del s["unblock"][code]
+                # One query over the owner-named backlog answers for every code handed in so far (owner 10-19).
+                s["unblock"].clear()
         save(s)
         sys.exit(0)
 
