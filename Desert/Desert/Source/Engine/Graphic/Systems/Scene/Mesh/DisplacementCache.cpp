@@ -178,18 +178,18 @@ namespace Desert::Graphic::System
     }
 
     void DisplacementCache::Request( const uint32_t entity, const uint32_t part,
-                                     const std::shared_ptr<StaticMesh>& mesh, const glm::mat4& objectToWorld,
+                                     const StaticMesh& mesh, const glm::mat4& objectToWorld,
                                      std::span<const std::optional<DisplacementMaterialRecord>> materials,
                                      const Desert::Geometry::LODView& view, const float viewHeightPixels,
                                      const uint64_t frame )
     {
-        if ( !m_Quality.Enabled || !mesh || !mesh->GetDisplacementTopology() )
+        if ( !m_Quality.Enabled || !mesh.GetDisplacementTopology() )
             return;
         const Desert::Geometry::DisplacementTopology& topology  = *mesh->GetDisplacementTopology();
-        const std::vector<Submesh>&                   submeshes = mesh->GetSubmeshes();
+        const std::vector<Submesh>&                   submeshes = mesh.GetSubmeshes();
 
         Entry& entry = m_Entries[EntryKey( entity, part )];
-        if ( entry.Mesh != mesh )
+        if ( entry.Mesh != &mesh || entry.Topology != mesh.GetDisplacementTopology() )
             entry = Entry{}; // another mesh in this slot: nothing of the old entry applies
         if ( entry.LastFrame != frame )
         {
@@ -200,7 +200,8 @@ namespace Desert::Graphic::System
             entry.Asked.assign( topology.Clusters.size(), 0 );
             entry.SmallestScreen = std::numeric_limits<float>::max();
             entry.LastFrame      = frame;
-            entry.Mesh           = mesh;
+            entry.Mesh           = &mesh;
+            entry.Topology = mesh.GetDisplacementTopology();
             entry.Materials.assign( submeshes.size(), DisplacementMaterialRecord{} );
             for ( size_t s = 0; s < submeshes.size() && s < materials.size(); ++s )
                 if ( materials[s] )
@@ -440,6 +441,10 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr DisplacementCache::DisplaceFrame( const uint64_t frame )
     {
+        // The first view of the frame displaces; later views only read (their requests count for the next frame).
+        if ( frame == m_DisplacedFrame )
+            return BOOLSUCCESS;
+        m_DisplacedFrame      = frame;
         m_Frame               = frame;
         m_Stats.Rebuilt       = 0;
         m_Stats.LevelsLowered = 0;
@@ -457,6 +462,8 @@ namespace Desert::Graphic::System
         std::vector<std::string> errors;
         for ( auto& [entryKey, entry] : m_Entries )
         {
+            if ( entry.LastFrame != frame )
+                continue; // no view submitted it this frame: its base mesh may be gone, EndFrame drops it
             if ( entry.Using.empty() )
                 entry.Using = entry.Asked; // an entry's first frame: its first requests
             if ( entry.Using.empty() )
@@ -464,7 +471,7 @@ namespace Desert::Graphic::System
             std::vector<uint8_t> effective = entry.Using;
             for ( uint8_t& level : effective )
                 level = static_cast<uint8_t>( level > entry.Lowered ? level - entry.Lowered : 0 );
-            const BuildKey wanted{ entry.Mesh.get(), std::move( effective ), entry.Materials };
+            const BuildKey wanted{ entry.Mesh, entry.Topology.get(), std::move( effective ), entry.Materials };
 
             // Collect a finished tessellation.
             if ( entry.Pending.valid() &&
@@ -526,8 +533,7 @@ namespace Desert::Graphic::System
             if ( entry.Pending.valid() )
                 continue; // one tessellation in flight per entry; the newer key follows when it lands
             // Tessellate on a worker: the topology is co-owned by the task, the levels copied.
-            std::shared_ptr<const Desert::Geometry::DisplacementTopology> topology =
-                 entry.Mesh->GetDisplacementTopology();
+            std::shared_ptr<const Desert::Geometry::DisplacementTopology> topology = entry.Topology;
             std::vector<uint8_t> levels = wanted.Levels;
             entry.PendingKey            = wanted;
             entry.Pending               = Common::JobSystem::Get().Async(
@@ -610,9 +616,8 @@ namespace Desert::Graphic::System
                 if ( geometries.insert( entry.Current.get() ).second )
                     m_Stats.BufferBytes += entry.Current->Bytes;
             }
-            if ( entry.Mesh && entry.Mesh->GetDisplacementTopology() &&
-                 topologies.insert( entry.Mesh->GetDisplacementTopology().get() ).second )
-                m_Stats.TopologyBytes += entry.Mesh->GetDisplacementTopology()->GetBytes();
+            if ( entry.Topology && topologies.insert( entry.Topology.get() ).second )
+                m_Stats.TopologyBytes += entry.Topology->GetBytes();
         }
         m_Stats.Geometries = static_cast<uint32_t>( geometries.size() );
         // The GPU words of a topology no live entry reads are dropped (the address could be reused by a new mesh).

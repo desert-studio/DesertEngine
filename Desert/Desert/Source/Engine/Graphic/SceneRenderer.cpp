@@ -1335,6 +1335,13 @@ namespace Desert::Graphic
                 m_FrameRayTracingCache->BeginViewFrame( frameNumber );
                 skinCache = &m_FrameRayTracingCache->GetSkinCache();
                 skinCache->SetEnabled( meshes->IsSkinCacheEnabled() );
+                // Mesh displacement (DisplacementCache.hpp): this view's level requests, the frame's one
+                // displacement (first view), and the twins every pass of this view draws.
+                if ( const auto* viewCamera = GetMainCamera(); viewCamera != nullptr )
+                    meshes->ApplyDisplacement(
+                         m_FrameRayTracingCache->GetDisplacement(),
+                         Geometry::LODView{ viewCamera->GetPosition(), viewCamera->GetProjectionMatrix() },
+                         static_cast<float>( m_ViewExtent.Height ), frameNumber );
             }
             if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions(
                       m_ViewState.Motion(), m_ScratchTileMotions, skinCache, frameNumber );

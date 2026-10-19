@@ -126,7 +126,7 @@ namespace Desert::Graphic::System
         // 1. A camera view's request for one static record (entity, part = the record's MotionKey slot) of @p mesh
         //    (which carries a topology) drawn at @p objectToWorld with @p materials (one record per submesh,
         //    nullopt = not displaced). @p viewHeightPixels converts the screen fraction into pixels.
-        void Request( uint32_t entity, uint32_t part, const std::shared_ptr<StaticMesh>& mesh,
+        void Request( uint32_t entity, uint32_t part, const StaticMesh& mesh,
                       const glm::mat4&                                           objectToWorld,
                       std::span<const std::optional<DisplacementMaterialRecord>> materials,
                       const Desert::Geometry::LODView& view, float viewHeightPixels, uint64_t frame );
@@ -149,6 +149,8 @@ namespace Desert::Graphic::System
         struct BuildKey
         {
             const StaticMesh*                       Mesh = nullptr;
+            // The topology identifies the mesh for sharing: held by the entries, its address cannot be reused.
+            const Desert::Geometry::DisplacementTopology* Topology = nullptr;
             std::vector<uint8_t>                    Levels;    // one per cluster
             std::vector<DisplacementMaterialRecord> Materials; // one per submesh
             bool                                    operator==( const BuildKey& ) const = default;
@@ -174,7 +176,8 @@ namespace Desert::Graphic::System
 
         struct Entry
         {
-            std::shared_ptr<StaticMesh>                  Mesh;  // the base (keeps the topology alive)
+            const StaticMesh* Mesh = nullptr; // the base, alive while a view submits it (requested this frame)
+            std::shared_ptr<const Desert::Geometry::DisplacementTopology> Topology;
             std::vector<uint8_t>                         Asked; // highest request per cluster, this frame
             std::vector<uint8_t>                         Using; // the levels of N (last frame's Asked)
             float                                        SmallestScreen = 0.0f; // pool-fit order (§5)
@@ -205,6 +208,7 @@ namespace Desert::Graphic::System
         ShaderBindingLayoutCache                                                         m_EmitLayout;
         DisplacementStats                                                                m_Stats;
         uint64_t                                                                         m_Frame = 0;
+        uint64_t m_DisplacedFrame = UINT64_MAX; // the frame DisplaceFrame last ran for (once per frame)
         bool m_PipelineRefusalLogged                                                             = false;
     };
 } // namespace Desert::Graphic::System
