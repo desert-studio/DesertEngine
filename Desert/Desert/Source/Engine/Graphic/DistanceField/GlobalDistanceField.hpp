@@ -20,8 +20,8 @@
 #include <Common/Core/Math/AABB.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
-#include <Engine/Core/Frustum.hpp>
 #include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
+#include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
@@ -106,12 +106,15 @@ namespace Desert::Graphic::DistanceField
         using ImportImage = std::function<RDG::TextureRef( const std::shared_ptr<Image>&, std::string_view )>;
 
         // What a reader of this frame's field binds: the clipmaps as graph textures and their parameters,
-        // (centre.xyz in cm, voxel size in cm) per level - GlobalDistanceField.glslh's GDFLevel.
+        // (centre.xyz in cm, voxel size in cm) per level - GlobalDistanceField.glslh's GDFLevel - and the mesh
+        // fields it was composited from with, after AddNearFieldCullPasses, the view's near-field froxel grid (a
+        // GI ray's first metres).
         struct FrameField
         {
             std::array<RDG::TextureRef, kGlobalDistanceFieldClipmaps> Clipmaps;
             std::array<glm::vec4, kGlobalDistanceFieldClipmaps>       Levels{};
             RDG::TextureRef                                           ObjectGrid; // the object grid (above)
+            MeshDistanceFieldReads                                    MeshFields;
         };
 
         // Brings the clipmaps up to @p camera and @p objects: residency and mip streaming in the brick atlas of
@@ -121,36 +124,24 @@ namespace Desert::Graphic::DistanceField
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
                          const std::vector<GlobalDistanceFieldObject>& objects, uint32_t poolMiB );
 
-        // THE MESH SDFS AS A NEAR-FIELD TRACE READS THEM (UE: the distance field object buffers + the view cull of
-        // LumenMeshSDFCulling.usf, CullMeshSDFObjectsForViewCS): this frame's objects - the field's own records,
-        // in the order AddUpdatePasses composited them - uploaded for the trace, beside the list of the objects a
-        // trace from the view's surfaces can reach. Bindings by name (Common/GITraceMeshSDF.glslh).
-        struct MeshSDFScene
+        // The view a near-field grid is culled for: its unjittered matrices, its camera, its extent in pixels.
+        struct NearFieldView
         {
-            RDG::TextureRef BrickAtlas;  // "u_DFBrickAtlas"
-            RDG::BufferRef  AssetData;   // "DFAssetData"
-            RDG::BufferRef  Indirection; // "DFIndirection"
-            RDG::BufferRef  Objects;     // "DFObjects"
-            RDG::BufferRef  ObjectRows;  // "GIMeshSDFObjectRowsUB": per object its instance-table row
-            // "GIMeshSDFCulledUB": uvec4(count, 0, 0, 0), then per culled object two vec4: its world box min with
-            // the object index's bits in w, its world box max.
-            RDG::BufferRef Culled;
+            glm::mat4  ViewProjection{ 1.0f };
+            glm::mat4  InvViewProjection{ 1.0f };
+            glm::mat4  Projection{ 1.0f };
+            glm::vec3  CameraPosition{ 0.0f };
+            glm::vec3  Forward{ 0.0f, 0.0f, -1.0f }; // world, unit
+            glm::uvec2 Extent{ 0u };
         };
-        // Which objects the near field may meet: the box grown by @p traceDistance (cm) inside @p view and nearer
-        // @p camera than @p endDistanceFromCamera + @p traceDistance (UE CardTraceEndDistanceFromCamera: a probe
-        // farther than that traces no mesh SDF).
-        struct MeshSDFCull
-        {
-            Core::Frustum View;
-            glm::vec3     Camera{ 0.0f };
-            float         TraceDistance         = 0.0f;
-            float         EndDistanceFromCamera = 0.0f;
-        };
-        // After AddUpdatePasses of the same frame. An error when the field holds no frame yet. The records live in
-        // device buffers of the field's own, uploaded by the graph only in a frame where they changed
-        // (DistanceFieldSceneData::GetRevision, the objects' list); the cull is this frame's.
-        [[nodiscard]] Common::ResultStr<MeshSDFScene>
-        AddMeshSDFReads( RDG::Builder& graph, const ImportImage& import, const MeshSDFCull& cull );
+
+        // THE NEAR FIELD'S FROXEL GRID (UE LumenMeshSDFCulling: CullMeshSDFObjectsForView, then
+        // CullMeshSDFObjectsToViewGrid - written from memory): two compute passes over @p field's objects, the
+        // ones near @p view's frustum, then per froxel of Common/MeshSDFGrid.glslh the closest
+        // DF_MESH_SDF_GRID_MAX_OBJECTS_PER_CELL within DF_MESH_SDF_TRACE_DISTANCE of it. Fills
+        // @p field.MeshFields' NearFieldGrid and NearFieldGridPlacement. An error names the bad input.
+        [[nodiscard]] Common::BoolResultStr AddNearFieldCullPasses( RDG::Builder& graph, FrameField& field,
+                                                                    const NearFieldView& view );
 
         // "Debug: Global Distance Field" over @p target (a full-screen sphere trace of the clipmaps).
         [[nodiscard]] Common::BoolResultStr AddDebugViewPass( RDG::Builder& graph, const FrameField& field,
@@ -176,24 +167,6 @@ namespace Desert::Graphic::DistanceField
                                                                   uint32_t                   samples );
 
         DistanceFieldSceneData                                              m_SceneData;
-        // The last AddUpdatePasses' objects (AddMeshSDFReads): the object records, their rows, their world boxes.
-        std::vector<glm::vec4>          m_FrameObjectData;
-        std::vector<uint32_t>           m_FrameObjectRows;
-        std::vector<Common::Math::AABB> m_FrameObjectBounds;
-        uint64_t m_FrameObjectsRevision = 0; // bumped when the objects or their rows changed
-        bool     m_HasFrame             = false;
-        // A device copy of one record list for the mesh SDF readers: one persistent buffer, grown as needed,
-        // written by a graph upload when the list's revision moved.
-        struct DeviceRecords
-        {
-            std::shared_ptr<ShaderResources::StorageBuffer> Buffer;
-            RDG::ExternalBuffer                             Import;
-            uint64_t                                        Revision = ~0ull;
-        };
-        DeviceRecords                                                       m_MeshSDFAssetData;
-        DeviceRecords                                                       m_MeshSDFIndirection;
-        DeviceRecords                                                       m_MeshSDFObjects;
-        DeviceRecords                                                       m_MeshSDFObjectRows;
         std::array<std::shared_ptr<Image3D>, kGlobalDistanceFieldClipmaps>  m_Clipmaps;
         std::shared_ptr<Image3D>                                            m_ObjectGrid;
         std::array<std::optional<glm::ivec3>, kGlobalDistanceFieldClipmaps> m_ValidCentre;
@@ -214,6 +187,17 @@ namespace Desert::Graphic::DistanceField
         std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_UpdateBrickBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_BrickObjectBuffer;
-        std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectRowBuffer;
+        // The graph's view of the buffers a trace reads (re-imported every frame: each frame in flight has its
+        // own copy).
+        RDG::ExternalBuffer m_AssetImport;
+        RDG::ExternalBuffer m_IndirectionImport;
+        RDG::ExternalBuffer m_ObjectImport;
+        // The near field's cull (AddNearFieldCullPasses).
+        std::shared_ptr<Shader>          m_CullObjectsShader;
+        std::shared_ptr<ComputePipeline> m_CullObjectsPipeline;
+        mutable ShaderBindingLayoutCache m_CullObjectsLayout;
+        std::shared_ptr<Shader>          m_CullGridShader;
+        std::shared_ptr<ComputePipeline> m_CullGridPipeline;
+        mutable ShaderBindingLayoutCache m_CullGridLayout;
     };
 } // namespace Desert::Graphic::DistanceField

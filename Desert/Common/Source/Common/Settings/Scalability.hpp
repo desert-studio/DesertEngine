@@ -160,6 +160,10 @@ namespace Common::Scalability
                                                 // r.Lumen.ScreenProbeGather.RadianceCache.NumProbesToTraceBudget)
         HitLightingAllowed,                     // 0/1: a hardware-traced hit may be lit in place (UE
                                                 // r.Lumen.HardwareRayTracing.HitLighting.Allowed)
+        ScreenProbeAdaptiveAllocation,          // adaptive screen probes per uniform one, percent (UE
+                                                // r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction)
+        ScreenProbeShortRangeAO,                // 0/1: the screen probe gather's own contact AO + bent normal (UE
+                                                // r.Lumen.ScreenProbeGather.ShortRangeAO); 0 = SSAO occludes it
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

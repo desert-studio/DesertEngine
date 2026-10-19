@@ -40,11 +40,6 @@ Shader "GlobalDistanceFieldComposite"
         // (distance cm, coverage): the coverage is UE's coverage atlas (GlobalDistanceFieldCompositeObjects.usf
         // COMPOSITE_COVERAGE_ATLAS), stored beside the distance instead of in pages of its own.
         layout(binding = 6, rg16f) restrict writeonly uniform image3D u_Clipmap;
-        // Per object of u_DFObjects: its instance-table row, or GDF_OBJECT_GRID_INVALID (no cards).
-        ReadBuffer(7) GDFObjectRows
-        {
-            uint u_ObjectRows[];
-        };
         layout(binding = 8, r32ui) restrict writeonly uniform uimage3D u_ObjectGrid;
 
         PushConstant GDFCompositePush
@@ -98,7 +93,8 @@ Shader "GlobalDistanceFieldComposite"
             for (uint i = 0u; i < count; ++i)
             {
                 const uint objectIndex = u_BrickObjects[listOffset + 1u + i];
-                const uint row         = u_ObjectRows[objectIndex];
+                const uint row = floatBitsToUint(u_DFObjects[objectIndex * uint(DF_OBJECT_STRIDE) +
+                                                             uint(DF_OBJECT_ROW_FLAGS)].y);
                 if (row == GDF_OBJECT_GRID_INVALID)
                     continue;
                 const float distance = DistanceToNearestSurfaceForObject(objectIndex, centre, maxQuery);
@@ -137,7 +133,7 @@ Shader "GlobalDistanceFieldComposite"
             {
                 const uint objectIndex = u_BrickObjects[listOffset + 1u + i];
                 const uint flags = floatBitsToUint(u_DFObjects[objectIndex * uint(DF_OBJECT_STRIDE) +
-                                                               uint(DF_OBJECT_STRIDE) - 1u].x);
+                                                               uint(DF_OBJECT_ROW_FLAGS)].x);
                 const bool foliage = (flags & uint(DF_OBJECT_FLAG_MOSTLY_TWO_SIDED)) != 0u;
                 const float d = DistanceToNearestSurfaceForObject(objectIndex, world, foliage ? minDistance : minSolid);
                 minDistance = min(minDistance, d);

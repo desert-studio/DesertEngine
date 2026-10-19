@@ -3,14 +3,14 @@
 
 // THE PERMUTATION'S TRACER — the one include a GI consumer names for the walk (Common/GITracing.glslh is the
 // contract; GlobalIllumination::TracerVariant picks the define, DeclareTracerReads binds what is declared here).
-// The tracer declares its own resources at descriptor bindings GI_TRACER_BINDING .. GI_TRACER_BINDING + 5, which
+// The tracer declares its own resources at descriptor bindings GI_TRACER_BINDING .. GI_TRACER_BINDING + 10, which
 // the includer reserves and defines before including this file, after the GI frame record `giFrame`
 // (Common/GIFrame.glslh).
 
 #include <Common/GITracing.glslh>
 
 #ifndef GI_TRACER_BINDING
-#error "GITracer.glslh: define GI_TRACER_BINDING (the first of the tracer's six descriptor bindings)"
+#error "GITracer.glslh: define GI_TRACER_BINDING (the first of the tracer's eleven descriptor bindings)"
 #endif
 
 #if defined( DESERT_GI_TRACER_SOFTWARE )
@@ -18,15 +18,38 @@ layout( binding = GI_TRACER_BINDING + 0 ) uniform sampler3D u_GlobalDistanceFiel
 layout( binding = GI_TRACER_BINDING + 1 ) uniform sampler3D u_GlobalDistanceField1;
 layout( binding = GI_TRACER_BINDING + 2 ) uniform sampler3D u_GlobalDistanceField2;
 layout( binding = GI_TRACER_BINDING + 3 ) uniform sampler3D u_GlobalDistanceField3;
-// The clipmaps' placement (centre.xyz cm, voxel cm; DistanceField::GlobalDistanceField::FrameField::Levels): the
-// software walk's own record, not the neutral GI frame's (GlobalIllumination::TracerFrame).
+// The clipmaps' placement (centre.xyz cm, voxel cm; DistanceField::GlobalDistanceField::FrameField::Levels) and
+// the near field's froxel grid (Common/MeshSDFGrid.glslh): the software walk's own record, not the neutral GI
+// frame's (GlobalIllumination::TracerSoftwarePayload).
+#include <Common/MeshSDFGrid.glslh>
 layout( std430, binding = GI_TRACER_BINDING + 4 ) readonly buffer GITracerSoftwareUB
 {
-    vec4 giTracerGdfLevels[4];
+    vec4        giTracerGdfLevels[4];
+    MeshSDFGrid giTracerMeshSDFGrid;
 };
+// The mesh fields the near field traces (DistanceField::MeshDistanceFieldReads; Common/MeshDistanceField.glslh's
+// inputs) and the froxel grid's cells: MeshSDFGridCellStride uints per cell, its count then its object indices.
+layout( std430, binding = GI_TRACER_BINDING + 5 ) readonly buffer GITracerDFAssetsUB
+{
+    vec4 u_DFAssetData[];
+};
+layout( std430, binding = GI_TRACER_BINDING + 6 ) readonly buffer GITracerDFIndirectionUB
+{
+    uint u_DFIndirection[];
+};
+layout( std430, binding = GI_TRACER_BINDING + 7 ) readonly buffer GITracerDFObjectsUB
+{
+    vec4 u_DFObjects[];
+};
+layout( binding = GI_TRACER_BINDING + 8 ) uniform sampler3D u_DFBrickAtlas;
+layout( std430, binding = GI_TRACER_BINDING + 9 ) readonly buffer GITracerMeshSDFGridCellsUB
+{
+    uint giTracerMeshSDFGridCells[];
+};
+#include <Common/MeshDistanceField.glslh>
 // The field's object grid: per cell, the instance-table rows a hit there may belong to (GIHitInstanceRows;
 // DistanceField::GlobalDistanceField, THE OBJECT GRID).
-layout( binding = GI_TRACER_BINDING + 5 ) uniform usampler3D u_GlobalDistanceFieldObjectGrid;
+layout( binding = GI_TRACER_BINDING + 10 ) uniform usampler3D u_GlobalDistanceFieldObjectGrid;
 #include <Common/GlobalDistanceField.glslh>
 #define GI_TRACE_GDF_LEVELS giTracerGdfLevels
 #include <Common/GITraceDistanceField.glslh>

@@ -267,7 +267,7 @@ namespace Desert::Graphic
         constexpr float kSSAORadius = Common::Units::Metres( 0.5f );   // literature: 0.5 m
         constexpr float kSSAOBias   = Common::Units::Metres( 0.025f ); // literature: 0.025 m
 
-        if ( !m_EnableSSAO )
+        if ( !m_EnableSSAO || ScreenProbeAOReplacesSSAO() )
             return;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* ssao = UNIQUE_GET_AS( System::SSAORenderer, m_RenderSystems["SSAOSystem"] );
@@ -373,6 +373,11 @@ namespace Desert::Graphic
             lighting.SkyGain      = look.Gain;
         }
         m_FrameReflectionCaptures->AddCaptureUpdate( graph, textures, lighting );
+    }
+
+    bool SceneRenderer::ScreenProbeAOReplacesSSAO() const
+    {
+        return RadianceCacheRuns() && m_GIPipeline.ScreenProbes && m_ScreenProbeShortRangeAO;
     }
 
     void SceneRenderer::AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
@@ -519,6 +524,8 @@ namespace Desert::Graphic
         gather.GIFrame            = inputs.GIFrame;
         gather.RadianceCache      = cache.GetValue();
         gather.Extent             = inputs.Extent;
+        gather.AdaptiveProbePercent = m_ScreenProbeAdaptivePercent;
+        gather.ShortRangeAO         = m_ScreenProbeShortRangeAO;
         gather.PrevViewProjection = frame.PrevViewProjection;
         gather.PrevCameraPosition = frame.PrevCameraPosition;
         // The screen leg (UE ScreenProbeTraceScreenTextures): the view's HZB and scene colour history, or the
@@ -528,17 +535,6 @@ namespace Desert::Graphic
              screenTrace.SceneHistory.IsValid() ? screenTrace.SceneHistory : refs.System.Black;
         gather.SceneColorHistoryReadable =
              screenTrace.HZB.IsValid() && screenTrace.SceneHistory.IsValid() && screenTrace.SceneHistoryReadable;
-        // The mesh SDF leg (UE ScreenProbeTraceMeshSDFs over LumenMeshSDFCulling's list): the software tracer's.
-        if ( GlobalIllumination::TracerReadsGlobalDistanceField( m_GIPipeline ) )
-        {
-            const auto meshSDFs = AddFrameMeshSDFReads( graph, textures, frame );
-            if ( !meshSDFs )
-            {
-                LOG_ERROR( "[SceneRenderer] ScreenProbes: {}", meshSDFs.GetError() );
-                return;
-            }
-            gather.MeshSDFs = meshSDFs.GetValue();
-        }
         const auto gathered = m_ScreenProbeGather->AddPasses( graph, import, gather );
         if ( !gathered )
         {
@@ -548,6 +544,7 @@ namespace Desert::Graphic
         t.GIDiffuse  = gathered.GetValue().Diffuse;
         t.GISpecular = gathered.GetValue().Specular;
         t.GIBackface = gathered.GetValue().Backface;
+        t.GIOccluded = gathered.GetValue().ShortRangeAO;
     }
 
     bool SceneRenderer::WorldLightGridRead() const
@@ -672,12 +669,15 @@ namespace Desert::Graphic
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
         // The composite's GI branch (DeferredLighting.shader u_Params.w): 0 none, 1 the screen-space gather inside
-        // this pass, 2 the traced final gather's diffuse and specular in place of the sky's.
-        // Spelled here, not cast from the enum, whose numbering is the method ladder's
-        // (Common/Settings/RenderMethods.hpp).
+        // this pass, 2 the traced final gather's diffuse and specular in place of the sky's (SSAO occludes it), 3
+        // the same gather occluded by its own short-range AO (the material AO alone left to apply). Spelled here,
+        // not cast from the enum, whose numbering is the method ladder's (Common/Settings/RenderMethods.hpp).
         using Common::Scalability::GIMethod;
         const GIMethod gi            = m_RenderMethods.GlobalIllumination.Effective;
-        const int      compositeGI   = gi == GIMethod::ScreenSpace ? 1 : traced ? 2 : 0;
+        const int      compositeGI   = gi == GIMethod::ScreenSpace            ? 1
+                                       : traced && refs.Transients.GIOccluded ? 3
+                                       : traced                               ? 2
+                                                                              : 0;
         const float    giIntensity   = ( gi == GIMethod::ScreenSpace ) ? m_GIIntensity : 0.0f;
 
         auto* const deferred =
@@ -789,9 +789,25 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", field.GetError() );
             return;
         }
-        textures.Transients.GlobalDistanceField       = field.GetValue().Clipmaps;
-        textures.Transients.GlobalDistanceFieldLevels = field.GetValue().Levels;
-        textures.Transients.GlobalDistanceFieldObjectGrid = field.GetValue().ObjectGrid;
+        DistanceField::GlobalDistanceField::FrameField fieldFrame = field.GetValue();
+        // The near field's froxel grid over this view (the GI tracer's first metres).
+        const DistanceField::GlobalDistanceField::NearFieldView nearView{
+             .ViewProjection    = frame.ViewProjection,
+             .InvViewProjection = frame.InvViewProjection,
+             .Projection        = frame.Projection,
+             .CameraPosition    = frame.CameraPosition,
+             .Forward           = -glm::normalize( glm::vec3( frame.InvView[2] ) ),
+             .Extent            = glm::uvec2( frame.Split.Render.Width, frame.Split.Render.Height ) };
+        if ( const auto culled = m_GlobalDistanceField->AddNearFieldCullPasses( graph, fieldFrame, nearView );
+             !culled )
+        {
+            LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", culled.GetError() );
+            return;
+        }
+        textures.Transients.GlobalDistanceField           = fieldFrame.Clipmaps;
+        textures.Transients.GlobalDistanceFieldLevels     = fieldFrame.Levels;
+        textures.Transients.MeshDistanceFields            = fieldFrame.MeshFields;
+        textures.Transients.GlobalDistanceFieldObjectGrid = fieldFrame.ObjectGrid;
     }
 
 #if DESERT_DEV_INSTRUMENTS
@@ -1005,28 +1021,6 @@ namespace Desert::Graphic
         return record;
     }
 
-    Common::ResultStr<DistanceField::GlobalDistanceField::MeshSDFScene>
-    SceneRenderer::AddFrameMeshSDFReads( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
-    {
-        if ( m_TracedFrameShared.MeshSDFs )
-            return Common::MakeSuccess(
-                 DistanceField::GlobalDistanceField::MeshSDFScene( *m_TracedFrameShared.MeshSDFs ) );
-        if ( !m_GlobalDistanceField )
-            return Common::MakeError<DistanceField::GlobalDistanceField::MeshSDFScene>(
-                 "the mesh SDFs: the view has no global distance field" );
-        DistanceField::GlobalDistanceField::MeshSDFCull cull;
-        cull.View                  = Core::Frustum( frame.Projection, frame.View );
-        cull.Camera                = frame.CameraPosition;
-        cull.TraceDistance         = GlobalIllumination::ScreenProbeLayout::kMeshSDFTraceDistance;
-        cull.EndDistanceFromCamera = GlobalIllumination::ScreenProbeLayout::kMeshSDFEndDistanceFromCamera;
-        const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
-        { return textures.Import( image, name ); };
-        auto meshSDFs = m_GlobalDistanceField->AddMeshSDFReads( graph, import, cull );
-        if ( meshSDFs )
-            m_TracedFrameShared.MeshSDFs = meshSDFs.GetValue();
-        return meshSDFs;
-    }
-
     bool SceneRenderer::ReflectionsTraced() const
     {
         return m_RenderPath == Core::RenderPath::Deferred && m_ViewProfile.ScreenSpaceReflections &&
@@ -1067,16 +1061,6 @@ namespace Desert::Graphic
                       GlobalIllumination::SurfaceCacheFrameMissing( reads.SurfaceCache );
                  !missing.empty() )
                 return refuse( missing );
-        }
-        if ( GlobalIllumination::TracerReadsGlobalDistanceField( tracer ) )
-        {
-            auto meshSDFs = AddFrameMeshSDFReads( graph, textures, frame );
-            if ( !meshSDFs )
-                return refuse( meshSDFs.GetError() );
-            reads.MeshSDFs             = meshSDFs.GetValue();
-            reads.MeshSDFTraceDistance = GlobalIllumination::ScreenProbeLayout::kMeshSDFTraceDistance;
-            reads.MeshSDFEndDistanceFromCamera =
-                 GlobalIllumination::ScreenProbeLayout::kMeshSDFEndDistanceFromCamera;
         }
 
         const FrameGraphRefs refs = textures.GraphRefs();
@@ -1173,12 +1157,7 @@ namespace Desert::Graphic
         std::optional<System::SSRRenderer::TracedReads> traced;
         if ( ReflectionsTraced() )
             traced = MakeTracedReflectionReads( graph, textures, ssr, gbuffer, frame );
-        if ( traced )
-        {
-            settings.Traced                       = true;
-            settings.MeshSDFTraceDistance         = traced->MeshSDFTraceDistance;
-            settings.MeshSDFEndDistanceFromCamera = traced->MeshSDFEndDistanceFromCamera;
-        }
+        settings.Traced = traced.has_value();
         graph.AddPass(
              traced ? "Deferred: Reflections (SoftwareTraced)" : "Deferred: SSR", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )

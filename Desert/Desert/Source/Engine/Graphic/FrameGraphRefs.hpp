@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -109,6 +110,9 @@ namespace Desert::Graphic
         std::array<RDG::TextureRef, 4> GlobalDistanceField;
         std::array<glm::vec4, 4>       GlobalDistanceFieldLevels{};
         RDG::TextureRef                GlobalDistanceFieldObjectGrid; // its object grid (GlobalDistanceField.hpp)
+        // The mesh fields it is composited from and the near-field object grid (the same update) -> the GI
+        // tracer's near field
+        DistanceField::MeshDistanceFieldReads MeshDistanceFields;
         // The traced GI's final gather of this frame (SceneRenderer::AddFrameTracedGI: the world radiance cache's
         // update, then GlobalIllumination::ScreenProbeGather under SoftwareTraced / HardwareTraced or
         // GlobalIllumination::IrradianceFieldGather under ProbeVolume): per pixel, the diffuse irradiance and the
@@ -127,6 +131,10 @@ namespace Desert::Graphic
         RDG::BufferRef  RadianceCacheProbes;
         RDG::TextureRef RadianceCacheIrradiance;
         RDG::TextureRef RadianceCacheDepth;
+        // The gather above already carries its own contact occlusion (the screen probes' short-range AO): the
+        // composite then applies only the material AO to it, never SSAO on top (UE r.Lumen.DiffuseIndirect.SSAO
+        // 0).
+        bool GIOccluded = false;
     };
 
     // RDG-A2 (owner decision 2, 2026-10-05). What EVERY node of the frame graph is handed, whatever registered

@@ -243,7 +243,8 @@ namespace Desert::Graphic::System
         // material whose route fill the setup validates is filled before the validation reads it, never in the
         // exec). lightDir.xyz = the direction the sun travels; lightColor.rgb/.a = colour/intensity; cameraPos.xyz
         // = camera world position; debugMode selects a raw channel (0 = lit); giMode picks the indirect-light
-        // source (0 = off, 1 = screen-space, 2 = RSM).
+        // source (0 = off, 1 = screen-space, 2 = the traced final gather under SSAO, 3 = the traced final gather
+        // occluded by its own short-range AO).
         void FillMaterial( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
                            const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
                            uint32_t spotCount, const DeferredShadowInput& shadow, float giIntensity,

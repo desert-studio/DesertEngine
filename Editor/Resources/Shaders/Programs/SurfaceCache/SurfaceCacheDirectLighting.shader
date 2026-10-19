@@ -141,8 +141,8 @@ Shader "SurfaceCacheDirectLighting"
 
         #include <Common/SubsurfaceDensity.glslh> // ContactShadowSubsurfaceDensity
 
-        // The active GI tracer's reads (GlobalIllumination::DeclareTracerReads), bindings 21..26.
-        #define GI_TRACER_BINDING 21
+        // The active GI tracer's reads (GlobalIllumination::DeclareTracerReads), bindings 29..39.
+        #define GI_TRACER_BINDING 29
         #include <Common/GITracer.glslh>
 
         PushConstant SurfaceDirectLightingPush
@@ -154,14 +154,16 @@ Shader "SurfaceCacheDirectLighting"
 
         // The shadow of a light in direction @p L (unit, toward the light) at most @p maxT away, by a visibility ray
         // of the active tracer: 0 when the ray meets a surface, 1 otherwise. The ray leaves the texel by the
-        // tracer's own offset (GIRayBias: the software walk's voxel, UE's surface bias for the global SDF shadow ray)
-        // and stops that far short of a local light (its own fixture).
+        // tracer's own offsets (GIRayBias: the near field's few cm, the global field's voxel before it counts - UE's
+        // mesh-SDF and global-SDF surface biases for the shadow ray) and stops the near offset short of a local
+        // light twice over (its own fixture).
         float TracedShadow(vec3 worldPos, vec3 N, vec3 L, float maxT)
         {
-            const float offset = GIRayBias(worldPos, N, L).normalOffset;
+            const GITraceBias bias = GIRayBias(worldPos, N, L);
+            const float offset = bias.nearOffset;
             if (maxT <= 2.0 * offset)
                 return 1.0;
-            return GITraceVisibility(worldPos + N * offset, L, maxT - 2.0 * offset);
+            return GITraceVisibility(worldPos + N * offset, L, GIFarFieldTMin(bias, N, L), maxT - 2.0 * offset);
         }
 
         // A point/spot light's shadow at the texel: its local shadow view when it has one, the distance field when

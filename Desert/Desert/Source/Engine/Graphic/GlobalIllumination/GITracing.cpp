@@ -18,6 +18,8 @@ namespace Desert::Graphic::GlobalIllumination
                     return "the global distance field's clipmap placement was not uploaded";
                 if ( !frame.GlobalDistanceFieldObjectGrid.IsValid() )
                     return "the global distance field's object grid was not brought up";
+                if ( !frame.MeshDistanceFields.IsValid() )
+                    return "the mesh distance fields and their near-field grid were not brought up";
                 return {};
             case Tracer::HardwareRayQuery:
                 return "the ray-query tracer is not in this build (GI-HWRT)";
@@ -34,8 +36,16 @@ namespace Desert::Graphic::GlobalIllumination
                     block.Sampled( std::format( "u_GlobalDistanceField{}", level ),
                                    frame.GlobalDistanceField[level], sampled, RDG::SubresourceRange::All(),
                                    RDG::SamplerDesc::LinearRepeat() );
-                block.Storage( "GITracerSoftwareUB", frame.GlobalDistanceFieldLevels, RDG::Access::StorageRead );
-                block.Sampled( "u_GlobalDistanceFieldObjectGrid", frame.GlobalDistanceFieldObjectGrid, sampled,
+                block.Storage( "GITracerSoftwareUB", frame.GlobalDistanceFieldLevels, RDG::Access::StorageRead )
+                     .Storage( "GITracerDFAssetsUB", frame.MeshDistanceFields.Assets, RDG::Access::StorageRead )
+                     .Storage( "GITracerDFIndirectionUB", frame.MeshDistanceFields.Indirection,
+                               RDG::Access::StorageRead )
+                     .Storage( "GITracerDFObjectsUB", frame.MeshDistanceFields.Objects, RDG::Access::StorageRead )
+                     .Storage( "GITracerMeshSDFGridCellsUB", frame.MeshDistanceFields.NearFieldGrid,
+                               RDG::Access::StorageRead )
+                     .Sampled( "u_DFBrickAtlas", frame.MeshDistanceFields.BrickAtlas, sampled,
+                               RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
+                     .Sampled( "u_GlobalDistanceFieldObjectGrid", frame.GlobalDistanceFieldObjectGrid, sampled,
                                RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
                 return;
             case Tracer::HardwareRayQuery:

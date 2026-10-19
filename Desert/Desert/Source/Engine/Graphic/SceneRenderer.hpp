@@ -614,14 +614,12 @@ namespace Desert::Graphic
         };
         std::optional<SurfaceCacheFrameRecord> m_SurfaceCacheFrame;
         // The traced GI's records of this frame that the traced reflections read too: the GI frame record and the
-        // radiance cache's read (AddFrameTracedGI, when the GI traces) and the view-culled mesh SDFs
-        // (AddFrameMeshSDFReads, made once by whichever reader comes first). Reset by AddFrameTracedGI every
-        // frame.
+        // radiance cache's read (AddFrameTracedGI, when the GI traces). The mesh SDF near field is the tracer's
+        // own (TracerFrame::MeshDistanceFields, the view's froxel grid). Reset by AddFrameTracedGI every frame.
         struct TracedFrameShared
         {
-            RDG::BufferRef                                                  GIFrame;
-            std::optional<GlobalIllumination::RadianceCacheFrame>           RadianceCache;
-            std::optional<DistanceField::GlobalDistanceField::MeshSDFScene> MeshSDFs;
+            RDG::BufferRef                                        GIFrame;
+            std::optional<GlobalIllumination::RadianceCacheFrame> RadianceCache;
         };
         TracedFrameShared m_TracedFrameShared;
         // The view's irradiance field gather (GIMethod::ProbeVolume: the radiance cache read per pixel, no screen
@@ -853,6 +851,9 @@ namespace Desert::Graphic
         // Whether this frame updates and reads the world radiance cache: the GI pipeline (m_GIPipeline) runs it —
         // either tracer — on the Deferred path (its reader is the deferred composite).
         [[nodiscard]] bool RadianceCacheRuns() const;
+        // The screen probe gather runs this frame with its short-range AO: its contact occlusion replaces SSAO,
+        // which is then not computed at all (UE: SSAO is off under Lumen, r.Lumen.DiffuseIndirect.SSAO 0).
+        [[nodiscard]] bool ScreenProbeAOReplacesSSAO() const;
         // Whether a node of this frame reads the global distance field: the GI tracer when it is the software walk
         // (GlobalIllumination::TracerReadsGlobalDistanceField), the debug view.
         [[nodiscard]] bool GlobalDistanceFieldRead() const;
@@ -867,10 +868,6 @@ namespace Desert::Graphic
         [[nodiscard]] RDG::BufferRef AddFrameGIRecord( RDG::Builder& graph, const ViewFrame& frame,
                                                        const glm::vec4& lightDir, const glm::vec4& lightColor,
                                                        glm::uvec2 extent );
-        // The mesh SDF near field's reads of this frame (UE LumenMeshSDFCulling over the view, the screen probes'
-        // distances), made by the first reader and kept in m_TracedFrameShared for the next.
-        [[nodiscard]] Common::ResultStr<DistanceField::GlobalDistanceField::MeshSDFScene>
-        AddFrameMeshSDFReads( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         // The traced permutation's reads of SSR (System::SSRRenderer::TracedReads) for this frame; nullopt
         // (logged): a read is missing and the frame reflects the screen alone.
         [[nodiscard]] std::optional<System::SSRRenderer::TracedReads>
@@ -1069,6 +1066,15 @@ namespace Desert::Graphic
         // global distance field's atlas holds and its finer mips stream within.
         uint32_t m_DistanceFieldPoolMiB = 256;
         int m_SSAOSamples = 16;
+        // Adaptive screen probes per uniform one, percent (Scalability GlobalIllumination.
+        // AdaptiveProbeAllocationPercent, UE r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction), refreshed
+        // each BeginScene and handed to the screen probe gather's layout.
+        uint32_t m_ScreenProbeAdaptivePercent = 50;
+        // The screen probe gather's short-range AO (Scalability GlobalIllumination.ShortRangeAO, UE
+        // r.Lumen.ScreenProbeGather.ShortRangeAO), refreshed each BeginScene. On, the gather occludes its own
+        // diffuse and rough specular and the composite applies no SSAO to it; off, SSAO does — one AO source
+        // either way.
+        bool m_ScreenProbeShortRangeAO = true;
         // Contact-shadow ray steps (Scalability: Shadows.ContactShadowSteps; 0 = the march is skipped for every
         // light) and the sun's contact shadow (ViewShadowSettings, from the elected sun), taken each BeginScene
         // and handed to the deferred composite (Common/ContactShadow.glslh).

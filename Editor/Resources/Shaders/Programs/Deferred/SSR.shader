@@ -29,10 +29,10 @@ Shader "SSR"
     // TraceReflections: screen, then mesh SDFs, then the global field; LumenReflections.cpp's MaxRoughnessToTrace)
     // over the SAME tracer the GI's screen probes walk - no second tracer. A ray the screen does not answer (it left
     // the screen, went behind the depth buffer's first layer, met the sky or a texel last frame did not see - UE's
-    // vignette dither decides at the edge) continues from where the screen was certain: the mesh SDFs of the objects
-    // near this tile out to the near field's distance (Common/GITraceMeshSDF.glslh, the tile's own list in shared
-    // memory, nearest first, as ScreenProbeTrace.shader per probe), then the global field (Common/GITracer.glslh)
-    // to the trace distance - ONE such world ray per texel, drawn among the rays the screen left in proportion to
+    // vignette dither decides at the edge) continues from where the screen was certain through the GI ray contract
+    // (Common/GITracer.glslh: for the software tracer the mesh SDFs of the view's near-field froxel grid, UE
+    // LumenMeshSDFCulling, then the global field) to the trace distance - ONE such world ray per texel, drawn among
+    // the rays the screen left in proportion to
     // their weight, answering for all of them (UE: one traced ray per texel); a hit returns its surface cache
     // cards' lighting, or is lit in place where no card
     // holds it (GIHitRadiance). A ray that meets nothing is NOT answered: the captures, then the sky, answer it in
@@ -112,12 +112,8 @@ Shader "SSR"
         #include <Common/RadianceCache.glslh>
         #define GI_TRACER_BINDING 23
         #include <Common/GITracer.glslh>
-        #define GI_SURFACE_CACHE_BINDING 29
+        #define GI_SURFACE_CACHE_BINDING 34
         #include <Common/GIHitLighting.glslh>
-        #if defined( DESERT_GI_TRACER_SOFTWARE )
-        #define GI_MESH_SDF_BINDING 36
-        #include <Common/GITraceMeshSDF.glslh>
-        #endif
 
         // UE r.Lumen.Reflections.MaxRoughnessToTrace (0.4) and its fade (r.Lumen.Reflections.RoughnessFadeLength,
         // 0.1): a texel this rough or less sends its rays past the screen; rougher, the screen alone (as ScreenSpace).
@@ -125,91 +121,26 @@ Shader "SSR"
         const float kTracedRoughnessFade = 0.1;
         // How far a ray looks before it is a miss, cm (UE r.Lumen.MaxTraceDistance; the screen probes' own).
         const float kTracedMaxDistance = 20000.0;
-        // cm the near field's origin leaves the surface along the normal and the ray (UE's mesh SDF SurfaceBias;
-        // ScreenProbeTrace.shader's).
-        const float kMeshSDFBias = 5.0;
-        // The near field's objects a tile keeps.
-        #define SSR_MESH_SDF_MAX_OBJECTS 64u
+        // cm a world leg starts before the point up to which the screen was certain (twice UE's mesh SDF
+        // SurfaceBias, 5 cm): the world's surface stands off the depth buffer's by its own precision.
+        const float kWorldStartBackoff = 10.0;
 
-        shared uint s_TileBoxMin[3]; // the tile's traced surfaces' world box, as order-preserving uints
-        shared uint s_TileBoxMax[3];
-        shared uint s_MeshSDFCount;
-        shared uint s_MeshSDFObjects[SSR_MESH_SDF_MAX_OBJECTS];
-        shared vec4 s_MeshSDFBoxMin[SSR_MESH_SDF_MAX_OBJECTS]; // world box, w = its distance from the tile's box (cm)
-        shared vec3 s_MeshSDFBoxMax[SSR_MESH_SDF_MAX_OBJECTS];
-        shared uint s_MeshSDFOrder[SSR_MESH_SDF_MAX_OBJECTS];  // the slots nearest the tile first
-
-        // A float as a uint whose unsigned order is the float's (atomicMin / atomicMax over shared floats).
-        uint OrderedFromFloat(float f)
-        {
-        	const uint u = floatBitsToUint(f);
-        	return (u & 0x80000000u) != 0u ? ~u : (u | 0x80000000u);
-        }
-        float FloatFromOrdered(uint u)
-        {
-        	return uintBitsToFloat((u & 0x80000000u) != 0u ? (u & 0x7FFFFFFFu) : ~u);
-        }
-
-        // The segment [tMin, tMax] of the ray against a world box: false when it misses.
-        bool RayHitsBox(vec3 origin, vec3 invDir, float tMin, float tMax, vec3 boxMin, vec3 boxMax)
-        {
-        	const vec3  a    = (boxMin - origin) * invDir;
-        	const vec3  b    = (boxMax - origin) * invDir;
-        	const vec3  lo   = min(a, b);
-        	const vec3  hi   = max(a, b);
-        	const float near = max(max(lo.x, lo.y), max(lo.z, tMin));
-        	const float far  = min(min(hi.x, hi.y), min(hi.z, tMax));
-        	return near <= far;
-        }
-
-        // The world legs of one ray from the surface @p worldPos (normal @p N) along @p L, starting @p start cm along
-        // it (where the screen was certain): the tile's mesh SDFs out to @p nearEnd cm (when @p nearField),
-        // then the tracer to kTracedMaxDistance. True on a hit: @p radiance = GIHitRadiance, @p hitPoint its position.
-        bool TraceWorld(vec3 worldPos, vec3 N, vec3 L, float start, bool nearField, float nearEnd, out vec3 radiance,
-                        out vec3 hitPoint)
+        // The world leg of one ray from the surface @p worldPos (normal @p N) along @p L, starting @p start cm along
+        // it (where the screen was certain): the tracer to kTracedMaxDistance. True on a hit: @p radiance =
+        // GIHitRadiance, @p hitPoint its position.
+        bool TraceWorld(vec3 worldPos, vec3 N, vec3 L, float start, out vec3 radiance, out vec3 hitPoint)
         {
         	radiance = vec3(0.0);
         	hitPoint = worldPos;
+        	const GITraceBias bias = GIRayBias(worldPos, N, L);
         	GITraceInput ray;
-        	ray.origin    = worldPos + N * GIRayBias(worldPos, N, L).normalOffset;
-        	ray.tMin      = 0.0;
+        	ray.origin    = worldPos + N * bias.nearOffset;
+        	ray.farTMin   = GIFarFieldTMin(bias, N, L);
         	ray.direction = L;
         	ray.tMax      = kTracedMaxDistance;
         	ray.coneAngle = 0.0;
         	ray.flags     = 0u;
-        #if defined( DESERT_GI_TRACER_SOFTWARE )
-        	if (nearField)
-        	{
-        		const vec3  nearOrigin = worldPos + (N + L) * kMeshSDFBias;
-        		if (start < nearEnd)
-        		{
-        			GIMeshSDFTrace near;
-        			near.hitDistance = nearEnd;
-        			near.hitObject   = 0u;
-        			const uint objects = min(s_MeshSDFCount, SSR_MESH_SDF_MAX_OBJECTS);
-        			const vec3 invDir  = vec3(L.x != 0.0 ? 1.0 / L.x : 3.4e38, L.y != 0.0 ? 1.0 / L.y : 3.4e38,
-        			                          L.z != 0.0 ? 1.0 / L.z : 3.4e38);
-        			for (uint k = 0u; k < objects; ++k)
-        			{
-        				const uint slot = s_MeshSDFOrder[k];
-        				if (!RayHitsBox(nearOrigin, invDir, start, near.hitDistance, s_MeshSDFBoxMin[slot].xyz,
-        				                s_MeshSDFBoxMax[slot]))
-        					continue;
-        				GITraceMeshSDFObject(nearOrigin, L, start, nearEnd, s_MeshSDFObjects[slot], near);
-        			}
-        			if (near.hitDistance < nearEnd)
-        			{
-        				const GIHit hit = GIMeshSDFHit(nearOrigin, L, 0.0, near);
-        				radiance        = GIHitRadiance(hit, L);
-        				hitPoint        = hit.position;
-        				return true;
-        			}
-        		}
-        		ray.origin = nearOrigin;
-        		start      = max(start, nearEnd);
-        	}
-        #endif
-        	ray.tMin = min(start, ray.tMax);
+        	ray.tMin      = min(start, ray.tMax);
         	const GITraceResult far = GITraceRay(ray);
         	if (!far.hit)
         		return false;
@@ -357,8 +288,7 @@ Shader "SSR"
         // when nothing hit, a point kMissDistance along the weighted mean direction of all rays - the environment
         // the next source answers is at infinity), w = the log2 pdf of drawing the direction to it from here.
         // A texel with no ray: pdf 0 (log -126), which the reconstruction reads as "nothing to reuse".
-        // @p nearField (traced only): the texel's rays may march the tile's mesh SDFs.
-        vec4 TraceFrom(ivec2 gPix, ivec2 gSize, bool nearField, out vec4 ray)
+        vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
         {
         	ray = vec4(0.0, 0.0, 0.0, -126.0);
         	// Whether the screen holds last frame to return at a hit. Without it the screen-only trace answers
@@ -457,7 +387,7 @@ Shader "SSR"
         				{
         					const vec3 exitWorld = ReconstructWorldPosition(clamp(walk.Position.xy, 0.0, 1.0),
         					                                                walk.Position.z, u_InvJitteredViewProjection);
-        					start = max(distance(origin, exitWorld) - 2.0 * kMeshSDFBias, 0.0);
+        					start = max(distance(origin, exitWorld) - kWorldStartBackoff, 0.0);
         				}
         #endif
         			}
@@ -480,7 +410,7 @@ Shader "SSR"
         						L_i = textureLod(u_SceneColor, prevUV, 0.0).rgb;
         #if defined( DESERT_REFLECTIONS_TRACED )
         					// The depth there was certain: a world leg starts just before the surface the screen found.
-        					start = max(distance(origin, surface) - 2.0 * kMeshSDFBias, 0.0);
+        					start = max(distance(origin, surface) - kWorldStartBackoff, 0.0);
         #endif
         				}
         			}
@@ -516,7 +446,7 @@ Shader "SSR"
         	{
         		vec3 L_i;
         		vec3 surface;
-        		if (TraceWorld(worldPos, N, worldL, worldStart, nearField, u_SSRParams2.z, L_i, surface))
+        		if (TraceWorld(worldPos, N, worldL, worldStart, L_i, surface))
         		{
         			const float karis = 1.0 / (1.0 + dot(L_i, vec3(0.2126, 0.7152, 0.0722)));
         			radiance  += L_i * (worldWeight * karis);
@@ -548,14 +478,6 @@ Shader "SSR"
         	if (gl_LocalInvocationIndex == 0u)
         	{
         		s_TileReflects = 0u;
-        #if defined( DESERT_REFLECTIONS_TRACED )
-        		s_MeshSDFCount = 0u;
-        		for (int a = 0; a < 3; ++a)
-        		{
-        			s_TileBoxMin[a] = 0xFFFFFFFFu;
-        			s_TileBoxMax[a] = 0u;
-        		}
-        #endif
         	}
         	barrier();
 
@@ -594,76 +516,10 @@ Shader "SSR"
         	ivec2 src       = min(q * 2 + ivec2(frame & 1, (frame >> 1) & 1), full - 1);
         	const bool owns = q.x < traceSize.x && q.y < traceSize.y && ivec2(floor((vec2(src) + 0.5) / scale)) == tile;
 
-        	bool nearField = false;
-        #if defined( DESERT_REFLECTIONS_TRACED ) && defined( DESERT_GI_TRACER_SOFTWARE )
-        	// --- THE TILE'S MESH SDF OBJECTS (UE CullMeshSDFObjectsToGrid, per tile here as per probe in
-        	// ScreenProbeTrace.shader): the view-culled objects whose box lies within the near field's reach of the
-        	// world box of the tile's traced surfaces that send rays past the screen, nearest first. ---
-        	if (owns && tileReflects)
-        	{
-        		const vec4 gb = texelFetch(u_GBufferNormal, src, 0);
-        		const vec3 P  = ReconstructWorldPosition((vec2(src) + 0.5) / vec2(full), texelFetch(u_GBufferDepth, src, 0).r,
-        		                                         u_InvJitteredViewProjection);
-        		nearField = SSRPixelCanReflect(gb) && gb.a < kTracedMaxRoughness &&
-        		            distance(P, u_CameraPos.xyz) <= u_SSRParams2.w;
-        		if (nearField)
-        			for (int a = 0; a < 3; ++a)
-        			{
-        				atomicMin(s_TileBoxMin[a], OrderedFromFloat(P[a]));
-        				atomicMax(s_TileBoxMax[a], OrderedFromFloat(P[a]));
-        			}
-        	}
-        	barrier();
-        	const bool tileNear = s_TileBoxMin[0] <= s_TileBoxMax[0];
-        	if (tileNear)
-        	{
-        		const vec3  tileMin = vec3(FloatFromOrdered(s_TileBoxMin[0]), FloatFromOrdered(s_TileBoxMin[1]),
-        		                           FloatFromOrdered(s_TileBoxMin[2]));
-        		const vec3  tileMax = vec3(FloatFromOrdered(s_TileBoxMax[0]), FloatFromOrdered(s_TileBoxMax[1]),
-        		                           FloatFromOrdered(s_TileBoxMax[2]));
-        		const float reach   = u_SSRParams2.z + 2.0 * kMeshSDFBias;
-        		const uint  count   = GIMeshSDFCulledCount();
-        		for (uint i = gl_LocalInvocationIndex; i < count; i += 64u)
-        		{
-        			vec3       boxMin, boxMax;
-        			const uint object = GIMeshSDFCulledObject(i, boxMin, boxMax);
-        			const vec3 gap    = max(max(boxMin - tileMax, tileMin - boxMax), vec3(0.0));
-        			if (dot(gap, gap) > reach * reach)
-        				continue;
-        			const uint slot = atomicAdd(s_MeshSDFCount, 1u);
-        			if (slot < SSR_MESH_SDF_MAX_OBJECTS)
-        			{
-        				s_MeshSDFObjects[slot] = object;
-        				s_MeshSDFBoxMin[slot]  = vec4(boxMin, length(gap));
-        				s_MeshSDFBoxMax[slot]  = boxMax;
-        			}
-        		}
-        	}
-        	barrier();
-        	// Nearest first (a rank per slot): a ray's first hit then clips the objects behind it to nothing.
-        	{
-        		const uint kept = min(s_MeshSDFCount, SSR_MESH_SDF_MAX_OBJECTS);
-        		const uint self = gl_LocalInvocationIndex;
-        		if (self < kept)
-        		{
-        			const float own  = s_MeshSDFBoxMin[self].w;
-        			uint        rank = 0u;
-        			for (uint j = 0u; j < kept; ++j)
-        			{
-        				const float other = s_MeshSDFBoxMin[j].w;
-        				rank += (other < own || (other == own && j < self)) ? 1u : 0u;
-        			}
-        			s_MeshSDFOrder[rank] = self;
-        		}
-        	}
-        	barrier();
-        	nearField = nearField && s_MeshSDFCount > 0u;
-        #endif
-
         	if (!owns)
         		return;
         	vec4 ray   = vec4(0.0, 0.0, 0.0, -126.0);
-        	vec4 trace = tileReflects ? TraceFrom(src, full, nearField, ray) : vec4(0.0);
+        	vec4 trace = tileReflects ? TraceFrom(src, full, ray) : vec4(0.0);
         	imageStore(u_Trace, q, trace);
         	imageStore(u_TraceRay, q, ray);
         }

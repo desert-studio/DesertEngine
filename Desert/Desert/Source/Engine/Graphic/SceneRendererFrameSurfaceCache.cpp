@@ -56,14 +56,17 @@ namespace Desert::Graphic
         const FrameTransients&          t = textures.Transients;
         GlobalIllumination::TracerFrame tracer{ .Pipeline                      = pipeline,
                                                 .GlobalDistanceField           = t.GlobalDistanceField,
-                                                .GlobalDistanceFieldObjectGrid = t.GlobalDistanceFieldObjectGrid };
-        // The software walk's clipmap placement is its own record ("GITracerSoftwareUB").
+                                                .GlobalDistanceFieldObjectGrid = t.GlobalDistanceFieldObjectGrid,
+                                                .MeshDistanceFields            = t.MeshDistanceFields };
+        // The software walk's clipmap and near-field grid placement is its own record ("GITracerSoftwareUB").
         if ( GlobalIllumination::TracerReadsGlobalDistanceField( pipeline ) )
         {
-            tracer.GlobalDistanceFieldLevels = graph.CreateBuffer(
-                 RDG::BufferDesc{ sizeof( t.GlobalDistanceFieldLevels ) }, "GI.Tracer.GlobalDistanceFieldLevels" );
-            graph.QueueBufferUpload( tracer.GlobalDistanceFieldLevels,
-                                     std::as_bytes( std::span( t.GlobalDistanceFieldLevels ) ) );
+            const GlobalIllumination::TracerSoftwarePayload payload{
+                 .GlobalDistanceFieldLevels = t.GlobalDistanceFieldLevels,
+                 .MeshSDFGrid               = t.MeshDistanceFields.NearFieldGridPlacement };
+            tracer.GlobalDistanceFieldLevels =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( payload ) }, "GI.Tracer.GlobalDistanceFieldLevels" );
+            graph.QueueBufferUpload( tracer.GlobalDistanceFieldLevels, std::as_bytes( std::span( &payload, 1 ) ) );
         }
         return tracer;
     }
