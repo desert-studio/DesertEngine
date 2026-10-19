@@ -10,6 +10,12 @@
 // Mesh/Surface/SurfaceParallax.glslh) as the rasterised depth plus the projected move, so the bias is kept.
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 DESERT_SURFACE_VARYINGS( in )
+#ifdef DESERT_SURFACE_PARTICLE
+// A masked <Path>.ShadowDepth particle cell (sprite, mesh, ribbon) clips by the particle's colour / time / random
+// as its G-buffer cell does.
+layout( location = 12 ) in flat vec4 v_ParticleColor;
+layout( location = 13 ) in flat vec2 v_ParticleTimeRandom;
+#endif
 #endif
 #ifdef DESERT_SURFACE_PARALLAX
 // A light view is standard-Z: the offset, away from the light, only increases the depth.
@@ -19,8 +25,13 @@ layout( depth_greater ) out float gl_FragDepth;
 void main()
 {
 #if defined( DESERT_SURFACE_MASKED ) || defined( DESERT_SURFACE_PARALLAX )
-    const SurfaceInput i = DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN,
-                                               v_Surface.UV1, v_Surface.VertexColor, gl_FrontFacing );
+    SurfaceInput i = DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN,
+                                         v_Surface.UV1, v_Surface.VertexColor, gl_FrontFacing );
+#ifdef DESERT_SURFACE_PARTICLE
+    i.Particle.Color        = v_ParticleColor;
+    i.Particle.RelativeTime = v_ParticleTimeRandom.x;
+    i.Particle.Random       = v_ParticleTimeRandom.y;
+#endif
     DESERT_SURFACE_CLIP( i );
 #endif
 #ifdef DESERT_SURFACE_PARALLAX

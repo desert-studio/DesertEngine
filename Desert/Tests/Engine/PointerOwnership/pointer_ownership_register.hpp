@@ -1018,13 +1018,26 @@ namespace Desert::Tests::PointerCensus
           "points into ParticleWorldGpu::m_FrameEmitters of the tick PrepareFrame just ran; m_ViewEmitters is "
           "cleared at the top of every PrepareFrame and by OnSceneReplaced, so no row outlives that tick" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
-          "ViewEmitter", "Sprite", Guard::OwnedByThisObject,
-          "the unique_ptr<SpriteDraw> in ParticleRenderer::m_Sprites, a node-based map that never erases while "
-          "m_ViewEmitters holds rows; a unique_ptr's pointee does not move" },
+          "ViewDraw", "Renderer", Guard::FrameScoped,
+          "points into the emitter's ParticleEmitterGpu::Renderers, rebuilt only by ParticleWorldGpu::BuildEmitter "
+          "inside PrepareTick; m_ViewDraws is cleared at the top of every PrepareFrame (after that tick) and by "
+          "OnSceneReplaced, so no row outlives the tick it was built from" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
-          "ViewEmitter", "Instance", Guard::OwnedByThisObject,
-          "EmitterMaterial::Instance (a shared_ptr) of ParticleRenderer::m_Materials; that map is cleared only by "
-          "OnSceneReplaced, which clears m_ViewEmitters first" },
+          "ViewDraw", "Cell", Guard::OwnedByThisObject,
+          "the unique_ptr<CellDraw> in ParticleRenderer::m_Cells, a node-based map that never erases while "
+          "m_ViewDraws holds rows; a unique_ptr's pointee does not move" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
+          "ViewDraw", "Instance", Guard::OwnedByThisObject,
+          "DrawMaterial::Instance (a shared_ptr) of ParticleRenderer::m_Materials; PrepareFrame retires destroyed "
+          "emitters' entries before it rebuilds m_ViewDraws, and OnSceneReplaced clears m_ViewDraws before the map" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
+          "ViewDraw", "StaticMesh", Guard::FrameScoped,
+          "MeshService::Get's resident mesh, looked up again by every PrepareFrame; m_ViewDraws is cleared at the "
+          "top of every PrepareFrame and by OnSceneReplaced" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
+          "ViewDraw", "GBufferCell", Guard::OwnedByThisObject,
+          "the unique_ptr<CellDraw> in ParticleRenderer::m_Cells (the G-buffer node's state of the row's cell), a "
+          "node-based map that never erases while m_ViewDraws holds rows; a unique_ptr's pointee does not move" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
           "ParticleRenderer", "m_World", Guard::ReboundBeforeEveryUse,
           "re-pointed by PrepareFrame to the scene's ParticleWorldGpu every frame and nulled by OnSceneReplaced; "

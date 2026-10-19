@@ -68,6 +68,19 @@ namespace Desert::Runtime
         Mesh*              Get( const Assets::AssetHandle& handle ) const;
         Assets::MeshAsset* GetAsset( const Assets::AssetHandle& handle ) const; // parsed, or nullptr (pending)
 
+        // WHY `Get` ANSWERED nullptr, asked after it did: still on its way (Pending: requested, not landed), never
+        // coming (Failed: its read or build failed, said once by the service and not retried), or no mesh at all
+        // (Unknown: no shell and no registry row). A caller that draws by handle tells "not yet" from "never" by
+        // this - the particle mesh row that would otherwise wait for ever in silence. Reads nothing.
+        enum class Residency : uint8_t
+        {
+            Resident,
+            Pending,
+            Failed,
+            Unknown,
+        };
+        [[nodiscard]] Residency GetResidency( const Assets::AssetHandle& handle ) const;
+
         /// THE SCENE-OPEN DOOR (plan §2.4(b)): request every mesh in @p handles and its rig, block until the
         /// WORKERS have read them (AsyncAssetLoader::AwaitOne, so no in-frame load is counted), and build
         /// them, so the scene's first frame is complete. Returns how many are drawable.

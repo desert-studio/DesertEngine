@@ -2,6 +2,7 @@
 
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 
 #include <format>
 #include <functional>
@@ -26,7 +27,12 @@ namespace Desert::Graphic
                "Skinned.VirtualShadowDepth" },
              { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth", nullptr,
                "Instanced.VirtualShadowDepth" },
-             { "ParticleSprite.Forward", nullptr, nullptr, nullptr, nullptr, nullptr },
+             { "ParticleSprite.Forward", "ParticleSprite.GBuffer", nullptr, "ParticleSprite.ShadowDepth", nullptr,
+               nullptr },
+             { "ParticleMesh.Forward", "ParticleMesh.GBuffer", nullptr, "ParticleMesh.ShadowDepth", nullptr,
+               nullptr },
+             { "ParticleRibbon.Forward", "ParticleRibbon.GBuffer", nullptr, "ParticleRibbon.ShadowDepth", nullptr,
+               nullptr },
         };
     } // namespace
 
@@ -140,7 +146,11 @@ namespace Desert::Graphic
             case MeshVertexPath::Instanced:
                 return 17; // InstanceTransforms
             case MeshVertexPath::ParticleSprite:
-                return 9; // Particles (the pool); the alive list at 10 is bound beside it by ParticleRenderer
+            case MeshVertexPath::ParticleMesh:
+            case MeshVertexPath::ParticleRibbon:
+                // The emitter's attribute columns, the first slot of the reserved particle-read range; the rest of
+                // the range is bound beside it by ParticleRenderer.
+                return Core::kParticleFloatsBinding;
             case MeshVertexPath::Static:
                 break; // reads its model matrix from the push constant; adds no descriptor
         }
@@ -159,6 +169,10 @@ namespace Desert::Graphic
                 return "Instanced";
             case MeshVertexPath::ParticleSprite:
                 return "ParticleSprite";
+            case MeshVertexPath::ParticleMesh:
+                return "ParticleMesh";
+            case MeshVertexPath::ParticleRibbon:
+                return "ParticleRibbon";
         }
         return "?";
     }

@@ -254,9 +254,9 @@ namespace Desert::Editor::ShaderGraph
               { { "Seconds", ValueType::Float } }, false, false, false, NOT_VOLUME },
             // ---- particles (UE's Particle Color / Particle SubUV / Particle Random / Particle Relative Time) ----
             // Each reads one field of SurfaceInput.Particle (Mesh/Surface/SurfaceTypes.glslh), which the
-            // ParticleSprite cell fills from the particle the quad was expanded from (Pass_ParticleSprite.glslh)
-            // and every mesh cell fills with neutral values. A graph using one must be UsedWithParticleSprites
-            // (ReadsParticleInputs; ValidateGraph refuses it by name otherwise).
+            // particle cells fill from the particle drawn (the ParticleSprite / ParticleMesh / ParticleRibbon
+            // vertex paths) and every mesh cell fills with neutral values. A graph using one must be used with
+            // some particles (ReadsParticleInputs; ValidateGraph refuses it by name otherwise).
             { "ParticleColor", "Particle Color", RGBA( 170, 110, 50, 255 ), {},
               { { "RGBA", ValueType::Color } }, false, false, false, SURFACE, kParticlesCategory },
             // The flipbook cell the particle is at over its life (DesertParticleSubUV): UV0 the current cell, UV1
@@ -841,7 +841,7 @@ namespace Desert::Editor::ShaderGraph
                                 ? std::format( "float {} = i.Time;", var )
                                 : std::format( "float {} = timeUB.TimeData.x;", var );
                 // The particle nodes read SurfaceInput.Particle — `i` is EvaluateSurface's argument, and only
-                // a UsedWithParticleSprites graph gets here with one (ValidateGraph).
+                // a graph used with particles gets here with one (ValidateGraph).
                 else if ( node.Kind == "ParticleColor" )
                     decl = std::format( "vec4 {} = i.Particle.Color;", var );
                 else if ( node.Kind == "ParticleRandom" )
@@ -961,13 +961,15 @@ namespace Desert::Editor::ShaderGraph
                     return std::format( "node {} is not available in the {} domain", NodeLabel( node ),
                                         DomainName( domain ) );
 
-                // UE's "material must be used with particle sprites": only the ParticleSprite cell fills
-                // SurfaceInput.Particle, so in a material without that usage the node would read the mesh
+                // UE's "material must be used with particles": only a particle path's cells fill
+                // SurfaceInput.Particle, so in a material with no particle usage the node would read the mesh
                 // cells' neutral constants — a node that silently does nothing. Refused by name instead.
-                if ( ReadsParticleInputs( node.Kind ) && !doc.UsedWithParticleSprites )
-                    return std::format( "node {} reads the particle sprite inputs, but material '{}' is not used "
-                                        "with particle sprites: tick 'Used with Particle Sprites' (Usage "
-                                        "ParticleSprites) or remove the node",
+                if ( ReadsParticleInputs( node.Kind ) && !doc.UsedWithParticleSprites &&
+                     !doc.UsedWithParticleMeshes && !doc.UsedWithParticleRibbons )
+                    return std::format( "node {} reads the particle inputs, but material '{}' is used with no "
+                                        "particle sprites, meshes or ribbons: tick 'Used with Particle Sprites', "
+                                        "'Used with Mesh Particles' or 'Used with Ribbon Particles' or remove the "
+                                        "node",
                                         NodeLabel( node ), doc.Name );
 
                 // THE BAKE/MARCH SPLIT, MADE UNEXPRESSIBLE. About half of the cloud material's values are
@@ -1508,9 +1510,14 @@ namespace Desert::Editor::ShaderGraph
         // the Unlit pass headers, which name no lighting text and declare no lighting resource.
         out << ( doc.Lit ? "    ShadingModel DefaultLit\n\n" : "    ShadingModel Unlit\n\n" );
 
-        // UE's bUsedWithParticleSprites: the parser adds the ParticleSprite.Forward cell after every mesh cell.
+        // UE's bUsedWithParticleSprites / bUsedWithMeshParticles / bUsedWithBeamTrails: the parser adds each
+        // usage's particle cells after every mesh cell.
         if ( doc.UsedWithParticleSprites )
             out << "    Usage ParticleSprites\n\n";
+        if ( doc.UsedWithParticleMeshes )
+            out << "    Usage ParticleMeshes\n\n";
+        if ( doc.UsedWithParticleRibbons )
+            out << "    Usage ParticleRibbons\n\n";
 
         if ( usesParallax )
             out << "    Height Height Channel(R) Scale(HeightScale) Center(HeightCenter)\n\n";

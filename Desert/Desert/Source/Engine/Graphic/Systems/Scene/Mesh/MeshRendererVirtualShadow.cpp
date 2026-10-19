@@ -281,7 +281,7 @@ namespace Desert::Graphic::System
 
         // The casters that are not meshes (the terrain) say what they draw themselves.
         std::vector<ShadowCasterEntry> others;
-        for ( const auto& weak : m_ShadowCasters )
+        for ( const auto& weak : m_VirtualShadowCasters )
             if ( const auto caster = weak.lock() )
                 caster->AppendVirtualShadowEntries( others );
         for ( const ShadowCasterEntry& entry : others )
@@ -391,7 +391,7 @@ namespace Desert::Graphic::System
             }
             m_VsmCasters[level].clear();
             std::vector<VirtualShadowCasterDraw> casterDraws;
-            for ( const auto& weak : m_ShadowCasters )
+            for ( const auto& weak : m_VirtualShadowCasters )
             {
                 const auto caster = weak.lock();
                 if ( !caster )

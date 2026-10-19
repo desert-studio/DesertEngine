@@ -11,6 +11,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <string_view>
 
 namespace Desert::Assets::Serialization
 {
@@ -151,7 +152,89 @@ namespace Desert::Assets::Serialization
             }
             return BOOLSUCCESS;
         }
+
+        Common::BoolResultStr CheckGuidRef( const AssetGuidRef& ref, const VFXEmitterData& e, const std::size_t i,
+                                            const std::string_view member )
+        {
+            const auto guid = Common::Content::AssetGuidFromText( ref.Guid );
+            if ( !guid || guid.GetValue().IsNull() )
+                return Common::MakeFormattedError<bool>(
+                     "emitter '{}' renderer {} names {} '{}', not a well-formed "
+                     "GUID",
+                     e.Name, i, member, ref.Guid );
+            if ( ref.Path.empty() )
+                return Common::MakeFormattedError<bool>( "emitter '{}' renderer {} names {} {} without a Path",
+                                                         e.Name, i, member, ref.Guid );
+            return BOOLSUCCESS;
+        }
+
+        /// A renderer row (UE UNiagaraRendererProperties): exactly the settings member its Kind names, well-formed
+        /// material and mesh references, and settings a draw can honour. Any number of rows of any kind: every
+        /// enabled row is its own draw (ParticleRenderer's ViewDraw).
+        Common::BoolResultStr CheckRenderers( const VFXEmitterData& e )
+        {
+            for ( std::size_t i = 0; i < e.Renderers.size(); ++i )
+            {
+                const VFXRendererData& r      = e.Renderers[i];
+                const bool             mesh   = r.Kind == VFXRendererKind::Mesh;
+                const bool             ribbon = r.Kind == VFXRendererKind::Ribbon;
+                if ( r.Mesh.has_value() != mesh || r.Ribbon.has_value() != ribbon )
+                    return Common::MakeFormattedError<bool>( "emitter '{}' renderer {}: exactly the member its "
+                                                             "Kind names must be present (Mesh/Ribbon)",
+                                                             e.Name, i );
+                if ( r.Material )
+                    if ( auto ok = CheckGuidRef( *r.Material, e, i, "Material" ); !ok )
+                        return ok;
+                if ( mesh )
+                    if ( auto ok = CheckGuidRef( r.Mesh->Mesh, e, i, "Mesh" ); !ok )
+                        return ok;
+                if ( ribbon && !( r.Ribbon->UVTiling > 0.0f ) )
+                    return Common::MakeFormattedError<bool>(
+                         "emitter '{}' renderer {}: Ribbon UVTiling is {}, it must be > 0", e.Name, i,
+                         r.Ribbon->UVTiling );
+            }
+            return BOOLSUCCESS;
+        }
     } // namespace
+
+    std::vector<std::string> VFXSystemDependencies( const VFXSystemData& data )
+    {
+        std::set<std::string> guids;
+        for ( const VFXEmitterData& e : data.Emitters )
+        {
+            for ( const auto* group : { &e.Stack.EmitterUpdate, &e.Stack.ParticleSpawn, &e.Stack.ParticleUpdate } )
+                for ( const VFXModuleUse& use : *group )
+                    guids.insert( use.Module.Guid );
+            for ( const VFXRendererData& r : e.Renderers )
+            {
+                if ( r.Material )
+                    guids.insert( r.Material->Guid );
+                if ( r.Mesh )
+                    guids.insert( r.Mesh->Mesh.Guid );
+            }
+        }
+        return { guids.begin(), guids.end() };
+    }
+
+    Common::AssetHandle VFXRendererMaterialHandle( const VFXRendererData& renderer )
+    {
+        if ( !renderer.Material )
+            return Common::AssetHandle::Null();
+        const auto guid = Common::Content::AssetGuidFromText( renderer.Material->Guid );
+        if ( !guid )
+            return Common::AssetHandle::Null();
+        return Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) );
+    }
+
+    Common::AssetHandle VFXRendererMeshHandle( const VFXRendererData& renderer )
+    {
+        if ( !renderer.Mesh )
+            return Common::AssetHandle::Null();
+        const auto guid = Common::Content::AssetGuidFromText( renderer.Mesh->Mesh.Guid );
+        if ( !guid )
+            return Common::AssetHandle::Null();
+        return Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) );
+    }
 
     uint32_t ComponentCount( const VFXValueType type )
     {
@@ -179,9 +262,6 @@ namespace Desert::Assets::Serialization
         if ( data.Loop && data.Duration <= 0.0f )
             return Common::MakeFormattedError<bool>( "a looping system needs Duration > 0, has {}",
                                                      data.Duration );
-        if ( !Finite( data.Bounds.Min ) || !Finite( data.Bounds.Max ) || data.Bounds.Min.x > data.Bounds.Max.x ||
-             data.Bounds.Min.y > data.Bounds.Max.y || data.Bounds.Min.z > data.Bounds.Max.z )
-            return Common::MakeFormattedError<bool>( "Bounds are not a finite box with Min <= Max" );
 
         std::set<std::string> tags;
         for ( const std::string& tag : data.Tags )
@@ -205,6 +285,12 @@ namespace Desert::Assets::Serialization
                 return Common::MakeFormattedError<bool>( "emitter name '{}' is empty or repeated", e.Name );
             if ( e.Capacity == 0 )
                 return Common::MakeFormattedError<bool>( "emitter '{}' has Capacity 0", e.Name );
+            if ( !Finite( e.Bounds.Min ) || !Finite( e.Bounds.Max ) || e.Bounds.Min.x > e.Bounds.Max.x ||
+                 e.Bounds.Min.y > e.Bounds.Max.y || e.Bounds.Min.z > e.Bounds.Max.z )
+                return Common::MakeFormattedError<bool>(
+                     "emitter '{}' Bounds are not a finite box with Min <= Max (Min {} {} {}, Max {} {} {})",
+                     e.Name, e.Bounds.Min.x, e.Bounds.Min.y, e.Bounds.Min.z, e.Bounds.Max.x, e.Bounds.Max.y,
+                     e.Bounds.Max.z );
             const VFXEmitterLifecycle& l = e.Lifecycle;
             if ( !std::isfinite( l.Delay ) || l.Delay < 0.0f || !std::isfinite( l.LoopDuration ) ||
                  l.LoopDuration <= 0.0f )
@@ -219,6 +305,8 @@ namespace Desert::Assets::Serialization
                 return ok;
             if ( auto ok = CheckGroup( e.Stack.ParticleUpdate, data, std::format( "{} ParticleUpdate", at ) );
                  !ok )
+                return ok;
+            if ( auto ok = CheckRenderers( e ); !ok )
                 return ok;
         }
         return BOOLSUCCESS;
@@ -276,25 +364,16 @@ namespace Desert::Assets::Serialization
                  "Category '{}' is not in the project's VFX category register ({})", data.Category,
                  kVFXCategoriesFileName );
 
-        // The header's Dependencies are the cook's and the packager's edges (ContentRegistry::Closure): a module
-        // a row names and the header leaves out would be missing from a packaged game, so they must agree.
+        // The header's Dependencies are the cook's and the packager's edges (ContentRegistry::Closure): a module,
+        // material or mesh a row names and the header leaves out would be missing from a packaged game, so they
+        // must agree.
         if ( const std::vector<std::string> expected = VFXSystemDependencies( data );
              !data.Header || data.Header->Dependencies != expected )
             return Common::MakeFormattedError<VFXSystemData>(
-                 "the header states {} Dependencies but the stacks name {} module(s); they must be exactly the "
-                 "modules' GUIDs, sorted - run Tools/SceneMigrator",
+                 "the header states {} Dependencies but the stack and renderer rows name {} module(s), material(s) "
+                 "and mesh(es); they must be exactly those GUIDs, sorted - run Tools/SceneMigrator",
                  data.Header ? data.Header->Dependencies.size() : std::size_t{ 0 }, expected.size() );
         return Common::MakeSuccess( std::move( data ) );
-    }
-
-    std::vector<std::string> VFXSystemDependencies( const VFXSystemData& data )
-    {
-        std::set<std::string> guids;
-        for ( const VFXEmitterData& e : data.Emitters )
-            for ( const auto* group : { &e.Stack.EmitterUpdate, &e.Stack.ParticleSpawn, &e.Stack.ParticleUpdate } )
-                for ( const VFXModuleUse& use : *group )
-                    guids.insert( use.Module.Guid );
-        return { guids.begin(), guids.end() };
     }
 
     std::string WriteVFXSystem( const VFXSystemData& data )

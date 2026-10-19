@@ -1,0 +1,362 @@
+{
+    "Header": {
+        "Kind": "VFXSystem",
+        "Guid": "3f1c9a6e5b2d47e08a41c7d25e9b6f03",
+        "Versions": {
+            "VFXS": 3
+        },
+        "Dependencies": [
+            "0caef28c515f4a4e93363f1616ed3ca3", "10e483e233d547108e31d1855328a54b", "240adf0c6a0f407489419764780491eb", "2d5323b9c4d349f8b91c4fc795599f4f", "37ef32a37dfc4501bb57e95fc9919372", "55923c5734e04fc78e068ad051c4772c", "8079c58d9d214db694607abaf9c1a4b2", "9383c37c9e4f801fb3de6d3b576f2c86",
+            "9488cdf80a5f4f4fba16c02d431bc8e0", "bd19bb728e4646919475240f1a19369d", "d1378c9a2062498ab14e47e7ef29cccb", "dff69e4e958a45f5a4fd4f19ba7de22c"
+        ]
+    },
+    "Category": "Demo",
+    "Tags": [],
+    "Duration": 1.0,
+    "Loop": true,
+    "Seed": 0,
+    "UserParams": [],
+    "Emitters": [
+        {
+            "Name": "Rows",
+            "Enabled": true,
+            "Space": "World",
+            "Capacity": 4000,
+            "Bounds": {
+                "Min": [-400.0, -400.0, -400.0],
+                "Max": [400.0, 400.0, 400.0]
+            },
+            "Lifecycle": {
+                "Delay": 0.0,
+                "LoopDuration": 1.0,
+                "Loop": "Infinite",
+                "LoopCount": 1
+            },
+            "Stack": {
+                "EmitterUpdate": [
+                    {
+                        "Module": {
+                            "Guid": "10e483e233d547108e31d1855328a54b",
+                            "Path": "engine:Engine/VFX/Modules/SpawnRate.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpawnRate",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [8.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleSpawn": [
+                    {
+                        "Module": {
+                            "Guid": "8079c58d9d214db694607abaf9c1a4b2",
+                            "Path": "engine:Engine/VFX/Modules/ShapePoint.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Offset",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": {
+                            "Guid": "2d5323b9c4d349f8b91c4fc795599f4f",
+                            "Path": "engine:Engine/VFX/Modules/InitializeLifetime.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Lifetime",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [1.5, 0.0, 0.0, 0.0],
+                                    "Max": [1.5, 0.0, 0.0, 0.0]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": {
+                            "Guid": "37ef32a37dfc4501bb57e95fc9919372",
+                            "Path": "engine:Engine/VFX/Modules/AddVelocityInCone.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Speed",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [150.0, 0.0, 0.0, 0.0],
+                                    "Max": [150.0, 0.0, 0.0, 0.0]
+                                }
+                            },
+                            {
+                                "Name": "Angle",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [180.0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Falloff",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Axis",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0.0, 1.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": {
+                            "Guid": "55923c5734e04fc78e068ad051c4772c",
+                            "Path": "engine:Engine/VFX/Modules/InitializeSpriteSize.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Size",
+                                "Type": "Vec2",
+                                "Source": "Value",
+                                "Value": [1.0, 1.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": {
+                            "Guid": "dff69e4e958a45f5a4fd4f19ba7de22c",
+                            "Path": "engine:Engine/VFX/Modules/InitializeColor.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Color",
+                                "Type": "Vec4",
+                                "Source": "Value",
+                                "Value": [1.0, 1.0, 1.0, 1.0]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleUpdate": [
+                    {
+                        "Module": {
+                            "Guid": "0caef28c515f4a4e93363f1616ed3ca3",
+                            "Path": "engine:Engine/VFX/Modules/UpdateAge.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": []
+                    },
+                    {
+                        "Module": {
+                            "Guid": "bd19bb728e4646919475240f1a19369d",
+                            "Path": "engine:Engine/VFX/Modules/Gravity.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Gravity",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": {
+                            "Guid": "d1378c9a2062498ab14e47e7ef29cccb",
+                            "Path": "engine:Engine/VFX/Modules/SolveForcesAndVelocity.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpeedLimit",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": {
+                            "Guid": "240adf0c6a0f407489419764780491eb",
+                            "Path": "engine:Engine/VFX/Modules/SizeOverLife.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Scale",
+                                "Type": "Vec2",
+                                "Source": "Curve",
+                                "Curve": [
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 22.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 22.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 22.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 22.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ]
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": {
+                            "Guid": "9488cdf80a5f4f4fba16c02d431bc8e0",
+                            "Path": "engine:Engine/VFX/Modules/ColorOverLife.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Scale",
+                                "Type": "Vec4",
+                                "Source": "Curve",
+                                "Curve": [
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 1.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 1.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 0.44999998807907104,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 0.25,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 0.10000000149011612,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 0.05000000074505806,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 1.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 0.800000011920929,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ]
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+            "Renderers": [
+                {
+                    "Kind": "Sprite",
+                    "Enabled": true
+                },
+                {
+                    "Kind": "Mesh",
+                    "Enabled": true,
+                    "Mesh": {
+                        "Mesh": {
+                            "Guid": "9383c37c9e4f801fb3de6d3b576f2c86",
+                            "Path": "Meshes/Modeling/Blockout.stmesh"
+                        },
+                        "Facing": "Velocity"
+                    }
+                },
+                {
+                    "Kind": "Ribbon",
+                    "Enabled": true,
+                    "Ribbon": {
+                        "Facing": "Screen",
+                        "UVTiling": 1.0
+                    }
+                }
+            ]
+        }
+    ]
+}

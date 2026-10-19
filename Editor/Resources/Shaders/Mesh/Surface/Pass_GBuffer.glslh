@@ -8,6 +8,12 @@
 #include <Common/MaterialTransport.glslh>
 
 DESERT_SURFACE_VARYINGS( in )
+#ifdef DESERT_SURFACE_PARTICLE
+// <Path>.GBuffer of an opaque / masked particle template (sprite, mesh, ribbon): the particle half of the input, written
+// by the path's vertex header (Vertex_Particle*.glslh) as for the particle pass.
+layout( location = 12 ) in flat vec4 v_ParticleColor;
+layout( location = 13 ) in flat vec2 v_ParticleTimeRandom;
+#endif
 
 layout( location = 0 ) out vec4 oGBufferA;        // BaseColor.rgb, Metallic.a
 layout( location = 1 ) out vec4 oGBufferB;        // world Normal.rgb, Roughness.a
@@ -30,9 +36,14 @@ layout( depth_less ) out float gl_FragDepth;
 
 void main()
 {
-    const SurfaceInput i =
+    SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
                               v_Surface.VertexColor, gl_FrontFacing );
+#ifdef DESERT_SURFACE_PARTICLE
+    i.Particle.Color        = v_ParticleColor;
+    i.Particle.RelativeTime = v_ParticleTimeRandom.x;
+    i.Particle.Random       = v_ParticleTimeRandom.y;
+#endif
     DESERT_SURFACE_CLIP( i );
     const SurfaceOutput s = EvaluateSurface( i );
     vec4 clip     = v_Surface.Clip;

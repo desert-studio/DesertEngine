@@ -55,7 +55,7 @@ namespace Desert::Graphic::System
     //   - both:     RecordShadowCascade, from inside the mesh renderer's cascade passes (TerrainShadow.shader).
     // The three programs share their vertex stage (Programs/Terrain/*.glslh) and differ in what the
     // fragment writes and in the matrix pushed per draw (camera or cascade).
-    class TerrainRenderer final : public RenderSystem, public IShadowCaster
+    class TerrainRenderer final : public RenderSystem, public IShadowCaster, public IVirtualShadowCaster
     {
     public:
         using RenderSystem::RenderSystem;
@@ -92,6 +92,13 @@ namespace Desert::Graphic::System
                                                                  uint32_t                 firstBlock,
                                                                  const glm::mat4&         cascadeViewProj,
                                                                  const CascadeCasterBias& bias ) override;
+        // The terrain casts into the sun's cascades only; it is not drawn into the point / spot
+        // lights' views (REMAINDER: its tiles in a light's reach and their edit generation would be its key).
+        [[nodiscard]] LocalShadowReach LocalShadowReachOf( const glm::vec3& /*centre*/,
+                                                           float /*radius*/ ) const override
+        {
+            return {};
+        }
 
         void AppendVirtualShadowEntries( std::vector<ShadowCasterEntry>& entries ) const override;
         [[nodiscard]] uint32_t DeclareVirtualShadow( RDG::PassBuilder&                   pass,

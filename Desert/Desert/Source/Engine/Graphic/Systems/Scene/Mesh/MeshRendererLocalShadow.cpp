@@ -59,9 +59,29 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    std::optional<uint64_t> MeshRenderer::LocalCasterSignature( const glm::vec3& centre, const float radius ) const
+    std::optional<uint64_t>
+    MeshRenderer::LocalCasterSignature( const glm::vec3& centre, const float radius,
+                                        std::vector<std::weak_ptr<IShadowCaster>>* casters ) const
     {
         SignatureHash hash;
+        // The non-mesh casters first, each by its own answer (IShadowCaster::LocalShadowReachOf): one that moves
+        // there redraws the views every frame, as a posed mesh does below.
+        bool moving = false;
+        for ( const auto& weak : m_ShadowCasters )
+        {
+            const auto caster = weak.lock();
+            if ( !caster )
+                continue;
+            const LocalShadowReach reach = caster->LocalShadowReachOf( centre, radius );
+            if ( !reach.Casts )
+                continue;
+            if ( casters != nullptr )
+                casters->push_back( weak );
+            moving = moving || reach.Moving;
+            hash.Add( reach.Signature );
+        }
+        if ( moving )
+            return std::nullopt;
         for ( const auto& rd : m_StaticQueue )
         {
             if ( rd.Mesh == nullptr || !rd.CastShadows ||
@@ -337,7 +357,8 @@ namespace Desert::Graphic::System
             // THE CACHE (UE: a stationary light's shadow depth is kept until something in its reach moves).
             const glm::vec3 centre = request.Spot ? spots[request.Index].Position : points[request.Index].Position;
             const float     reach  = request.Spot ? spots[request.Index].Range : points[request.Index].Radius;
-            std::optional<uint64_t> signature = LocalCasterSignature( centre, reach );
+            std::vector<std::weak_ptr<IShadowCaster>> casters;
+            std::optional<uint64_t>                   signature = LocalCasterSignature( centre, reach, &casters );
             if ( signature )
             {
                 SignatureHash hash;
@@ -350,7 +371,7 @@ namespace Desert::Graphic::System
             if ( !cached )
             {
                 for ( uint32_t v = 0; v < viewCount; ++v )
-                    m_LocalRedraws.push_back( { kMaxShadowCascades + firstRow + v, light.Tiles[v] } );
+                    m_LocalRedraws.push_back( { kMaxShadowCascades + firstRow + v, light.Tiles[v], casters } );
             }
         }
 
@@ -378,8 +399,8 @@ namespace Desert::Graphic::System
             const AtlasTile  tile = redraw.Tile;
             SystemRasterPass pass{
                  .Name        = std::format( "MeshShadowLocal{}", slot ),
-                 .ExecuteFunc = [this, slot, tile]( RDG::PassContext& context,
-                                                    const FrameGraphRefs& ) -> Common::BoolResultStr
+                 .ExecuteFunc = [this, view, slot, tile]( RDG::PassContext& context,
+                                                          const FrameGraphRefs& ) -> Common::BoolResultStr
                  {
                      // Its own tile only: cleared to "no occluder" (1, standard Z), then its casters drawn into
                      // it. The rest of the atlas keeps the cached depth of the views not redrawn this frame.
@@ -389,18 +410,47 @@ namespace Desert::Graphic::System
                      renderer.ClearRegion( *m_LocalAtlasFB, static_cast<int32_t>( tile.X ),
                                            static_cast<int32_t>( tile.Y ), tile.Size, tile.Size, glm::vec4( 1.0f ),
                                            1.0f );
-                     return m_LocalDraws[slot].Record( context );
+                     if ( auto drawn = m_LocalDraws[slot].Record( context ); !drawn.IsSuccess() )
+                         return drawn;
+                     // The non-mesh casters in the light's reach (the opaque mesh particles), recorded into THIS
+                     // pass on the same tile, through the blocks the Declare declared (IShadowCaster): the view's
+                     // matrix, no caster bias.
+                     for ( const auto& [weak, firstBlock] : m_LocalCasters[slot] )
+                     {
+                         const auto caster = weak.lock();
+                         if ( !caster )
+                             continue; // gone since the setup: its draws went with it
+                         if ( auto cast = caster->RecordShadowCascade(
+                                   context, view, firstBlock, m_CascadeCasterVP[view], m_CascadeCasterBias[view] );
+                              !cast.IsSuccess() )
+                             return cast;
+                     }
+                     return BOOLSUCCESS;
                  },
                  .TargetFramebuffer = m_LocalAtlasFB };
-            pass.Declare = [this, view, slot]( RenderPassDeclaration& declared, const FrameGraphRefs& )
+            pass.Declare = [this, view, slot, casters = redraw.Casters]( RenderPassDeclaration& declared,
+                                                                         const FrameGraphRefs& )
             {
                 m_LocalDraws[slot].Clear();
+                m_LocalCasters[slot].clear();
                 BuildShadowCascadeDraws( view, m_LocalDraws[slot] );
                 m_LocalDraws[slot].Declare( declared, std::nullopt );
                 // The skin cache's streams its skinned casters fetch (BuildShadowCascadeDraws pushes each draw's
                 // address, the masked ones read it from their row); written by the scene's skin step.
                 for ( const RDG::BufferRef& streams : m_SkinCacheReads )
                     declared.Read( streams, RDG::Access::StorageRead );
+                // The non-mesh casters declare their blocks after the list's (IShadowCaster::DeclareShadowCascade
+                // with the view's index).
+                uint32_t nextBlock = m_LocalDraws[slot].BlockCount();
+                for ( const auto& weak : casters )
+                {
+                    if ( const auto caster = weak.lock() )
+                    {
+                        const uint32_t declaredBlocks = caster->DeclareShadowCascade( declared, view );
+                        m_LocalCasters[slot].emplace_back( weak, nextBlock );
+                        nextBlock += declaredBlocks;
+                    }
+                }
             };
             passes.push_back( std::move( pass ) );
         }

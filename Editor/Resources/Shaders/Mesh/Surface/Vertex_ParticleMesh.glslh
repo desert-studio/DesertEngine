@@ -1,0 +1,158 @@
+// Surface cell vertex path: MESH particles (UE: the Niagara mesh vertex factory, a material's "Used with Mesh
+// Particles" usage). A cell of this path exists only in a template that declares `Usage ParticleMeshes`
+// (DShaderParser kSurfaceParticleUsages): ParticleMesh.Forward - for a translucent template the particle pass's
+// composite, for an opaque or masked one the LIT forward cell the forward render path's base pass draws with depth,
+// velocity, lights and shadows - and for an opaque or masked template (kSurfaceParticleOpaquePasses)
+// ParticleMesh.GBuffer, drawn by the deferred base pass (and the RSM) with depth and velocity, and
+// ParticleMesh.ShadowDepth, drawn into the sun's cascades and the point / spot lights' views (UE: an opaque mesh
+// particle is drawn by the base pass and the shadow depth passes, never by the translucency).
+//
+// One instance of the row's static mesh per alive particle: the draw is INDEXED-INDIRECT per mesh section
+// (ParticleMeshDrawArgs.shader: instanceCount = alive, firstInstance = the start of the slot's alive half), and
+// gl_InstanceIndex includes firstInstance, so it is an entry of the alive list (or of the view's sorted copy, the
+// same offsets) exactly as the sprite path's gl_VertexIndex / 6. The push block's Transform is the mesh section's
+// own transform (Renderer::RenderMesh's per-submesh matrix), applied before the particle's.
+layout( location = 0 ) in vec3 a_Position;
+layout( location = 1 ) in vec3 a_Normal;
+layout( location = 2 ) in vec3 a_Tangent;
+layout( location = 3 ) in vec3 a_Bitangent;
+layout( location = 4 ) in vec2 a_TextureCoord;
+layout( location = 7 ) in vec4 a_Color;
+layout( location = 8 ) in vec2 a_TexCoord1;
+
+#include <Common/CameraUB.glslh>
+#ifdef DESERT_SURFACE_CASTER_PASS
+#include <Common/ShadowCasterBias.glslh>
+#endif
+#include <Common/VFXRandom.glslh>
+#include <Common/ParticleDrawLayout.glslh>
+
+// The particle reads sit in the reserved particle-read range (35..40, Core::kParticleReadBindingFirst in
+// ShaderGraphBindings.hpp), clear of the pass headers' slots (the lit forward cell's included) and the template's.
+layout( std430, binding = 35 ) readonly buffer AttributeFloats
+{
+    float u_DrawFloats[];
+};
+
+layout( std430, binding = 36 ) readonly buffer AliveList
+{
+    uint u_Alive[];
+};
+
+layout( std430, binding = 37 ) readonly buffer DrawLayout
+{
+    ParticleDrawLayout u_DrawLayout;
+};
+
+// The draw's renderer row settings (Common/ParticleDrawLayout.glslh ParticleRendererParams).
+layout( std430, binding = 38 ) readonly buffer RendererParams
+{
+    ParticleRendererParams u_Renderer;
+};
+
+#include <Common/ParticleDrawRead.glslh>
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+#include <Common/MaterialTransport.glslh>
+DESERT_SURFACE_VARYINGS( out )
+
+// Read by every pass header of a particle cell (DESERT_SURFACE_PARTICLE): the particle half of SurfaceInput.
+layout( location = 12 ) out flat vec4 v_ParticleColor;
+layout( location = 13 ) out flat vec2 v_ParticleTimeRandom; // x = relative time, y = random
+#else
+// An opaque ShadowDepth cell: the stages do not talk and the section transform is the whole push block, as the
+// mesh casters' (Vertex_Static.glslh).
+layout( push_constant ) uniform constants
+{
+    mat4 Transform;
+}
+m_PushConstants;
+#endif
+
+vec3 QuatRotate( vec4 q, vec3 v )
+{
+    return v + 2.0 * cross( q.xyz, cross( q.xyz, v ) + q.w * v );
+}
+
+// The particle's local frame (UE NiagaraMeshVertexFactory's facing modes): columns = the mesh's X, Y, Z in world.
+mat3 ParticleMeshFrame( uint n, vec3 position )
+{
+    const uint facing = u_Renderer.Mode.x; // VFXMeshFacing
+    if ( facing == 0u )
+    {
+        const vec4 q = normalize( ParticleMeshOrientation( n ) );
+        return mat3( QuatRotate( q, vec3( 1.0, 0.0, 0.0 ) ), QuatRotate( q, vec3( 0.0, 1.0, 0.0 ) ),
+                     QuatRotate( q, vec3( 0.0, 0.0, 1.0 ) ) );
+    }
+    vec3 x;
+    if ( facing == 1u )
+        x = ParticleVelocity( n );
+    else if ( facing == 2u )
+        x = cameraUB.CameraPos - position;
+    else
+        x = vec3( cameraUB.View[0][2], cameraUB.View[1][2], cameraUB.View[2][2] ); // towards the eye
+    // A zero direction (a resting particle under Velocity facing) keeps the mesh's own axes, as UE does.
+    if ( dot( x, x ) < 1e-8 )
+        return mat3( 1.0 );
+    x                  = normalize( x );
+    const vec3 upGuess = abs( x.z ) < 0.999 ? vec3( 0.0, 0.0, 1.0 ) : vec3( 0.0, 1.0, 0.0 );
+    const vec3 y       = normalize( cross( upGuess, x ) );
+    return mat3( x, y, cross( x, y ) );
+}
+
+void main()
+{
+    const uint index = u_Alive[uint( gl_InstanceIndex )]; // a pool index
+    const uint n     = ParticleLocalIndex( index );
+
+    const vec3  position = ParticleWorldPosition( n );
+    const vec4  colour   = ParticleColor( n );
+    const float lifetime = ParticleLifetime( n );
+    const mat3  frame    = ParticleMeshFrame( n, position );
+    const vec3  scale    = ParticleScale( n );
+
+    const mat4 section  = m_PushConstants.Transform;
+    const vec3 local    = ( section * vec4( a_Position, 1.0 ) ).xyz * scale;
+    const vec3 worldPos = position + frame * local;
+    // The normal matrix of frame * diag(scale) * section: inverse-transpose, as the mesh paths do.
+    const mat3 toWorld  = frame * mat3( scale.x, 0.0, 0.0, 0.0, scale.y, 0.0, 0.0, 0.0, scale.z ) * mat3( section );
+    const mat3 normalM  = transpose( inverse( toWorld ) );
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+    const vec3 N        = normalize( normalM * a_Normal );
+    const vec3 T        = normalize( normalM * a_Tangent );
+    const vec3 B        = normalize( normalM * a_Bitangent );
+
+    v_Surface.WorldPosition = worldPos;
+    v_Surface.Normal        = N;
+    v_Surface.UV0           = vec2( a_TextureCoord.x, 1.0 - a_TextureCoord.y );
+    v_Surface.UV1           = vec2( a_TexCoord1.x, 1.0 - a_TexCoord1.y );
+    v_Surface.VertexColor   = a_Color * colour;
+    v_Surface.TBN           = mat3( T, B, N );
+#endif
+#ifdef DESERT_SURFACE_VIEW_PASS
+    // Velocity's two clip positions, both UNJITTERED (Common/ObjectMotion.glslh DesertVelocity): the camera's motion
+    // and the particle's. The particle stood at Position - Velocity x the seconds the simulation advanced since the
+    // previous tick (u_Renderer.Values.y, ParticleWorldGpu::PrepareEmitter), around where a Local emitter itself stood
+    // then (ParticlePreviousWorldPosition); UE's mesh vertex factory reads the same per-particle previous position in
+    // world space.
+    const vec3 prevWorld =
+         worldPos + ( ParticlePreviousWorldPosition( n, ParticleVelocity( n ), u_Renderer.Values.y ) - position );
+    v_Surface.Clip       = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
+    v_Surface.PrevClip   = cameraUB.PrevViewProjection * vec4( prevWorld, 1.0 );
+#elif defined( DESERT_SURFACE_HAS_VARYINGS )
+    v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
+    v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
+#endif
+
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+    v_ParticleColor      = colour;
+    v_ParticleTimeRandom = vec2( lifetime > 0.0 ? clamp( ParticleAge( n ) / lifetime, 0.0, 1.0 ) : 0.0,
+                                 VFXRandomFloat4( uvec4( index, floatBitsToUint( lifetime ), 0u, 0u ) ).x );
+#endif
+
+    gl_Position = cameraUB.JitteredViewProjection * vec4( worldPos, 1.0 );
+#ifdef DESERT_SURFACE_CASTER_PASS
+    // The caster's slope depth bias in the vertex stage, as the mesh casters' (Common/ShadowCasterBias.glslh).
+    gl_Position = ShadowCasterSlopeBias( gl_Position, cameraUB.JitteredViewProjection, normalM * a_Normal,
+                                         cameraUB.ShadowSlopeBias, cameraUB.ShadowSlopeClamp );
+#endif
+}

@@ -117,6 +117,13 @@ namespace Desert::Graphic
                                                                            const GraphicsPipeline&  pipeline,
                                                                            const MaterialExecutor*  material,
                                                                            RDG::BufferRef args, uint64_t offset );
+        // RenderMesh's buffers with its counts in a graph buffer (RendererAPI::DrawMeshIndirect): the mesh
+        // particles, one instance per particle the compact found alive.
+        [[nodiscard]] static Common::BoolResultStr DrawMeshIndirect( const RDG::PassBindings& bindings,
+                                                                     const GraphicsPipeline&  pipeline,
+                                                                     const MaterialExecutor*  material,
+                                                                     const Mesh& mesh, RDG::BufferRef args,
+                                                                     uint64_t offset );
         // The PassBindings route for indexed batched draws (the 2D/UI batcher): one indexed draw with the
         // graph textures bound by shader name, e.g. Render2D's glass batches sampling u_Backdrop from this
         // frame's backdrop pyramid. Same contract as DrawFullscreen otherwise.

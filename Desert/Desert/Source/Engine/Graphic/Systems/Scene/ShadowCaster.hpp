@@ -55,14 +55,32 @@ namespace Desert::Graphic::System
     using VirtualShadowBlockParameters =
          std::function<void( RDG::BindingBlockBuilder&, const RDG::ShaderBindingLayout& )>;
 
+    // What a caster puts into one point / spot light's shadow views this frame (UE: a primitive's relevance to a
+    // light's whole-scene shadow, and whether it is movable): MeshRenderer keys the light's cached atlas tiles by
+    // it.
+    struct LocalShadowReach
+    {
+        bool Casts  = false; // it draws into the light's views (Declare/RecordShadowCascade with their index)
+        bool Moving = false; // what it draws there changes every frame: the light's views are redrawn each frame
+        uint64_t Signature = 0; // otherwise, a key of what it draws there: a change redraws the views
+    };
+
     /**
-     * @brief A renderer whose geometry casts into the sun's cascaded shadow map.
+     * @brief A renderer whose geometry casts into the sun's cascaded shadow map, and (when it says so,
+     * LocalShadowReachOf) into the point / spot lights' views of the local shadow atlas.
      *
      * The cascade targets and their depth passes belong to the MeshRenderer, which clears each cascade once
      * and records its own casters; a caster that is not a mesh (the tessellated terrain) is recorded INSIDE
      * that same pass rather than in a second graph pass on the same target. A second pass would need an
      * order against the first inside one render phase, and the graph gives none: whichever began the
      * target last would clear the other's depth.
+     *
+     * THE VIEW INDEX. `cascade` below is MeshRenderer's shadow view index: 0..kMaxShadowCascades-1 a sun cascade,
+     * kMaxShadowCascades + slot a local light's view (a spot, or one cube face of a point;
+     * Graphic/LocalShadows.hpp). A local view's pass is "MeshShadowLocal<slot>" on the local atlas, its viewport
+     * the view's tile, and its `bias` zero (a local view's bias is the receiver's, Mesh/LocalLightShadow.glslh);
+     * it is called only for a caster whose LocalShadowReachOf the light Casts, and only on the frames the light's
+     * views are redrawn.
      *
      * Called once per cascade per frame, with the cascade's render pass open, only when shadows are on.
      * `cascadeViewProj` is the matrix the CASTERS draw the cascade with (standard-Z, clip from world): the
@@ -96,6 +114,26 @@ namespace Desert::Graphic::System
                                                                          uint32_t cascade, uint32_t firstBlock,
                                                                          const glm::mat4&         cascadeViewProj,
                                                                          const CascadeCasterBias& bias ) = 0;
+
+        // Whether this caster draws into the views of a point / spot light at @p centre reaching @p radius (cm)
+        // this frame, and the key of what it draws there (LocalShadowReach). Asked by
+        // MeshRenderer::UpdateLocalShadows in BeginScene, after the caster's own per-frame preparation and before
+        // the frame graph is built.
+        [[nodiscard]] virtual LocalShadowReach LocalShadowReachOf( const glm::vec3& centre,
+                                                                   float            radius ) const = 0;
+    };
+
+    /**
+     * A NON-MESH CASTER OF THE SUN'S VIRTUAL SHADOW MAP (the terrain): registered beside IShadowCaster with
+     * MeshRenderer::AddVirtualShadowCaster. A separate interface, not more methods on IShadowCaster, because a
+     * caster of the cascades and the local lights need not draw into the virtual shadow map's pages: the opaque
+     * particles cast into the cascades and the point / spot views and do not (yet) record per-page culled draws,
+     * which the type now says instead of an empty implementation.
+     */
+    class IVirtualShadowCaster
+    {
+    public:
+        virtual ~IVirtualShadowCaster() = default;
 
         // THE SUN'S VIRTUAL SHADOW MAP ("VSM: Raster", one attachment-less node per clipmap level). Its pages are
         // cached across frames, so the caster says what it draws (AppendVirtualShadowEntries, before the graph is

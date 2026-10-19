@@ -143,9 +143,9 @@ namespace
     {
         // An empty name is a hole of the table, remembered as one.
         static std::map<std::pair<int, int>, std::string> cache;
-        // The sprite path's cell exists only on a template with `Usage ParticleSprites`; the default template has
+        // A particle path's cell exists only on a template with its `Usage Particle*`; the default template has
         // none, so for these reflection tests it is a hole (see kAllPaths).
-        if ( path == MeshVertexPath::ParticleSprite )
+        if ( Desert::Graphic::IsParticlePath( path ) )
             return nullptr;
         const std::pair<int, int> key{ static_cast<int>( path ), static_cast<int>( pass ) };
         auto                      slot = cache.find( key );
@@ -725,7 +725,7 @@ namespace
         return R"(Shader "LayoutMock"
 {
     Domain Surface
-    Properties Binding(30) TextureBinding(31)
+    Properties Binding(41) TextureBinding(42)
     {
         Color     Tint    ("Tint")    = (1, 1, 1, 1)
         Float     Tiling  ("Tiling")  = 2
@@ -752,7 +752,7 @@ namespace
         return R"(Shader "PushMock"
 {
     Domain Surface
-    Properties TextureBinding(31)
+    Properties TextureBinding(42)
     {
         Texture2D u_Mask ("Mask") = "white"
     }
@@ -785,11 +785,11 @@ TEST_F( MeshVertexPathShaderRoot, AMockTemplatesLayoutIsItsPropertiesAndItsPushB
 
     if ( !cell.Layout.RowBinding.has_value() )
         FAIL() << "the layout has no row binding";
-    EXPECT_EQ( *cell.Layout.RowBinding, 30u );
+    EXPECT_EQ( *cell.Layout.RowBinding, 41u );
     ASSERT_NE( cell.Layout.FindParam( "Tiling" ), nullptr );
     EXPECT_EQ( cell.Layout.FindParam( "Tiling" )->Offset, 16u );
     ASSERT_NE( cell.Layout.FindTexture( "u_Mask" ), nullptr );
-    EXPECT_EQ( cell.Layout.FindTexture( "u_Mask" )->Binding, 31u );
+    EXPECT_EQ( cell.Layout.FindTexture( "u_Mask" )->Binding, 42u );
 
     const auto* index = cell.Layout.FindPush( "MaterialIndex" );
     ASSERT_NE( index, nullptr );
@@ -1057,10 +1057,11 @@ TEST( TemplateCellShader, ASurfaceTemplateHasEveryCellAPlainTemplateOnlyItsStati
                 EXPECT_FALSE( plain.has_value() ) << "a template without a Surface block has no " << where
                                                   << " cell, got " << plain.value_or( "" );
         }
-    // Every MESH path has Forward, GBuffer and ShadowDepth; only Static has Glass; the fourth path,
-    // ParticleSprite, has its Forward cell alone (registered here because the lambda registers every
-    // "SomeSurface/" name, as a template with `Usage ParticleSprites` does).
-    EXPECT_EQ( surfaceCells, ( Desert::Graphic::kMeshVertexPathCount - 1u ) * 3u + 1u + 1u );
+    // Every MESH path has Forward, GBuffer and ShadowDepth; only Static has Glass; each of the three particle
+    // paths (ParticleSprite, ParticleMesh, ParticleRibbon) has its Forward cell, and ParticleMesh also its GBuffer
+    // and ShadowDepth cells (an opaque mesh particle's base pass and caster; registered here because the lambda
+    // registers every "SomeSurface/" name, as an opaque template with every `Usage Particle*` does).
+    EXPECT_EQ( surfaceCells, ( Desert::Graphic::kMeshVertexPathCount - 3u ) * 3u + 1u + 3u + 2u );
 }
 
 // THE CASTER IS CHOSEN BY BLEND MODE (SURF2-mask). A Masked material casts through ITS template's ShadowDepth

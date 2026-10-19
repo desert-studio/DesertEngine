@@ -478,7 +478,14 @@ namespace Desert::Graphic::RDG
                 // pool) is one use. An attachment is one slot of the render pass and is never stated twice.
                 if ( use.Attachment < 0 && existing.FirstAccess == use.Usage && existing.State == state )
                     continue;
-                if ( !existing.State.IsReadOnly() || !state.IsReadOnly() || existing.State.Layout != state.Layout )
+                // Two READS are one read state, except an image's in two layouts. A buffer has no layout (UE: one
+                // ERHIAccess such as SRVGraphics | IndirectArgs), so a storage read and an indirect-argument read
+                // of one buffer in one pass - the ribbon draw's Counters - are one use, as the barrier phase
+                // already merges them (CollectPassBarriers); the Layout an AccessState carries for a buffer access
+                // is not one.
+                const bool layoutsDiffer =
+                     record.Kind == ResourceKind::Texture && existing.State.Layout != state.Layout;
+                if ( !existing.State.IsReadOnly() || !state.IsReadOnly() || layoutsDiffer )
                 {
                     error = fmt::format( "graph '{}' pass '{}' declares {} as both {} and {}; one pass may hold a "
                                          "subresource in one state only",

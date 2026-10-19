@@ -321,6 +321,7 @@ namespace Desert::Graphic
                 else
                 {
                     meshSystem->AddShadowCaster( terrainSystem );
+                    meshSystem->AddVirtualShadowCaster( terrainSystem );
                 }
 
                 // The water surface (WATER-W6): drawn by its own deferred node (AddFrameWater), after the scene
@@ -515,8 +516,25 @@ namespace Desert::Graphic
             {
                 // GPU particles: compute-simulated sprites drawn by AddFrameTranslucency. Non-fatal.
                 RegisterSystem<System::ParticleRenderer>( "ParticleSystem", this, m_TargetFramebuffer );
-                if ( !SP_CAST( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->Initialize() )
+                const auto& particleSystem =
+                     SP_CAST( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+                if ( !particleSystem->Initialize() )
+                {
                     LOG_WARN( "[SceneRenderer] Particle system unavailable." );
+                    return "Particle";
+                }
+                // The opaque mesh particles cast into the sun's cascades and the point / spot lights' views from
+                // inside the mesh renderer's shadow passes, as the terrain does into the cascades (IShadowCaster);
+                // on the forward path they are lit with the mesh renderer's frame state.
+                // A renderer built without cascades has no target and nothing to cast into.
+                const auto& meshSystem = SP_CAST( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+                if ( meshSystem )
+                    particleSystem->SetMeshRenderer( meshSystem );
+                if ( meshSystem && meshSystem->GetCascadeFramebuffer() )
+                {
+                    particleSystem->SetCascadeTarget( meshSystem->GetCascadeFramebuffer() );
+                    meshSystem->AddShadowCaster( particleSystem );
+                }
                 return "Particle";
             }
             case 19:
@@ -1622,6 +1640,7 @@ namespace Desert::Graphic
             AddFrameGBuffer( graph, textures, meshRenderer );
             AddFrameTerrainGBuffer( graph, textures );
             AddFrameForwardDepthNormal( graph, textures, meshRenderer );
+            AddFrameParticleGBuffer( graph, textures );
             AddFrameDepthResolve( graph, textures );
 
             // THE PATH-TRACED FRAME (UE RenderPathTracing): the lit image is the path tracer's accumulation,

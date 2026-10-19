@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/Math/AABB.hpp>
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
@@ -90,16 +92,50 @@ namespace Desert::Graphic::System
     // Where a renderer finds an emitter's particle (Common/ParticleDrawLayout.glslh `struct ParticleDrawLayout`;
     // UE FNiagaraSpriteUniformParameters' data offsets): the first float column of each drawn attribute in the
     // emitter's SoA columns (kParticleAttrNone = the stack does not declare it, the reader's default), the range
-    // the columns are strided by, and the emitter's world position a Local emitter's particles are drawn around.
+    // the columns are strided by, and the emitter's world position a Local emitter's particles are drawn around
+    // (now and at the previous tick, for their velocity).
     constexpr std::uint32_t kParticleAttrNone = 0xFFFFFFFFu;
     struct ParticleDrawLayoutGpu
     {
-        glm::uvec4 Range      = glm::uvec4( 0u ); // x = range count (column stride), y = pool base, z = 1 local
+        // x = range count (column stride), y = pool base, z = 1 local, w = the drawn draw slot (StepCount & 1)
+        glm::uvec4 Range      = glm::uvec4( 0u );
         glm::uvec4 Columns0   = glm::uvec4( kParticleAttrNone ); // Position, SpriteSize, Color, SpriteRotation
         glm::uvec4 Columns1   = glm::uvec4( kParticleAttrNone ); // Age, Lifetime, -, -
+        glm::uvec4 Columns2   = glm::uvec4( kParticleAttrNone ); // Velocity, Scale, MeshOrientation, RibbonWidth
+        glm::uvec4 Columns3   = glm::uvec4( kParticleAttrNone ); // RibbonID (INT column), RibbonFacing, -, -
         glm::vec4  EmitterPos = glm::vec4( 0.0f );               // xyz = emitter world position (cm)
+        // xyz = where the emitter stood at the previous tick (cm): a Local emitter's particles' previous world
+        // position is taken around it (Common/ParticleDrawRead.glslh ParticlePreviousWorldPosition, the velocity).
+        glm::vec4 PrevEmitterPos = glm::vec4( 0.0f );
     };
     static_assert( sizeof( ParticleDrawLayoutGpu ) == kParticleDrawLayoutSize );
+
+    // One renderer row's settings as the mesh and ribbon vertex paths read them (binding 14): Mode.x = the row's
+    // facing (VFXMeshFacing / VFXRibbonFacing value), Values.x = the ribbon's UVTiling, Values.y = the seconds the
+    // simulation advanced this tick (step count x fixed step): the mesh path's previous position for the velocity
+    // its G-buffer cell writes (Vertex_ParticleMesh.glslh).
+    struct ParticleRendererParamsGpu
+    {
+        glm::uvec4 Mode   = glm::uvec4( 0u );
+        glm::vec4  Values = glm::vec4( 0.0f );
+    };
+    static_assert( sizeof( ParticleRendererParamsGpu ) == kParticleRendererParamsSize );
+
+    // One enabled renderer row of an emitter (UE FNiagaraRenderer, one per UNiagaraRendererProperties): what the
+    // particle pass draws the emitter's particles as, with which material (Null = the kind's default template)
+    // and, for a Mesh row, which static mesh. Row is the row's index in the emitter's Renderers: with the entity
+    // and the emitter index it keys the drawing view's material instance (ParticleRenderer::DrawKey).
+    struct ParticleRendererGpu
+    {
+        Assets::Serialization::VFXRendererKind Kind = Assets::Serialization::VFXRendererKind::Sprite;
+        uint32_t                               Row  = 0;
+        Common::AssetHandle                    Material;
+        Common::AssetHandle                    Mesh;     // Kind == Mesh
+        std::string                            MeshPath; // Kind == Mesh: the row's Mesh.Path, for its log lines
+        Assets::Serialization::VFXMeshFacing   MeshFacing     = Assets::Serialization::VFXMeshFacing::Default;
+        Assets::Serialization::VFXRibbonFacing RibbonFacing   = Assets::Serialization::VFXRibbonFacing::Screen;
+        float                                  RibbonUVTiling = 1.0f;
+    };
 
     // One emitter's GPU state in the scene's pool, cached across ticks by entity id. Its particles are Range of
     // the pool; its alive lists are the two halves [2 Base + h Count, 2 Base + (h + 1) Count) of the alive list.
@@ -125,9 +161,23 @@ namespace Desert::Graphic::System
         std::vector<glm::vec4>                          ParamRows;
         std::vector<float>                              CurveFloats;
         uint32_t                                        Capacity     = 0;
+        // The emitter's fixed bounds around its placement (VFXEmitterData::Bounds):
+        // ParticleFrameEmitter::WorldBounds is this box at the tick's world position.
+        Common::Math::AABB                              LocalBounds;
         uint32_t                                        FloatColumns = 0;
         uint32_t                                        IntColumns   = 0;
         bool                                            Local        = false;
+        // The emitter's world position at the last tick it was prepared (PrepareEmitter): next tick's
+        // ParticleDrawLayoutGpu::PrevEmitterPos. HasDrawnPos = false until a first tick (or after a reset): the
+        // previous position is then the current one, a particle born this tick has no history.
+        glm::vec3 DrawnEmitterPos = glm::vec3( 0.0f );
+        bool      HasDrawnPos     = false;
+        // VFXS 2: the emitter's enabled renderer rows, in row order; each is one draw of the particle pass. None =
+        // the emitter is simulated and not drawn.
+        std::vector<ParticleRendererGpu> Renderers;
+        // Per row of Renderers, its settings (re-uploaded every tick: the copies are per frame in flight).
+        std::vector<std::shared_ptr<ShaderResources::StorageBuffer>> RendererParams;
+        uint32_t Index = 0; // the emitter's index in its system's Emitters
 
         ParticlePoolRange Range;
         uint32_t          StepCapacity    = 0;
@@ -142,11 +192,12 @@ namespace Desert::Graphic::System
         uint32_t            EntityId = 0;
         ParticleEmitterGpu* Gpu      = nullptr;
         ParticleSimPush     Push;
-        ComputePipeline*    Pipeline = nullptr; // the emitter's stack host program (Gpu->Pipeline)
-        // The sprite renderer's material (null = the default sprite template; a `.dfx` sprite row names none yet,
-        // VFXS 1); the drawing view resolves its ParticleSprite.Forward cell and reads the blend mode off it.
-        Common::AssetHandle Material;
+        ComputePipeline*    Pipeline  = nullptr; // the emitter's stack host program (Gpu->Pipeline)
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
+        // Where the emitter's particles are this tick, world centimetres: its fixed bounds (LocalBounds)
+        // translated by the position the simulation places it at (Push.EmitterPos). What every view culls its
+        // draws by, and what decides the point / spot lights it casts into (ParticleRenderer).
+        Common::Math::AABB WorldBounds;
     };
 
     // The pool's buffers: the slots (id + alive flag per particle, ParticleSlot in Common/ParticlePool.glslh), the

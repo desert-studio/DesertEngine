@@ -1,8 +1,9 @@
 // The reads of a particle a renderer makes, through the emitter's ParticleDrawLayout (Common/ParticleDrawLayout.glslh;
 // UE NiagaraSpriteVertexFactory.ush GetVec3 / GetVec4 / GetFloat with the renderer's default when the offset is -1).
 // The consumer declares, BEFORE including this file, the emitter's float columns as `float u_DrawFloats[]` and its
-// layout as `ParticleDrawLayout u_DrawLayout` (the sprite vertex path and ParticleSort, each in its own binding
-// syntax).
+// layout as `ParticleDrawLayout u_DrawLayout` (the particle vertex paths and ParticleSort, each in its own binding
+// syntax). A consumer that reads RibbonID also declares the emitter's int columns as `int u_DrawInts[]` and defines
+// PARTICLE_DRAW_INTS first.
 
 #ifndef PARTICLE_DRAW_READ_GLSLH
 #define PARTICLE_DRAW_READ_GLSLH
@@ -20,12 +21,28 @@ uint ParticleLocalIndex( uint poolIndex )
     return poolIndex - u_DrawLayout.Range.y;
 }
 
+// The Position attribute (cm), in the emitter's simulation space (Local: relative to the emitter).
+vec3 ParticleSimPosition( uint n )
+{
+    const uint c = u_DrawLayout.Columns0.x;
+    return vec3( ParticleFloat( n, c, 0u, 0.0 ), ParticleFloat( n, c, 1u, 0.0 ), ParticleFloat( n, c, 2u, 0.0 ) );
+}
+
 // World position (cm): a Local emitter's particles are drawn at the emitter + their Position.
 vec3 ParticleWorldPosition( uint n )
 {
-    const uint c = u_DrawLayout.Columns0.x;
-    const vec3 p = vec3( ParticleFloat( n, c, 0u, 0.0 ), ParticleFloat( n, c, 1u, 0.0 ), ParticleFloat( n, c, 2u, 0.0 ) );
+    const vec3 p = ParticleSimPosition( n );
     return u_DrawLayout.Range.z == 1u ? u_DrawLayout.EmitterPos.xyz + p : p;
+}
+
+// Where the particle stood in the world at the previous tick (cm), @p seconds of simulation ago with @p velocity (its
+// simulation-space Velocity): Position - Velocity x seconds, and for a Local emitter around where the EMITTER stood
+// then (PrevEmitterPos), so an emitter carried by a moving entity moves its particles' velocity too (UE: a Local
+// emitter's PreviousPosition is transformed by the previous frame's local-to-world).
+vec3 ParticlePreviousWorldPosition( uint n, vec3 velocity, float seconds )
+{
+    const vec3 p = ParticleSimPosition( n ) - velocity * seconds;
+    return u_DrawLayout.Range.z == 1u ? u_DrawLayout.PrevEmitterPos.xyz + p : p;
 }
 
 vec2 ParticleSpriteSize( uint n )
@@ -56,5 +73,47 @@ float ParticleLifetime( uint n )
 {
     return ParticleFloat( n, u_DrawLayout.Columns1.y, 0u, 0.0 );
 }
+
+vec3 ParticleVelocity( uint n )
+{
+    const uint c = u_DrawLayout.Columns2.x;
+    return vec3( ParticleFloat( n, c, 0u, 0.0 ), ParticleFloat( n, c, 1u, 0.0 ), ParticleFloat( n, c, 2u, 0.0 ) );
+}
+
+// The mesh renderer's per-axis scale of the mesh (UE Scale, default 1).
+vec3 ParticleScale( uint n )
+{
+    const uint c = u_DrawLayout.Columns2.y;
+    return vec3( ParticleFloat( n, c, 0u, 1.0 ), ParticleFloat( n, c, 1u, 1.0 ), ParticleFloat( n, c, 2u, 1.0 ) );
+}
+
+// The mesh renderer's orientation quaternion (x, y, z, w; UE MeshOrientation, default identity).
+vec4 ParticleMeshOrientation( uint n )
+{
+    const uint c = u_DrawLayout.Columns2.z;
+    return vec4( ParticleFloat( n, c, 0u, 0.0 ), ParticleFloat( n, c, 1u, 0.0 ), ParticleFloat( n, c, 2u, 0.0 ),
+                 ParticleFloat( n, c, 3u, 1.0 ) );
+}
+
+// The ribbon's full width at the particle (cm; UE RibbonWidth, default the sprite's width).
+float ParticleRibbonWidth( uint n )
+{
+    return ParticleFloat( n, u_DrawLayout.Columns2.w, 0u, ParticleSpriteSize( n ).x );
+}
+
+vec3 ParticleRibbonFacing( uint n )
+{
+    const uint c = u_DrawLayout.Columns3.y;
+    return vec3( ParticleFloat( n, c, 0u, 0.0 ), ParticleFloat( n, c, 1u, 0.0 ), ParticleFloat( n, c, 2u, 1.0 ) );
+}
+
+#ifdef PARTICLE_DRAW_INTS
+// Which ribbon the particle belongs to (UE RibbonID); without the attribute every particle is ribbon 0.
+uint ParticleRibbonId( uint n )
+{
+    const uint c = u_DrawLayout.Columns3.x;
+    return c == PARTICLE_ATTR_NONE ? 0u : uint( u_DrawInts[c * u_DrawLayout.Range.x + n] );
+}
+#endif
 
 #endif // PARTICLE_DRAW_READ_GLSLH

@@ -116,11 +116,14 @@ namespace Desert::Assets::Serialization::ShaderGraph
         uint64_t          NextId = 1;
         int               Domain = static_cast<int>( ShaderGraph::Domain::Surface ); // ShaderGraph::Domain
         bool              Lit    = false; // Surface-only: Lambert from the scene's directional light
-        // Surface-only: UE's "Used with Particle Sprites" usage. The generated template declares
-        // `Usage ParticleSprites`, which adds the ParticleSprite.Forward cell the particle pass draws with — and
-        // it is the cell whose SurfaceInput carries the particle values the Particle nodes read, so those nodes
-        // are refused by name in a graph that does not tick it.
+        // Surface-only: UE's "Used with Particle Sprites" / "Used with Mesh Particles" / "Used with Beam Trails"
+        // usages. Each ticked one makes the generated template declare its `Usage` (ParticleSprites,
+        // ParticleMeshes, ParticleRibbons), which adds that particle path's cells (DShaderParser
+        // kSurfaceParticleUsages) - the only cells whose SurfaceInput carries the particle values the Particle
+        // nodes read, so those nodes are refused by name in a graph that ticks none.
         bool              UsedWithParticleSprites = false;
+        bool              UsedWithParticleMeshes  = false;
+        bool              UsedWithParticleRibbons = false;
         std::vector<Node> Nodes;
         std::vector<Link> Links;
 

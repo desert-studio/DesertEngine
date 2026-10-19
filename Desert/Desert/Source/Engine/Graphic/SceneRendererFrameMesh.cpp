@@ -179,6 +179,12 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] ) )
             passes.push_back( terrain->GeometryPass() );
+        // The opaque / masked mesh particles of the forward path, lit like a forward mesh and depth-writing, after
+        // the geometry they are tested against (ParticleRenderer::BasePass; on the deferred path it declares
+        // nothing: they are in the G-buffer). NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the
+        // key names this exact type
+        if ( auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] ) )
+            passes.push_back( particles->BasePass() );
         AddSystemRasters( graph, textures, passes, true );
     }
 
@@ -344,6 +350,16 @@ namespace Desert::Graphic
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderGBufferManual( context ); },
              [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGBufferDraws( pass ); } );
+    }
+
+    void SceneRenderer::AddFrameParticleGBuffer( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // The opaque / masked mesh particles' base pass (ParticleRenderer::GBufferPass, UE: the base pass draws an
+        // opaque Niagara mesh renderer): LOAD, after the meshes' and the terrain's G-buffer nodes, so the three
+        // share one depth and the particles write depth, normal, material and velocity the deferred lighting
+        // reads. NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] ) )
+            AddSystemRaster( graph, textures, particles->GBufferPass() );
     }
 
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )

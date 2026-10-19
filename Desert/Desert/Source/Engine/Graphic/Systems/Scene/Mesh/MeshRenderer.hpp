@@ -549,7 +549,7 @@ namespace Desert::Graphic::System
 
         // THE SUN'S VIRTUAL SHADOW MAP, before its page passes (SceneRenderer::AddFrameVirtualSunShadow): what
         // changed among the casters since the last frame the map was drawn. A static, generic or still instanced
-        // caster and every non-mesh caster (IShadowCaster::AppendVirtualShadowEntries) that was added, removed or
+        // caster and every non-mesh caster (IVirtualShadowCaster::AppendVirtualShadowEntries) that was added, removed or
         // changed hands its old and its new box; a caster that moves by itself (skinned, swaying foliage) hands
         // its box now and last frame, every frame. StaticCastersChanged: a masked caster's pipeline was still
         // compiling when the pages were drawn, so the cached pages lack it and every one is dropped.
@@ -561,7 +561,7 @@ namespace Desert::Graphic::System
         [[nodiscard]] VirtualShadowInvalidation CollectVirtualShadowInvalidation();
         // "VSM: Raster L<l>", one attachment-less raster node per clipmap level (RDG PassBuilder::RenderArea over
         // the 16k virtual map): every caster of the level's view (BuildShadowCascadeDraws, kVsmViewBase + l)
-        // through the VirtualShadowDepth cells, then the non-mesh casters (IShadowCaster::DeclareVirtualShadow);
+        // through the VirtualShadowDepth cells, then the non-mesh casters (IVirtualShadowCaster::DeclareVirtualShadow);
         // the fragments write the dirty pages of @p frame's pool. Between VirtualShadowMapRenderer::AddPagePasses
         // and AddProjection. Each level's casters are culled on the GPU first ("VSM: Cull Casters", @p map): only
         // the instances over a page drawn this frame are rasterised, and a level with none draws nothing.
@@ -863,6 +863,13 @@ namespace Desert::Graphic::System
         }
         // CSM data the deferred lighting pass needs to shadow the sun (same source the forward material uses).
         const glm::mat4* GetCascadeViewProj() const        { return m_CascadeVP; }
+        // The matrix the casters of shadow view @p view (a cascade, or kMaxShadowCascades + a local slot) draw
+        // with (standard-Z, clip from world): the frustum the mesh casters are culled by, and a non-mesh caster's
+        // too.
+        [[nodiscard]] const glm::mat4& GetShadowCasterViewProj( const uint32_t view ) const
+        {
+            return m_CascadeCasterVP[view];
+        }
 
         // The target a non-mesh caster builds its pipeline against: the depth format of every cascade layer
         // (the static caches are framebuffers of it; the array layers are drawn through the graph).
@@ -876,6 +883,12 @@ namespace Desert::Graphic::System
         void AddShadowCaster( std::weak_ptr<IShadowCaster> caster )
         {
             m_ShadowCasters.push_back( std::move( caster ) );
+        }
+        // A renderer that also draws into the sun's virtual shadow map pages (IVirtualShadowCaster), held weakly
+        // for the same reason.
+        void AddVirtualShadowCaster( std::weak_ptr<IVirtualShadowCaster> caster )
+        {
+            m_VirtualShadowCasters.push_back( std::move( caster ) );
         }
         const glm::vec4& GetCascadeWorldPerTexel() const   { return m_CascadeWorldPerTexel; }
         // Per cascade, the world length the [0,1] light depth spans (CascadeFit::DepthRange): what turns a depth
@@ -988,8 +1001,12 @@ namespace Desert::Graphic::System
         // pipeline does not exist (a renderer with no shadow budget).
         bool EnsureShadowViewMaterials( uint32_t view );
         // A hash of every caster within @p radius of @p centre (what it draws and where), or nullopt when one of
-        // them moves by itself every frame (a skinned mesh, swaying foliage): the cache key of a local view.
-        [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const glm::vec3& centre, float radius ) const;
+        // them moves by itself every frame (a skinned mesh, swaying foliage, a non-mesh caster that says it is
+        // Moving there - the opaque mesh particles): the cache key of a local view. The non-mesh casters
+        // (m_ShadowCasters) that cast there are appended to @p casters (null: not wanted).
+        [[nodiscard]] std::optional<uint64_t>
+        LocalCasterSignature( const glm::vec3& centre, float radius,
+                              std::vector<std::weak_ptr<IShadowCaster>>* casters = nullptr ) const;
 
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
@@ -1229,6 +1246,7 @@ namespace Desert::Graphic::System
         CascadeCacheState                                          m_CascadeCache[kMaxCascades];
         MeshRendererDetail::MeshDrawList                           m_CascadeMovableDraws[kMaxCascades];
         std::vector<std::weak_ptr<IShadowCaster>> m_ShadowCasters; // non-mesh casters, AddShadowCaster
+        std::vector<std::weak_ptr<IVirtualShadowCaster>> m_VirtualShadowCasters; // AddVirtualShadowCaster
 
         // Instanced shadow caster: one pipeline + per-cascade instanced material (each owns the cascade's
         // light matrix UBO + an InstanceTransforms SSBO). Batched casters of one mesh collapse to a single
@@ -1264,7 +1282,7 @@ namespace Desert::Graphic::System
         // Per non-mesh caster: its first block on the level's node and its first culled argument record.
         struct VsmCasterEntry
         {
-            std::weak_ptr<IShadowCaster> Caster;
+            std::weak_ptr<IVirtualShadowCaster> Caster;
             uint32_t                     FirstBlock  = 0;
             uint32_t                     FirstRecord = 0;
         };
@@ -1346,9 +1364,14 @@ namespace Desert::Graphic::System
         {
             uint32_t  View = 0; // shadow view index (kMaxCascades + row)
             AtlasTile Tile;
+            // The non-mesh casters that cast into the view's light this frame (LocalCasterSignature).
+            std::vector<std::weak_ptr<IShadowCaster>> Casters;
         };
         std::vector<LocalShadowRedraw>    m_LocalRedraws;
         MeshRendererDetail::MeshDrawList  m_LocalDraws[kMaxLocalShadowViews];
+        // The view's non-mesh casters its Declare declared, each with the index of its first binding block (after
+        // m_LocalDraws[slot]'s): the exec records exactly these, as the cascades' m_CascadeCasters.
+        std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_LocalCasters[kMaxLocalShadowViews];
         uint32_t                          m_LocalRefusedLogged = 0; // lights last reported as left unshadowed
         bool                              m_ShadowsEnabled  = true;
         CascadeBiasSettings               m_ShadowBias;

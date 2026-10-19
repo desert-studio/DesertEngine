@@ -920,6 +920,9 @@ namespace Desert::Graphic
         // Frame assembly: one graph pass each, moved out of OnUpdate (SceneRendererFrame*.cpp).
         void AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
         void AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures );
+        // "Particles: GBuffer": the opaque / masked particles' G-buffer cells (ParticleRenderer::GBufferPass), after
+        // the meshes' and the terrain's, before the depth resolve.
+        void AddFrameParticleGBuffer( RDG::Builder& graph, FrameTextures& textures );
         // "Deferred: Forward Depth/Normal": the generic queue's opaque draws into G-buffer depth + normal.
         void AddFrameForwardDepthNormal( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer );

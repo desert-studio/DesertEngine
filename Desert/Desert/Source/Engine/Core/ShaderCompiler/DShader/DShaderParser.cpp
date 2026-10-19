@@ -1650,24 +1650,34 @@ namespace Desert::Core::Preprocess
                                               const std::string& heightFunctions )
         {
             const bool        masked   = blend == SurfaceBlendMode::Masked;
-            const bool        particle = path == kSurfaceParticleSpritePath;
-            const std::string defines  = std::format(
-                 "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}{}{}#define {} {}\n", pass,
+            const bool particle = std::ranges::any_of(
+                 kSurfaceParticleUsages, [path]( const SurfaceParticleUsage& u ) { return u.Path == path; } );
+            const bool sprite = path == kSurfaceParticleSpritePath;
+            // A translucent particle cell of the particle pass has its own pass header: the mesh Forward / glass
+            // headers light a mesh, the particle header composites a particle. An opaque / masked particle's
+            // cells, whatever its path, are the mesh passes' (kSurfaceParticleOpaquePasses), its Forward cell the
+            // LIT one.
+            const bool        opaque    = particle && !Formats::IsTranslucentBlend( blend );
+            const bool        composite = particle && pass == kSurfaceParticleSpritePass && !opaque;
+            const std::string defines   = std::format(
+                 "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}{}{}{}#define {} {}\n", pass,
                  // The hit cell's two stages share one pass header; the any-hit stage is told which it is.
                  stage == ShaderStage::AnyHit ? "#define DESERT_SURFACE_RAY_ANY_HIT 1\n" : "",
                  masked ? "#define DESERT_SURFACE_MASKED 1\n" : "",
                  Formats::IsTranslucentBlend( blend ) ? std::format( "#define {} 1\n", kSurfaceTranslucentDefine )
-                                                       : std::string(),
-                 particle ? std::format( "#define {} 1\n", kSurfaceParticleSpriteDefine ) : std::string(),
+                                                        : std::string(),
+                 particle ? std::format( "#define {} 1\n{}", kSurfaceParticleDefine,
+                                         sprite ? std::format( "#define {} 1\n", kSurfaceParticleSpriteDefine )
+                                                  : std::string() )
+                            : std::string(),
+                 composite ? std::format( "#define {} 1\n", kSurfaceParticleCompositeDefine ) : std::string(),
                  responsiveAA ? std::format( "#define {} 1\n", kSurfaceResponsiveAADefine ) : std::string(),
                  parallax ? std::format( "#define {} 1\n", kSurfaceParallaxDefine ) : std::string(),
                  kSurfaceShadingModelDefine, shadingModelDefine );
-            // The sprite path has its own pass header whatever the blend: the mesh Forward / glass headers light a
-            // mesh, the sprite header composites a particle.
             const bool        rayHit      = path == kSurfaceRayHitPath;
-            const std::string passInclude = particle ? std::string( kSurfaceParticleSpritePassInclude )
-                                            : rayHit ? std::string( kSurfaceRayHitPassInclude )
-                                                     : SurfacePassInclude( pass, blend );
+            const std::string passInclude = composite ? std::string( kSurfaceParticleSpritePassInclude )
+                                            : rayHit  ? std::string( kSurfaceRayHitPassInclude )
+                                                      : SurfacePassInclude( pass, blend );
             RawBlock          code;
             code.StartLine = 1;
             if ( stage == ShaderStage::Vertex )
@@ -1803,7 +1813,8 @@ namespace Desert::Core::Preprocess
             includes.push_back( SurfacePassInclude( pass, SurfaceBlendMode::Opaque ) );
         includes.emplace_back( kSurfaceTranslucentPassInclude );
         includes.emplace_back( kSurfaceFrontLayerPassInclude );
-        includes.push_back( SurfaceVertexInclude( kSurfaceParticleSpritePath ) );
+        for ( const SurfaceParticleUsage& usage : kSurfaceParticleUsages )
+            includes.push_back( SurfaceVertexInclude( usage.Path ) );
         includes.emplace_back( kSurfaceParticleSpritePassInclude );
         includes.emplace_back( kSurfaceRayHitPassInclude );
         includes.emplace_back( kSurfaceRayHitRecordInclude );
@@ -2093,13 +2104,21 @@ namespace Desert::Core::Preprocess
                 // UE's material usage flags: which vertex factories the template is compiled for beyond the
                 // meshes.
                 const std::string stated = ReadIdent( c );
-                if ( Lower( stated ) != "particlesprites" )
+                const std::string folded = Lower( stated );
+                if ( folded == "particlesprites" )
+                    result.Surface.UsedWithParticleSprites = true;
+                else if ( folded == "particlemeshes" )
+                    result.Surface.UsedWithParticleMeshes = true;
+                else if ( folded == "particleribbons" )
+                    result.Surface.UsedWithParticleRibbons = true;
+                else
                 {
                     // The author's spelling, not the folded one the comparison used.
-                    err = { line, std::format( "unknown Usage '{}' (ParticleSprites)", stated ) };
+                    err = { line,
+                            std::format( "unknown Usage '{}' (ParticleSprites, ParticleMeshes, ParticleRibbons)",
+                                         stated ) };
                     return fail();
                 }
-                result.Surface.UsedWithParticleSprites = true;
                 surfaceSettingLine                     = surfaceSettingLine != 0 ? surfaceSettingLine : line;
             }
             else if ( lower == "shadingmodel" )
@@ -2463,8 +2482,18 @@ namespace Desert::Core::Preprocess
                                          Core::kSceneReadBindingFirst + Core::kSceneReadBindingCount ) };
             return fail();
         }
+        if ( result.Layout.RowBinding && Core::IsParticleReadBinding( *result.Layout.RowBinding ) )
+        {
+            err = { c.Line,
+                    std::format( "Properties Binding({}) is inside the reserved particle-read range [{}, {}) "
+                                 "(the particle vertex paths' buffers); number the material row elsewhere",
+                                 *result.Layout.RowBinding, Core::kParticleReadBindingFirst,
+                                 Core::kParticleReadBindingFirst + Core::kParticleReadBindingCount ) };
+            return fail();
+        }
         for ( const auto& texture : result.Layout.Textures )
             for ( const uint32_t binding : { texture.Binding, texture.SamplerBinding } )
+            {
                 if ( Core::IsSceneReadBinding( binding ) )
                 {
                     err = { c.Line,
@@ -2476,6 +2505,19 @@ namespace Desert::Core::Preprocess
                                  Core::kSceneReadBindingFirst + Core::kSceneReadBindingCount ) };
                     return fail();
                 }
+                if ( Core::IsParticleReadBinding( binding ) )
+                {
+                    err = { c.Line,
+                            std::format(
+                                 "texture property '{}' (or its sampler state) lands on binding {}, inside "
+                                 "the reserved particle-read range [{}, {}) (the particle vertex paths' "
+                                 "buffers); move TextureBinding() so the run of textures and their samplers "
+                                 "stays clear of it",
+                                 texture.Name, binding, Core::kParticleReadBindingFirst,
+                                 Core::kParticleReadBindingFirst + Core::kParticleReadBindingCount ) };
+                    return fail();
+                }
+            }
         const std::string autoDecls = BuildAutoDeclarations( result.Layout );
         // The hit cell's: the same row, named through the hit group's shader record.
         const std::string rayHitAutoDecls = BuildAutoDeclarations( result.Layout, true );
@@ -2681,23 +2723,38 @@ namespace Desert::Core::Preprocess
                 }
             }
 
-            // `Usage ParticleSprites`: the sprite cell, after every mesh cell (the mesh cells' order is
-            // unchanged).
-            if ( result.Surface.UsedWithParticleSprites )
+            // The particle usages: one cell each (an opaque / masked template also its
+            // kSurfaceParticleOpaquePasses cells), after every mesh cell (the mesh cells' order is unchanged), in
+            // kSurfaceParticleUsages order.
+            const bool declared[] = { result.Surface.UsedWithParticleSprites,
+                                      result.Surface.UsedWithParticleMeshes,
+                                      result.Surface.UsedWithParticleRibbons };
+            static_assert( std::size( declared ) == kSurfaceParticleUsages.size() );
+            const auto addParticleCell = [&]( const std::string_view path, const std::string_view pass )
             {
                 DShaderPass cell;
-                cell.Name  = SurfaceCellName( kSurfaceParticleSpritePath, kSurfaceParticleSpritePass );
+                cell.Name  = SurfaceCellName( path, pass );
                 cell.State = cellState;
                 for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
-                    cell.Stages.emplace(
-                         stage, AssembleSurfaceCellStage( stage, kSurfaceParticleSpritePath,
-                                                          kSurfaceParticleSpritePass, *surfaceBlock, includeBlock,
-                                                          autoDecls, result.Surface.Blend, shadingModelDefine,
-                                                          result.Surface.ResponsiveAA, opacityMaskFunction,
-                                                          false, heightFunctions ) );
+                    cell.Stages.emplace( stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock,
+                                                                          includeBlock, autoDecls,
+                                                                          result.Surface.Blend, shadingModelDefine,
+                                                                          result.Surface.ResponsiveAA,
+                                                                          opacityMaskFunction, false,
+                                                                          heightFunctions ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );
+            };
+            for ( std::size_t u = 0; u < kSurfaceParticleUsages.size(); ++u )
+            {
+                if ( !declared[u] )
+                    continue;
+                const std::string_view path = kSurfaceParticleUsages[u].Path;
+                addParticleCell( path, kSurfaceParticleSpritePass );
+                if ( !Formats::IsTranslucentBlend( result.Surface.Blend ) )
+                    for ( const std::string_view pass : kSurfaceParticleOpaquePasses )
+                        addParticleCell( path, pass );
             }
 
             // `Height <Texture2D> ... Scale(<Float>)`: every mesh cell again as its `.Parallax` permutation, after every other cell

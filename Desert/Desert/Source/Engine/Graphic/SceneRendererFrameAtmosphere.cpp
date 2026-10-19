@@ -66,6 +66,8 @@ namespace Desert::Graphic
         // VFX-08: every view sorts its own translucent / additive emitters back to front (the key is its view
         // depth); the graph orders the sort after the last Compact and before ParticlePass from the buffers.
         particles->AddSortPasses( graph );
+        // VFX-RENDER: the mesh rows' indexed-indirect commands, from the same last compact's slots.
+        particles->AddMeshDrawArgsPasses( graph );
     }
 
     static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer )

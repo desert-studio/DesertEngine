@@ -2151,7 +2151,7 @@ namespace Desert::Migration
         }
 
         // One channel per component, Linear keys at the given times.
-        // THE ENGINE MODULE LIBRARY AS VFXS 3 FOUND IT (VFX-MODULE-ASSET): every `engine:<Name>` a VFXS 1 stack
+        // THE ENGINE MODULE LIBRARY AS VFXS 3 FOUND IT (VFX-MODULE-ASSET): every `engine:<Name>` a VFXS 2 stack
         // row or the v51 scene step could name, with the GUID its `.dfxmod` states (Editor/Resources/Engine/VFX/
         // Modules). Frozen, as a step is: the files may move or be renamed later, and a reference written by this
         // step follows them through the GUID.
@@ -2314,7 +2314,11 @@ namespace Desert::Migration
              Use( "SizeOverLife", { CurveInput( "Scale", T::Vec2, { size, size } ) } ),
              Use( "ColorOverLife", { CurveInput( "Scale", T::Vec4, colour ) } ),
         };
-        emitter.Renderers.push_back( S::VFXRendererData{ S::VFXRendererKind::Sprite, true } );
+        // The component's sprite material moves onto the sprite renderer row (VFXS 2); an empty one stays absent.
+        S::VFXRendererData sprite{ S::VFXRendererKind::Sprite, true };
+        if ( !d.Material.Guid.empty() )
+            sprite.Material = Assets::AssetGuidRef{ d.Material.Guid, d.Material.Path };
+        emitter.Renderers.push_back( std::move( sprite ) );
 
         S::VFXSystemData system;
         system.Category = kVFXConvertedCategory;
@@ -2325,7 +2329,7 @@ namespace Desert::Migration
         // its longest life at the top speed under gravity, plus the larger sprite.
         const float reach = std::abs( speedMax ) * lifeMax + 0.5f * glm::length( d.Gravity ) * lifeMax * lifeMax +
                             std::max( std::abs( d.StartSize ), std::abs( d.EndSize ) );
-        system.Bounds = S::VFXBounds{ glm::vec3( -reach ), glm::vec3( reach ) };
+        emitter.Bounds = S::VFXBounds{ glm::vec3( -reach ), glm::vec3( reach ) };
         system.Emitters.push_back( std::move( emitter ) );
         return system;
     }
@@ -4513,9 +4517,9 @@ namespace Desert::Migration
                                      : rfl::Result<rfl::Generic::Object>( rfl::Error( "no header" ) );
         const auto stated   = versions ? versions.value().get( "VFXS" ).value_or( rfl::Generic() ).to_int()
                                        : rfl::Result<int>( rfl::Error( "no versions" ) );
-        if ( !stated || stated.value() != 1 )
+        if ( !stated || stated.value() != 2 )
             return Common::MakeFormattedError<Result>(
-                 "the header states VFXS {}, and this step raises VFXS 1 only",
+                 "the header states VFXS {}, and this step raises VFXS 2 only",
                  stated ? std::to_string( stated.value() ) : "nothing" );
 
         rfl::Generic::Object raised;

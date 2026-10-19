@@ -120,8 +120,9 @@ Shader "DeferredLighting"
         // The reflection captures (Common/ReflectionEnvironment.glslh): the per-capture records and their cube array,
         // bound by the Composite node as scene view inputs (SceneViewInputs::ReflectionCaptures / ...Cubes).
         // SET 1, bindings 0 and 1, so the set-0 table (pinned by name in ShaderCacheKey) keeps its free slots for the
-        // passes that come next. 25-27 are the reserved scene-read range
-        // (Core::IsSceneReadBinding) and 28 up is the window a shader graph's own resources are numbered into
+        // passes that come next. 25-34 are the reserved scene-read range (Core::IsSceneReadBinding), 35-40 the
+        // reserved particle-read range (Core::IsParticleReadBinding) and 41 up is the window a shader graph's own
+        // resources are numbered into
         // (Core::kGraphOwnedBindingFirst) - which no engine declaration may enter, graph or no graph in this
         // program. A second set is outside both reservations by construction (they are set-0 numbers), and the
         // pass binds by name: the backend resolves each name to its (set, binding) from the reflection.
