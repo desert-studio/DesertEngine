@@ -111,6 +111,9 @@ Shader "ScreenProbeTrace"
         #define SP_SCREEN_RELATIVE_THICKNESS 0.02
         // cm the screen ray leaves the probe's surface along its normal (SSR's).
         #define SP_SCREEN_BIAS 2.0
+        // cm a world leg starts before the point up to which the screen was certain (twice UE's mesh SDF
+        // SurfaceBias, 5 cm; SSR.shader's kWorldStartBackoff): the world's surface stands off the depth buffer's.
+        #define SP_WORLD_START_BACKOFF 10.0
 
         // World -> (uv, deviceZ) of the G-buffer's (jittered) projection, uv top-left (the engine's flipped
         // viewport). False behind the camera.
@@ -162,7 +165,7 @@ Shader "ScreenProbeTrace"
                     const vec3 exitWorld =
                          ReconstructWorldPosition( clamp( walk.Position.xy, 0.0, 1.0 ), walk.Position.z,
                                                    giFrame.invViewProjection );
-                    result.distance = min( max( distance( origin, exitWorld ) - 2.0 * SP_MESH_SDF_BIAS, 0.0 ), tMax );
+                    result.distance = min( max( distance( origin, exitWorld ) - SP_WORLD_START_BACKOFF, 0.0 ), tMax );
                 }
                 return result;
             }
@@ -189,7 +192,7 @@ Shader "ScreenProbeTrace"
                                              : HZBScreenEdgeFade( prevUV ) );
             if ( vignette < noise )
             {
-                result.distance = max( hitDistance - 2.0 * SP_MESH_SDF_BIAS, 0.0 );
+                result.distance = max( hitDistance - SP_WORLD_START_BACKOFF, 0.0 );
                 return result;
             }
             result.hit      = true;
