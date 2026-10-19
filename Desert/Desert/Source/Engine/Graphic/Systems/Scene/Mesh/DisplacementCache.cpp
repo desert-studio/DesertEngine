@@ -282,6 +282,8 @@ namespace Desert::Graphic::System
         if ( const auto built = vertices->RT_Invalidate(); !built.IsSuccess() )
             return Common::MakeFormattedError<Result>( "displacement: {} vertices could not be allocated: {}",
                                                        vertexCount, built.GetError() );
+        // Ledger rows (§5): the scene renderer's, like the skin cache's streams - rebuilt by redisplacing.
+        vertices->ClaimOwnership( ResourceOwner::SceneRenderer );
         std::shared_ptr<VertexBuffer> streamBuffer;
         if ( streams )
         {
@@ -291,6 +293,7 @@ namespace Desert::Graphic::System
                 return Common::MakeFormattedError<Result>(
                      "displacement: {} stream vertices could not be allocated: {}", vertexCount,
                      built.GetError() );
+            streamBuffer->ClaimOwnership( ResourceOwner::SceneRenderer );
         }
         std::shared_ptr<IndexBuffer> indices =
              IndexBuffer::Create( t.Indices.data(), static_cast<uint32_t>( t.Indices.size() * sizeof( uint32_t ) ),
@@ -298,6 +301,7 @@ namespace Desert::Graphic::System
         if ( const auto built = indices->RT_Invalidate(); !built.IsSuccess() )
             return Common::MakeFormattedError<Result>( "displacement: {} indices could not be uploaded: {}",
                                                        t.Indices.size(), built.GetError() );
+        indices->ClaimOwnership( ResourceOwner::SceneRenderer );
 
         // The graph: base vertices (+ streams) in, the twin's vertices (+ streams) out.
         RDG::ExternalBuffer baseVertices, baseStreams, twinVertices, twinStreams;

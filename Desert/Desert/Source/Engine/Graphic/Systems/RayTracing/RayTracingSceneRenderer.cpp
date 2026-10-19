@@ -47,6 +47,11 @@ namespace Desert::Graphic::RayTracing
                         mib( stats.SkinCacheBlasBytes ), stats.SkinCacheEntries );
         std::format_to( out, "  {:<26} {:9.2f} MiB\n", "skin cache positions",
                         mib( stats.SkinCachePositionsBytes ) );
+        std::format_to( out, "  {:<26} {:9.2f} MiB ({} entries, {} geometries, {} levels lowered)\n",
+                        "displaced geometry", mib( stats.DisplacedBufferBytes ), stats.DisplacedEntries,
+                        stats.DisplacedGeometries, stats.DisplacedLevelsHeld );
+        std::format_to( out, "  {:<26} {:9.2f} MiB\n", "displacement topology",
+                        mib( stats.DisplacedTopologyBytes ) );
         std::format_to( out, "  {:<26} {:9.2f} MiB\n", "landscape vertices", mib( stats.LandscapeVertexBytes ) );
         std::format_to( out, "  {:<26} {:9.2f} MiB\n", "landscape BLAS", mib( stats.LandscapeBlasBytes ) );
         return text;
@@ -173,6 +178,13 @@ namespace Desert::Graphic::RayTracing
         m_Stats.SegmentsWithoutOpacity              = metadata.GetValue().SegmentsWithoutOpacity;
         m_Stats.DynamicScratchBytes                 = dynamicScratch.GetValue();
         m_Stats.SkinCacheEntries     = static_cast<uint32_t>( cache.GetSkinCache().GetEntryCount() );
+        const System::DisplacementStats displaced = cache.GetDisplacement().GetStats();
+        m_Stats.DisplacedBufferBytes   = displaced.BufferBytes;
+        m_Stats.DisplacedTopologyBytes = displaced.TopologyBytes;
+        m_Stats.DisplacedEntries       = displaced.Entries;
+        m_Stats.DisplacedGeometries    = displaced.Geometries;
+        m_Stats.DisplacedLevelsLowered = displaced.LevelsLowered;
+        m_Stats.DisplacedLevelsHeld    = displaced.LevelsHeld;
         m_Stats.LandscapeBuilt       = external.Built;
         m_Stats.LandscapeRefit       = external.Refit;
         m_Stats.LandscapeVertexBytes = external.VertexBytes;

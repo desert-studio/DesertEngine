@@ -199,6 +199,14 @@ namespace Desert::Graphic::RayTracing
         uint64_t TlasScratchBytes        = 0; // this frame's TLAS build scratch (transient)
         uint64_t DynamicScratchBytes     = 0; // this frame's RayTracingScene.DynamicGeometry scratch (transient)
         uint32_t SkinCacheEntries        = 0; // the scene's skin-cache entries (skinned primitives it holds)
+        // The scene's displaced geometry (DisplacementCache, CONTRACT-DISPLACE §5): the twins' buffers, the
+        // topologies they read, and the pool's level lowerings - every one counted, none silent.
+        uint64_t DisplacedBufferBytes    = 0;
+        uint64_t DisplacedTopologyBytes  = 0;
+        uint32_t DisplacedEntries        = 0;
+        uint32_t DisplacedGeometries     = 0;
+        uint32_t DisplacedLevelsLowered  = 0; // this frame
+        uint32_t DisplacedLevelsHeld     = 0; // lowering steps still in force
         // Alpha-tested segments (Opaque = false) whose material has no opacity source in the ray-tracing
         // metadata yet: a ray query confirms their candidates as hits (RayTracingMetadataBuild).
         uint32_t SegmentsWithoutOpacity = 0;
