@@ -104,6 +104,9 @@ namespace Desert::Graphic
         // named by its row's BoneOffset / PrevBoneOffset. Bound onto every material whose template reads
         // ObjectBones (the view-pass skinned cell).
         std::shared_ptr<ShaderResources::StorageBuffer> ObjectBones;
+        // The world's parameters this frame (SceneRenderer::GetWorldParametersBuffer: the view's snapshot of
+        // Scene::GetWorldParameters, BuildWorldParameterTable), for a template whose surface reads one.
+        std::shared_ptr<ShaderResources::StorageBuffer> WorldParameters;
 
         // Writes the whole snapshot onto @p material. One call, so a new piece of frame state can never
         // be applied at four of the five sites and forgotten at the fifth.

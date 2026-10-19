@@ -7,6 +7,9 @@
 #include <CoreReflection/ReflectionMacros.hpp>
 
 #include <cstdint>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace Desert::ECS
 {
@@ -108,6 +111,11 @@ namespace Desert::ECS
         // component defaults the moved fields used to carry.
         PROPERTY( DisplayName( "Material" ), Category( "Materials" ), Asset<MaterialAsset>, Hidden )
         Assets::AssetHandle Material;
+
+        // RUNTIME, NOT AUTHORED (no PROPERTY: never saved, never in Details): the layer's material instance
+        // dynamic — named values laid over the `.demat` chain each frame, by the names the march schema declares
+        // (VolumetricCloudRenderer::ResolveMaterial). The world's weather writes "Coverage" here (WTH-STATE).
+        std::vector<std::pair<std::string, glm::vec4>> DynamicParams;
 
         PROPERTY( DisplayName( "Planet Radius" ), Category( "Cloud Layer" ), Units( "km" ),
                   Range( 100.0f, 7000.0f ), Advanced,

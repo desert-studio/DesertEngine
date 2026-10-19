@@ -169,6 +169,13 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Respawn Delay" ), Category( "Game Mode" ), Range( 0.0f, 60.0f ) )
         float RespawnDelay = 3.0f;
 
+        // UE's Material Parameter Collection, one per level: the named world values (wetness, snow cover, wind)
+        // every material can read by name (`WorldParameter( "Wetness" )`) and gameplay sets at runtime (Luau
+        // `WorldParameters.setScalar`). The values live in the world (Scene::GetWorldParameters), this names the
+        // collection whose parameters and defaults it holds. None = the level has no world parameters.
+        PROPERTY( DisplayName( "World Parameters" ), Category( "Rendering" ), Asset<WorldParametersAsset> )
+        Assets::AssetHandle WorldParameters;
+
         PROPERTY( DisplayName( "Splash Sprite" ), Category( "Splash" ), Asset<TextureAsset> )
         Assets::AssetHandle SplashSprite;
         PROPERTY( DisplayName( "Splash Duration" ), Category( "Splash" ), Range( 0.0f, 10.0f ) )

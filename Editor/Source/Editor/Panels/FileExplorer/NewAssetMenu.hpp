@@ -81,6 +81,8 @@ namespace Desert::Editor
         /// of the background menu and the palette (ContentCreateCommands.hpp).
         Common::BoolResultStr CreateNewInputAction( const DirectoryInformation* folder );
         Common::BoolResultStr CreateNewInputMappingContext( const DirectoryInformation* folder );
+        /// UE's Add > Materials > Material Parameter Collection: an empty `.dworldparams` in @p folder.
+        Common::BoolResultStr CreateNewWorldParameters( const DirectoryInformation* folder );
         // UE's new UNiagaraDataChannel, with the Position field every channel spawn binds first.
         Common::BoolResultStr CreateNewVFXDataChannel( const DirectoryInformation* folder );
         /// One cloud asset in @p folder under a unique name, its document opened; the two volume formats are

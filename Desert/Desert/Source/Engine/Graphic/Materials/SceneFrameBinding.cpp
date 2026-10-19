@@ -69,6 +69,15 @@ namespace Desert::Graphic
             DESERT_VERIFY( bound, "a skinned view-pass material reads ObjectBones but the frame carries none" );
             palettes->SetBuffer( ObjectBones );
         }
+        // A surface that reads a world parameter with no table bound would read an unbound buffer: every view
+        // writes one each frame, an empty collection included.
+        if ( Reads( groups, SceneRead::WorldParameters ) )
+        {
+            auto*      table = material->Get<StorageBufferProperty>( SceneResources::kWorldParametersName );
+            const bool bound = table != nullptr && WorldParameters != nullptr;
+            DESERT_VERIFY( bound, "a material reads WorldParameters but the frame carries none" );
+            table->SetBuffer( WorldParameters );
+        }
     }
 
     void SceneFrameBinding::ApplyTo( MaterialInstance* instance ) const

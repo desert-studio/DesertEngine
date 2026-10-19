@@ -131,6 +131,12 @@ namespace Desert::Assets
         // around the camera every frame — see Engine/Assets/LandscapeGrassTypeAsset.hpp and
         // Graphic/Systems/Scene/Grass/GrassRenderer.hpp.
         LandscapeGrassType,
+        // A WORLD PARAMETER COLLECTION (`.dworldparams`): UE's UMaterialParameterCollection — named world values
+        // every material can read and gameplay can set. See Engine/Assets/WorldParametersAsset.hpp.
+        WorldParameters,
+        // A WEATHER PRESET (`.dweatherpreset`): one weather as data, named by weather zones and SetWeather.
+        // See Engine/Assets/WeatherPresetAsset.hpp.
+        WeatherPreset,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -246,6 +252,11 @@ namespace Desert::Assets
             // A VFX DATA CHANNEL IS SCENE-SCOPED for the retarget's reason: the scene's VFXWorld registers it by
             // handle (VFXDataChannels::Register) and a channel no scene uses has no entries to carry.
             case AssetTypeID::VFXDataChannel:
+            // A WORLD PARAMETER COLLECTION IS SCENE-SCOPED for the retarget's reason: the scene's settings name it
+            // by `AssetHandle` (SceneSettings::WorldParameters), and a collection no scene names has no world.
+            case AssetTypeID::WorldParameters:
+            // A WEATHER PRESET IS SCENE-SCOPED likewise: weather zones name it by `AssetHandle`.
+            case AssetTypeID::WeatherPreset:
             case AssetTypeID::Count:
                 return false;
         }
@@ -330,6 +341,10 @@ namespace Desert::Assets
                 return "Sound";
             case AssetTypeID::VFXDataChannel:
                 return "VFXDataChannel";
+            case AssetTypeID::WorldParameters:
+                return "WorldParameters";
+            case AssetTypeID::WeatherPreset:
+                return "WeatherPreset";
             case AssetTypeID::Count:
                 return "Count";
         }

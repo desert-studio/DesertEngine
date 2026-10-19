@@ -92,6 +92,8 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceParallaxCellSuffix = ".Parallax";
     inline constexpr std::string_view kSurfaceParallaxDefine     = "DESERT_SURFACE_PARALLAX";
     inline constexpr std::string_view kSurfaceParallaxInclude    = "Mesh/Surface/SurfaceParallax.glslh";
+    // The world's parameter table, included into a cell whose surface reads `WorldParameter( "Name" )`.
+    inline constexpr std::string_view kWorldParametersInclude = "Common/WorldParameters.glslh";
     // THE PARTICLE SPRITE USAGE (UE: a material's bUsedWithParticleSprites). A template that declares
     // `Usage ParticleSprites` gets ONE more cell, `ParticleSprite.Forward`, after the mesh cells: the sprite
     // vertex path (Vertex_ParticleSprite.glslh, the particle's colour / relative time / random into

@@ -39,6 +39,7 @@
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Geometry/PosedBounds.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 namespace Desert::Core
 {
@@ -580,8 +581,31 @@ namespace Desert::Core
         }
     }
 
+    Common::BoolResultStr Scene::SyncWorldParameters()
+    {
+        const Common::AssetHandle named = m_Settings.WorldParameters;
+        if ( named == Common::AssetHandle{} )
+        {
+            m_WorldParameters.Adopt( named, nullptr );
+            return BOOLSUCCESS;
+        }
+        const auto data = Runtime::ResourceRegistry::GetWorldParametersService()->Get( named );
+        if ( !data )
+        {
+            m_WorldParameters.Adopt( Common::AssetHandle{}, nullptr );
+            return Common::MakeFormattedError<bool>( "the scene's world parameters {}: {}",
+                                                     static_cast<uint64_t>( named ), data.GetError() );
+        }
+        m_WorldParameters.Adopt( named, data.GetValue() );
+        return BOOLSUCCESS;
+    }
+
     NO_DISCARD Common::BoolResultStr Scene::OnUpdate( const Common::Timestep& ts )
     {
+        // The world's parameters before anything reads them: the scripts below set them, every view after them
+        // snapshots them. The service logged a refusal once; the instance then holds none.
+        (void)SyncWorldParameters();
+
         // A pinned camera is driven from OUTSIDE the scene (the Details preview orbits its own), so the
         // play-state rule must not hand the view back to the EditorCamera behind its back — that is a
         // per-frame overwrite, and it is why the preview rendered through the input-driven editor camera
@@ -647,6 +671,16 @@ namespace Desert::Core
             World::Foliage::RealizePrefabFoliage( *this );
         }
 
+        // THE WEATHER before the systems read the fog, the clouds and the wind: advanced by gameplay time (a
+        // script's Weather.set lands next frame's tick), and written at the active camera. In Edit the authored
+        // values show — the weather is world state, and the editor world does not run it.
+        if ( TicksGameplay() )
+        {
+            DESERT_PROFILE_SCOPE( "Weather" );
+            m_Weather.Tick( m_Registry, gameplayTs.GetSeconds() );
+            if ( const auto observer = GetActiveCamera() )
+                m_Weather.Apply( m_Registry, m_WorldParameters, observer->GetPosition() );
+        }
         {
             DESERT_PROFILE_SCOPE( "ECS Systems" );
             ExecuteSystems( gameplayTs );

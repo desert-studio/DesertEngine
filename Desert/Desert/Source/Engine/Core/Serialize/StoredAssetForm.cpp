@@ -20,7 +20,8 @@ namespace Desert::Core::Serialize
              type == "AnimGraphAsset" || type == "UIThemeAsset" || type == "RetargetAsset" ||
              type == "PrefabAsset" || type == "FoliageTypeAsset" || type == "FractureAsset" ||
              type == "WaterWavesAsset" || type == "InputMappingContextAsset" || type == "PhysicsAsset" ||
-             type == "SoundAsset" || type == "VFXSystemAsset" )
+             type == "SoundAsset" || type == "VFXSystemAsset" || type == "WorldParametersAsset" ||
+             type == "WeatherPresetAsset" )
             return StoredAssetForm::AssetsRelative;
 
         // Meshes (static/skinned both resolved handle->path through the MeshAsset base): the tagged stable
