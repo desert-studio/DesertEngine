@@ -2,6 +2,7 @@
 #include "ProductName.hpp"
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Json/Document.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
@@ -87,6 +88,132 @@ namespace Common::Settings
             return list;
         }
 
+        // ONE ENTRY OF THE FILE THAT WAS NOT TAKEN AS WRITTEN, as the sentence the log prints after the file name.
+        // Dropped = the entry is not in the loaded settings (the next saved change writes the file without it);
+        // otherwise it is kept and carried, only refused its effect (an override naming a parameter of another
+        // build).
+        struct Rejection
+        {
+            std::string Problem;
+            bool        Dropped = true;
+        };
+
+        // What the file says, entry by entry. A syntax error, or a document that is not an object, is the one
+        // refusal of the whole file: nothing in it can be located. Anything else is refused BY ENTRY, so one
+        // misspelt override does not take the rest of the machine's choice down with it (RT1016-MAC-2B: an
+        // override written {"Parameter": ...} sent a whole Epic selection to the defaults).
+        struct ScreenedFile
+        {
+            MachineSettings        Settings;
+            std::vector<Rejection> Rejections;
+        };
+
+        constexpr std::string_view kOverrideForm = R"(an override is {"Key": "<Group.Parameter>", "Value": <integer>})";
+
+        // One element of Quality.Overrides: kept, kept with an error (a key this build has no parameter for), or
+        // dropped with the reason (a field that is not Key/Value, a Value that is not an integer, no Key, a Value
+        // outside the parameter's spec range).
+        std::optional<Rejection> ScreenOverride( const Json::Node& entry )
+        {
+            const std::string text = Json::Write( entry.Raw() );
+            auto              read = entry.As<Scalability::ParameterOverride>();
+            if ( !read )
+                return Rejection{ std::format( "override {} is ignored: {} ({})", text, read.GetError(), kOverrideForm ) };
+
+            const Scalability::ParameterOverride& value = read.GetValue();
+            if ( value.Key.empty() )
+                return Rejection{
+                     std::format( "{}: override {} is ignored: it has no Key ({})", entry.Where().ToString(), text,
+                                  kOverrideForm ) };
+
+            const auto specs = Scalability::ParameterSpecs();
+            const auto spec  = std::find_if( specs.begin(), specs.end(),
+                                             [&]( const Scalability::ParameterSpec& s ) { return s.Key == value.Key; } );
+            if ( spec == specs.end() )
+                return Rejection{ std::format( "{}: override {} names no parameter of this build; it is not applied "
+                                               "and stays in the file for the build that wrote it",
+                                               entry.Where().ToString(), text ),
+                                  false };
+
+            if ( value.Value < spec->Min || value.Value > spec->Max )
+                return Rejection{ std::format( "{}: override {} is ignored: {} is outside {}'s range [{}, {}]; the {} "
+                                               "level's value stands",
+                                               entry.Where().ToString(), text, value.Value, spec->Key, spec->Min,
+                                               spec->Max, Scalability::GroupKey( spec->Owner ) ) };
+            return std::nullopt;
+        }
+
+        // The Quality member with every dropped override taken out of its Overrides array. A Quality that is not an
+        // object, or Overrides that is not an array, comes back as written: the member check refuses it whole.
+        Json::Value ScreenOverrides( const Json::Node& quality, std::vector<Rejection>& rejections )
+        {
+            const std::optional<Json::Node> overrides = quality.Find( "Overrides" );
+            if ( !overrides || overrides->GetKind() != Json::Kind::Array )
+                return quality.Raw();
+
+            Json::Value::Array kept;
+            overrides->ForEachElement(
+                 [&]( std::size_t, const Json::Node& entry )
+                 {
+                     std::optional<Rejection> rejection = ScreenOverride( entry );
+                     if ( !rejection || !rejection->Dropped )
+                         kept.push_back( entry.Raw() );
+                     if ( rejection )
+                         rejections.push_back( std::move( *rejection ) );
+                 } );
+
+            const Json::Value  screened( std::move( kept ) );
+            Json::ObjectBuilder rebuilt;
+            quality.ForEachMember( [&]( std::string_view name, const Json::Node& member )
+                                   { rebuilt.Set( name, name == "Overrides" ? screened : member.Raw() ); } );
+            return Json::Value( rebuilt.Build() );
+        }
+
+        Common::ResultStr<ScreenedFile> ScreenFile( std::string_view text )
+        {
+            auto parsed = Json::Parse( text );
+            if ( !parsed )
+                return MakeError<ScreenedFile>( parsed.GetError() );
+            const Json::Value& document = parsed.GetValue();
+            const Json::Node   root     = Json::Root( document );
+            if ( root.GetKind() != Json::Kind::Object )
+                return MakeError<ScreenedFile>(
+                     std::format( "the document is {}, not an object", Json::Detail::DescribeFound( document ) ) );
+
+            // Every top-level member is read ALONE against the struct (a key the struct does not declare lands in
+            // UnknownKeys, as on the whole-file read); a member that does not read is refused by name and keeps its
+            // in-struct default, the others stand.
+            ScreenedFile        screened;
+            Json::ObjectBuilder kept;
+            root.ForEachMember(
+                 [&]( std::string_view name, const Json::Node& member )
+                 {
+                     const Json::Value value =
+                          name == "Quality" ? ScreenOverrides( member, screened.Rejections ) : member.Raw();
+                     const Json::Value alone( Json::ObjectBuilder().Set( name, value ).Build() );
+                     if ( auto read = Json::Root( alone ).As<MachineSettings>(); !read )
+                     {
+                         screened.Rejections.push_back(
+                              { std::format( "{} is ignored and keeps its default: {}", name, read.GetError() ) } );
+                         return;
+                     }
+                     kept.Set( name, value );
+                 } );
+
+            const Json::Value accepted( kept.Build() );
+            auto              settings = Json::Root( accepted ).As<MachineSettings>();
+            if ( !settings )
+                return MakeError<ScreenedFile>( settings.GetError() );
+            screened.Settings = settings.ExtractValue();
+            return MakeSuccess( std::move( screened ) );
+        }
+
+        std::size_t CountDropped( const std::vector<Rejection>& rejections )
+        {
+            return static_cast<std::size_t>( std::count_if( rejections.begin(), rejections.end(),
+                                                            []( const Rejection& r ) { return r.Dropped; } ) );
+        }
+
         // WHAT THE FILE HOLDS AT THIS INSTANT, and the unknown keys taken from it — refreshed into
         // Get().UnknownKeys. Returns the file's canonical text, or nothing when there is no file or it
         // could not be read or parsed.
@@ -114,7 +241,7 @@ namespace Common::Settings
                 return std::nullopt;
             }
 
-            auto parsed = Json::Read<MachineSettings>( raw.GetValue() );
+            auto parsed = ScreenFile( raw.GetValue() );
             if ( !parsed )
             {
                 LOG_ERROR( "[Machine] {} is corrupt ({}); it is being replaced rather than merged, so any "
@@ -123,7 +250,13 @@ namespace Common::Settings
                 return std::nullopt;
             }
 
-            MachineSettings fromDisk = parsed.ExtractValue();
+            // The entries Load() refused (and logged one by one) are not part of the canonical text, so a save
+            // that changes a setting writes the file without them; one that changes nothing leaves the file alone.
+            if ( const std::size_t dropped = CountDropped( parsed.GetValue().Rejections ); dropped > 0 )
+                LOG_WARN( "[Machine] {} holds {} entr{} refused at load; a write now leaves {} out.", s_File.string(),
+                          dropped, dropped == 1 ? "y" : "ies", dropped == 1 ? "it" : "them" );
+
+            MachineSettings fromDisk = std::move( parsed.ExtractValue().Settings );
 
             const std::string canonical        = Json::Write( fromDisk );
             MachineSettings::Get().UnknownKeys = std::move( fromDisk.UnknownKeys );
@@ -177,17 +310,23 @@ namespace Common::Settings
 
         // A file written by a build with fewer fields keeps loading — Json::Read gives every field the file does
         // not state its in-struct default; keys of a build with MORE fields land in UnknownKeys.
-        auto parsed = Json::Read<MachineSettings>( raw.GetValue() );
+        // An entry that does not read is refused BY ENTRY (ScreenFile), each one an ERROR naming the file, the
+        // entry's path and the reason; only a file with no locatable entries (a syntax error) falls to the defaults.
+        auto parsed = ScreenFile( raw.GetValue() );
         if ( !parsed )
         {
-            // The parse error names the field (or the offset) that refused; the path names the file.
+            // The parse error names the offset that refused; the path names the file.
             LOG_ERROR( "[Machine] {} is corrupt: {} — this session runs at the default quality, and the next "
                        "change will overwrite the file.",
                        s_File.string(), parsed.GetError() );
             return;
         }
 
-        Get() = parsed.ExtractValue();
+        ScreenedFile screened = parsed.ExtractValue();
+        for ( const Rejection& rejection : screened.Rejections )
+            LOG_ERROR( "[Machine] {}: {}{}", s_File.string(), rejection.Problem,
+                       rejection.Dropped ? " — the next saved change writes the file without it." : "." );
+        Get() = std::move( screened.Settings );
         // The canonical form of what the file holds, NOT the raw bytes: an older build's key order or
         // spacing is not a settings change, and a memo taken from the raw text would report the whole
         // struct as changed on the first save after an upgrade.
