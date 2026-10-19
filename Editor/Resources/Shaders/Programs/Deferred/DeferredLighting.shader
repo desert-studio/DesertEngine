@@ -34,6 +34,7 @@ Shader "DeferredLighting"
         #include <Mesh/LightsMetadata.glslh>  // binding 4  (UB LightsMetadata: point/spot/dir counts)
         // THE direct-light BRDF, shared with the forward mesh shaders and with the point/spot headers
         // above (which already include it). Named explicitly because this pass calls it directly.
+        #include <Mesh/BRDF.glslh>            // DirectLighting needs it first; under DESERT_MEGALIGHTS no light header brings it
         #include <Mesh/DirectLighting.glslh>
         // The one-bounce estimate GatherIndirectGI below is built from — direct light seen a second time,
         // so it is the SAME BRDF, reached through the same text. Must follow DirectLighting.glslh, which it

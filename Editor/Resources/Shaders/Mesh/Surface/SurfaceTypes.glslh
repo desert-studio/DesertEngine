@@ -36,7 +36,9 @@ float g_DesertRayHitLod = 0.0;
 
 vec4 SurfaceSampleMaterial( BindlessTexture materialTexture, vec2 uv )
 {
-    const ivec2 size = textureSize( u_BindlessTextures[nonuniformEXT( materialTexture.Texture )], 0 );
+    const ivec2 size = textureSize( sampler2D( u_BindlessTextures[nonuniformEXT( materialTexture.Texture )],
+                                                   u_BindlessSamplers[nonuniformEXT( materialTexture.Sampler )] ),
+                                        0 );
     return SampleBindlessLod( materialTexture, uv,
                               max( g_DesertRayHitLod + 0.5 * log2( float( max( size.x * size.y, 1 ) ) ), 0.0 ) );
 }

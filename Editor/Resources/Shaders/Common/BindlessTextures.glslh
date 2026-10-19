@@ -61,6 +61,8 @@ struct BindlessTexture
     uint Reserved1;
 };
 
+// Implicit-LOD forms: no ray tracing stage has derivatives, so they do not exist there (a hit samples by LOD).
+#ifndef DESERT_RAY_TRACING_STAGE
 vec4 SampleBindless( BindlessTexture t, vec2 uv )
 {
     return texture( sampler2D( u_BindlessTextures[nonuniformEXT( t.Texture )],
@@ -75,6 +77,7 @@ vec4 SampleBindlessBias( BindlessTexture t, vec2 uv, float bias )
                                u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
                     uv, bias );
 }
+#endif // !DESERT_RAY_TRACING_STAGE
 
 vec4 SampleBindlessLod( BindlessTexture t, vec2 uv, float lod )
 {
