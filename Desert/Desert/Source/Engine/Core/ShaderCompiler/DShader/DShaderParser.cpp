@@ -2635,7 +2635,8 @@ namespace Desert::Core::Preprocess
                          stage, AssembleSurfaceCellStage( stage, kSurfaceFrontLayerPath, kSurfaceFrontLayerPass,
                                                           *surfaceBlock, includeBlock, autoDecls,
                                                           result.Surface.Blend, shadingModelDefine,
-                                                          result.Surface.ResponsiveAA, opacityMaskFunction ) );
+                                                          result.Surface.ResponsiveAA, opacityMaskFunction,
+                                                          false, heightFunctions ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );

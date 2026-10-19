@@ -115,7 +115,7 @@ namespace Desert::Graphic::System
     public:
         [[nodiscard]] Common::BoolResultStr Initialize()
         {
-            m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( kShaderName );
+            m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( std::string( kShaderName ) );
             if ( !m_Shader )
                 return Common::MakeError( std::format( "MegaLights: shader {} not found", kShaderName ) );
             const auto pipeline =
