@@ -369,6 +369,7 @@
                 "Reflections.RaysPerPixel": 1,
                 "Reflections.Method": "Captures",
                 "Reflections.DenoiserRadius": 1,
+                "Reflections.DownsampleFactor": 2,
                 "Reflections.HitLighting": 0
             },
             "Medium": {
@@ -377,6 +378,7 @@
                 "Reflections.RaysPerPixel": 1,
                 "Reflections.Method": "ScreenSpace",
                 "Reflections.DenoiserRadius": 1,
+                "Reflections.DownsampleFactor": 2,
                 "Reflections.HitLighting": 0
             },
             "High": {
@@ -385,6 +387,7 @@
                 "Reflections.RaysPerPixel": 2,
                 "Reflections.Method": "HardwareTraced",
                 "Reflections.DenoiserRadius": 2,
+                "Reflections.DownsampleFactor": 2,
                 "Reflections.HitLighting": 0
             },
             "Epic": {
@@ -393,6 +396,7 @@
                 "Reflections.RaysPerPixel": 4,
                 "Reflections.Method": "HardwareTraced",
                 "Reflections.DenoiserRadius": 2,
+                "Reflections.DownsampleFactor": 2,
                 "Reflections.HitLighting": 0
             },
             "Cinematic": {
@@ -401,6 +405,7 @@
                 "Reflections.RaysPerPixel": 8,
                 "Reflections.Method": "HardwareTraced",
                 "Reflections.DenoiserRadius": 3,
+                "Reflections.DownsampleFactor": 1,
                 "Reflections.HitLighting": 1
             }
         },

@@ -260,7 +260,7 @@ Shader "DeferredLighting"
         	vec4 u_ContactShadowView; // x = contact shadow ray steps (0 = off), y = tan(fovY / 2), z = dither frame 0..7
         	vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5),
         	                          // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
-        	vec4 u_ShadowFilter;      // x = PCSS blocker search taps, y = PCSS filter taps (Mesh/CascadedShadow.glslh)
+        	vec4 u_ShadowFilter;      // x = PCSS blocker search taps, y = filter taps (sun PCSS + local lights PCF)
         };
 
         #ifdef DESERT_SUN_SHADOW_SCREEN_MASK

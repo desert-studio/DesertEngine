@@ -101,27 +101,13 @@ int chooseCascade(vec3 worldPos)
 // sharp where an awning meets the wall, soft where its shadow lands metres away. Two steps:
 //   1. blocker search - the mean depth of the occluders inside the widest kernel the receiver could need;
 //   2. filter         - percentage-closer filtering with the kernel that mean gives.
-// Both walk a Vogel disc (golden-angle spiral) turned per pixel by interleaved gradient noise, so the taps of
-// neighbouring pixels interleave and the temporal filter blends them, instead of one fixed pattern banding.
-// Each tap is a bilinear 2x2 comparison from one gather.
+// Both walk the shadow filters' Vogel disc turned per pixel by interleaved gradient noise
+// (Common/ShadowFilterDisk.glslh, shared with the point and spot lights' PCF). Each tap is a bilinear 2x2
+// comparison from one gather.
+#include <Common/ShadowFilterDisk.glslh>
 
 // UE's r.Shadow.MaxSoftKernelSize: the widest the soft kernel may get, in texels of its cascade.
 const float kMaxSoftKernelTexels = 40.0;
-const float kGoldenAngle         = 2.39996323;
-
-// Jimenez 2014, the noise UE's shadow filters turn their discs by.
-float shadowInterleavedGradientNoise(vec2 pixel)
-{
-	return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
-}
-
-// Tap i of n on the unit disc, the disc turned by phi.
-vec2 shadowVogelDisk(int i, int n, float phi)
-{
-	float r     = sqrt((float(i) + 0.5) / float(n));
-	float theta = float(i) * kGoldenAngle + phi;
-	return r * vec2(cos(theta), sin(theta));
-}
 
 // Bilinear percentage-closer comparison at uv: 1 lit, 0 shadowed. `depth` is the receiver's.
 float shadowCompare2x2(int c, vec2 uv, vec2 size, float depth)

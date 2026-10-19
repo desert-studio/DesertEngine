@@ -179,6 +179,10 @@ namespace Common::Scalability
         // Reflections ScreenSpace: the Reflections denoiser's reconstruction kernel, taps per side from the centre
         // (UE r.Reflections.Denoiser.ReconstructionSamples). 1..3
         ReflectionDenoiserRadius,
+        // Reflections ScreenSpace/traced: the trace's pixels per side per traced texel (UE
+        // r.Lumen.Reflections.DownsampleFactor). 1 = every pixel traced each frame; 2 = one pixel of each 2x2
+        // block, rotating per frame, the denoiser's reconstruction and history filling the other three. 1..2
+        ReflectionDownsampleFactor,
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget

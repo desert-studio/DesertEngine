@@ -27,7 +27,7 @@ Uniform(2) texture2D u_GBufferDepth;    // device depth (nearest): world positio
 #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
 Uniform(3) texture2D u_SceneColor;      // LAST frame's lit opaque scene (SSRRenderer's scene colour history)
 #define u_SceneColor sampler2D(u_SceneColor, u_LinearClampSampler)
-layout(binding = 4, rgba16f) writeonly uniform image2D u_Trace;    // half resolution
+layout(binding = 4, rgba16f) writeonly uniform image2D u_Trace;    // one texel per DownsampleFactor^2 pixels (u_SSRParams3.x)
 // One texel per tile: the compute classify writes it; the hit-lighting ray generation reads its texel's tile.
 #if defined( DESERT_RAY_TRACING_STAGE )
 layout(binding = 5, rgba8) readonly uniform image2D u_TileMask;
@@ -41,7 +41,7 @@ Uniform(8) texture2D u_Velocity;        // NDC current - previous per pixel (Vie
 // The traced texel's ray, for the reconstruction's neighbour reuse (Denoise/SSDReconstructReflections.shader,
 // UE SSRT): xyz = the WORLD point the texel's estimate was reflected from (a neighbour re-aims its own ray at it), w = log2 of
 // the VNDF pdf with which this texel drew that direction. RGBA32F: ViewTargetFormats::kSSRTraceRay.
-layout(binding = 9, rgba32f) writeonly uniform image2D u_TraceRay;  // half resolution, like u_Trace
+layout(binding = 9, rgba32f) writeonly uniform image2D u_TraceRay;  // the resolution of u_Trace
 #include <Common/HZBTrace.glslh>
 
 #if defined( DESERT_REFLECTIONS_TRACED )
@@ -270,8 +270,19 @@ PushConstant PushConstants
 {
 	vec4 u_CameraPos;  // xyz = camera world position, w = per-frame seed (ray sequence + 2x2 rotation)
 	vec4 u_SSRParams;  // x = rays per texel, y = HZB iterations per ray, z = intensity, w = thickness (world)
-	vec4 u_SSRParams2; // x = max ray distance (world), y = 1 when u_SceneColor holds last frame, zw unused
+	vec4 u_SSRParams2; // x = max ray distance (world), y = 1 when u_SceneColor holds last frame,
+	                   // z = mesh SDF trace distance, w = mesh SDF end distance from the camera (traced only)
+	vec4 u_SSRParams3; // x = the trace's downsample factor (Scalability Reflections.DownsampleFactor: 1 or 2), yzw unused
 };
+
+// The G-buffer pixel trace texel q traces from: the pixel itself at factor 1; at factor 2 the pixel of its 2x2
+// block the frame's seed rotates to, so four frames visit all four (UE's half-resolution reflections).
+// Denoise/SSDReconstructReflections.shader finds a texel's source pixel the same way.
+ivec2 SSRTraceSourcePixel(ivec2 q, int factor, int frame, ivec2 full)
+{
+	const ivec2 rotation = factor == 2 ? ivec2(frame & 1, (frame >> 1) & 1) : ivec2(0);
+	return min(q * factor + rotation, full - 1);
+}
 
 #if !defined( DESERT_RAY_TRACING_STAGE )
 LocalSize(8, 8, 1);
@@ -388,7 +399,7 @@ float SSRHitConfidence(vec3 hit, vec3 origin, vec3 L, float thickness, float max
 	return confidence * HZBScreenEdgeFade(hit.xy) * (1.0 - smoothstep(0.7 * maxDistance, maxDistance, travel));
 }
 
-// The traced texel gPix (HALF RESOLUTION: one G-buffer pixel of a 2x2 block, rotating every frame).
+// The traced texel gPix (SSRTraceSourcePixel: every pixel, or one pixel of a 2x2 block rotating every frame).
 // Returns rgb = the ratio-estimated radiance of the hits, a = coverage (see the header); @p ray = the
 // texel's ray for the reconstruction (u_TraceRay): xyz = the point it hit (the weighted mean of the hit points;
 // when nothing hit, a point kMissDistance along the weighted mean direction of all rays - the environment
