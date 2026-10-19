@@ -142,7 +142,7 @@ namespace Desert::Graphic
         ParticleSprite = 3,
         // A procedural grass blade per instance (GRASS-BLADE; Ghost of Tsushima's blade, a vertex factory UE does
         // not have): the instance's matrix from InstanceTransforms (binding 17) places a blade strip whose
-        // vertices the stage bends, tapers, colours and sways from the variety's GrassBladeShape (binding 16).
+        // vertices the stage bends, tapers, colours and sways from the variety's GrassBladeShape (binding 13).
         // Only a template that declares `Usage GrassBlades` has its cells; it draws in the passes a mesh does.
         GrassBlade = 4,
     };

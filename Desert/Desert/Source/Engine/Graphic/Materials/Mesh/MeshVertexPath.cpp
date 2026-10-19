@@ -98,7 +98,7 @@ namespace Desert::Graphic
             case MeshVertexPath::Instanced:
                 return 17; // InstanceTransforms
             case MeshVertexPath::GrassBlade:
-                return 17; // InstanceTransforms; the blade shape at 16 is bound beside it by the mesh renderer
+                return 17; // InstanceTransforms; the blade shape at 13 is bound beside it by the mesh renderer
             case MeshVertexPath::ParticleSprite:
                 return 9; // Particles (the pool); the alive list at 10 is bound beside it by ParticleRenderer
             case MeshVertexPath::Static:
