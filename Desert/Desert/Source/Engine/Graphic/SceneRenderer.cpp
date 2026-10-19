@@ -789,14 +789,15 @@ namespace Desert::Graphic
     Common::BoolResultStr SceneRenderer::UploadWorldParameters( const Desert::Core::Scene& scene )
     {
         const WorldParameterTable table = BuildWorldParameterTable( scene.GetWorldParameters().Values() );
-        std::vector<std::byte>    bytes( sizeof( table.Header ) + table.Slots.size() * sizeof( GpuWorldParameterSlot ) );
+        std::vector<std::byte>    bytes( sizeof( table.Header ) +
+                                         table.Slots.size() * sizeof( GpuWorldParameterSlot ) );
         std::memcpy( bytes.data(), &table.Header, sizeof( table.Header ) );
         std::memcpy( bytes.data() + sizeof( table.Header ), table.Slots.data(),
                      table.Slots.size() * sizeof( GpuWorldParameterSlot ) );
         if ( !m_WorldParameters )
-            m_WorldParameters = ShaderResources::StorageBuffer::Create(
-                 SceneResources::kWorldParametersName, static_cast<uint32_t>( bytes.size() ),
-                 Core::kWorldParametersBinding );
+            m_WorldParameters = ShaderResources::StorageBuffer::Create( SceneResources::kWorldParametersName,
+                                                                        static_cast<uint32_t>( bytes.size() ),
+                                                                        Core::kWorldParametersBinding );
         if ( !m_WorldParameters )
             return Common::MakeError( "the view's WorldParameters buffer could not be created" );
         if ( const auto wrote = m_WorldParameters->SetData( bytes.data(), static_cast<uint32_t>( bytes.size() ) );

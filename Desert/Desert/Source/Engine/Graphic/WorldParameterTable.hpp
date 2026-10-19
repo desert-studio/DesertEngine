@@ -40,8 +40,8 @@ namespace Desert::Graphic
     /// the smallest power of two at least twice the count, so a probe ends at an empty slot within a few steps;
     /// an empty collection is one empty slot, which ends every probe at once. Keys are unique per collection
     /// (Serialization::ValidateWorldParametersData), so placement needs no collision rule beyond probing.
-    [[nodiscard]] inline WorldParameterTable BuildWorldParameterTable(
-         const std::span<const Core::WorldParameterValue> values )
+    [[nodiscard]] inline WorldParameterTable
+    BuildWorldParameterTable( const std::span<const Core::WorldParameterValue> values )
     {
         WorldParameterTable table;
         const auto          count = static_cast<uint32_t>( values.size() );

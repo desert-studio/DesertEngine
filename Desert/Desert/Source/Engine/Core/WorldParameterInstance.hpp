@@ -62,9 +62,8 @@ namespace Desert::Core
 
     private:
         /// The row named @p name of type @p type, or null with @p why naming what is wrong.
-        [[nodiscard]] const WorldParameterValue* Find( std::string_view                          name,
-                                                       Assets::Serialization::WorldParameterType type,
-                                                       std::string&                              why ) const;
+        [[nodiscard]] const WorldParameterValue*
+        Find( std::string_view name, Assets::Serialization::WorldParameterType type, std::string& why ) const;
 
         Common::AssetHandle                        m_Source;
         Assets::Serialization::WorldParametersData m_Adopted; // the defaults the values were reset from

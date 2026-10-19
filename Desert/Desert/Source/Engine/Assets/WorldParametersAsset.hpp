@@ -6,8 +6,8 @@
 namespace Desert::Assets
 {
     /**
-     * @brief A world parameter collection on disk (`.dworldparams`) — UE's UMaterialParameterCollection as an asset
-     * of the engine's one asset system (Serialization/WorldParameters.hpp). The scene names one
+     * @brief A world parameter collection on disk (`.dworldparams`) — UE's UMaterialParameterCollection as an
+     * asset of the engine's one asset system (Serialization/WorldParameters.hpp). The scene names one
      * (Core::SceneSettings::WorldParameters); Runtime::WorldParametersService reads it for the world's instance.
      *
      * ITS HANDLE IS HandleForGuid OF ITS HEADER GUID, adopted in the constructor, so a scene's reference
@@ -42,12 +42,12 @@ namespace Desert::Assets
         }
 
         /// Writes a collection to disk (creating the directory). Static because saving is what CREATES one.
-        static Common::BoolResultStr Save( const Common::Filepath&              filepath,
+        static Common::BoolResultStr Save( const Common::Filepath&                   filepath,
                                            const Serialization::WorldParametersData& data );
 
     private:
-        Common::Content::AssetGuid    m_Guid;
+        Common::Content::AssetGuid         m_Guid;
         Serialization::WorldParametersData m_Data;
-        bool                          m_Ready = false;
+        bool                               m_Ready = false;
     };
 } // namespace Desert::Assets

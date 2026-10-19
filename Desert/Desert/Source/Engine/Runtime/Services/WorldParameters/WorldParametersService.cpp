@@ -24,7 +24,8 @@ namespace Desert::Runtime
         // collection must not re-read the file every frame.
         const auto fail = [this, handle]( const std::string& why ) -> Common::ResultStr<Result>
         {
-            LOG_ERROR( "[WorldParameters] Collection {} cannot be read: {}", static_cast<uint64_t>( handle ), why );
+            LOG_ERROR( "[WorldParameters] Collection {} cannot be read: {}", static_cast<uint64_t>( handle ),
+                       why );
             m_Failed[handle] = why;
             return Common::MakeError<Result>( why );
         };

@@ -26,13 +26,14 @@ namespace Desert::Runtime
 
         /// The collection's data as loaded now, or the reason it cannot be read. The pointer lives as long as
         /// the asset (the service holds it).
-        Common::ResultStr<const Assets::Serialization::WorldParametersData*> Get( const Assets::AssetHandle& handle );
+        Common::ResultStr<const Assets::Serialization::WorldParametersData*>
+        Get( const Assets::AssetHandle& handle );
 
         void Clear();
 
     private:
-        std::weak_ptr<Assets::AssetManager>                                            m_Assets;
+        std::weak_ptr<Assets::AssetManager>                                                  m_Assets;
         std::unordered_map<Assets::AssetHandle, Assets::Asset<Assets::WorldParametersAsset>> m_Held;
-        std::unordered_map<Assets::AssetHandle, std::string>                           m_Failed;
+        std::unordered_map<Assets::AssetHandle, std::string>                                 m_Failed;
     };
 } // namespace Desert::Runtime

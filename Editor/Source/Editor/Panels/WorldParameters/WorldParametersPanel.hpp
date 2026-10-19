@@ -55,13 +55,13 @@ namespace Desert::Editor
 
         [[nodiscard]] InputAssetOwner<Data> Owner() const;
 
-        Assets::AssetManager*                          m_Assets = nullptr;
-        Assets::AssetHandle                            m_Handle;
-        Common::Filepath                               m_Path; // empty: the subject did not load
-        std::shared_ptr<Data>                          m_Data;
-        Data                                           m_OnDisk;
-        InputAssetEditTransaction<Data>                m_Edits;
-        std::string                                    m_Status;
-        bool                                           m_StatusIsError = false;
+        Assets::AssetManager*           m_Assets = nullptr;
+        Assets::AssetHandle             m_Handle;
+        Common::Filepath                m_Path; // empty: the subject did not load
+        std::shared_ptr<Data>           m_Data;
+        Data                            m_OnDisk;
+        InputAssetEditTransaction<Data> m_Edits;
+        std::string                     m_Status;
+        bool                            m_StatusIsError = false;
     };
 } // namespace Desert::Editor

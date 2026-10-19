@@ -26,7 +26,7 @@ namespace Desert::Editor
         {
             for ( int n = 0;; ++n )
             {
-                std::string name = n == 0 ? std::string( "Parameter" ) : std::format( "Parameter{}", n );
+                std::string name  = n == 0 ? std::string( "Parameter" ) : std::format( "Parameter{}", n );
                 bool        taken = false;
                 for ( const auto& p : data.Parameters )
                     taken = taken || p.Name == name;
@@ -95,7 +95,8 @@ namespace Desert::Editor
 
         int removeAt = -1;
         if ( ImGui::BeginTable( "##WorldParameters", 4,
-                                ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp ) )
+                                ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
+                                     ImGuiTableFlags_SizingStretchProp ) )
         {
             ImGui::TableSetupColumn( "Name", ImGuiTableColumnFlags_WidthStretch, 1.2f );
             ImGui::TableSetupColumn( "Type", ImGuiTableColumnFlags_WidthFixed, 90.0f );
@@ -114,7 +115,8 @@ namespace Desert::Editor
                 if ( ImGui::InputText( "##Name", name.data(), name.size() ) )
                     p.Name = name.data();
                 if ( !S::IsWorldParameterName( p.Name ) && ImGui::IsItemHovered() )
-                    ImGui::SetTooltip( "A parameter name is an identifier: a letter or _, then letters, digits, _" );
+                    ImGui::SetTooltip(
+                         "A parameter name is an identifier: a letter or _, then letters, digits, _" );
                 ImGui::TableNextColumn();
                 int type = static_cast<int>( p.Type );
                 ImGui::SetNextItemWidth( -1.0f );
@@ -150,7 +152,8 @@ namespace Desert::Editor
             (void)m_Edits.Edit( Owner(),
                                 []( Data& d )
                                 {
-                                    d.Parameters.push_back( { FreshName( d ), S::WorldParameterType::Scalar, {} } );
+                                    d.Parameters.push_back(
+                                         { FreshName( d ), S::WorldParameterType::Scalar, {} } );
                                     return Common::MakeSuccess( true );
                                 } );
 

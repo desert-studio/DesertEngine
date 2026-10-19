@@ -1108,6 +1108,67 @@ namespace Desert::Editor
 
                 // A prefab slot (SceneSettings::DefaultPawn): the registry's prefab rows, or a .deprefab
                 // dropped from the Content Browser. "None" is meaningful — a level without a player.
+                // The scene's world parameter collection (SceneSettings::WorldParameters): the prefab picker's
+                // registry list, over the `.dworldparams` rows.
+                if ( field.Meta.AssetType == "WorldParametersAsset" )
+                {
+                    auto*       collectionHandle = static_cast<uint64_t*>( p );
+                    std::string preview          = "None (no world parameters)";
+                    for ( const auto& row :
+                          Assets::ContentRegistry::Rows( Common::Content::ContentKind::WorldParameters ) )
+                    {
+                        if ( *collectionHandle != 0 && static_cast<uint64_t>( row.Handle ) == *collectionHandle )
+                            preview = ::Desert::Editor::PickerDisplayName( row );
+                    }
+                    if ( *collectionHandle != 0 && preview.starts_with( "None" ) )
+                        preview = "(missing)";
+
+                    ImGui::SetNextItemWidth( -1.0f );
+                    if ( ImGui::BeginCombo( "##worldparams", preview.c_str() ) )
+                    {
+                        if ( ImGui::Selectable( "None (no world parameters)", *collectionHandle == 0 ) )
+                        {
+                            *collectionHandle = 0;
+                            changed           = true;
+                        }
+                        for ( const auto& row :
+                              Assets::ContentRegistry::Rows( Common::Content::ContentKind::WorldParameters ) )
+                        {
+                            const bool selected = ( static_cast<uint64_t>( row.Handle ) == *collectionHandle );
+                            if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(),
+                                                    selected ) )
+                            {
+                                *collectionHandle = static_cast<uint64_t>( row.Handle );
+                                changed           = true;
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                    if ( ImGui::BeginDragDropTarget() )
+                    {
+                        if ( const ImGuiPayload* payload =
+                                  ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+                        {
+                            const std::string path( static_cast<const char*>( payload->Data ),
+                                                    payload->DataSize > 0 ? payload->DataSize - 1 : 0 );
+                            if ( const auto row = Assets::ContentRegistry::RowAtPath(
+                                      Common::Content::ContentKind::WorldParameters, path ) )
+                            {
+                                *collectionHandle = static_cast<uint64_t>( row->Handle );
+                                changed           = true;
+                            }
+                            else
+                            {
+                                LOG_WARN( "[Scene] '{}' is no world parameter collection of the content registry; "
+                                          "pick one from "
+                                          "the list.",
+                                          path );
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    break;
+                }
                 if ( field.Meta.AssetType == "PrefabAsset" )
                 {
                     auto*       prefabHandle = static_cast<uint64_t*>( p );

@@ -296,7 +296,8 @@ namespace Desert::Editor
              AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::WorldParameters ) ),
              Registration{
                   "WorldParameters", ICON_MDI_TUNE,
-                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument> {
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                  {
                       return std::make_unique<Editor::WorldParametersPanel>( Assets::AssetHandle( subject.Owner ),
                                                                              assetManager.get() );
                   },

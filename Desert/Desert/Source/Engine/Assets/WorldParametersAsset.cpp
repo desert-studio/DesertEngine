@@ -37,7 +37,8 @@ namespace Desert::Assets
         if ( text.empty() )
         {
             m_Ready = false;
-            return Common::MakeFormattedError<bool>( "world parameters '{}' is empty or could not be opened", path );
+            return Common::MakeFormattedError<bool>( "world parameters '{}' is empty or could not be opened",
+                                                     path );
         }
         auto parsed = Serialization::ParseWorldParameters( text );
         if ( !parsed )
@@ -61,12 +62,13 @@ namespace Desert::Assets
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr WorldParametersAsset::Save( const Common::Filepath&              filepath,
-                                                 const Serialization::WorldParametersData& data )
+    Common::BoolResultStr WorldParametersAsset::Save( const Common::Filepath&                   filepath,
+                                                      const Serialization::WorldParametersData& data )
     {
         if ( auto ok = Serialization::SaveWorldParametersFile( filepath, data ); !ok )
             return ok;
-        LOG_INFO( "[WorldParameters] Collection written: '{}', {} parameters.", filepath.string(), data.Parameters.size() );
+        LOG_INFO( "[WorldParameters] Collection written: '{}', {} parameters.", filepath.string(),
+                  data.Parameters.size() );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Assets

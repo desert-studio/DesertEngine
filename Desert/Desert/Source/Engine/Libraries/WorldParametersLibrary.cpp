@@ -13,9 +13,11 @@ namespace Desert::Libraries
         {
             const Core::WorldContext* context = Core::WorldContext::Current();
             if ( context == nullptr || context->World == nullptr )
-                return Common::MakeFormattedError<Core::Scene*>( "WorldParameters.{}: no world runs this call", call );
+                return Common::MakeFormattedError<Core::Scene*>( "WorldParameters.{}: no world runs this call",
+                                                                 call );
             if ( const auto synced = context->World->SyncWorldParameters(); !synced )
-                return Common::MakeFormattedError<Core::Scene*>( "WorldParameters.{}: {}", call, synced.GetError() );
+                return Common::MakeFormattedError<Core::Scene*>( "WorldParameters.{}: {}", call,
+                                                                 synced.GetError() );
             return Common::MakeSuccess( context->World );
         }
     } // namespace

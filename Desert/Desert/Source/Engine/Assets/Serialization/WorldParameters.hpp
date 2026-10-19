@@ -80,7 +80,8 @@ namespace Desert::Assets::Serialization
     /// Inline because DShaderParser lowers names with it, and two tools compile that parser without the engine.
     [[nodiscard]] constexpr bool IsWorldParameterName( const std::string_view name )
     {
-        const auto alpha = []( const char c ) { return ( c >= 'a' && c <= 'z' ) || ( c >= 'A' && c <= 'Z' ) || c == '_'; };
+        const auto alpha = []( const char c )
+        { return ( c >= 'a' && c <= 'z' ) || ( c >= 'A' && c <= 'Z' ) || c == '_'; };
         if ( name.empty() || !alpha( name.front() ) )
             return false;
         for ( const char c : name )

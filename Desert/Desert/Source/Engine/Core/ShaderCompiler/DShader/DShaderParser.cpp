@@ -1562,12 +1562,13 @@ namespace Desert::Core::Preprocess
                                 transform, mask.Texture, uv, channel );
         }
 
-        // A SURFACE READS A WORLD PARAMETER BY NAME — `WorldParameter( "Wetness" )`, the one spelling a hand-written
-        // surface and the shader graph's World Parameter node share — and the cell reads it by KEY: each read is
-        // lowered to DesertWorldParameter( <key>u ), the name's Serialization::WorldParameterKey, so the material is
-        // compiled against no particular collection (the scene names one). GLSL has no string literals, so a
-        // quoted name after the keyword is unambiguous. A malformed read becomes an `#error` naming it, which
-        // glslang reports on the .shader's own line. @p reads says whether the cell needs the table declared.
+        // A SURFACE READS A WORLD PARAMETER BY NAME — `WorldParameter( "Wetness" )`, the one spelling a
+        // hand-written surface and the shader graph's World Parameter node share — and the cell reads it by KEY:
+        // each read is lowered to DesertWorldParameter( <key>u ), the name's Serialization::WorldParameterKey, so
+        // the material is compiled against no particular collection (the scene names one). GLSL has no string
+        // literals, so a quoted name after the keyword is unambiguous. A malformed read becomes an `#error` naming
+        // it, which glslang reports on the .shader's own line. @p reads says whether the cell needs the table
+        // declared.
         std::string LowerWorldParameterReads( const std::string_view content, bool& reads )
         {
             constexpr std::string_view keyword = "WorldParameter";
@@ -1621,7 +1622,8 @@ namespace Desert::Core::Preprocess
                 {
                     // The rest of the line stays as written; the directive needs a line of its own.
                     const size_t eol = content.find( '\n', found );
-                    out.append( "\n#error WorldParameter: expected WorldParameter( \"Name\" ) with an identifier name" );
+                    out.append(
+                         "\n#error WorldParameter: expected WorldParameter( \"Name\" ) with an identifier name" );
                     at = eol == std::string_view::npos ? content.size() : eol;
                     continue;
                 }
@@ -1688,7 +1690,8 @@ namespace Desert::Core::Preprocess
                      // keeps a declared buffer, and every other surface must not ask its renderer to bind it.
                      std::format( "{}#define {} 1\n#include <{}>\n{}#line {}\n{}\n{}#include <{}>\n", defines,
                                   kSurfaceSamplesMaterialDefine, kSurfaceTypesInclude,
-                                  readsWorld ? std::format( "#include <{}>\n", kWorldParametersInclude ) : std::string(),
+                                  readsWorld ? std::format( "#include <{}>\n", kWorldParametersInclude )
+                                             : std::string(),
                                   surface.StartLine > 0 ? surface.StartLine - 1 : 0, lowered,
                                   masked ? opacityMaskFunction : std::string(), passInclude );
             }
