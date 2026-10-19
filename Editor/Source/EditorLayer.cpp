@@ -448,7 +448,6 @@ namespace Desert::Editor
         // The environment cache's readbacks land here and go to a worker for the encode (AL1-3).
         Graphic::EnvironmentCacheWriter::Get().Pump();
         m_Startup.UpdateContentSettling();
-        m_AssetCompiling.DrainBackgroundCook();
 
         // Scene loads wait until the startup stages finished (a scene expects cooked/preloaded assets).
         // A load that ran starts the content settle before the refused-load fallback and New Scene.

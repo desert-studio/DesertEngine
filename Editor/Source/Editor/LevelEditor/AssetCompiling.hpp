@@ -1,20 +1,17 @@
 #pragma once
 
 // ASSET COMPILING (UE: FAssetCompilingManager). The editor's work on content that runs beside the session rather
-// than in the boot: the mesh cook queued on the JobSystem after the reveal (AL1-11), the reload of an asset whose
-// cook landed while the scene named it Pending, and the .demat/.shader live reload. Also the palette's two
-// actions on the content as a whole: releasing unused assets and rebuilding the content registry.
+// than in the boot: the count of on-demand cooks a load's DDC miss started (CookMeshSource; nothing is cooked at
+// startup, UE's editor does not cook the content tree either) and the .demat/.shader live reload. Also the
+// palette's two actions on the content as a whole: releasing unused assets and rebuilding the content registry.
 //
 // A member of EditorLayer BY VALUE; the asset manager arrives by reference. It knows nothing of EditorLayer: the
-// start-up calls StartBackgroundCook at the reveal, the frame calls DrainBackgroundCook and TickHotReload.
+// frame calls TickHotReload.
 
 #include <Editor/Core/CommandPalette.hpp>
-#include <Editor/Import/BackgroundCook.hpp>
 #include <Engine/Runtime/AssetHotReload.hpp>
 
-#include <chrono>
 #include <cstddef>
-#include <filesystem>
 #include <memory>
 #include <vector>
 
@@ -53,10 +50,6 @@ namespace Desert::Editor
         {
         }
 
-        // The startup mesh cook, queued once at the reveal; see Editor/Import/BackgroundCook.hpp.
-        void StartBackgroundCook();
-        // Applies the cooks that landed since the last frame (main thread).
-        void DrainBackgroundCook();
         // Picks up edited .demat/.shader files; runs BEFORE scene rendering so a shader-triggered pipeline
         // invalidation never touches an in-recording frame.
         void TickHotReload( const Common::Timestep& ts, Desert::Core::Scene* activeScene );
@@ -69,30 +62,14 @@ namespace Desert::Editor
         void RebuildCookedAssets( Desert::Core::Scene* activeScene, FileExplorerPanel* fileExplorer );
 
         // Assets still compiling beside the session (UE FAssetCompilingManager::GetNumRemainingAssets): the
-        // background cook's unapplied work. 0 before the reveal queued it.
-        [[nodiscard]] std::size_t RemainingAssets() const
-        {
-            return m_BackgroundCook ? m_BackgroundCook->Remaining() : 0;
-        }
-
-        // The queue the status bar reads (empty until the reveal).
-        [[nodiscard]] const std::unique_ptr<BackgroundCookQueue>& CookQueue() const
-        {
-            return m_BackgroundCook;
-        }
+        // on-demand mesh cooks running now (MeshSourceCooksRunning).
+        [[nodiscard]] std::size_t RemainingAssets() const;
 
     private:
-        void ReloadRecookedMesh( const std::filesystem::path& source );
-
         std::shared_ptr<Assets::AssetManager>&        m_AssetManager;
         std::unique_ptr<Animation::AnimationLibrary>& m_AnimationLibrary;
         std::unique_ptr<ImportManager>&               m_ImportManager;
 
-        std::unique_ptr<BackgroundCookQueue>  m_BackgroundCook;
-        std::chrono::steady_clock::time_point m_BackgroundCookStart;
-        std::size_t                           m_BackgroundCookChanged  = 0;
-        std::size_t                           m_BackgroundCookFailed   = 0;
-        bool                                  m_BackgroundCookReported = false;
-        Runtime::AssetHotReload               m_AssetHotReload; // .demat/.shader live reload
+        Runtime::AssetHotReload m_AssetHotReload; // .demat/.shader live reload
     };
 } // namespace Desert::Editor

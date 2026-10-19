@@ -126,6 +126,15 @@ namespace Desert::Editor
     Common::ResultStr<MeshAssetWrite> WriteImportedMeshAsset( const Assets::Serialization::MeshAssetData& imported,
                                                               std::span<const Assets::MeshMaterialSlot>   named,
                                                               const std::filesystem::path&                source );
+    // THE COOK'S HALF OF WriteImportedMeshAsset (UE: a DDC miss rebuilds the derived data from the package, and
+    // the package is not saved): the envelope of @p source's current bytes, Put into the DDC under the identity
+    // @p source's record states. The DDC is derived data, not Content, so the cook writes it; the record and any
+    // file beside the source are only read - a record that does not state this import (@p settings, the box, the
+    // kind), or a file beside the source, is an error naming it and the re-import that writes it.
+    Common::ResultStr<MeshAssetWrite>
+    CookImportedMeshEnvelope( const Assets::Serialization::MeshAssetData& imported,
+                              std::span<const Assets::MeshMaterialSlot> named, const std::filesystem::path& source,
+                              const Assets::SourceImportSettings& settings );
     // THE THUMBNAIL MESH A MATERIAL NAMES (UE: UMaterial::ThumbnailInfo / PreviewMesh), authored by a drop in the
     // Material Editor - an import never writes one (THM1j): the static mesh imported from @p source, by the GUID
     // its import record states, located by @p source relative to the working directory (the spelling the browser
