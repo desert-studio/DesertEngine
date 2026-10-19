@@ -163,23 +163,8 @@ namespace Desert::Core::Formats
         }
     }
 
-    constexpr const char* MaterialLayoutGlslType( ShaderValueType type )
-    {
-        switch ( type )
-        {
-            case ShaderValueType::Float:
-                return "float";
-            case ShaderValueType::Float2:
-                return "vec2";
-            case ShaderValueType::Float3:
-                return "vec3";
-            case ShaderValueType::Int:
-            case ShaderValueType::Bool:
-                return "int";
-            default:
-                return "vec4";
-        }
-    }
+    // MaterialLayoutGlslType — the GLSL type of a row parameter — lives in MaterialParamRow.hpp beside
+    // MaterialRowSlotValue, the bytes written for it: the two are one statement and are kept in one place.
 
     // Whether a texture property is read through the bindless table from the row: every 2D texture of a template
     // that carries a row and no TextureBinding, except EngineSet ones. An EngineSet texture (terrain heightmap,
@@ -202,7 +187,8 @@ namespace Desert::Core::Formats
         {
             for ( const auto& p : meta.Params )
             {
-                if ( p.IsTexture )
+                // Samplers are descriptors and asset references are CPU-side inputs: neither is a row field.
+                if ( p.IsTexture || p.IsAssetRef() )
                     continue;
                 layout.Params.push_back( { p.Name, p.Type,
                                            kMaterialParamSlotSize * static_cast<uint32_t>( layout.Params.size() ),
@@ -230,7 +216,7 @@ namespace Desert::Core::Formats
             // The textures from FirstTexture upward, then each one's sampler state in the same order right after.
             uint32_t binding = *bindings.FirstTexture;
             for ( const auto& p : meta.Params )
-                if ( p.IsTexture )
+                if ( p.IsTexture && p.ElementIndex < 0 ) // an Element texture is copied into its array
                     layout.Textures.push_back( { p.Name, binding++, p.IsCubeTexture, p.DefaultTexture } );
             for ( auto& texture : layout.Textures )
                 texture.SamplerBinding = binding++;

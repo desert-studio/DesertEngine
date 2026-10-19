@@ -9,6 +9,7 @@
 // PhysMaterial and MinimumCollisionRelevanceWeight (no physical materials on the landscape collision yet),
 // SplineFalloffModulation* (no landscape splines yet).
 
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
@@ -22,6 +23,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace Desert::Assets::Serialization
 {
@@ -39,6 +41,8 @@ namespace Desert::Assets::Serialization
      *   3 - GrassType leaves (LS-16): the landscape grows no grass; grass is a foliage asset placed with the
      *       Foliage tool. The header states no Dependencies again. The corpus files were rewritten as v3 in
      *       the same change, so v2 is refused by its number.
+     *   4 - GrassTypes: the `.degrasstype`s the layer grows, any number, by {Guid, Path}; their GUIDs are the
+     *       header's Dependencies (GRASS-GPU). The corpus files were rewritten as v4, so v3 is refused.
      *
      * An unknown value is refused in both directions; there is no migration step in the runtime.
      */
@@ -70,6 +74,9 @@ namespace Desert::Assets::Serialization
         bool NoWeightBlend = false;
         /// The swatch the panel shows and what a layer-usage debug view would tint by (linear RGB).
         glm::vec3 LayerUsageDebugColor = glm::vec3( 1.0f );
+        /// What grows where this layer is painted (UE: the ULandscapeGrassTypes the material's
+        /// LandscapeGrassOutput names for this layer; any number). Empty: nothing.
+        std::vector<AssetGuidRef> GrassTypes;
 
         [[nodiscard]] bool operator==( const LandscapeLayerInfoData& ) const = default;
     };
@@ -77,8 +84,8 @@ namespace Desert::Assets::Serialization
     /// Rejects what the weight planes and the paint stroke cannot honour, naming the field and the value.
     Common::BoolResultStr ValidateLandscapeLayerInfoData( const LandscapeLayerInfoData& data );
 
-    /// Parses a `.delayerinfo`. A file without a header, of another version or kind, that states any
-    /// Dependencies (a layer info references nothing), or with invalid numbers is an error naming why.
+    /// Parses a `.delayerinfo`. A file without a header, of another version or kind, whose Dependencies are not
+    /// exactly its grass types, or with invalid numbers is an error naming why.
     Common::ResultStr<LandscapeLayerInfoData> ParseLandscapeLayerInfo( const std::string& text );
 
     /// Canonical text; stamps the header (keeping a loaded GUID, minting one otherwise).

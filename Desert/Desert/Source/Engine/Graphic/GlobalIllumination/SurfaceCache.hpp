@@ -67,15 +67,21 @@ namespace Desert::Graphic::SurfaceCache
     enum class Layer : uint32_t
     {
         // ---- captured
-        Depth = 0,        // card-space depth of the surface, 0 = card plane, 1 = far side of the card box
-        Albedo,           // diffuse albedo, rgb; a = 1
-        Opacity,          // coverage: 0 where the card ray finds no surface (outside coverage)
-        Normal,           // octahedral world normal
-        Emissive,         // material emissive, linear radiance
-                          // ---- lit
-        DirectLighting,   // every light with its shadow, as irradiance
-        IndirectLighting, // radiosity: the card's hemisphere probes over the previous FinalLighting
-        FinalLighting,    // albedo × (direct + indirect) + emissive: what a traced hit reads
+        Depth = 0, // card-space depth of the surface, 0 = card plane, 1 = far side of the card box
+        Albedo,    // diffuse albedo, rgb; a = 1
+        Opacity,   // coverage: 0 where the card ray finds no surface (outside coverage)
+        Normal,    // octahedral world normal
+        Emissive,  // material emissive, linear radiance
+                   // the light the surface lets through to its far side (DesertSubsurfaceColor of a subsurface
+                   // model, e.g. TwoSidedFoliage), rgb; a = its subsurface opacity (the transmission shadow's
+                   // density). 0 = opaque.
+        Subsurface,
+        // ---- lit
+        // every light with its shadow, as the diffuse radiance it leaves: albedo / PI x the front irradiance
+        // (+N) + subsurface / PI x the back irradiance (-N, the light through a leaf)
+        DirectLighting,
+        IndirectLighting,           // radiosity: the same, of the radiance cache's irradiance at +N and -N
+        FinalLighting,              // direct + indirect + emissive: what a traced hit reads
         RadiosityFramesAccumulated, // temporal count of the radiosity accumulation (UE NumFramesAccumulated)
         Count
     };
@@ -87,6 +93,7 @@ namespace Desert::Graphic::SurfaceCache
          Core::Formats::ImageFormat::R8_UNORM,   // Opacity         (UE PF_G8)
          Core::Formats::ImageFormat::RG8_UNORM,  // Normal          (UE PF_R8G8)
          Core::Formats::ImageFormat::R11G11B10F, // Emissive        (UE PF_FloatR11G11B10)
+         Core::Formats::ImageFormat::RGBA8F,     // Subsurface      (as Albedo)
          Core::Formats::ImageFormat::R11G11B10F, // DirectLighting  (UE PF_FloatR11G11B10)
          Core::Formats::ImageFormat::R11G11B10F, // IndirectLighting (UE PF_FloatR11G11B10)
          Core::Formats::ImageFormat::R11G11B10F, // FinalLighting   (UE PF_FloatR11G11B10)

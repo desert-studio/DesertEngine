@@ -79,8 +79,8 @@ TEST( UniformBlockLayout, DenoiserViewUBIsTheDenoisersViewUniforms )
     using T = Desert::Graphic::System::ScreenSpaceDenoiser::ViewUniforms;
     // Every pass of the screen-space denoiser declares the same block (ScreenSpaceDenoiser::UploadViewUniforms).
     for ( const char* shader :
-          { "../Denoise/SSDReconstructReflections.shader", "../Denoise/SSDReconstructDiffuse.shader",
-            "../Denoise/SSDTemporalAccumulation.shader", "../Denoise/SSDHistoryConvolution.shader" } )
+          { "../Denoise/SSDReconstructReflections.shader", "../Denoise/SSDTemporalAccumulation.shader",
+            "../Denoise/SSDHistoryConvolution.shader" } )
         ExpectTwin( shader, "DenoiserViewUB",
                     { { "u_ViewProjection", offsetof( T, ViewProjection ) },
                       { "u_PrevViewProjection", offsetof( T, PrevViewProjection ) },

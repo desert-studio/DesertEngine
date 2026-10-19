@@ -7,12 +7,17 @@
 // records, declares `ScreenProbeParams screenProbeParams`, the index array `screenProbeIndex[]` and the probe array
 // `screenProbes[]`, defines SCREEN_PROBES_DECLARED and includes it again for the readers.
 //
-// THE PROBES. A uniform probe sits at the centre pixel of every SP_DOWNSAMPLE tile (UE
-// r.Lumen.ScreenProbeGather.DownsampleFactor 16); where the uniform probes cannot interpolate a pixel (their planes
-// miss it: a depth edge, a thin object, a sky pixel at a tile centre) adaptive probes are placed at the centres of
-// the 8 and 4 pixel tiles (UE ScreenProbeAdaptivePlacementCS, two levels for a downsample of 16), up to the
-// adaptive budget. screenProbeIndex: [0] = adaptive probes placed, then one grid per level (probe index or
-// SP_INVALID). Uniform probe i is cell i of level 0; adaptive probes follow the uniform ones.
+// THE PROBES (UE LumenScreenProbeGather.usf ScreenProbeDownsampleDepthUniformCS / ScreenProbeAdaptivePlacementCS,
+// LumenScreenProbeCommon.ush CalculateUpsampleInterpolationWeights). A uniform probe sits in every SP_DOWNSAMPLE
+// tile (UE r.Lumen.ScreenProbeGather.DownsampleFactor 16) at the frame's jitter (SPJitter: UE GetScreenTileJitter,
+// eight positions over eight frames). Then two adaptive levels on the 8 and 4 pixel grids at the same jitter, the
+// positions of a coarser grid skipped: a position on geometry that the probes already placed cannot interpolate
+// (SPInterpolate's summed weight under SP_ADAPTIVE_EPSILON: a depth edge, a twig, a leaf card alone against the
+// sky) gets an adaptive probe while the budget lasts, listed under the uniform tile it falls in.
+// screenProbeIndex: [0] = adaptive probes requested (past the budget too), then the uniform grid (probe index or
+// SP_INVALID; uniform probe i is cell i), then per uniform tile one adaptive count per adaptive level
+// (SPTileHeader), then per uniform tile SP_ADAPTIVE_PER_TILE adaptive probe slots (SPTileSlot). Adaptive probes
+// follow the uniform ones in screenProbes[].
 //
 // A probe's radiance is a HEMI-octahedron (Cigolle et al.) around its G-buffer normal, SP_RES texels a side: every
 // one of its rays leaves the surface. UE traces a world-space full octahedron and spends the texels below the
@@ -23,21 +28,46 @@
 #define SP_RES 8u
 #define SP_TILE ( SP_RES + 2u ) // a filtered probe with its one-texel border
 #define SP_INVALID 0xFFFFFFFFu
-// Below this summed interpolation weight of the coarser probes a finer tile gets an adaptive probe.
-#define SP_ADAPTIVE_WEIGHT_THRESHOLD 0.25
+// UE's Epsilon of the upsample: below this summed interpolation weight a pixel has no probe lighting. A placement
+// position under it gets an adaptive probe; an integrated pixel under it (the budget spent) reads the world radiance
+// cache; a uniform corner at or under it is replaced by its tile's best adaptive probe.
+#define SP_ADAPTIVE_EPSILON 0.01
+// The adaptive positions of one uniform tile: 2x2 - 1 on the 8 pixel grid, 4x4 - 2x2 on the 4 pixel grid
+// (GlobalIllumination::ScreenProbeLayout::kAdaptivePerTile).
+#define SP_ADAPTIVE_PER_TILE 15u
 
-// std430 — must match GlobalIllumination::ScreenProbeParamsPayload (128 bytes).
+// std430 — must match GlobalIllumination::ScreenProbeParamsPayload (192 bytes).
 struct ScreenProbeParams {
-    mat4  prevViewProjection; // last frame's (unjittered) view-projection: the integrate's history
+    mat4  prevViewProjection; // last frame's (unjittered) view-projection: the screen trace's reprojection
+    mat4  prevInvViewProjection; // its inverse: the temporal filter's previous world position of a pixel
     vec4  prevCamera;         // xyz = last frame's camera (cm)
+    vec4  jitter;             // xy = this frame's jitter in NDC, zw = last frame's (the temporal filter's history)
     uvec4 grid;               // xy = level-0 grid, z = uniform probes, w = adaptive probe budget
-    uvec4 atlas;              // x = probes per atlas row, y = frame index, z = 1 when the history is this view's
-    // The trace's legs (ScreenProbeTrace.shader): x = the mesh SDF near field's trace distance (cm), y = the
-    // camera distance past which a probe traces no mesh SDF (cm), z = SP_TRACE_* flags, w unused.
-    vec4  trace;
+    uvec4 atlas;              // x = probes per atlas row, y = frame index, z = SP_FLAG_* below,
+                              // w = the probes' jitter in pixels (x | y << 16)
 };
-#define SP_TRACE_SCREEN     1u // the scene colour history holds the previous frame: the screen trace runs
-#define SP_TRACE_MESH_SDFS  2u // the mesh SDFs of the frame are bound: the near field runs
+
+// UE GetHistoryScreenPosition: where the surface seen at @p uv (top-left) with @p deviceDepth sat last frame, as
+// last frame's unjittered NDC.xyz - its unjittered NDC minus the velocity (NDC.xyz current - previous,
+// View/Velocity.hpp), in xy and in device depth (UE VELOCITY_ENCODE_DEPTH).
+vec3 SPPreviousSurfaceNdc( ScreenProbeParams params, vec2 uv, float deviceDepth, vec3 velocity )
+{
+    const vec2 ndc = vec2( uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0 );
+    return vec3( ndc - params.jitter.xy - velocity.xy, deviceDepth - velocity.z );
+}
+
+// UE GetPrevTranslatedWorldPosition: the world position, cm, of last frame's NDC.xyz @p previousNdc
+// (SPPreviousSurfaceNdc). A surface's world velocity is its position minus this one.
+vec3 SPPreviousWorldPosition( ScreenProbeParams params, vec3 previousNdc )
+{
+    const vec4 world = params.prevInvViewProjection * vec4( previousNdc, 1.0 );
+    return world.xyz / world.w;
+}
+
+// ScreenProbeParams.atlas.z — must match GlobalIllumination::kScreenProbe* (ScreenProbeGather.hpp).
+#define SP_FLAG_HISTORY_VALID  1u // the temporal filter's history set is this view's previous frame
+#define SP_FLAG_SHORT_RANGE_AO 2u // the ShortRangeAO pass ran this frame: the integrate reads its bent normal + AO
+#define SP_FLAG_SCREEN_TRACE   4u // the scene colour history holds the previous frame: the screen trace runs
 
 // std430 — must match GlobalIllumination::ScreenProbePayload (32 bytes).
 struct ScreenProbe {
@@ -57,38 +87,28 @@ ivec2 SPProbePixelOf( ScreenProbe probe )
     return ivec2( packed % 4096, packed / 4096 );
 }
 
-float SPSpacing( uint level )
-{
-    return float( SP_DOWNSAMPLE >> level );
-}
-
 uvec2 SPGridSize( uint level, vec2 extent )
 {
     const uint s = SP_DOWNSAMPLE >> level;
     return ( uvec2( extent ) + s - 1u ) / s;
 }
 
-uint SPGridOffset( uint level, vec2 extent )
+// The pixel a probe of @p cell at @p level sits on: the cell's corner plus the frame's jitter (inside the extent
+// only for the uniform level; an adaptive position past the extent is skipped).
+ivec2 SPProbePixel( uint level, ivec2 cell, uvec2 jitter )
 {
-    uint offset = 1u;
-    for ( uint l = 0u; l < level; ++l )
-    {
-        const uvec2 g = SPGridSize( l, extent );
-        offset += g.x * g.y;
-    }
-    return offset;
+    return cell * int( SP_DOWNSAMPLE >> level ) + ivec2( jitter );
 }
 
-uint SPIndexEntries( vec2 extent )
+// The adaptive probe slots of a level inside its uniform tile's SP_ADAPTIVE_PER_TILE: 3 at 8 px, then 12 at 4 px.
+uint SPLevelSlotBase( uint level )
 {
-    return SPGridOffset( SP_LEVELS, extent );
+    return level == 1u ? 0u : 3u;
 }
 
-// The pixel a probe of @p cell at @p level sits on (its tile's centre, inside the extent).
-ivec2 SPProbePixel( uint level, ivec2 cell, vec2 extent )
+uint SPLevelSlots( uint level )
 {
-    const int s = int( SP_DOWNSAMPLE >> level );
-    return min( cell * s + s / 2, ivec2( extent ) - 1 );
+    return level == 1u ? 3u : 12u;
 }
 
 // The orthonormal frame of a probe's hemisphere around @p n (Duff et al. 2017, branchless).
@@ -164,40 +184,94 @@ ivec2 SPAtlasOrigin( uint probe, uint texelsPerProbe )
     return ivec2( probe % row, probe / row ) * int( texelsPerProbe );
 }
 
-uint SPProbeAt( uint level, ivec2 cell, vec2 extent )
+uvec2 SPJitter()
 {
-    const uvec2 g = SPGridSize( level, extent );
-    if ( any( lessThan( cell, ivec2( 0 ) ) ) || any( greaterThanEqual( uvec2( cell ), g ) ) )
-        return SP_INVALID;
-    return screenProbeIndex[SPGridOffset( level, extent ) + uint( cell.y ) * g.x + uint( cell.x )];
+    return uvec2( screenProbeParams.atlas.w & 0xFFFFu, screenProbeParams.atlas.w >> 16u );
 }
 
-// UE's upsample weight (LumenScreenProbeGather.usf CalculateUpsampleInterpolationWeights): how well probe @p id
-// stands for the surface point @p p (normal @p n, @p viewDistance from the camera) — its plane through the point
-// relative to the depth, and its hemisphere facing the point's normal.
+// The uniform tile a pixel falls in (the grid is shifted by the jitter: the strip before it is tile -1).
+ivec2 SPUniformTileOf( ivec2 pixel )
+{
+    return ivec2( floor( vec2( pixel - ivec2( SPJitter() ) ) / float( SP_DOWNSAMPLE ) ) );
+}
+
+bool SPUniformTileInside( ivec2 tile )
+{
+    return all( greaterThanEqual( tile, ivec2( 0 ) ) ) && all( lessThan( uvec2( tile ), screenProbeParams.grid.xy ) );
+}
+
+uint SPUniformTileIndex( ivec2 tile )
+{
+    return uint( tile.y ) * screenProbeParams.grid.x + uint( tile.x );
+}
+
+uint SPUniformProbeAt( ivec2 tile )
+{
+    return SPUniformTileInside( tile ) ? screenProbeIndex[1u + SPUniformTileIndex( tile )] : SP_INVALID;
+}
+
+// The index entry of a uniform tile's adaptive count of @p level (1 or 2), and of its adaptive slot @p k.
+uint SPTileHeader( uint tile, uint level )
+{
+    return 1u + screenProbeParams.grid.z + tile * ( SP_LEVELS - 1u ) + level - 1u;
+}
+
+uint SPTileSlot( uint tile, uint level, uint k )
+{
+    return 1u + screenProbeParams.grid.z * SP_LEVELS + tile * SP_ADAPTIVE_PER_TILE + SPLevelSlotBase( level ) + k;
+}
+
+// UE's upsample plane weight (CalculateUpsampleInterpolationWeights, PLANE_WEIGHTING): how far probe @p id lies
+// from the plane of the surface point @p p (normal @p n, @p viewDistance from the camera), relative to the depth —
+// times its hemisphere facing the point's normal: a probe here is a hemi-octahedron around its own normal (UE's is
+// a full octahedron), so a probe turned away from the point holds nothing it can read.
 float SPProbeWeight( uint id, vec3 p, vec3 n, float viewDistance )
 {
     const ScreenProbe probe = screenProbes[id];
     if ( probe.position.w <= 0.0 )
         return 0.0;
-    const float plane = abs( dot( p - probe.position.xyz, probe.normal.xyz ) ) / max( viewDistance, 1.0 );
+    const float plane = abs( dot( probe.position.xyz - p, n ) ) / max( viewDistance, 1.0 );
     return exp2( -10000.0 * plane * plane ) * max( dot( n, probe.normal.xyz ), 0.0 );
 }
 
-// The four probes of @p level around pixel @p pixel (float pixel coordinates) and their bilinear x probe weights.
-void SPLevelWeights( uint level, vec2 pixel, vec3 p, vec3 n, float viewDistance, vec2 extent, out uvec4 ids,
-                     out vec4 weights )
+// UE CalculateUpsampleInterpolationWeights: the four uniform probes around @p pixel, bilinear x plane weight; a
+// corner whose weight is at or under SP_ADAPTIVE_EPSILON takes the best adaptive probe of that corner's tile from
+// the adaptive levels below @p levels (1 = none, SP_LEVELS = all), weighted by its plane and its screen distance
+// to the pixel (1 at the pixel, 0 a uniform spacing away). Placement and integrate share it, so a position the
+// placement left without a probe is exactly a pixel the integrate finds no probe for.
+void SPInterpolate( ivec2 pixel, vec3 p, vec3 n, float viewDistance, uint levels, out uvec4 ids, out vec4 weights )
 {
-    const vec2  c = pixel / SPSpacing( level ) - 0.5;
+    const vec2  c = vec2( pixel - ivec2( SPJitter() ) ) / float( SP_DOWNSAMPLE );
     const ivec2 b = ivec2( floor( c ) );
     const vec2  f = c - vec2( b );
     for ( int i = 0; i < 4; ++i )
     {
-        const ivec2 o        = ivec2( i & 1, i >> 1 );
-        const vec2  bilinear = mix( 1.0 - f, f, vec2( o ) );
-        const uint  id       = SPProbeAt( level, b + o, extent );
-        ids[i]               = id;
-        weights[i] = id == SP_INVALID ? 0.0 : bilinear.x * bilinear.y * SPProbeWeight( id, p, n, viewDistance );
+        const ivec2 tile     = b + ivec2( i & 1, i >> 1 );
+        const vec2  bilinear = mix( 1.0 - f, f, vec2( i & 1, i >> 1 ) );
+        uint        id       = SPUniformProbeAt( tile );
+        float       w = id == SP_INVALID ? 0.0 : bilinear.x * bilinear.y * SPProbeWeight( id, p, n, viewDistance );
+        if ( w <= SP_ADAPTIVE_EPSILON && SPUniformTileInside( tile ) )
+        {
+            const uint t = SPUniformTileIndex( tile );
+            for ( uint level = 1u; level < levels; ++level )
+            {
+                const uint count = min( screenProbeIndex[SPTileHeader( t, level )], SPLevelSlots( level ) );
+                for ( uint k = 0u; k < count; ++k )
+                {
+                    const uint  candidate = screenProbeIndex[SPTileSlot( t, level, k )];
+                    const vec2  d         = abs( vec2( SPProbePixelOf( screenProbes[candidate] ) - pixel ) );
+                    const float corner    = 1.0 - clamp( max( d.x, d.y ) / float( SP_DOWNSAMPLE ), 0.0, 1.0 );
+                    const float candidateW = corner * SPProbeWeight( candidate, p, n, viewDistance );
+                    if ( candidateW > w )
+                    {
+                        w  = candidateW;
+                        id = candidate;
+                    }
+                }
+            }
+        }
+        ids[i]     = w > 0.0 ? id : SP_INVALID;
+        weights[i] = w > 0.0 ? w : 0.0;
     }
 }
 

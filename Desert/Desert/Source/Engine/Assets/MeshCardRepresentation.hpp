@@ -15,10 +15,17 @@
 //     kerb 15 cm high gets 31 cm voxels: its faces are half a voxel, their surfels half covered, and the card
 //     covering the kerb's side is a 31 cm strip standing over a 15 cm face. Here the voxel is PER AXIS: each axis
 //     gets its own size (>= kMinVoxelSize, at least kMinVoxelsAcrossThinAxis voxels across it, at most MaxVoxels
-//     along it), so the thin axis is resolved as finely as the long ones need; the surfel budget loop (UE
-//     TargetNumSurfels) is unchanged.
+//     along it), so the thin axis is resolved as finely as the long ones need.
 //   * UE's cluster thresholds are in voxel units of that one voxel; here they stay in voxel units, so a card is
 //     accepted by the same density/coverage rule, measured on the finer lattice.
+//   * UE caps the lattice at 64 voxels along the longest side whatever the mesh's size, and its cluster floor is
+//     15 voxels of coverage: on a 64 m street a voxel is 1 m and a card needs 15 m2 of surface, so Bistro's
+//     street and four of its buildings got NO card. Here the cap grows with the mesh (TargetVoxelSize up to
+//     MaxVoxelsLarge voxels, the surfel budget with it), so a card's floor stays near 15 x (10 cm)2 to
+//     15 x (25 cm)2 up to a 64 m mesh.
+//   * UE takes a near plane's surfels as ONE cluster over the whole face of the box, dropped when sparser than
+//     MinDensity of that face; a large mesh is sparse in its own box (a cross of lanes in a square). Here a slab
+//     too sparse for one card is cut into its connected regions (MeshCardBuild.cpp ValidRegions).
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
@@ -80,17 +87,29 @@ namespace Desert::Assets
         float    TargetVoxelSize         = 10.0f; // cm, UE TargetVoxelSize
         float    MinVoxelSize            = 1.0f;  // cm: the finest a thin axis is cut
         uint32_t MinVoxelsAcrossThinAxis = 4;     // a thin axis gets at least this many voxels (UE: one voxel)
-        uint32_t MaxVoxels               = 64;    // per axis, halved while the surfels exceed TargetSurfels
-        uint32_t TargetSurfels           = 10000; // UE TargetNumSufels
+        // The lattice's cap per axis grows with the mesh: TargetVoxelSize along the longest side, between
+        // MaxVoxels (UE's fixed 64) and MaxVoxelsLarge; the surfel budget grows with the square of that cap (a
+        // one-sided mesh's surfels grow with its faces), and the cap is halved while the surfels exceed it (UE
+        // InitSurfelScene). A mostly two-sided mesh keeps UE's fixed cap and budget: dense foliage is what they
+        // are for.
+        uint32_t MaxVoxels               = 64;    // per axis, UE MaxVoxels
+        uint32_t MaxVoxelsLarge          = 256;   // per axis, the largest cap a large mesh grows to
+        uint32_t TargetSurfels           = 10000; // UE TargetNumSufels, at a cap of MaxVoxels
         float    MinDensity              = 0.2f;  // UE r.MeshCardRepresentation.MinDensity
         float    NormalThreshold         = 0.25f; // UE r.MeshCardRepresentation.NormalTreshold
         uint32_t MaxCards                = kMaxCardsPerMesh;
     };
 
     // The builder (MeshCardBuild.cpp). Deterministic for the same input and settings. Takes the distance
-    // field's input: LOD0 triangles in mesh space with each one's material sidedness.
-    [[nodiscard]] Common::ResultStr<MeshCardsBuildData> BuildMeshCards( const MeshDistanceFieldBuildInput& input,
-                                                                        const MeshCardsBuildSettings& settings );
+    // field's input: LOD0 triangles in mesh space with each one's material sidedness. It runs in the distance
+    // field's job (EnqueueMeshDistanceField) and takes that job's cancel token (UE FCardRepresentationAsyncQueue
+    // shares the distance field queue's shutdown): polled per lattice row of every direction and per cluster
+    // pass, a cancelled build returns kMeshCardsCancelled - an error, so the DDC writes nothing for it.
+    [[nodiscard]] Common::ResultStr<MeshCardsBuildData>
+    BuildMeshCards( const MeshDistanceFieldBuildInput& input, const MeshCardsBuildSettings& settings,
+                    const MeshDistanceFieldCancel& cancel = {} );
+    // The error a cancelled card build returns (and a DDC flight that followed a cancelled leader).
+    inline constexpr std::string_view kMeshCardsCancelled = "cards: build cancelled";
 
     // THE DDC ENTRY: "DESTCARD", a version, the bounds, the flag, the cards.
     inline constexpr uint32_t                           kMeshCardsFormatVersion = 1;
@@ -99,8 +118,9 @@ namespace Desert::Assets
 
     inline constexpr Common::DDC::Deriver kMeshCardsDeriver{
          "MeshCards", ".mcard", { 0x2F86C1D94B0E73A5ULL, 0x9D3E5A71C6B2F048ULL } };
-    // 1: UE's surfel clustering on a per-axis voxel lattice
-    inline constexpr uint32_t kMeshCardsBuilderVersion = 1;
+    // 1: UE's surfel clustering on a per-axis voxel lattice; 2: a slab too sparse for one card is cut into its
+    // connected regions (MeshCardBuild.cpp ValidRegions), the lattice cap and the surfel budget grow with the mesh
+    inline constexpr uint32_t kMeshCardsBuilderVersion = 2;
 
     // Render-data key + settings + builder version + every submesh's sidedness -> this bucket's key.
     [[nodiscard]] uint64_t MeshCardsDerivedDataKey( uint64_t renderDataKey, const MeshCardsBuildSettings& settings,
@@ -108,14 +128,67 @@ namespace Desert::Assets
 
     // Where a builder is registered (the editor, at startup) a miss builds and Puts; a packaged game registers
     // none, and a miss there is an error naming the asset and the key.
-    using MeshCardsBuilder =
-         std::function<Common::ResultStr<std::string>( const MeshDistanceFieldBuildInput& input )>;
+    using MeshCardsBuilder = std::function<Common::ResultStr<std::string>(
+         const MeshDistanceFieldBuildInput& input, const MeshDistanceFieldCancel& cancel )>;
     void                                         SetMeshCardsBuilder( MeshCardsBuilder builder );
-    [[nodiscard]] Common::ResultStr<std::string> BuildMeshCardsBytes( const MeshDistanceFieldBuildInput& input );
+    [[nodiscard]] Common::ResultStr<std::string> BuildMeshCardsBytes( const MeshDistanceFieldBuildInput& input,
+                                                                      const MeshDistanceFieldCancel&     cancel );
 
+    // A cancelled build (@p cancel) returns an error containing kMeshCardsCancelled and measures no coverage.
     [[nodiscard]] Common::ResultStr<std::shared_ptr<const MeshCardsBuildData>>
     LoadMeshCards( const std::filesystem::path& asset, uint64_t renderDataKey,
-                   const std::vector<uint8_t>& submeshTwoSided, const MeshDistanceFieldBuildInput& input );
+                   const std::vector<uint8_t>& submeshTwoSided, const MeshDistanceFieldBuildInput& input,
+                   const MeshDistanceFieldCancel& cancel );
+
+    // THE COVERAGE (not in UE): the share of the mesh's surface, by area, that its cards hold the way the runtime
+    // lookup reads them (Common/SurfaceCacheSampling.glslh) - a surface point is HELD when a card facing one of
+    // the axis directions its normal leans to (|component| >= 0.1, the lookup's axis weight) contains it and
+    // nothing of the mesh lies between it and the card plane. Only the surface seen from outside the mesh along
+    // one of those axis directions is counted (a pocket no axis reaches from outside is a hole UE's cards cannot
+    // cover either). Deterministic area-weighted samples, ray-cast against the mesh (Geometry/TriangleBvh.hpp);
+    // two-sided triangles count once per side.
+    inline constexpr uint32_t kMeshCardsCoverageSamples = 4096;
+    struct MeshCardsCoverage
+    {
+        float Held = 1.0f; // the share of the outside-seen surface the cards hold
+        // The share of the one-sided surface seen from outside ONLY from behind: winding that faces into the mesh,
+        // which the card build (as UE's) takes for the inside of the geometry and never makes a card for.
+        float BackOnly = 0.0f;
+    };
+    [[nodiscard]] MeshCardsCoverage MeasureMeshCardsCoverage( const MeshDistanceFieldBuildInput& input,
+                                                              const MeshCardsBuildData&          cards,
+                                                              uint32_t samples = kMeshCardsCoverageSamples );
+    // Derived from the cards and the same triangles, in its own DDC bucket keyed on the cards' key and this
+    // measure's version: a mesh pays for it once per card build, as for the cards.
+    inline constexpr Common::DDC::Deriver kMeshCardsCoverageDeriver{
+         "MeshCardsCoverage", ".mccov", { 0x6B1E2F0C93D84A57ULL, 0xA4C7155E2D9B03F1ULL } };
+    // 1: area-weighted samples, held when a facing card contains the point and sees it; 2: + the back-only share
+    inline constexpr uint32_t kMeshCardsCoverageVersion = 2;
+
+    // THE COVERAGE REPORT. Every mesh whose cards are loaded or built where a builder is registered (the editor,
+    // the cook) is recorded with its coverage; one below kMeshCardsLowCoverage is logged as a warning naming it,
+    // and MeshCardsCoverageSummary() is the report over the process: the meshes, their mean coverage and the low
+    // ones, lowest first (the surface cache prints it when the scene settles).
+    inline constexpr float kMeshCardsLowCoverage = 0.75f;
+    struct MeshCardsCoverageEntry
+    {
+        std::string Asset;
+        float       Coverage = 0.0f;
+        float       BackOnly = 0.0f;
+        uint32_t    Cards    = 0;
+        glm::vec3   Size{ 0.0f }; // the cards' box, cm
+    };
+    struct MeshCardsCoverageReport
+    {
+        uint32_t                            Meshes       = 0;
+        float                               MeanCoverage = 0.0f; // by mesh
+        std::vector<MeshCardsCoverageEntry> Low;                 // below kMeshCardsLowCoverage, lowest first
+    };
+    void RecordMeshCardsCoverage( const std::filesystem::path& asset, const MeshCardsCoverage& coverage,
+                                  const MeshCardsBuildData& cards );
+    [[nodiscard]] MeshCardsCoverageReport MeshCardsCoverageSummary();
+    // The report as one line: "N mesh(es), mean X %, K below Y %: a 41 %, b 52 %, ..." (the first @p listed).
+    [[nodiscard]] std::string FormatMeshCardsCoverage( const MeshCardsCoverageReport& report, size_t listed );
 
     // Where a mesh's cards land when its derived-data job finishes (as MeshDistanceFieldSlot): empty until then,
     // and for good when the build failed (logged naming the mesh). Read from any thread; written once.

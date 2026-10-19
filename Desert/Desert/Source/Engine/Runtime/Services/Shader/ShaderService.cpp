@@ -273,7 +273,7 @@ namespace Desert::Runtime
         {
             // A REFUSAL, NOT A RESULT — and it used to be handed back with a comment saying "the caller
             // decides whether to draw with the default instead". No caller decided. Both of them
-            // (VolumetricCloudRenderer::BuildMediumPipelines and ComputeImages::BakeProceduralPanorama)
+            // (VolumetricCloudRenderer::BuildMediumPipelines and SkyCapture::AcquirePanoramaProgram)
             // test the pointer and nothing else, so each already carries a fall-back-to-the-shipped-medium
             // branch that could never run, and each handed this object to ComputePipeline::Create instead.
             // VulkanPipelineCompute::Invalidate then reads GetPipelineShaderStageCreateInfos()[0] — of a

@@ -1,16 +1,16 @@
 #ifndef GI_TRACE_DISTANCE_FIELD_GLSLH
 #define GI_TRACE_DISTANCE_FIELD_GLSLH
 
-// THE SOFTWARE TRACER (DESERT_GI_TRACER_SOFTWARE): GITraceRay of Common/GITracing.glslh as a march of the global
-// distance field (Common/GlobalDistanceField.glslh, GLOBAL-SDF). Port of UE's global-SDF leg of Lumen software
-// tracing (LumenTraceGlobalSDF / RayTraceGlobalDistanceField in GlobalDistanceFieldUtils.ush): the hit is the
-// expanded surface's entry, its normal the field's gradient. UE first marches the mesh SDFs near the ray origin
-// (r.Lumen.TraceMeshSDFs): the screen probes do so here too (Common/GITraceMeshSDF.glslh, before this walk); the
-// radiance cache's probes and the cards' shadow rays march the global field only, as in UE.
+// THE SOFTWARE TRACER (DESERT_GI_TRACER_SOFTWARE): GITraceRay of Common/GITracing.glslh as UE Lumen's software
+// tracing - a NEAR FIELD through the mesh distance fields of the objects around the ray (UE r.Lumen.TraceMeshSDFs:
+// LumenMeshSDFCulling's per-cell object lists, RayTraceSingleMeshSDF / TraceMeshSDFs in LumenSoftwareRayTracing),
+// then the global distance field (Common/GlobalDistanceField.glslh, GLOBAL-SDF; UE LumenTraceGlobalSDF /
+// RayTraceGlobalDistanceField) from where the near field ended. The global field's 39 cm voxels close a dense crown
+// of leaf cards into one blob; the mesh fields keep the gaps between the cards (FOLIAGE-LOOK-7).
 //
-// Included by Common/GITracer.glslh only, which declares u_GlobalDistanceField0..3, includes
-// Common/GlobalDistanceField.glslh, and defines GI_TRACE_GDF_LEVELS as the expression of this frame's
-// vec4[GDF_NUM_CLIPMAPS] clipmap parameters.
+// Included by Common/GITracer.glslh only, which declares u_GlobalDistanceField0..3, the mesh field buffers
+// (Common/MeshDistanceField.glslh's inputs) and the object grid, includes both field headers, and defines
+// GI_TRACE_GDF_LEVELS as the expression of this frame's vec4[GDF_NUM_CLIPMAPS] clipmap parameters.
 
 #ifndef DESERT_GI_TRACER_SOFTWARE
 #error "GITraceDistanceField.glslh is the software tracer: define DESERT_GI_TRACER_SOFTWARE"
@@ -18,19 +18,219 @@
 
 // Sphere-trace steps per ray (UE r.Lumen.TraceGlobalSDF... MaxSteps scale; the GDF debug view's count).
 #define GI_GDF_MAX_STEPS 128
+// Sphere-trace steps per object of the near field (UE's mesh SDF MaxTraceSteps).
+#define GI_MESH_SDF_MAX_STEPS 64
 
-GITraceResult GITraceRay( GITraceInput ray )
+// The near-field object list of the froxel holding @p position (Common/MeshSDFGrid.glslh) into @p list: x = the index
+// of its first object in giTracerMeshSDFGridCells, y = its length - every object within DF_MESH_SDF_TRACE_DISTANCE of
+// the froxel. False outside the grid (no near field there; @p list empty).
+bool GIMeshObjectList( vec3 position, out uvec2 list )
+{
+    list           = uvec2( 0u );
+    const int cell = MeshSDFGridCellAt( giTracerMeshSDFGrid, position );
+    if ( cell < 0 )
+        return false;
+    const uint header = uint( cell ) * MeshSDFGridHeaderStride;
+    list              = uvec2( giTracerMeshSDFGridCells[header], giTracerMeshSDFGridCells[header + 1u] );
+    return true;
+}
+
+// One voxel of object @p objectIndex's finest resident mip, world cm (0 with no resident mip): the precision of its
+// near-field surface.
+float GIMeshObjectVoxel( uint objectIndex )
+{
+    const uint base       = objectIndex * uint( DF_OBJECT_STRIDE );
+    const uint assetIndex = floatBitsToUint( u_DFObjects[base + 4u].x );
+    const uint numMips    = DFAssetNumMips( assetIndex );
+    if ( numMips == 0u )
+        return 0.0;
+    const DFAssetMip finest = LoadDFAssetMip( assetIndex, numMips - 1u );
+    return u_DFObjects[base + 3u].w /
+           ( float( DF_UNIQUE_BRICK_SIZE ) * max( finest.VolumeToIndirectionScale.x,
+                                                  max( finest.VolumeToIndirectionScale.y, finest.VolumeToIndirectionScale.z ) ) );
+}
+
+// ONE OBJECT OF THE NEAR FIELD (UE RayTraceSingleMeshSDF): the ray clipped to the object's volume box, sphere traced
+// in world centimetres through the object's field (DistanceToMeshSurfaceStandalone, volume -> world at the
+// smallest axis scale: conservative under a non-uniform scale). A hit before @p tEnd lowers @p tEnd to it and
+// writes its world normal (the field's gradient in volume space through the transpose of world -> volume).
+//
+// THE SURFACE IS EXPANDED BY HALF A VOXEL OF THE FINEST RESIDENT MIP, as the global field's (GlobalDistanceField.glslh):
+// a leaf card thinner than a voxel reconstructs to a V that never goes negative, and a step can cross it; the
+// expansion catches it. FOLIAGE (DF_OBJECT_FLAG_MOSTLY_TWO_SIDED, UE bMostlyTwoSided) stops a GI gather ray
+// (@p ditheredTransparency, UE bDitheredTransparency) at each sheet it enters with the global field's per-step
+// chance GDF_DITHERED_TRANSPARENCY_STEP_THRESHOLD, and steps through the sheet otherwise; a shadow ray stops on it.
+// A gather ray is a cone (@p tanConeAngle): in foliage its band is at least the cone's radius at t, so the leaves the
+// cone cannot tell apart are one sheet to it - entered once, stepped through at the cone's pace (cone tracing's
+// sample radius) rather than at the finest voxel's, which made a crown cost up to the step cap per leaf object.
+bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tStart, inout float tEnd,
+                        bool ditheredTransparency, float tanConeAngle, uint seed, inout vec3 normal )
+{
+    const uint base = objectIndex * uint( DF_OBJECT_STRIDE );
+    const vec4 r0          = u_DFObjects[base + 0u];
+    const vec4 r1          = u_DFObjects[base + 1u];
+    const vec4 r2          = u_DFObjects[base + 2u];
+    const vec4 extentScale = u_DFObjects[base + 3u];
+    const uint assetIndex  = floatBitsToUint( u_DFObjects[base + 4u].x );
+    const bool foliage     = ( floatBitsToUint( u_DFObjects[base + uint( DF_OBJECT_ROW_FLAGS )].x ) &
+                           uint( DF_OBJECT_FLAG_MOSTLY_TWO_SIDED ) ) != 0u;
+    const uint numMips     = DFAssetNumMips( assetIndex );
+    if ( numMips == 0u )
+        return false;
+
+    // The ray in volume space, still parameterised by world centimetres.
+    const vec3 extent = extentScale.xyz;
+    const vec3 vo     = vec3( dot( r0, vec4( origin, 1.0 ) ), dot( r1, vec4( origin, 1.0 ) ), dot( r2, vec4( origin, 1.0 ) ) );
+    const vec3 vd     = vec3( dot( r0.xyz, direction ), dot( r1.xyz, direction ), dot( r2.xyz, direction ) );
+    const vec3 inv    = 1.0 / mix( vd, vec3( 1e-12 ), lessThan( abs( vd ), vec3( 1e-12 ) ) );
+    const vec3 ta     = ( -extent - vo ) * inv;
+    const vec3 tb     = ( extent - vo ) * inv;
+    const vec3 tNear  = min( ta, tb );
+    const vec3 tFar   = max( ta, tb );
+    const float tIn   = max( max( tNear.x, max( tNear.y, tNear.z ) ), tStart );
+    const float tOut  = min( min( tFar.x, min( tFar.y, tFar.z ) ), tEnd );
+    if ( tIn >= tOut )
+        return false;
+
+    const float volumeToWorld = extentScale.w;
+    const DFAssetMip finest   = LoadDFAssetMip( assetIndex, numMips - 1u );
+    const float voxelVolume   = 1.0 / ( float( DF_UNIQUE_BRICK_SIZE ) *
+                                      max( finest.VolumeToIndirectionScale.x,
+                                           max( finest.VolumeToIndirectionScale.y, finest.VolumeToIndirectionScale.z ) ) );
+    const float expand        = 0.5 * voxelVolume * volumeToWorld;
+    const uint  objectSeed    = seed ^ ( objectIndex * 2654435761u );
+
+    float t              = tIn;
+    bool  previousInBand = false;
+    for ( int step = 0; step < GI_MESH_SDF_MAX_STEPS && t < tOut; ++step )
+    {
+        const vec3  v        = clamp( vo + vd * t, -extent, extent );
+        const float distance = DistanceToMeshSurfaceStandalone( v, assetIndex ) * volumeToWorld;
+        const float band     = foliage && ditheredTransparency ? max( expand, t * tanConeAngle ) : expand;
+        const bool  inBand   = distance < band;
+        if ( inBand && ( !foliage || !ditheredTransparency ||
+                         ( !previousInBand && GlobalDistanceFieldStepNoise( objectSeed, step ) <=
+                                                  GDF_DITHERED_TRANSPARENCY_STEP_THRESHOLD ) ) )
+        {
+            const float h = voxelVolume;
+            const vec3  g = vec3( DistanceToMeshSurfaceStandalone( clamp( v + vec3( h, 0, 0 ), -extent, extent ), assetIndex ) -
+                                      DistanceToMeshSurfaceStandalone( clamp( v - vec3( h, 0, 0 ), -extent, extent ), assetIndex ),
+                                  DistanceToMeshSurfaceStandalone( clamp( v + vec3( 0, h, 0 ), -extent, extent ), assetIndex ) -
+                                      DistanceToMeshSurfaceStandalone( clamp( v - vec3( 0, h, 0 ), -extent, extent ), assetIndex ),
+                                  DistanceToMeshSurfaceStandalone( clamp( v + vec3( 0, 0, h ), -extent, extent ), assetIndex ) -
+                                      DistanceToMeshSurfaceStandalone( clamp( v - vec3( 0, 0, h ), -extent, extent ), assetIndex ) );
+            const vec3 worldGradient = g.x * r0.xyz + g.y * r1.xyz + g.z * r2.xyz;
+            normal = dot( worldGradient, worldGradient ) > 1e-12 ? normalize( worldGradient ) : -direction;
+            tEnd   = t;
+            return true;
+        }
+        previousInBand = inBand;
+        // Through a sheet the ray passed: at least half the band per step, so it leaves the sheet in two.
+        t += max( abs( distance ), band );
+    }
+    return false;
+}
+
+// The dither seed of @p ray (UE bDitheredTransparency): the ray itself - every consumer already jitters its rays per
+// frame, so the noise moves with them; the near and the far field of one ray draw the same seed.
+uint GITraceSeed( GITraceInput ray )
+{
+    const uvec3 o = floatBitsToUint( ray.origin );
+    const uvec2 d = floatBitsToUint( ray.direction.xy );
+    return ( o.x * 73856093u ) ^ ( o.y * 19349663u ) ^ ( o.z * 83492791u ) ^ ( d.x * 2654435761u ) ^
+           ( d.y * 2246822519u );
+}
+
+// THE NEAR FIELD (UE TraceMeshSDFs): the mesh SDFs of the origin's froxel from ray.tMin, up to
+// DF_MESH_SDF_TRACE_DISTANCE. @p farStart is where the far field goes on after a miss: the near field's end when the
+// origin's froxel listed the objects (the list holds every object the ray can reach before it), ray.tMin outside the
+// grid.
+GITraceResult GITraceNearField( GITraceInput ray, out float farStart )
 {
     GITraceResult result;
     result.hit = false;
-    const vec3 start = ray.origin + ray.direction * ray.tMin;
-    const GlobalDistanceFieldHit march =
-         TraceGlobalDistanceField( start, ray.direction, ray.tMax - ray.tMin, GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS );
+    // A gather ray passes foliage stochastically (UE bDitheredTransparency); a shadow ray stops on it.
+    const bool dithered = ( ray.flags & GI_TRACE_SHADOW_RAY ) == 0u;
+    const uint seed     = GITraceSeed( ray );
+
+    // The near field: the objects of the origin's froxel, the closest hit. The list holds every object the ray can
+    // reach before DF_MESH_SDF_TRACE_DISTANCE (each within that of the froxel), uncapped, closest to the froxel first:
+    // an early near hit clips every later object to its box test.
+    float       globalStart = ray.tMin;
+    const float nearEnd     = min( ray.tMax, DF_MESH_SDF_TRACE_DISTANCE );
+    uvec2       list        = uvec2( 0u );
+    if ( ray.tMin < nearEnd && GIMeshObjectList( ray.origin, list ) )
+    {
+        float      tHit   = nearEnd;
+        vec3       normal = -ray.direction;
+        bool       hit    = false;
+        uint       hitObject = 0u;
+        const float tanCone = tan( ray.coneAngle );
+        for ( uint i = 0u; i < list.y; ++i )
+        {
+            const uint object = giTracerMeshSDFGridCells[list.x + i];
+            if ( GITraceMeshObject( object, ray.origin, ray.direction, ray.tMin, tHit, dithered, tanCone, seed,
+                                    normal ) )
+            {
+                hit       = true;
+                hitObject = object;
+            }
+        }
+        if ( hit )
+        {
+            result.hit                  = true;
+            result.surface.distance     = tHit;
+            result.surface.position     = ray.origin + ray.direction * tHit;
+            result.surface.meshCards    = GI_NO_MESH_CARDS;
+            // The hit object's instance-table row (DF_OBJECT_ROW_FLAGS .y): GIHitInstanceRows reads its cards first
+            // (UE ConeTraceMeshSDFsAndInterpolateFromCards: the hit object's MeshCardsIndex).
+            result.surface.instance =
+                 floatBitsToUint( u_DFObjects[hitObject * uint( DF_OBJECT_STRIDE ) + uint( DF_OBJECT_ROW_FLAGS )].y );
+            result.surface.primitive    = 0u;
+            result.surface.barycentrics = vec2( 0.0 );
+            result.surface.normal       = normal;
+            result.surface.frontFace    = dot( normal, ray.direction ) < 0.0;
+            // The hit object's world -> previous world rows (UE CalculateMeshSDFDerivedData, bCalculateHitVelocity).
+            const uint motionBase = hitObject * uint( DF_OBJECT_STRIDE ) + uint( DF_OBJECT_ROW_TO_PREVIOUS_WORLD );
+            const vec4 hitAt      = vec4( result.surface.position, 1.0 );
+            const vec3 previous   = vec3( dot( u_DFObjects[motionBase + 0u], hitAt ),
+                                          dot( u_DFObjects[motionBase + 1u], hitAt ),
+                                          dot( u_DFObjects[motionBase + 2u], hitAt ) );
+            result.surface.velocity    = result.surface.position - previous;
+            result.surface.motionKnown = true;
+            farStart                    = tHit;
+            return result;
+        }
+        // The global field goes on from where the near field ended (UE: the global SDF trace starts at the mesh
+        // SDF trace distance).
+        globalStart = nearEnd;
+    }
+    farStart = globalStart;
+    return result;
+}
+
+// THE FAR FIELD (UE TraceVoxels: the global SDF) from ray.tMin to ray.tMax.
+GITraceResult GITraceFarField( GITraceInput ray )
+{
+    GITraceResult result;
+    result.hit          = false;
+    const bool dithered = ( ray.flags & GI_TRACE_SHADOW_RAY ) == 0u;
+    const uint seed     = GITraceSeed( ray );
+    float      globalStart = ray.tMin;
+    // Never before the far field's own offset is reached (GIRayBias.farOffset: a ray that left its surface by the
+    // near field's few cm would re-enter it in the coarse field).
+    globalStart = max( globalStart, ray.farTMin );
+    if ( globalStart >= ray.tMax )
+        return result;
+
+    const vec3 start = ray.origin + ray.direction * globalStart;
+    const GlobalDistanceFieldHit march = TraceGlobalDistanceField( start, ray.direction, ray.tMax - globalStart,
+                                                                   GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS, dithered, seed );
     if ( !march.Hit )
         return result;
 
     result.hit                   = true;
-    result.surface.distance      = ray.tMin + march.T;
+    result.surface.distance      = globalStart + march.T;
     result.surface.position      = start + ray.direction * march.T;
     result.surface.meshCards     = GI_NO_MESH_CARDS;
     result.surface.instance      = GI_NO_INSTANCE;
@@ -38,6 +238,8 @@ GITraceResult GITraceRay( GITraceInput ray )
     result.surface.barycentrics  = vec2( 0.0 );
     result.surface.frontFace     = true;
     result.surface.normal        = -ray.direction;
+    result.surface.velocity      = vec3( 0.0 );
+    result.surface.motionKnown   = false;
     const int level = march.Level >= 0 ? march.Level : GlobalDistanceFieldLevelAt( result.surface.position, GI_TRACE_GDF_LEVELS );
     if ( level >= 0 )
     {
@@ -49,12 +251,24 @@ GITraceResult GITraceRay( GITraceInput ray )
     return result;
 }
 
+// The whole walk: the near field, then the far field from where it ended.
+GITraceResult GITraceRay( GITraceInput ray )
+{
+    float               farStart;
+    const GITraceResult near = GITraceNearField( ray, farStart );
+    if ( near.hit )
+        return near;
+    ray.tMin = farStart;
+    return GITraceFarField( ray );
+}
+
 // Visibility only: 1 when nothing of the field lies between @p origin and @p maxT along @p direction.
-float GITraceVisibility( vec3 origin, vec3 direction, float maxT )
+float GITraceVisibility( vec3 origin, vec3 direction, float farTMin, float maxT )
 {
     GITraceInput ray;
     ray.origin    = origin;
     ray.tMin      = 0.0;
+    ray.farTMin   = farTMin;
     ray.direction = direction;
     ray.tMax      = maxT;
     ray.coneAngle = 0.0;
@@ -69,15 +283,35 @@ float GITraceVoxelAt( vec3 position )
     return level >= 0 ? GI_TRACE_GDF_LEVELS[level].w : GI_TRACE_GDF_LEVELS[GDF_NUM_CLIPMAPS - 1].w;
 }
 
-// The march stops on the EXPANDED field surface, up to half a voxel in front of the mesh: a secondary ray leaves a
-// voxel out so it does not re-enter the surface it starts on, and the view's pixel surface counts as the hit within
-// a voxel of it (UE's global-SDF surface bias, LumenTracingUtils.ush).
+// TWO OFFSETS, ONE PER FIELD. The global field's march stops on its EXPANDED surface, up to half a voxel in front of
+// the mesh: a ray continuing in it must be a voxel off the surface it starts on, and the view's pixel surface counts
+// as the hit within a voxel of it (UE's global-SDF surface bias, LumenTracingUtils.ush) - farOffset and
+// screenTolerance. Where the near field traces (the position in the froxel grid), a ray leaves the surface by the
+// near field's own precision instead - one voxel of the finest resident mip of the objects whose box holds the
+// position, at least DF_MESH_SDF_SURFACE_BIAS (UE starts its mesh-SDF rays a few cm off the surface) - nearOffset; it
+// is a voxel off it only by the time the global field takes over (GIFarFieldTMin). Outside the grid the global field
+// is the whole trace: both offsets are its voxel.
 GITraceBias GIRayBias( vec3 position, vec3 normal, vec3 direction )
 {
     const float voxel = GITraceVoxelAt( position );
     GITraceBias bias;
-    bias.normalOffset    = voxel;
+    bias.farOffset       = voxel;
     bias.screenTolerance = voxel;
+    bias.nearOffset      = voxel;
+    uvec2 list;
+    if ( !GIMeshObjectList( position, list ) )
+        return bias;
+    float near = DF_MESH_SDF_SURFACE_BIAS;
+    for ( uint i = 0u; i < list.y; ++i )
+    {
+        const uint object = giTracerMeshSDFGridCells[list.x + i];
+        const uint base   = object * uint( DF_OBJECT_STRIDE );
+        const vec3 lo     = u_DFObjects[base + uint( DF_OBJECT_ROW_BOUNDS_MIN )].xyz;
+        const vec3 hi     = u_DFObjects[base + uint( DF_OBJECT_ROW_BOUNDS_MAX )].xyz;
+        if ( all( greaterThanEqual( position, lo - near ) ) && all( lessThanEqual( position, hi + near ) ) )
+            near = max( near, GIMeshObjectVoxel( object ) );
+    }
+    bias.nearOffset = min( near, voxel );
     return bias;
 }
 
@@ -127,7 +361,7 @@ uvec4 GIHitObjectGridRows( GIHit hit )
     return rows;
 }
 
-// The grid's rows, except for a hit that knows its object (the mesh SDF near field, Common/GITraceMeshSDF.glslh):
+// The grid's rows, except for a hit that knows its object (the mesh SDF near field, GITraceRay above):
 // that row first (UE ConeTraceMeshSDFsAndInterpolateFromCards: the hit object's MeshCardsIndex), then the cell's
 // others.
 uvec4 GIHitInstanceRows( GIHit hit )
@@ -141,6 +375,20 @@ uvec4 GIHitInstanceRows( GIHit hit )
         if ( cell[i] != GI_NO_INSTANCE && cell[i] != hit.instance )
             rows[next++] = cell[i];
     return rows;
+}
+
+// The surface-cache bias of a software hit (UE LumenSoftwareRayTracing.ush). A mesh SDF hit: 20 cm, UE's literal
+// for the mesh SDF and heightfield hits (TraceMeshSDFs / TraceAndCalculateRayTracedLightingFromSurfaceCache) - the
+// mesh field's bricks are coarser than the mesh, so its surface stands off the captured one by up to a voxel of a
+// large mesh. A global-field hit: DISTANCE_FIELD_OBJECT_GRID_CARD_INTERPOLATION_RANGE_IN_VOXELS (3) x the hit
+// clipmap's ClipmapVoxelExtent (half a voxel), UE GlobalDistanceFieldObjectGrid.ush.
+#define GI_MESH_SDF_SURFACE_CACHE_BIAS 20.0
+#define GI_GDF_CARD_INTERPOLATION_RANGE_IN_VOXELS 3.0
+float GIHitSurfaceCacheBias( GIHit hit )
+{
+    if ( hit.instance != GI_NO_INSTANCE )
+        return GI_MESH_SDF_SURFACE_CACHE_BIAS;
+    return GI_GDF_CARD_INTERPOLATION_RANGE_IN_VOXELS * 0.5 * GITraceVoxelAt( hit.position );
 }
 
 #endif // GI_TRACE_DISTANCE_FIELD_GLSLH

@@ -4,7 +4,8 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
-#include <Engine/Graphic/Environment/SceneSkyEnvironment.hpp>
+#include <Engine/Graphic/Systems/Scene/Skybox/SceneSkyLight.hpp>
+#include <Engine/Graphic/LocalShadowCache.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Math/Ray.hpp>
@@ -378,7 +379,8 @@ namespace Desert::Core
     Scene::Scene()
          : m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance ) ),
            m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
-           m_SkyEnvironment( std::make_shared<Graphic::SceneSkyEnvironment>( m_LedgerInstance ) )
+           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
+           m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>() )
     {
         LiveSceneList().push_back( this );
         m_Subsystems.Begin();
@@ -388,7 +390,8 @@ namespace Desert::Core
          : m_SceneName( std::move( sceneName ) ),
            m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance ) ),
            m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
-           m_SkyEnvironment( std::make_shared<Graphic::SceneSkyEnvironment>( m_LedgerInstance ) )
+           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
+           m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>() )
     {
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
@@ -749,8 +752,9 @@ namespace Desert::Core
         // the world is identical; only the camera each renderer was opened with differs.
         {
             // THE SCENE'S REFLECTION CAPTURES FIRST, ONCE: their face views are frames of their own, closed before
-            // any view opens, fed the same recorded draws. Only when a view reads them; the sky bake they are lit
-            // by is the one the first such view holds (every view bakes the one sky of this scene). A scope of
+            // any view opens, fed the same recorded draws. Only when a view reads them; the sky light they are lit
+            // by is the one the first such view holds, lent to the faces (every view bakes the one sky of this
+            // scene; a face bakes none). A scope of
             // their own, so "Scene: Views" stays the cost of the views alone.
             DESERT_PROFILE_SCOPE( "Scene: Reflection Captures" );
             for ( auto& view : m_Views.All() )
@@ -765,7 +769,7 @@ namespace Desert::Core
                              buffer->ExecuteAll( face );
                      },
                      sceneRendererInfo.Timestep, sceneRendererInfo.RealTimestep, sceneRendererInfo.DirLights,
-                     view.Renderer->GetEnvironmentIdentity() );
+                     view.Renderer->GetEnvironment() );
                 break;
             }
         }

@@ -22,6 +22,7 @@
 #include <cmath>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Desert::Graphic::System
@@ -65,7 +66,8 @@ namespace Desert::Graphic::System
         // root's origin and GLOBAL sample indices (see LandscapeTileDraw for why). The LOD
         // half is the tile's LandscapeTileLods; the grid it is drawn with is the floor of its own LOD, and
         // every vertex morphs from there by its blended one (LandscapeLod.glslh).
-        TerrainInstance LandscapeInstance( const TerrainDrawData& t, const LandscapeTileLod& lod )
+        TerrainInstance LandscapeInstance( const TerrainDrawData& t, const LandscapeTileLod& lod,
+                                           const TerrainLayerInputs& layers )
         {
             const LandscapeTileDraw& l = t.Landscape;
 
@@ -86,6 +88,14 @@ namespace Desert::Graphic::System
             instance.LodCorners = lod.Corners;
             instance.LayerColors     = t.Weights.Colors;
             instance.LayerAlphaBlend = t.Weights.AlphaBlend;
+            // Each channel's material input, matched by its layer's NAME (UE's LayerBlend LayerName), and the
+            // ground's by the root's first layer's.
+            for ( size_t c = 0; c < t.Weights.LayerNames.size(); ++c )
+                instance.LayerInput[c / World::Landscape::kLandscapeWeightmapChannels][static_cast<glm::length_t>(
+                     c % World::Landscape::kLandscapeWeightmapChannels )] =
+                     static_cast<float>( layers.InputOf( t.Weights.LayerNames[c] ) );
+            instance.InputSlices   = layers.Slices;
+            instance.GroundInput.x = static_cast<float>( layers.InputOf( t.Weights.GroundLayer ) );
             return instance;
         }
 
@@ -275,6 +285,7 @@ namespace Desert::Graphic::System
         // growing a storage buffer reallocates the VkBuffer under a draw already recorded
         // against the old one.
         std::unordered_map<std::string, size_t> groupIndex;
+        std::unordered_set<std::string>         layerKeysThisFrame;
         m_FrameDraws.reserve( m_Queue.size() );
         m_FrameInstances.reserve( m_Queue.size() );
         m_FrameTints.reserve( m_Queue.size() );
@@ -290,24 +301,43 @@ namespace Desert::Graphic::System
                  TerrainTextureKey( t.Overrides, t.Heightmap.get(), t.Weights.Weightmap.get() ),
                  m_FrameGroups.size() );
             ProgramMaterials& materials = m_Materials[it->first];
+            if ( !materials.Forward )
+            {
+                materials.Forward       = std::make_unique<DataDrivenMaterial>( "Terrain" );
+                materials.GBuffer       = std::make_unique<DataDrivenMaterial>( "TerrainGBuffer" );
+                materials.Shadow        = std::make_unique<DataDrivenMaterial>( "TerrainShadow" );
+                materials.VirtualShadow = std::make_unique<DataDrivenMaterial>( "TerrainVirtualShadow" );
+            }
+
+            // The material's layer inputs (TerrainLayerInputs): keyed by the material's own textures, not the
+            // tile's, so every tile of a landscape shares one set of arrays; resolved once per frame per material.
+            const std::string   layerKey = TerrainTextureKey( t.Overrides, nullptr, nullptr );
+            TerrainLayerInputs& layers   = m_LayerInputs[layerKey];
+            if ( !m_EmptyLayerArray )
+                m_EmptyLayerArray = CreateTerrainEmptyLayerArray();
+            if ( layerKeysThisFrame.insert( layerKey ).second )
+                UpdateTerrainLayerInputs( materials.Forward->GetSchema(), t.Overrides,
+                                          "landscape material " + layerKey, m_EmptyLayerArray, layers );
+
             if ( inserted )
             {
-                if ( !materials.Forward )
-                {
-                    materials.Forward = std::make_unique<DataDrivenMaterial>( "Terrain" );
-                    materials.GBuffer = std::make_unique<DataDrivenMaterial>( "TerrainGBuffer" );
-                    materials.Shadow  = std::make_unique<DataDrivenMaterial>( "TerrainShadow" );
-                    materials.VirtualShadow = std::make_unique<DataDrivenMaterial>( "TerrainVirtualShadow" );
-                }
                 m_FrameGroups.push_back( { it->first, {}, {} } );
 
                 // Textures are identical for every terrain of this group BY CONSTRUCTION (the key), so they
                 // are bound once, from the terrain that opened the group. Unset samplers keep the backend
                 // white fallback, so this is purely additive.
                 DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : materials.Forward.get();
+                const auto&         schema  = surface->GetSchema();
                 for ( const auto& [name, handle] : t.Overrides.Textures )
                 {
                     if ( handle == 0 )
+                        continue;
+                    // The layer inputs' maps and layer infos are no samplers: they reach the shader through
+                    // the arrays bound below and the rows' slice / input tables.
+                    const auto param =
+                         std::find_if( schema.Params.begin(), schema.Params.end(),
+                                       [&]( const Core::Formats::ShaderParam& p ) { return p.Name == name; } );
+                    if ( param != schema.Params.end() && ( param->ElementIndex >= 0 || param->IsAssetRef() ) )
                         continue;
                     auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
                     if ( tex == nullptr )
@@ -321,9 +351,13 @@ namespace Desert::Graphic::System
                     if ( img != nullptr && !surface->SetTexture( name, img ) )
                         LogRefusedTextureOverride( surface->GetShaderName(), name );
                 }
-                surface->SetTexture( "u_Heightmap", t.Heightmap.get() );
-                materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap.get() );
-                materials.VirtualShadow->SetTexture( "u_Heightmap", t.Heightmap.get() );
+                for ( uint32_t kind = 0; kind < kTerrainLayerMapKinds; ++kind )
+                    if ( !layers.ArrayNames[kind].empty() && layers.Arrays[kind] &&
+                         !surface->SetTexture( layers.ArrayNames[kind], layers.Arrays[kind].get() ) )
+                        LogRefusedTextureOverride( surface->GetShaderName(), layers.ArrayNames[kind] );
+                surface->SetTexture( "u_Heightmap", t.Heightmap );
+                materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap );
+                materials.VirtualShadow->SetTexture( "u_Heightmap", t.Heightmap );
                 if ( t.Weights.Weightmap != nullptr )
                 {
                     surface->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
@@ -346,7 +380,7 @@ namespace Desert::Graphic::System
                      const auto n = tileLods.find( KeyOf( t.Landscape, dx, dz ) );
                      return n == tileLods.end() ? std::nullopt : std::optional<float>( n->second );
                  } );
-            const TerrainInstance instance = LandscapeInstance( t, lod );
+            const TerrainInstance instance = LandscapeInstance( t, lod, layers );
 
             FrameDraw draw;
             draw.Group       = it->second;

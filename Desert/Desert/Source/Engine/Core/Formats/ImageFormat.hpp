@@ -366,7 +366,7 @@ namespace Desert::Core::Formats
             case ImageFormat::BC6H_UFLOAT:
                 return 3; // radiance; the format has no alpha at all
             case ImageFormat::BC5_UNORM: // X and Y of a tangent normal; Z is reconstructed by the shader
-            case ImageFormat::RG16F:     // velocity: NDC x and y
+            case ImageFormat::RG16F:
             case ImageFormat::RG32_UINT: // the shading word's two halves
                 return 2;
             case ImageFormat::R11G11B10F:
@@ -682,6 +682,13 @@ namespace Desert::Core::Formats
 
         /// SRGB views the image through the `*_SRGB` variant of `Format` (hardware decode on sample).
         TextureColorSpace ColorSpace = TextureColorSpace::Linear;
+
+        // A 2D ARRAY OF THIS MANY LAYERS (a `sampler2DArray`, every view a 2D_ARRAY view), or 0 for a plain 2D
+        // image. One field, not a count plus a flag: an array of one layer is still an array (its views are
+        // array views, which is what a `sampler2DArray` must be bound to), so 0 is the only "not an array".
+        // An array is filled from other 2D images by Image2D::CopyLayersFrom — never from `Data`, which the
+        // backend refuses together with this (one upload path per kind of image).
+        uint32_t ArrayLayers = 0;
     };
 
     /// THE PIXELS ARE THE IMAGE'S INITIAL CONTENT, NOT A SECOND COPY KEPT BESIDE IT. The backend image holds

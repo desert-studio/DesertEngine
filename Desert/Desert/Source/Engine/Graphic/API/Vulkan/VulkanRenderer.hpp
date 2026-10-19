@@ -87,8 +87,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr RenderMeshIndirect( const RDG::PassBindings& bindings,
                                                   const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                   const glm::mat4& transform, const MaterialExecutor& material,
-                                                  RDG::BufferRef args, uint64_t offset,
-                                                  uint64_t hiddenSubmeshMask ) override;
+                                                  RDG::BufferRef args, uint64_t offset, uint64_t hiddenSubmeshMask,
+                                                  MeshDrawArgumentsOrder order ) override;
 
         virtual void ComputeImageBeginWrite( Image* image ) override;
         virtual void ComputeImageEndWrite( Image* image ) override;
@@ -98,6 +98,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr CopyDepthImage( Image2D* src, Image2D* dst ) override;
         Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context, RDG::TextureRef source,
                                                      RDG::TextureRef target, uint32_t targetLayer ) override;
+        Common::BoolResultStr CopyGraphBufferToTexture( const RDG::PassContext& context, RDG::BufferRef source,
+                                                        RDG::TextureRef target ) override;
         virtual void SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height ) override;
         virtual void          SetViewportRegion( int32_t x, int32_t y, uint32_t width, uint32_t height ) override;
         virtual void          ClearRegion( const Framebuffer& framebuffer, int32_t x, int32_t y, uint32_t width,
@@ -217,7 +219,7 @@ namespace Desert::Graphic::API::Vulkan
         /// Absent in a Shipping build, together with the four calls into it — see
         /// Common/Core/DevInstruments.hpp.
 #if DESERT_DEV_INSTRUMENTS
-        VulkanGpuProfiler m_GpuProfiler;
+        VulkanGpuProfiler m_GpuProfiler{ m_CurrentCommandBuffer };
 #endif
 
         // The frame-graph executor, made on the first ExecuteGraph (the device exists by then). The pool

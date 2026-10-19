@@ -2,9 +2,11 @@
 // THE SURFACE CACHE'S INDIRECT LIGHTING (GI-CARD-LOOKUP; UE's radiosity slot, LumenRadiosity.cpp + the combine of
 // LumenSceneLighting.usf): every page relit this frame (the same SceneFrame::LightingPages the direct lighting
 // relit) takes the world radiance cache's irradiance at each texel (Common/RadianceCache.glslh
-// RadianceCacheIrradianceAt, the update of this frame) as its IndirectLighting, and recombines FinalLighting =
-// albedo / PI x direct + albedo x indirect + emissive (the cache's irradiance is already / PI). A traced hit then
-// reads its bounce from the card in one fetch instead of interpolating eight cache probes per ray.
+// RadianceCacheIrradianceAt, the update of this frame) and leaves IndirectLighting = albedo x that irradiance (the
+// cache's irradiance is already / PI) - plus, on a subsurface texel (the Subsurface layer), subsurface x the
+// cache's irradiance at -N: the sky and bounce let through a leaf from its far side (FOLIAGE-LOOK-5, as the
+// direct lighting lets the sun through) - and recombines FinalLighting = direct + indirect + emissive. A traced hit
+// then reads its bounce from the card in one fetch instead of interpolating eight cache probes per ray.
 //
 // WHERE THIS DIFFERS FROM UE (for the owner): UE's radiosity gathers each card texel's hemisphere by tracing
 // probes against the previous FinalLighting (r.LumenScene.Radiosity.*). Here the texel reads the world radiance
@@ -82,6 +84,9 @@ Shader "SurfaceCacheIndirectLighting"
         #define u_RadianceCacheIrradiance sampler2D(u_RadianceCacheIrradiance, u_LinearClampSampler)
         Uniform(13) texture2D u_RadianceCacheDepth;
         #define u_RadianceCacheDepth sampler2D(u_RadianceCacheDepth, u_LinearClampSampler)
+        // The light the texel lets through (rgb); 0 = opaque (SurfaceCacheCardCopy).
+        Uniform(14) texture2D u_AtlasSubsurface;
+        #define u_AtlasSubsurface sampler2D(u_AtlasSubsurface, u_PointClampSampler)
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #include <Common/RadianceCache.glslh>
@@ -127,13 +132,21 @@ Shader "SurfaceCacheIndirectLighting"
 
             // The texel is seen from its own normal (no viewer): the cache's surface bias leaves along it.
             const vec4 irradiance = RadianceCacheIrradianceAt(worldPos, N, N, 0.5);
-            const vec3 indirect   = irradiance.a > 0.0 ? max(irradiance.rgb, vec3(0.0)) : vec3(0.0);
+            const vec3 albedo     = texelFetch(u_AtlasAlbedo, atlasTexel, 0).rgb;
+            vec3       indirect   = irradiance.a > 0.0 ? albedo * max(irradiance.rgb, vec3(0.0)) : vec3(0.0);
+            // The far side of a leaf, read the same way from -N.
+            const vec3 subsurface = texelFetch(u_AtlasSubsurface, atlasTexel, 0).rgb;
+            if (max(subsurface.r, max(subsurface.g, subsurface.b)) > 0.0)
+            {
+                const vec4 back = RadianceCacheIrradianceAt(worldPos, -N, -N, 0.5);
+                if (back.a > 0.0)
+                    indirect += subsurface * max(back.rgb, vec3(0.0));
+            }
 
-            const vec3 albedo   = texelFetch(u_AtlasAlbedo, atlasTexel, 0).rgb;
             const vec3 emissive = texelFetch(u_AtlasEmissive, atlasTexel, 0).rgb;
             const vec3 direct   = texelFetch(u_AtlasDirectLighting, atlasTexel, 0).rgb;
             oIndirect = vec4(indirect, 0.0);
-            oFinal    = vec4(albedo / 3.14159265 * direct + albedo * indirect + emissive, 0.0);
+            oFinal    = vec4(direct + indirect + emissive, 0.0);
         }
     }
 }

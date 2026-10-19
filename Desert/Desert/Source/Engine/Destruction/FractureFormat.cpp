@@ -194,6 +194,11 @@ namespace Desert::Destruction
             w.F64( l.Brick.Height );
             w.F64( l.Brick.Depth );
             w.F32( l.DamageThreshold );
+            w.D3( l.Radial.Center ); // v3
+            w.F64( l.Radial.Radius );
+            w.I32( l.Radial.RadialSteps );
+            w.I32( l.Radial.AngularSteps );
+            w.F64( l.Radial.Variability );
         }
 
         FractureLevelSettings ReadLevel( Reader& r )
@@ -215,7 +220,12 @@ namespace Desert::Destruction
             l.Brick.Length    = r.F64();
             l.Brick.Height    = r.F64();
             l.Brick.Depth     = r.F64();
-            l.DamageThreshold = r.F32();
+            l.DamageThreshold     = r.F32();
+            l.Radial.Center       = r.D3();
+            l.Radial.Radius       = r.F64();
+            l.Radial.RadialSteps  = r.I32();
+            l.Radial.AngularSteps = r.I32();
+            l.Radial.Variability  = r.F64();
             return l;
         }
     } // namespace

@@ -126,6 +126,11 @@ namespace Desert::Assets
         // A VFX DATA CHANNEL (`.dfxch`): UE's UNiagaraDataChannel - the payload layout gameplay writes entries of
         // and Spawn from Channel emitters read. See Engine/Assets/VFXDataChannelAsset.hpp.
         VFXDataChannel,
+        // A LANDSCAPE GRASS TYPE (`.degrasstype`): UE's ULandscapeGrassType — the varieties (mesh, density,
+        // scale, cull distances) a layer info grows. The instances are never stored: the GPU generates them
+        // around the camera every frame — see Engine/Assets/LandscapeGrassTypeAsset.hpp and
+        // Graphic/Systems/Scene/Grass/GrassRenderer.hpp.
+        LandscapeGrassType,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -209,6 +214,9 @@ namespace Desert::Assets
             // A LAYER INFO IS SCENE-SCOPED for the retarget's reason: `LandscapeComponent::Layers` holds
             // `AssetHandle`s the reachability walk sees (SceneAssetRoots).
             case AssetTypeID::LandscapeLayerInfo:
+            // A GRASS TYPE IS SCENE-SCOPED for the layer info's reason: it is reached through the layer info
+            // that names it, and a layer info is itself scene-scoped.
+            case AssetTypeID::LandscapeGrassType:
             // A LEVEL SEQUENCE IS SCENE-SCOPED for the retarget's reason: `LevelSequenceComponent::Sequence`
             // is an `AssetHandle` held by a live entity.
             case AssetTypeID::LevelSequence:
@@ -302,6 +310,8 @@ namespace Desert::Assets
                 return "FoliageType";
             case AssetTypeID::LandscapeLayerInfo:
                 return "LandscapeLayerInfo";
+            case AssetTypeID::LandscapeGrassType:
+                return "LandscapeGrassType";
             case AssetTypeID::LevelSequence:
                 return "LevelSequence";
             case AssetTypeID::VFXSystem:

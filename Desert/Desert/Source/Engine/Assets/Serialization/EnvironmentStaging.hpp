@@ -10,6 +10,7 @@
 #include <Engine/Core/Formats/ImageFormat.hpp>
 
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -52,6 +53,17 @@ namespace Desert::Assets
     inline constexpr uint32_t kSkyEnvPrefilterMips = Core::Formats::MipChainLength( kSkyEnvPrefilterFaceSize );
     static_assert( kSkyEnvRadianceMips <= Core::Formats::MipChainLength( kSkyEnvCubeFaceSize ),
                    "radiance mip count exceeds what its own face supports" );
+    // THE MIP OF THE RADIANCE CUBE THE IRRADIANCE IS SUMMED OVER, exactly (SkyCaptureIrradiance.shader says why):
+    // a 16-texel face, 1 536 texels per irradiance texel. One estimator for both producers of an irradiance cube
+    // -- the procedural sky's capture and the .hdr bake -- so the two cannot disagree about a sky's diffuse light.
+    inline constexpr uint32_t kSkyEnvIrradianceSourceFace = 16u;
+    inline constexpr uint32_t kSkyEnvIrradianceSourceMip  = static_cast<uint32_t>(
+         std::countr_zero( kSkyEnvCubeFaceSize ) - std::countr_zero( kSkyEnvIrradianceSourceFace ) );
+    static_assert( std::has_single_bit( kSkyEnvCubeFaceSize ) &&
+                        std::has_single_bit( kSkyEnvIrradianceSourceFace ) &&
+                        kSkyEnvIrradianceSourceFace <= kSkyEnvCubeFaceSize &&
+                        kSkyEnvIrradianceSourceMip < kSkyEnvRadianceMips,
+                   "the irradiance's source mip must be a mip the radiance cube has" );
     /// The format every one of the three cubes is COMPUTED at (`ComputeImages::ProccessForImageCube`).
     /// Written down HERE as well as there because the container records it and the load has to refuse
     /// a file whose pixels are a different size from the image it is about to fill.
@@ -98,7 +110,10 @@ namespace Desert::Assets
     ///      say; the bump makes that a stated miss rather than a hash that merely happened to move.
     ///   5  the prefiltered cube's roughness ramp is UE's log ramp (Common/ReflectionCaptureMip.glslh), shared
     ///      with the reflection captures; a v4 file's mips hold the linear ramp the lighting no longer reads.
-    inline constexpr uint32_t kEnvironmentBakeVersion = 5;
+    ///   6  the irradiance is the exact sum over the radiance cube's 16-face mip (SkyCaptureIrradiance, the
+    ///      procedural capture's estimator) instead of a 65 536-sample Monte Carlo over the panorama; a v5 file's
+    ///      irradiance carries that estimator's noise.
+    inline constexpr uint32_t kEnvironmentBakeVersion = 6;
 
     /// Everything except the source file that the baked pixels depend on. See the header note.
     [[nodiscard]] uint64_t EnvironmentBakeSignature( BakedEnvironmentCube which, uint32_t faceSize,

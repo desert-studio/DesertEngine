@@ -2,6 +2,7 @@
 // capture through the G-buffer view pass, the copy into the atlas, the direct lighting of the cards - in the lit
 // frame, before the traced GI whose hits read it (GIHitRadiance) - and the three view modes that show it.
 #include <Common/Core/DevInstruments.hpp>
+#include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp>
@@ -24,9 +25,10 @@ namespace Desert::Graphic
     {
         if ( m_RenderPath != Core::RenderPath::Deferred )
             return false;
-        // A profile without traced GI (a preview, a thumbnail, a capture's face view: ViewMemory.hpp) never brings
-        // the cache up for the GI's sake, as RadianceCacheRuns: each such view would otherwise hold its own
-        // atlases and Global Distance Field brick pool (~0.8 GB a view) for a lighting path it never runs.
+        // The GI's cards only where the view runs the GI (RadianceCacheRuns asks the same of its profile): a
+        // capture's six face views carry the scene's GI method but not the GI, and each brought up its own cards
+        // and their global distance field (384 MiB apiece) - 7 fields for one capture, past 6 GB on Starter
+        // (REFL-CAPTURE-NORM).
         if ( ( m_GIPipeline.SurfaceCache && m_ViewProfile.GlobalIllumination ) || ReflectionsTraced() )
             return true;
 #if DESERT_DEV_INSTRUMENTS
@@ -57,14 +59,17 @@ namespace Desert::Graphic
         const FrameTransients&          t = textures.Transients;
         GlobalIllumination::TracerFrame tracer{ .Pipeline                      = pipeline,
                                                 .GlobalDistanceField           = t.GlobalDistanceField,
-                                                .GlobalDistanceFieldObjectGrid = t.GlobalDistanceFieldObjectGrid };
-        // The software walk's clipmap placement is its own record ("GITracerSoftwareUB").
+                                                .GlobalDistanceFieldObjectGrid = t.GlobalDistanceFieldObjectGrid,
+                                                .MeshDistanceFields            = t.MeshDistanceFields };
+        // The software walk's clipmap and near-field grid placement is its own record ("GITracerSoftwareUB").
         if ( GlobalIllumination::TracerReadsGlobalDistanceField( pipeline ) )
         {
-            tracer.GlobalDistanceFieldLevels = graph.CreateBuffer(
-                 RDG::BufferDesc{ sizeof( t.GlobalDistanceFieldLevels ) }, "GI.Tracer.GlobalDistanceFieldLevels" );
-            graph.QueueBufferUpload( tracer.GlobalDistanceFieldLevels,
-                                     std::as_bytes( std::span( t.GlobalDistanceFieldLevels ) ) );
+            const GlobalIllumination::TracerSoftwarePayload payload{
+                 .GlobalDistanceFieldLevels = t.GlobalDistanceFieldLevels,
+                 .MeshSDFGrid               = t.MeshDistanceFields.NearFieldGridPlacement };
+            tracer.GlobalDistanceFieldLevels =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( payload ) }, "GI.Tracer.GlobalDistanceFieldLevels" );
+            graph.QueueBufferUpload( tracer.GlobalDistanceFieldLevels, std::as_bytes( std::span( &payload, 1 ) ) );
         }
         // The ray-query walk's own records: this frame's TLAS and its segment records (RT-SCENE / RT-SHADOWS), and
         // the instance -> surface cache row table. Left invalid when the TLAS was not built: TracerFrameMissing
@@ -211,10 +216,17 @@ namespace Desert::Graphic
                  },
                  [meshRenderer]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return meshRenderer->RenderCardCaptureManual( context ); } );
-            const SurfaceCache::SurfaceCacheRenderer::CaptureTextures capture{ .Albedo   = targets->Colors[0],
-                                                                               .Normal   = targets->Colors[1],
-                                                                               .Emissive = targets->Colors[3],
-                                                                               .Depth    = targets->Depth };
+            if ( !targets->Colors[2].IsValid() )
+            {
+                LOG_ERROR( "[SceneRenderer] Surface Cache: the capture atlas has no shading word (the subsurface "
+                           "colour of a card)" );
+                return;
+            }
+            const SurfaceCache::SurfaceCacheRenderer::CaptureTextures capture{ .Albedo      = targets->Colors[0],
+                                                                               .Normal      = targets->Colors[1],
+                                                                               .ShadingWord = targets->Colors[2],
+                                                                               .Emissive    = targets->Colors[3],
+                                                                               .Depth       = targets->Depth };
             if ( const auto copied = m_SurfaceCache->AddCopyPass( graph, import, capture, scene ); !copied )
             {
                 LOG_ERROR( "[SceneRenderer] Surface Cache: {}", copied.GetError() );
@@ -272,6 +284,9 @@ namespace Desert::Graphic
                       "resolution, {} page(s)",
                       scene.MeshCards.size(), scene.Cards.size(), scene.ResidentCards, scene.CapturedCards,
                       scene.HighResCards, scene.Pages.size() );
+            // The card build's coverage report over the meshes loaded so far (MeshCardRepresentation.hpp).
+            LOG_INFO( "[SurfaceCache] card coverage: {}",
+                      Assets::FormatMeshCardsCoverage( Assets::MeshCardsCoverageSummary(), 12 ) );
             if ( scene.MissingMinimumCards != 0 )
             {
                 LOG_WARN(

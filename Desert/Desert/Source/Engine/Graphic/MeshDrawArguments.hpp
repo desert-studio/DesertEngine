@@ -17,6 +17,14 @@ namespace Desert::Graphic
     inline constexpr uint32_t kMeshDrawArgumentWords  = 5;
     inline constexpr uint64_t kMeshDrawArgumentsBytes = kMeshDrawArgumentWords * sizeof( uint32_t );
     inline constexpr uint32_t kMeshDrawInstanceWord   = 1;
+    // Which record a submesh of the walk reads: its place among the DRAWN submeshes (the records a GPU cull made
+    // per draw, AppendMeshDrawArguments) or its index in the MESH (a GPU-instanced draw's records,
+    // GpuInstances.hpp: one per submesh of the mesh, whatever the hidden-submesh mask skips).
+    enum class MeshDrawArgumentsOrder : uint8_t
+    {
+        Drawn,
+        Submesh,
+    };
 
     struct SubmeshIndexRange
     {

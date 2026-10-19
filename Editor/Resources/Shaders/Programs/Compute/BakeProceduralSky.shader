@@ -3,14 +3,17 @@ Shader "BakeProceduralSky"
 {
     Compute
     {
-        // Bakes the procedural sky into an equirect HDR panorama (Image2D, RGBA32F). The result is fed
-        // into the existing IBL pipeline (PanoramaToCubemap -> radiance, DiffuseIrradiance, PrefilterEnvMap)
-        // so the procedural sky lights the scene exactly like an HDR environment would. Both sky models
+        // Renders the procedural sky STRAIGHT INTO THE FACES of the sky light's radiance cube (imageCube,
+        // RGBA32F, mip 0, at the capture's face -- 128 by default), as UE's real-time sky light capture renders
+        // the sky material and the volumetric clouds per face at its capture resolution. There is no panorama
+        // and no resample: the cube's mips, the exact irradiance sum and the GGX prefilter follow
+        // (Graphic::System::SkyCapture). A dispatch covers u_BakeFace.x and the faces after it, one per z, so a
+        // time-sliced recapture renders one band of rows of one face per frame (u_BakeFace.y, the first row). Both sky models
         // are the SAME evaluations the screen pass runs (Common/Atmosphere.glslh for the gradient,
         // Common/SkyScattering.glslh's integrator for the physical atmosphere) — the baked environment
         // and the visible sky cannot drift apart.
         //
-        // AND THE CLOUDS ARE IN IT. The layer is marched into this panorama by the same field, the same
+        // AND THE CLOUDS ARE IN IT. The layer is marched into this capture by the same field, the same
         // lighting and the same quadrature the screen pass uses (Common/CloudField.glslh,
         // Common/CloudLighting.glslh) — not by an analytic dome standing beside them, which would be a
         // SECOND model of the clouds and therefore a mirror that drifts. This project has paid for that
@@ -18,34 +21,37 @@ Shader "BakeProceduralSky"
         // term had to keep as well.
         //
         // The physical branch marches the integrator directly per texel (32 samples, the Sky-View
-        // budget) instead of sampling the per-view Sky-View LUT: the bake is anchored at a fixed point,
+        // budget) instead of sampling the per-view Sky-View LUT: the capture is anchored at a fixed point,
         // not at the camera, and must not change when the camera does — its cadence is driven by the
         // sun and by the cloud settings alone. Deliberate divergences from the screen pass, all of them
         // invisible to the IBL or unavoidable, and all stated rather than discovered:
         //   * anchored at a fixed 0.2 km — the sky varies imperceptibly across ground-level altitudes,
         //     and anchoring at the camera would demand a rebake on every elevator ride;
-        //   * NO analytic sun disc — the disc's energy over a panorama texel is the whole direct sun
+        //   * NO analytic sun disc — the disc's energy over a face texel is the whole direct sun
         //     illuminance, and the directional light already delivers exactly that to every surface;
         //     baking it too would double-count the sun in the irradiance cube;
         //   * the cloud march's aerial perspective is INTEGRATED HERE rather than fetched from the
-        //     camera aerial-perspective volume. That volume is a view frustum of froxels and a panorama
-        //     has no frustum; the integrand is Common/SkyScattering.glslh's SkyApIntegrateSegment either
+        //     camera aerial-perspective volume. That volume is the camera's froxels and the capture
+        //     is anchored elsewhere; the integrand is Common/SkyScattering.glslh's SkyApIntegrateSegment either
         //     way, which is the same text the volume is filled from, so this is one model evaluated
         //     exactly instead of one model evaluated through a 32x32x16 interpolation;
         //   * the march is DITHERED ON THE TEXEL and not on a frame index. There is no temporal
         //     accumulation to converge a moving pattern here, and a fixed start offset would draw the
         //     step planes as concentric shells; a spatial hash makes the residual decorrelated noise,
-        //     which the 65 536-sample irradiance convolution integrates away and which keeps a rebake of
-        //     unchanged settings byte-identical to the one before it.
+        //     which the irradiance sum and the prefilter integrate away and which keeps a recapture of
+        //     unchanged settings byte-identical to the one before it;
+        //   * and NOT a cheaper cloud march: the capture marches at the screen's sample counts, because the
+        //     multiple-scattering octaves make a cloud marched in longer steps brighter (measured, see
+        //     Graphic::System::kSkyCaptureBandsPerFace); the cost is spread over frames, a band of rows of
+        //     one face per frame, instead.
         //
-        // Equirect mapping matches PanoramaToCubemap.glsl.comp's sampling:
-        //   phi = atan(dir.z, dir.x);  theta = acos(dir.y);  uv = (phi/2PI + 0.5, theta/PI)
-        // so here we invert it: uv -> (phi, theta) -> direction.
+        // Each face texel's direction is PanoramaToCubemap's face table (the one the .hdr path's cubes are
+        // laid out by, and the one every cube in the engine is sampled with), at the texel's centre.
 
         #include <Common/Atmosphere.glslh>
         #include <Common/SkyMedium.glslh>
 
-        layout(binding = 0, rgba32f) restrict writeonly uniform image2D outputPanorama;
+        layout(binding = 0, rgba32f) restrict writeonly uniform imageCube outputFaces;
 
         // The SAME sky parameter buffer the screen pass reads — not a second hand-packed mirror of it. The
         // bake used to receive these as a push-constant block, which meant two layouts to keep in step and
@@ -122,7 +128,7 @@ Shader "BakeProceduralSky"
 
         // The procedural MODELLING VOLUME (256 x 32 x 256 RGBA8) this view's clouds are shaped by, and the
         // sculpted hero-cloud ATLAS beside it. Both borrowed from the VolumetricCloudRenderer of the same
-        // SceneRenderer, so the panorama is baked from the field the frame is about to march.
+        // SceneRenderer, so the capture is baked from the field the frame is about to march.
         Uniform(9) texture3D u_CloudModelling;
         #define u_CloudModelling sampler3D(u_CloudModelling, u_LinearRepeatSampler)
         // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
@@ -191,7 +197,7 @@ Shader "BakeProceduralSky"
         PushConstant SkyBakePush
         {
             // x = 1 when this view has a cloud layer to march and every cloud resource above is real; 0
-            //     when the panorama is the sky alone, in which case the whole march below is skipped and
+            //     when the capture is the sky alone, in which case the whole march below is skipped and
             //     the result is bit for bit what it was before clouds reached this shader.
             // y = 1 when the sky-light occlusion volume was written and may be read (the screen march's
             //     own gate, carried here for the same reason: the component's flag can be on while the
@@ -203,15 +209,18 @@ Shader "BakeProceduralSky"
             // w = 1 when u_CloudSunColour.rgb carries the sun's OUTER-SPACE illuminance and this pass must
             //     apply the atmosphere's transmittance at each cloud sample's own altitude itself. It is
             //     the SCREEN march's gate again (CloudPush::Frame.y), carried because both passes light
-            //     the field from ONE packed block: with the flag on and this lane at 0 the panorama would
+            //     the field from ONE packed block: with the flag on and this lane at 0 the capture would
             //     be lit by the sun as seen from space, which at a low sun is several times the light the
             //     scene is exposed for and reads as an exposure bug rather than a missing multiply.
             //     No binding travels with it — this pass already samples the SKY's own transmittance LUT
             //     at binding 2 and already derives the shell's radii from the sky block it reads.
             vec4 u_BakeClouds;
+            // x = the first cube face this dispatch renders; gl_GlobalInvocationID.z counts from it.
+            // y = the first row; gl_GlobalInvocationID.y counts from it (a band of a time-sliced capture).
+            uvec4 u_BakeFace;
         };
 
-        const int   kBakeSampleCount      = 32;   // the Sky-View budget; the bake is off the frame path
+        const int   kBakeSampleCount      = 32;   // the Sky-View budget, per face texel
         const float kBakeAnchorAltitudeKm = 0.2f; // the fixed viewpoint (see the header)
 
         SkyAtmParams MakeBakeAtmosphere(SkyPacked s)
@@ -252,7 +261,7 @@ Shader "BakeProceduralSky"
             return sky * UnpackSkyLuminanceFactor(s);
         }
 
-        // What the cloud layer contributes along one panorama ray: premultiplied radiance and the
+        // What the cloud layer contributes along one capture ray: premultiplied radiance and the
         // transmittance of the layer, exactly the two lanes the screen march writes into its RGBA16F
         // target — so the composite over the sky is the same premultiplied over-operator the frame uses.
         struct CloudBakeResult
@@ -266,7 +275,7 @@ Shader "BakeProceduralSky"
         // reads rather than from a push constant, because this pass binds the sky and that one does not.
         // The arithmetic between them is SkySunAtAltitude's, once, in Common/SkyScattering.glslh.
         //
-        // WHY THIS PASS NEEDS IT AT ALL. The panorama is marched from the SAME packed block the screen
+        // WHY THIS PASS NEEDS IT AT ALL. The capture is marched from the SAME packed block the screen
         // march reads, and ECS::VolumetricCloudData::PerSampleAtmosphereTransmittance changes what
         // u_CloudSunColour MEANS rather than adding a field beside it. A bake that ignored the lane would
         // light every cloud in the IBL chain with the sun as seen from space.
@@ -299,7 +308,7 @@ Shader "BakeProceduralSky"
             CloudLayer       layer  = CloudUnpackLayer();
             CloudFieldParams params = CloudUnpackFieldParams();
 
-            // WHERE THE PANORAMA STANDS IN THE CLOUD FIELD, and it is derived rather than sent.
+            // WHERE THE CAPTURE STANDS IN THE CLOUD FIELD, and it is derived rather than sent.
             //
             // The modelling volume covers one square region of the wind-shifted frame, snapped to the
             // lump lattice around the camera; the march asks the volume about `position - wind`. Putting
@@ -325,7 +334,7 @@ Shader "BakeProceduralSky"
             segment.y = min(segment.y, segment.x + max(u_CloudLayer.w, 0.0f));
 
             // A ray whose entry is past the cutoff is not traced, and one that never entered the shell —
-            // every ray below the horizon, which is half of this image — costs the two sphere tests above
+            // every ray below the horizon, which is half of the cube — costs the two sphere tests above
             // and nothing else.
             if (segment.x > max(u_CloudPhase.w, 0.0f) || segment.y <= segment.x)
                 return result;
@@ -343,7 +352,7 @@ Shader "BakeProceduralSky"
             float phase        = CloudPhaseDualLobe(dot(dir, sunDir), u_CloudWind.w,
                                                     u_CloudPhase.x, u_CloudPhase.y);
             float extinction   = max(u_CloudMarch.w, 0.0f);
-            // PER COLOUR, and read from the same slot the screen march reads it from — a panorama lit by a
+            // PER COLOUR, and read from the same slot the screen march reads it from — a capture lit by a
             // different albedo than the one the eye sees is the "second model of the clouds" this file's
             // own header refuses.
             vec3  albedo       = clamp(u_CloudAlbedo.rgb, vec3(0.0f), vec3(1.0f));
@@ -432,7 +441,7 @@ Shader "BakeProceduralSky"
 
                     if (density > 0.0f)
                     {
-                        // Through the MEDIUM, exactly as the screen march does it — the panorama the
+                        // Through the MEDIUM, exactly as the screen march does it — the capture the
                         // scene is lit by must not judge the same sky by a second field.
                         float sigmaT = density * extinction *
                                        CloudSampleExtinctionFactor(params, field, fieldPos);
@@ -473,7 +482,7 @@ Shader "BakeProceduralSky"
                                                            phase, sigmaT, sampleAlbedo, stepKm);
 
                         // Emission, attenuated by the ray's history only — see the note at the same line
-                        // of the screen march. A layer that glows has to glow in the panorama the scene is
+                        // of the screen march. A layer that glows has to glow in the capture the scene is
                         // LIT by, or the light in the world would come from a sky nobody can see.
                         luminance += transmittance * CloudSampleEmissive(params, field, fieldPos) * stepKm;
 
@@ -526,21 +535,31 @@ Shader "BakeProceduralSky"
             return result;
         }
 
-        LocalSize(32, 32, 1);
+        // The direction of face texel @p st (its centre, in [0,1]^2) of cube face @p face: PanoramaToCubemap's
+        // face table, so a cube this pass writes is laid out exactly as every other cube the engine samples.
+        vec3 CaptureFaceDirection(uint face, vec2 st)
+        {
+            vec2 uv = 2.0 * vec2(st.x, 1.0 - st.y) - vec2(1.0);
+            vec3 d;
+            if (face == 0u)      d = vec3(1.0, uv.y, -uv.x);
+            else if (face == 1u) d = vec3(-1.0, uv.y, uv.x);
+            else if (face == 2u) d = vec3(uv.x, 1.0, -uv.y);
+            else if (face == 3u) d = vec3(uv.x, -1.0, uv.y);
+            else if (face == 4u) d = vec3(uv.x, uv.y, 1.0);
+            else                 d = vec3(-uv.x, uv.y, -1.0);
+            return normalize(d);
+        }
+
+        LocalSize(8, 8, 1);
         void main()
         {
-            ivec2 size  = imageSize(outputPanorama);
-            ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
-            if (coord.x >= size.x || coord.y >= size.y)
+            ivec2 size  = imageSize(outputFaces);
+            ivec2 coord = ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y + u_BakeFace.y);
+            uint  face  = u_BakeFace.x + gl_GlobalInvocationID.z;
+            if (coord.x >= size.x || coord.y >= size.y || face >= 6u)
                 return;
 
-            vec2  uv    = (vec2(coord) + 0.5) / vec2(size);
-            float phi   = (uv.x - 0.5) * 2.0 * ATM_PI;
-            float theta = uv.y * ATM_PI;
-            float st    = sin(theta);
-
-            // Direction for this panorama texel (y-up, matching the engine's equirect convention).
-            vec3 dir = vec3(st * cos(phi), cos(theta), st * sin(phi));
+            vec3 dir = CaptureFaceDirection(face, (vec2(coord) + 0.5) / vec2(size));
 
             SkyPacked s;
             for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i)
@@ -558,9 +577,9 @@ Shader "BakeProceduralSky"
             if (u_BakeClouds.x > 0.5f)
             {
                 // Hashed on the TEXEL and with no frame index in it — see the header. Deterministic, so
-                // two bakes of unchanged settings produce the same panorama byte for byte, which is what
+                // two captures of unchanged settings produce the same faces byte for byte, which is what
                 // makes the environment's own noise floor zero and a pixel diff of it mean something.
-                uint  jitterHash = CloudHashCell(uint(coord.x), uint(coord.y), 0u, 0x51ED270Bu);
+                uint  jitterHash = CloudHashCell(uint(coord.x), uint(coord.y), face, 0x51ED270Bu);
                 float jitter     = float(jitterHash & 0xFFFFu) * (1.0f / 65536.0f);
 
                 CloudBakeResult clouds = MarchCloudsForBake(s, atm, dir, jitter);
@@ -570,7 +589,7 @@ Shader "BakeProceduralSky"
                 color = clouds.Luminance + color * clouds.Transmittance;
             }
 
-            imageStore(outputPanorama, coord, vec4(color, 1.0));
+            imageStore(outputFaces, ivec3(coord, int(face)), vec4(color, 1.0));
         }
     }
 }

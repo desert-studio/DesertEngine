@@ -25,6 +25,8 @@ namespace Desert::World::Landscape
         // Shaders/Common/LandscapeHeight.glslh COMPILED AS C++ — the same text Terrain.shader decodes a
         // tile's R16 copy with, so the CPU's heights and the drawn heights are one function. The shader
         // root is on the include path of every project that compiles this file.
+        using glm::clamp;
+        using glm::dot;
         using glm::floor;
         using glm::min;
         using glm::mix;
@@ -132,9 +134,11 @@ namespace Desert::World::Landscape
         {
             return 1u << static_cast<uint32_t>( c );
         }
-        constexpr uint32_t kHeightConsumers =
-             ConsumerBit( LandscapeDirtyConsumer::Gpu ) | ConsumerBit( LandscapeDirtyConsumer::Physics );
-        constexpr uint32_t kWeightConsumers = ConsumerBit( LandscapeDirtyConsumer::Weights );
+        constexpr uint32_t kHeightConsumers = ConsumerBit( LandscapeDirtyConsumer::Gpu ) |
+                                              ConsumerBit( LandscapeDirtyConsumer::Physics ) |
+                                              ConsumerBit( LandscapeDirtyConsumer::Grass );
+        constexpr uint32_t kWeightConsumers =
+             ConsumerBit( LandscapeDirtyConsumer::Weights ) | ConsumerBit( LandscapeDirtyConsumer::Grass );
         // The visibility layer also cuts the collider (LandscapeCollision reads it for holes).
         constexpr uint32_t kVisibilityConsumers =
              kWeightConsumers | ConsumerBit( LandscapeDirtyConsumer::Physics );

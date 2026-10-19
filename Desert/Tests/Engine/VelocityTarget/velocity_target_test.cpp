@@ -111,7 +111,7 @@ using namespace VelocityTargetTest;
 TEST( VelocityTarget, OneSpellingOfTheFormat )
 {
     EXPECT_EQ( kVelocityFormat, ViewTargetFormats::kVelocity );
-    EXPECT_EQ( ViewTargetFormats::kVelocity, Desert::Core::Formats::ImageFormat::RG16F );
+    EXPECT_EQ( ViewTargetFormats::kVelocity, Desert::Core::Formats::ImageFormat::RGBA16F );
 }
 
 // Mutation: reorder World/PrevWorld (or add a member) in Common/ObjectMotion.glslh -> red.
@@ -186,7 +186,7 @@ TEST( VelocityTarget, ViewPassSurfaceStagesWriteTheVelocityOfTheirOwnSurface )
     }
 
     const std::string gbuffer = noWs( ReadFile( root / "Pass_GBuffer.glslh" ) );
-    const auto        output  = gbuffer.find( "layout(location=4)outvec2oVelocity;" );
+    const auto        output  = gbuffer.find( "layout(location=4)outvec4oVelocity;" );
     ASSERT_NE( output, std::string::npos );
     // The NEAREST gate before the output: the pass has more than one RSM gate (GBUF1 also gates the shading word
     // at slot 2), and the one that matters is the one whose #endif must come after oVelocity.
@@ -196,7 +196,7 @@ TEST( VelocityTarget, ViewPassSurfaceStagesWriteTheVelocityOfTheirOwnSurface )
     EXPECT_EQ( gbuffer.find( "#endif", gate ) > output, true ) << "oVelocity sits outside the RSM gate";
 
     const std::string forward = noWs( ReadFile( root / "Pass_Forward.glslh" ) );
-    EXPECT_NE( forward.find( "layout(location=1)outvec2oVelocity;" ), std::string::npos );
+    EXPECT_NE( forward.find( "layout(location=1)outvec4oVelocity;" ), std::string::npos );
     EXPECT_NE( forward.find( "oVelocity=DesertVelocity(v_Surface.Clip,v_Surface.PrevClip);" ), std::string::npos );
     EXPECT_EQ( ReadFile( root / "Pass_Forward_Translucent.glslh" ).find( "oVelocity" ), std::string::npos );
 }
@@ -319,7 +319,7 @@ TEST( VelocityTarget, GlslVelocityIsTheCpuTwinExpression )
 {
     const std::string source =
          ReadFile( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Common/ObjectMotion.glslh" );
-    EXPECT_NE( source.find( "return clip.xy / clip.w - prevClip.xy / prevClip.w;" ), std::string::npos );
+    EXPECT_NE( source.find( "return vec4( clip.xyz / clip.w - prevClip.xyz / prevClip.w, 0.0 );" ), std::string::npos );
 }
 
 TEST( VelocityTarget, StillCameraOverAStillObjectIsZero )
@@ -327,7 +327,7 @@ TEST( VelocityTarget, StillCameraOverAStillObjectIsZero )
     const glm::mat4 viewProj = Camera( glm::vec3( 0, 0, 500 ) );
     const glm::mat4 world    = glm::translate( glm::mat4( 1.0f ), glm::vec3( 30, -20, 0 ) );
     const glm::vec4 p( 5, 7, -3, 1 );
-    const glm::vec2 v = VelocityNdc( viewProj * world * p, viewProj * world * p );
+    const glm::vec2 v = glm::vec2( VelocityNdc( viewProj * world * p, viewProj * world * p ) );
     EXPECT_EQ( v, glm::vec2( 0.0f ) );
 }
 
@@ -339,7 +339,7 @@ TEST( VelocityTarget, IsCurrentMinusPreviousNdc )
     const glm::vec4 p( 0, 0, 0, 1 );
     const glm::vec4 c  = viewProj * cur * p;
     const glm::vec4 pc = viewProj * prev * p;
-    const glm::vec2 v  = VelocityNdc( c, pc );
+    const glm::vec2 v  = glm::vec2( VelocityNdc( c, pc ) );
     EXPECT_GT( v.x, 0.0f ); // moved right on screen
     EXPECT_NEAR( v.y, 0.0f, kTolerance );
     EXPECT_NEAR( v.x, c.x / c.w - pc.x / pc.w, kTolerance );
@@ -365,13 +365,14 @@ TEST( VelocityTarget, AnObjectNotDrawnLastFrameMovesOnlyWithTheCamera )
 
     const glm::mat4 viewProj = Camera( glm::vec3( 0, 0, 500 ) );
     const glm::vec4 p( 1, 2, 3, 1 );
-    const glm::vec2 v = VelocityNdc( viewProj * record.World * p, viewProj * record.PrevWorld * p );
+    const glm::vec2 v = glm::vec2( VelocityNdc( viewProj * record.World * p, viewProj * record.PrevWorld * p ) );
     EXPECT_NEAR( v.x, 0.0f, kTolerance );
     EXPECT_NEAR( v.y, 0.0f, kTolerance );
 
     // And a camera move alone gives a non-zero velocity for that same still object.
     const glm::mat4 prevViewProj = Camera( glm::vec3( -10, 0, 500 ) );
-    const glm::vec2 camera       = VelocityNdc( viewProj * record.World * p, prevViewProj * record.PrevWorld * p );
+    const glm::vec2 camera =
+         glm::vec2( VelocityNdc( viewProj * record.World * p, prevViewProj * record.PrevWorld * p ) );
     EXPECT_GT( glm::length( camera ), 1e-4f );
 }
 
@@ -433,24 +434,27 @@ TEST( VelocityTarget, EveryMeshDrawCarriesItsOwningEntityToTheRenderData )
          << "SubmitGenericMesh / SubmitSlotMaterialMesh must both copy the entity onto GenericMeshRenderData";
 }
 
-// Step C: the instanced view pass evaluates the wind at the view's previous frame (Vertex_Instanced reads
-// WindB.z); the renderer writes it per view. Mutation: drop the B.z write in PackViewInstanceWind -> red; the
+// Step C: the instanced view pass evaluates the wind at the previous gameplay step of the SAME clock that made the
+// current one (Vertex_Instanced reads WindB.z). Mutation: drop the B.z write in PackViewInstanceWind -> red; the
 // light-view pack writing a previous time -> red.
 TEST( VelocityTarget, InstancedViewPushCarriesTheWindAtThePreviousFrame )
 {
     using namespace Desert::Graphic;
-    const InstanceWind wind = MakeInstanceWind( 30.0f, 0.5f, 200.0f, glm::vec2( 400.0f, 400.0f ), 7.25 );
+    const InstanceWind wind = MakeInstanceWind( 30.0f, 0.5f, 200.0f, glm::vec2( 400.0f, 400.0f ), 7.25, 7.0 );
     ASSERT_TRUE( wind.Sways() );
-    const InstanceWindPush view = PackViewInstanceWind( wind, 7.0 );
+    const InstanceWindPush view = PackViewInstanceWind( wind );
     EXPECT_FLOAT_EQ( view.B.y, wind.Seconds );
     EXPECT_FLOAT_EQ( view.B.z, WindSecondsAt( wind.Speed, 7.0 ) );
     EXPECT_NE( view.B.z, view.B.y ) << "a different previous time must give a different previous wind clock";
     EXPECT_EQ( PackInstanceWind( wind ).B.z, 0.0f ) << "a light view has no velocity and no previous wind";
     // Wrapped like the current clock: a previous time one whole period later is the same clock.
     const double period = static_cast<double>( kWindPeriodCycles ) / static_cast<double>( wind.Speed );
-    EXPECT_NEAR( PackViewInstanceWind( wind, 7.0 + period ).B.z, view.B.z, 1e-4f );
+    EXPECT_NEAR( PackViewInstanceWind(
+                      MakeInstanceWind( 30.0f, 0.5f, 200.0f, glm::vec2( 400.0f, 400.0f ), 7.25, 7.0 + period ) )
+                      .B.z,
+                 view.B.z, 1e-4f );
     // A still wind pushes zeros, previous included (a push block keeps bytes between draws).
-    EXPECT_EQ( PackViewInstanceWind( InstanceWind{}, 7.0 ).B.z, 0.0f );
+    EXPECT_EQ( PackViewInstanceWind( InstanceWind{} ).B.z, 0.0f );
 }
 
 // Step A: the rows are built once per frame per view BEFORE any pass is declared, and every captured frame state
@@ -467,10 +471,8 @@ TEST( VelocityTarget, MotionRowsAreBuiltBeforeAnyViewPassIsDeclared )
     const auto prev  = scene.find( "->SetPrevWorldTimeSeconds( GetViewFrame()->PrevTimeSeconds )", body );
     const auto first = scene.find( "AddFrame", body );
     ASSERT_NE( build, std::string::npos ) << "OnUpdate must build the view's motion rows";
-    ASSERT_NE( prev, std::string::npos ) << "OnUpdate must hand the view's previous time to the mesh renderer";
     ASSERT_NE( first, std::string::npos );
     EXPECT_LT( build, first ) << "the rows must be final before the first pass is declared";
-    EXPECT_LT( prev, first );
 
     const auto meshes =
          ReadFile( root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
@@ -685,7 +687,7 @@ TEST( VelocityTarget, EveryDepthWritingViewProgramWritesVelocity )
     // Light-view programs: they write a cascade's depth, never the view's; no previous frame of their own.
     const std::map<std::string, std::string> lightView = {
          { "Programs/Terrain/TerrainShadow.shader", "cascade depth (light view)" } };
-    const std::regex velocityOut( R"(Out\(\s*\d+\s*\)\s*vec2\s+oVelocity|out\s+vec2\s+oVelocity)" );
+    const std::regex velocityOut( R"(Out\(\s*\d+\s*\)\s*vec4\s+oVelocity|out\s+vec4\s+oVelocity)" );
     // The EFFECTIVE depth write of a pass: its State's ZWrite, else what a pipeline built from it gets when the
     // State says nothing (PipelineCache applies a State field only when it is set; the spec default stands).
     const bool unsetDepthWrite = Desert::Graphic::GraphicsPipelineSpecification{}.DepthWriteEnabled;
@@ -736,8 +738,8 @@ TEST( VelocityTarget, EveryDepthWritingViewProgramWritesVelocity )
     // The terrain is the depth writer with its own stages: both its view programs write velocity, through the
     // one TerrainVelocity of TerrainSurface.glslh, at the slot of their target.
     const std::filesystem::path terrain = shaders / "Programs/Terrain";
-    EXPECT_NE( ReadFile( terrain / "Terrain.shader" ).find( "Out(1) vec2 oVelocity" ), std::string::npos );
-    EXPECT_NE( ReadFile( terrain / "TerrainGBuffer.shader" ).find( "Out(4) vec2 oVelocity" ), std::string::npos );
+    EXPECT_NE( ReadFile( terrain / "Terrain.shader" ).find( "Out(1) vec4 oVelocity" ), std::string::npos );
+    EXPECT_NE( ReadFile( terrain / "TerrainGBuffer.shader" ).find( "Out(4) vec4 oVelocity" ), std::string::npos );
     const std::string surface = ReadFile( terrain / "TerrainSurface.glslh" );
     EXPECT_NE( surface.find( "DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world )" ),
                std::string::npos );
@@ -974,7 +976,7 @@ namespace VelocityTargetTest
 // a slot the fragment stage has no output at gets mask 0. So each named program is compiled from its shipped
 // source and reflected, and the velocity slot of SceneTargetLayout must come out unwritten with mask 0; and the
 // C++ site that builds its pipeline must load it by that name against SceneTargetLayout. Mutation: give
-// Skybox.shader (or any named program) an `Out(1) vec2 oVelocity` -> red; rename a site's shader -> red. ONE
+// Skybox.shader (or any named program) an `Out(1) vec4 oVelocity` -> red; rename a site's shader -> red. ONE
 // extent source (lead decision): the scene target, the G-buffer and the velocity transient all take the view
 // extent. ViewTargetExtentMismatch names a target at another extent; SceneRenderer::OnUpdate refuses that frame,
 // creates the velocity from m_ViewExtent, and Resize resizes both targets at the one extent. Mutations: make the
@@ -1150,7 +1152,7 @@ TEST( VelocityTarget, TheVelocityViewShowsAMovingCameraOverStaticGeometryAndIsBl
     const glm::vec2 size( static_cast<float>( m.Split.Render.Width ),
                           static_cast<float>( m.Split.Render.Height ) );
     ASSERT_GT( size.x, 0.0f );
-    const glm::vec2 v  = VelocityNdc( m.ViewProjection * staticPoint, m.PrevViewProjection * staticPoint );
+    const glm::vec2 v  = glm::vec2( VelocityNdc( m.ViewProjection * staticPoint, m.PrevViewProjection * staticPoint ) );
     const float     px = glm::length( v * 0.5f * size );
     EXPECT_GT( px, 1.0f ) << "5 cm at 10 m must move a static point by more than a render pixel";
     const glm::vec3 shown = VelocityViewColour( v, size );
@@ -1163,7 +1165,8 @@ TEST( VelocityTarget, TheVelocityViewShowsAMovingCameraOverStaticGeometryAndIsBl
     const auto still = state.BeginFrame( StillViewInputs( eye + glm::vec3( 5.0f, 0.0f, 0.0f ), 1.032 ), nullptr );
     ASSERT_TRUE( still.IsSuccess() ) << still.GetError();
     const ViewFrame& s  = still.GetValue();
-    const glm::vec2  vs = VelocityNdc( s.ViewProjection * staticPoint, s.PrevViewProjection * staticPoint );
+    const glm::vec2  vs =
+         glm::vec2( VelocityNdc( s.ViewProjection * staticPoint, s.PrevViewProjection * staticPoint ) );
     EXPECT_EQ( VelocityViewColour( vs, size ), glm::vec3( 0.0f ) );
     state.EndFrame( RDG::ExecuteReport{} );
 

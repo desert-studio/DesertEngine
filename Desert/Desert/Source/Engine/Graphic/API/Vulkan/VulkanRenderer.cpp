@@ -1,7 +1,9 @@
+#include <Engine/Graphic/GpuInstances.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
+#include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <span>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
@@ -95,7 +97,7 @@ namespace Desert::Graphic::API::Vulkan
         // is illegal inside a render pass, and this is the one point in the frame where the command buffer
         // is recording and no pass is open.
 #if DESERT_DEV_INSTRUMENTS
-        m_GpuProfiler.BeginFrame( m_CurrentCommandBuffer );
+        m_GpuProfiler.BeginFrame();
 #endif
 
         return BOOLSUCCESS;
@@ -115,7 +117,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( IsRecording() )
         {
 #if DESERT_DEV_INSTRUMENTS
-            m_GpuProfiler.EndFrame( m_CurrentCommandBuffer );
+            m_GpuProfiler.EndFrame();
 #endif
 
             VK_CHECK_RESULT_BOOL( vkEndCommandBuffer( m_CurrentCommandBuffer ) );
@@ -912,7 +914,8 @@ namespace Desert::Graphic::API::Vulkan
                                                                  const Mesh& mesh, const glm::mat4& transform,
                                                                  const MaterialExecutor& material,
                                                                  const RDG::BufferRef args, const uint64_t offset,
-                                                                 const uint64_t hiddenSubmeshMask )
+                                                                 const uint64_t               hiddenSubmeshMask,
+                                                                 const MeshDrawArgumentsOrder order )
     {
         DESERT_PROFILE_FUNC();
         const RDG::PassContext& context = bindings.GetContext();
@@ -932,10 +935,11 @@ namespace Desert::Graphic::API::Vulkan
         // Not counted by DrawCounter: the instance counts are the GPU's (DrawProceduralIndirect likewise).
         return WalkMeshSubmeshes(
              bindings, pipeline, mesh, transform, material, hiddenSubmeshMask,
-             [&]( const uint32_t     drawn, size_t, const Submesh&,
+             [&]( const uint32_t drawn, const size_t si, const Submesh&,
                   const IndexBuffer* indexBuffer ) -> Common::BoolResultStr
              {
-                 const uint64_t at = offset + ( uint64_t{ drawn } * kMeshDrawArgumentsBytes );
+                 const uint64_t record = order == MeshDrawArgumentsOrder::Drawn ? uint64_t{ drawn } : uint64_t{ si };
+                 const uint64_t at     = offset + ( record * kMeshDrawArgumentsBytes );
                  if ( at + kMeshDrawArgumentsBytes > bytes )
                      return Common::MakeFormattedError(
                           "{}: indirect arguments of drawn submesh {} at byte {} past the end of '{}' ({} bytes)",
@@ -1271,9 +1275,6 @@ namespace Desert::Graphic::API::Vulkan
              { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, m_CurrentCommandBuffer, {}, {}, {} } );
         // Ended: from here until the graph backend arms its first buffer nothing may record into it.
         m_CurrentCommandBuffer                    = nullptr;
-#if DESERT_DEV_INSTRUMENTS
-        m_GpuProfiler.SetCommandBuffer( VK_NULL_HANDLE );
-#endif
         Common::BoolResultStr            executed = graph.Execute( *m_RdgBackend );
         std::vector<VulkanRdgSubmission> segments = m_RdgBackend->TakeSubmissions();
         m_FrameSubmissions.insert( m_FrameSubmissions.end(), std::make_move_iterator( segments.begin() ),
@@ -1294,9 +1295,6 @@ namespace Desert::Graphic::API::Vulkan
             return fail( next.GetError() );
         }
         m_CurrentCommandBuffer = next.GetValue();
-#if DESERT_DEV_INSTRUMENTS
-        m_GpuProfiler.SetCommandBuffer( m_CurrentCommandBuffer );
-#endif
         // A FrameFault: the graph's output has no picture, so its frame-fatal externals are cleared to black on
         // the re-armed buffer and the frame presents that.
         if ( const std::optional<RDG::FrameFault>& frame = graph.GetExecuteReport().Frame )
@@ -1314,17 +1312,9 @@ namespace Desert::Graphic::API::Vulkan
         if ( commandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
         {
             m_CurrentCommandBuffer = nullptr;
-#if DESERT_DEV_INSTRUMENTS
-            m_GpuProfiler.SetCommandBuffer( VK_NULL_HANDLE );
-#endif
             return;
         }
         m_CurrentCommandBuffer = commandBuffer;
-#if DESERT_DEV_INSTRUMENTS
-        // The graph's passes are timed by the backend through the profiler sink: their scopes go into the
-        // segment buffer the pass records into, not the frame buffer ended before the graph.
-        m_GpuProfiler.SetCommandBuffer( commandBuffer );
-#endif
     }
 
     Common::BoolResultStr VulkanRendererAPI::BeginRdgFrame()
@@ -1627,6 +1617,47 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdCopyImage( commands.GetValue(), fromImage.GetValue()->GetImage(),
                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, toImage.GetValue()->GetImage(),
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::CopyGraphBufferToTexture( const RDG::PassContext& context,
+                                                                       const RDG::BufferRef    source,
+                                                                       const RDG::TextureRef   target )
+    {
+        const auto commands = VulkanRdgBackend::CommandBufferOf( context );
+        if ( !commands )
+            return Common::MakeError( commands.GetError() );
+        const auto from = context.GetBuffer( source, RDG::Access::CopySrc );
+        if ( !from )
+            return Common::MakeError( from.GetError() );
+        const auto to = context.GetTexture( target, RDG::Access::CopyDst );
+        if ( !to )
+            return Common::MakeError( to.GetError() );
+        const auto fromBuffer = VulkanRdgBackend::BufferOf( from.GetValue() );
+        if ( !fromBuffer )
+            return Common::MakeError( fromBuffer.GetError() );
+        const auto toImage = VulkanRdgBackend::TextureOf( to.GetValue() );
+        if ( !toImage )
+            return Common::MakeError( toImage.GetError() );
+
+        const RDG::TextureDesc& dst = *to.GetValue().Desc;
+        const uint64_t bytes = Core::Formats::CalculateImageSize( dst.Size.Width, dst.Size.Height, dst.Format );
+        if ( dst.Dim != RDG::TextureDim::Tex2D || dst.Samples != 1 || from.GetValue().Desc->Bytes < bytes )
+            return Common::MakeError( std::format(
+                 "CopyGraphBufferToTexture: '{}' ({} bytes) into '{}' ({}x{}, {} sample(s), {} bytes at mip 0); a "
+                 "texel upload needs a single-sample 2D target and a buffer holding all of its mip 0",
+                 from.GetValue().Name, from.GetValue().Desc->Bytes, to.GetValue().Name, dst.Size.Width,
+                 dst.Size.Height, dst.Samples, bytes ) );
+
+        // The graph's Copy node put the buffer in TRANSFER_READ and the texture in TRANSFER_DST.
+        VkBufferImageCopy region{};
+        region.bufferOffset      = 0;
+        region.bufferRowLength   = 0; // tightly packed
+        region.bufferImageHeight = 0;
+        region.imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+        region.imageExtent       = { dst.Size.Width, dst.Size.Height, 1 };
+        vkCmdCopyBufferToImage( commands.GetValue(), fromBuffer.GetValue()->GetBuffer(),
+                                toImage.GetValue()->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
         return BOOLSUCCESS;
     }
 

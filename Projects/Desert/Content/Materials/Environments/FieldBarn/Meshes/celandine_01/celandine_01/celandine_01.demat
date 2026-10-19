@@ -1,0 +1,118 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "93eb457d2561fe8fc92fa253e5d8cbe4",
+        "Versions": {
+            "MATL": 5
+        },
+        "Dependencies": [
+            "acb8d06bbe1a49dc95c2f5ebdddb4c33",
+            "04d7e8884cc53780b110db94b6ad519d",
+            "15cd3dd34323a40ba424b4fb6d22d515",
+            "defa16a3fe2cb2897b9cebee0be410cf",
+            "5e3b317332544c5f0519cbb6abd8c52b"
+        ]
+    },
+    "Shader": {
+        "Guid": "acb8d06bbe1a49dc95c2f5ebdddb4c33",
+        "Path": "engine:Shaders/Programs/Surface/FoliageSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [
+                1.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "NormalScale",
+            "Value": [
+                1.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "EmissiveColor",
+            "Value": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ]
+        },
+        {
+            "Name": "OpacityMaskClipValue",
+            "Value": [
+                0.35,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "OpacityChannel",
+            "Value": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "SubsurfaceColor",
+            "Value": [
+                0.6,
+                0.6,
+                0.2,
+                1.0
+            ]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "u_AlbedoTexture",
+            "Guid": "04d7e8884cc53780b110db94b6ad519d",
+            "Path": "assets:Environments/FieldBarn/Meshes/celandine_01/textures/celandine_01_diff_2k.detex"
+        },
+        {
+            "Name": "u_ORMTexture",
+            "Guid": "15cd3dd34323a40ba424b4fb6d22d515",
+            "Path": "assets:Environments/FieldBarn/Meshes/celandine_01/textures/celandine_01_arm_2k_ORMTexture.detex"
+        },
+        {
+            "Name": "u_NormalTexture",
+            "Guid": "defa16a3fe2cb2897b9cebee0be410cf",
+            "Path": "assets:Environments/FieldBarn/Meshes/celandine_01/textures/celandine_01_nor_gl_2k.detex"
+        },
+        {
+            "Name": "u_OpacityTexture",
+            "Guid": "5e3b317332544c5f0519cbb6abd8c52b",
+            "Path": "assets:Textures/FieldBarn/celandine_01_alpha_2k.detex"
+        }
+    ],
+    "CloudAssets": [],
+    "TwoSided": true
+}

@@ -23,7 +23,7 @@ Inputs
 
 vec3 DefaultLitF0( DesertSurface S )
 {
-    return mix( vec3( 0.04 ), S.BaseColor, S.Metallic );
+    return DesertSpecularF0( S );
 }
 
 vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
@@ -40,6 +40,6 @@ vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
 vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
 {
     const vec3 ibl = EvaluateAmbientIBL( A.Irradiance, A.Prefiltered, A.SpecularBRDF, DefaultLitF0( S ), S.BaseColor,
-                                         S.Metallic, max( dot( S.N, S.V ), 0.0 ) );
+                                         S.Metallic );
     return ComposeAmbient( ibl, S.BaseColor, A.Occlusion, A.Indirect );
 }

@@ -278,7 +278,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( sets == nullptr )
             return;
 
-        const uint32_t                                binding = vulkanBuffer->GetBinding();
+        const uint32_t                                binding = storageProp->GetBinding();
         ShaderResources::API::Vulkan::ViewCopyBinding copy;
         const auto                                    resolved = vulkanBuffer->BindActiveCopy( frameIndex, copy );
         if ( !resolved.IsSuccess() )

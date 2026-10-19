@@ -17,7 +17,7 @@ layout( location = 3 ) out vec4 oGBufferEmissive; // Emissive.rgb (HDR; the defe
 // The view's velocity (Graphic::kVelocityFormat, slot 4 of the G-buffer target): this pass writes the view's depth,
 // so it writes the same surface's motion.
 #include <Common/ObjectMotion.glslh>
-layout( location = 4 ) out vec2 oVelocity;
+layout( location = 4 ) out vec4 oVelocity;
 
 void main()
 {
@@ -29,7 +29,7 @@ void main()
     oGBufferA        = vec4( s.BaseColor, s.Metallic );
     oGBufferB        = vec4( DesertSurfaceWorldNormal( i, s ), max( s.Roughness, 0.04 ) );
     const uvec2 word =
-         DesertPackShadingWord( DESERT_SHADING_MODEL_INDEX, s.SampledTextureCount,
+         DesertPackShadingWord( DESERT_SHADING_MODEL_INDEX, s.SampledTextureCount, s.Specular,
                                 DesertPayload( s.CustomData0, s.CustomData1, s.CustomData2, s.CustomData3 ) );
     // The material's sun-shadow receive, then the primitive's contact-shadow cast (UE bCastContactShadow): the
     // draw pushes it (PrimitiveFlags, Common/MaterialTransport.glslh), as UE's primitive data carries it.

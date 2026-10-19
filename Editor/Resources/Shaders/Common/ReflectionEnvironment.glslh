@@ -28,10 +28,17 @@ const float kReflectionMixLargestWeight  = 10000.0;
 
 // UE ComputeMixingWeight. The captures carry high DIRECTIONAL frequency but low SPATIAL frequency (one cube for a
 // whole room); the local diffuse lighting has the opposite. The capture's low spatial frequency is replaced by the
-// local one: scaled by (local indirect irradiance / the capture's average brightness), luminance only so the hue
-// is kept.
+// local one: scaled by (the diffuse at the pixel / the diffuse at the capture point), luminance only so the hue is
+// kept. @p indirectIrradiance is the pixel's side, @p averageBrightness the one stored with the cube when it was
+// written (ReflectionCaptureDiffuse.shader); what each is under the view's estimator is Graphic
+// ReflectionCaptureLighting (under the radiance cache UE's pair: a smooth irradiance at the pixel against the cube's
+// own brightness), so a relit room keeps its reflections in step with its diffuse until the capture is rendered
+// again. A capture that stores 0 is NOT normalised (its own radiance): dividing by a value nobody measured would be
+// a guess, and the old floor (0.0001) turned it into a 10000x blow-out.
 float ReflectionCaptureMixingWeight(float indirectIrradiance, float averageBrightness, float roughness)
 {
+	if (averageBrightness <= 0.0)
+		return 1.0;
 	const float scale  = 1.0 / (kReflectionMixEndRoughness - kReflectionMixBeginRoughness);
 	const float mixing = smoothstep(0.0, 1.0, clamp(roughness * scale - kReflectionMixBeginRoughness * scale, 0.0, 1.0));
 	const float weight = min(indirectIrradiance / max(averageBrightness, 0.0001), kReflectionMixLargestWeight);
@@ -83,17 +90,17 @@ vec3 ReflectionCaptureBoxLookup(vec3 R, vec3 P, ReflectionCaptureGpu capture, ve
 	return hitPosition - (capture.PositionRadius.xyz + capture.CaptureOffsetBrightness.xyz);
 }
 
-// The captures' share of the reflection along R at P: rgb = their composited radiance (normalised), a = how much
-// of the reflection they cover (1 - what is left for the sky).
-vec4 GatherReflectionCaptures(vec3 P, vec3 R, float roughness, float indirectIrradiance)
+// The captures' share of the reflection along R at P (normal N): rgb = their composited radiance (normalised), a =
+// how much of the reflection they cover (1 - what is left for the sky).
+vec4 GatherReflectionCaptures(vec3 P, vec3 R, vec3 N, float roughness, float indirectIrradiance)
 {
 	const uint count = u_ReflectionCaptureHeader.x;
 	if (count == 0u)
 		return vec4(0.0);
 
 	// The engine's one ramp (Common/ReflectionCaptureMip.glslh), the inverse of the one ReflectionCaptureFilter wrote.
-	const float lod = ComputeReflectionCaptureMipFromRoughness(roughness,
-	                                                           float(textureQueryLevels(u_ReflectionCaptureCubes) - 1));
+	const float lastMip = float(textureQueryLevels(u_ReflectionCaptureCubes) - 1);
+	const float lod     = ComputeReflectionCaptureMipFromRoughness(roughness, lastMip);
 
 	vec3  radiance          = vec3(0.0);
 	float remaining         = 1.0;
@@ -119,13 +126,22 @@ vec4 GatherReflectionCaptures(vec3 P, vec3 R, float roughness, float indirectIrr
 				continue;
 			lookup = ReflectionCaptureBoxLookup(R, P, capture, local, distanceAlpha);
 		}
+		// A capture whose first cube was just written fades in over a few frames (ReflectionCaptureRenderer's
+		// presence): the environment behind it shows through meanwhile, so a capture becoming readable is a
+		// ramp, never a one-frame change of every rough surface it covers.
+		distanceAlpha *= uintBitsToFloat(capture.ShapeCube.z);
 		if (distanceAlpha <= 0.0)
 			continue;
 
 		const vec4  s      = textureLod(u_ReflectionCaptureCubes, vec4(lookup, float(capture.ShapeCube.y)), lod);
 		const float weight = distanceAlpha * remaining;
 		radiance   += s.rgb * capture.CaptureOffsetBrightness.w * weight;
-		brightness += s.a * capture.CaptureOffsetBrightness.w * weight;
+		// The stored diffuse is the lighting's, not the cube's: the capture's Brightness multiplier scales the
+		// radiance only, so it still brightens a rough reflection (scaling both would cancel in the ratio). It is
+		// read about the pixel's normal from the last mip, where each face is one texel - the capture point's ambient
+		// cube (ReflectionCaptureFilter.shader), the irradiance a surface facing N would have had there.
+		const float stored = textureLod(u_ReflectionCaptureCubes, vec4(N, float(capture.ShapeCube.y)), lastMip).a;
+		brightness += stored * weight;
 		remaining  *= 1.0 - distanceAlpha;
 	}
 
@@ -136,13 +152,14 @@ vec4 GatherReflectionCaptures(vec3 P, vec3 R, float roughness, float indirectIrr
 	return vec4(radiance * ReflectionCaptureMixingWeight(indirectIrradiance, averageBrightness, roughness), coverage);
 }
 
-// THE reflection fallback: the captures, then the sky's prefiltered radiance where they leave a remainder.
-// @p skyPrefiltered is the sky's sample along R (Mesh/AmbientIBL.glslh DesertAmbientSpecular); @p indirectIrradiance
-// is the luminance of the local diffuse ambient the captures are normalised to.
-vec3 DesertReflectionEnvironment(vec3 P, vec3 R, float roughness, vec3 skyPrefiltered, float indirectIrradiance)
+// THE reflection fallback: the captures, then @p remainder where they leave one - the sky's prefiltered radiance
+// along R (Mesh/AmbientIBL.glslh DesertAmbientSpecular), or the traced GI's specular (DeferredLighting, GI mode 2),
+// which already holds the sky where it is visible. @p indirectIrradiance is the luminance of the diffuse the pixel
+// receives from the view's estimator, the one the captures' stored diffuse was measured with.
+vec3 DesertReflectionEnvironment(vec3 P, vec3 R, vec3 N, float roughness, vec3 remainder, float indirectIrradiance)
 {
-	const vec4 captures = GatherReflectionCaptures(P, R, roughness, indirectIrradiance);
-	return captures.rgb + skyPrefiltered * (1.0 - captures.a);
+	const vec4 captures = GatherReflectionCaptures(P, R, N, roughness, indirectIrradiance);
+	return captures.rgb + remainder * (1.0 - captures.a);
 }
 
 #endif // REFLECTION_ENVIRONMENT_GLSLH

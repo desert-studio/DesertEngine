@@ -755,8 +755,9 @@ namespace
 
 TEST( MaterialImportAdapter, AnFbxSpecularMapIsNamedUnreadUnderItsOwnMeaning )
 {
-    const SourceMaterial source =
-         WithFbxSpecularMap( FbxWithSpecularMap(), Desert::Assets::FbxSpecularMap::Specular );
+    auto routed = WithFbxSpecularMap( FbxWithSpecularMap(), Desert::Assets::FbxSpecularMap::Specular );
+    ASSERT_TRUE( routed ) << routed.GetError();
+    const SourceMaterial source = routed.ExtractValue();
     ASSERT_TRUE( source.Has( kFbxSpecularMapKey ) ) << "the adapter dropped the FBX Specular map";
     const TemplateFill fill = FillFromTemplate( source, Template( "Surface/StandardSurface.shader" ) );
     EXPECT_NE( std::ranges::find( fill.UnreadKeys, kFbxSpecularMapKey ), fill.UnreadKeys.end() );
@@ -769,8 +770,10 @@ TEST( MaterialImportAdapter, AnFbxSpecularMapIsNamedUnreadUnderItsOwnMeaning )
 
 TEST( MaterialImportAdapter, AnFbxSpecularMapStatedAsPackedIsTheOrmImageAsIs )
 {
-    const SourceMaterial source =
+    auto routed =
          WithFbxSpecularMap( FbxWithSpecularMap(), Desert::Assets::FbxSpecularMap::OcclusionRoughnessMetallic );
+    ASSERT_TRUE( routed ) << routed.GetError();
+    const SourceMaterial source = routed.ExtractValue();
     EXPECT_FALSE( source.Has( kFbxSpecularMapKey ) );
     const TemplateFill fill = FillFromTemplate( source, Template( "Surface/StandardSurface.shader" ) );
     EXPECT_TRUE( fill.UnreadKeys.empty() ) << fill.UnreadKeys.front();
@@ -787,8 +790,9 @@ TEST( MaterialImportAdapter, AnFbxSpecularMapStatedAsPackedIsTheOrmImageAsIs )
 // and the image is the whole of roughness and metal: the factors it multiplies are 1, not the template's metal 0.
 TEST( MaterialImportAdapter, AnFbxSpecularMapStatedAsRoughnessMetalLeavesOcclusionAlone )
 {
-    const SourceMaterial source =
-         WithFbxSpecularMap( FbxWithSpecularMap(), Desert::Assets::FbxSpecularMap::RoughnessMetallic );
+    auto routed = WithFbxSpecularMap( FbxWithSpecularMap(), Desert::Assets::FbxSpecularMap::RoughnessMetallic );
+    ASSERT_TRUE( routed ) << routed.GetError();
+    const SourceMaterial source = routed.ExtractValue();
     EXPECT_FALSE( source.Has( kFbxSpecularMapKey ) );
     const TemplateFill fill = FillFromTemplate( source, Template( "Surface/StandardSurface.shader" ) );
     EXPECT_TRUE( fill.UnreadKeys.empty() ) << fill.UnreadKeys.front();

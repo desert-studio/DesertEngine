@@ -226,6 +226,10 @@ namespace Common::Scalability
         ReflectionsHitLighting,        // 0/1: HardwareTraced reflections run hit lighting - the ray
                                        // tracing pipeline with each hit surface's own material (UE
                                        // r.Lumen.Reflections.HardwareRayTracing.LightingMode = hit lighting)
+        ScreenProbeAdaptiveAllocation,          // adaptive screen probes per uniform one, percent (UE
+                                                // r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction)
+        ScreenProbeShortRangeAO,                // 0/1: the screen probe gather's own contact AO + bent normal (UE
+                                                // r.Lumen.ScreenProbeGather.ShortRangeAO); 0 = SSAO occludes it
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

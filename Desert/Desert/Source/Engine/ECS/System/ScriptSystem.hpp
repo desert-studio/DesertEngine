@@ -3,8 +3,10 @@
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
+#include <Engine/ECS/DestructionEvents.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Input.hpp>
+#include <Engine/Reflection/Value.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>
 #include <Engine/Libraries/InputLibrary.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
@@ -16,7 +18,9 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <cstdint>
+#include <span>
 
 namespace Desert::ECS
 {
@@ -240,6 +244,7 @@ namespace Desert::ECS
             }
 
             DeliverContacts( registry );
+            DeliverDestruction( registry );
 
             // Deliver whatever the canvas raised this frame (button actions, pointer events, drops) to
             // every script defining OnUIMessage. Drained here rather than pushed by the UI, so the canvas
@@ -301,7 +306,62 @@ namespace Desert::ECS
             }
         }
 
+        // The destructible news published since the last delivery (DestructionEventQueue, already gated by the
+        // entity's Notify flags), to every started slot of the destructible entity: OnBreak(node, position,
+        // velocity, massKg, pieceCount), OnCollision(node, position, normal, impulse, velocity, massKg),
+        // OnRemoved(node, position, massKg, pieceCount) — the DestructibleData events' payloads. UE: the geometry
+        // collection's OnChaosBreakEvent / OnChaosPhysicsCollision / OnChaosRemovalEvent bound in the actor's
+        // graph. What answers them (a VFX channel write, a sound) is the script's.
+        void DeliverDestruction( entt::registry& registry )
+        {
+            const auto* queue = registry.try_ctx<DestructionEventQueue>();
+            if ( queue == nullptr || queue->Publication == m_DeliveredDestruction )
+                return;
+            m_DeliveredDestruction = queue->Publication;
+            if ( queue->Breaks.empty() && queue->Collisions.empty() && queue->Removals.empty() )
+                return;
+            const DestructionEventQueue news = *queue; // a callback may destroy, never re-publish
+            using V                          = Reflection::Value;
+            const auto vec3                  = []( const glm::vec3& v ) { return V::Vec3( { v.x, v.y, v.z } ); };
+            for ( const DestructibleBreakEvent& e : news.Breaks )
+            {
+                const std::array<V, 5> args = { V::Int( e.Node ), vec3( e.Position ), vec3( e.Velocity ),
+                                                V::Float( e.MassKg ), V::Int( e.PieceCount ) };
+                CallSlots( registry, e.Self, "OnBreak", args );
+            }
+            for ( const DestructibleCollisionEvent& e : news.Collisions )
+            {
+                const std::array<V, 6> args = { V::Int( e.Node ),      vec3( e.Position ), vec3( e.Normal ),
+                                                V::Float( e.Impulse ), vec3( e.Velocity ), V::Float( e.MassKg ) };
+                CallSlots( registry, e.Self, "OnCollision", args );
+            }
+            for ( const DestructibleRemovalEvent& e : news.Removals )
+            {
+                const std::array<V, 4> args = { V::Int( e.Node ), vec3( e.Position ), V::Float( e.MassKg ),
+                                                V::Int( e.PieceCount ) };
+                CallSlots( registry, e.Self, "OnRemoved", args );
+            }
+        }
+
+        // @p function( @p args ) on every started slot of @p self; a callback destroying @p self ends it.
+        void CallSlots( entt::registry& registry, entt::entity self, const char* function,
+                        std::span<const Reflection::Value> args )
+        {
+            if ( !registry.valid( self ) || !registry.has<ScriptComponent>( self ) )
+                return;
+            const uint32_t id    = static_cast<uint32_t>( self );
+            const auto     slots = static_cast<uint32_t>( registry.get<ScriptComponent>( self ).Scripts.size() );
+            for ( uint32_t slot = 0; slot < slots && registry.valid( self ); ++slot )
+            {
+                const auto& script = registry.get<ScriptComponent>( self ).Scripts[slot];
+                if ( script.ScriptKey.empty() || !script.Started )
+                    continue;
+                m_Engine.CallSlotFunctionWith( id, slot, function, args );
+            }
+        }
+
         std::uint64_t m_DeliveredPhysics = 0; // PhysicsEventQueue::Publication last delivered
+        std::uint64_t m_DeliveredDestruction = 0; // DestructionEventQueue::Publication last delivered
 
         // Polls the mtimes of every script file referenced by a running slot; on change, flags
         // the slot for re-load (Started=false -> next frame: fresh env + OnStart + properties).

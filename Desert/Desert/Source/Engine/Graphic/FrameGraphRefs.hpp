@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -65,12 +66,13 @@ namespace Desert::Graphic
         RDG::TextureRef SceneShadingWord;
         RDG::TextureRef BackdropBlur;   // BackdropBlurRenderer pyramid (all mips) -> UI glass (Render2D)
         RDG::TextureRef HeightFog;      // HeightFogRenderer evaluation (RGBA16F) -> HeightFogApply
-        // The clouds' reconstruction pair written this frame (VolumetricCloudRenderer::GetFrameResult, imported:
-        // the ping-pong is the renderer's own); invalid when the frame has none   -> CloudComposite
+        // The clouds' reconstruction pair written this frame (VolumetricCloudRenderer::GetFrameResult: transients
+        // the view extracts as its history, SceneViewState::Clouds); invalid when the frame has none ->
+        // CloudComposite
         RDG::TextureRef CloudScatter;
         RDG::TextureRef CloudGuide;
-        // The cloud layer's shadow map (VolumetricCloudRenderer::GetShadowMap, imported: the renderer owns it),
-        // set once its shadow node was accepted; invalid when the frame has none   -> Deferred: Composite
+        // The cloud layer's shadow map (VolumetricCloudRenderer::GetShadowMap, a transient of this graph), set
+        // once its shadow node was accepted; invalid when the frame has none   -> Deferred: Composite
         RDG::TextureRef CloudShadowMap;
         // The view's velocity (ViewRasterTargets.hpp CreateViewVelocity): one per view graph, the colour slot
         // every depth-writing node on the scene target / G-buffer writes, never on a light view   -> TAA
@@ -86,8 +88,8 @@ namespace Desert::Graphic
         // two cubes (invalid when the scene has no baked sky) and the renderer's split-sum BRDF LUT. Never read
         // directly: a pass takes SceneViewInputsOf, which states the neutral texture for each one that is absent.
         RDG::TextureRef ShadowCascades;
-        // The view's local-light shadow atlas (MeshRenderer::GetLocalShadowAtlasImage, imported: the renderer owns
-        // it and keeps cached tiles in it across frames). Invalid while no light of the view has cast a shadow.
+        // The scene's local-light shadow atlas (MeshRenderer::GetLocalShadowAtlasImage, imported: Core::Scene owns
+        // it and keeps cached tiles in it across frames). Invalid while no light of the scene has cast a shadow.
         RDG::TextureRef                                       LocalShadowAtlas;
         RDG::TextureRef                                       EnvIrradiance;
         RDG::TextureRef                                       EnvSpecular;
@@ -109,12 +111,31 @@ namespace Desert::Graphic
         std::array<RDG::TextureRef, 4> GlobalDistanceField;
         std::array<glm::vec4, 4>       GlobalDistanceFieldLevels{};
         RDG::TextureRef                GlobalDistanceFieldObjectGrid; // its object grid (GlobalDistanceField.hpp)
+        // The mesh fields it is composited from and the near-field object grid (the same update) -> the GI
+        // tracer's near field
+        DistanceField::MeshDistanceFieldReads MeshDistanceFields;
         // The traced GI's final gather of this frame (SceneRenderer::AddFrameTracedGI: the world radiance cache's
         // update, then GlobalIllumination::ScreenProbeGather under SoftwareTraced / HardwareTraced or
         // GlobalIllumination::IrradianceFieldGather under ProbeVolume): per pixel, the diffuse irradiance and the
         // specular radiance. Invalid when the GI method traces nothing   -> Deferred: Composite
         RDG::TextureRef GIDiffuse;
         RDG::TextureRef GISpecular;
+        RDG::TextureRef GIBackface; // the irradiance from behind the surface (-N), a two-sided leaf's
+        // THE VIEW'S WORLD RADIANCE CACHE as its readers bind it (GlobalIllumination::RadianceCacheFrame, the read
+        // section of Common/RadianceCache.glslh): the neutral cache - one zeroed params block standing for all
+        // three buffers (no clipmap: every read answers "past the coarsest clipmap"), System.Black for both
+        // atlases - from SceneRenderer::ImportSceneViewTextures, replaced by this frame's update once
+        // AddFrameTracedGI ran it   -> the forward meshes' and the glass's diffuse estimator, which must be the
+        // one the reflection captures' stored diffuse was measured with
+        RDG::BufferRef  RadianceCacheParams;
+        RDG::BufferRef  RadianceCacheIndirection;
+        RDG::BufferRef  RadianceCacheProbes;
+        RDG::TextureRef RadianceCacheIrradiance;
+        RDG::TextureRef RadianceCacheDepth;
+        // The gather above already carries its own contact occlusion (the screen probes' short-range AO): the
+        // composite then applies only the material AO to it, never SSAO on top (UE r.Lumen.DiffuseIndirect.SSAO
+        // 0).
+        bool GIOccluded = false;
     };
 
     // RDG-A2 (owner decision 2, 2026-10-05). What EVERY node of the frame graph is handed, whatever registered
@@ -172,6 +193,14 @@ namespace Desert::Graphic
         // SceneRenderer::AddFrameRayTracedSunShadow), read by a forward draw's DESERT_SUN_SHADOW_SCREEN_MASK
         // permutation in place of the cascades. Invalid when the sun is not ray traced (nothing then reads it).
         RDG::TextureRef SunShadowMask;
+        // The view's world radiance cache (FrameTransients::RadianceCache*, the neutral one where the view traces
+        // no GI): the forward passes read their diffuse estimator from it, as the deferred composite's final
+        // gather does, so a capture measured by the cache is normalised by the cache on a forward pixel too.
+        RDG::BufferRef  RadianceCacheParams;
+        RDG::BufferRef  RadianceCacheIndirection;
+        RDG::BufferRef  RadianceCacheProbes;
+        RDG::TextureRef RadianceCacheIrradiance;
+        RDG::TextureRef RadianceCacheDepth;
 
         // Each distinct texture once (System.White fills several slots): what the node declares as read.
         [[nodiscard]] std::vector<RDG::TextureRef> Refs() const
@@ -185,7 +214,7 @@ namespace Desert::Graphic
             add( ShadowCascades );
             for ( const RDG::TextureRef ref :
                   { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, ReflectionCaptureCubes, LocalShadowAtlas,
-                    SceneDepth, SceneShadingWord, SunShadowMask } )
+                    SceneDepth, SceneShadingWord, SunShadowMask, RadianceCacheIrradiance, RadianceCacheDepth } )
                 add( ref );
             return refs;
         }
@@ -213,6 +242,12 @@ namespace Desert::Graphic
     // The deferred composite's MegaLights program (Shadows Stochastic): the local lights from MegaLights'
     // u_MegaLightsDiffuse / u_MegaLightsSpecular (System::MegaLightsRenderer) in place of the light-grid loop.
     inline constexpr std::string_view kMegaLightsDefine = "DESERT_MEGALIGHTS";
+    // The radiance cache's read (Common/RadianceCache.glslh; the names every reader of the cache binds).
+    inline constexpr std::string_view kSceneViewRadianceCacheParamsName      = "RadianceCacheParamsUB";
+    inline constexpr std::string_view kSceneViewRadianceCacheIndirectionName = "RadianceCacheIndirectionUB";
+    inline constexpr std::string_view kSceneViewRadianceCacheProbesName      = "RadianceCacheProbesUB";
+    inline constexpr std::string_view kSceneViewRadianceCacheIrradianceName  = "u_RadianceCacheIrradiance";
+    inline constexpr std::string_view kSceneViewRadianceCacheDepthName       = "u_RadianceCacheDepth";
     // The light grid's two blocks (Mesh/LightGrid.glslh): the build shader, the composite, the forward cells.
     inline constexpr std::string_view kLightGridParamsBlockName = "LightGridParamsUB";
     inline constexpr std::string_view kLightGridCellsBlockName  = "LightGridCellsUB";
@@ -236,6 +271,12 @@ namespace Desert::Graphic
         inputs.SceneShadingWord       = t.SceneShadingWord.IsValid() ? t.SceneShadingWord : refs.System.ZeroUint;
         inputs.LightGridParams        = t.Lights.GridParams;
         inputs.LightGridCells         = t.Lights.GridCells;
+        inputs.RadianceCacheParams      = t.RadianceCacheParams;
+        inputs.RadianceCacheIndirection = t.RadianceCacheIndirection;
+        inputs.RadianceCacheProbes      = t.RadianceCacheProbes;
+        inputs.RadianceCacheIrradiance =
+             t.RadianceCacheIrradiance.IsValid() ? t.RadianceCacheIrradiance : refs.System.Black;
+        inputs.RadianceCacheDepth = t.RadianceCacheDepth.IsValid() ? t.RadianceCacheDepth : refs.System.Black;
         return inputs;
     }
 
@@ -337,5 +378,19 @@ namespace Desert::Graphic
                                              std::pair{ kLightGridCellsBlockName, inputs.LightGridCells } } )
             if ( SceneViewDetail::LayoutReadsBuffer( layout, name ) )
                 block.Storage( name, buffer, RDG::Access::StorageRead );
+        // The radiance cache, where the shader reads it (the forward passes' estimator). Bound here and not in
+        // BindWhere: the surface cache's lighting passes bind their own cache under the same names.
+        for ( const auto& [name, buffer] :
+              { std::pair{ kSceneViewRadianceCacheParamsName, inputs.RadianceCacheParams },
+                std::pair{ kSceneViewRadianceCacheIndirectionName, inputs.RadianceCacheIndirection },
+                std::pair{ kSceneViewRadianceCacheProbesName, inputs.RadianceCacheProbes } } )
+            if ( SceneViewDetail::LayoutReadsBuffer( layout, name ) )
+                block.Storage( name, buffer, RDG::Access::StorageRead );
+        for ( const auto& [name, texture] :
+              { std::pair{ kSceneViewRadianceCacheIrradianceName, inputs.RadianceCacheIrradiance },
+                std::pair{ kSceneViewRadianceCacheDepthName, inputs.RadianceCacheDepth } } )
+            if ( SceneViewDetail::LayoutSamples( layout, name ) )
+                block.Texture( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+.Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
     }
 } // namespace Desert::Graphic

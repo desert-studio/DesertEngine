@@ -265,6 +265,17 @@ namespace Desert::Core::Preprocess
                 param.IsTexture = true;
                 param.Type      = VT::Unknown;
             }
+            else if ( s == "texture2darray" )
+            {
+                param.IsTexture      = true;
+                param.IsArrayTexture = true;
+                param.Type           = VT::Unknown;
+            }
+            else if ( s == "landscapelayerinfo" )
+            {
+                param.AssetKind = "LandscapeLayerInfoAsset";
+                param.Type      = VT::Unknown;
+            }
             else if ( s == "texturecube" )
             {
                 param.IsTexture     = true;
@@ -360,6 +371,40 @@ namespace Desert::Core::Preprocess
                         return false;
                     }
                     param.EngineSet = true;
+                }
+                // `Element(Group, k)` (ShaderParam::ElementOf): element k of a group — a Texture2D slice of
+                // the Texture2DArray named Group, or an asset reference grouped with it. Checked against the
+                // whole block once it is read (the group may be declared after its elements).
+                else if ( attr == "element" )
+                {
+                    if ( !( ( param.IsTexture && !param.IsCubeTexture && !param.IsArrayTexture ) ||
+                            param.IsAssetRef() ) )
+                    {
+                        err = { c.Line, std::format( "Element(...) on '{}', which is neither a Texture2D nor an "
+                                                     "asset reference",
+                                                     param.Name ) };
+                        return false;
+                    }
+                    float k = -1.0f;
+                    if ( !Expect( c, '(', err, "after Element" ) )
+                        return false;
+                    SkipTrivia( c );
+                    param.ElementOf = ReadIdent( c );
+                    if ( param.ElementOf.empty() || !Expect( c, ',', err, "in Element" ) ||
+                         !ReadNumber( c, k, err ) || !Expect( c, ')', err, "closing Element" ) )
+                    {
+                        if ( err.Message.empty() )
+                            err = { c.Line, std::format( "Element(...) on '{}' names no group", param.Name ) };
+                        return false;
+                    }
+                    if ( k < 0.0f || k != static_cast<float>( static_cast<int32_t>( k ) ) )
+                    {
+                        err = { c.Line,
+                                std::format( "Element({}, {}) on '{}': the index must be a whole number >= 0",
+                                             param.ElementOf, k, param.Name ) };
+                        return false;
+                    }
+                    param.ElementIndex = static_cast<int32_t>( k );
                 }
                 else if ( attr == "tooltip" )
                 {
@@ -605,6 +650,37 @@ namespace Desert::Core::Preprocess
             return true;
         }
 
+        // Every Element texture names a Texture2DArray of the block as its group, and no two texture elements
+        // of one group share an index: a slice two slots claim, or an array nobody declared, would otherwise be
+        // decided by whichever loop ran last.
+        bool CheckElementGroups( const ShaderProgramMeta& meta, uint32_t line, ParseError& err )
+        {
+            for ( const auto& p : meta.Params )
+            {
+                if ( p.ElementIndex < 0 || !p.IsTexture )
+                    continue;
+                const auto group =
+                     std::find_if( meta.Params.begin(), meta.Params.end(), [&]( const ShaderParam& q )
+                                   { return q.Name == p.ElementOf && q.IsArrayTexture; } );
+                if ( group == meta.Params.end() )
+                {
+                    err = { line,
+                            std::format( "Element({}, {}) on '{}': the block declares no Texture2DArray '{}'",
+                                         p.ElementOf, p.ElementIndex, p.Name, p.ElementOf ) };
+                    return false;
+                }
+                for ( const auto& q : meta.Params )
+                    if ( &q != &p && q.IsTexture && q.ElementOf == p.ElementOf &&
+                         q.ElementIndex == p.ElementIndex )
+                    {
+                        err = { line, std::format( "'{}' and '{}' are both Element({}, {})", p.Name, q.Name,
+                                                   p.ElementOf, p.ElementIndex ) };
+                        return false;
+                    }
+            }
+            return true;
+        }
+
         bool ParsePropertiesBlock( Cursor& c, ShaderProgramMeta& meta, PropertiesInfo& info, ParseError& err )
         {
             // Optional Binding(n) / TextureBinding(n) before '{'
@@ -645,7 +721,7 @@ namespace Desert::Core::Preprocess
                 if ( c.Peek() == '}' )
                 {
                     c.Advance();
-                    return true;
+                    return CheckElementGroups( meta, c.Line, err );
                 }
                 if ( c.AtEnd() )
                 {
@@ -685,11 +761,16 @@ namespace Desert::Core::Preprocess
                 // the parameter named. Skipping it silently instead would shift every row field after it
                 // by one slot — a divergence between the C++ row upload and the generated struct that no
                 // validation layer reports and no test that reads either side alone can see.
-                if ( param.IsAssetRef() && ( info.UBBinding || info.TextureBinding ) )
+                // The row (Binding()) skips asset references in the ONE layout builder the GLSL and the C++
+                // upload are both written from (Core::Formats::BuildMaterialLayout), so one may sit in a row
+                // block; TextureBinding() would hand it a sampler binding of its own, and so would an
+                // Element texture, which is a CPU-side input copied into its array.
+                if ( ( param.IsAssetRef() || param.ElementIndex >= 0 ) && info.TextureBinding )
                 {
-                    err = { entryLine, "asset-reference property '" + param.Name + "' (" + param.AssetKind +
-                                            ") is CPU-side only and cannot appear in a Properties block "
-                                            "that declares Binding()/TextureBinding()" };
+                    err = { entryLine, "property '" + param.Name +
+                                            "' is a CPU-side input (an asset reference or an Element texture) "
+                                            "and cannot appear in a Properties block that declares "
+                                            "TextureBinding()" };
                     return false;
                 }
 
@@ -1729,6 +1810,7 @@ namespace Desert::Core::Preprocess
         includes.emplace_back( kSurfaceParticleSpritePassInclude );
         includes.emplace_back( kSurfaceRayHitPassInclude );
         includes.emplace_back( kSurfaceRayHitRecordInclude );
+        includes.push_back( SurfaceVertexInclude( kSurfaceGrassBladePath ) );
         return includes;
     }
 
@@ -2014,13 +2096,16 @@ namespace Desert::Core::Preprocess
                 // UE's material usage flags: which vertex factories the template is compiled for beyond the
                 // meshes.
                 const std::string stated = ReadIdent( c );
-                if ( Lower( stated ) != "particlesprites" )
+                if ( Lower( stated ) == "particlesprites" )
+                    result.Surface.UsedWithParticleSprites = true;
+                else if ( Lower( stated ) == "grassblades" )
+                    result.Surface.UsedWithGrassBlades = true;
+                else
                 {
                     // The author's spelling, not the folded one the comparison used.
-                    err = { line, std::format( "unknown Usage '{}' (ParticleSprites)", stated ) };
+                    err = { line, std::format( "unknown Usage '{}' (ParticleSprites, GrassBlades)", stated ) };
                     return fail();
                 }
-                result.Surface.UsedWithParticleSprites = true;
                 surfaceSettingLine                     = surfaceSettingLine != 0 ? surfaceSettingLine : line;
             }
             else if ( lower == "shadingmodel" )
@@ -2479,6 +2564,26 @@ namespace Desert::Core::Preprocess
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );
             }
+
+            // `Usage GrassBlades`: the blade cells, last, in the mesh passes' order.
+            if ( result.Surface.UsedWithGrassBlades )
+                for ( const std::string_view pass : kSurfaceCellPasses )
+                {
+                    if ( !SurfaceBlendHasPass( result.Surface.Blend, pass ) )
+                        continue;
+                    DShaderPass cell;
+                    cell.Name  = SurfaceCellName( kSurfaceGrassBladePath, pass );
+                    cell.State = cellState;
+                    for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                        cell.Stages.emplace(
+                             stage, AssembleSurfaceCellStage( stage, kSurfaceGrassBladePath, pass, *surfaceBlock,
+                                                              includeBlock, autoDecls, result.Surface.Blend,
+                                                              shadingModelDefine, result.Surface.ResponsiveAA,
+                                                              opacityMaskFunction ) );
+                    result.Meta.PassNames.push_back( cell.Name );
+                    result.Surface.Cells.push_back( cell.Name );
+                    result.Passes.push_back( std::move( cell ) );
+                }
         }
 
         // The default program is the top-level stage set; when a shader consists solely of

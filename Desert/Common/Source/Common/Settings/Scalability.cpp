@@ -177,6 +177,11 @@ namespace Common::Scalability
              { P::ReflectionsHitLighting, G::Reflections, "Reflections.HitLighting", 0, 1, CL::None,
                "SceneRenderer::ReflectionsTracer -> SSR.shader \"HitLighting\" ray generation "
                "(Renderer::TraceRays)" },
+             { P::ScreenProbeAdaptiveAllocation, G::GlobalIllumination,
+               "GlobalIllumination.AdaptiveProbeAllocationPercent", 0, 100, CL::None,
+               "screen probe adaptive budget (Graphic::GlobalIllumination::ScreenProbeGather)" },
+             { P::ScreenProbeShortRangeAO, G::GlobalIllumination, "GlobalIllumination.ShortRangeAO", 0, 1,
+               CL::None, "screen probe short-range AO (Graphic::GlobalIllumination::ScreenProbeGather)" },
         } };
     } // namespace
 

@@ -1,0 +1,146 @@
+{
+    "Header": {
+        "Kind": "LandscapeGrassType",
+        "Guid": "060537443b0e446f8973f6ce45b7e4fc",
+        "Versions": {
+            "LGRT": 3
+        },
+        "Dependencies": [
+            "f3364a91ebcb413d9b85098c064492be"
+        ]
+    },
+    "GrassVarieties": [
+        {
+            "Kind": "Blade",
+            "Material": {
+                "Guid": "f3364a91ebcb413d9b85098c064492be",
+                "Path": "Materials/Environments/FieldBarn/Grass/M_GrassBlade.demat"
+            },
+            "Blade": {
+                "Height": 32,
+                "Width": 1.0,
+                "Taper": 0.9,
+                "Curvature": 0.5,
+                "Stiffness": 0.3,
+                "BaseColor": [
+                    0.05,
+                    0.05,
+                    0.018
+                ],
+                "TipColor": [
+                    0.22,
+                    0.2,
+                    0.08
+                ],
+                "DryTipColor": [
+                    0.4,
+                    0.33,
+                    0.17
+                ],
+                "DryTipShare": 0.6,
+                "DryTipLength": 0.5,
+                "Clumping": 0.55,
+                "ClumpSize": 35,
+                "Segments": 6,
+                "LodDistance": 500
+            },
+            "Density": 24000.0,
+            "PlacementJitter": 1.0,
+            "StartCullDistance": 1200,
+            "EndCullDistance": 2500,
+            "AllowedDensityRange": {
+                "Min": 0.0,
+                "Max": 1.0
+            },
+            "Scaling": "LockXY",
+            "ScaleX": {
+                "Min": 0.8,
+                "Max": 1.2
+            },
+            "ScaleY": {
+                "Min": 0.8,
+                "Max": 1.2
+            },
+            "ScaleZ": {
+                "Min": 0.6,
+                "Max": 1.3
+            },
+            "WeightAttenuatesMaxScale": true,
+            "MaxScaleWeightAttenuation": 0.5,
+            "RandomRotation": true,
+            "AlignToSurface": true,
+            "CastDynamicShadow": false,
+            "Wind": {
+                "Strength": 9.0,
+                "Speed": 0.4,
+                "Height": 45.0
+            }
+        },
+        {
+            "Kind": "Blade",
+            "Material": {
+                "Guid": "f3364a91ebcb413d9b85098c064492be",
+                "Path": "Materials/Environments/FieldBarn/Grass/M_GrassBlade.demat"
+            },
+            "Blade": {
+                "Height": 60,
+                "Width": 1.4,
+                "Taper": 0.92,
+                "Curvature": 0.55,
+                "Stiffness": 0.2,
+                "BaseColor": [
+                    0.06,
+                    0.055,
+                    0.02
+                ],
+                "TipColor": [
+                    0.26,
+                    0.23,
+                    0.1
+                ],
+                "DryTipColor": [
+                    0.45,
+                    0.37,
+                    0.2
+                ],
+                "DryTipShare": 0.75,
+                "DryTipLength": 0.55,
+                "Clumping": 0.6,
+                "ClumpSize": 50,
+                "Segments": 6,
+                "LodDistance": 600
+            },
+            "Density": 1800.0,
+            "PlacementJitter": 1.0,
+            "StartCullDistance": 2500,
+            "EndCullDistance": 4000,
+            "AllowedDensityRange": {
+                "Min": 0.0,
+                "Max": 1.0
+            },
+            "Scaling": "LockXY",
+            "ScaleX": {
+                "Min": 0.8,
+                "Max": 1.2
+            },
+            "ScaleY": {
+                "Min": 0.8,
+                "Max": 1.2
+            },
+            "ScaleZ": {
+                "Min": 0.7,
+                "Max": 1.3
+            },
+            "WeightAttenuatesMaxScale": true,
+            "MaxScaleWeightAttenuation": 0.5,
+            "RandomRotation": true,
+            "AlignToSurface": true,
+            "CastDynamicShadow": true,
+            "Wind": {
+                "Strength": 9.0,
+                "Speed": 0.4,
+                "Height": 45.0
+            }
+        }
+    ]
+}

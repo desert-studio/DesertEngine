@@ -182,8 +182,8 @@ namespace Desert::Destruction
         const auto objectIndex = static_cast<uint32_t>( m_Objects.size() );
         m_Objects.push_back( std::move( object ) );
 
-        auto spawned = SpawnBody( objectIndex, { 0 }, desc.Position, desc.Rotation, glm::vec3( 0.0f ),
-                                  glm::vec3( 0.0f ), false );
+        auto spawned = SpawnBody( objectIndex, { 0 }, desc.Position, desc.Rotation, desc.LinearVelocity,
+                                  desc.AngularVelocity, false );
         if ( !spawned.IsSuccess() )
         {
             m_Objects.pop_back();
@@ -199,6 +199,15 @@ namespace Desert::Destruction
         for ( uint32_t i = 0; i < m_Objects[object].Bodies.size(); ++i )
             DestroyBody( object, i );
         m_Objects[object] = Object{};
+    }
+
+    std::pair<glm::vec3, glm::vec3> DestructionWorld::GetNodeVelocity( DestructibleHandle object,
+                                                                       int32_t            node ) const
+    {
+        const Physics::BodyHandle body = GetNodeBody( object, node );
+        if ( body == Physics::kInvalidBody )
+            return { glm::vec3( 0.0f ), glm::vec3( 0.0f ) };
+        return { m_Physics.GetLinearVelocity( body ), m_Physics.GetAngularVelocity( body ) };
     }
 
     Physics::BodyHandle DestructionWorld::GetNodeBody( DestructibleHandle object, int32_t node ) const

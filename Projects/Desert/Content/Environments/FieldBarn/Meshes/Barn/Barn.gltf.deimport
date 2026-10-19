@@ -1,0 +1,15 @@
+{
+    "Header": {
+        "Kind": "StaticMesh",
+        "Guid": "6831a5786cc03c9521fd4e6f326f9e3c",
+        "Versions": {
+            "DIMP": 2
+        },
+        "Dependencies": []
+    },
+    "Source": "Barn.gltf",
+    "Bounds": {
+        "Min": [-630.7464599609375, -60.000003814697266, -942.0],
+        "Max": [630.7464599609375, 976.0, 980.0]
+    }
+}

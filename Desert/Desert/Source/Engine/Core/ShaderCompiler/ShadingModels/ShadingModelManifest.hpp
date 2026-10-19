@@ -115,7 +115,7 @@ namespace Desert::Core::ShadingModels
 
     inline constexpr std::uint8_t kShadingWordBits = 64;
 
-    inline constexpr std::array<ShadingWordField, 8> kShadingWordFields{ {
+    inline constexpr std::array<ShadingWordField, 9> kShadingWordFields{ {
          { "INDEX", 0, 4 },              // shading-model index, 0..15
          { "TEXTURES", 4, 4 },           // sampled-texture count (Material Complexity), clamped to 15
          { "PAYLOAD0", 8, 8 },           // CustomData0, unorm8
@@ -125,7 +125,8 @@ namespace Desert::Core::ShadingModels
          { "NO_CONTACT_SHADOW", 25, 1 }, // set = the primitive casts no contact shadow (UE !bCastContactShadow,
                                          // the push PrimitiveFlags); 0, the clear value, casts
          { "PAYLOAD2", 32, 8 },          // CustomData2, unorm8 (.y)
-         { "PAYLOAD3", 40, 8 }           // CustomData3, unorm8 (.y)
+         { "PAYLOAD3", 40, 8 },          // CustomData3, unorm8 (.y)
+         { "SPECULAR", 48, 8 }           // UE's Specular pin, unorm8 (.y): F0 = 0.08 x Specular
     } };
 
     // The value the shading-word target clears to: Unlit, no payload, receives sun shadows.
@@ -149,6 +150,13 @@ namespace Desert::Core::ShadingModels
         // model is subsurface: a light's contact shadow on it fades with the hit distance by the density that
         // opacity stands for (Common/ContactShadow.glslh, DesertSubsurfaceOpacity). Empty = not subsurface.
         std::string              SubsurfaceOpacityPin;
+        // UE GetMaterialSubsurfaceData, as the Lumen card capture reads it: the optional `SubsurfaceColor <fn>;`
+        // line (after SubsurfaceOpacity) names the body's `vec3 <fn>( DesertPayload P )` that decodes the model's
+        // subsurface colour from its payload - the light the surface lets through to its far side. The surface
+        // cache keeps it per card texel and lights the card's back side with it (DesertSubsurfaceColor;
+        // Programs/SurfaceCache). Empty = the model lets nothing through. Set = the model has UE's backface
+        // diffuse (DesertHasBackfaceDiffuse: the screen probe gather's temporal filter treats it as foliage).
+        std::string              SubsurfaceColorFunction;
         std::string              Body;    // the GLSL after the Inputs block
         std::filesystem::path    SourcePath;
     };

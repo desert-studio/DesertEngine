@@ -115,7 +115,7 @@ Shader "TemporalAA"
         // surface, the camera's motion included, so the object's own motion is the written velocity minus the
         // camera's reprojection of the same depth (both unjittered: the surface at p's centre sits at
         // uv - jitter). Measured in OUTPUT pixels (the real on-screen motion), dynamic above a tenth of a pixel
-        // plus the RG16F rounding of the written velocity (2^-11 relative per component). The sky (depth 0) never
+        // plus the RGBA16F rounding of the written velocity (2^-11 relative per component). The sky (depth 0) never
         // moves on its own.
         const float kDynamicPixels = 0.1;
 

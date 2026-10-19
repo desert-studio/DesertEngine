@@ -30,7 +30,7 @@ namespace
     // A grass type: 40 cm of sway at 120 cm, 0.7 Hz, in the scene's wind.
     InstanceWind Grass( double seconds )
     {
-        return MakeInstanceWind( 40.0f, 0.7f, 120.0f, kSceneWindXZ, seconds );
+        return MakeInstanceWind( 40.0f, 0.7f, 120.0f, kSceneWindXZ, seconds, seconds );
     }
 
     const glm::vec3 kOrigin( 350.0f, 12.0f, -820.0f );
@@ -89,15 +89,15 @@ TEST( InstanceWind, TheDirectionIsTheScenesWindAndStillAirSwaysNothing )
     EXPECT_NEAR( blown.Direction.y, 0.5f, 1e-5f );
     EXPECT_FLOAT_EQ( blown.Strength, 40.0f ) << "the type's Strength is the response, not scaled by the air";
 
-    const InstanceWind gale = MakeInstanceWind( 40.0f, 0.7f, 120.0f, kSceneWindXZ * 4.0f, 3.0 );
+    const InstanceWind gale = MakeInstanceWind( 40.0f, 0.7f, 120.0f, kSceneWindXZ * 4.0f, 3.0, 3.0 );
     EXPECT_FLOAT_EQ( gale.Strength, blown.Strength );
     EXPECT_EQ( gale.Direction, blown.Direction );
 
-    const InstanceWind turned = MakeInstanceWind( 40.0f, 0.7f, 120.0f, glm::vec2( 0.0f, -300.0f ), 3.0 );
+    const InstanceWind turned = MakeInstanceWind( 40.0f, 0.7f, 120.0f, glm::vec2( 0.0f, -300.0f ), 3.0, 3.0 );
     EXPECT_NEAR( turned.Direction.x, 0.0f, 1e-6f );
     EXPECT_NEAR( turned.Direction.y, -1.0f, 1e-6f );
 
-    const InstanceWind still = MakeInstanceWind( 40.0f, 0.7f, 120.0f, glm::vec2( 0.0f ), 3.0 );
+    const InstanceWind still = MakeInstanceWind( 40.0f, 0.7f, 120.0f, glm::vec2( 0.0f ), 3.0, 3.0 );
     EXPECT_FALSE( still.Sways() ) << "a scene with no WindSource is still air: no sway, whatever the type says";
     EXPECT_EQ( FoliageWindOffset( kTip, kOrigin, still ), glm::vec3( 0.0f ) );
     EXPECT_EQ( WindBoundsPad( still ), 0.0f );
@@ -105,7 +105,7 @@ TEST( InstanceWind, TheDirectionIsTheScenesWindAndStillAirSwaysNothing )
 
 TEST( InstanceWind, AStillTypeMovesNothingAndPushesZeros )
 {
-    const InstanceWind still = MakeInstanceWind( 0.0f, 0.7f, 120.0f, kSceneWindXZ, 12.0 );
+    const InstanceWind still = MakeInstanceWind( 0.0f, 0.7f, 120.0f, kSceneWindXZ, 12.0, 12.0 );
     EXPECT_FALSE( still.Sways() );
     EXPECT_EQ( FoliageWindOffset( kTip, kOrigin, still ), glm::vec3( 0.0f ) );
     EXPECT_EQ( WindBoundsPad( still ), 0.0f );

@@ -4,6 +4,7 @@
 #include <Common/Settings/RenderMethods.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
+#include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneMetadata.hpp>
 
@@ -42,11 +43,12 @@
 //   * the shader permutation — TracerVariant( Pipeline ): the one place Pipeline::Tracer becomes a define;
 //   * the tracer's graph reads — TracerFrame + DeclareTracerReads( block, frame ): a consumer pass declares its
 //     own reads and then this, never a distance-field texture or a TLAS by name;
-//   * the ray bias and the screen-match tolerance — GIRayBias( position, normal, direction ), defined by the
-//   tracer
-//     (UE: the SDF tracer's surface bias vs. the hardware tracer's RayBias), so the shared hit lighting knows no
-//     SDF;
-//   * visibility — GITraceVisibility( origin, direction, maxT ), declared in Common/GITracing.glslh.
+//   * the ray biases and the screen-match tolerance — GIRayBias( position, normal, direction ), defined by the
+//     tracer: a near offset (the ray's origin; the software walk's mesh-SDF near field: a few cm) and a far offset
+//     the ray must have risen to before the far field counts a hit (GIFarFieldTMin -> GITraceInput.farTMin; the
+//     global SDF's voxel) (UE: the mesh-SDF and global-SDF surface biases vs. the hardware tracer's RayBias for
+//     both), so the shared hit lighting knows no SDF;
+//   * visibility — GITraceVisibility( origin, direction, farTMin, maxT ), declared in Common/GITracing.glslh.
 // No consumer (C++ pass or shader) branches on the tracer.
 //
 // WHERE THIS DIFFERS FROM UE (for the owner): UE's surface-cache lighting of a hit is black where the hit has no
@@ -185,8 +187,10 @@ namespace Desert::Graphic::GlobalIllumination
     // once; a consumer hands it to TracerVariant / TracerFrameMissing / DeclareTracerReads and reads no member
     // itself.
     //   SoftwareDistanceField  the four global distance field clipmaps (GLOBAL-SDF) and their placement, a
-    //                          buffer of four vec4 (centre.xyz cm, voxel cm; FrameField::Levels) — the walk's
-    //                          own record, so the neutral GI frame (GIFramePayload) carries nothing of it -
+    //                          buffer of four vec4 (centre.xyz cm, voxel cm; FrameField::Levels) then the
+    //                          near-field froxel grid's placement (TracerSoftwarePayload) — the walk's own
+    //                          record, so the neutral GI frame (GIFramePayload) carries nothing of it — the
+    //                          mesh fields with the grid's cells (the near field, UE r.Lumen.TraceMeshSDFs)
     //                          and the field's object grid, the rows a hit may belong to (GIHitInstanceRows);
     //   HardwareRayQuery       the view's scene TLAS (RayTracingSceneFrame::Tlas, RT-SCENE), its per-segment
     //                          geometry and material records (RayTracingSceneFrame::Metadata, RT-SHADOWS: the
@@ -198,14 +202,23 @@ namespace Desert::Graphic::GlobalIllumination
     //                          (GI_TRACER_BINDING + 0..3); + 4 and + 5 stay unbound.
     struct TracerFrame
     {
-        GlobalIllumination::Pipeline        Pipeline{};
-        std::array<RDG::TextureRef, 4>      GlobalDistanceField{};
-        RDG::BufferRef                      GlobalDistanceFieldLevels;     // "GITracerSoftwareUB"
-        RDG::TextureRef                     GlobalDistanceFieldObjectGrid; // "u_GlobalDistanceFieldObjectGrid"
-        RDG::BufferRef                      Tlas;
-        RayTracing::RayTracingMetadataFrame Metadata;
-        RDG::BufferRef                      InstanceSurfaceCacheRows; // "GIInstanceSurfaceCacheRows"
+        GlobalIllumination::Pipeline          Pipeline{};
+        std::array<RDG::TextureRef, 4>        GlobalDistanceField{};
+        RDG::BufferRef                        GlobalDistanceFieldLevels; // "GITracerSoftwareUB" (TracerSoftwarePayload)
+        RDG::TextureRef                       GlobalDistanceFieldObjectGrid; // "u_GlobalDistanceFieldObjectGrid"
+        DistanceField::MeshDistanceFieldReads MeshDistanceFields;
+        RDG::BufferRef                        Tlas;
+        RayTracing::RayTracingMetadataFrame   Metadata;
+        RDG::BufferRef                        InstanceSurfaceCacheRows; // "GIInstanceSurfaceCacheRows"
     };
+
+    // "GITracerSoftwareUB" — std430, must match the block in Common/GITracer.glslh.
+    struct TracerSoftwarePayload
+    {
+        std::array<glm::vec4, 4>            GlobalDistanceFieldLevels{};
+        DistanceField::MeshSDFGridPlacement MeshSDFGrid; // MeshDistanceFieldReads::NearFieldGridPlacement
+    };
+    static_assert( sizeof( TracerSoftwarePayload ) == 176 );
 
     // The shader names of the hardware tracer's four reads (Common/GITracer.glslh declares them at
     // GI_TRACER_BINDING + 0..3; the record blocks are Common/RayQueryVisibility.glslh's, shared with RT-SHADOWS).

@@ -4,6 +4,9 @@
 // through each card's orthographic camera into the capture atlas (SurfaceCacheRenderer) - moved page by page into the
 // surface-cache layers. One 8 x 8 group per tile of a 128² page; z = the page copy. The capture's depth is
 // reversed-Z of the card box (1 = the card plane), cleared to 0: a texel at 0 saw no surface (opacity 0).
+// The Subsurface layer is the surface's shading model read back from the capture's shading word: the subsurface
+// colour of its payload (DesertSubsurfaceColor; UE's card capture keeps GetMaterialSubsurfaceData for a subsurface
+// model) and its subsurface opacity, 0 for a model that lets no light through.
 Shader "SurfaceCacheCardCopy"
 {
     Compute
@@ -19,6 +22,8 @@ Shader "SurfaceCacheCardCopy"
         #define u_CaptureEmissive sampler2D(u_CaptureEmissive, u_PointClampSampler)
         Uniform(3) texture2D u_CaptureDepth;
         #define u_CaptureDepth sampler2D(u_CaptureDepth, u_PointClampSampler)
+        Uniform(10) utexture2D u_CaptureShadingWord;
+        #define u_CaptureShadingWord usampler2D(u_CaptureShadingWord, u_PointClampSampler)
         // Two uvec4 per page copy (SurfaceCache::CardPageCopy): (capture origin xy, card resolution zw),
         // (atlas origin xy, page size x | y << 16, card texel offset x | y << 16).
         ReadBuffer(4) SurfaceCardPageCopies
@@ -30,6 +35,9 @@ Shader "SurfaceCacheCardCopy"
         layout(binding = 7, r8) restrict writeonly uniform image2D u_AtlasOpacity;
         layout(binding = 8, rg8) restrict writeonly uniform image2D u_AtlasNormal;
         layout(binding = 9, r11f_g11f_b10f) restrict writeonly uniform image2D u_AtlasEmissive;
+        layout(binding = 11, rgba8) restrict writeonly uniform image2D u_AtlasSubsurface;
+
+        #include <Generated/ShadingModels.glslh>
 
         // Octahedral unit vector -> [-1, 1]² (UE UnitVectorToOctahedron).
         vec2 UnitVectorToOctahedron(vec3 n)
@@ -65,6 +73,16 @@ Shader "SurfaceCacheCardCopy"
             imageStore(u_AtlasNormal, target,
                        vec4(covered ? UnitVectorToOctahedron(normal) * 0.5 + 0.5 : vec2(0.5), 0.0, 0.0));
             imageStore(u_AtlasEmissive, target, vec4(texelFetch(u_CaptureEmissive, source, 0).rgb, 0.0));
+            vec4 subsurface = vec4(0.0);
+            if (covered)
+            {
+                const uvec2         word    = texelFetch(u_CaptureShadingWord, source, 0).rg;
+                const int           model   = DesertShadingModelIndex(word);
+                const DesertPayload payload = DesertUnpackPayload(word);
+                subsurface = vec4(DesertSubsurfaceColor(model, payload),
+                                  max(DesertSubsurfaceOpacity(model, payload), 0.0));
+            }
+            imageStore(u_AtlasSubsurface, target, subsurface);
         }
     }
 }

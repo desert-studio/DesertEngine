@@ -1818,6 +1818,10 @@ namespace Desert::Editor
                              "Procedural foliage: {} instances ({} fields new, {} rewritten, {} removed)",
                              done.GetValue().Instances, done.GetValue().Created, done.GetValue().Rewritten,
                              done.GetValue().Removed ) );
+                    // The resimulation creates and destroys field entities, so the registry `en` was resolved
+                    // against has moved under it: the type list below would read a stale handle (SIGSEGV in
+                    // GetComponent). It is drawn again next frame from a fresh lookup.
+                    return;
                 }
                 ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
                      "Simulate the types and replace the instances this volume generated (painted foliage "

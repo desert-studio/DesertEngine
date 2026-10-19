@@ -9,6 +9,7 @@
 #include <glm/vec4.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -127,7 +128,18 @@ namespace Desert::Editor
     inline constexpr std::string_view kFbxSpecularMapKey             = "fbx.SpecularColor";
     inline constexpr std::string_view kFbxOcclusionRoughnessMetalKey = "fbx.OcclusionRoughnessMetallic";
     inline constexpr std::string_view kFbxRoughnessMetalKey          = "fbx.RoughnessMetallic";
-    SourceMaterial WithFbxSpecularMap( SourceMaterial material, Assets::FbxSpecularMap meaning );
+    // `FromImage` is resolved before this call (ResolveFbxSpecularMap): passing it is a caller defect and refused.
+    Common::ResultStr<SourceMaterial> WithFbxSpecularMap( SourceMaterial         material,
+                                                          Assets::FbxSpecularMap meaning );
+
+    // WHAT AN FBX SPECULAR MAP'S TEXELS SAY IT HOLDS (the FromImage rule, one RGBA8 image, 4 bytes a texel): R
+    // at most kFbxSpecularUnusedR on every texel while some G or B is above it = the metal-rough packing
+    // (`RoughnessMetallic`: Falcor / ORCA / Lumberyard Bistro write R = 0, and a BC1 block encodes 0 exactly);
+    // anything else = FBX's specular colour (`Specular`). A specular-colour image has R as large as G and B
+    // (grey or tinted), so it never reads as the packing; an AO/roughness/metal (ORM) map is indistinguishable
+    // from a tinted specular colour by its texels and stays the user's statement.
+    inline constexpr uint8_t kFbxSpecularUnusedR = 1;
+    Assets::FbxSpecularMap   FbxSpecularMapOfTexels( std::span<const uint8_t> rgba );
 
     // Why an unread key is lost, beyond "no Import row": the one key whose meaning is the user's to state (the
     // FBX Specular map) names the setting that states it. Empty for every other key.

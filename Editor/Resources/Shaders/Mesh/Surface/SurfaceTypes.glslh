@@ -150,6 +150,9 @@ struct SurfaceOutput
     vec3  BaseColor; // linear
     float Metallic;
     float Roughness; // the pass clamps it to 0.04 so the GGX lobe stays finite
+    // UE's Specular pin: the dielectric reflectance, F0 = 0.08 x Specular (0.5, the default, = 4 %). It reaches the
+    // model through the shading word's 8-bit field (deferred) or quantized the same way (forward).
+    float Specular;
     vec3  Emissive;  // linear, HDR, added unlit
     float Opacity;   // read by the translucency passes (BlendMode Translucent / Additive) and the sprite cell
     vec3  Normal;    // TANGENT space, as UE's Normal pin: (0,0,1) is the geometric normal
@@ -177,6 +180,7 @@ SurfaceOutput DefaultSurfaceOutput()
     s.BaseColor           = vec3( 1.0 );
     s.Metallic            = 0.0;
     s.Roughness           = 0.5;
+    s.Specular            = 0.5;
     s.Emissive            = vec3( 0.0 );
     s.Opacity             = 1.0;
     s.Normal              = vec3( 0.0, 0.0, 1.0 );

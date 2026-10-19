@@ -1,0 +1,15 @@
+{
+    "Header": {
+        "Kind": "StaticMesh",
+        "Guid": "90535c2b9bef7d5d5acdf65b0668a0b1",
+        "Versions": {
+            "DIMP": 2
+        },
+        "Dependencies": []
+    },
+    "Source": "HayBaleRound.gltf",
+    "Bounds": {
+        "Min": [-60.000003814697266, -4.0, -75.0],
+        "Max": [60.000003814697266, 146.0, 75.0]
+    }
+}

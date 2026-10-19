@@ -48,7 +48,8 @@ namespace Desert::Graphic
 {
     class SceneRenderer;
     class ReflectionCaptureRenderer;
-    class SceneSkyEnvironment;
+    class SceneSkyLight;
+    class LocalShadowCache;
     // `struct` and not `class`: the definition in Graphic/Environment/SceneEnvironment.hpp uses struct, and the
     // Microsoft C++ ABI encodes the class-key into the decorated name, so the mismatch is a Windows-only link
     // error waiting for the day this forward declaration is the one a caller sees first.
@@ -564,22 +565,29 @@ namespace Desert::Core
             return *m_RayTracingCache;
         }
 
-        // THE SCENE'S PROCEDURAL SKY ENVIRONMENT (UE: FScene's sky light capture): one bake per scene, driven by
-        // the first of its views each frame and read by all of them (SkyboxRenderer::BindSceneSky). Shared, not
-        // unique, because each view WATCHES it through a weak_ptr and must never reach a closed scene's.
-        [[nodiscard]] const std::shared_ptr<Graphic::SceneSkyEnvironment>& GetSkyEnvironment() const
+        // THE SCENE'S SKY LIGHT (UE: FScene's SkyLight and its real-time capture): one capture of the procedural
+        // sky's light, shared by every view of this scene and every face view of its reflection captures. Renderer
+        // state cached on the scene, like the captures above; a view holds it weakly (SkyboxRenderer).
+        [[nodiscard]] std::weak_ptr<Graphic::SceneSkyLight> GetSkyLight() const
         {
-            return m_SkyEnvironment;
+            return m_SkyLight;
+        }
+
+        // THE SCENE'S CACHED POINT/SPOT-LIGHT SHADOW DEPTH (UE: FScene's FCachedShadowMapData per light): one
+        // atlas for every view of this scene, the reflection captures' face views included
+        // (Graphic/LocalShadowCache.hpp). Renderer state cached on the scene, like the captures.
+        [[nodiscard]] Graphic::LocalShadowCache& GetLocalShadows() const
+        {
+            return *m_LocalShadows;
         }
 
         // THE SCENE in the resource ledger: every device object of the scene's shared renderer state above — the
-        // reflection-capture arrays, the ray-tracing cache, the sky environment — is a row of this instance, and
-        // the scene's budget entry (SceneRenderer::SceneHoldings) is the sum of them.
+        // reflection-capture arrays, the ray-tracing cache, the sky light's capture — is a row of this instance,
+        // and the scene's budget entry (SceneRenderer::SceneHoldings) is the sum of them.
         [[nodiscard]] Graphic::ResourceOwnerInstance GetLedgerInstance() const
         {
             return m_LedgerInstance;
         }
-
         // VIEW 0's CAMERA. Returned BY VALUE, not by reference: the camera lives in the view list now, and
         // a reference into a vector that AddView/RemoveView reallocate is a dangling reference waiting
         // for the second viewport. Every existing `GetMainCamera().lock()` reads the same.
@@ -700,8 +708,10 @@ namespace Desert::Core
         std::unique_ptr<Graphic::ReflectionCaptureRenderer> m_ReflectionCaptures;
         // See GetRayTracingCache. Never null: made by both constructors.
         std::unique_ptr<Graphic::RayTracing::RayTracingSceneCache> m_RayTracingCache;
-        // See GetSkyEnvironment. Never null: made by both constructors.
-        std::shared_ptr<Graphic::SceneSkyEnvironment> m_SkyEnvironment;
+        // See GetSkyLight. Never null: made by both constructors. Shared so a view can hold it weakly.
+        std::shared_ptr<Graphic::SceneSkyLight> m_SkyLight;
+        // See GetLocalShadows. Never null: made by both constructors.
+        std::unique_ptr<Graphic::LocalShadowCache> m_LocalShadows;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)
