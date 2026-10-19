@@ -817,6 +817,9 @@ namespace Desert::Graphic
         // Whether this frame updates and reads the world radiance cache: the GI pipeline (m_GIPipeline) runs it —
         // either tracer — on the Deferred path (its reader is the deferred composite).
         [[nodiscard]] bool RadianceCacheRuns() const;
+        // The screen probe gather runs this frame with its short-range AO: its contact occlusion replaces SSAO,
+        // which is then not computed at all (UE: SSAO is off under Lumen, r.Lumen.DiffuseIndirect.SSAO 0).
+        [[nodiscard]] bool ScreenProbeAOReplacesSSAO() const;
         // Whether a node of this frame reads the global distance field: the GI tracer when it is the software walk
         // (GlobalIllumination::TracerReadsGlobalDistanceField), the debug view.
         [[nodiscard]] bool GlobalDistanceFieldRead() const;

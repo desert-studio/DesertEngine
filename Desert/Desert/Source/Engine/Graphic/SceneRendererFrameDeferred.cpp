@@ -249,7 +249,7 @@ namespace Desert::Graphic
         constexpr float kSSAORadius = Common::Units::Metres( 0.5f );   // literature: 0.5 m
         constexpr float kSSAOBias   = Common::Units::Metres( 0.025f ); // literature: 0.025 m
 
-        if ( !m_EnableSSAO )
+        if ( !m_EnableSSAO || ScreenProbeAOReplacesSSAO() )
             return;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* ssao = UNIQUE_GET_AS( System::SSAORenderer, m_RenderSystems["SSAOSystem"] );
@@ -335,6 +335,11 @@ namespace Desert::Graphic
         // A preview profile (ViewMemory.hpp) never runs the traced GI, whatever its scene asks for.
         return m_RenderPath == Core::RenderPath::Deferred && m_GIPipeline.RadianceCache &&
                m_ViewProfile.GlobalIllumination;
+    }
+
+    bool SceneRenderer::ScreenProbeAOReplacesSSAO() const
+    {
+        return RadianceCacheRuns() && m_GIPipeline.ScreenProbes && m_ScreenProbeShortRangeAO;
     }
 
     void SceneRenderer::AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
