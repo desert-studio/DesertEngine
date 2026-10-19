@@ -44,6 +44,7 @@ namespace Desert::Editor
     class MainMenu;
     class PanelRegistry;
     class PlaySession;
+    class ScriptDebugServer;
     class SceneFiles;
     class SceneWorkspace;
     class WorldPartitionPanel;
@@ -65,6 +66,7 @@ namespace Desert::Editor
             SceneWorkspace&                              Workspace;
             SceneFiles&                                  Files;
             PlaySession&                                 Play;
+            ScriptDebugServer&                           ScriptDebug;
             DocumentHost&                                Documents;
             DockLayout&                                  Dock;
             MainMenu&                                    Menu;

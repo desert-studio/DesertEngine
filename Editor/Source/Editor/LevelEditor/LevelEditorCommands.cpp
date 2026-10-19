@@ -14,6 +14,7 @@
 #include "Editor/LevelEditor/DocumentHost.hpp"
 #include "Editor/LevelEditor/MainMenu.hpp"
 #include "Editor/LevelEditor/PlaySession.hpp"
+#include "Editor/LevelEditor/ScriptDebugServer.hpp"
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/ViewportCommands.hpp"
@@ -137,6 +138,8 @@ namespace Desert::Editor
         m_Commands.Register( "SceneFiles (save)",
                              [this]( Out& out ) { m_Modules.Files.AppendSaveSceneCommand( out ); } );
         m_Commands.Register( "Play", [this]( Out& out ) { m_Modules.Play.AppendPlayCommands( out ); } );
+        m_Commands.Register( "Script Debugger",
+                             [this]( Out& out ) { m_Modules.ScriptDebug.AppendCommands( out ); } );
         m_Commands.Register( "Edit (Undo, Redo)", []( Out& out ) { MainMenu::AppendUndoRedoCommands( out ); } );
         m_Commands.Register( "Documents (close all)",
                              [&documents]( Out& out ) { documents.AppendCloseAllCommand( out ); } );
