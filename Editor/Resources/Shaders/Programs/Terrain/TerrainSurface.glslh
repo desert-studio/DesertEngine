@@ -75,8 +75,8 @@
         Uniform(13) sampler2DArray u_LayerARM;
         Uniform(14) sampler2DArray u_LayerHeight;
 
-        // ELandscapeLayerBlendType, the material's per-input `LayerKBlend` (a Float, rounded: the row holds
-        // floats, and an Int field of it would read a float's bit pattern).
+        // ELandscapeLayerBlendType, the material's per-input `LayerKBlend` (an Int: the row stores it as one,
+        // MaterialRowSlotValue).
         const int kTerrainWeightBlend = 0;
         const int kTerrainHeightBlend = 1;
         const int kTerrainAlphaBlend  = 2;
@@ -152,49 +152,49 @@
             {
                 i.TileCm = u_Material.Layer0TileSize;
                 i.Tint   = u_Material.Layer0Tint;
-                i.Blend  = int( u_Material.Layer0Blend + 0.5 );
+                i.Blend  = u_Material.Layer0Blend;
             }
             if ( k == 1 )
             {
                 i.TileCm = u_Material.Layer1TileSize;
                 i.Tint   = u_Material.Layer1Tint;
-                i.Blend  = int( u_Material.Layer1Blend + 0.5 );
+                i.Blend  = u_Material.Layer1Blend;
             }
             if ( k == 2 )
             {
                 i.TileCm = u_Material.Layer2TileSize;
                 i.Tint   = u_Material.Layer2Tint;
-                i.Blend  = int( u_Material.Layer2Blend + 0.5 );
+                i.Blend  = u_Material.Layer2Blend;
             }
             if ( k == 3 )
             {
                 i.TileCm = u_Material.Layer3TileSize;
                 i.Tint   = u_Material.Layer3Tint;
-                i.Blend  = int( u_Material.Layer3Blend + 0.5 );
+                i.Blend  = u_Material.Layer3Blend;
             }
             if ( k == 4 )
             {
                 i.TileCm = u_Material.Layer4TileSize;
                 i.Tint   = u_Material.Layer4Tint;
-                i.Blend  = int( u_Material.Layer4Blend + 0.5 );
+                i.Blend  = u_Material.Layer4Blend;
             }
             if ( k == 5 )
             {
                 i.TileCm = u_Material.Layer5TileSize;
                 i.Tint   = u_Material.Layer5Tint;
-                i.Blend  = int( u_Material.Layer5Blend + 0.5 );
+                i.Blend  = u_Material.Layer5Blend;
             }
             if ( k == 6 )
             {
                 i.TileCm = u_Material.Layer6TileSize;
                 i.Tint   = u_Material.Layer6Tint;
-                i.Blend  = int( u_Material.Layer6Blend + 0.5 );
+                i.Blend  = u_Material.Layer6Blend;
             }
             if ( k == 7 )
             {
                 i.TileCm = u_Material.Layer7TileSize;
                 i.Tint   = u_Material.Layer7Tint;
-                i.Blend  = int( u_Material.Layer7Blend + 0.5 );
+                i.Blend  = u_Material.Layer7Blend;
             }
             return i;
         }
