@@ -10,6 +10,7 @@
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Core/SubjectOpenRequest.hpp>
 #include <Editor/Panels/PanelContext.hpp>
+#include <Editor/Panels/Clouds/CloudSkyCapture.hpp>
 #include <Editor/Panels/Clouds/CloudsPanel.hpp>
 #include <Editor/Panels/UI/UIEditorPanel.hpp>
 #include <Editor/Panels/Sequencer/SequencerPanel.hpp>
@@ -908,7 +909,7 @@ namespace Desert::Editor
         e.Add    = []( ::Desert::ECS::Entity& en ) { en.AddComponent<::Desert::ECS::VolumetricCloudComponent>(); };
         e.Remove = []( ::Desert::ECS::Entity& en )
         { en.RemoveComponent<::Desert::ECS::VolumetricCloudComponent>(); };
-        e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& ctx )
+        e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene, const ComponentEditContext& ctx )
         {
             auto& c = en.GetComponent<::Desert::ECS::VolumetricCloudComponent>();
 
@@ -931,6 +932,27 @@ namespace Desert::Editor
             }
 
             PropertyEditorBuilder::Draw( &c.Data, "VolumetricCloudData", ctx.AssetMgr(), ctx.UIHelper );
+
+            // CAPTURE CURRENT SKY (CLOUD-OFFSET-BAKE): the drift game time has added, folded into Wind Offset.
+            // Disabled rather than hidden while there is nothing to fold — outside Play the sky stands still —
+            // so the control is where the user looks for it and the tooltip says why it is grey.
+            if ( scene )
+            {
+                const bool drifted = c.DriftOffset != glm::vec3( 0.0f );
+                ::ImGui::BeginDisabled( !drifted );
+                if ( ::ImGui::Button( ICON_MDI_CAMERA "  Capture current sky", ImVec2( -FLT_MIN, 0.0f ) ) )
+                {
+                    if ( const auto captured = ::Desert::Editor::CaptureCurrentSky( *scene, en ); !captured )
+                        ::Desert::Editor::ToastManager::Push( captured.GetError(),
+                                                              ::Desert::Editor::ToastLevel::Error );
+                }
+                ::ImGui::EndDisabled();
+                if ( ::ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+                    ::ImGui::SetTooltip( drifted ? "Write the sky you are looking at into Wind Offset, so the "
+                                                   "scene opens on it. In Play the capture is kept past Stop."
+                                                 : "The clouds have not drifted from Wind Offset: the sky moves "
+                                                   "only while the game runs. Play, then capture." );
+            }
 
             ::ImGui::Separator();
             DrawCloudMaterialRow( c.Data, en.GetComponent<::Desert::ECS::TagComponent>().Tag, ctx.AssetMgr(),

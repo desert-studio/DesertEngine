@@ -516,8 +516,32 @@ namespace Desert::ECS
         // rather than a slider whose top half bakes nothing and whose bottom half changes the sky's scale.
         int32_t VolumeResolution = 256;
 
+        // ---- Wind -----------------------------------------------------------------------------------
+        //
         // The layer's drift is the SCENE's wind (WIND-SRC): VolumetricCloudECSSystem asks ECS::WindAt at the
-        // layer's entity, so the clouds move the way the grass bends. The layer states no wind of its own.
+        // layer's entity, so the clouds move the way the grass bends. The layer states no wind of its own —
+        // what it states is WHERE THE DRIFT STARTS and WHETHER IT RUNS.
+        //
+        // THE SKY'S POSITION IS SCENE DATA (CLOUD-OFFSET-BAKE, owner 10-19: "the clouds are always
+        // different"). The drawn offset is `WindOffset + VolumetricCloudComponent::DriftOffset`: the first is
+        // authored and saved, the second is what game time has added since the scene was opened, and is
+        // neither reflected nor saved. A scene therefore opens on the same sky every time, and Details'
+        // "Capture current sky" folds the drift into the authored value — UE's split of a saved property
+        // and the simulation that moves it.
+
+        PROPERTY( DisplayName( "Wind Offset" ), Category( "Wind" ), Length,
+                  Tooltip( "Where the cloud field sits when the scene opens: the sample-space offset the "
+                           "wind's drift starts from. \"Capture current sky\" writes the sky you are looking "
+                           "at into it." ) )
+        glm::vec3 WindOffset = glm::vec3( 0.0f );
+
+        PROPERTY( DisplayName( "Drift" ), Category( "Wind" ),
+                  Tooltip( "Whether the scene's wind moves the clouds while the game runs. The drift "
+                           "follows GAME time — Play, pause and time dilation — so the editor's own "
+                           "viewport shows the authored sky, standing still. Off: the sky stays at Wind "
+                           "Offset in Play as well." ) )
+        // ON BY DEFAULT: a sky that ignores the wind it is authored beside is the surprise, not the rule.
+        bool Drift = true;
     };
 
     /**
@@ -612,5 +636,12 @@ namespace Desert::ECS
     {
         COMPONENT( Key( "VolumetricCloud" ), Block( Data ), Run( SkyAndAtmosphere ) )
         VolumetricCloudData Data;
+
+        /// What game time's wind has added to `Data.WindOffset` since the scene was opened, in world units.
+        /// RUNTIME STATE, deliberately outside the reflected block: it is not saved, so reopening a scene
+        /// starts from the authored offset. ONE accumulator per layer, written only by
+        /// VolumetricCloudECSSystem — on the entity rather than in the system so the Details capture
+        /// reads the same number the renderer is handed, and every viewport of the scene shares it.
+        glm::vec3 DriftOffset = glm::vec3( 0.0f );
     };
 } // namespace Desert::ECS

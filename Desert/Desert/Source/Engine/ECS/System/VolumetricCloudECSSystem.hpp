@@ -21,7 +21,8 @@ namespace Desert::ECS
     /**
      * @brief Collects the scene's volumetric cloud layer for the frame.
      *
-     * A render-data collector with exactly one piece of state of its own: the accumulated wind drift.
+     * A render-data collector. The one piece of moving state it writes — the wind's drift — lives on the
+     * layer's component (VolumetricCloudComponent::DriftOffset), not here: the Details capture reads it there.
      * The GPU-owning half is Graphic::System::VolumetricCloudRenderer.
      *
      * IT RAN IN PARALLEL AND NO LONGER DOES, and the reason is a property of EnTT rather than of this
@@ -60,6 +61,7 @@ namespace Desert::ECS
         void SetWorldTime( const Core::WorldTime& time ) override
         {
             m_WorldDeltaSeconds = time.GetDeltaSeconds();
+            m_GameClock         = time.GetMode() == Core::WorldClockMode::Game;
         }
 
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
@@ -118,17 +120,20 @@ namespace Desert::ECS
             const ECS::VolumetricCloudData data =
                  registry.get<ECS::VolumetricCloudComponent>( entities[chosen] ).Data;
 
-            // THE WORLD'S STEP, not the gameplay timestep: the wind is part of how the world looks, so it
-            // moves in the editor while the viewport is Realtime, stops on pause, and follows dilation.
             // THE SCENE'S WIND at the layer's entity (WIND-SRC): the one query foliage, cloth and hair ask too.
             const ECS::WindAtPoint wind =
                  ECS::WindAt( registry, glm::vec3( WorldTransformOf( registry, entities[chosen] )[3] ) );
-            AdvanceWind( data, wind, m_WorldDeltaSeconds );
+
+            // The drawn offset is the AUTHORED start plus what game time has added (CLOUD-OFFSET-BAKE). Read
+            // into a value here, before the hero walk below touches the registry, for the reason above.
+            glm::vec3& drift = registry.get<ECS::VolumetricCloudComponent>( entities[chosen] ).DriftOffset;
+            drift += AdvanceWind( data, wind, m_WorldDeltaSeconds );
+            const glm::vec3 windOffset = data.WindOffset + drift;
 
             std::vector<Graphic::HeroCloudInstance> heroClouds = CollectHeroClouds( registry );
 
             renderCommandBuffer.Emplace<Graphic::Render::VolumetricCloudCommand>(
-                 true, data, m_WindOffset, wind.Direction(), std::move( heroClouds ) );
+                 true, data, windOffset, wind.Direction(), std::move( heroClouds ) );
         }
 
     private:
@@ -223,14 +228,22 @@ namespace Desert::ECS
          *     the sky's position depend on how long the editor had been open, so two screenshots of the
          *     same scene would never match — and every visual comparison in this programme depends on
          *     them matching.
+         *   * ONLY GAME TIME MOVES IT (CLOUD-OFFSET-BAKE, owner 10-19). The world's Preview clock — the
+         *     editor viewport with Realtime on — advances too, and drifting on it is what made the sky
+         *     different every time a scene was looked at: how long the viewport had been open decided
+         *     where the clouds were. Play (and a `--play` capture, at its fixed 1/60 s) moves the sky;
+         *     editing shows the authored Wind Offset, still.
          *   * Still air (no WindSource, or sources that cancel) leaves the sky still: the velocity is
          *     summed, never normalized here, so there is no NaN to propagate into the sample positions.
+         *
+         * Returns this frame's step; the caller adds it to the layer's DriftOffset.
          */
-        void AdvanceWind( const VolumetricCloudData& data, const ECS::WindAtPoint& wind, float seconds )
+        [[nodiscard]] glm::vec3 AdvanceWind( const VolumetricCloudData& data, const ECS::WindAtPoint& wind,
+                                             float seconds ) const
         {
-            if ( !data.Enabled )
-                return;
-            m_WindOffset += wind.Velocity * seconds;
+            if ( !data.Enabled || !data.Drift || !m_GameClock )
+                return glm::vec3( 0.0f );
+            return wind.Velocity * seconds;
         }
 
         static uint64_t EntityId( entt::registry& registry, entt::entity entity )
@@ -247,8 +260,8 @@ namespace Desert::ECS
             return "<unnamed>";
         }
 
-        glm::vec3 m_WindOffset{ 0.0f };
-        float     m_WorldDeltaSeconds = 0.0f; // this frame's WorldTime::GetDeltaSeconds (SetWorldTime)
+        float m_WorldDeltaSeconds = 0.0f;  // this frame's WorldTime::GetDeltaSeconds (SetWorldTime)
+        bool  m_GameClock         = false; // this frame's clock is Game (Play), the only one that drifts
 
         // Describe the SCENE, not the frame, so each is said once.
         bool m_DuplicateLogged    = false;
