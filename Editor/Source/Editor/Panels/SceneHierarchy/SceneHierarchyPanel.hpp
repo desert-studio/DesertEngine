@@ -43,6 +43,7 @@ namespace Desert::Editor
 
         void                  DrawEntityNode( ECS::Entity& entity );
         void               DrawInstantiatePrefabPopup();
+        void                  DrawReplacePrefabPopup();
         void               DrawSavePrefabPopup();
         void               SelectRangeTo( const Common::UUID& target ); // Shift+click
 
@@ -76,6 +77,12 @@ namespace Desert::Editor
         bool                        m_OpenApplyPrefab = false;
         std::optional<Common::UUID> m_ApplyPrefabTarget;
         std::optional<Common::UUID> m_PendingPrefabRevert;
+        // "Replace with Prefab..." (UE's Replace Selected Actors with): the entities captured when the menu
+        // was used, the prefab path shared with Instantiate, and whether each entity keeps its own mesh.
+        bool                        m_OpenReplacePrefab = false;
+        std::vector<Common::UUID>   m_ReplacePrefabTargets;
+        bool                        m_ReplaceKeepMesh = false;
+        std::string                 m_ReplacePrefabError;
         std::optional<Common::UUID> m_PendingPrefabUnpack; // strip the prefab link from a subtree (make local)
         // Deferred structural edits, applied after the UI iteration (they create/destroy entities or edit
         // the Children vectors the tree walk is iterating). Lists: an operation on an entity that is part

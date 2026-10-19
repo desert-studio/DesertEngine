@@ -1,4 +1,5 @@
 #include "EntitySerializer.hpp"
+#include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include "ComponentRegistry.hpp"
 #include <Common/Json/Document.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -44,7 +45,7 @@ namespace Desert::Core::Serialize
             {
                 auto asset = assetManager.FindByHandle<Assets::PrefabAsset>( handle );
                 if ( asset )
-                    data.PrefabPath = asset->GetMetadata().Filepath.string();
+                    data.PrefabPath = Assets::StatePrefabPath( asset->GetMetadata().Filepath );
             }
         }
 
@@ -110,7 +111,8 @@ namespace Desert::Core::Serialize
         // ---- Prefab link (meta) ----
         if ( data.PrefabPath )
         {
-            auto asset = assetManager.FindByPath<Assets::PrefabAsset>( *data.PrefabPath );
+            auto asset =
+                 assetManager.FindByPath<Assets::PrefabAsset>( Assets::ResolvePrefabPath( *data.PrefabPath ) );
             if ( asset )
                 entity.AddComponent<ECS::PrefabComponent>().Prefab = asset->GetMetadata().Handle;
         }

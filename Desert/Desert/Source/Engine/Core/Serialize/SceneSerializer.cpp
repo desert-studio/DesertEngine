@@ -1,4 +1,5 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -680,10 +681,11 @@ namespace Desert::Core
                 continue;
             }
 
-            auto prefabAsset = m_AssetManager->FindByPath<Assets::PrefabAsset>( *entityData->PrefabPath );
+            const std::filesystem::path prefabFile = Assets::ResolvePrefabPath( *entityData->PrefabPath );
+            auto prefabAsset                       = m_AssetManager->FindByPath<Assets::PrefabAsset>( prefabFile );
             if ( !prefabAsset )
             {
-                prefabAsset = m_AssetManager->CreateAsset<Assets::PrefabAsset>( *entityData->PrefabPath );
+                prefabAsset = m_AssetManager->CreateAsset<Assets::PrefabAsset>( prefabFile.string() );
             }
 
             if ( !prefabAsset )
