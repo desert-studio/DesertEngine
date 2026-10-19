@@ -32,8 +32,16 @@ namespace Desert
                            std::shared_ptr<Graphic::VertexBuffer> streams, std::shared_ptr<Graphic::IndexBuffer> indices,
                            const std::vector<DisplacedRange>& ranges, uint32_t vertexCount, float boundsGrowthCm );
 
+        // BAKED DISPLACEMENT (Assets/MeshDisplacementBake.hpp): the dense mesh cooked into DDC, drawn instead of
+        // this one as an ordinary StaticMesh - its own LOD chain, BLAS built from its buffers, and this mesh's
+        // distance field and cards (keyed from the baked surface). Made once on the main thread from the landed
+        // data and kept while the data is the same; null until it lands or when the mesh is not Baked.
+        [[nodiscard]] std::shared_ptr<StaticMesh> GetBakedDisplaced();
+
     private:
         StaticMesh() = default;
+        std::shared_ptr<const Assets::DisplacedMeshData> m_BakedSource;
+        std::shared_ptr<StaticMesh>                      m_Baked;
     };
 
 } // namespace Desert

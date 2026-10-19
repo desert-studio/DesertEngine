@@ -2,6 +2,7 @@
 
 #include "MeshAsset.hpp"
 
+#include <Engine/Assets/MeshDisplacementBake.hpp>
 #include <Engine/Assets/MeshDisplacementTopology.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
@@ -89,6 +90,13 @@ namespace Desert::Assets
         {
             return m_DisplacementTopology;
         }
+        // Where the mesh's bake-level displaced surface lands (MeshDisplacementBake.hpp): null unless the import
+        // settings chose a displacement mode and a section's material assigns a Height. Baked mode draws it (its
+        // own LOD chain); collision reads its LOD0 in BOTH modes, so physics never depends on a camera.
+        [[nodiscard]] const std::shared_ptr<const DisplacedMeshSlot>& GetDisplacedMesh() const
+        {
+            return m_DisplacedMesh;
+        }
         [[nodiscard]] const MeshImportSettings& GetImportSettings() const
         {
             return m_ImportSettings;
@@ -108,6 +116,7 @@ namespace Desert::Assets
         std::shared_ptr<const MeshDistanceFieldSlot> m_DistanceField;
         std::shared_ptr<const MeshCardsSlot>         m_Cards;
         std::shared_ptr<const DisplacementTopologySlot> m_DisplacementTopology;
+        std::shared_ptr<const DisplacedMeshSlot>        m_DisplacedMesh;
         MeshImportSettings                              m_ImportSettings;
 
         bool m_IsReadyForUse = false;

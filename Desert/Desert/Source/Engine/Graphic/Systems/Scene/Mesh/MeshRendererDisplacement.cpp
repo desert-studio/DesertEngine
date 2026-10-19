@@ -18,6 +18,26 @@ namespace Desert::Graphic::System
                                           const float viewHeightPixels, const uint64_t frame,
                                           const bool requestLevels )
     {
+        // BAKED displacement (§1g): the cooked dense mesh IS the geometry - no levels, no cache entry - drawn with
+        // the displaced slots like a twin (no double relief). Captures substitute too: every view draws one surface.
+        for ( StaticMeshRenderData& data : m_StaticQueue )
+            if ( data.Mesh != nullptr && data.Mesh->IsBakedDisplaced() )
+                if ( const std::shared_ptr<StaticMesh> baked = data.Mesh->GetBakedDisplaced() )
+                {
+                    data.Mesh = baked.get(); // held by the base mesh while its surface is the same
+                    if ( data.MaterialSlots && data.MaterialSlots->Displaced )
+                        data.MaterialSlots = data.MaterialSlots->Displaced;
+                }
+        for ( InstancedMeshRenderData& ism : m_InstancedQueue )
+            if ( ism.Mesh != nullptr && ism.Mesh->GetType() == MeshType::Static && ism.Mesh->IsBakedDisplaced() &&
+                 ism.DisplacedMaterial )
+                if ( const std::shared_ptr<StaticMesh> baked =
+                          static_cast<StaticMesh*>( ism.Mesh )->GetBakedDisplaced() )
+                {
+                    ism.Mesh     = baked.get();
+                    ism.Material = ism.DisplacedMaterial;
+                }
+
         std::vector<std::optional<DisplacementMaterialRecord>> materials;
         for ( const StaticMeshRenderData& data : m_StaticQueue )
         {

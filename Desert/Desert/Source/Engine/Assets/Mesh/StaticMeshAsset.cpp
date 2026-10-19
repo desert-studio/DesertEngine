@@ -182,6 +182,7 @@ namespace Desert::Assets
         m_DistanceField.reset();
         m_Cards.reset();
         m_DisplacementTopology.reset();
+        m_DisplacedMesh.reset();
         // An unread shell has no render data yet; AssetBase::EnsureLoaded runs this again after the read.
         if ( !m_IsReadyForUse )
             return;
@@ -215,22 +216,57 @@ namespace Desert::Assets
         m_DistanceField = slot;
         auto cards      = std::make_shared<MeshCardsSlot>();
         m_Cards         = cards;
-        // THE DISPLACEMENT TOPOLOGY (Runtime mode, CONTRACT-DISPLACE §9.1), cooked from this render data into its
-        // own bucket and loaded by the same job; the scene's DisplacementCache dices the mesh once it lands.
+        // DISPLACEMENT (CONTRACT-DISPLACE §1g, §9). Every section's height as its material resolves it on the CPU;
+        // no section with a Height = nothing to displace (the runtime path tessellates nothing either).
+        // - Runtime: the topology lands in a slot the scene's DisplacementCache dices from (§9.1).
+        // - Both modes: the bake-level surface (MeshDisplacementBake.hpp) - drawn in Baked mode, collision in both.
+        // - SDF and cards follow the displaced surface: Baked = the baked mesh, Runtime = the maximum level (§9.12),
+        //   each keyed from that surface's key, so software tracing sees the relief the rasteriser draws.
+        const MeshDisplacementMode                     mode = m_ImportSettings.Displacement;
+        std::vector<std::optional<SubmeshHeightInput>> heights( m_Submeshes.size() );
+        bool                                           anyHeight = false;
+        if ( mode != MeshDisplacementMode::None )
+            for ( size_t i = 0; i < m_Submeshes.size() && i < m_MaterialGuids.size(); ++i )
+            {
+                if ( m_MaterialGuids[i].IsNull() )
+                    continue;
+                auto height = ResolveSubmeshHeight( manager, m_MaterialGuids[i] );
+                if ( !height.IsSuccess() )
+                {
+                    LOG_ERROR( "StaticMeshAsset '{}': submesh {} has no resolvable height ({}); the mesh is drawn "
+                               "undisplaced",
+                               m_Metadata.Filepath.string(), i, height.GetError() );
+                    anyHeight = false;
+                    break;
+                }
+                heights[i] = height.ExtractValue();
+                anyHeight  = anyHeight || heights[i].has_value();
+            }
+        const bool                                displaced = mode != MeshDisplacementMode::None && anyHeight;
         std::shared_ptr<DisplacementTopologySlot> topologySlot;
-        std::shared_ptr<DisplacementTopologyBuildInput> topologyInput;
-        if ( m_ImportSettings.Displacement == MeshDisplacementMode::Runtime )
+        std::shared_ptr<DisplacedMeshSlot>        displacedSlot;
+        std::shared_ptr<DisplacedMeshBuildInput>  displacedInput;
+        uint64_t                                  displacedKey = 0;
+        uint64_t                                  surfaceKey   = m_RenderDataKey; // what SDF and cards key from
+        if ( displaced )
         {
-            topologySlot           = std::make_shared<DisplacementTopologySlot>();
-            m_DisplacementTopology = topologySlot;
-            topologyInput          = std::make_shared<DisplacementTopologyBuildInput>(
-                 DisplacementTopologyBuildInput{ m_Vertices, m_Indices, m_Submeshes } );
+            if ( mode == MeshDisplacementMode::Runtime )
+            {
+                topologySlot           = std::make_shared<DisplacementTopologySlot>();
+                m_DisplacementTopology = topologySlot;
+            }
+            displacedSlot   = std::make_shared<DisplacedMeshSlot>();
+            m_DisplacedMesh = displacedSlot;
+            displacedInput  = std::make_shared<DisplacedMeshBuildInput>(
+                 DisplacedMeshBuildInput{ m_Vertices, m_VertexStreams, m_Indices, m_Submeshes, nullptr, heights,
+                                          m_ImportSettings.DisplacementBake.EdgeLengthCm, true } );
+            displacedKey =
+                 DisplacedMeshDerivedDataKey( m_RenderDataKey, displacedInput->EdgeLengthCm, true, heights );
+            surfaceKey = mode == MeshDisplacementMode::Baked
+                              ? displacedKey
+                              : DisplacedMeshDerivedDataKey( m_RenderDataKey, std::nullopt, false, heights );
         }
-        else if ( m_ImportSettings.Displacement == MeshDisplacementMode::Baked )
-            LOG_ERROR( "StaticMeshAsset '{}': the import settings choose Baked displacement; its derived mesh "
-                       "(bucket DisplacedStaticMesh) is not produced by this build, so the mesh is drawn undisplaced",
-                       m_Metadata.Filepath.string() );
-        auto input      = MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes, twoSided );
+        auto input = MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes, twoSided );
         if ( !input )
         {
             LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh is left out of every distance-field trace",
@@ -240,31 +276,86 @@ namespace Desert::Assets
         EnqueueMeshDistanceField(
              slot, m_Metadata.Filepath.string(),
              [path = m_Metadata.Filepath, key = m_RenderDataKey, sided = std::move( twoSided ),
-              in = std::make_shared<MeshDistanceFieldBuildInput>( input.ExtractValue() ),
-              cards, topologySlot, topologyInput]( bool& built, const MeshDistanceFieldCancel& cancel )
+              in = std::make_shared<MeshDistanceFieldBuildInput>( input.ExtractValue() ), cards, mode, topologySlot,
+              displacedSlot, displacedInput, displacedKey,
+              surfaceKey]( bool& built, const MeshDistanceFieldCancel& cancel ) mutable
              {
-                 if ( topologySlot )
+                 // The SDF/cards input: the render data, or the displaced surface they are keyed from - built
+                 // only on a miss of their own buckets.
+                 std::function<Common::ResultStr<MeshDistanceFieldBuildInput>()> surfaceInput =
+                      [&in]() -> Common::ResultStr<MeshDistanceFieldBuildInput> { return Common::MakeSuccess( *in ); };
+                 if ( displacedInput )
                  {
+                     // The topology every displaced product dices from (cooked from the render data).
                      auto topology = LoadDisplacementTopology(
-                          path, key, [&topologyInput]() -> Common::ResultStr<DisplacementTopologyBuildInput>
-                          { return Common::MakeSuccess( *topologyInput ); } );
-                     if ( topology.IsSuccess() )
-                         topologySlot->Publish( topology.ExtractValue() );
-                     else
+                          path, key,
+                          [&displacedInput]() -> Common::ResultStr<DisplacementTopologyBuildInput>
+                          {
+                              return Common::MakeSuccess( DisplacementTopologyBuildInput{
+                                   displacedInput->Vertices, displacedInput->Indices, displacedInput->Submeshes } );
+                          } );
+                     if ( !topology.IsSuccess() )
+                     {
                          LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh is drawn undisplaced", path.string(),
                                     topology.GetError() );
+                         displacedSlot->Fail();
+                         surfaceKey = key;
+                     }
+                     else
+                     {
+                         displacedInput->Topology = topology.ExtractValue();
+                         if ( topologySlot )
+                             topologySlot->Publish( displacedInput->Topology );
+                         auto surface = LoadDisplacedMesh(
+                              path, displacedKey, [&displacedInput]() -> Common::ResultStr<DisplacedMeshBuildInput>
+                              { return Common::MakeSuccess( *displacedInput ); } );
+                         if ( surface.IsSuccess() )
+                             displacedSlot->Publish( surface.GetValue() );
+                         else
+                         {
+                             displacedSlot->Fail();
+                             LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh has no displaced surface (collision and "
+                                        "the Baked draw keep the base mesh)",
+                                        path.string(), surface.GetError() );
+                         }
+                         if ( mode == MeshDisplacementMode::Baked && surface.IsSuccess() )
+                         {
+                             const auto bakedMesh = surface.GetValue();
+                             surfaceInput = [bakedMesh, &sided]() -> Common::ResultStr<MeshDistanceFieldBuildInput>
+                             {
+                                 return MeshDistanceFieldInputOf( bakedMesh->Vertices, bakedMesh->Indices,
+                                                                  bakedMesh->Submeshes, sided );
+                             };
+                         }
+                         else if ( mode == MeshDisplacementMode::Runtime )
+                         {
+                             surfaceInput = [&path, &displacedInput, &sided,
+                                             surfaceKey]() -> Common::ResultStr<MeshDistanceFieldBuildInput>
+                             {
+                                 DisplacedMeshBuildInput maxLevel = *displacedInput;
+                                 maxLevel.EdgeLengthCm            = std::nullopt;
+                                 maxLevel.BakeLODs                = false;
+                                 auto densest = BuildDisplacedMesh( path, surfaceKey, maxLevel );
+                                 if ( !densest.IsSuccess() )
+                                     return Common::MakeError<MeshDistanceFieldBuildInput>( densest.GetError() );
+                                 const DisplacedMeshData& mesh = *densest.GetValue();
+                                 return MeshDistanceFieldInputOf( mesh.Vertices, mesh.Indices, mesh.Submeshes,
+                                                                  sided );
+                             };
+                         }
+                         else
+                             surfaceKey = key; // Baked without its mesh: the field of what is drawn (the base)
+                     }
                  }
                  // The cards first (UE FCardRepresentationAsyncQueue, here the same job): a DDC hit or a build
                  // from the same triangles. A failure leaves the mesh without cards - out of the surface cache,
                  // lit in place by a trace that hits it - and is logged naming the mesh, never guessed.
-                 if ( auto loaded = LoadMeshCards( path, key, sided, *in ); loaded.IsSuccess() )
+                 if ( auto loaded = LoadMeshCards( path, surfaceKey, sided, surfaceInput ); loaded.IsSuccess() )
                      cards->Publish( loaded.ExtractValue() );
                  else
                      LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh has no surface-cache cards", path.string(),
                                 loaded.GetError() );
-                 return LoadMeshDistanceField(
-                      path, key, sided, [&in]() -> Common::ResultStr<MeshDistanceFieldBuildInput>
-                      { return Common::MakeSuccess( *in ); }, &built, cancel );
+                 return LoadMeshDistanceField( path, surfaceKey, sided, surfaceInput, &built, cancel );
              } );
     }
 

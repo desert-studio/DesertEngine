@@ -10,6 +10,7 @@
 
 #include <Common/Core/ResultWithCodes.hpp>
 #include <Engine/Assets/MeshCardRepresentation.hpp>
+#include <Engine/Assets/MeshDisplacementBake.hpp>
 #include <Engine/Assets/MeshDisplacementTopology.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 
@@ -101,11 +102,26 @@ namespace Desert
         {
             m_DisplacementTopology = std::move( slot );
         }
+        // THE BAKE-LEVEL DISPLACED SURFACE (Assets/MeshDisplacementBake.hpp), any displacement mode: the Baked
+        // mode draws it (StaticMesh::GetBakedDisplaced), collision reads it in both modes. Null until it lands.
+        [[nodiscard]] std::shared_ptr<const Assets::DisplacedMeshData> GetDisplacedMeshData() const
+        {
+            return m_DisplacedMesh ? m_DisplacedMesh->Get() : nullptr;
+        }
+        void SetDisplacedMesh( std::shared_ptr<const Assets::DisplacedMeshSlot> slot )
+        {
+            m_DisplacedMesh = std::move( slot );
+        }
+        // Baked mode: a displaced surface with no runtime topology (Runtime mode has both).
+        [[nodiscard]] bool IsBakedDisplaced() const
+        {
+            return m_DisplacedMesh != nullptr && m_DisplacementTopology == nullptr;
+        }
         // The mesh is displaced (its import settings chose a displacement mode): its draws over displaced geometry
         // take the displaced material slots (MaterialSlotBinding::Displaced), even before the geometry lands.
         [[nodiscard]] bool IsDisplaced() const
         {
-            return m_DisplacementTopology != nullptr;
+            return m_DisplacementTopology != nullptr || m_DisplacedMesh != nullptr;
         }
 
         [[nodiscard]] virtual Common::BoolResultWithCodes<MeshError> Invalidate() = 0;
@@ -194,5 +210,16 @@ namespace Desert
         std::shared_ptr<const Assets::MeshDistanceFieldSlot> m_DistanceField;
         std::shared_ptr<const Assets::MeshCardsSlot>         m_Cards;
         std::shared_ptr<const Assets::DisplacementTopologySlot> m_DisplacementTopology;
+
+    protected:
+        std::shared_ptr<const Assets::DisplacedMeshSlot> m_DisplacedMesh;
+        [[nodiscard]] const std::shared_ptr<const Assets::MeshDistanceFieldSlot>& DistanceFieldSlot() const
+        {
+            return m_DistanceField;
+        }
+        [[nodiscard]] const std::shared_ptr<const Assets::MeshCardsSlot>& CardsSlot() const
+        {
+            return m_Cards;
+        }
     };
 } // namespace Desert

@@ -1114,4 +1114,88 @@ namespace Desert::Editor
         return Common::MakeSuccess( std::move( *entry ) );
     }
 
+    Common::ResultStr<TextureImporter::SourcePixels>
+    TextureImporter::DecodeSourcePixels( const std::filesystem::path& asset )
+    {
+        auto read = Assets::ReadTextureSourceAssetFile( asset );
+        if ( !read.IsSuccess() )
+            return Common::MakeFormattedError<SourcePixels>( "texture '{}': {}", asset.string(), read.GetError() );
+        const Assets::TextureSourceAsset& source = read.GetValue();
+        const std::string bytes( reinterpret_cast<const char*>( source.Source.data() ), source.Source.size() );
+        const auto*       raw  = reinterpret_cast<const stbi_uc*>( bytes.data() );
+        const int         size = static_cast<int>( bytes.size() );
+
+        SourcePixels out;
+        auto         fromFloats = [&out]( const float* rgba, size_t w, size_t h )
+        {
+            out.Width  = static_cast<uint32_t>( w );
+            out.Height = static_cast<uint32_t>( h );
+            out.Rgba.resize( w * h );
+            for ( size_t i = 0; i < w * h; ++i )
+                out.Rgba[i] = { rgba[4 * i], rgba[4 * i + 1], rgba[4 * i + 2], rgba[4 * i + 3] };
+        };
+        auto fromBytes = [&out]( const unsigned char* rgba, size_t w, size_t h )
+        {
+            out.Width  = static_cast<uint32_t>( w );
+            out.Height = static_cast<uint32_t>( h );
+            out.Rgba.resize( w * h );
+            for ( size_t i = 0; i < w * h; ++i )
+                out.Rgba[i] = glm::vec4( rgba[4 * i], rgba[4 * i + 1], rgba[4 * i + 2], rgba[4 * i + 3] ) / 255.0f;
+        };
+        bool linearValues = false; // HDR/EXR/float DDS: already linear, never sRGB-decoded
+        if ( IsExrSource( bytes, source.Import.SourceFile ) )
+        {
+            const ExrDecode exr = DecodeExr( bytes );
+            if ( !exr.Problem.empty() )
+                return Common::MakeFormattedError<SourcePixels>( "texture '{}': EXR decode failed ({})",
+                                                                 asset.string(), exr.Problem );
+            fromFloats( exr.Rgba.data(), static_cast<size_t>( exr.w ), static_cast<size_t>( exr.h ) );
+            linearValues = true;
+        }
+        else if ( IsDdsSource( bytes, source.Import.SourceFile ) )
+        {
+            auto dds = DecodeDdsSource( raw, bytes.size() );
+            if ( !dds.IsSuccess() )
+                return Common::MakeFormattedError<SourcePixels>( "texture '{}': DDS decode failed ({})",
+                                                                 asset.string(), dds.GetError() );
+            const DdsSourceImage& image = dds.GetValue();
+            if ( image.IsFloat )
+            {
+                fromFloats( image.RgbaF.data(), image.Width, image.Height );
+                linearValues = true;
+            }
+            else
+                fromBytes( image.Rgba8.data(), image.Width, image.Height );
+        }
+        else if ( stbi_is_hdr_from_memory( raw, size ) )
+        {
+            int    w = 0, h = 0, ch = 0;
+            float* pixels = stbi_loadf_from_memory( raw, size, &w, &h, &ch, 4 );
+            if ( pixels == nullptr )
+                return Common::MakeFormattedError<SourcePixels>( "texture '{}': HDR decode failed ({})",
+                                                                 asset.string(), stbi_failure_reason() );
+            fromFloats( pixels, static_cast<size_t>( w ), static_cast<size_t>( h ) );
+            stbi_image_free( pixels );
+            linearValues = true;
+        }
+        else
+        {
+            int      w = 0, h = 0, ch = 0;
+            stbi_uc* pixels = stbi_load_from_memory( raw, size, &w, &h, &ch, 4 );
+            if ( pixels == nullptr )
+                return Common::MakeFormattedError<SourcePixels>( "texture '{}': image decode failed ({})",
+                                                                 asset.string(), stbi_failure_reason() );
+            fromBytes( pixels, static_cast<size_t>( w ), static_cast<size_t>( h ) );
+            stbi_image_free( pixels );
+        }
+        // The GPU samples an sRGB texture through a *_SRGB view, i.e. linearised; the CPU reader must see the same
+        // values. Alpha is never encoded.
+        if ( !linearValues && source.Import.Settings.ColorSpace == Fmt::TextureColorSpace::SRGB )
+            for ( glm::vec4& texel : out.Rgba )
+                for ( int c = 0; c < 3; ++c )
+                    texel[c] = texel[c] <= 0.04045f ? texel[c] / 12.92f
+                                                     : std::pow( ( texel[c] + 0.055f ) / 1.055f, 2.4f );
+        return Common::MakeSuccess( std::move( out ) );
+    }
+
 } // namespace Desert::Editor

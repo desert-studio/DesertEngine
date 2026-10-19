@@ -12,6 +12,8 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
+#include <glm/glm.hpp>
+
 namespace Desert::Editor
 {
     // What one cook of one source did. `Fresh` and `Cooked` both leave the platform data in the DDC; the
@@ -73,6 +75,18 @@ namespace Desert::Editor
         // The editor's platform-data builder (registered with Assets::SetTexturePlatformDataBuilder): cooks
         // the asset into the DDC and returns the entry. The runtime calls it on a DDC miss.
         static Common::ResultStr<std::string> BuildPlatformData( const std::filesystem::path& asset );
+
+        // THE ASSET'S SOURCE PIXELS ON THE CPU, linear RGBA (an sRGB source converted, LDR scaled to 0..1, HDR and
+        // EXR as stored). The CPU readers of texture content call it - the displaced mesh builder samples a height
+        // map with it (Assets::SetDisplacedMeshBuilder). Formats: EXR (OpenEXR), DDS (DecodeDdsSource), HDR and
+        // LDR (stb). A source that does not decode is an error naming the asset and the decoder's reason.
+        struct SourcePixels
+        {
+            uint32_t               Width  = 0;
+            uint32_t               Height = 0;
+            std::vector<glm::vec4> Rgba; // row-major, Width x Height
+        };
+        static Common::ResultStr<SourcePixels> DecodeSourcePixels( const std::filesystem::path& asset );
 
     private:
         std::unordered_map<std::string, Common::UUID> m_Cache;

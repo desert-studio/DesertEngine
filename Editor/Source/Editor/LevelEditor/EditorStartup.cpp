@@ -233,6 +233,8 @@ namespace Desert::Editor
                    Assets::SetMeshCardsBuilder( &Assets::BuildMeshCardsBytes );
                    // A Runtime-displaced mesh's cooked topology (clusters, welds), the same way.
                    Assets::SetDisplacementTopologyBuilder( &Assets::BuildDisplacementTopologyBytes );
+                   // A displaced mesh's bake-level surface (Baked draw, collision; CPU height decode is editor-only).
+                   Assets::SetDisplacedMeshBuilder( &Editor::BuildDisplacedMeshBytes );
                    (void)m_ImportManager->ImportLooseTextures( SplashItems() );
                },
                kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); }, nullptr, 0 } );

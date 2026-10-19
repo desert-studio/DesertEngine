@@ -113,9 +113,11 @@ namespace Desert::Assets
     void                                         SetMeshCardsBuilder( MeshCardsBuilder builder );
     [[nodiscard]] Common::ResultStr<std::string> BuildMeshCardsBytes( const MeshDistanceFieldBuildInput& input );
 
+    // @p input is called only on a miss (as LoadMeshDistanceField's).
     [[nodiscard]] Common::ResultStr<std::shared_ptr<const MeshCardsBuildData>>
     LoadMeshCards( const std::filesystem::path& asset, uint64_t renderDataKey,
-                   const std::vector<uint8_t>& submeshTwoSided, const MeshDistanceFieldBuildInput& input );
+                   const std::vector<uint8_t>&                                            submeshTwoSided,
+                   const std::function<Common::ResultStr<MeshDistanceFieldBuildInput>()>& input );
 
     // Where a mesh's cards land when its derived-data job finishes (as MeshDistanceFieldSlot): empty until then,
     // and for good when the build failed (logged naming the mesh). Read from any thread; written once.

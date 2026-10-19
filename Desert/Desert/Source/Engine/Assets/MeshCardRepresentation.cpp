@@ -147,7 +147,8 @@ namespace Desert::Assets
 
     Common::ResultStr<std::shared_ptr<const MeshCardsBuildData>>
     LoadMeshCards( const std::filesystem::path& asset, const uint64_t renderDataKey,
-                   const std::vector<uint8_t>& submeshTwoSided, const MeshDistanceFieldBuildInput& input )
+                   const std::vector<uint8_t>&                                            submeshTwoSided,
+                   const std::function<Common::ResultStr<MeshDistanceFieldBuildInput>()>& input )
     {
         using Result         = std::shared_ptr<const MeshCardsBuildData>;
         const uint64_t   key = MeshCardsDerivedDataKey( renderDataKey, MeshCardsBuildSettings{}, submeshTwoSided );
@@ -170,7 +171,13 @@ namespace Desert::Assets
         else
         {
             auto derived = Common::DDC::GetOrBuild( kMeshCardsDeriver, key,
-                                                    [&builder, &input]() { return builder( input ); } );
+                                                    [&builder, &input]() -> Common::ResultStr<std::string>
+                                                    {
+                                                        auto in = input();
+                                                        if ( !in.IsSuccess() )
+                                                            return Common::MakeError<std::string>( in.GetError() );
+                                                        return builder( in.GetValue() );
+                                                    } );
             if ( !derived.IsSuccess() )
                 return Common::MakeFormattedError<Result>( "mesh asset '{}': cards: {}", asset.string(),
                                                            derived.GetError() );

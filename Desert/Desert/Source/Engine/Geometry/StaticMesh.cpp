@@ -2,6 +2,8 @@
 
 #include "MeshLOD.hpp"
 
+#include <Common/Core/Logger.hpp>
+
 #include <vector>
 
 namespace Desert
@@ -51,6 +53,31 @@ namespace Desert
         twin->m_Cards         = base.m_Cards;
         twin->ResolveLODScreenSizes();
         return twin;
+    }
+
+    std::shared_ptr<StaticMesh> StaticMesh::GetBakedDisplaced()
+    {
+        if ( !IsBakedDisplaced() )
+            return nullptr;
+        const auto data = GetDisplacedMeshData();
+        if ( !data )
+            return nullptr;
+        if ( data == m_BakedSource )
+            return m_Baked;
+        auto baked = std::make_shared<StaticMesh>( data->Vertices, data->Indices, data->Submeshes, data->Streams );
+        if ( const auto uploaded = baked->Invalidate(); !uploaded.IsSuccess() )
+        {
+            LOG_ERROR( "StaticMesh: the baked displaced mesh {:016x} did not upload ({}); the base mesh is drawn",
+                       data->Key, uploaded.GetError() );
+            m_BakedSource = data; // one report per landed surface, not one per frame
+            m_Baked.reset();
+            return nullptr;
+        }
+        baked->SetDistanceField( DistanceFieldSlot() );
+        baked->SetCards( CardsSlot() );
+        m_BakedSource = data;
+        m_Baked       = std::move( baked );
+        return m_Baked;
     }
 
     Common::BoolResultWithCodes<Desert::MeshError> StaticMesh::Invalidate()
