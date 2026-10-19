@@ -162,7 +162,10 @@
                 "Shadows.MegaLightsSpatialSamples": 0,
                 "Shadows.MegaLightsMaxHistory": 0,
                 "Shadows.MegaLightsDenoiserRadius": 1,
-                "Shadows.MegaLightsDownsampleFactor": 2
+                "Shadows.MegaLightsDownsampleFactor": 2,
+                "Shadows.MegaLightsVolumeTilePixels": 32,
+                "Shadows.MegaLightsVolumeSlices": 32,
+                "Shadows.MegaLightsVolumeSamples": 1
             },
             "Medium": {
                 "Shadows.Cascades": 3,
@@ -187,7 +190,10 @@
                 "Shadows.MegaLightsSpatialSamples": 2,
                 "Shadows.MegaLightsMaxHistory": 8,
                 "Shadows.MegaLightsDenoiserRadius": 2,
-                "Shadows.MegaLightsDownsampleFactor": 2
+                "Shadows.MegaLightsDownsampleFactor": 2,
+                "Shadows.MegaLightsVolumeTilePixels": 16,
+                "Shadows.MegaLightsVolumeSlices": 64,
+                "Shadows.MegaLightsVolumeSamples": 1
             },
             "High": {
                 "Shadows.Cascades": 4,
@@ -212,7 +218,10 @@
                 "Shadows.MegaLightsSpatialSamples": 3,
                 "Shadows.MegaLightsMaxHistory": 16,
                 "Shadows.MegaLightsDenoiserRadius": 2,
-                "Shadows.MegaLightsDownsampleFactor": 2
+                "Shadows.MegaLightsDownsampleFactor": 2,
+                "Shadows.MegaLightsVolumeTilePixels": 16,
+                "Shadows.MegaLightsVolumeSlices": 64,
+                "Shadows.MegaLightsVolumeSamples": 1
             },
             "Epic": {
                 "Shadows.Cascades": 4,
@@ -237,7 +246,10 @@
                 "Shadows.MegaLightsSpatialSamples": 4,
                 "Shadows.MegaLightsMaxHistory": 20,
                 "Shadows.MegaLightsDenoiserRadius": 2,
-                "Shadows.MegaLightsDownsampleFactor": 2
+                "Shadows.MegaLightsDownsampleFactor": 2,
+                "Shadows.MegaLightsVolumeTilePixels": 16,
+                "Shadows.MegaLightsVolumeSlices": 64,
+                "Shadows.MegaLightsVolumeSamples": 2
             },
             "Cinematic": {
                 "Shadows.Cascades": 4,
@@ -262,7 +274,10 @@
                 "Shadows.MegaLightsSpatialSamples": 6,
                 "Shadows.MegaLightsMaxHistory": 30,
                 "Shadows.MegaLightsDenoiserRadius": 3,
-                "Shadows.MegaLightsDownsampleFactor": 2
+                "Shadows.MegaLightsDownsampleFactor": 2,
+                "Shadows.MegaLightsVolumeTilePixels": 16,
+                "Shadows.MegaLightsVolumeSlices": 96,
+                "Shadows.MegaLightsVolumeSamples": 2
             }
         },
         "GlobalIllumination": {

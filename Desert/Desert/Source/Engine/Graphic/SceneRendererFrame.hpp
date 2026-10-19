@@ -253,6 +253,14 @@ namespace Desert::Graphic
                 m_Refs.emplace( zeroUint.get(), System.ZeroUint );
                 m_Externals.emplace( zeroUint.get(), zeroUintExternal );
             }
+            // The zero volume (UE VolumetricBlackDummy), for a sampler3D of light whose producer did not run.
+            const std::shared_ptr<Image3D> black3D = FallbackTextures::Get().GetBlackTexture3D();
+            if ( RDG::ExternalTexture* black3DExternal = ImportExternal( black3D, "System.Black3D" ) )
+            {
+                System.Black3D = m_Graph.RegisterExternal( *black3DExternal, "System.Black3D" );
+                m_Refs.emplace( black3D.get(), System.Black3D );
+                m_Externals.emplace( black3D.get(), black3DExternal );
+            }
         }
 
         // @p image as an external holding its recorded layout, not yet registered; nullptr (logged) if it

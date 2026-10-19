@@ -512,13 +512,12 @@ namespace Desert::Graphic::System
         // first one), writes its ShadowView into its payload, fills the view table GetLocalShadowRows hands the
         // composite, and marks the views whose cached depth is stale — a view is redrawn only when its light,
         // its tile or a caster in its reach changed (UE: cached shadow maps of a stationary light). Without
-        // @p shadowMaps (Shadows Stochastic: MegaLights traces the local lights) no tile is given and no view drawn;
-        // every light that casts is still marked ShadowCaster, which is what the traced visibility reads.
+        // @p shadowMaps (Shadows Stochastic: MegaLights traces the local lights) no tile is given and no view
+        // drawn; every light that casts is still marked ShadowCaster, which is what the traced visibility reads.
         void UpdateLocalShadows( std::vector<ShaderProtocols::PointLightPayload>& points,
                                  const std::vector<LocalLightShadowSettings>&     pointShadows,
                                  std::vector<ShaderProtocols::SpotLightPayload>&  spots,
-                                 const std::vector<LocalLightShadowSettings>&     spotShadows,
-                                 bool                                             shadowMaps );
+                                 const std::vector<LocalLightShadowSettings>& spotShadows, bool shadowMaps );
         [[nodiscard]] const std::vector<LocalShadowViewPayload>& GetLocalShadowRows() const
         {
             return m_LocalShadowRows;

@@ -68,9 +68,10 @@ namespace Desert::Graphic::System
         uint32_t ReconstructionRadius = 2;
     };
 
-    // What MegaLights hands the denoiser's specular signal (UE MegaLights denoises its specular lighting apart from
-    // the diffuse): its full-resolution demodulated specular light, rgb = light, a = 1 on a surface. The diffuse
-    // half goes through DiffuseIndirectDenoiserInputs, so a glossy highlight never gets the diffuse kernel.
+    // What MegaLights hands the denoiser's specular signal (UE MegaLights denoises its specular lighting apart
+    // from the diffuse): its full-resolution demodulated specular light, rgb = light, a = 1 on a surface. The
+    // diffuse half goes through DiffuseIndirectDenoiserInputs, so a glossy highlight never gets the diffuse
+    // kernel.
     struct DirectSpecularDenoiserInputs
     {
         RDG::TextureRef Signal;
@@ -239,15 +240,17 @@ namespace Desert::Graphic::System
         // The full-resolution surface signals (diffuse indirect, direct specular): one reconstruction pass of this
         // signal's program, then the shared temporal accumulation and history convolution.
         RDG::TextureRef DenoiseSurfaceSignal( RDG::Builder& graph, const RDG::TextureRef input,
-                                              const uint32_t reconstructionRadius, const DenoiserSceneTextures& scene,
-                                              const ViewFrame& frame, const uint32_t width, const uint32_t height,
+                                              const uint32_t               reconstructionRadius,
+                                              const DenoiserSceneTextures& scene, const ViewFrame& frame,
+                                              const uint32_t width, const uint32_t height,
                                               const std::string_view passName )
         {
             const RDG::BufferRef  uniforms = UploadViewUniforms( graph, frame );
             const RDG::TextureRef signal =
                  graph.CreateTexture( Desc( width, height, kSignalFormat ), "SSD.Signal" );
             graph.SetFaultDefault( signal, RDG::FaultDefault::Black );
-            // x = the kernel's taps per side from the centre (SSDReconstructDiffuse / SSDReconstructDirectSpecular).
+            // x = the kernel's taps per side from the centre (SSDReconstructDiffuse /
+            // SSDReconstructDirectSpecular).
             const glm::vec4 push( static_cast<float>( std::max( reconstructionRadius, 1u ) ), 0.0f, 0.0f, 0.0f );
             graph.AddPass(
                  passName, RDG::PassFlags::Compute,

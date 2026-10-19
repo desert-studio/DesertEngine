@@ -901,11 +901,16 @@ namespace Desert::Graphic
              .SmrtRayCount      = static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTRayCount ) ),
              .SmrtSamplesPerRay = static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTSamplesPerRay ) ) };
         m_MegaLightsQuality = System::MegaLightsQuality{
-             .SamplesPerPixel = quality.As<uint32_t>( Parameter::ShadowMegaLightsSamplesPerPixel ),
-             .SpatialSamples  = quality.As<uint32_t>( Parameter::ShadowMegaLightsSpatialSamples ),
-             .MaxHistory      = quality.As<uint32_t>( Parameter::ShadowMegaLightsMaxHistory ),
-             .DenoiserRadius  = quality.As<uint32_t>( Parameter::ShadowMegaLightsDenoiserRadius ),
+             .SamplesPerPixel  = quality.As<uint32_t>( Parameter::ShadowMegaLightsSamplesPerPixel ),
+             .SpatialSamples   = quality.As<uint32_t>( Parameter::ShadowMegaLightsSpatialSamples ),
+             .MaxHistory       = quality.As<uint32_t>( Parameter::ShadowMegaLightsMaxHistory ),
+             .DenoiserRadius   = quality.As<uint32_t>( Parameter::ShadowMegaLightsDenoiserRadius ),
              .DownsampleFactor = quality.As<uint32_t>( Parameter::ShadowMegaLightsDownsampleFactor ) };
+        m_MegaLightsVolumeQuality = System::MegaLightsVolumeQuality{
+             .TilePixels = quality.As<uint32_t>( Parameter::ShadowMegaLightsVolumeTilePixels ),
+             .Slices     = quality.As<uint32_t>( Parameter::ShadowMegaLightsVolumeSlices ),
+             .Samples    = quality.As<uint32_t>( Parameter::ShadowMegaLightsVolumeSamples ),
+             .MaxHistory = quality.As<uint32_t>( Parameter::ShadowMegaLightsMaxHistory ) };
         m_ReflectionDenoiserRadius            = quality.As<uint32_t>( Parameter::ReflectionDenoiserRadius );
         m_ScreenSpaceGISamples                = quality.As<int>( Parameter::ScreenSpaceGISamples );
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
@@ -1491,7 +1496,10 @@ namespace Desert::Graphic
         AddFrameShadowDepths( graph, textures );
         // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
         // deferred composite, the glass).
-        AddFrameLightGrid( graph, textures, frame );
+        const LightGridParamsPayload lightGrid = AddFrameLightGrid( graph, textures, frame );
+        // The MegaLights translucency volume the forward and glass cells read (off: the neutral block), after the
+        // grid it samples its lights from and before the first lit node.
+        AddFrameMegaLightsVolume( graph, textures, frame, lightGrid );
         if ( WorldLightGridRead() )
             AddFrameLightGridWorld( graph, textures, frame );
         if ( GlobalDistanceFieldRead() )
@@ -1556,9 +1564,9 @@ namespace Desert::Graphic
                       : RDG::TextureRef{};
             // Shadows Stochastic: the local lights sampled, traced and denoised by MegaLights, which the
             // composite's MegaLights program reads in place of its light-grid loop.
-            const System::MegaLightsLighting megaLights = LocalLightsAreStochastic()
-                                                               ? AddFrameMegaLights( graph, textures, gbuffer, frame )
-                                                               : System::MegaLightsLighting{};
+            const System::MegaLightsLighting megaLights =
+                 LocalLightsAreStochastic() ? AddFrameMegaLights( graph, textures, gbuffer, frame )
+                                            : System::MegaLightsLighting{};
             AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, sunShadowMask, megaLights,
                                meshRenderer, lightDir, lightColor, frame );
             AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask );
@@ -1791,25 +1799,25 @@ namespace Desert::Graphic
             return {};
         }
         // The frame resolved to Stochastic only with this frame's TLAS built (OnUpdate, LowerShadowsForFrame).
-        const RayTracing::RayTracingSceneFrame&  scene = m_RayTracingScene.GetFrame();
-        const FrameGraphRefs                     refs  = textures.GraphRefs();
-        const System::MegaLightsInputs           inputs{ .Depth       = textures.Depth( m_GBuffer, "GBuffer" ),
-                                                         .GBufferA    = gbuffer[0],
-                                                         .GBufferB    = gbuffer[1],
-                                                         .ShadingWord = gbuffer[2],
-                                                         .Velocity    = textures.Transients.Velocity,
-                                                         .Black       = refs.System.Black,
-                                                         .Tlas        = scene.Tlas,
-                                                         .Metadata    = scene.Metadata,
-                                                         .Lights      = refs.Transients.Lights,
-                                                         .PointLights = pointCount,
-                                                         .SpotLights  = spotCount,
-                                                         .Width       = frame.Split.Render.Width,
-                                                         .Height      = frame.Split.Render.Height,
-                                                         // The G-buffer depth is the opaque scene: the march has
-                                                         // something to hit (as the composite's contact shadows).
-                                                         .ContactShadowView = SceneResources::ContactShadowViewVector(
-                                                              GetContactShadowSettings( frame, true ) ) };
+        const RayTracing::RayTracingSceneFrame& scene = m_RayTracingScene.GetFrame();
+        const FrameGraphRefs                    refs  = textures.GraphRefs();
+        const System::MegaLightsInputs          inputs{ .Depth       = textures.Depth( m_GBuffer, "GBuffer" ),
+                                                        .GBufferA    = gbuffer[0],
+                                                        .GBufferB    = gbuffer[1],
+                                                        .ShadingWord = gbuffer[2],
+                                                        .Velocity    = textures.Transients.Velocity,
+                                                        .Black       = refs.System.Black,
+                                                        .Tlas        = scene.Tlas,
+                                                        .Metadata    = scene.Metadata,
+                                                        .Lights      = refs.Transients.Lights,
+                                                        .PointLights = pointCount,
+                                                        .SpotLights  = spotCount,
+                                                        .Width       = frame.Split.Render.Width,
+                                                        .Height      = frame.Split.Render.Height,
+                                               // The G-buffer depth is the opaque scene: the march has
+                                               // something to hit (as the composite's contact shadows).
+                                                        .ContactShadowView = SceneResources::ContactShadowViewVector(
+                                                    GetContactShadowSettings( frame, true ) ) };
         const Common::ResultStr<System::MegaLightsLighting> lighting =
              m_MegaLights.AddPasses( graph, inputs, m_MegaLightsQuality, frame );
         if ( !lighting )
@@ -1819,6 +1827,50 @@ namespace Desert::Graphic
             return {};
         }
         return lighting.GetValue();
+    }
+
+    void SceneRenderer::AddFrameMegaLightsVolume( RDG::Builder& graph, FrameTextures& textures,
+                                                  const ViewFrame& frame, const LightGridParamsPayload& lightGrid )
+    {
+        const FrameGraphRefs refs            = textures.GraphRefs();
+        const auto           pointCount      = static_cast<uint32_t>( GetPointLights().PointLights.size() );
+        const auto           spotCount       = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
+        textures.Transients.MegaLightsVolume = System::AddMegaLightsVolumeOff( graph, refs.System.Black3D );
+        if ( !LocalLightsAreStochastic() || pointCount + spotCount == 0 )
+            return; // the forward cells loop their light grid; the glass adds no local light
+        if ( !m_MegaLightsVolumeReady )
+        {
+            if ( const Common::BoolResultStr initialized = m_MegaLightsVolume.Initialize(); !initialized )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: {}; the forward and translucent surfaces get no local light under "
+                           "Stochastic",
+                           m_ViewResources.GetName(), initialized.GetError() );
+                return;
+            }
+            m_MegaLightsVolumeReady = true;
+        }
+        // The frame resolved to Stochastic only with this frame's TLAS built (OnUpdate, LowerShadowsForFrame).
+        const RayTracing::RayTracingSceneFrame&       scene = m_RayTracingScene.GetFrame();
+        const System::MegaLightsVolumeInputs          inputs{ .Tlas        = scene.Tlas,
+                                                              .Metadata    = scene.Metadata,
+                                                              .Lights      = textures.Transients.Lights,
+                                                              .Black3D     = refs.System.Black3D,
+                                                              .PointLights = pointCount,
+                                                              .SpotLights  = spotCount,
+                                                              .Width       = frame.Split.Render.Width,
+                                                              .Height      = frame.Split.Render.Height,
+                                                              .Near        = lightGrid.ZParams.x,
+                                                              .Far         = lightGrid.ZParams.z };
+        const Common::ResultStr<MegaLightsVolumeRefs> volume =
+             m_MegaLightsVolume.AddPasses( graph, inputs, m_MegaLightsVolumeQuality, frame );
+        if ( !volume )
+        {
+            LOG_ERROR(
+                 "[SceneRenderer] {}: {}; the forward and translucent surfaces get no local light this frame",
+                 m_ViewResources.GetName(), volume.GetError() );
+            return;
+        }
+        textures.Transients.MegaLightsVolume = volume.GetValue();
     }
 
     bool SceneRenderer::SunShadowIsVirtual() const

@@ -162,17 +162,26 @@ namespace Common::Scalability
         ShadowVirtualSMRTRayCount,
         ShadowVirtualSMRTSamplesPerRay,
         // Shadows Stochastic (MegaLights, System::MegaLightsRenderer; UE r.MegaLights.*): the traced light samples
-        // per sample pixel (reservoirs, each traced once after the reuse; UE NumSamplesPerPixel), the ReSTIR spatial reuse's neighbours per sample (0 = no spatial reuse), the
-        // temporal reuse's history cap in frames (a reprojected reservoir weighs at most this many of the current
-        // frame's; 0 = no temporal reuse; UE Temporal.MaxFramesAccumulated), and the denoiser's reconstruction
-        // kernel, taps per side from the centre (ScreenSpaceDenoiser DiffuseIndirect and DirectSpecular), and the
-        // render pixels per sample pixel, per side (UE r.MegaLights.DownsampleFactor: 2 = the samples at half
-        // resolution, upsampled by the shading). 1..4, 0..8, 0..30, 1..3, 1..2.
+        // per sample pixel (reservoirs, each traced once after the reuse; UE NumSamplesPerPixel), the ReSTIR
+        // spatial reuse's neighbours per sample (0 = no spatial reuse), the temporal reuse's history cap in frames
+        // (a reprojected reservoir weighs at most this many of the current frame's; 0 = no temporal reuse; UE
+        // Temporal.MaxFramesAccumulated), and the denoiser's reconstruction kernel, taps per side from the centre
+        // (ScreenSpaceDenoiser DiffuseIndirect and DirectSpecular), and the render pixels per sample pixel, per
+        // side (UE r.MegaLights.DownsampleFactor: 2 = the samples at half resolution, upsampled by the
+        // shading). 1..4, 0..8, 0..30, 1..3, 1..2.
         ShadowMegaLightsSamplesPerPixel,
         ShadowMegaLightsSpatialSamples,
         ShadowMegaLightsMaxHistory,
         ShadowMegaLightsDenoiserRadius,
         ShadowMegaLightsDownsampleFactor,
+        // The MegaLights translucency volume (System::MegaLightsVolumeRenderer; UE MegaLights' volume, sampled by
+        // the forward and translucent surfaces): its froxel edge in render pixels (UE r.MegaLights.Volume's grid
+        // cell, the fog grid's 16 px times DownsampleFactor), its depth slices over the light grid's near..far
+        // (logarithmic), and the traced light samples per froxel per frame (UE NumSamplesPerVoxel).
+        // 8..64, 16..128, 1..4.
+        ShadowMegaLightsVolumeTilePixels,
+        ShadowMegaLightsVolumeSlices,
+        ShadowMegaLightsVolumeSamples,
         // GI ScreenSpace: the one-bounce gather's samples per pixel (DeferredLighting.shader GatherIndirectGI,
         // u_ScreenSpaceGI.x). 4..64
         ScreenSpaceGISamples,
