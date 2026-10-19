@@ -22,6 +22,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstring>
 #include <map>
@@ -478,15 +479,7 @@ namespace Desert::ECS
                 const auto& varieties = type->GetData().GrassVarieties;
                 for ( uint32_t vi = 0; vi < varieties.size(); ++vi )
                 {
-                    const auto& v    = varieties[vi];
-                    const auto  guid = Common::Content::AssetGuidFromText( v.Mesh.Guid );
-                    if ( !guid )
-                        continue; // the type's validation refused it on load
-                    const Assets::AssetHandle handle = Common::Content::HandleForGuid( guid.GetValue() );
-                    Desert::Mesh*             mesh   = meshes->Get( handle );
-                    const Assets::MeshAsset*  asset  = meshes->GetAsset( handle );
-                    if ( mesh == nullptr || asset == nullptr )
-                        continue; // still loading, or MeshService said why it failed
+                    const auto& v = varieties[vi];
                     // Stable per (root, layer, type, variety): it seeds the placement, so the same grass grows at
                     // the same spot every session; the type's revision decides when its derived sections are
                     // stale.
@@ -496,36 +489,66 @@ namespace Desert::ECS
                             static_cast<uint64_t>( vi ) } )
                         key = ( key ^ part ) * 1099511628211ull;
                     GrassSections& sections = m_GrassSections[key];
-                    if ( sections.Mesh != mesh || sections.Version != materials->GetInvalidationVersion() ||
+                    const bool                  blade = v.Kind == Assets::Serialization::GrassVarietyKind::Blade;
+                    const Assets::AssetGuidRef& ref   = blade ? *v.Material : *v.Mesh;
+                    const auto                  guid  = Common::Content::AssetGuidFromText( ref.Guid );
+                    if ( !guid )
+                        continue; // the type's validation refused it on load
+                    const Assets::AssetHandle handle = Common::Content::HandleForGuid( guid.GetValue() );
+                    Desert::Mesh*             mesh   = nullptr;
+                    const Assets::MeshAsset*  asset  = nullptr;
+                    if ( !blade )
+                    {
+                        mesh  = meshes->Get( handle );
+                        asset = meshes->GetAsset( handle );
+                        if ( mesh == nullptr || asset == nullptr )
+                            continue; // still loading, or MeshService said why it failed
+                    }
+                    const void* source = blade ? static_cast<const void*>( &ref ) : mesh;
+                    if ( sections.Mesh != source || sections.Version != materials->GetInvalidationVersion() ||
                          sections.TypeRevision != type->Revision() )
                     {
-                        sections.Mesh         = mesh;
+                        sections.Mesh         = source;
                         sections.Version      = materials->GetInvalidationVersion();
                         sections.TypeRevision = type->Revision();
                         sections.Sections.clear();
-                        const auto&    slots     = asset->GetMaterialHandles();
-                        const size_t   submeshes = std::min<size_t>( mesh->GetSubmeshes().size(), 64 );
-                        const uint64_t all       = submeshes >= 64 ? ~0ull : ( 1ull << submeshes ) - 1ull;
-                        for ( size_t slot = 0; slot < slots.size(); ++slot )
+                        if ( blade )
                         {
-                            uint64_t hidden = 0;
-                            for ( size_t si = 0; si < submeshes; ++si )
-                                if ( SectionMaterialSlot( si, slots.size() ) != slot )
-                                    hidden |= 1ull << si;
-                            if ( hidden == all )
-                                continue;
-                            auto instance = materials->CreateRuntimeInstance(
-                                 materials->GetAssetHandleByExternal( slots[slot] ) );
-                            if ( !instance )
+                            // The blade's one material, drawn through its template's GrassBlade cells.
+                            if ( auto instance = materials->CreateRuntimeInstance(
+                                      materials->GetAssetHandleByExternal( handle ) ) )
+                                sections.Sections.push_back( { std::move( instance ), 0 } );
+                            else if ( m_WarnedGrass.insert( ref.Path ).second )
+                                LOG_WARN(
+                                     "[Landscape] grass blade material '{}' does not resolve; the variety does "
+                                     "not grow",
+                                     ref.Path );
+                        }
+                        else
+                        {
+                            const auto&    slots     = asset->GetMaterialHandles();
+                            const size_t   submeshes = std::min<size_t>( mesh->GetSubmeshes().size(), 64 );
+                            const uint64_t all       = submeshes >= 64 ? ~0ull : ( 1ull << submeshes ) - 1ull;
+                            for ( size_t slot = 0; slot < slots.size(); ++slot )
                             {
-                                if ( m_WarnedGrass.insert( v.Mesh.Path ).second )
-                                    LOG_WARN( "[Landscape] grass mesh '{}': section material {} does not resolve; "
-                                              "those "
-                                              "sections do not grow",
-                                              v.Mesh.Path, slot );
-                                continue;
+                                uint64_t hidden = 0;
+                                for ( size_t si = 0; si < submeshes; ++si )
+                                    if ( SectionMaterialSlot( si, slots.size() ) != slot )
+                                        hidden |= 1ull << si;
+                                if ( hidden == all )
+                                    continue;
+                                auto instance = materials->CreateRuntimeInstance(
+                                     materials->GetAssetHandleByExternal( slots[slot] ) );
+                                if ( !instance )
+                                {
+                                    if ( m_WarnedGrass.insert( ref.Path ).second )
+                                        LOG_WARN( "[Landscape] grass mesh '{}': section material {} does not "
+                                                  "resolve; those sections do not grow",
+                                                  ref.Path, slot );
+                                    continue;
+                                }
+                                sections.Sections.push_back( { std::move( instance ), hidden } );
                             }
-                            sections.Sections.push_back( { std::move( instance ), hidden } );
                         }
                     }
                     Graphic::System::GrassVarietyDraw variety;
@@ -533,6 +556,26 @@ namespace Desert::ECS
                     variety.Layer               = k;
                     variety.Mesh                = mesh;
                     variety.Sections            = sections.Sections;
+                    if ( blade )
+                    {
+                        const auto& b   = *v.Blade;
+                        const auto  rgb = []( const std::array<float, 3>& c )
+                        { return glm::vec3( c[0], c[1], c[2] ); };
+                        variety.Blade = Graphic::System::GrassBladeDraw{ .Height       = b.Height,
+                                                                         .Width        = b.Width,
+                                                                         .Taper        = b.Taper,
+                                                                         .Curvature    = b.Curvature,
+                                                                         .Stiffness    = b.Stiffness,
+                                                                         .BaseColor    = rgb( b.BaseColor ),
+                                                                         .TipColor     = rgb( b.TipColor ),
+                                                                         .DryTipColor  = rgb( b.DryTipColor ),
+                                                                         .DryTipShare  = b.DryTipShare,
+                                                                         .DryTipLength = b.DryTipLength,
+                                                                         .Clumping     = b.Clumping,
+                                                                         .ClumpSize    = b.ClumpSize,
+                                                                         .Segments     = b.Segments,
+                                                                         .LodDistance  = b.LodDistance };
+                    }
                     auto& p                     = variety.Placement;
                     p.Density                   = v.Density;
                     p.PlacementJitter           = v.PlacementJitter;

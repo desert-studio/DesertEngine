@@ -1641,6 +1641,7 @@ namespace Desert::Core::Preprocess
         includes.emplace_back( kSurfaceTranslucentPassInclude );
         includes.push_back( SurfaceVertexInclude( kSurfaceParticleSpritePath ) );
         includes.emplace_back( kSurfaceParticleSpritePassInclude );
+        includes.push_back( SurfaceVertexInclude( kSurfaceGrassBladePath ) );
         return includes;
     }
 
@@ -1926,13 +1927,16 @@ namespace Desert::Core::Preprocess
                 // UE's material usage flags: which vertex factories the template is compiled for beyond the
                 // meshes.
                 const std::string stated = ReadIdent( c );
-                if ( Lower( stated ) != "particlesprites" )
+                if ( Lower( stated ) == "particlesprites" )
+                    result.Surface.UsedWithParticleSprites = true;
+                else if ( Lower( stated ) == "grassblades" )
+                    result.Surface.UsedWithGrassBlades = true;
+                else
                 {
                     // The author's spelling, not the folded one the comparison used.
-                    err = { line, std::format( "unknown Usage '{}' (ParticleSprites)", stated ) };
+                    err = { line, std::format( "unknown Usage '{}' (ParticleSprites, GrassBlades)", stated ) };
                     return fail();
                 }
-                result.Surface.UsedWithParticleSprites = true;
                 surfaceSettingLine                     = surfaceSettingLine != 0 ? surfaceSettingLine : line;
             }
             else if ( lower == "shadingmodel" )
@@ -2349,6 +2353,26 @@ namespace Desert::Core::Preprocess
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );
             }
+
+            // `Usage GrassBlades`: the blade cells, last, in the mesh passes' order.
+            if ( result.Surface.UsedWithGrassBlades )
+                for ( const std::string_view pass : kSurfaceCellPasses )
+                {
+                    if ( !SurfaceBlendHasPass( result.Surface.Blend, pass ) )
+                        continue;
+                    DShaderPass cell;
+                    cell.Name  = SurfaceCellName( kSurfaceGrassBladePath, pass );
+                    cell.State = cellState;
+                    for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                        cell.Stages.emplace(
+                             stage, AssembleSurfaceCellStage( stage, kSurfaceGrassBladePath, pass, *surfaceBlock,
+                                                              includeBlock, autoDecls, result.Surface.Blend,
+                                                              shadingModelDefine, result.Surface.ResponsiveAA,
+                                                              opacityMaskFunction ) );
+                    result.Meta.PassNames.push_back( cell.Name );
+                    result.Surface.Cells.push_back( cell.Name );
+                    result.Passes.push_back( std::move( cell ) );
+                }
         }
 
         // The default program is the top-level stage set; when a shader consists solely of

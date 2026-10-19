@@ -123,6 +123,7 @@ namespace Desert::Graphic::System
             switch ( path )
             {
                 case MeshVertexPath::Instanced:
+                case MeshVertexPath::GrassBlade:
                     return "InstanceTransforms";
                 case MeshVertexPath::Skinned:
                     return ShaderProtocols::SkinnedUB::Name;

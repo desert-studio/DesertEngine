@@ -261,12 +261,17 @@ namespace Desert::Graphic::System
         // own (MaterialService::GetViewVariant keyed by Key) whose InstanceTransforms is the producer's buffer.
         struct GpuInstancedRenderData
         {
-            class Desert::Mesh*                             Mesh = nullptr;
+            class Desert::Mesh* Mesh = nullptr;
+            // Instanced (a mesh per instance) or GrassBlade (the blade strip, shaped per instance by the
+            // GrassBlade vertex path from BladeShape): the material's cell of that path draws it.
+            MeshVertexPath                                  Path = MeshVertexPath::Instanced;
             MaterialInstancePtr                             Material;
             uint64_t                                        HiddenSubmeshes = 0;
             bool                                            CastShadows     = true;
             InstanceWind                                    Wind;
             std::shared_ptr<ShaderResources::StorageBuffer> Instances;
+            // GrassBlade only: the variety's shape, Vertex_GrassBlade.glslh's GrassBladeShape.
+            std::shared_ptr<ShaderResources::StorageBuffer> BladeShape;
             const GpuInstanceRefs*                          Refs = nullptr; // the producer's, this frame
             // Stable per section across frames: the view-variant key (several cascades: Key * kMaxCascades + c).
             uint32_t Key = 0;
