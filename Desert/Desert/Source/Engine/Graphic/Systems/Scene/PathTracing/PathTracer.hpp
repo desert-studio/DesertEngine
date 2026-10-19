@@ -33,10 +33,11 @@ namespace Desert::Graphic::System
     // THE PATH TRACER (GIMethod / ReflectionMethod PathTraced). UE 5.8
     // Renderer/Private/PathTracing/PathTracing.cpp (FPathTracingState, RenderPathTracing) is the model: the view
     // keeps ONE running sum of paths per pixel and how many were summed; each frame adds
-    // PathTracing.SamplesPerPixel paths of up to PathTracing.MaxBounces bounces (PathTracer.shader "PathTracing",
+    // PathTracing.PathsPerFrame paths of up to PathTracing.MaxBounces bounces (PathTracer.shader "PathTracing",
     // the ray tracing pipeline over the view's TLAS with each surface template's own hit group), and the resolve
-    // (PathTracerResolve.shader) writes sum / count over the scene colour before post. Once PathTracing.MaxSamples
-    // paths are summed the view stops tracing and keeps resolving the converged image.
+    // (PathTracerResolve.shader) writes sum / count over the scene colour before post. Once
+    // PathTracing.SamplesPerPixel paths are summed (UE r.PathTracing.SamplesPerPixel: the total per pixel), the
+    // view stops tracing and keeps resolving the converged image.
     //
     // THE RESTART (UE: the accumulation is invalidated when anything it integrated changed): the sum starts again
     // at 0 when the history is not this view's previous frame (PassHistoryStamp: a cut, a resize, a method change,
@@ -61,9 +62,9 @@ namespace Desert::Graphic::System
         // Scalability PathTracing.* (BeginScene).
         struct Settings
         {
-            uint32_t SamplesPerPixel = 1;
+            uint32_t SamplesPerPixel = 1024; // the total per pixel; tracing stops once summed (UE's meaning)
+            uint32_t PathsPerFrame   = 1;    // paths added per pixel each frame (UE traces one)
             uint32_t MaxBounces      = 8;
-            uint32_t MaxSamples      = 1024;
         };
 
         // What one frame's paths read, all of this frame's graph (SceneRenderer::AddFramePathTracing).
@@ -240,8 +241,8 @@ namespace Desert::Graphic::System
             m_SceneHash                        = inputs.SceneHash;
             const RDG::TextureRef accumulation = AcquireAccumulation( graph, width, height );
 
-            const uint32_t owed   = settings.MaxSamples > m_Summed ? settings.MaxSamples - m_Summed : 0u;
-            const uint32_t traced = std::min( settings.SamplesPerPixel, owed );
+            const uint32_t owed   = settings.SamplesPerPixel > m_Summed ? settings.SamplesPerPixel - m_Summed : 0u;
+            const uint32_t traced = std::min( settings.PathsPerFrame, owed );
             if ( traced > 0u )
             {
                 const SkyTargets sky = AddSkyPasses( graph, inputs, envDesc.GetValue().Size.Width );
@@ -424,7 +425,7 @@ namespace Desert::Graphic::System
                  } );
         }
 
-        // "PathTracing: Resolve": sum / count over the scene colour, every frame (also after MaxSamples).
+        // "PathTracing: Resolve": sum / count over the scene colour, every frame (also once converged).
         void AddResolvePass( RDG::Builder& graph, const RDG::TextureRef accumulation,
                              const RDG::TextureRef sceneColor, const uint64_t frameIndex )
         {

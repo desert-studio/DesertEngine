@@ -961,6 +961,18 @@ namespace Desert::Graphic
                                                     const glm::vec4& lightDir, const glm::vec4& lightColor,
                                                     const glm::uvec2 extent )
     {
+        const GlobalIllumination::GIFramePayload payload =
+             MakeFrameGIPayload( frame, lightDir, lightColor, extent );
+        const RDG::BufferRef record = graph.CreateBuffer( RDG::BufferDesc{ sizeof( payload ) }, "GI.Frame" );
+        graph.QueueBufferUpload( record, std::as_bytes( std::span( &payload, 1 ) ) );
+        return record;
+    }
+
+    GlobalIllumination::GIFramePayload SceneRenderer::MakeFrameGIPayload( const ViewFrame& frame,
+                                                                          const glm::vec4& lightDir,
+                                                                          const glm::vec4& lightColor,
+                                                                          const glm::uvec2 extent )
+    {
         GlobalIllumination::GIFramePayload payload;
         payload.InvViewProjection = frame.InvJitteredViewProjection;
         payload.ViewProjection    = glm::inverse( frame.InvJitteredViewProjection );
@@ -974,10 +986,99 @@ namespace Desert::Graphic
             payload.SkyYawCosSin  = look.YawCosSin;
             payload.SkyGain       = look.Gain;
         }
-        payload.Screen              = glm::vec4( glm::vec2( extent ), 1.0f / glm::vec2( extent ) );
-        const RDG::BufferRef record = graph.CreateBuffer( RDG::BufferDesc{ sizeof( payload ) }, "GI.Frame" );
-        graph.QueueBufferUpload( record, std::as_bytes( std::span( &payload, 1 ) ) );
-        return record;
+        payload.Screen = glm::vec4( glm::vec2( extent ), 1.0f / glm::vec2( extent ) );
+        return payload;
+    }
+
+    uint64_t SceneRenderer::PathTracingSceneHash( const GlobalIllumination::GIFramePayload& giFrame,
+                                                  const uint64_t                            environment ) const
+    {
+        System::PathTracer::SceneHasher         hash;
+        const RayTracing::RayTracingSceneFrame& rt = m_RayTracingScene.GetFrame();
+        hash.Value( rt.InstanceHash );
+        hash.Values( std::span<const ShaderProtocols::PointLightPayload>( GetPointLights().PointLights ) );
+        hash.Values( std::span<const ShaderProtocols::SpotLightPayload>( GetSpotLights().SpotLights ) );
+        // The record's sun, sky look and extent (its camera rows restart through the ViewProjection test as well).
+        hash.Value( giFrame );
+        hash.Value( environment );
+        for ( const std::string& name : m_ReflectionHitGroups.Templates )
+            hash.Bytes( std::as_bytes( std::span<const char>( name.data(), name.size() ) ) );
+        // RayTracingHitRecord has padding after HitGroup: field by field.
+        for ( const RayTracing::RayTracingHitRecord& record : m_ReflectionHitGroups.Records )
+        {
+            hash.Value( record.HitGroup );
+            hash.Value( record.Data.VertexAddress );
+            hash.Value( record.Data.IndexAddress );
+            hash.Value( record.Data.VertexStride );
+            hash.Value( record.Data.FirstVertex );
+            hash.Value( record.Data.FirstIndex );
+            hash.Value( record.Data.NormalOffset );
+            hash.Value( record.Data.UvOffset );
+            hash.Value( record.Data.MaterialRow );
+        }
+        // The rows' values: a material parameter edited in place moves them.
+        hash.Values( std::span<const glm::vec4>( m_ReflectionHitGroups.Rows ) );
+        hash.Value( Runtime::ResourceRegistry::GetMaterialService()->GetInvalidationVersion() );
+        return hash.Get();
+    }
+
+    Common::BoolResultStr SceneRenderer::AddFramePathTracing( RDG::Builder& graph, FrameTextures& textures,
+                                                              const ViewFrame& frame )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* const pathTracer = UNIQUE_GET_AS( System::PathTracer, m_RenderSystems["PathTracerSystem"] );
+        if ( pathTracer == nullptr )
+            return Common::MakeError( "the view has no path tracer (EnsurePathTracerResources)" );
+        const RayTracing::RayTracingSceneFrame& rt = m_RayTracingScene.GetFrame();
+        if ( !rt.Built )
+            return Common::MakeError( "the path tracer traces the view's TLAS, which this frame did not build" );
+        if ( const Common::BoolResultStr built = BuildReflectionHitGroups(); !built )
+            return built;
+        if ( const Common::BoolResultStr made = pathTracer->EnsurePipeline( m_ReflectionHitGroups.Templates );
+             !made )
+            return made;
+
+        const RDG::TextureRef sceneColor =
+             textures
+                  .Refs( { { m_TargetFramebuffer ? m_TargetFramebuffer->GetColorAttachmentImage( 0 ) : nullptr,
+                             "SceneColor" } } )
+                  .front();
+        const auto sceneDesc = graph.GetTextureDesc( sceneColor );
+        if ( !sceneDesc )
+            return Common::MakeError( sceneDesc.GetError() );
+        const glm::uvec2 extent( sceneDesc.GetValue().Size.Width, sceneDesc.GetValue().Size.Height );
+        if ( extent.y == 0u )
+            return Common::MakeError( "the scene colour has no pixels" );
+
+        const ShaderProtocols::Camera cameraBlock = ShaderProtocols::MakeCameraUB( frame );
+        const RDG::BufferRef          camera =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( cameraBlock ) }, "PathTracing.CameraUB" );
+        graph.QueueBufferUpload( camera,
+                                 std::as_bytes( std::span<const ShaderProtocols::Camera>( &cameraBlock, 1 ) ) );
+
+        const FrameSun                           sun = GetFrameSun();
+        const GlobalIllumination::GIFramePayload giFrame =
+             MakeFrameGIPayload( frame, sun.Direction, sun.ColorIntensity, extent );
+        const RDG::BufferRef giRecord = graph.CreateBuffer( RDG::BufferDesc{ sizeof( giFrame ) }, "GI.Frame" );
+        graph.QueueBufferUpload( giRecord, std::as_bytes( std::span( &giFrame, 1 ) ) );
+
+        System::PathTracer::FrameInputs inputs;
+        inputs.Tlas            = rt.Tlas;
+        inputs.Camera          = camera;
+        inputs.GIFrame         = giRecord;
+        inputs.PointLights     = textures.Transients.Lights.Point;
+        inputs.SpotLights      = textures.Transients.Lights.Spot;
+        inputs.PointLightCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
+        inputs.SpotLightCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
+        inputs.EnvSpecular     = SceneViewInputsOf( textures.GraphRefs() ).EnvSpecular;
+        inputs.HitGroups       = &m_ReflectionHitGroups;
+        // The sun's disc (UE: the directional light's SourceAngle is its full angular diameter).
+        inputs.SunSinHalfAngle = std::sin( glm::radians( m_SunSourceAngleDegrees ) * 0.5f );
+        // The angle one pixel subtends at the centre of the view: the camera ray's cone (ray cone LOD).
+        inputs.PixelSpread     = std::atan( 2.0f / ( frame.Projection[1][1] * static_cast<float>( extent.y ) ) );
+        inputs.SceneHash       = PathTracingSceneHash( giFrame, GetEnvironmentIdentity() );
+        inputs.DynamicGeometry = rt.DynamicGeometry;
+        return pathTracer->AddPasses( graph, sceneColor, frame, inputs, m_PathTracingSettings );
     }
 
     Common::ResultStr<DistanceField::GlobalDistanceField::MeshSDFScene>

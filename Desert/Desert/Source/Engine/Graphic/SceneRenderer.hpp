@@ -86,6 +86,8 @@
 #include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/RayTracedSunShadow.hpp>
+#include <Engine/Graphic/Systems/Scene/PathTracing/PathTracer.hpp>
+#include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
 
 namespace Desert::Core
 {
@@ -916,6 +918,21 @@ namespace Desert::Graphic
         void AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures );
         // The shader resolves of the scene target's SampleZero graph colours ("Velocity: Resolve", MSAA only).
         void AddFrameGraphColorResolves( RDG::Builder& graph, FrameTextures& textures );
+        // THE PATH-TRACED FRAME (PathTraced( m_RenderMethods ), after the G-buffer): System::PathTracer's restart,
+        // trace and resolve over the scene colour, fed this frame's TLAS, hit groups, camera, GI record, lights and
+        // environment, and the hash of what the accumulation integrated (PathTracingSceneHash). An error names
+        // what was refused.
+        [[nodiscard]] Common::BoolResultStr AddFramePathTracing( RDG::Builder& graph, FrameTextures& textures,
+                                                                 const ViewFrame& frame );
+        // What a path-traced view's sum stands on besides the camera (UE: the path tracer's invalidation on any
+        // scene change): the TLAS rows, the lights, the GI record (sun, sky look), the environment, the hit
+        // groups' templates, records and material rows, and the material service's invalidations. @p environment:
+        // GetEnvironmentIdentity().
+        [[nodiscard]] uint64_t PathTracingSceneHash( const GlobalIllumination::GIFramePayload& giFrame,
+                                                     uint64_t                                  environment ) const;
+        // The view's path tracer system on first use (latched like EnsureSSRResources); false lowers the frame
+        // (LowerPathTracingForFrame).
+        bool EnsurePathTracerResources();
 
         // The scene sample count the device can run for `requested` (the method's effective count).
         // Recreates the scene target at `samples` when it differs (an anti-aliasing change), next frame.
@@ -961,7 +978,12 @@ namespace Desert::Graphic
         // hardware tracer's GIInstanceSurfaceCacheRows: made by the first reader of the frame, kept in
         // m_TracedFrameShared. Invalid with no surface cache or no TLAS.
         [[nodiscard]] RDG::BufferRef AddFrameInstanceSurfaceCacheRows( RDG::Builder& graph );
-        // This frame's GI record (GlobalIllumination::GIFramePayload, "GIFrameUB") for a G-buffer of @p extent.
+        // This frame's GI record for a G-buffer of @p extent: the payload (also what the path tracer hashes), and
+        // the payload uploaded as "GIFrameUB".
+        [[nodiscard]] GlobalIllumination::GIFramePayload MakeFrameGIPayload( const ViewFrame& frame,
+                                                                             const glm::vec4& lightDir,
+                                                                             const glm::vec4& lightColor,
+                                                                             glm::uvec2       extent );
         [[nodiscard]] RDG::BufferRef AddFrameGIRecord( RDG::Builder& graph, const ViewFrame& frame,
                                                        const glm::vec4& lightDir, const glm::vec4& lightColor,
                                                        glm::uvec2 extent );
@@ -1197,6 +1219,10 @@ namespace Desert::Graphic
         uint32_t m_ReflectionDenoiserRadius = 2;
         // GlobalIllumination.ScreenSpaceSamples (Scalability): the screen-space gather's samples per pixel.
         int m_ScreenSpaceGISamples = 12;
+        // PathTracing.SamplesPerPixel / PathsPerFrame / MaxBounces (Scalability), taken each BeginScene.
+        System::PathTracer::Settings m_PathTracingSettings;
+        bool                         m_PathTracerReady  = false;
+        bool                         m_PathTracerFailed = false;
         // The mesh distance-field brick pool, MiB (Scalability GlobalIllumination.DistanceFieldPoolMiB): what the
         // global distance field's atlas holds and its finer mips stream within.
         uint32_t m_DistanceFieldPoolMiB = 256;

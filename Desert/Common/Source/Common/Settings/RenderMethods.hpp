@@ -48,7 +48,7 @@ namespace Common::Scalability
         // estimation + MIS, the sky importance-sampled), accumulated per view. GI and reflections are ONE
         // integrator there, so a frame path-traces only when both axes resolve to PathTraced
         // (Graphic::ResolveRenderMethods couples them). Needs the ray tracing PIPELINE (NeedsRayTracingPipeline).
-        // Not implemented yet: the shaders (Programs/PathTracing) are in, the frame's renderer is not connected.
+        // The frame: SceneRenderer::AddFramePathTracing (System::PathTracer) in place of the lit passes.
         PathTraced,
     };
 
@@ -66,7 +66,6 @@ namespace Common::Scalability
                         // view's TLAS (alpha-tested), a hit lit from the surface cache, a miss answered by the
                         // captures, then the sky (RT-REFL; UE Lumen reflections, hardware ray tracing); RT device
         PathTraced,     // the path tracer, GIMethod::PathTraced's other half (one integrator); RT pipeline device
-                        // — not implemented yet
     };
 
     enum class ShadowMethod : int
@@ -95,13 +94,14 @@ namespace Common::Scalability
     [[nodiscard]] constexpr bool IsImplemented( GIMethod method )
     {
         return method == GIMethod::Off || method == GIMethod::ScreenSpace || method == GIMethod::ProbeVolume ||
-               method == GIMethod::SoftwareTraced || method == GIMethod::HardwareTraced;
+               method == GIMethod::SoftwareTraced || method == GIMethod::HardwareTraced ||
+               method == GIMethod::PathTraced;
     }
     [[nodiscard]] constexpr bool IsImplemented( ReflectionMethod method )
     {
         return method == ReflectionMethod::Off || method == ReflectionMethod::Captures ||
                method == ReflectionMethod::ScreenSpace || method == ReflectionMethod::SoftwareTraced ||
-               method == ReflectionMethod::HardwareTraced;
+               method == ReflectionMethod::HardwareTraced || method == ReflectionMethod::PathTraced;
     }
     [[nodiscard]] constexpr bool IsImplemented( ShadowMethod method )
     {

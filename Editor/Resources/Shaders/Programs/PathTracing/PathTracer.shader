@@ -1,6 +1,6 @@
 // DesertAsset {"Kind":"Shader","Guid":"0590522cedcb4ee198f06ebf369b0f1b","Versions":{"SHDR":1},"Dependencies":[]}
 // THE PATH TRACER (GIMethod / ReflectionMethod PathTraced; System::PathTracer). The reference image of the view:
-// PathTracing.SamplesPerPixel paths per pixel per frame through the view's TLAS and the SAME hit groups the hit-lit
+// PathTracing.PathsPerFrame paths per pixel per frame through the view's TLAS and the SAME hit groups the hit-lit
 // passes use (each surface template's `RayTracing.Hit` cell, the landscape's TerrainRayHit: the payload carries the
 // hit's material, this ray generation lights it), summed into the view's accumulation image;
 // PathTracerResolve.shader divides by the sample count and replaces the lit scene before post.
@@ -421,8 +421,8 @@ Shader "PathTracer"
                 return radiance;
             }
 
-            // This frame's u_Sky.w paths of the pixel (PathTracing.SamplesPerPixel, cut to what PathTracing.MaxSamples
-            // leaves), added to the running sum in one read and one write.
+            // This frame's u_Sky.w paths of the pixel (PathTracing.PathsPerFrame, cut to what the total
+            // PathTracing.SamplesPerPixel leaves), added to the running sum in one read and one write.
             void main()
             {
                 const ivec2 pixel = ivec2(gl_LaunchIDEXT.xy);
