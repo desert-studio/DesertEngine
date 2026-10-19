@@ -1945,6 +1945,7 @@ namespace Desert::Core::Serialize
                 ser.Loop          = ac.Loop;
                 ser.PlaybackSpeed = ac.PlaybackSpeed;
                 ser.UpdateAnimationInEditor = ac.UpdateAnimationInEditor;
+                ser.RootMotion              = ac.RootMotion;
 
                 // THE HANDLE, NOT THE GRAPH. `Animation::Graph::Serialize(*ac.Graph)` stood here and put
                 // the whole state machine inside the entity; the file is the graph's identity now and the
@@ -1988,6 +1989,7 @@ namespace Desert::Core::Serialize
                 ac.Loop        = d.Loop;
                 ac.PlaybackSpeed = d.PlaybackSpeed;
                 ac.UpdateAnimationInEditor = d.UpdateAnimationInEditor;
+                ac.RootMotion              = d.RootMotion;
 
                 // ONLY THE HANDLE IS SET HERE. The graph OBJECT is AnimationECSSystem's to hand over
                 // (SyncAnimGraph), from the asset, so that every entity naming one file ends up pointing

@@ -67,6 +67,22 @@ namespace Desert::Editor
         ImGui::Checkbox( "##updateInEditor", &animation.UpdateAnimationInEditor );
         Utils::ImGuiUtilities::EndPropertyRow();
 
+        // UE ERootMotionMode, by its enum's order (Animation/RootMotion.hpp).
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "Root Motion Mode",
+             "UE Root Motion Mode. No Root Motion Extraction: the root bone plays as authored. Ignore Root "
+             "Motion: the root is locked and its movement discarded. Root Motion From Everything: the root is "
+             "locked and its movement, blended across crossfades, moves the character (its parent's Character "
+             "Controller, else this entity) in Play." );
+        {
+            static constexpr const char* kModes[] = { "No Root Motion Extraction", "Ignore Root Motion",
+                                                      "Root Motion From Everything" };
+            int                          mode     = static_cast<int>( animation.RootMotion );
+            if ( ImGui::Combo( "##rootMotionMode", &mode, kModes, IM_ARRAYSIZE( kModes ) ) )
+                animation.RootMotion = static_cast<Animation::RootMotionMode>( mode );
+        }
+        Utils::ImGuiUtilities::EndPropertyRow();
+
         // ============================================================
         // SOURCE — ONE CHOICE (design 07 §14.1)
         // ============================================================

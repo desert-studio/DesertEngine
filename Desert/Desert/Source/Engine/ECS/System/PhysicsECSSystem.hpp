@@ -289,6 +289,21 @@ namespace Desert::ECS
                  &MeshSkeletonOf );
             m_World->Step( ts.GetSeconds() );
             m_World->SetPreStepCallback( {} );
+            // This frame's root motion has been stepped (the velocity); its turn goes onto the character here, the
+            // one place a character's transform is written from movement. The next frame's animation states both
+            // again (or not).
+            for ( auto entity : characters )
+            {
+                auto& cc = characters.get<CharacterControllerComponent>( entity );
+                if ( cc.HasRootMotion )
+                {
+                    auto& transform    = characters.get<TransformComponent>( entity );
+                    transform.Rotation = glm::eulerAngles(
+                         glm::normalize( cc.RootMotionRotation * glm::quat( transform.Rotation ) ) );
+                }
+                cc.HasRootMotion      = false;
+                cc.RootMotionRotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
+            }
             m_Ragdolls->WriteBackAfterStep( registry );
             // Every simulated destructible's piece poses from its bodies (DST-06), what its pieces draw at.
             m_Destructibles->WritePoses( registry );

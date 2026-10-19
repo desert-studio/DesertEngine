@@ -3,6 +3,7 @@
 #include "System.hpp"
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/Entity.hpp>
 // SELF-CONTAINED, AND IT WAS NOT. `Animation::AnimationLibrary` is used through a pointer and CALLED, and
 // `Mesh`/`SkinnedMesh` are cast between — all three arrived transitively, so this header only compiled
 // because of who happened to include it first. The analyser compiles a header on its own and said so the
@@ -134,6 +135,8 @@ namespace Desert::ECS
                 // stage produces. It is also the one that can change the pose's whole provenance, so a
                 // frame in which it was not yet applied would be a frame of the un-retargeted character.
                 SyncRetarget( registry, entity, *anim.Animator, skeleton );
+                // Before Update, which locks (and extracts) the root by it.
+                anim.Animator->SetRootMotionMode( anim.RootMotion );
 
                 // Before either playback path, because a control is a stage of the same pipeline and the
                 // pipeline runs inside Animator::Update below.
@@ -279,6 +282,8 @@ namespace Desert::ECS
                         const Common::Timestep animTs( Animation::AnimationAdvanceSeconds(
                              gameplaySeconds, m_EditorSeconds, anim.UpdateAnimationInEditor ) );
                         anim.Animator->Update( animTs );
+                        ApplyRootMotion( registry, entity, anim,
+                                         gameplaySeconds > 0.0F ? animTs.GetSeconds() : 0.0F );
                         // The machine's active transitions on the SAME step the Animator's fades just took
                         // (its clock scales by the playback speed), so both stacks retire on one frame.
                         anim.GraphEvaluator->AdvanceTransitions( animTs.GetSeconds() *
@@ -350,6 +355,7 @@ namespace Desert::ECS
                     const Common::Timestep animTs( Animation::AnimationAdvanceSeconds(
                          gameplaySeconds, m_EditorSeconds, anim.UpdateAnimationInEditor ) );
                     anim.Animator->Update( animTs );
+                    ApplyRootMotion( registry, entity, anim, gameplaySeconds > 0.0F ? animTs.GetSeconds() : 0.0F );
 
                     // Notify markers crossed this frame -> queued for ScriptSystem to dispatch (assigned, so
                     // a paused/cleared frame leaves it empty and nothing re-fires).
@@ -364,6 +370,62 @@ namespace Desert::ECS
         }
 
     private:
+        /**
+         * @brief THE ROOT MOTION THE ANIMATOR EXTRACTED, APPLIED (UE: the CharacterMovementComponent consumes the
+         *        mesh's root motion through USkeletalMeshComponent::ConvertLocalRootMotionToWorld).
+         *
+         * The delta is in the skinned entity's component space (RootMotion.hpp). With a
+         * CharacterControllerComponent on the parent — the shape LocomotionSystem drives — this system writes NO
+         * transform: the movement is handed to the controller as this frame's root-motion velocity (world,
+         * cm/s; CharacterMovement::Step moves the capsule by it, so walls and floors still hold) and turn (its
+         * yaw only, so the capsule stays upright, as UE's does), and PhysicsECSSystem applies both — UE's
+         * RootMotionParams consumed by the CharacterMovementComponent alone. With no controller there is no
+         * other mover, and the component itself moves: `local' = local * delta`, which is
+         * `world' = world * delta` with nothing to collide against.
+         */
+        static void ApplyRootMotion( entt::registry& registry, const entt::entity entity,
+                                     ECS::AnimationComponent& anim, const float seconds )
+        {
+            const Animation::BoneTransform delta = anim.Animator->ConsumeRootMotion();
+            // GAMEPLAY TIME ONLY: an editor-world preview (UpdateAnimationInEditor) or a paused frame must not
+            // walk an authored entity away from where the level placed it. @p seconds is 0 then.
+            if ( anim.RootMotion != Animation::RootMotionMode::RootMotionFromEverything || seconds <= 0.0F )
+                return;
+
+            const auto*        relation = registry.try_get<ECS::RelationshipComponent>( entity );
+            const entt::entity parent   = relation != nullptr ? relation->Parent : entt::null;
+            auto*              controller =
+                 parent != entt::null ? registry.try_get<ECS::CharacterControllerComponent>( parent ) : nullptr;
+            if ( controller != nullptr )
+            {
+                // Component -> world: the world matrix's linear part carries the component's rotation AND
+                // scale (a centimetre rig imported at 0.01 walks a hundredth of its track's units).
+                const glm::mat4 world     = ECS::Entity( entity, registry ).GetWorldTransform();
+                const glm::vec3 worldMove = glm::vec3( world * glm::vec4( delta.Translation, 0.0F ) );
+                const glm::mat3 linear( world );
+                const glm::quat worldRotation = glm::normalize( glm::quat_cast( glm::mat3(
+                     glm::normalize( linear[0] ), glm::normalize( linear[1] ), glm::normalize( linear[2] ) ) ) );
+                const glm::quat worldTurn     = worldRotation * delta.Rotation * glm::inverse( worldRotation );
+
+                controller->HasRootMotion      = true;
+                controller->RootMotionVelocity = worldMove / seconds;
+
+                // The turn's twist about world up (+Y) only: a hip's pitch and roll are the pose's, not the
+                // capsule's. Handed over, not applied: the controller's owner turns the character with its step.
+                const glm::quat yaw( worldTurn.w, 0.0F, worldTurn.y, 0.0F );
+                if ( glm::dot( yaw, yaw ) > 1e-12F )
+                    controller->RootMotionRotation = glm::normalize( yaw ) * controller->RootMotionRotation;
+                return;
+            }
+
+            auto* transform = registry.try_get<ECS::TransformComponent>( entity );
+            if ( transform == nullptr )
+                return;
+            const glm::quat rotation( transform->Rotation );
+            transform->Translation += rotation * ( transform->Scale * delta.Translation );
+            transform->Rotation = glm::eulerAngles( glm::normalize( rotation * delta.Rotation ) );
+        }
+
         /**
          * @brief Applies the parameter writes a script queued, then clears the queue.
          *
