@@ -217,10 +217,11 @@ namespace Desert::Core::Preprocess
             // Meta.DefaultPassName names the pass the default program IS (a surface template's default cell, or
             // the first named pass of a shader with no top-level stages); empty when the default program is the
             // shader's own top-level stage set.
-            const std::string_view wanted = !name.empty()                      ? std::string_view( name )
-                                            : !Meta.DefaultPassName.empty()    ? std::string_view( Meta.DefaultPassName )
-                                            : !Surface.Cells.empty()           ? kSurfaceDefaultCell
-                                                                               : std::string_view( name );
+            const std::string_view wanted = !name.empty() ? std::string_view( name )
+                                            : !Meta.DefaultPassName.empty()
+                                                 ? std::string_view( Meta.DefaultPassName )
+                                            : !Surface.Cells.empty() ? kSurfaceDefaultCell
+                                                                     : std::string_view( name );
             for ( const auto& p : Passes )
                 if ( p.Name == wanted )
                     return &p;
