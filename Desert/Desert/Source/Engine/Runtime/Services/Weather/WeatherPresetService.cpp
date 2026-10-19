@@ -61,7 +61,7 @@ namespace Desert::Runtime
         if ( !asset )
             return Common::MakeFormattedError<Assets::AssetHandle>( "'{}' cannot be registered as a weather preset",
                                                                     full.string() );
-        return Common::MakeSuccess( asset->GetMetadata().Handle );
+        return Common::MakeSuccess<Assets::AssetHandle>( Assets::AssetHandle( asset->GetMetadata().Handle ) );
     }
 
     void WeatherPresetService::Clear()

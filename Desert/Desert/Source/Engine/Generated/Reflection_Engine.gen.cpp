@@ -29,6 +29,7 @@
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/WaterBodyComponent.hpp>
 #include <Engine/ECS/WaterZoneComponent.hpp>
+#include <Engine/ECS/WeatherZoneComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
 #include <Engine/Libraries/AnimatorLibrary.hpp>
 #include <Engine/Libraries/EntityLibrary.hpp>
@@ -38,6 +39,7 @@
 #include <Engine/Libraries/LocalizationLibrary.hpp>
 #include <Engine/Libraries/SaveGameLibrary.hpp>
 #include <Engine/Libraries/UILibrary.hpp>
+#include <Engine/Libraries/WeatherLibrary.hpp>
 #include <Engine/Libraries/WorldParametersLibrary.hpp>
 
 namespace Desert::Reflection
@@ -626,6 +628,18 @@ void RegisterReflection_Engine()
             .Register();
     }
     {
+        using T = ::Desert::ECS::WeatherZoneData;
+        TypeBuilder( "WeatherZoneData", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Preset", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Preset ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Preset )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Preset", .Category = "Weather Zone", .Tooltip = "The weather this zone rests at (a .dweatherpreset). Scripts move it to another one with Weather.set.", .IsAsset = true, .AssetType = "WeatherPresetAsset", .Summary = true, } } )
+                    .Field( FieldInfo{ .Name = "Unbound", .Type = FieldType::Bool, .Offset = offsetof( T, Unbound ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Unbound )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Infinite Extent (Unbound)", .Category = "Weather Zone", .Tooltip = "Applies everywhere: the world's base weather. Bounded zones of a higher priority override it inside their box.", } } )
+                    .Field( FieldInfo{ .Name = "Extent", .Type = FieldType::Vec3, .Offset = offsetof( T, Extent ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Extent )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Extent", .Category = "Weather Zone", .Tooltip = "Half-size of the box, around the entity's position, inside which the zone's weather applies in full.", .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "BlendWidth", .Type = FieldType::Float, .Offset = offsetof( T, BlendWidth ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::BlendWidth )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Blend Width", .Category = "Weather Zone", .Tooltip = "Distance outside the box across which the zone's weather fades into what lies beneath it.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1000000.0f, .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "Priority", .Type = FieldType::Float, .Offset = offsetof( T, Priority ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Priority )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Priority", .Category = "Weather Zone", .Tooltip = "Higher priority is applied later and therefore wins where zones overlap.", } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
         using T = ::Desert::ECS::WindSourceData;
         TypeBuilder( "WindSourceData", sizeof( T ) )
             .ScriptName( "" )
@@ -903,6 +917,17 @@ void RegisterReflection_Engine()
                     .Function( ::Desert::Reflection::MakeFunction<&T::ListSet>( "ListSet", "UILibrary", "Common::BoolResultStr", std::array<::Desert::Reflection::ParamSpelling, 4>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "index", "int" }, ::Desert::Reflection::ParamSpelling{ "field", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "value", "const Reflection::Value&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Writes one field of the index-th record (1-based).", .ScriptName = "list_set", .ScriptMethod = false } ) )
                     .Function( ::Desert::Reflection::MakeFunction<&T::ListClear>( "ListClear", "UILibrary", "void", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "list_clear", .ScriptMethod = false } ) )
                     .Function( ::Desert::Reflection::MakeFunction<&T::ListCount>( "ListCount", "UILibrary", "int", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "key", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "How many records; 0 for no collection.", .ScriptName = "list_count", .ScriptMethod = false } ) )
+#endif
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::Libraries::WeatherLibrary;
+        TypeBuilder( "WeatherLibrary", sizeof( T ) )
+            .ScriptName( "Weather" )
+#ifndef DESERT_REFLECTION_DATA_ONLY
+                    .Function( ::Desert::Reflection::MakeFunction<&T::SetWeather>( "SetWeather", "WeatherLibrary", "Common::BoolResultStr", std::array<::Desert::Reflection::ParamSpelling, 3>{ ::Desert::Reflection::ParamSpelling{ "zone", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "preset", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "seconds", "float" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Moves a weather zone to a preset (a path under Content, e.g. \"Weather/Rain.dweatherpreset\") over `seconds`. Ok, or false and the reason.", .ScriptName = "set", .ScriptMethod = false } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::GetScalarAt>( "GetScalarAt", "WeatherLibrary", "Common::ResultStr<float>", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "point", "const glm::vec3&" }, ::Desert::Reflection::ParamSpelling{ "name", "const std::string&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "A named value of the weather at a world point (a world parameter's .x, or CloudCoverage / FogDensity / WindSpeed), or nil and the reason.", .ScriptName = "getScalar", .ScriptMethod = false } ) )
 #endif
             .WithDefault<T>()
             .Register();
