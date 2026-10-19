@@ -16,20 +16,21 @@ namespace Desert::Graphic
     {
         // The shaders come from the ONE table (MeshShaderFor) on the DEFAULT SURFACE template, found by that
         // role, so a caster variant cannot be named here and somewhere else and drift.
-        std::string ShadowShaderName( MeshVertexPath path )
+        std::string ShadowShaderName( MeshVertexPath path, MeshPass pass )
         {
-            const auto name = Runtime::ResourceRegistry::GetMaterialService()->DefaultSurfaceShader(
-                 path, MeshPass::ShadowDepth );
+            const auto name = Runtime::ResourceRegistry::GetMaterialService()->DefaultSurfaceShader( path, pass );
             if ( !name )
             {
-                LOG_ERROR( "[MaterialShadow] no {} caster: {}", MeshVertexPathName( path ), name.GetError() );
+                LOG_ERROR( "[MaterialShadow] no ({} x {}) caster: {}", MeshVertexPathName( path ), MeshPassName( pass ),
+                           name.GetError() );
                 return {};
             }
             return name.GetValue();
         }
     } // namespace
 
-    MaterialShadow::MaterialShadow() : Material( "MaterialShadow", ShadowShaderName( MeshVertexPath::Static ) )
+    MaterialShadow::MaterialShadow( const MeshPass pass )
+         : Material( "MaterialShadow", ShadowShaderName( MeshVertexPath::Static, pass ) )
     {
     }
 
@@ -38,13 +39,13 @@ namespace Desert::Graphic
     {
     }
 
-    MaterialShadowInstanced::MaterialShadowInstanced()
-         : MaterialShadow( "MaterialShadowInstanced", ShadowShaderName( MeshVertexPath::Instanced ) )
+    MaterialShadowInstanced::MaterialShadowInstanced( const MeshPass pass )
+         : MaterialShadow( "MaterialShadowInstanced", ShadowShaderName( MeshVertexPath::Instanced, pass ) )
     {
     }
 
-    MaterialShadowSkinned::MaterialShadowSkinned()
-         : MaterialShadow( "MaterialShadowSkinned", ShadowShaderName( MeshVertexPath::Skinned ) )
+    MaterialShadowSkinned::MaterialShadowSkinned( const MeshPass pass )
+         : MaterialShadow( "MaterialShadowSkinned", ShadowShaderName( MeshVertexPath::Skinned, pass ) )
     {
     }
 

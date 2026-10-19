@@ -1,0 +1,52 @@
+// The virtual shadow map caster's write, the ONE statement of it: every program that rasterizes into the physical pool
+// ("VSM: Raster", MeshRenderer::AddVirtualShadowRasterPasses) - the mesh surface cells (Pass_VirtualShadowDepth.glslh)
+// and the terrain (Programs/Terrain/TerrainVirtualShadow.shader) - includes this and calls VsmRasterWrite() last.
+// Ported from UE 5.8 Engine/Shaders/Private/ShadowDepthPixelShader.usf (VIRTUAL_TEXTURE_TARGET: the page lookup and
+// InterlockedMax into the physical pool), adapted: our page table (Common/VirtualShadowMap.glslh) and a flipped
+// viewport.
+//
+// The pass has no attachment (RDG PassBuilder::RenderArea, 16384 x 16384): the fragment maps its virtual texel to the
+// page the page table gives it and atomic-maxes its depth into the pool. Only a page that is allocated, dirty and
+// requested this frame is written - "VSM: Clear Pages" cleared exactly those; a clean page keeps its cached depth and
+// a page no pixel asked for has no physical page. The rasterised depth is the level's standard-Z clip depth, 0 toward
+// the sun, clamped (the caster pipelines draw with depth clamp, so a caster nearer the sun than the level's range
+// lands on 0). The pool stores 1 - depth so the atomic max keeps the occluder nearest the sun and a cleared texel (0)
+// reads as no occluder (VirtualShadowMapProject: occluder = 1 - bits).
+#ifndef VIRTUAL_SHADOW_RASTER_GLSLH
+#define VIRTUAL_SHADOW_RASTER_GLSLH
+
+#include <Common/VirtualShadowMap.glslh>
+
+layout( std430, binding = 40 ) restrict readonly buffer VsmFrameData
+{
+    VsmFrame u_Frame;
+    VsmLevel u_Levels[];
+};
+layout( std430, binding = 41 ) restrict readonly buffer VsmPageTable
+{
+    VsmPageEntry u_Entries[];
+};
+layout( binding = 42, r32ui ) restrict uniform uimage2D u_PhysicalPool;
+// The level this draw rasterizes (VirtualShadowMapFrame::RasterLevel): x = level index.
+layout( std430, binding = 43 ) restrict readonly buffer VsmRasterLevel
+{
+    uvec4 u_RasterLevel;
+};
+
+void VsmRasterWrite()
+{
+    // The engine's viewport is flipped (negative height, VulkanRdgBackend::BeginRenderPass), so framebuffer y runs
+    // down while the map's texel y (VsmProject: (clip.y * 0.5 + 0.5) * resolution) runs up.
+    const ivec2 texel = ivec2( int( gl_FragCoord.x ), int( VSM_VIRTUAL_RESOLUTION - gl_FragCoord.y ) );
+    if ( any( lessThan( texel, ivec2( 0 ) ) ) || any( greaterThanEqual( texel, ivec2( int( VSM_VIRTUAL_RESOLUTION ) ) ) ) )
+        return;
+    const uint         level = u_RasterLevel.x;
+    const VsmPageEntry entry = u_Entries[VsmEntryIndex( level, u_Levels[level].Window.xy + texel / int( VSM_PAGE_SIZE ) )];
+    const uint         drawn = VSM_FLAG_ALLOCATED | VSM_FLAG_DIRTY | VSM_FLAG_REQUESTED;
+    if ( ( entry.Flags & drawn ) != drawn )
+        return;
+    imageAtomicMax( u_PhysicalPool, VsmPoolPageOrigin( entry.Physical ) + ( texel & ivec2( int( VSM_PAGE_SIZE ) - 1 ) ),
+                    floatBitsToUint( 1.0 - clamp( gl_FragCoord.z, 0.0, 1.0 ) ) );
+}
+
+#endif // VIRTUAL_SHADOW_RASTER_GLSLH

@@ -1779,12 +1779,28 @@ namespace Desert::Graphic
                                                        .FrameIndex                = frame.FrameIndex };
         const System::VirtualShadowMapSun sun{ .DirectionToSun     = directionToSun,
                                                .SourceAngleDegrees = m_SunSourceAngleDegrees };
-        const Common::ResultStr<System::VirtualShadowMapFrame> pages =
-             m_VirtualShadowMap.AddPagePasses( graph, view, sun, m_VirtualShadowQuality, {}, false );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        // The casters that changed since the last frame drop their cached pages (UE VSM cache invalidation).
+        const System::MeshRenderer::VirtualShadowInvalidation invalidation = meshes->CollectVirtualShadowInvalidation();
+        const Common::ResultStr<System::VirtualShadowMapFrame> pages = m_VirtualShadowMap.AddPagePasses(
+             graph, view, sun, m_VirtualShadowQuality, invalidation.Boxes, invalidation.StaticCastersChanged );
         if ( !pages )
         {
             LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
                        pages.GetError() );
+            return {};
+        }
+        // "VSM: Raster": every caster into the dirty pages, before the projection reads the pool. A refusal is
+        // a missing caster program or pipeline, which no later frame repairs: said once, and the method stays dark.
+        if ( const Common::BoolResultStr raster = meshes->AddVirtualShadowRasterPasses( graph, pages.GetValue() );
+             !raster.IsSuccess() )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: Shadows: Virtual Shadow Map casters cannot be drawn; the sun casts no "
+                       "shadow while the method resolves to VirtualMaps: {}",
+                       m_ViewResources.GetName(), raster.GetError() );
+            m_VirtualShadowFailed = true;
+            m_VirtualShadowReady  = false;
             return {};
         }
         const Common::ResultStr<RDG::TextureRef> mask =

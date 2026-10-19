@@ -6,7 +6,8 @@
 // path fills the varyings, and the engine's pass header builds the input, calls the function and writes
 // the pass's targets. Every cell of every template compiles this file, so it is hashed into their keys.
 //
-// The parser defines, in BOTH stages of a cell: DESERT_SURFACE_PASS_<Pass> (Forward | GBuffer | ShadowDepth),
+// The parser defines, in BOTH stages of a cell: DESERT_SURFACE_PASS_<Pass> (Forward | GBuffer | ShadowDepth |
+// VirtualShadowDepth),
 // DESERT_SHADING_MODEL_INDEX (the template's model, a SHADING_MODEL_INDEX_<NAME> of the generated
 // Generated/ShadingModels.glslh) and, for `BlendMode Masked`, DESERT_SURFACE_MASKED. The headers shape their declarations on these so each
 // cell declares exactly what the shader it replaces declared (SurfaceTemplate holds them equal by reflection).
@@ -195,16 +196,22 @@ SurfaceOutput DefaultSurfaceOutput()
     return s;
 }
 
+// The two caster passes: a cascade's depth attachment (ShadowDepth) and the virtual shadow map's physical pool
+// (VirtualShadowDepth). Both project through the caster matrix with the caster's slope bias and draw a light view.
+#if defined( DESERT_SURFACE_PASS_ShadowDepth ) || defined( DESERT_SURFACE_PASS_VirtualShadowDepth )
+#define DESERT_SURFACE_CASTER_PASS 1
+#endif
+
 // Whether this cell's stages talk at all: a shadow-depth cell of an opaque template writes gl_FragCoord.z
 // and nothing else, exactly as Programs/Shadow/Shadow*.shader.
-#if !defined( DESERT_SURFACE_PASS_ShadowDepth ) || defined( DESERT_SURFACE_MASKED )
+#if !defined( DESERT_SURFACE_CASTER_PASS ) || defined( DESERT_SURFACE_MASKED )
 #define DESERT_SURFACE_HAS_VARYINGS 1
 #endif
 
 // A cell of a VIEW pass (G-buffer, forward, translucent — the camera's own frame) reads its object's motion row and
 // hands the fragment stage both unjittered clip positions; a shadow-depth cell draws a light view, which has no
 // previous frame, and keeps its world transform in the push block.
-#if defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_PASS_ShadowDepth )
+#if defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_CASTER_PASS )
 #define DESERT_SURFACE_VIEW_PASS 1
 #endif
 

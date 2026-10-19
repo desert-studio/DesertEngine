@@ -36,6 +36,7 @@ namespace Desert::Graphic::API::Vulkan
         VkSampleCountFlags DepthSampleCounts    = VK_SAMPLE_COUNT_1_BIT; // framebufferDepthSampleCounts
         float              MaxSamplerAnisotropy = 1.0f;
         uint32_t           MaxImageDimension2D  = 0;
+        uint32_t           MaxRenderArea        = 0; // min(maxFramebufferWidth/Height, maxViewportDimensions)
 
         bool     AstcLdrSampled = false; // vkGetPhysicalDeviceFormatProperties: ASTC_4x4_UNORM sampled+filter
         uint32_t TimestampValidBitsGraphics  = 0; // queue family timestampValidBits of the graphics family

@@ -92,6 +92,12 @@ namespace Desert::Graphic::System
                                                                  const glm::mat4&         cascadeViewProj,
                                                                  const CascadeCasterBias& bias ) override;
 
+        void AppendVirtualShadowEntries( std::vector<ShadowCasterEntry>& entries ) const override;
+        [[nodiscard]] uint32_t              DeclareVirtualShadow( RDG::PassBuilder&                   pass,
+                                                                  const VirtualShadowBlockParameters& parameters ) override;
+        [[nodiscard]] Common::BoolResultStr RecordVirtualShadow( const RDG::PassContext& context, uint32_t firstBlock,
+                                                                 const glm::mat4& levelViewProj ) override;
+
         void Submit( const TerrainDrawData& data )
         {
             m_Queue.push_back( data );
@@ -124,6 +130,8 @@ namespace Desert::Graphic::System
             std::unique_ptr<DataDrivenMaterial> Forward;
             std::unique_ptr<DataDrivenMaterial> GBuffer;
             std::unique_ptr<DataDrivenMaterial> Shadow;
+            // TerrainVirtualShadow.shader: the virtual shadow map's caster (the same vertex stage as Shadow).
+            std::unique_ptr<DataDrivenMaterial> VirtualShadow;
         };
 
         // A frame's terrains sharing one texture set. Named by key, not by pointer: m_Materials owns them.
@@ -155,6 +163,13 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         std::shared_ptr<GraphicsPipeline> m_GBufferPipeline;
         std::shared_ptr<GraphicsPipeline> m_ShadowPipeline;
+        // The virtual shadow map's caster: no attachment, no depth test, depth clamp (the mesh renderer's VSM
+        // casters' state). Built on the first level that draws the terrain; a refusal is logged once and kept.
+        [[nodiscard]] const GraphicsPipeline* VirtualShadowPipeline();
+        std::shared_ptr<GraphicsPipeline>     m_VirtualShadowPipeline;
+        bool                                  m_VirtualShadowRefused = false;
+        ShaderBindingLayoutCache              m_VirtualShadowLayout;
+
         // Each program's block layout, keyed on the shader of the pipeline its draws record with (kept, not
         // re-derived per frame; a reload re-derives it).
         ShaderBindingLayoutCache m_ForwardLayout;

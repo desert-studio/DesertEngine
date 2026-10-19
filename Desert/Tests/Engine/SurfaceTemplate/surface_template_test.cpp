@@ -77,9 +77,11 @@ namespace
 
     std::vector<std::string> ExpectedCells()
     {
-        return { "Static.Forward",    "Static.GBuffer",    "Static.ShadowDepth",
-                 "Instanced.Forward", "Instanced.GBuffer", "Instanced.ShadowDepth",
-                 "Skinned.Forward",   "Skinned.GBuffer",   "Skinned.ShadowDepth" };
+        return { "Static.Forward",       "Static.GBuffer",    "Static.ShadowDepth",
+                 "Static.VirtualShadowDepth",                 "Instanced.Forward",
+                 "Instanced.GBuffer",    "Instanced.ShadowDepth", "Instanced.VirtualShadowDepth",
+                 "Skinned.Forward",      "Skinned.GBuffer",   "Skinned.ShadowDepth",
+                 "Skinned.VirtualShadowDepth" };
     }
 
     std::string ParseError( const std::string& text )

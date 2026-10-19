@@ -11,6 +11,7 @@
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/Units.hpp>
 
@@ -270,6 +271,7 @@ namespace Desert::Graphic::System
                     materials.Forward = std::make_unique<DataDrivenMaterial>( "Terrain" );
                     materials.GBuffer = std::make_unique<DataDrivenMaterial>( "TerrainGBuffer" );
                     materials.Shadow  = std::make_unique<DataDrivenMaterial>( "TerrainShadow" );
+                    materials.VirtualShadow = std::make_unique<DataDrivenMaterial>( "TerrainVirtualShadow" );
                 }
                 m_FrameGroups.push_back( { it->first, {}, {} } );
 
@@ -295,11 +297,13 @@ namespace Desert::Graphic::System
                 }
                 surface->SetTexture( "u_Heightmap", t.Heightmap.get() );
                 materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap.get() );
+                materials.VirtualShadow->SetTexture( "u_Heightmap", t.Heightmap.get() );
                 if ( t.Weights.Weightmap != nullptr )
                 {
                     surface->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
-                    // The caster reads the visibility channel too: a hole must not cast a shadow.
+                    // The casters read the visibility channel too: a hole must not cast a shadow.
                     materials.Shadow->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
+                    materials.VirtualShadow->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
                 }
             }
             FrameGroup&         group   = m_FrameGroups[it->second];
@@ -343,9 +347,9 @@ namespace Desert::Graphic::System
         {
             ProgramMaterials const& materials = m_Materials[group.Key];
             DataDrivenMaterial* surface   = deferred ? materials.GBuffer.get() : materials.Forward.get();
-            for ( DataDrivenMaterial* material : { surface, materials.Shadow.get() } )
+            for ( DataDrivenMaterial* material : { surface, materials.Shadow.get(), materials.VirtualShadow.get() } )
             {
-                // The shadow program has no TerrainUB: its vertices are the camera's (the LOD rides in the row).
+                // The shadow programs have no TerrainUB: its vertices are the camera's (the LOD rides in the row).
                 if ( auto* terrainUB = material->Get<UniformBufferProperty>( "TerrainUB" ) )
                     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a uniform block uploaded as
                     // bytes
@@ -533,4 +537,125 @@ namespace Desert::Graphic::System
         // Through the blocks DeclareShadowCascade declared on this cascade's node.
         return RecordDraws( context, firstBlock, *m_ShadowPipeline, &ProgramMaterials::Shadow, cascadeViewProj );
     }
+
+    void TerrainRenderer::AppendVirtualShadowEntries( std::vector<ShadowCasterEntry>& entries ) const
+    {
+        // A tile's depth changes with its heightmap's pixels (HeightRevision), its holes (the weightmap's Revision
+        // and its visibility layer) and where it sits; its box spans the tile's quads and the whole height range
+        // its R16 samples can encode (Common/LandscapeHeight.glslh: (s - 32768) / 128 * ZScale, s in 0..65535).
+        // NOT the LOD: the grid follows the main camera every frame (the cascades draw the camera's vertices), and
+        // invalidating on it would redraw the ground's pages whenever the camera moves.
+        constexpr float kLowestLocal  = ( 0.0f - 32768.0f ) / 128.0f;
+        constexpr float kHighestLocal = ( 65535.0f - 32768.0f ) / 128.0f;
+        for ( const TerrainDrawData& tile : m_Queue )
+        {
+            const LandscapeTileDraw& at   = tile.Landscape;
+            uint64_t                 hash = 1469598103934665603ull;
+            const auto               add  = [&hash]( const auto& value )
+            {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): FNV-1a over the value's bytes
+                const auto* bytes = reinterpret_cast<const unsigned char*>( &value );
+                for ( std::size_t i = 0; i < sizeof( value ); ++i )
+                {
+                    hash ^= bytes[i];
+                    hash *= 1099511628211ull;
+                }
+            };
+            add( tile.Heightmap.get() );
+            add( at.OriginX );
+            add( at.OriginZ );
+            add( at.BaseY );
+            add( at.SpacingCm );
+            add( at.ZScale );
+            add( at.FirstSampleX );
+            add( at.FirstSampleZ );
+            add( at.QuadsPerTile );
+            add( at.NeighbourMask );
+            add( at.Entity );
+            add( at.HeightRevision );
+            add( tile.Weights.Weightmap.get() );
+            add( tile.Weights.Revision );
+            add( tile.Weights.VisibilityLayer );
+
+            const float x0     = at.OriginX + ( static_cast<float>( at.FirstSampleX ) * at.SpacingCm );
+            const float z0     = at.OriginZ + ( static_cast<float>( at.FirstSampleZ ) * at.SpacingCm );
+            const float extent = static_cast<float>( at.QuadsPerTile ) * at.SpacingCm;
+            const float y0     = at.BaseY + ( kLowestLocal * at.ZScale );
+            const float y1     = at.BaseY + ( kHighestLocal * at.ZScale );
+            entries.push_back( { .Signature = hash,
+                                 .Min       = glm::vec3( std::min( x0, x0 + extent ), std::min( y0, y1 ),
+                                                         std::min( z0, z0 + extent ) ),
+                                 .Max       = glm::vec3( std::max( x0, x0 + extent ), std::max( y0, y1 ),
+                                                         std::max( z0, z0 + extent ) ) } );
+        }
+    }
+
+    const GraphicsPipeline* TerrainRenderer::VirtualShadowPipeline()
+    {
+        if ( m_VirtualShadowPipeline || m_VirtualShadowRefused )
+            return m_VirtualShadowPipeline.get();
+        const auto refuse = [this]( const std::string& why ) -> const GraphicsPipeline*
+        {
+            m_VirtualShadowRefused = true;
+            LOG_ERROR( "[TerrainRenderer] the terrain casts no virtual shadow: {}", why );
+            return nullptr;
+        };
+        const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "TerrainVirtualShadow" );
+        if ( !shader )
+            return refuse( "missing shader 'TerrainVirtualShadow'" );
+
+        GraphicsPipelineSpecification spec;
+        spec.DebugName = "TerrainVirtualShadowPipeline";
+        spec.Shader    = shader;
+        ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
+        // The level's node has no attachment (RDG PassBuilder::RenderArea): no colour, no depth, and so no depth
+        // test; the fragment keeps the nearest occluder itself (imageAtomicMax). Depth clamp, as the mesh casters
+        // (MeshRenderer::EnsureVirtualShadowPipelines): ground nearer the sun than the level's range still writes.
+        spec.TargetLayout      = RenderTargetLayout{};
+        spec.BlendEnable       = false;
+        spec.DepthTestEnabled  = false;
+        spec.DepthWriteEnabled = false;
+        spec.DepthClampEnable  = true;
+        spec.CullMode          = CullMode::None;
+        const auto pipeline    = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        if ( !pipeline )
+            return refuse( pipeline.GetError() );
+        m_VirtualShadowPipeline = pipeline.GetValue();
+        return m_VirtualShadowPipeline.get();
+    }
+
+    uint32_t TerrainRenderer::DeclareVirtualShadow( RDG::PassBuilder&                   pass,
+                                                    const VirtualShadowBlockParameters& parameters )
+    {
+        if ( m_FrameDraws.empty() )
+            return 0;
+        const GraphicsPipeline* pipeline = VirtualShadowPipeline();
+        if ( pipeline == nullptr )
+            return 0;
+        const std::shared_ptr<const RDG::ShaderBindingLayout>& layout =
+             m_VirtualShadowLayout.Get( pipeline->GetSpecification().Shader );
+        const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::VirtualShadow );
+        for ( const MaterialExecutor* executor : executors )
+        {
+            auto block = pass.Bindings( layout, executor->GetRouteFill() );
+            parameters( block, *layout );
+        }
+        return static_cast<uint32_t>( executors.size() );
+    }
+
+    Common::BoolResultStr TerrainRenderer::RecordVirtualShadow( const RDG::PassContext& context,
+                                                                const uint32_t          firstBlock,
+                                                                const glm::mat4&        levelViewProj )
+    {
+        if ( !m_VirtualShadowPipeline || m_FrameDraws.empty() )
+            return BOOLSUCCESS;
+        // No caster bias in the virtual shadow map: its receivers are offset along their normals instead
+        // (kVsmNormalBiasTexels, "VSM: Project").
+        for ( const auto& group : m_FrameGroups )
+            m_Materials.at( group.Key ).VirtualShadow->SetShadowSlopeBias( 0.0f, 0.0f );
+        DESERT_PROFILE_PASS( "TerrainVirtualShadow" );
+        return RecordDraws( context, firstBlock, *m_VirtualShadowPipeline, &ProgramMaterials::VirtualShadow,
+                            levelViewProj );
+    }
+
 } // namespace Desert::Graphic::System

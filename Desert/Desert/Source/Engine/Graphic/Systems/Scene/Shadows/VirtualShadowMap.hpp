@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Settings/RenderMethods.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
@@ -14,6 +15,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <vector>
 
 // "Shadows: Virtual Shadow Map" (UE Renderer/Private/VirtualShadowMaps: VirtualShadowMapArray,
 // VirtualShadowMapClipmap, VirtualShadowMapCacheManager, VirtualShadowMapProjection): ShadowMethod::VirtualMaps
@@ -33,6 +35,8 @@ namespace Desert::Graphic::System
     inline constexpr uint32_t kVsmLevelPages        = 128; // VSM_LEVEL0_DIM_PAGES_XY: pages per level side
     inline constexpr uint32_t kVsmPagesPerLevel     = kVsmLevelPages * kVsmLevelPages;
     inline constexpr uint32_t kVsmVirtualResolution = kVsmPageSize * kVsmLevelPages; // 16384
+    static_assert( kVsmVirtualResolution == Common::Scalability::kVirtualShadowMapResolution,
+                   "the render area ResolveRenderMethods asks the device for is the virtual map's side" );
     // r.Shadow.Virtual.Clipmap.FirstLevel / LastLevel: level k covers +-2^k cm around the camera (64 cm .. 42 km).
     inline constexpr int32_t  kVsmClipmapFirstLevel = 6;
     inline constexpr int32_t  kVsmClipmapLastLevel  = 22;
@@ -90,6 +94,7 @@ namespace Desert::Graphic::System
     // VsmAllocator: the frame's counters and the indirect dispatch of "VSM: Clear Pages" at kVsmClearArgsOffset.
     inline constexpr uint64_t kVsmAllocatorBytes  = 48;
     inline constexpr uint64_t kVsmClearArgsOffset = 32;
+    inline constexpr uint64_t kVsmOverflowOffset  = 16; // VsmAllocator.u_Overflow
 
     // ---- The clipmap, on the CPU (UE FVirtualShadowMapClipmap).
     // -------------------------------------------------- One level's placement this frame. The window is snapped
@@ -153,6 +158,9 @@ namespace Desert::Graphic::System
         RDG::BufferRef  FrameData;    // VsmFrameData: VsmFrameGpu + kVsmClipmapLevelCount VsmLevelGpu
         RDG::BufferRef  PageTable;    // VsmPageTable
         RDG::TextureRef PhysicalPool; // R32_UINT, the casters' atomic max target
+        // VsmRasterLevel of each level: { level index, 0, 0, 0 }, the one value a caster's fragment needs beside
+        // FrameData to find its page (Mesh/Surface/Pass_VirtualShadowDepth.glslh).
+        std::array<RDG::BufferRef, kVsmClipmapLevelCount> RasterLevel{};
         std::array<glm::mat4, kVsmClipmapLevelCount> LevelViewProjection{};
     };
 
@@ -205,7 +213,18 @@ namespace Desert::Graphic::System
         bool UpdateClipmap( const glm::vec3& directionToSun, const glm::vec3& camera,
                             std::array<VsmLevelGpu, kVsmClipmapLevelCount>& levels );
 
+        // The pool overflow of the frame that last used @p slot (its fence was waited before this frame recorded),
+        // logged once per change of the count, naming Shadows.VirtualMaxPhysicalPages (UE prints the same warning
+        // from its VSM stats readback).
+        void ReportOverflow( uint32_t slot );
+
         std::array<KernelProgram, KernelCount> m_Kernels;
+
+        // "VSM: Allocate"'s counters, extracted for the host once per frame-in-flight slot, and the pool size that
+        // frame had.
+        std::vector<RDG::ExternalBuffer> m_AllocatorReadback;
+        std::vector<uint32_t>            m_ReadbackPhysicalPages;
+        uint32_t                         m_ReportedOverflow = 0;
 
         RDG::ExternalTexture m_Pool;
         RDG::ExternalBuffer  m_PageTable;

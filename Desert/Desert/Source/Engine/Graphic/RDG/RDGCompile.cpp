@@ -1286,6 +1286,8 @@ namespace Desert::Graphic::RDG
         compiled.Pass        = p;
         compiled.Name        = pass.Name;
         compiled.Flags       = pass.Flags;
+        compiled.AreaWidth   = pass.AreaWidth;
+        compiled.AreaHeight  = pass.AreaHeight;
         compiled.OnPipe      = m_PipeAt[position];
         compiled.WaitSyncs   = m_WaitAt[position];
         compiled.SignalSyncs = m_SignalAt[position];

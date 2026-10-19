@@ -214,8 +214,9 @@ TEST( DeviceCaps, TheRequiredSetIsWhatTheRendererUsesToday )
         if ( spec.Need == CapabilityNeed::Required )
             required.insert( std::string( spec.Name ) );
     // imageCubeArray: REFL-CAPTURE keeps every reflection capture in one cube array.
+    // depthClamp: the virtual shadow map's casters are flattened onto a clipmap level's near plane.
     EXPECT_EQ( required, ( std::set<std::string>{ "tessellationShader", "independentBlend", "imageCubeArray",
-                                                  "swapchain" } ) );
+                                                  "depthClamp", "swapchain" } ) );
     EXPECT_EQ( kMinimumDeviceApiVersion, VK_API_VERSION_1_2 );
 }
 

@@ -22,6 +22,10 @@ namespace Desert::Graphic::API::Vulkan
         probe.DepthSampleCounts           = properties.limits.framebufferDepthSampleCounts;
         probe.MaxSamplerAnisotropy        = properties.limits.maxSamplerAnisotropy;
         probe.MaxImageDimension2D         = properties.limits.maxImageDimension2D;
+        probe.MaxRenderArea               = std::min( { properties.limits.maxFramebufferWidth,
+                                                        properties.limits.maxFramebufferHeight,
+                                                        properties.limits.maxViewportDimensions[0],
+                                                        properties.limits.maxViewportDimensions[1] } );
         probe.TimestampComputeAndGraphics = properties.limits.timestampComputeAndGraphics == VK_TRUE;
 
         // The largest device-local heap, as DeviceCapabilities::VideoMemory counts it.
