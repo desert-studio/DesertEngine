@@ -532,6 +532,7 @@ namespace Desert::Graphic::System
         frame.ObjectBones   = m_ObjectBones;
         // The world's parameters, the view's one snapshot of this frame (SceneRenderer::BeginScene).
         frame.WorldParameters = m_SceneRenderer->GetWorldParametersBuffer();
+        frame.RainOcclusion   = GetRainOcclusionUniforms();
 
         return frame;
     }

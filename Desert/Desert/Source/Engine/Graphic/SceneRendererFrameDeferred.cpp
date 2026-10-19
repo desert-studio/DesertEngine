@@ -125,6 +125,8 @@ namespace Desert::Graphic
                 view.ShadowCascades = mesh->AcquireCascadeMaps( graph );
                 if ( const auto atlas = mesh->GetLocalShadowAtlasImage() )
                     view.LocalShadowAtlas = textures.Import( atlas, "LocalShadow.Atlas" );
+                if ( const auto rain = mesh->GetRainOcclusionImage() )
+                    view.RainOcclusionMap = textures.Import( rain, "RainOcclusion.Map" );
             }
         }
         // No cascades (shadows budgeted off, no mesh system): the lit shaders still declare a sampler2DArray,

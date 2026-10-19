@@ -33,6 +33,7 @@
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/SystemRasterPass.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
+#include <Engine/Graphic/RainOcclusion.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
@@ -552,6 +553,26 @@ namespace Desert::Graphic::System
         // after the cascades, LOADING the atlas.
         [[nodiscard]] std::vector<SystemRasterPass> LocalShadowPasses();
 
+        // THE VIEW'S RAIN OCCLUSION (Graphic/RainOcclusion.hpp): a top-down depth of every caster in a box around
+        // the camera, which the wetted surfaces read to stay dry under a roof. The budget comes from the
+        // scalability catalogue (SceneRenderer::BeginScene); a changed budget remakes the map. UpdateRainOcclusion
+        // runs once per frame before the graph records (beside UpdateCascades): it fits the box and decides
+        // whether the map is redrawn this frame; RainOcclusionPass then hands that one pass, or none (the map
+        // keeps its depth).
+        void SetRainOcclusionQuality( const RainOcclusionQuality& quality );
+        void UpdateRainOcclusion();
+        [[nodiscard]] std::optional<SystemRasterPass> RainOcclusionPass();
+        [[nodiscard]] std::shared_ptr<Image2D>        GetRainOcclusionImage() const
+        {
+            return m_RainOcclusionFB && m_RainOcclusionBox ? m_RainOcclusionFB->GetDepthAttachmentImage()
+                                                           : nullptr;
+        }
+        [[nodiscard]] RainOcclusionUniforms GetRainOcclusionUniforms() const
+        {
+            return m_RainOcclusionBox ? PackRainOcclusion( *m_RainOcclusionBox, m_RainOcclusionQuality )
+                                      : RainOcclusionUniforms{};
+        }
+
         // EVERY SHADOW VIEW THIS RENDERER DRAWS, by one index: 0..kMaxCascades-1 are the sun's cascades, the
         // rest the point and spot lights' views (LocalShadows.hpp). The per-view caster state below
         // (m_ShadowMaterial, m_CascadeCasterVP, ...) is indexed by it, so one caster walk
@@ -564,10 +585,12 @@ namespace Desert::Graphic::System
         // draw into the physical pool through the VirtualShadowDepth cells (CasterPipelinesOf), each level with
         // caster materials of its own for the same reason as the movable views.
         static constexpr uint32_t           kVsmViewBase    = kCascadeMovableViewBase + kMaxShadowCascades;
-        static constexpr uint32_t           kMaxShadowViews = kVsmViewBase + kVsmClipmapLevelCount;
+        // Last, the rain occlusion's top-down view (RainOcclusionPass): the cascades' caster cells, no bias.
+        static constexpr uint32_t           kRainOcclusionView = kVsmViewBase + kVsmClipmapLevelCount;
+        static constexpr uint32_t           kMaxShadowViews    = kRainOcclusionView + 1u;
         [[nodiscard]] static constexpr bool IsVirtualShadowView( const uint32_t view )
         {
-            return view >= kVsmViewBase && view < kMaxShadowViews;
+            return view >= kVsmViewBase && view < kRainOcclusionView;
         }
 
         // THE SUN'S VIRTUAL SHADOW MAP, before its page passes (SceneRenderer::AddFrameVirtualSunShadow): what
@@ -621,9 +644,10 @@ namespace Desert::Graphic::System
         // Deferred: renders the static-mesh queue into the scene renderer's G-buffer via a MANUAL render pass
         // (outside the graph — see the note in GeometryPass). No-op unless the deferred pipeline exists.
         // Called by SceneRenderer when RenderPath == Deferred, before the deferred lighting pass.
-        // SETUP of the G-buffer node: builds the frame's G-buffer draw list and declares its binding blocks (the
-        // G-buffer shaders sample no scene/view input). The exec records that list.
-        void                                DeclareGBufferDraws( RDG::PassBuilder& pass );
+        // SETUP of the G-buffer node: builds the frame's G-buffer draw list and declares its binding blocks, each
+        // with the scene/view inputs @p view its shader samples (the surface weather's rain occlusion map,
+        // SurfaceWeather.glslh). The exec records that list.
+        void DeclareGBufferDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context ) const;
         // SETUP of "Deferred: Forward Depth/Normal" (after the terrain's G-buffer, before the depth resolve and
         // every screen pass): the generic queue's OPAQUE draws through their template's (Static x DepthNormal)
@@ -1359,6 +1383,18 @@ namespace Desert::Graphic::System
         };
         std::vector<LocalShadowRedraw>    m_LocalRedraws;
         MeshRendererDetail::MeshDrawList  m_LocalDraws[kMaxLocalShadowViews];
+
+        // The rain occlusion (SetRainOcclusionQuality / UpdateRainOcclusion / RainOcclusionPass): its budget, its
+        // depth target (kept across frames: redrawn only when the box moved or its casters changed), the box it
+        // holds (empty until first fitted, or without a caster pipeline), the casters' signature it was drawn
+        // with, and this frame's draws and non-mesh casters with their first binding block.
+        RainOcclusionQuality                                           m_RainOcclusionQuality;
+        std::shared_ptr<Framebuffer>                                   m_RainOcclusionFB;
+        std::optional<RainOcclusionBox>                                m_RainOcclusionBox;
+        std::optional<uint64_t>                                        m_RainOcclusionSignature;
+        bool                                                           m_RainOcclusionRedraw = false;
+        MeshRendererDetail::MeshDrawList                               m_RainOcclusionDraws;
+        std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_RainOcclusionCasters;
         uint32_t                          m_LocalRefusedLogged = 0; // lights last reported as left unshadowed
         bool                              m_ShadowsEnabled  = true;
         CascadeBiasSettings               m_ShadowBias;

@@ -5,6 +5,7 @@
 #include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
+#include <Engine/Graphic/RainOcclusion.hpp>
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
@@ -107,6 +108,10 @@ namespace Desert::Graphic
         // The world's parameters this frame (SceneRenderer::GetWorldParametersBuffer: the view's snapshot of
         // Scene::GetWorldParameters, BuildWorldParameterTable), for a template whose surface reads one.
         std::shared_ptr<ShaderResources::StorageBuffer> WorldParameters;
+        // The view's rain occlusion this frame (MeshRenderer::GetRainOcclusionUniforms): how a world position
+        // projects into the top-down map the wetted cells sample. Valid = 0 when the view has no map (no caster
+        // pipeline, shadows budgeted off): the shader then reads nothing and every surface is open to the sky.
+        RainOcclusionUniforms RainOcclusion;
 
         // Writes the whole snapshot onto @p material. One call, so a new piece of frame state can never
         // be applied at four of the five sites and forgotten at the fifth.

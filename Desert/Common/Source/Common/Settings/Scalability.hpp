@@ -183,6 +183,13 @@ namespace Common::Scalability
         ShadowMegaLightsVolumeTilePixels,
         ShadowMegaLightsVolumeSlices,
         ShadowMegaLightsVolumeSamples,
+        // The view's rain occlusion (Graphic/RainOcclusion.hpp, MeshRenderer::RainOcclusionPass): the top-down
+        // map's texels per side (256..4096), its box's side and depth in world cm (1000..100000), and how far the
+        // camera moves from the box's centre, in percent of the side, before the box is recentred and redrawn
+        // (5..50). The map is also redrawn when a caster inside it changes.
+        ShadowRainOcclusionMapSize,
+        ShadowRainOcclusionExtent,
+        ShadowRainOcclusionRefreshPercent,
         // GI ScreenSpace: the one-bounce gather's samples per pixel (DeferredLighting.shader GatherIndirectGI,
         // u_ScreenSpaceGI.x). 4..64
         ScreenSpaceGISamples,

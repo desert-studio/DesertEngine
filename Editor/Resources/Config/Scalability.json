@@ -260,7 +260,10 @@
                 "Shadows.MegaLightsDownsampleFactor": 2,
                 "Shadows.MegaLightsVolumeTilePixels": 32,
                 "Shadows.MegaLightsVolumeSlices": 32,
-                "Shadows.MegaLightsVolumeSamples": 1
+                "Shadows.MegaLightsVolumeSamples": 1,
+                "Shadows.RainOcclusionMapSize": 512,
+                "Shadows.RainOcclusionExtent": 6000,
+                "Shadows.RainOcclusionRefreshPercent": 25
             },
             "Medium": {
                 "Shadows.Cascades": 3,
@@ -288,7 +291,10 @@
                 "Shadows.MegaLightsDownsampleFactor": 2,
                 "Shadows.MegaLightsVolumeTilePixels": 16,
                 "Shadows.MegaLightsVolumeSlices": 64,
-                "Shadows.MegaLightsVolumeSamples": 1
+                "Shadows.MegaLightsVolumeSamples": 1,
+                "Shadows.RainOcclusionMapSize": 1024,
+                "Shadows.RainOcclusionExtent": 10000,
+                "Shadows.RainOcclusionRefreshPercent": 25
             },
             "High": {
                 "Shadows.Cascades": 4,
@@ -316,7 +322,10 @@
                 "Shadows.MegaLightsDownsampleFactor": 2,
                 "Shadows.MegaLightsVolumeTilePixels": 16,
                 "Shadows.MegaLightsVolumeSlices": 64,
-                "Shadows.MegaLightsVolumeSamples": 1
+                "Shadows.MegaLightsVolumeSamples": 1,
+                "Shadows.RainOcclusionMapSize": 1024,
+                "Shadows.RainOcclusionExtent": 15000,
+                "Shadows.RainOcclusionRefreshPercent": 25
             },
             "Epic": {
                 "Shadows.Cascades": 4,
@@ -344,7 +353,10 @@
                 "Shadows.MegaLightsDownsampleFactor": 2,
                 "Shadows.MegaLightsVolumeTilePixels": 16,
                 "Shadows.MegaLightsVolumeSlices": 64,
-                "Shadows.MegaLightsVolumeSamples": 2
+                "Shadows.MegaLightsVolumeSamples": 2,
+                "Shadows.RainOcclusionMapSize": 2048,
+                "Shadows.RainOcclusionExtent": 20000,
+                "Shadows.RainOcclusionRefreshPercent": 25
             },
             "Cinematic": {
                 "Shadows.Cascades": 4,
@@ -372,7 +384,10 @@
                 "Shadows.MegaLightsDownsampleFactor": 2,
                 "Shadows.MegaLightsVolumeTilePixels": 16,
                 "Shadows.MegaLightsVolumeSlices": 96,
-                "Shadows.MegaLightsVolumeSamples": 2
+                "Shadows.MegaLightsVolumeSamples": 2,
+                "Shadows.RainOcclusionMapSize": 2048,
+                "Shadows.RainOcclusionExtent": 25000,
+                "Shadows.RainOcclusionRefreshPercent": 25
             }
         },
         "GlobalIllumination": {
