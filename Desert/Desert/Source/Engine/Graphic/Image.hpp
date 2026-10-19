@@ -1,5 +1,7 @@
 #pragma once
 
+#include <span>
+
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/DynamicResources.hpp>
 
@@ -174,6 +176,17 @@ namespace Desert::Graphic
                                                                 const Core::Formats::ImagePixelData& /*data*/ )
         {
             return Common::MakeError<bool>( "Image2D::RecordSetData not supported by this backend" );
+        }
+
+        // FILLS A 2D ARRAY (Image2DSpecification::ArrayLayers) FROM 2D IMAGES: layer i is @p sources[i], every
+        // mip level, copied on the GPU (block-compressed formats included: a copy needs no blit support). The
+        // sources must all be plain 2D images of this array's width, height, format, colour space and mip
+        // count, and there must be exactly ArrayLayers of them; anything else is refused naming the source
+        // and the field (UE's UTexture2DArray build refuses the same mismatches). The copy is flushed before
+        // this returns, and every source is handed back in its own layout. Default: unsupported.
+        NO_DISCARD virtual Common::BoolResultStr CopyLayersFrom( std::span<const Image2D* const> /*sources*/ )
+        {
+            return Common::MakeError<bool>( "Image2D::CopyLayersFrom not supported by this backend" );
         }
 
         // NO MIP GENERATOR PARAMETER. Its last non-null argument was `Texture2D`'s source-file path, which
