@@ -1646,6 +1646,37 @@ namespace Desert::Migration
                 ++( layout == Layout::Failed ? failed : relaid );
         }
 
+        // THE MESH ASSETS (DISPLACE): MSAS 1 -> 2 states the displacement mode and bake settings in IMPT. The step
+        // is the engine's own UpgradeMeshSourceAsset (one statement of the format): nullopt = already current; a
+        // cooked MeshBinary is the mesh pass's above; a file neither reads FAILS by name and is left untouched.
+        for ( const auto& path : meshes )
+        {
+            const std::string bytes = ReadAll( path );
+            if ( std::string_view( bytes ).starts_with( std::string_view(
+                      Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) )
+                continue;
+            const auto raised = Desert::Assets::UpgradeMeshSourceAsset( std::as_bytes( std::span( bytes ) ) );
+            if ( !raised )
+            {
+                err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            if ( !raised.GetValue() )
+                continue;
+            out << ( check ? "would raise " : "raised " ) << path.string() << " MSAS 1 -> "
+                << Desert::Assets::kMeshAssetSubsystemVersion << "\n";
+            if ( check )
+                continue;
+            if ( const auto written =
+                      Common::Utils::FileSystem::WriteBytesToFileAtomic( path, *raised.GetValue() );
+                 !written )
+            {
+                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                ++failed;
+            }
+        }
+
         // THE SKINNED IMPORTS' SOURCE HASH (SKEL-fixa, ImportRecordSourceHash.hpp): a `.skmesh` with its raw
         // source beside it is that source's import; its record states the source's hash, or the editor re-imports
         // it at its first start and rewrites committed files.

@@ -24,7 +24,8 @@ namespace Desert::Assets
 
     namespace
     {
-        constexpr uint32_t kImportInfoVersion = 1;
+        // 2 (DISPLACE): + displacement mode name + bake EdgeLengthCm. 1 is read by UpgradeMeshSourceAsset only.
+        constexpr uint32_t kImportInfoVersion = 2;
         // 2: SRCE holds a LIST of source models (one per authored LOD) ahead of the shared slots; version 1 held
         // one mesh and was never written by an import, so it has no migration.
         // 3 (SKEL-eng3): the skin names its skeleton by GUID (Hi, Lo) where version 2 stated the rig's bone
@@ -307,6 +308,10 @@ namespace Desert::Assets
             if ( !std::isfinite( s.UniformScale ) || s.UniformScale <= 0.0f )
                 return Common::MakeFormattedError<bool>( "mesh import scale {} is not a finite positive number",
                                                          s.UniformScale );
+            if ( !std::isfinite( s.DisplacementBake.EdgeLengthCm ) || s.DisplacementBake.EdgeLengthCm <= 0.0f )
+                return Common::MakeFormattedError<bool>(
+                     "mesh displacement bake edge length {} cm is not a finite positive number",
+                     s.DisplacementBake.EdgeLengthCm );
             const bool named = !info.SourceFile.empty() && info.SourceHash != 0;
             const bool blank = info.SourceFile.empty() && info.SourceHash == 0;
             if ( info.Provenance == MeshSourceProvenance::Imported && !named )
@@ -330,16 +335,20 @@ namespace Desert::Assets
             w.F32( info.Settings.UniformScale );
             w.String( MeshSourceUpAxisName( info.Settings.UpAxis ) );
             w.String( MeshLodPolicyName( info.Settings.LodPolicy ) );
+            w.String( MeshDisplacementModeName( info.Settings.Displacement ) );
+            w.F32( info.Settings.DisplacementBake.EdgeLengthCm );
             return std::move( w.Out );
         }
 
-        Common::ResultStr<MeshImportInfo> DecodeImportInfo( std::span<const std::byte> bytes )
+        // @p expected: kImportInfoVersion, or 1 for UpgradeMeshSourceAsset (no displacement fields).
+        Common::ResultStr<MeshImportInfo> DecodeImportInfo( std::span<const std::byte> bytes,
+                                                            const uint32_t expected = kImportInfoVersion )
         {
             MeshSourceReader r{ bytes };
             const auto version = r.U32();
-            if ( r.Ok && version != kImportInfoVersion )
+            if ( r.Ok && version != expected )
                 return Common::MakeFormattedError<MeshImportInfo>(
-                     "mesh ImportInfo version {} is not the {} this build reads", version, kImportInfoVersion );
+                     "mesh ImportInfo version {} is not the {} this read expects", version, expected );
             const std::string provenance = r.String();
             MeshImportInfo    info;
             info.SourceFile             = r.String();
@@ -347,6 +356,12 @@ namespace Desert::Assets
             info.Settings.UniformScale  = r.F32();
             const std::string axis      = r.String();
             const std::string lodPolicy = r.String();
+            std::string       mode( MeshDisplacementModeName( MeshDisplacementMode::None ) );
+            if ( expected >= 2 )
+            {
+                mode                                      = r.String();
+                info.Settings.DisplacementBake.EdgeLengthCm = r.F32();
+            }
             if ( !r.Ok || r.At != bytes.size() )
                 return Common::MakeError<MeshImportInfo>( "mesh ImportInfo is truncated or has trailing bytes" );
             const auto p = MeshSourceProvenanceFromName( provenance );
@@ -361,6 +376,11 @@ namespace Desert::Assets
             info.Provenance         = *p;
             info.Settings.UpAxis    = *a;
             info.Settings.LodPolicy = *l;
+            const auto d            = MeshDisplacementModeFromName( mode );
+            if ( !d )
+                return Common::MakeFormattedError<MeshImportInfo>(
+                     "mesh ImportInfo names displacement mode '{}'; this build knows None, Runtime and Baked", mode );
+            info.Settings.Displacement = *d;
             return Common::MakeSuccess( std::move( info ) );
         }
 
@@ -539,16 +559,21 @@ namespace Desert::Assets
         return CC::WriteAssetEnvelope( envelope );
     }
 
-    Common::ResultStr<MeshSourceAsset> DecodeMeshSourceAsset( std::span<const std::byte> file )
+    namespace
     {
-        auto envelope = CC::ReadAssetEnvelope( file, MeshAssetHeaderReadContext() );
+        // One reading of the envelope at MSAS @p subsystemVersion (the current one, or 1 for the upgrade step).
+        Common::ResultStr<MeshSourceAsset> DecodeMeshSourceAssetAt( std::span<const std::byte> file,
+                                                                    const uint32_t             subsystemVersion )
+        {
+        const CC::SubsystemVersion stamp[] = { { kMeshAssetSubsystemTag, subsystemVersion } };
+        auto envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ stamp } );
         if ( !envelope.IsSuccess() )
             return Common::MakeError<MeshSourceAsset>( envelope.GetError() );
         const CC::AssetEnvelope& e = envelope.GetValue();
         if ( !IsMeshKind( e.Asset.Kind ) )
             return Common::MakeFormattedError<MeshSourceAsset>( "the envelope is kind '{}', not a mesh",
                                                                 CC::KindName( e.Asset.Kind ) );
-        if ( std::find( e.Asset.Subsystems.begin(), e.Asset.Subsystems.end(), kKnown[0] ) ==
+        if ( std::find( e.Asset.Subsystems.begin(), e.Asset.Subsystems.end(), stamp[0] ) ==
              e.Asset.Subsystems.end() )
             return Common::MakeError<MeshSourceAsset>( "the mesh envelope is not stamped with the MSAS layout" );
         bool inOrder = e.Sections.size() == kSectionOrder.size();
@@ -564,7 +589,7 @@ namespace Desert::Assets
         }
 
         auto meta   = CC::DecodeEnvelopeMeta( e.Sections[0].Bytes );
-        auto import = DecodeImportInfo( e.Sections[1].Bytes );
+        auto import = DecodeImportInfo( e.Sections[1].Bytes, subsystemVersion >= 2 ? kImportInfoVersion : 1u );
         auto source = DecodeSource( e.Sections[2].Bytes );
         if ( !meta.IsSuccess() )
             return Common::MakeError<MeshSourceAsset>( meta.GetError() );
@@ -595,6 +620,28 @@ namespace Desert::Assets
                  "the mesh asset's header names {} dependencies; its material slots and skin name {}",
                  e.Asset.Dependencies.size(), MeshSourceDependencies( asset.Source ).size() );
         return Common::MakeSuccess( std::move( asset ) );
+        }
+    } // namespace
+
+    Common::ResultStr<MeshSourceAsset> DecodeMeshSourceAsset( std::span<const std::byte> file )
+    {
+        return DecodeMeshSourceAssetAt( file, kMeshAssetSubsystemVersion );
+    }
+
+    Common::ResultStr<std::optional<std::vector<std::byte>>> UpgradeMeshSourceAsset( std::span<const std::byte> file )
+    {
+        using Out = std::optional<std::vector<std::byte>>;
+        if ( DecodeMeshSourceAssetAt( file, kMeshAssetSubsystemVersion ).IsSuccess() )
+            return Common::MakeSuccess( Out{} );
+        auto old = DecodeMeshSourceAssetAt( file, 1 );
+        if ( !old.IsSuccess() )
+            return Common::MakeFormattedError<Out>( "neither MSAS {} nor MSAS 1 reads it: {}",
+                                                    kMeshAssetSubsystemVersion, old.GetError() );
+        // DecodeImportInfo at version 1 left Displacement = None and the default bake settings.
+        auto encoded = EncodeMeshSourceAsset( old.GetValue() );
+        if ( !encoded.IsSuccess() )
+            return Common::MakeError<Out>( encoded.GetError() );
+        return Common::MakeSuccess( Out{ std::move( encoded.GetValue() ) } );
     }
 
     Common::ResultStr<MeshSourceAsset> ReadMeshSourceAssetFile( const std::filesystem::path& file )
@@ -655,6 +702,27 @@ namespace Desert::Assets
         for ( const auto p : { MeshLodPolicy::Generate, MeshLodPolicy::None } )
             if ( MeshLodPolicyName( p ) == name )
                 return p;
+        return std::nullopt;
+    }
+
+    std::string_view MeshDisplacementModeName( const MeshDisplacementMode mode )
+    {
+        switch ( mode )
+        {
+            case MeshDisplacementMode::None:
+                return "None";
+            case MeshDisplacementMode::Runtime:
+                return "Runtime";
+            case MeshDisplacementMode::Baked:
+                return "Baked";
+        }
+        return "?";
+    }
+    std::optional<MeshDisplacementMode> MeshDisplacementModeFromName( const std::string_view name )
+    {
+        for ( const auto m : { MeshDisplacementMode::None, MeshDisplacementMode::Runtime, MeshDisplacementMode::Baked } )
+            if ( MeshDisplacementModeName( m ) == name )
+                return m;
         return std::nullopt;
     }
 

@@ -30,7 +30,13 @@ namespace Desert::Assets::Serialization
                       : std::optional<std::string>( Assets::FbxSpecularMapName( settings.SpecularMap ) ),
                  settings.FileUnit == Assets::MeshFileUnit::FromFile
                       ? std::nullopt
-                      : std::optional<std::string>( Assets::MeshFileUnitName( settings.FileUnit ) ) };
+                      : std::optional<std::string>( Assets::MeshFileUnitName( settings.FileUnit ) ),
+                 settings.Mesh.Displacement == Assets::MeshDisplacementMode::None
+                      ? std::nullopt
+                      : std::optional<std::string>( Assets::MeshDisplacementModeName( settings.Mesh.Displacement ) ),
+                 settings.Mesh.DisplacementBake == Assets::MeshDisplacementBakeSettings{}
+                      ? std::nullopt
+                      : std::optional<float>( settings.Mesh.DisplacementBake.EdgeLengthCm ) };
     }
 
     Common::ResultStr<Assets::SourceImportSettings> ImportSettingsFromText( const SourceImportSettingsText& text )
@@ -73,6 +79,23 @@ namespace Desert::Assets::Serialization
                      "Centimetres, Metres, Inches and Feet",
                      *text.FileUnit );
             out.FileUnit = *unit;
+        }
+        if ( text.Displacement )
+        {
+            const auto mode = Assets::MeshDisplacementModeFromName( *text.Displacement );
+            if ( !mode )
+                return Common::MakeFormattedError<Result>(
+                     "import settings name displacement mode '{}'; this build knows None, Runtime and Baked",
+                     *text.Displacement );
+            out.Mesh.Displacement = *mode;
+        }
+        if ( text.DisplacementEdgeLengthCm )
+        {
+            if ( !std::isfinite( *text.DisplacementEdgeLengthCm ) || *text.DisplacementEdgeLengthCm <= 0.0f )
+                return Common::MakeFormattedError<Result>(
+                     "import settings state displacement edge length {} cm, not a finite positive number",
+                     *text.DisplacementEdgeLengthCm );
+            out.Mesh.DisplacementBake.EdgeLengthCm = *text.DisplacementEdgeLengthCm;
         }
         out.CombineMeshes     = text.CombineMeshes;
         out.Mesh.UniformScale = text.UniformScale;
