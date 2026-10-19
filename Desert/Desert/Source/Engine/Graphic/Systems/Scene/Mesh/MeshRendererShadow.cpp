@@ -862,6 +862,7 @@ namespace Desert::Graphic::System
                         draw.First    = first;
                         draw.LodLevel = level;
                         draw.Wind     = PackInstanceWind( ism.Wind );
+                        draw.BoundsPad = WindBoundsPad( ism.Wind );
                         m_ScratchMaskedDraws.push_back( draw );
                     }
                     continue;
@@ -875,7 +876,8 @@ namespace Desert::Graphic::System
                             instTransforms.push_back( visible[i] );
                     batches.push_back( ShadowBatch{ ism.Mesh,
                                                     static_cast<uint32_t>( instTransforms.size() ) - first, first,
-                                                    level, ism.HiddenSubmeshes, PackInstanceWind( ism.Wind ) } );
+                                                    level, ism.HiddenSubmeshes, PackInstanceWind( ism.Wind ),
+                                                    WindBoundsPad( ism.Wind ) } );
                 }
             }
         }
@@ -981,6 +983,8 @@ namespace Desert::Graphic::System
                     draw.First     = static_cast<uint32_t>( set.Transforms.size() );
                     draw.MotionRow         = sd.MotionRow;
                     draw.HiddenSubmeshMask = section.HiddenSubmeshes;
+                    if ( IsVirtualShadowView( c ) )
+                        draw.WorldBounds = SkinnedPoseBounds( *sd.Mesh, sd.Transform, sd.BoneMatrices );
                     set.Transforms.insert( set.Transforms.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );
                     m_ScratchMaskedDraws.push_back( draw );
                 }
@@ -1000,6 +1004,11 @@ namespace Desert::Graphic::System
                          caster.Data->MotionRow < rows.size() ? rows[caster.Data->MotionRow] : GpuObjectMotion{};
                     const uint64_t address =
                          ( static_cast<uint64_t>( row.SkinCacheAddressHi ) << 32u ) | row.SkinCacheAddressLo;
+                    // A virtual shadow map level culls the caster by its posed box (CollectVirtualShadowCull).
+                    std::optional<Common::Math::AABB> pose;
+                    if ( IsVirtualShadowView( c ) )
+                        pose = SkinnedPoseBounds( *caster.Data->Mesh, caster.Data->Transform,
+                                                  caster.Data->BoneMatrices );
                     list.Add( { .Pipeline          = casters.Skinned,
                                 .Mesh              = caster.Data->Mesh,
                                 .Transform         = caster.Data->Transform,
@@ -1010,7 +1019,8 @@ namespace Desert::Graphic::System
                                 {
                                     skinMat->SetBoneOffset( offset );
                                     skinMat->SetSkinCache( address, count );
-                                } } );
+                                },
+                                .WorldBounds = pose } );
                 }
             }
         }
@@ -1036,7 +1046,9 @@ namespace Desert::Graphic::System
                             .FirstInstance     = b.First,
                             .HiddenSubmeshMask = b.HiddenSubmeshMask,
                             .LodLevel          = b.LodLevel,
-                            .BindState = [instMat, wind = b.Wind] { instMat->SetInstancedWind( wind ); } } );
+                            .BindState = [instMat, wind = b.Wind] { instMat->SetInstancedWind( wind ); },
+                            .Instances = std::span<const glm::mat4>( instTransforms ).subspan( b.First, b.Count ),
+                            .BoundsPad = b.BoundsPad } );
             }
         }
 
@@ -1117,7 +1129,12 @@ namespace Desert::Graphic::System
                                 material->SetPrimitiveIndex( draw.MotionRow );
                             }
                             material->Bind( draw.Instance );
-                        } } );
+                        },
+                        .Instances   = instanced ? std::span<const glm::mat4>( draw.Set->Transforms )
+                                                        .subspan( draw.First, draw.Count )
+                                                 : std::span<const glm::mat4>{},
+                        .BoundsPad   = draw.BoundsPad,
+                        .WorldBounds = draw.WorldBounds } );
         }
         // The cache drawn now lacks the casters still compiling: the next frame's plan sees no key and redraws it.
         if ( maskedPending && layer == ShadowCasterLayer::Static && c < kMaxCascades )

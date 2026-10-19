@@ -1882,7 +1882,7 @@ namespace Desert::Graphic
         }
         // "VSM: Raster": every caster into the dirty pages, before the projection reads the pool. A refusal is
         // a missing caster program or pipeline, which no later frame repairs: said once, and the method stays dark.
-        if ( const Common::BoolResultStr raster = meshes->AddVirtualShadowRasterPasses( graph, pages.GetValue() );
+        if ( const Common::BoolResultStr raster = meshes->AddVirtualShadowRasterPasses( graph, pages.GetValue(), m_VirtualShadowMap );
              !raster.IsSuccess() )
         {
             LOG_ERROR( "[SceneRenderer] {}: Shadows: Virtual Shadow Map casters cannot be drawn; the sun casts no "

@@ -77,6 +77,14 @@ namespace Desert::Graphic::System
             // offset, wind, the instance's descriptor bind), written in exec right before the draw - the same
             // order as before the split. Empty: the draw has none.
             std::function<void()> BindState{};
+            // What a GPU cull of the draw needs (the virtual shadow map's, CollectVirtualShadowCull): the matrices
+            // its instance range indexes, from FirstInstance (empty: one instance at Transform), how far the wind
+            // moves its vertices past the mesh's bounds (cm, WindBoundsPad), and the world box of a single instance
+            // whose vertices leave the mesh's bind bounds (a skinned pose, SkinnedPoseBounds). Instances points into
+            // the list builder's scratch: valid until the list is built again.
+            std::span<const glm::mat4>        Instances{};
+            float                             BoundsPad = 0.0f;
+            std::optional<Common::Math::AABB> WorldBounds{};
         };
 
         // THE frame's draw list of one lit mesh node. The material (hence shader and route fill) of every draw is
@@ -117,6 +125,19 @@ namespace Desert::Graphic::System
 
             [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context ) const;
 
+            [[nodiscard]] std::span<const MeshDrawCommand> GetCommands() const
+            {
+                return m_Commands;
+            }
+            [[nodiscard]] const std::optional<std::string>& GetError() const
+            {
+                return m_Error;
+            }
+            // Record draws every command from the GPU's argument records instead (Renderer::RenderMeshIndirect):
+            // command i's first record is record @p firstRecords[i] of @p arguments, which the node declares
+            // Access::IndirectArgs. Until the next Clear.
+            void SetIndirect( RDG::BufferRef arguments, std::vector<uint32_t> firstRecords );
+
         private:
             // One declared block: the executor whose route fills it and the pipeline of its first draw, whose
             // shader keys its layout (every draw of the block records with a pipeline of that same shader).
@@ -134,6 +155,8 @@ namespace Desert::Graphic::System
             std::vector<uint32_t>        m_BlockOf; // per command: its block
             std::vector<Block>           m_Blocks;
             std::optional<std::string>   m_Error;
+            RDG::BufferRef               m_IndirectArguments; // SetIndirect; invalid: the commands' own counts
+            std::vector<uint32_t>        m_FirstRecords;
             // Kept across frames (Clear drops only the layouts of destroyed shaders). Mutable: Declare is const.
             mutable ShaderBindingLayoutSet m_Layouts;
         };
@@ -532,8 +555,11 @@ namespace Desert::Graphic::System
         // 16k virtual map): every caster of the level's view (BuildShadowCascadeDraws, kVsmViewBase + l) through the
         // VirtualShadowDepth cells, then the non-mesh casters (IShadowCaster::DeclareVirtualShadow); the fragments
         // write the dirty pages of @p frame's pool. Between VirtualShadowMapRenderer::AddPagePasses and AddProjection.
-        [[nodiscard]] Common::BoolResultStr AddVirtualShadowRasterPasses( RDG::Builder&                graph,
-                                                                          const VirtualShadowMapFrame& frame );
+        // Each level's casters are culled on the GPU first ("VSM: Cull Casters", @p map): only the instances over a
+        // page drawn this frame are rasterised, and a level with none draws nothing.
+        [[nodiscard]] Common::BoolResultStr AddVirtualShadowRasterPasses( RDG::Builder&                   graph,
+                                                                          const VirtualShadowMapFrame&    frame,
+                                                                          const VirtualShadowMapRenderer& map );
 
         // THE POINT AND SPOT LIGHTS' SHADOWS FOR THIS FRAME, before the graph records (SceneRenderer, after
         // UpdateCascades): gives each light that casts a tile per view in the atlas (allocating the atlas on the
@@ -1197,8 +1223,14 @@ namespace Desert::Graphic::System
         // Each level's casters, built by its node's setup and recorded by its exec; the non-mesh casters its setup
         // declared, each with the index of its first block (after the list's).
         std::array<MeshRendererDetail::MeshDrawList, kVsmClipmapLevelCount> m_VsmDraws;
-        std::array<std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>>, kVsmClipmapLevelCount>
-             m_VsmCasters;
+        // Per non-mesh caster: its first block on the level's node and its first culled argument record.
+        struct VsmCasterEntry
+        {
+            std::weak_ptr<IShadowCaster> Caster;
+            uint32_t                     FirstBlock  = 0;
+            uint32_t                     FirstRecord = 0;
+        };
+        std::array<std::vector<VsmCasterEntry>, kVsmClipmapLevelCount> m_VsmCasters;
         // CollectVirtualShadowInvalidation's state from the last frame the map was drawn: the casters that stand
         // still, sorted by signature, and the boxes of the ones that move by themselves. The instance snapshots the
         // still ISMs' signatures name, kept alive so a freed snapshot's address is not reused by a new one under
@@ -1206,6 +1238,10 @@ namespace Desert::Graphic::System
         std::vector<ShadowCasterEntry>                             m_VsmStillCasters;
         std::vector<VsmInvalidationBox>                            m_VsmMovingBoxes;
         std::vector<std::shared_ptr<const std::vector<glm::mat4>>> m_VsmKeySnapshots;
+        // Per still ISM (by its signature): what each instance cast last frame, 0 = faded out by its cull
+        // distance, else 1 + its LOD - both follow the main camera, and an instance whose state changed redraws
+        // the pages under it.
+        std::unordered_map<uint64_t, std::vector<uint32_t>> m_VsmIsmStates;
         // A masked caster's pipeline was still compiling when a level was drawn (BuildShadowCascadeDraws).
         bool m_VsmCastersPending = false;
 
@@ -1476,6 +1512,7 @@ namespace Desert::Graphic::System
             uint32_t            LodLevel = 0; ///< see InstancedDraw::LodLevel — same omission, same fix
             uint64_t            HiddenSubmeshMask = 0; ///< see InstancedDraw::HiddenSubmeshMask
             InstanceWindPush    Wind;         ///< see InstancedDraw::Wind
+            float               BoundsPad = 0.0f; ///< WindBoundsPad of the wind above, cm (MeshDrawCommand)
         };
 
         // Every skinned pose drawn in one pass, packed end to end; each draw names its slice with a
@@ -1532,6 +1569,9 @@ namespace Desert::Graphic::System
             uint32_t          LodLevel  = 0;
             uint64_t          HiddenSubmeshMask = 0; // the caster's section group, as its lit draw
             InstanceWindPush  Wind;
+            float             BoundsPad = 0.0f; // WindBoundsPad of the wind above, cm (MeshDrawCommand)
+            // Skinned path, virtual shadow map levels only: the posed world box (MeshDrawCommand::WorldBounds).
+            std::optional<Common::Math::AABB> WorldBounds;
         };
         std::vector<std::unique_ptr<MaskedCasterSet>> m_ScratchMaskedSets;
         std::vector<MaskedCasterDraw>                 m_ScratchMaskedDraws;

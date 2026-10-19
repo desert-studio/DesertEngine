@@ -91,6 +91,51 @@ namespace Desert::Graphic::System
     };
     static_assert( sizeof( VsmPageEntryGpu ) == 16 );
 
+    // "VSM: Dirty Mask": per level, one bit per cell of kVsmMaskCellPages x kVsmMaskCellPages window pages, set
+    // when a page of the cell is drawn this frame (allocated, dirty, requested) - what "VSM: Cull Casters" tests a
+    // caster's footprint against (UE: the page flags' hierarchy CullPerPageDrawCommands reads).
+    inline constexpr uint32_t kVsmMaskCellPages     = 8;
+    inline constexpr uint32_t kVsmMaskCells         = kVsmLevelPages / kVsmMaskCellPages; // per side
+    inline constexpr uint32_t kVsmMaskWordsPerLevel = kVsmMaskCells * kVsmMaskCells / 32u;
+
+    // "VSM: Cull Casters" records (std430; Programs/Shadows/VirtualShadowMapCullCasters.shader).
+    // One instance a draw may draw: its world box and which draw it belongs to.
+    struct VsmCullInstanceGpu
+    {
+        glm::vec4  Min{ 0.0f };
+        glm::vec4  Max{ 0.0f };
+        glm::uvec4 Draw{ 0u }; // x = its draw, y = the instance index its vertex stage fetches, zw 0
+    };
+    static_assert( sizeof( VsmCullInstanceGpu ) == 48 );
+    // One draw: its argument records (MeshDrawArguments.hpp: one per drawn submesh, consecutive) and the slots of
+    // the instance remap its surviving instances fill (its records' first instance is RemapBase).
+    struct VsmCullDrawGpu
+    {
+        uint32_t FirstRecord = 0;
+        uint32_t Records     = 0;
+        uint32_t RemapBase   = 0;
+        uint32_t Padding     = 0;
+    };
+    static_assert( sizeof( VsmCullDrawGpu ) == 16 );
+
+    // What one level's casters hand "VSM: Cull Casters": every draw's records with an instance count of 0, every
+    // instance, and the remap's size (the sum of the draws' instance counts).
+    struct VsmCasterCull
+    {
+        std::vector<VsmCullInstanceGpu> Instances;
+        std::vector<VsmCullDrawGpu>     Draws;
+        std::vector<uint32_t>           Arguments;
+        uint32_t                        RemapSize = 0;
+    };
+
+    // Its output, read by the level's "VSM: Raster": the argument records with the surviving instance counts
+    // (Access::IndirectArgs) and the instance remap (VsmInstanceRemap: draw slot -> the instance index to fetch).
+    struct VsmCulledCasters
+    {
+        RDG::BufferRef Arguments;
+        RDG::BufferRef InstanceRemap;
+    };
+
     // VsmAllocator: the frame's counters and the indirect dispatch of "VSM: Clear Pages" at kVsmClearArgsOffset.
     inline constexpr uint64_t kVsmAllocatorBytes  = 48;
     inline constexpr uint64_t kVsmClearArgsOffset = 32;
@@ -161,6 +206,7 @@ namespace Desert::Graphic::System
         // VsmRasterLevel of each level: { level index, 0, 0, 0 }, the one value a caster's fragment needs beside
         // FrameData to find its page (Mesh/Surface/Pass_VirtualShadowDepth.glslh).
         std::array<RDG::BufferRef, kVsmClipmapLevelCount> RasterLevel{};
+        RDG::BufferRef DirtyMask; // VsmDirtyMask: kVsmMaskWordsPerLevel words per level
         std::array<glm::mat4, kVsmClipmapLevelCount> LevelViewProjection{};
     };
 
@@ -179,6 +225,15 @@ namespace Desert::Graphic::System
                        const VirtualShadowMapQuality& quality, std::span<const VsmInvalidationBox> invalidations,
                        bool staticCastersChanged );
 
+        // "VSM: Cull Casters" of level @p level (UE CullPerPageDrawCommands): every instance of @p cull whose world
+        // box covers a cell of the level holding a page drawn this frame (frame.DirtyMask) is counted into each of
+        // its draw's records and written to the draw's remap slots; a level with no such page draws nothing.
+        // Refused for an empty @p cull (the caller adds no raster node then).
+        [[nodiscard]] Common::ResultStr<VsmCulledCasters> AddCasterCulling( RDG::Builder&                graph,
+                                                                           const VirtualShadowMapFrame& frame,
+                                                                           uint32_t                     level,
+                                                                           const VsmCasterCull& cull ) const;
+
         // "VSM: Project": the sun's screen shadow mask (System::kShadowMaskSunName), 1 = lit.
         [[nodiscard]] Common::ResultStr<RDG::TextureRef> AddProjection( RDG::Builder&                     graph,
                                                                         const VirtualShadowMapFrame&      frame,
@@ -195,6 +250,8 @@ namespace Desert::Graphic::System
             ClearArgs,
             Clear,
             Project,
+            DirtyMask,
+            CullCasters,
             KernelCount
         };
         struct KernelProgram

@@ -38,6 +38,7 @@
 #include <unordered_map>
 #include <optional>
 #include <memory>
+#include <span>
 
 namespace Desert::Graphic::System
 {
@@ -119,4 +120,11 @@ namespace Desert::Graphic::System
     using MeshRendererDetail::MeshPathOwnBufferName;
     using MeshRendererDetail::SectionSurface;
     using MeshRendererDetail::SurfaceSlot;
+
+    // The world box of skinned mesh @p mesh posed by @p bones (its skinning palette) under @p transform: every
+    // bone's bind box of its vertices (SkinnedMesh::GetBoneBounds, grown by the twin's morph reach) through
+    // transform * submesh.Transform * bone, the matrices its vertex stage applies. The virtual shadow map's caster
+    // bounds of a skinned mesh: its invalidation (this frame's and last frame's box) and its GPU cull.
+    [[nodiscard]] Common::Math::AABB SkinnedPoseBounds( const Desert::SkinnedMesh& mesh, const glm::mat4& transform,
+                                                        std::span<const glm::mat4> bones );
 } // namespace Desert::Graphic::System

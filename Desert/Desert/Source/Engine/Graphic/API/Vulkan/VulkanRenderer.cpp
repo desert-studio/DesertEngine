@@ -28,6 +28,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/WriteDescriptorSetBuilder.hpp>
 #include <Engine/ShaderResources/API/Vulkan/VulkanStorageBuffer.hpp>
 
+#include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -781,17 +782,14 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr VulkanRendererAPI::RenderMesh( const RDG::PassBindings& bindings,
-                                                         const GraphicsPipeline& pipeline, const Mesh& mesh,
-                                                         const glm::mat4&        transform,
-                                                         const MaterialExecutor& material, uint32_t instanceCount,
-                                                         uint32_t firstInstance, uint64_t hiddenSubmeshMask,
-                                                         uint32_t lodLevel )
+    Common::BoolResultStr VulkanRendererAPI::WalkMeshSubmeshes( const RDG::PassBindings& bindings,
+                                                                const GraphicsPipeline& pipeline, const Mesh& mesh,
+                                                                const glm::mat4&        transform,
+                                                                const MaterialExecutor& material,
+                                                                const uint64_t          hiddenSubmeshMask,
+                                                                const SubmeshDraw&      draw )
     {
-        DESERT_PROFILE_FUNC();
         const std::string_view pass = bindings.GetContext().GetPassName();
-        if ( instanceCount == 0u )
-            return Common::MakeFormattedError( "{}: a mesh draw of zero instances", pass );
         // The push block is the per-submesh transform the material carries (written below for each submesh).
         if ( !bindings.GetPushConstants().empty() )
             return Common::MakeFormattedError(
@@ -855,8 +853,9 @@ namespace Desert::Graphic::API::Vulkan
                 std::memcpy( push.data(), materialPush.Data, std::min<size_t>( push.size(), materialPush.Size ) );
         }
 
-        // RenderMesh's walk: the hidden-submesh mask, the per-submesh push block and the LOD clamp.
+        // The hidden-submesh mask and the per-submesh push block; @p draw records the submesh.
         const auto& submeshes = mesh.GetSubmeshes();
+        uint32_t    drawn     = 0;
         for ( size_t si = 0; si < submeshes.size(); ++si )
         {
             if ( si < 64 && ( ( hiddenSubmeshMask >> si ) & 1ull ) != 0 )
@@ -870,29 +869,85 @@ namespace Desert::Graphic::API::Vulkan
                                     pushConstant->stageFlags, pushConstant->offset, pushConstant->size,
                                     push.data() );
             }
-
-            if ( !indexBuffer )
-            {
-                DrawCounted( submesh.VertexCount, instanceCount, submesh.VertexOffset, firstInstance );
-                continue;
-            }
-            uint32_t drawOffset = submesh.IndexOffset;
-            uint32_t drawCount  = submesh.IndexCount;
-            if ( !submesh.LODs.empty() )
-            {
-                const uint32_t lvl =
-                     lodLevel < submesh.LODs.size() ? lodLevel : static_cast<uint32_t>( submesh.LODs.size() ) - 1;
-                drawOffset = submesh.LODs[lvl].IndexOffset;
-                drawCount  = submesh.LODs[lvl].IndexCount;
-            }
-            if ( drawOffset + drawCount > indexBuffer->GetCount() )
-                return Common::MakeFormattedError( "{}: submesh {} reads indices [{}, {}) of a {}-index buffer",
-                                                   pass, si, drawOffset, drawOffset + drawCount,
-                                                   indexBuffer->GetCount() );
-            DrawIndexedCounted( drawCount, instanceCount, drawOffset, static_cast<int32_t>( submesh.VertexOffset ),
-                                firstInstance );
+            if ( auto recorded = draw( drawn++, si, submesh, indexBuffer.get() ); !recorded )
+                return recorded;
         }
         return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::RenderMesh( const RDG::PassBindings& bindings,
+                                                         const GraphicsPipeline& pipeline, const Mesh& mesh,
+                                                         const glm::mat4&        transform,
+                                                         const MaterialExecutor& material, uint32_t instanceCount,
+                                                         uint32_t firstInstance, uint64_t hiddenSubmeshMask,
+                                                         uint32_t lodLevel )
+    {
+        DESERT_PROFILE_FUNC();
+        const std::string_view pass = bindings.GetContext().GetPassName();
+        if ( instanceCount == 0u )
+            return Common::MakeFormattedError( "{}: a mesh draw of zero instances", pass );
+        return WalkMeshSubmeshes(
+             bindings, pipeline, mesh, transform, material, hiddenSubmeshMask,
+             [&]( uint32_t, const size_t si, const Submesh& submesh,
+                  const IndexBuffer* indexBuffer ) -> Common::BoolResultStr
+             {
+                 if ( indexBuffer == nullptr )
+                 {
+                     DrawCounted( submesh.VertexCount, instanceCount, submesh.VertexOffset, firstInstance );
+                     return Common::MakeSuccess( true );
+                 }
+                 const SubmeshIndexRange range = SubmeshIndices( submesh, lodLevel );
+                 if ( range.First + range.Count > indexBuffer->GetCount() )
+                     return Common::MakeFormattedError( "{}: submesh {} reads indices [{}, {}) of a {}-index buffer",
+                                                        pass, si, range.First, range.First + range.Count,
+                                                        indexBuffer->GetCount() );
+                 DrawIndexedCounted( range.Count, instanceCount, range.First,
+                                     static_cast<int32_t>( submesh.VertexOffset ), firstInstance );
+                 return Common::MakeSuccess( true );
+             } );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirect( const RDG::PassBindings& bindings,
+                                                                 const GraphicsPipeline& pipeline, const Mesh& mesh,
+                                                                 const glm::mat4&        transform,
+                                                                 const MaterialExecutor& material,
+                                                                 const RDG::BufferRef args, const uint64_t offset,
+                                                                 const uint64_t hiddenSubmeshMask )
+    {
+        DESERT_PROFILE_FUNC();
+        const RDG::PassContext& context = bindings.GetContext();
+        if ( offset % 4u != 0u )
+            return Common::MakeFormattedError( "{}: indirect arguments at byte {}, not a multiple of four",
+                                               context.GetPassName(), offset );
+        const auto declared = context.GetBuffer( args, RDG::Access::IndirectArgs );
+        if ( !declared )
+            return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
+                                               declared.GetError() );
+        const auto buffer = VulkanRdgBackend::BufferOf( declared.GetValue() );
+        if ( !buffer )
+            return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
+                                               buffer.GetError() );
+        const uint64_t bytes  = declared.GetValue().Desc->Bytes;
+        const VkBuffer vkArgs = buffer.GetValue()->GetBuffer();
+        // Not counted by DrawCounter: the instance counts are the GPU's (DrawProceduralIndirect likewise).
+        return WalkMeshSubmeshes(
+             bindings, pipeline, mesh, transform, material, hiddenSubmeshMask,
+             [&]( const uint32_t drawn, size_t, const Submesh&,
+                  const IndexBuffer* indexBuffer ) -> Common::BoolResultStr
+             {
+                 const uint64_t at = offset + ( uint64_t{ drawn } * kMeshDrawArgumentsBytes );
+                 if ( at + kMeshDrawArgumentsBytes > bytes )
+                     return Common::MakeFormattedError(
+                          "{}: indirect arguments of drawn submesh {} at byte {} past the end of '{}' ({} bytes)",
+                          context.GetPassName(), drawn, at, declared.GetValue().Name, bytes );
+                 if ( indexBuffer == nullptr )
+                     vkCmdDrawIndirect( m_CurrentCommandBuffer, vkArgs, at, 1,
+                                        static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
+                 else
+                     vkCmdDrawIndexedIndirect( m_CurrentCommandBuffer, vkArgs, at, 1,
+                                               static_cast<uint32_t>( sizeof( VkDrawIndexedIndirectCommand ) ) );
+                 return Common::MakeSuccess( true );
+             } );
     }
 
     Common::BoolResultStr VulkanRendererAPI::BindGraphicsPassState( const RDG::PassBindings& bindings,

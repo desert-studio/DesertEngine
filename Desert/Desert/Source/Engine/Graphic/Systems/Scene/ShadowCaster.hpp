@@ -5,6 +5,9 @@
 
 #include <glm/glm.hpp>
 
+#include <Engine/Graphic/RDG/RDGResources.hpp>
+
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <vector>
@@ -33,6 +36,17 @@ namespace Desert::Graphic::System
         uint64_t  Signature = 0;
         glm::vec3 Min{ 0.0f };
         glm::vec3 Max{ 0.0f };
+    };
+
+    // One draw a caster records into a virtual shadow map level, for the level's GPU cull ("VSM: Cull Casters"): its
+    // world box and its indirect argument record (Graphic/MeshDrawArguments.hpp: a VkDrawIndirectCommand in the first
+    // four words, its instance count 0 - the cull counts the draw's one instance in where its box covers a page drawn
+    // this frame).
+    struct VirtualShadowCasterDraw
+    {
+        glm::vec3               Min{ 0.0f };
+        glm::vec3               Max{ 0.0f };
+        std::array<uint32_t, 5> Arguments{};
     };
 
     // The virtual shadow map's pass parameters, added to every binding block a caster declares on a "VSM: Raster"
@@ -88,6 +102,10 @@ namespace Desert::Graphic::System
         // each frame, and only the dirty pages take its depth (Common/VirtualShadowRaster.glslh).
         virtual void AppendVirtualShadowEntries( std::vector<ShadowCasterEntry>& entries ) const = 0;
 
+        // The draws RecordVirtualShadow records this frame, in its order (the same for every level): what the
+        // level's cull keeps or drops (UE CullPerPageDrawCommands). Asked in each level's setup.
+        virtual void AppendVirtualShadowDraws( std::vector<VirtualShadowCasterDraw>& draws ) const = 0;
+
         // SETUP of a level's node: one binding block per material this caster draws the level with, each carrying
         // @p parameters; the blocks follow the ones already declared on the node. Returns how many it declared
         // (0: nothing to draw). A caster that cannot draw into the virtual shadow map (its program or pipeline
@@ -97,9 +115,12 @@ namespace Desert::Graphic::System
 
         // Draws the level through the blocks DeclareVirtualShadow declared (the first at @p firstBlock), projecting
         // with @p levelViewProj (world -> the level's standard-Z clip; no caster bias: the virtual shadow map biases
-        // its receivers, VirtualShadowMapProject).
+        // its receivers, VirtualShadowMapProject), draw k from the culled record @p firstRecord + k of
+        // @p arguments (the node reads it as Access::IndirectArgs).
         [[nodiscard]] virtual Common::BoolResultStr RecordVirtualShadow( const RDG::PassContext& context,
                                                                          uint32_t                firstBlock,
-                                                                         const glm::mat4&        levelViewProj ) = 0;
+                                                                         const glm::mat4&        levelViewProj,
+                                                                         RDG::BufferRef          arguments,
+                                                                         uint32_t                firstRecord ) = 0;
     };
 } // namespace Desert::Graphic::System
