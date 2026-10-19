@@ -21,8 +21,9 @@
 // One function serves all three; only the level vector differs (DisplacementLevelsForEdge / MaxLevels).
 namespace Desert::Geometry
 {
-    // A height texture decoded on the CPU: linear RGBA in 0..1, mip 0 first, each further mip a 2x2 box of the
-    // previous (the chain the sampler walks). Built once per texture by MakeDisplacementHeightImage.
+    // A height texture decoded on the CPU: linear RGBA, mip 0 first - the COOKED chain the GPU uploads, decoded as
+    // its sampler reads it (Editor TextureImporter::DecodePlatformMips), so block compression and the cooker's mip
+    // filter are the same on both sides. Built once per texture by MakeDisplacementHeightImage.
     struct DisplacementHeightImage
     {
         struct Mip
@@ -34,9 +35,11 @@ namespace Desert::Geometry
         std::vector<Mip> Mips;
     };
 
-    // Takes mip 0 (width x height linear RGBA texels) and builds the box chain down to 1x1.
+    // Takes the whole chain, level 0 first. Each level must be max(previous / 2, 1) on both axes with Width x
+    // Height texels - the Vulkan mip rule the GPU sampler's lod walks; a chain that breaks it is an error naming the
+    // level. A chain shorter than 1x1 is legal: the sampler clamps lod to its last level, and so does Trilinear.
     [[nodiscard]] Common::ResultStr<std::shared_ptr<const DisplacementHeightImage>>
-    MakeDisplacementHeightImage( uint32_t width, uint32_t height, std::vector<glm::vec4> texels );
+    MakeDisplacementHeightImage( std::vector<DisplacementHeightImage::Mip> mips );
 
     // One submesh's height as the material states it (Core::Formats::SurfaceHeight resolved against the material
     // row) - the CPU twin of DisplacementMaterialRecord. Image null = the submesh has no height and moves by 0.

@@ -1114,88 +1114,43 @@ namespace Desert::Editor
         return Common::MakeSuccess( std::move( *entry ) );
     }
 
-    Common::ResultStr<TextureImporter::SourcePixels>
-    TextureImporter::DecodeSourcePixels( const std::filesystem::path& asset )
+    Common::ResultStr<std::vector<TextureImporter::PlatformMip>>
+    TextureImporter::DecodePlatformMips( const std::filesystem::path& asset )
     {
-        auto read = Assets::ReadTextureSourceAssetFile( asset );
-        if ( !read.IsSuccess() )
-            return Common::MakeFormattedError<SourcePixels>( "texture '{}': {}", asset.string(), read.GetError() );
-        const Assets::TextureSourceAsset& source = read.GetValue();
-        const std::string bytes( reinterpret_cast<const char*>( source.Source.data() ), source.Source.size() );
-        const auto*       raw  = reinterpret_cast<const stbi_uc*>( bytes.data() );
-        const int         size = static_cast<int>( bytes.size() );
+        using Result = std::vector<PlatformMip>;
+        // The platform data the GPU uploads (a DDC miss cooks it through the registered builder), so the CPU sees
+        // the cooker's block compression and mip filter, not the source's.
+        const auto raw = Assets::LoadTexturePlatformData( asset );
+        if ( !raw.IsSuccess() )
+            return Common::MakeFormattedError<Result>( "texture '{}': {}", asset.string(), raw.GetError() );
+        auto decoded = Assets::Serialization::DecodeTextureBinary( raw.GetValue(), asset.string() );
+        if ( !decoded.IsSuccess() )
+            return Common::MakeFormattedError<Result>( "texture '{}': {}", asset.string(), decoded.GetError() );
+        const Assets::Serialization::TextureAssetData& data = decoded.GetValue();
+        if ( data.Kind != Assets::Serialization::TextureKind::Texture2D || data.LayerCount != 1 )
+            return Common::MakeFormattedError<Result>(
+                 "texture '{}' is kind {} with {} layers; the CPU reader samples one-layer 2D textures only",
+                 asset.string(), static_cast<uint32_t>( data.Kind ), data.LayerCount );
 
-        SourcePixels out;
-        auto         fromFloats = [&out]( const float* rgba, size_t w, size_t h )
+        Result mips;
+        mips.reserve( data.Levels.size() );
+        for ( size_t l = 0; l < data.Levels.size(); ++l )
         {
-            out.Width  = static_cast<uint32_t>( w );
-            out.Height = static_cast<uint32_t>( h );
-            out.Rgba.resize( w * h );
-            for ( size_t i = 0; i < w * h; ++i )
-                out.Rgba[i] = { rgba[4 * i], rgba[4 * i + 1], rgba[4 * i + 2], rgba[4 * i + 3] };
-        };
-        auto fromBytes = [&out]( const unsigned char* rgba, size_t w, size_t h )
-        {
-            out.Width  = static_cast<uint32_t>( w );
-            out.Height = static_cast<uint32_t>( h );
-            out.Rgba.resize( w * h );
-            for ( size_t i = 0; i < w * h; ++i )
-                out.Rgba[i] = glm::vec4( rgba[4 * i], rgba[4 * i + 1], rgba[4 * i + 2], rgba[4 * i + 3] ) / 255.0f;
-        };
-        bool linearValues = false; // HDR/EXR/float DDS: already linear, never sRGB-decoded
-        if ( IsExrSource( bytes, source.Import.SourceFile ) )
-        {
-            const ExrDecode exr = DecodeExr( bytes );
-            if ( !exr.Problem.empty() )
-                return Common::MakeFormattedError<SourcePixels>( "texture '{}': EXR decode failed ({})",
-                                                                 asset.string(), exr.Problem );
-            fromFloats( exr.Rgba.data(), static_cast<size_t>( exr.w ), static_cast<size_t>( exr.h ) );
-            linearValues = true;
+            const Assets::Serialization::TextureLevel& level = data.Levels[l];
+            if ( level.ByteOffset + level.ByteSize > data.Pixels.size() )
+                return Common::MakeFormattedError<Result>( "texture '{}' level {} ends at {} of {} bytes",
+                                                           asset.string(), l, level.ByteOffset + level.ByteSize,
+                                                           data.Pixels.size() );
+            const std::span<const unsigned char> bytes( data.Pixels.data() + level.ByteOffset,
+                                                        static_cast<size_t>( level.ByteSize ) );
+            auto texels = DecodeCookedTextureLevel( data.Format, data.ColorSpace, bytes, level.Width, level.Height,
+                                                    level.RowPitch );
+            if ( !texels.IsSuccess() )
+                return Common::MakeFormattedError<Result>( "texture '{}' level {}: {}", asset.string(), l,
+                                                           texels.GetError() );
+            mips.push_back( { level.Width, level.Height, texels.ExtractValue() } );
         }
-        else if ( IsDdsSource( bytes, source.Import.SourceFile ) )
-        {
-            auto dds = DecodeDdsSource( raw, bytes.size() );
-            if ( !dds.IsSuccess() )
-                return Common::MakeFormattedError<SourcePixels>( "texture '{}': DDS decode failed ({})",
-                                                                 asset.string(), dds.GetError() );
-            const DdsSourceImage& image = dds.GetValue();
-            if ( image.IsFloat )
-            {
-                fromFloats( image.RgbaF.data(), image.Width, image.Height );
-                linearValues = true;
-            }
-            else
-                fromBytes( image.Rgba8.data(), image.Width, image.Height );
-        }
-        else if ( stbi_is_hdr_from_memory( raw, size ) )
-        {
-            int    w = 0, h = 0, ch = 0;
-            float* pixels = stbi_loadf_from_memory( raw, size, &w, &h, &ch, 4 );
-            if ( pixels == nullptr )
-                return Common::MakeFormattedError<SourcePixels>( "texture '{}': HDR decode failed ({})",
-                                                                 asset.string(), stbi_failure_reason() );
-            fromFloats( pixels, static_cast<size_t>( w ), static_cast<size_t>( h ) );
-            stbi_image_free( pixels );
-            linearValues = true;
-        }
-        else
-        {
-            int      w = 0, h = 0, ch = 0;
-            stbi_uc* pixels = stbi_load_from_memory( raw, size, &w, &h, &ch, 4 );
-            if ( pixels == nullptr )
-                return Common::MakeFormattedError<SourcePixels>( "texture '{}': image decode failed ({})",
-                                                                 asset.string(), stbi_failure_reason() );
-            fromBytes( pixels, static_cast<size_t>( w ), static_cast<size_t>( h ) );
-            stbi_image_free( pixels );
-        }
-        // The GPU samples an sRGB texture through a *_SRGB view, i.e. linearised; the CPU reader must see the same
-        // values. Alpha is never encoded.
-        if ( !linearValues && source.Import.Settings.ColorSpace == Fmt::TextureColorSpace::SRGB )
-            for ( glm::vec4& texel : out.Rgba )
-                for ( int c = 0; c < 3; ++c )
-                    texel[c] = texel[c] <= 0.04045f ? texel[c] / 12.92f
-                                                     : std::pow( ( texel[c] + 0.055f ) / 1.055f, 2.4f );
-        return Common::MakeSuccess( std::move( out ) );
+        return Common::MakeSuccess( std::move( mips ) );
     }
 
 } // namespace Desert::Editor

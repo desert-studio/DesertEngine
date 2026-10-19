@@ -3,6 +3,7 @@
 #include <Common/Core/Core.hpp> // BOOLSUCCESS
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/IndexBuffer.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -627,9 +628,20 @@ namespace Desert::Graphic::System
         for ( const DisplacementMaterialRecord& m : pool.Materials )
             if ( m.Texture != 0xffffffffu )
                 growth = std::max( growth, std::abs( m.ScaleCm ) * std::max( m.Center, 1.0f - m.Center ) );
+        if ( geometry.Twin )
+            RetireTwin( std::move( geometry.Twin ) );
         geometry.Twin = StaticMesh::MakeDisplacedTwin( *pool.Mesh, pool.Vertices, pool.Streams, indexBuffer, ranges,
                                                        pool.Capacity, growth );
         return BOOLSUCCESS;
+    }
+
+    void DisplacementCache::RetireTwin( std::shared_ptr<StaticMesh> twin )
+    {
+        if ( twin )
+        {
+            const uint64_t now = ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+            m_RetiringTwins.Park( std::move( twin ), now );
+        }
     }
 
     Common::ResultStr<std::shared_ptr<DisplacementCache::SharedGeometry>>
@@ -695,6 +707,11 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         m_DisplacedFrame      = frame;
         m_Frame               = frame;
+        // Twins replaced or dropped in earlier frames are released once no frame in flight can still draw them.
+        {
+            const auto& frames = ::Desert::Engine::FrameManager::GetInstance();
+            m_RetiringTwins.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+        }
         m_Stats.Rebuilt       = 0;
         m_Stats.LevelsLowered = 0;
         m_Stats.LevelsRaised  = 0;
@@ -794,6 +811,8 @@ namespace Desert::Graphic::System
                 }
                 liveBytes += bytes;
                 liveBytes -= released;
+                if ( entry.Current )
+                    RetireTwin( entry.Current->Twin );
                 entry.Current = emitted.GetValue();
                 m_Shared.emplace( HashKey( entry.Current->Key ), entry.Current );
                 ++m_Stats.Rebuilt;
@@ -804,6 +823,8 @@ namespace Desert::Graphic::System
                 continue;
             if ( auto shared = FindShared( wanted ) )
             {
+                if ( entry.Current )
+                    RetireTwin( entry.Current->Twin );
                 entry.Current = std::move( shared );
                 continue;
             }
@@ -859,6 +880,9 @@ namespace Desert::Graphic::System
 
     void DisplacementCache::EndFrame( const uint64_t frame )
     {
+        for ( const auto& [key, entry] : m_Entries )
+            if ( entry.LastFrame != frame && entry.Current )
+                RetireTwin( entry.Current->Twin ); // this frame's draws may still name it
         std::erase_if( m_Entries, [frame]( const auto& item ) { return item.second.LastFrame != frame; } );
         std::erase_if( m_Shared, []( const auto& shared ) { return shared.second.expired(); } );
         std::erase_if( m_Pools, []( const auto& pool ) { return pool.second.expired(); } );

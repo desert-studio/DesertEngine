@@ -27,7 +27,7 @@ namespace Desert::Editor
     Common::ResultStr<std::string> BuildMeshPlatformData( const Assets::MeshSourceAsset& asset );
 
     // THE DISPLACED MESH BUILDER, registered with Assets::SetDisplacedMeshBuilder (CONTRACT-DISPLACE §1g): every
-    // section's height map decoded from its texture asset's source (TextureImporter::DecodeSourcePixels), the
+    // section's height map decoded from its texture asset's platform data (TextureImporter::DecodePlatformMips), the
     // surface tessellated and displaced on the CPU exactly as the GPU pair does (Geometry::BuildDisplacedSurface)
     // at the input's level, bitwise-equal vertices welded (a cluster border is emitted by both clusters), then
     // with BakeLODs the LOD chain (BakeMeshLODs), encoded as the MeshBinary container.

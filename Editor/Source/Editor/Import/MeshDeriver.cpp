@@ -264,7 +264,8 @@ namespace Desert::Editor
             return Common::MakeError<std::string>( "displaced mesh: no displacement topology in the input" );
         const Geometry::DisplacementTopology& topology = *input.Topology;
 
-        // One decode per distinct height map, shared by the sections that read it.
+        // One decode per distinct height map, shared by the sections that read it: the COOKED chain, as the
+        // GPU samples it, so the bake and collision match the runtime displacement (BC, mip filter).
         std::map<std::filesystem::path, std::shared_ptr<const Geometry::DisplacementHeightImage>> images;
         std::vector<Geometry::DisplacementSurfaceMaterial> materials( input.Submeshes.size() );
         for ( size_t s = 0; s < input.Submeshes.size() && s < input.Heights.size(); ++s )
@@ -275,13 +276,14 @@ namespace Desert::Editor
             auto& image = images[height->TextureAsset];
             if ( !image )
             {
-                auto pixels = TextureImporter::DecodeSourcePixels( height->TextureAsset );
-                if ( !pixels.IsSuccess() )
+                auto platform = TextureImporter::DecodePlatformMips( height->TextureAsset );
+                if ( !platform.IsSuccess() )
                     return Common::MakeFormattedError<std::string>( "displaced mesh: section {} height: {}", s,
-                                                                    pixels.GetError() );
-                TextureImporter::SourcePixels decoded = pixels.ExtractValue();
-                auto made = Geometry::MakeDisplacementHeightImage( decoded.Width, decoded.Height,
-                                                                   std::move( decoded.Rgba ) );
+                                                                    platform.GetError() );
+                std::vector<Geometry::DisplacementHeightImage::Mip> mips;
+                for ( TextureImporter::PlatformMip& mip : platform.GetValue() )
+                    mips.push_back( { mip.Width, mip.Height, std::move( mip.Texels ) } );
+                auto made = Geometry::MakeDisplacementHeightImage( std::move( mips ) );
                 if ( !made.IsSuccess() )
                     return Common::MakeFormattedError<std::string>( "displaced mesh: section {} height '{}': {}", s,
                                                                     height->TextureAsset.generic_string(),

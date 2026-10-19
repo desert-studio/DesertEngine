@@ -56,7 +56,8 @@ namespace Desert::Assets
 
     inline constexpr Common::DDC::Deriver kDisplacedStaticMeshDeriver{
          "DisplacedStaticMesh", ".stmesh", { 0x5C0D7A41E92B36F8ULL, 0xA7E4193D0B65C2F1ULL } };
-    inline constexpr uint32_t kDisplacedMeshBuilderVersion = 1;
+    // 2: heights read from the cooked texture chain (as the GPU samples), no longer from the source pixels.
+    inline constexpr uint32_t kDisplacedMeshBuilderVersion = 2;
 
     struct DisplacedMeshBuildInput
     {

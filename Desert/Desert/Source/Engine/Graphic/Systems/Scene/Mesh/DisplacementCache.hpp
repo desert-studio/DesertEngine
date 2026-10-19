@@ -22,6 +22,7 @@
 // instances and ISM members at the same levels cost one buffer set and one BLAS.
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Core/Formats/MaterialLayout.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
@@ -181,7 +182,9 @@ namespace Desert::Graphic::System
         // the BLAS built over the twin). Appends go at Used; when the buffer is full the pool is rebuilt at twice
         // the live size with only the pieces live geometries still draw (dead pieces are reclaimed there), and
         // every live geometry of the pool gets a new index buffer and twin. Owned by its geometries (shared_ptr);
-        // m_Pools only finds it.
+        // m_Pools only finds it. A replaced twin is PARKED (RetireTwin), never dropped: draw records of frames still
+        // in flight name it by raw pointer, and its address must not be reused by a new twin while any of them can
+        // (a pointer-keyed cache would take the new twin for the old one).
         struct PoolPiece
         {
             uint32_t First   = 0; // first vertex in the pool
@@ -245,8 +248,11 @@ namespace Desert::Graphic::System
         // from @p t where the pool lacks them). Every other live geometry of the pool is re-indexed.
         [[nodiscard]] Common::BoolResultStr RebuildPool( VertexPool& pool, const std::vector<std::string>& wanted,
                                                          const Tessellation& t );
-        // The geometry's index buffer and twin over its pool's current buffer.
+        // The geometry's index buffer and twin over its pool's current buffer; the previous twin is retired.
         [[nodiscard]] Common::BoolResultStr IndexGeometry( SharedGeometry& geometry );
+        // Keeps @p twin (with the buffers and BLAS it holds) alive until no frame in flight can name it: parked at
+        // the current absolute frame, released by the Collect at the start of DisplaceFrame (FrameRetireQueue).
+        void RetireTwin( std::shared_ptr<StaticMesh> twin );
         [[nodiscard]] const std::vector<uint32_t>& TopologyWords( const Desert::Geometry::DisplacementTopology& topology );
 
         DisplacementQuality                  m_Quality;
@@ -261,6 +267,7 @@ namespace Desert::Graphic::System
         ShaderBindingLayoutCache                                                         m_HeightsLayout;
         ShaderBindingLayoutCache                                                         m_EmitLayout;
         DisplacementStats                                                                m_Stats;
+        Assets::FrameRetireQueue<std::shared_ptr<StaticMesh>>                            m_RetiringTwins;
         uint64_t                                                                         m_Frame = 0;
         uint64_t m_DisplacedFrame = UINT64_MAX; // the frame DisplaceFrame last ran for (once per frame)
         bool m_PipelineRefusalLogged                                                             = false;

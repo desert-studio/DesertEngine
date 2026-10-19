@@ -33,7 +33,7 @@ namespace Desert::Geometry
             return glm::mix( a, b, t.y );
         }
 
-        // Trilinear over the box chain, as SampleBindless(texture, sampler, uv, lod) with a linear-mip sampler.
+        // Trilinear over the cooked chain, as SampleBindless(texture, sampler, uv, lod) with a linear-mip sampler.
         glm::vec4 Trilinear( const DisplacementHeightImage& image, const glm::vec2 uv, const float lod )
         {
             const float     top = static_cast<float>( image.Mips.size() - 1 );
@@ -195,36 +195,30 @@ namespace Desert::Geometry
     } // namespace
 
     Common::ResultStr<std::shared_ptr<const DisplacementHeightImage>>
-    MakeDisplacementHeightImage( const uint32_t width, const uint32_t height, std::vector<glm::vec4> texels )
+    MakeDisplacementHeightImage( std::vector<DisplacementHeightImage::Mip> mips )
     {
         using Result = std::shared_ptr<const DisplacementHeightImage>;
-        if ( width == 0 || height == 0 || texels.size() != static_cast<size_t>( width ) * height )
-            return Common::MakeFormattedError<Result>( "displacement height image: {}x{} with {} texels", width,
-                                                       height, texels.size() );
-        auto image = std::make_shared<DisplacementHeightImage>();
-        image->Mips.push_back( { width, height, std::move( texels ) } );
-        while ( image->Mips.back().Width > 1 || image->Mips.back().Height > 1 )
+        if ( mips.empty() )
+            return Common::MakeError<Result>( "displacement height image: no levels" );
+        for ( size_t l = 0; l < mips.size(); ++l )
         {
-            const DisplacementHeightImage::Mip& src = image->Mips.back();
-            DisplacementHeightImage::Mip        dst;
-            dst.Width  = std::max( src.Width / 2, 1u );
-            dst.Height = std::max( src.Height / 2, 1u );
-            dst.Texels.resize( static_cast<size_t>( dst.Width ) * dst.Height );
-            for ( uint32_t y = 0; y < dst.Height; ++y )
-                for ( uint32_t x = 0; x < dst.Width; ++x )
-                {
-                    // A 2x2 box; an odd edge (or a 1-texel axis) reuses its last row/column.
-                    const uint32_t x0 = std::min( x * 2, src.Width - 1 );
-                    const uint32_t x1 = std::min( x * 2 + 1, src.Width - 1 );
-                    const uint32_t y0 = std::min( y * 2, src.Height - 1 );
-                    const uint32_t y1 = std::min( y * 2 + 1, src.Height - 1 );
-                    const auto     at = [&src]( const uint32_t u, const uint32_t v )
-                    { return src.Texels[static_cast<size_t>( v ) * src.Width + u]; };
-                    dst.Texels[static_cast<size_t>( y ) * dst.Width + x] =
-                         ( at( x0, y0 ) + at( x1, y0 ) + at( x0, y1 ) + at( x1, y1 ) ) * 0.25f;
-                }
-            image->Mips.push_back( std::move( dst ) );
+            const DisplacementHeightImage::Mip& mip = mips[l];
+            if ( mip.Width == 0 || mip.Height == 0 ||
+                 mip.Texels.size() != static_cast<size_t>( mip.Width ) * mip.Height )
+                return Common::MakeFormattedError<Result>( "displacement height image: level {} is {}x{} with {} "
+                                                           "texels",
+                                                           l, mip.Width, mip.Height, mip.Texels.size() );
+            if ( l == 0 )
+                continue;
+            const uint32_t width  = std::max( mips[l - 1].Width / 2, 1u );
+            const uint32_t height = std::max( mips[l - 1].Height / 2, 1u );
+            if ( mip.Width != width || mip.Height != height )
+                return Common::MakeFormattedError<Result>(
+                     "displacement height image: level {} is {}x{}, the mip rule after {}x{} says {}x{}", l,
+                     mip.Width, mip.Height, mips[l - 1].Width, mips[l - 1].Height, width, height );
         }
+        auto image  = std::make_shared<DisplacementHeightImage>();
+        image->Mips = std::move( mips );
         return Common::MakeSuccess<Result>( std::move( image ) );
     }
 
