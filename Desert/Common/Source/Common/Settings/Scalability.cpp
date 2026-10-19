@@ -192,6 +192,10 @@ namespace Common::Scalability
              { P::ReflectionsHitLighting, G::Reflections, "Reflections.HitLighting", 0, 1, CL::None,
                "SceneRenderer::ReflectionsTracer -> SSR.shader \"HitLighting\" ray generation "
                "(Renderer::TraceRays)" },
+             { P::ReflectionsTranslucentFrontLayer, G::Reflections, "Reflections.TranslucentFrontLayer", 0, 1,
+               CL::None,
+               "SceneRenderer::TranslucentFrontLayerReflections -> \"Translucency: Front Layer G-buffer\" + "
+               "\"Translucency: Front Layer Reflections\" -> Pass_Forward_Translucent.glslh" },
         } };
     } // namespace
 

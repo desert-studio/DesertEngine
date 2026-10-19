@@ -617,8 +617,26 @@ namespace Desert::Graphic::System
         // @p sceneCopy (this frame's snapshot of the opaque scene, FrameTransients::SceneColorCopy, sampled for
         // refraction) and the scene/view inputs of @p view the cell's shader has a slot for. Declares nothing
         // (and the node draws nothing) when no translucent object is visible.
-        void DeclareGlassBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy,
-                                   const SceneViewInputs& view );
+        // @p frontLayer: this frame's front layer reflection and depth (Reflections.TranslucentFrontLayer), bound as
+        // u_FrontLayerReflection / u_FrontLayerDepth wherever the cell's shader has the slots - the graph's black
+        // texture for both when the frame has no front layer.
+        struct GlassFrontLayer
+        {
+            RDG::TextureRef Reflection;
+            RDG::TextureRef Depth;
+        };
+        void DeclareGlassBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, const SceneViewInputs& view,
+                                   const GlassFrontLayer& frontLayer );
+        // THE TRANSLUCENT FRONT LAYER G-BUFFER (UE RenderFrontLayerTranslucencyGBuffer, Reflections.
+        // TranslucentFrontLayer). GRAPH BUILD, before the node is added: the frame's front layer draw list - every
+        // visible object whose material's template is `BlendMode Translucent`, through its template's
+        // `Static.FrontLayer` cell (FrontLayerDrawFor), unsorted: the depth test keeps the nearest. False: nothing
+        // to draw, and the frame has no front layer.
+        [[nodiscard]] bool BuildFrontLayerDraws();
+        // SETUP of "Translucency: Front Layer G-buffer": the list's binding blocks (the cells sample no scene input).
+        void DeclareFrontLayerDraws( RDG::PassBuilder& pass );
+        // EXEC of the node: records the list inside the render pass the graph opened on the front layer's targets.
+        [[nodiscard]] Common::BoolResultStr RenderFrontLayerManual( const RDG::PassContext& context ) const;
         // Deferred path: draws the generic (custom-shader) meshes FORWARD over the deferred
         // lighting composite in a LOAD render pass — they have no G-buffer variant, so without
         // this they simply vanish in Deferred. Forward path draws them inside MeshGeometryPass.
@@ -898,6 +916,10 @@ namespace Desert::Graphic::System
         // it cannot.
         struct TranslucentDraw;
         TranslucentDraw* TranslucentDrawFor( const std::string& cellShader );
+        // The front layer's draw state for ONE translucent template's `Static.FrontLayer` cell @p cellShader: its own
+        // opaque, depth-writing pipeline on FrontLayerTargetLayout and a dedicated material (its rows written once a
+        // frame by BuildFrontLayerDraws). Null (logged once per shader) when it cannot be built.
+        TranslucentDraw* FrontLayerDrawFor( const std::string& cellShader );
         bool SetupSkinnedGeometryPass();
         bool SetupSilhouettePass();
         // Holds @p budget as m_Shadow, clamped to what the arrays can carry. Initialize and RebudgetShadows.
@@ -973,6 +995,7 @@ namespace Desert::Graphic::System
         // binding block (after m_CascadeDraws[c]'s); the exec records exactly these.
         std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeCasters[kMaxCascades];
         MeshRendererDetail::MeshDrawList m_GlassDraws;      // "Deferred: Glass" (block 0 = the glass executor's)
+        MeshRendererDetail::MeshDrawList m_FrontLayerDraws; // "Translucency: Front Layer G-buffer"
         MeshRendererDetail::MeshDrawList m_CardCaptureDraws; // "SurfaceCache: Card Capture"
         // One section of a card instance (UE FLumenCardRenderer: a card is drawn with every section of its mesh,
         // each a mesh batch with its own material): its material, the submeshes it does NOT draw, its motion row.
@@ -1115,6 +1138,8 @@ namespace Desert::Graphic::System
             MaterialInstancePtr                 Instance;
         };
         std::unordered_map<std::string, std::unique_ptr<TranslucentDraw>> m_Translucent;
+        // FrontLayerDrawFor's, by `Static.FrontLayer` cell shader (null = refused, said once).
+        std::unordered_map<std::string, std::unique_ptr<TranslucentDraw>> m_FrontLayer;
 
         // (Static x GBuffer) for meshes whose FORWARD material is not one MaterialService owns — in
         // practice only MeshECSSystem's default material, which stands in for a mesh whose slot did not

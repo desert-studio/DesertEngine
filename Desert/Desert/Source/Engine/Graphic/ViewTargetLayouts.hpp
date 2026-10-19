@@ -32,6 +32,16 @@ namespace Desert::Graphic
                                    1 };
     }
 
+    // The translucent front layer's G-buffer ("Translucency: Front Layer G-buffer", Mesh/Surface/Pass_FrontLayer.glslh;
+    // UE FrontLayerTranslucency GBufferA + SceneDepth): the G-buffer normal slot's format (normal + roughness, read by
+    // the reflection trace exactly as the opaque one), the view's velocity format (the reflection denoiser's
+    // reprojection), the G-buffer depth format. All graph transients of the frame.
+    inline RenderTargetLayout FrontLayerTargetLayout()
+    {
+        return RenderTargetLayout{ { ViewTargetFormats::kGBufferB, ViewTargetFormats::kVelocity },
+                                   ViewTargetFormats::kGBufferDepth,
+                                   1 };
+    }
     // The graph-provided colour slots: velocity after each framebuffer's own colours.
     // The scene target's responsive-AA mask after it (no G-buffer slot: only translucency writes it).
     inline constexpr uint32_t kSceneTargetVelocitySlot     = 1;

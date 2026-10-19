@@ -63,11 +63,47 @@ namespace Desert::Graphic::System
     public:
         using RenderSystem::RenderSystem;
 
+        // WHICH SURFACE THE RAYS LEAVE FROM (UE ELumenReflectionPass: Opaque / FrontLayerTranslucency). Opaque: the
+        // G-buffer's. TranslucentFrontLayer: the nearest translucent surface of each pixel ("Translucency: Front
+        // Layer G-buffer", Reflections.TranslucentFrontLayer) - every program of this renderer is SSR.shader's
+        // DESERT_REFLECTIONS_FRONT_LAYER permutation, the trace's blocks carry FrontLayerInputs, and the denoiser's
+        // history is this renderer's own, as UE keeps the front layer's reflection history apart.
+        enum class ReflectingSurface : uint8_t
+        {
+            Opaque,
+            TranslucentFrontLayer,
+        };
+        static constexpr std::string_view kFrontLayerDefine = "DESERT_REFLECTIONS_FRONT_LAYER";
+
+        // Before Initialize: the surface this renderer reflects (Opaque until said otherwise).
+        void TraceFrom( const ReflectingSurface surface )
+        {
+            m_Surface = surface;
+        }
+        [[nodiscard]] ReflectingSurface Surface() const
+        {
+            return m_Surface;
+        }
+
+        // The front layer's G-buffer (Mesh/Surface/Pass_FrontLayer.glslh) the TranslucentFrontLayer programs start
+        // their rays from: normal + roughness and depth, as u_FrontLayerNormal / u_FrontLayerDepth.
+        struct FrontLayerInputs
+        {
+            RDG::TextureRef Normal;
+            RDG::TextureRef Depth;
+        };
+
         virtual Common::BoolResultStr Initialize() override
         {
-            m_TraceShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSR" );
+            m_TraceShader = m_Surface == ReflectingSurface::TranslucentFrontLayer
+                                 ? Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+                                        "SSR", Core::ShaderVariant{ .Defines = { std::string( kFrontLayerDefine ) } } )
+                                 : Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSR" );
             if ( !m_TraceShader )
-                return Common::MakeError( "SSR shader not found (SSR)" );
+                return Common::MakeError( m_Surface == ReflectingSurface::TranslucentFrontLayer
+                                               ? "SSR: the front layer's program (SSR, DESERT_REFLECTIONS_FRONT_LAYER) "
+                                                 "did not compile"
+                                               : "SSR shader not found (SSR)" );
 
             const auto tracePipeline =
                  ComputePipeline::Create( { .Shader = m_TraceShader, .DebugName = "SSRTrace" } );
@@ -120,6 +156,8 @@ namespace Desert::Graphic::System
             variant.Defines.emplace_back( "DESERT_REFLECTIONS_TRACED" );
             if ( hitLighting )
                 variant.Defines.emplace_back( "DESERT_REFLECTIONS_HIT_LIGHTING" );
+            if ( m_Surface == ReflectingSurface::TranslucentFrontLayer )
+                variant.Defines.emplace_back( kFrontLayerDefine );
             auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "SSR", variant );
             if ( !shader )
                 return Common::MakeFormattedError<bool>(
@@ -292,10 +330,11 @@ namespace Desert::Graphic::System
         // trace / @p tiles as storage writes, @p uniforms (UploadTraceUniforms) as SSRTraceUB, the TracePush
         // bytes; the pipeline's own setters are the other route. Not prepared: nothing.
         // @p traced: the traced permutation's reads (EnsureTracedProgram first), or null for the screen alone.
+        // @p frontLayer: the TranslucentFrontLayer surface's G-buffer (null for an Opaque renderer).
         void DeclareTraceBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef traceRay,
                                    RDG::TextureRef tiles, const GBufferInputs& gbuffer, RDG::TextureRef velocity,
                                    RDG::TextureRef sceneHistory, RDG::TextureRef hzb, RDG::BufferRef uniforms,
-                                   const TracedReads* traced = nullptr ) const
+                                   const TracedReads* traced = nullptr, const FrontLayerInputs* frontLayer = nullptr ) const
         {
             const bool tracedProgram = traced != nullptr && m_TracedPipeline;
             if ( !m_TracePipeline || ( traced != nullptr && !tracedProgram ) )
@@ -322,6 +361,7 @@ namespace Desert::Graphic::System
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
             if ( tracedProgram )
                 DeclareTracedReads( block, *traced );
+            DeclareFrontLayerReads( block, frontLayer );
         }
 
         // SETUP of the "Deferred: Reflections (HitLighting)" node (after the classify): the hit-lit trace's block
@@ -332,7 +372,8 @@ namespace Desert::Graphic::System
                                          RDG::TextureRef tiles, const GBufferInputs& gbuffer,
                                          RDG::TextureRef velocity, RDG::TextureRef sceneHistory,
                                          RDG::TextureRef hzb, RDG::BufferRef uniforms, RDG::BufferRef camera,
-                                         const TracedReads& traced ) const
+                                         const TracedReads& traced,
+                                         const FrontLayerInputs* frontLayer = nullptr ) const
         {
             if ( !m_HitLightingPipeline )
                 return;
@@ -355,6 +396,7 @@ namespace Desert::Graphic::System
                  .Uniform( "CameraUB", camera )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
             DeclareTracedReads( block, traced );
+            DeclareFrontLayerReads( block, frontLayer );
         }
 
         // EXEC of the same node: the block DeclareTraceBindings declared + this frame's push constants.
@@ -445,6 +487,21 @@ namespace Desert::Graphic::System
                               glm::vec4( static_cast<float>( settings.DownsampleFactor ), 0.0f, 0.0f, 0.0f ) };
         }
 
+        // The front layer permutation's reads (Common/SSRTrace.glslh DESERT_REFLECTIONS_FRONT_LAYER): a
+        // TranslucentFrontLayer renderer's programs declare them, an Opaque one's do not - an absent @p frontLayer
+        // on the former leaves the slots unbound and the node refused by name, never a trace from the wrong surface.
+        static void DeclareFrontLayerReads( RDG::BindingBlockBuilder& block, const FrontLayerInputs* frontLayer )
+        {
+            if ( frontLayer == nullptr )
+                return;
+            block
+                 .Texture( "u_FrontLayerNormal", frontLayer->Normal, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Texture( "u_FrontLayerDepth", frontLayer->Depth, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+        }
+
         // The traced permutation's reads (SSR.shader DESERT_REFLECTIONS_TRACED), by the names its includes
         // declare.
         static void DeclareTracedReads( RDG::BindingBlockBuilder& block, const TracedReads& traced )
@@ -525,6 +582,7 @@ namespace Desert::Graphic::System
         std::vector<std::string>              m_HitLightingTemplates;
         uint64_t                              m_HitLightingFor = 0;
         ScreenSpaceDenoiser                   m_Denoiser{ DenoiserSignal::Reflections };
+        ReflectingSurface                     m_Surface = ReflectingSurface::Opaque;
 
         uint32_t m_FrameIndex = 0;
     };

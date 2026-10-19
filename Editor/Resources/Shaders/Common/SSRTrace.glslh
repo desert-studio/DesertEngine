@@ -42,6 +42,40 @@ Uniform(8) texture2D u_Velocity;        // NDC current - previous per pixel (Vie
 // UE SSRT): xyz = the WORLD point the texel's estimate was reflected from (a neighbour re-aims its own ray at it), w = log2 of
 // the VNDF pdf with which this texel drew that direction. RGBA32F: ViewTargetFormats::kSSRTraceRay.
 layout(binding = 9, rgba32f) writeonly uniform image2D u_TraceRay;  // the resolution of u_Trace
+
+#if defined( DESERT_REFLECTIONS_FRONT_LAYER )
+// THE TRANSLUCENT FRONT LAYER (UE LumenReflections FRONT_LAYER_TRANSLUCENCY, Reflections.TranslucentFrontLayer): the
+// surface the rays leave from is the nearest translucent surface of the pixel (Mesh/Surface/Pass_FrontLayer.glslh,
+// "Translucency: Front Layer G-buffer"); the screen walk, its hits and every world leg still read the OPAQUE scene
+// (u_GBufferNormal / u_GBufferDepth at a hit, u_HZB, u_Velocity): what glass reflects is the world, not itself.
+layout(binding = 42) uniform texture2D u_FrontLayerNormal; // rgb = world normal, a = roughness (cleared: zero)
+layout(binding = 43) uniform texture2D u_FrontLayerDepth;  // device depth of the front layer (cleared: far)
+#endif
+
+// THE REFLECTING SURFACE at G-buffer pixel @p p - where the rays leave from, never where they land: rgb = world
+// normal, a = roughness; a zero normal reflects nothing (SSRPixelCanReflect). The opaque G-buffer, or, for the front
+// layer, its translucent surface where that is in front of the opaque scene (reversed depth: DepthCompare::Closer is
+// Greater) - a front layer behind an opaque surface is not seen and reflects nothing.
+vec4 SSRSurfaceNormal(ivec2 p)
+{
+#if defined( DESERT_REFLECTIONS_FRONT_LAYER )
+	if (texelFetch(sampler2D(u_FrontLayerDepth, u_PointClampSampler), p, 0).r <= texelFetch(u_GBufferDepth, p, 0).r)
+		return vec4(0.0);
+	return texelFetch(sampler2D(u_FrontLayerNormal, u_PointClampSampler), p, 0);
+#else
+	return texelFetch(u_GBufferNormal, p, 0);
+#endif
+}
+
+// The reflecting surface's device depth at @p p (see SSRSurfaceNormal).
+float SSRSurfaceDepth(ivec2 p)
+{
+#if defined( DESERT_REFLECTIONS_FRONT_LAYER )
+	return texelFetch(sampler2D(u_FrontLayerDepth, u_PointClampSampler), p, 0).r;
+#else
+	return texelFetch(u_GBufferDepth, p, 0).r;
+#endif
+}
 #include <Common/HZBTrace.glslh>
 
 #if defined( DESERT_REFLECTIONS_TRACED )
@@ -348,14 +382,14 @@ vec4 TraceFrom(ivec2 gPix, ivec2 gSize, bool nearField, out vec4 ray)
 #endif
 
 	const vec2 gUV = (vec2(gPix) + 0.5) / vec2(gSize);
-	const vec4 gb  = texelFetch(u_GBufferNormal, gPix, 0);
+	const vec4 gb  = SSRSurfaceNormal(gPix);
 	if (!SSRPixelCanReflect(gb))
 		return vec4(0.0);
 	const vec3  N         = normalize(gb.rgb);
 	const float roughness = gb.a;
 	const float alpha     = max(roughness * roughness, 0.001);
 
-	const vec3 worldPos = ReconstructWorldPosition(gUV, texelFetch(u_GBufferDepth, gPix, 0).r,
+	const vec3 worldPos = ReconstructWorldPosition(gUV, SSRSurfaceDepth(gPix),
 	                                               u_InvJitteredViewProjection);
 	const vec3 V        = normalize(u_CameraPos.xyz - worldPos);
 	vec3       T, B;

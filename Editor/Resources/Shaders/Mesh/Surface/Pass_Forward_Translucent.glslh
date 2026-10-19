@@ -3,8 +3,9 @@
 // nowhere else: the renderer sends an object here because its material's TEMPLATE is translucent
 // (ShaderProgramMeta::Blend), never because of a parameter value. The surface is clear glass: the scene behind
 // it (u_SceneColor, bent by the normal and s.Refraction) tinted by s.BaseColor, mixed by Schlick Fresnel into
-// the sky's reflection, plus the sun's specular hotspot under the cloud shadow and, under Shadows Stochastic, the
-// local lights' hotspot from the MegaLights volume. Written opaque: the refracted
+// the reflection (the front layer's traced one where this fragment is the front layer, the sky's elsewhere), plus
+// the sun's specular hotspot under the cloud shadow and, under Shadows Stochastic, the local lights' hotspot from the
+// MegaLights volume. Written opaque: the refracted
 // scene already carries the background; the highlight also loses the sun's contact shadow. It declares what it
 // reads and nothing else (no cascade maps, no irradiance, no BRDF LUT, no light grid); the slots keep the numbers
 // the rest of the mesh family uses.
@@ -53,6 +54,21 @@ skyLook;
 // A copy of the composited opaque scene, for refraction (bound by the translucency pass only).
 layout( binding = 19 ) uniform texture2D u_SceneColor;
 #define u_SceneColor sampler2D(u_SceneColor, u_LinearRepeatSampler)
+
+// THE FRONT LAYER'S REFLECTION (UE FrontLayerTranslucencyShared.ush, Reflections.TranslucentFrontLayer): the nearest
+// translucent surface of each pixel wrote its normal, roughness and depth ("Translucency: Front Layer G-buffer"), and
+// the opaque surfaces' tracer and denoiser reflected it ("Translucency: Front Layer Reflections"). rgb = the
+// reflected radiance, a = how much of it the trace answered (the sky's cube fills the rest, as the deferred composite
+// fills SSR's, Mesh/AmbientIBL.glslh DesertComposeTracedReflection). Both are the graph's black texture when the
+// frame has no front layer: a = 0 and a depth that matches no surface, so the sky alone reflects.
+layout( binding = 11 ) uniform texture2D u_FrontLayerReflection;
+#define u_FrontLayerReflection sampler2D(u_FrontLayerReflection, u_LinearClampSampler)
+layout( binding = 12 ) uniform texture2D u_FrontLayerDepth;
+#define u_FrontLayerDepth sampler2D(u_FrontLayerDepth, u_LinearClampSampler)
+// UE r.FrontLayerTranslucency.DepthThreshold: a fragment IS the front layer when its device depth is within this many
+// float ULPs of the front layer's - the two cells transform the same vertices in two programs, so the depths agree to
+// rounding, while a surface behind the front layer lies orders of magnitude more ULPs away.
+const int kFrontLayerDepthThresholdUlps = 1024;
 
 // The cloud layer's shadow on the world: it takes the sun's highlight away with it.
 layout( binding = 20 ) uniform texture2D u_CloudShadowMap;
@@ -119,8 +135,22 @@ void main()
 
     // The sky's reflection at grazing edges; Fresnel mixes refraction (centre) into reflection (edge).
     const vec3 R       = reflect( -V, N );
-    const vec3 envRefl = ApplySkyGain( texture( u_EnvSpecularTex, SkyLookDirection( R, skyLook.YawCosSin.xy ) ).rgb,
+    vec3       envRefl = ApplySkyGain( texture( u_EnvSpecularTex, SkyLookDirection( R, skyLook.YawCosSin.xy ) ).rgb,
                                        skyLook.Gain.rgb );
+    // The traced reflection where this fragment is the front layer (a glass behind the nearest one keeps the sky).
+    // The graph's black texture (no front layer this frame) is 1x1: a texel outside it is no front layer, never a
+    // fetch out of bounds.
+    const ivec2 frontTexel = ivec2( gl_FragCoord.xy );
+    const bool  frontInside =
+         all( lessThan( frontTexel, textureSize( u_FrontLayerDepth, 0 ) ) ) &&
+         all( lessThan( frontTexel, textureSize( u_FrontLayerReflection, 0 ) ) );
+    const float frontDepth = frontInside ? texelFetch( u_FrontLayerDepth, frontTexel, 0 ).r : 0.0;
+    if ( frontInside &&
+         abs( floatBitsToInt( frontDepth ) - floatBitsToInt( gl_FragCoord.z ) ) <= kFrontLayerDepthThresholdUlps )
+    {
+        const vec4 traced = texelFetch( u_FrontLayerReflection, frontTexel, 0 );
+        envRefl           = mix( envRefl, traced.rgb, traced.a );
+    }
 
     // The local lights' hotspot: the volume's dominant light with the same tight lobe as the sun's (its isotropic
     // rest has no highlight to give clear glass).

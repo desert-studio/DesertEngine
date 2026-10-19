@@ -1393,7 +1393,8 @@ namespace Desert::Graphic
                                                         System::SSRRenderer&                ssr,
                                                         const std::vector<RDG::TextureRef>& gbuffer,
                                                         const FrameScreenTrace&             screenTrace,
-                                                        const ViewFrame&                    frame )
+                                                        const ViewFrame&                    frame,
+                                                        const FrontLayerSurface* frontLayer )
     {
         if ( gbuffer.size() < 3 )
         {
@@ -1459,6 +1460,12 @@ namespace Desert::Graphic
             settings.MeshSDFEndDistanceFromCamera = traced->MeshSDFEndDistanceFromCamera;
         }
         const bool hitLit = traced && traced->HitGroups != nullptr;
+        // The front layer's renderer starts its rays from the front layer's surface; every hit still reads the
+        // opaque G-buffer, HZB and velocity above (Common/SSRTrace.glslh SSRSurfaceNormal).
+        const System::SSRRenderer::FrontLayerInputs frontInputs =
+             frontLayer != nullptr ? System::SSRRenderer::FrontLayerInputs{ .Normal = frontLayer->Normal,
+                                                                            .Depth  = frontLayer->Depth }
+                                   : System::SSRRenderer::FrontLayerInputs{};
         graph.AddPass(
              !traced  ? "Deferred: SSR"
              : hitLit ? "Deferred: Reflections (classify)"
@@ -1469,7 +1476,8 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
-                                           traceUniforms, traced ? &*traced : nullptr );
+                                           traceUniforms, traced ? &*traced : nullptr,
+                                           frontLayer != nullptr ? &frontInputs : nullptr );
                  // The G-buffer colours the trace does not sample stay declared as before.
                  ReadAll( pass, { gbuffer[0] }, RDG::Access::SampledCompute );
                  ReadAll( pass, { gbuffer.begin() + 2, gbuffer.end() }, RDG::Access::SampledCompute );
@@ -1493,7 +1501,8 @@ namespace Desert::Graphic
                  [&]( RDG::PassBuilder& pass )
                  {
                      ssr.DeclareHitLightingBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory,
-                                                     hzb, traceUniforms, camera, *traced );
+                                                     hzb, traceUniforms, camera, *traced,
+                                                     frontLayer != nullptr ? &frontInputs : nullptr );
                      ReadAll( pass, { gbuffer[0] }, RDG::Access::SampledCompute );
                      ReadAll( pass, { gbuffer.begin() + 2, gbuffer.end() }, RDG::Access::SampledCompute );
                  },
@@ -1512,11 +1521,84 @@ namespace Desert::Graphic
                                                              .TraceSeed            = seed,
                                                              .ReconstructionRadius = m_ReflectionDenoiserRadius,
                                                              .DownsampleFactor     = traceTargets->DownsampleFactor },
-                          System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
-                                                         .GBufferDepth  = inputs[2],
-                                                         .Velocity      = velocity,
+                          // The reflecting surface's own normal, depth and motion: the front layer's for its
+                          // renderer, whose history is its own.
+                          System::DenoiserSceneTextures{
+                               .GBufferNormal = frontLayer != nullptr ? frontLayer->Normal : gbuffer[1],
+                               .GBufferDepth  = frontLayer != nullptr ? frontLayer->Depth : inputs[2],
+                               .Velocity      = frontLayer != nullptr ? frontLayer->Velocity : velocity,
                                                          .Black         = textures.GraphRefs().System.Black },
                           frame );
         return FrameSSR{ .Resolved = resolved };
+    }
+
+    bool SceneRenderer::TranslucentFrontLayerReflections() const
+    {
+        using namespace Common::Scalability;
+        return QualityState::Resolved().As<int>( Parameter::ReflectionsTranslucentFrontLayer ) != 0;
+    }
+
+    SceneRenderer::FrameFrontLayer SceneRenderer::AddFrameTranslucentFrontLayer(
+         RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
+         const std::vector<RDG::TextureRef>& gbuffer, const FrameScreenTrace& screenTrace, const ViewFrame& frame )
+    {
+        // UE RenderFrontLayerTranslucency: the pass and its resources exist only when a view draws into it.
+        if ( meshRenderer == nullptr || gbuffer.size() < 2 || m_FrontLayerReflectionsFailed ||
+             !meshRenderer->BuildFrontLayerDraws() )
+            return {};
+        if ( m_RenderSystems.find( "FrontLayerReflectionsSystem" ) == m_RenderSystems.end() )
+        {
+            Renderer::GetInstance().WaitDeviceIdle();
+            RegisterSystem<System::SSRRenderer>( "FrontLayerReflectionsSystem", this, m_TargetFramebuffer );
+            const auto& system = SP_CAST( System::SSRRenderer, m_RenderSystems["FrontLayerReflectionsSystem"] );
+            system->TraceFrom( System::SSRRenderer::ReflectingSurface::TranslucentFrontLayer );
+            if ( const Common::BoolResultStr initialized = system->Initialize(); !initialized )
+            {
+                LOG_ERROR( "[SceneRenderer] Reflections.TranslucentFrontLayer: the front layer's reflections are "
+                           "unavailable ({}); glass reflects the sky alone",
+                           initialized.GetError() );
+                m_FrontLayerReflectionsFailed = true;
+                return {};
+            }
+        }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* reflections = UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["FrontLayerReflectionsSystem"] );
+
+        // The front layer's targets: the G-buffer normal slot's, the view velocity's and the G-buffer depth's
+        // descriptions (FrontLayerTargetLayout), transients of this frame.
+        const RDG::TextureRef opaqueDepth = textures.Depth( m_GBuffer, "GBuffer" );
+        const auto            normalDesc  = graph.GetTextureDesc( gbuffer[1] );
+        const auto            motionDesc  = graph.GetTextureDesc( textures.Transients.Velocity );
+        const auto            depthDesc   = graph.GetTextureDesc( opaqueDepth );
+        if ( !normalDesc || !motionDesc || !depthDesc )
+        {
+            LOG_ERROR( "[SceneRenderer] Translucency: Front Layer G-buffer: {}",
+                       !normalDesc ? normalDesc.GetError()
+                       : !motionDesc ? motionDesc.GetError()
+                                     : depthDesc.GetError() );
+            return {};
+        }
+        const FrontLayerSurface surface{ .Normal   = graph.CreateTexture( normalDesc.GetValue(), "FrontLayer.Normal" ),
+                                         .Velocity = graph.CreateTexture( motionDesc.GetValue(), "FrontLayer.Velocity" ),
+                                         .Depth    = graph.CreateTexture( depthDesc.GetValue(), "FrontLayer.Depth" ) };
+        // Cleared: a zero normal (no surface) and the far depth, so the depth test keeps each pixel's nearest
+        // translucent surface; whether that is in front of the opaque scene is the trace's question
+        // (SSRSurfaceNormal) and the glass's (its own depth test).
+        graph.AddPass(
+             "Translucency: Front Layer G-buffer", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.ColorTarget( 0, surface.Normal, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+                 pass.ColorTarget( 1, surface.Velocity, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+                 pass.DepthTarget( surface.Depth, RDG::LoadOp::ClearDepth( Core::kDepthClear ) );
+                 meshRenderer->DeclareFrontLayerDraws( pass );
+             },
+             [meshRenderer]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderFrontLayerManual( context ); } );
+
+        const FrameSSR traced = AddFrameSSR( graph, textures, *reflections, gbuffer, screenTrace, frame, &surface );
+        if ( !traced.Resolved.IsValid() )
+            return {};
+        return FrameFrontLayer{ .Reflection = traced.Resolved, .Depth = surface.Depth };
     }
 } // namespace Desert::Graphic

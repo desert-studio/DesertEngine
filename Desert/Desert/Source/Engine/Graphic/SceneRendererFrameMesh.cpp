@@ -404,7 +404,7 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
-                                       System::MeshRenderer* meshRenderer )
+                                       System::MeshRenderer* meshRenderer, const FrameFrontLayer& frontLayer )
     {
         if ( !sceneCopy.IsValid() || meshRenderer == nullptr )
             return;
@@ -414,12 +414,17 @@ namespace Desert::Graphic
         // The glass samples the scene copy for its refraction and the scene/view inputs its shader has slots for:
         // its binding block, declared here (the block entries are the node's reads), resolved in the body.
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        // No front layer this frame: the graph's black texture for both, which the glass reads as "the sky alone".
+        const RDG::TextureRef                              black = textures.GraphRefs().System.Black;
+        const System::MeshRenderer::GlassFrontLayer glassFront{
+             .Reflection = frontLayer.Reflection.IsValid() ? frontLayer.Reflection : black,
+             .Depth      = frontLayer.Depth.IsValid() ? frontLayer.Depth : black };
         AddRaster(
              graph, "Deferred: Glass", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderGlassManual( context ); },
-             [meshRenderer, sceneCopy, view]( RDG::PassBuilder& pass )
-             { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view ); } );
+             [meshRenderer, sceneCopy, view, glassFront]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view, glassFront ); } );
     }
 
     void SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures )

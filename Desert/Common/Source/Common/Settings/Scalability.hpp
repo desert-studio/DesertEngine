@@ -243,6 +243,10 @@ namespace Common::Scalability
         ReflectionsHitLighting,        // 0/1: HardwareTraced reflections run hit lighting - the ray
                                        // tracing pipeline with each hit surface's own material (UE
                                        // r.Lumen.Reflections.HardwareRayTracing.LightingMode = hit lighting)
+        ReflectionsTranslucentFrontLayer, // 0/1: the nearest translucent surface of a pixel writes its own
+                                          // G-buffer and is reflected by the opaque surfaces' tracer and
+                                          // denoiser; glass reads that reflection in place of the sky (UE
+                                          // r.Lumen.TranslucencyReflections.FrontLayer.Enable)
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

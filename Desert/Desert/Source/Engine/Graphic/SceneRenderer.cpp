@@ -1628,6 +1628,15 @@ namespace Desert::Graphic
                 const FrameSSR ssrFrame = ssr != nullptr
                                                ? AddFrameSSR( graph, textures, *ssr, gbuffer, screenTrace, frame )
                                                : FrameSSR{};
+                // The translucent front layer (Reflections.TranslucentFrontLayer, UE Lumen front layer
+                // translucency reflections): its G-buffer, then its rays through the opaque reflections' method -
+                // the same screen trace (HZB, last frame's scene), tracer, hit lighting and denoiser - for the
+                // glass below to read.
+                const FrameFrontLayer frontLayer =
+                     ssr != nullptr && TranslucentFrontLayerReflections()
+                          ? AddFrameTranslucentFrontLayer( graph, textures, meshRenderer, gbuffer, screenTrace,
+                                                           frame )
+                          : FrameFrontLayer{};
 
                 // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
                 // with their neutral defaults), not as a second, separately resolved read list.
@@ -1668,7 +1677,7 @@ namespace Desert::Graphic
                 // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
                 // the glass, which then refracts the water behind it.
                 AddFrameWater( graph, textures );
-                AddFrameGlass( graph, textures, sceneCopy, meshRenderer );
+                AddFrameGlass( graph, textures, sceneCopy, meshRenderer, frontLayer );
             }
         }
 
