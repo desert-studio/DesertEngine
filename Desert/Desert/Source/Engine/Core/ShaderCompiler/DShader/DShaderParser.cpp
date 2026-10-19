@@ -2481,7 +2481,7 @@ namespace Desert::Core::Preprocess
         }
 
         // The default program is the top-level stage set; when a shader consists solely of
-        // named passes, the first pass doubles as the default program.
+        // named passes, the first pass IS the default program (ShaderProgramMeta::DefaultPassName, below).
         if ( !defaultPass.Blocks.empty() )
             result.Passes.push_back( assemblePass( defaultPass, defaultPass.State ) );
 
@@ -2515,8 +2515,9 @@ namespace Desert::Core::Preprocess
             if ( defaultCell == nullptr )
                 return Common::MakeFormattedError<DShaderParseResult>(
                      "DShader '{}': surface template has no default cell '{}'", result.Name, kSurfaceDefaultCell );
-            result.Meta.State = defaultCell->State;
-            result.Stages     = defaultCell->Stages;
+            result.Meta.State           = defaultCell->State;
+            result.Stages               = defaultCell->Stages;
+            result.Meta.DefaultPassName = std::string( kSurfaceDefaultCell );
         }
         // Guarded, because a medium-only shader has no passes at all and `front()` on an empty vector is
         // the kind of crash that reads as a corrupt file rather than as a missing branch.
@@ -2524,6 +2525,9 @@ namespace Desert::Core::Preprocess
         {
             result.Meta.State = result.Passes.front().State;
             result.Stages     = result.Passes.front().Stages;
+            // No top-level stage set: the default program IS the first named pass, one program under two names.
+            if ( defaultPass.Blocks.empty() )
+                result.Meta.DefaultPassName = result.Passes.front().Name;
         }
 
         return Common::MakeSuccess( std::move( result ) );

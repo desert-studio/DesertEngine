@@ -126,6 +126,14 @@ namespace Desert::Core::Preprocess
     {
         return isSurfaceTemplate && passName == kSurfaceDefaultCell;
     }
+    // The same rule from a parse's metadata, for EVERY program: a surface template's default cell and the first
+    // named pass of a shader without top-level stages (ShaderProgramMeta::DefaultPassName). Registration, the boot
+    // shader maps, the package cook and the pass metadata use this one; IsSurfaceDefaultCell remains for the
+    // callers that hold only the program's text (the shader map key).
+    inline bool IsDefaultProgramPass( const Formats::ShaderProgramMeta& meta, const std::string_view passName )
+    {
+        return !meta.DefaultPassName.empty() && passName == meta.DefaultPassName;
+    }
     // The pass whose opaque cells never evaluate the surface: their fragment stage is the pass header alone (no
     // surface function, no material row, no push block), so the cell's layout is the shadow shader's.
     inline constexpr std::string_view kSurfaceDepthPass = "ShadowDepth";
