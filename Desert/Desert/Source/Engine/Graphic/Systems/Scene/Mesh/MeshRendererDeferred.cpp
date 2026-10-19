@@ -43,9 +43,9 @@ namespace Desert::Graphic::System
         // stamped with its own frame.
         m_GenericPrepassed.clear();
         const ViewFrame* const frame = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
-        m_GenericPrepassFrame        = frame != nullptr ? std::optional<uint64_t>( frame->FrameIndex ) : std::nullopt;
+        m_GenericPrepassFrame = frame != nullptr ? std::optional<uint64_t>( frame->FrameIndex ) : std::nullopt;
         m_GenericPrepassRayTracedSun = rayTracedSun;
-        const auto& gbuffer = m_SceneRenderer != nullptr ? m_SceneRenderer->GetGBuffer() : nullptr;
+        const auto& gbuffer          = m_SceneRenderer != nullptr ? m_SceneRenderer->GetGBuffer() : nullptr;
         if ( !gbuffer || m_SceneRenderer->GetMainCamera() == nullptr || m_GenericQueue.empty() )
             return;
         // The graph LOADs the G-buffer the static, skinned and terrain draws wrote. The depth-normal programs
@@ -149,8 +149,8 @@ namespace Desert::Graphic::System
 
         // (Skinned x GBuffer): skinned meshes are drawn in the base pass on the deferred path (BuildSkinnedDraws
         // under m_DeferredGeometry), never forward over the composite, and the surface cache captures a skinned
-        // mesh's cards with the same pass state. Optional like the instanced cell: a refusal costs skinned meshes in
-        // a deferred scene and in the surface cache, said here.
+        // mesh's cards with the same pass state. Optional like the instanced cell: a refusal costs skinned meshes
+        // in a deferred scene and in the surface cache, said here.
         m_SkinnedGBufferShader = DefaultSurfaceProgram( MeshVertexPath::Skinned, MeshPass::GBuffer );
         if ( m_SkinnedGBufferShader )
         {

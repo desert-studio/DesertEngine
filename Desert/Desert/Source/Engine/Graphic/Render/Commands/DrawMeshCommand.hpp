@@ -103,8 +103,7 @@ namespace Desert::Graphic::Render
         {
             if ( Mesh && Material && Transforms )
                 renderer.SubmitInstancedMesh( Entity, Mesh, Material, HiddenSubmeshes, Transforms, CastShadows,
-                                              CastContactShadow,
-                                              CullDistance, Wind );
+                                              CastContactShadow, CullDistance, Wind );
         }
     };
 } // namespace Desert::Graphic::Render

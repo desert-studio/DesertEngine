@@ -225,10 +225,10 @@ namespace Desert::Graphic::RayTracing
         std::span<const RayTracingDynamicGeometryBuild> Builds;
         std::span<const RDG::BufferRef>                 Resident;
         // The producer's own counts and storage this frame (RayTracingSceneStats::Landscape*).
-        uint32_t Built       = 0; // BLASes built from scratch
-        uint32_t Refit       = 0; // BLASes refit
-        uint64_t VertexBytes = 0; // vertex + index buffers the builds read
-        uint64_t BlasBytes   = 0; // BLAS storage of every primitive
+        uint32_t                                 Built       = 0; // BLASes built from scratch
+        uint32_t                                 Refit       = 0; // BLASes refit
+        uint64_t                                 VertexBytes = 0; // vertex + index buffers the builds read
+        uint64_t                                 BlasBytes   = 0; // BLAS storage of every primitive
         std::span<const RayTracingSegmentRecord> SegmentRecords;
         // The alpha test of each landscape tile's masked segment, by RayTracingSegmentRecord::LandscapeTile
         // (LandscapeVisibilityRecord); empty for a tile with no weightmap, whose masked segment holds no triangle.

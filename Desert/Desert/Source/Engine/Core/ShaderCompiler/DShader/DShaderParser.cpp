@@ -1026,11 +1026,12 @@ namespace Desert::Core::Preprocess
         // one builder, kept on the parse result), so the GLSL cannot name a parameter, an offset or a binding
         // the layout does not have — and ReconcileMaterialLayout holds the compiled SPIR-V to the same object.
         //
-        // A RAY TRACING HIT CELL (kSurfaceRayHitPath) has no draw and so no push constant and no bound row: its row
-        // travels in the hit group's shader record (Common/RayTracingHitRecord.glslh), UE's FRayTracingMeshCommand
-        // loose parameters. @p rowByShaderRecord declares the same MaterialParams struct and names `u_Material`
-        // through the record's device address instead of a Materials[] binding. Bound (non-row) textures have no
-        // place in a record; the parser gives a template with any no hit cell (SurfaceTemplateInfo::RayHitRefusal).
+        // A RAY TRACING HIT CELL (kSurfaceRayHitPath) has no draw and so no push constant and no bound row: its
+        // row travels in the hit group's shader record (Common/RayTracingHitRecord.glslh), UE's
+        // FRayTracingMeshCommand loose parameters. @p rowByShaderRecord declares the same MaterialParams struct
+        // and names `u_Material` through the record's device address instead of a Materials[] binding. Bound
+        // (non-row) textures have no place in a record; the parser gives a template with any no hit cell
+        // (SurfaceTemplateInfo::RayHitRefusal).
         std::string BuildAutoDeclarations( const MaterialLayout& layout, const bool rowByShaderRecord = false )
         {
             std::ostringstream out;
@@ -1047,8 +1048,9 @@ namespace Desert::Core::Preprocess
                     uint32_t slot = 0;
                     for ( const auto& p : layout.Params )
                     {
-                        out << "    " << ( p.IsTexture ? kMaterialTextureGlslType : MaterialLayoutGlslType( p.Type ) )
-                            << " " << p.Name << ";\n";
+                        out << "    "
+                            << ( p.IsTexture ? kMaterialTextureGlslType : MaterialLayoutGlslType( p.Type ) ) << " "
+                            << p.Name << ";\n";
                         if ( const uint32_t pad = ( kMaterialParamSlotSize - p.Size ) / 4; pad > 0 )
                             out << "    float _slotPad" << slot << "[" << pad << "];\n";
                         ++slot;
@@ -1585,11 +1587,10 @@ namespace Desert::Core::Preprocess
                  kSurfaceShadingModelDefine, shadingModelDefine );
             // The sprite path has its own pass header whatever the blend: the mesh Forward / glass headers light a
             // mesh, the sprite header composites a particle.
-            const bool        rayHit = path == kSurfaceRayHitPath;
-            const std::string passInclude =
-                 particle ? std::string( kSurfaceParticleSpritePassInclude )
-                 : rayHit ? std::string( kSurfaceRayHitPassInclude )
-                          : SurfacePassInclude( pass, blend );
+            const bool        rayHit      = path == kSurfaceRayHitPath;
+            const std::string passInclude = particle ? std::string( kSurfaceParticleSpritePassInclude )
+                                            : rayHit ? std::string( kSurfaceRayHitPassInclude )
+                                                     : SurfacePassInclude( pass, blend );
             RawBlock          code;
             code.StartLine = 1;
             if ( stage == ShaderStage::Vertex )
@@ -2428,8 +2429,8 @@ namespace Desert::Core::Preprocess
             // types and Mesh/Surface/Pass_RayHit.glslh. Closest hit evaluates the surface into the ray's payload;
             // a Masked template adds the any-hit stage, its OpacityMask test. Opaque and Masked templates only: a
             // translucent surface is not a ray tracing occluder (UE skips it in the ray tracing scene too). A
-            // template that binds a texture outside its row has nothing to put in a shader record: no cell, and the
-            // reason is kept for the pipeline that asks for it.
+            // template that binds a texture outside its row has nothing to put in a shader record: no cell, and
+            // the reason is kept for the pipeline that asks for it.
             if ( !Formats::IsTranslucentBlend( result.Surface.Blend ) )
             {
                 if ( !result.Layout.Textures.empty() )
@@ -2440,8 +2441,8 @@ namespace Desert::Core::Preprocess
                 else
                 {
                     DShaderPass cell;
-                    cell.Name  = SurfaceCellName( kSurfaceRayHitPath, kSurfaceRayHitPass );
-                    cell.State = cellState;
+                    cell.Name         = SurfaceCellName( kSurfaceRayHitPath, kSurfaceRayHitPass );
+                    cell.State        = cellState;
                     const bool masked = result.Surface.Blend == SurfaceBlendMode::Masked;
                     for ( const ShaderStage stage : { ShaderStage::ClosestHit, ShaderStage::AnyHit } )
                     {

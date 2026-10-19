@@ -67,14 +67,15 @@ namespace Desert::Graphic
 
     RDG::TextureRef SceneRenderer::AddFrameNoSunCascades( RDG::Builder& graph )
     {
-        const RDG::TextureRef none = graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = 1, .Height = 1 },
-                                                                            .Format = ViewTargetFormats::kShadowDepth,
-                                                                            .Layers = 1,
-                                                                            .Dim    = RDG::TextureDim::Tex2DArray },
-                                                          "CSM.None" );
+        const RDG::TextureRef none =
+             graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = 1, .Height = 1 },
+                                                    .Format = ViewTargetFormats::kShadowDepth,
+                                                    .Layers = 1,
+                                                    .Dim    = RDG::TextureDim::Tex2DArray },
+                                  "CSM.None" );
         graph.AddPass(
-             "CSM.None", RDG::PassFlags::Raster, [none]( RDG::PassBuilder& pass )
-             { pass.DepthTarget( none, RDG::LoadOp::ClearDepth( 1.0f ) ); },
+             "CSM.None", RDG::PassFlags::Raster,
+             [none]( RDG::PassBuilder& pass ) { pass.DepthTarget( none, RDG::LoadOp::ClearDepth( 1.0f ) ); },
              []( RDG::PassContext& ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
         return none;
     }
@@ -105,7 +106,7 @@ namespace Desert::Graphic
         // The sun's cascades and the local lights' atlas are NOT imported here: their budget follows the frame's
         // sun-shadow path, decided after the view's TLAS (OnUpdate), so OnUpdate imports them then
         // (ImportViewShadowMaps).
-        FrameTransients& view = textures.Transients;
+        FrameTransients& view   = textures.Transients;
         auto* images = Runtime::ResourceRegistry::GetImageService();
         if ( const auto env = GetEnvironment(); env.has_value() )
         {
@@ -563,7 +564,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
-                                           const RDG::TextureRef            sunShadowMask,
+                                           const RDG::TextureRef             sunShadowMask,
                                            const System::MegaLightsLighting& megaLights,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const ViewFrame& frame )
@@ -1036,19 +1037,20 @@ namespace Desert::Graphic
         using namespace Common::Scalability;
         return m_RenderMethods.Reflections.Effective == ReflectionMethod::HardwareTraced &&
                QualityState::Resolved().As<int>( Parameter::ReflectionsHitLighting ) != 0 &&
-               CapabilityCatalog::Offers( QualityState::Catalog().RayTracingModes, RayTracingMode::RayTracingPipeline );
+               CapabilityCatalog::Offers( QualityState::Catalog().RayTracingModes,
+                                          RayTracingMode::RayTracingPipeline );
     }
 
     Common::BoolResultStr SceneRenderer::BuildReflectionHitGroups()
     {
-        auto* materials = Runtime::ResourceRegistry::GetMaterialService();
-        auto* shaders   = Runtime::ResourceRegistry::GetShaderService();
+        auto*      materials       = Runtime::ResourceRegistry::GetMaterialService();
+        auto*      shaders         = Runtime::ResourceRegistry::GetShaderService();
         const auto defaultTemplate = materials->DefaultSurfaceTemplate();
         if ( !defaultTemplate )
             return Common::MakeError( defaultTemplate.GetError() );
-        // The default surface's row: a material of its (Static x GBuffer) cell - the same MaterialParams as its hit
-        // cell, with the template's default textures in their slots - made once (UE: the default material's hit
-        // group shades what has no ray tracing material of its own).
+        // The default surface's row: a material of its (Static x GBuffer) cell - the same MaterialParams as its
+        // hit cell, with the template's default textures in their slots - made once (UE: the default material's
+        // hit group shades what has no ray tracing material of its own).
         const auto defaultCell = materials->DefaultSurfaceShader( MeshVertexPath::Static, MeshPass::GBuffer );
         if ( !defaultCell )
             return Common::MakeError( defaultCell.GetError() );
@@ -1084,26 +1086,28 @@ namespace Desert::Graphic
             const auto         slash = cell.find( '/' );
             surface.Template         = slash == std::string::npos ? cell : cell.substr( 0, slash );
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast): EffectiveRow reads the instance's overrides
-            surface.Row = System::MeshRendererDetail::EffectiveRow( material,
-                                                                    const_cast<MaterialInstance*>( segment.Instance ) );
+            surface.Row = System::MeshRendererDetail::EffectiveRow(
+                 material, const_cast<MaterialInstance*>( segment.Instance ) );
             return surface;
         };
         auto table = RayTracing::BuildRayTracingHitGroupTable( m_RayTracingScene.GetGeometryRecords(),
-                                                                m_RayTracingScene.GetSegmentRecords(), surfaceOf,
-                                                                defaultSurface, hasHitGroup );
+                                                               m_RayTracingScene.GetSegmentRecords(), surfaceOf,
+                                                               defaultSurface, hasHitGroup );
         if ( !table )
             return Common::MakeError( table.GetError() );
         m_ReflectionHitGroups = std::move( table.GetValue() );
-        for ( const RayTracing::RayTracingHitGroupFallback& fallback : m_ReflectionHitGroups.TemplatesWithoutHitGroup )
+        for ( const RayTracing::RayTracingHitGroupFallback& fallback :
+              m_ReflectionHitGroups.TemplatesWithoutHitGroup )
         {
             if ( std::ranges::find( m_ReportedHitGroupFallbacks, fallback.Template ) !=
                  m_ReportedHitGroupFallbacks.end() )
                 continue;
             m_ReportedHitGroupFallbacks.push_back( fallback.Template );
-            LOG_WARN( "[SceneRenderer] Reflections hit lighting: '{}' has no compiled hit group ('{}/RayTracing.Hit' "
-                      "refused or failed: DShaderParser SurfaceTemplateInfo::RayHitRefusal, or the shader log) - its "
-                      "{} segments this frame shade with the default surface '{}'",
-                      fallback.Template, fallback.Template, fallback.Segments, defaultTemplate.GetValue() );
+            LOG_WARN(
+                 "[SceneRenderer] Reflections hit lighting: '{}' has no compiled hit group ('{}/RayTracing.Hit' "
+                 "refused or failed: DShaderParser SurfaceTemplateInfo::RayHitRefusal, or the shader log) - its "
+                 "{} segments this frame shade with the default surface '{}'",
+                 fallback.Template, fallback.Template, fallback.Segments, defaultTemplate.GetValue() );
         }
         return BOOLSUCCESS;
     }
@@ -1130,8 +1134,8 @@ namespace Desert::Graphic
         {
             using namespace Common::Scalability;
             if ( m_RenderMethods.Reflections.Effective == ReflectionMethod::HardwareTraced &&
-                 QualityState::Resolved().As<int>( Parameter::ReflectionsHitLighting ) != 0 && !ReflectionsHitLit() &&
-                 !m_ReportedHitLightingDevice )
+                 QualityState::Resolved().As<int>( Parameter::ReflectionsHitLighting ) != 0 &&
+                 !ReflectionsHitLit() && !m_ReportedHitLightingDevice )
             {
                 m_ReportedHitLightingDevice = true;
                 LOG_WARN( "[SceneRenderer] Reflections.HitLighting is on, but the device offers no ray tracing "
@@ -1300,25 +1304,30 @@ namespace Desert::Graphic
              { return ssrPtr->RecordTrace( context, cameraPos, settings, sceneHistoryReadable, seed ); } );
         if ( hitLit )
         {
-            // THE HIT-LIT TRACE (Reflections.HitLighting): every trace texel from the ray tracing pipeline, after the
-            // classify wrote the tile mask - the screen walk, then a world ray whose hit runs its surface template's
-            // closest-hit shader and is lit here in place (SSR.shader "HitLighting", Common/SSRTrace.glslh).
-            const ShaderProtocols::Camera  cameraBlock = ShaderProtocols::MakeCameraUB( frame );
-            const RDG::BufferRef           camera =
-                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( cameraBlock ) }, "Reflections.HitLighting.CameraUB" );
-            graph.QueueBufferUpload( camera, std::as_bytes( std::span<const ShaderProtocols::Camera>( &cameraBlock, 1 ) ) );
+            // THE HIT-LIT TRACE (Reflections.HitLighting): every trace texel from the ray tracing pipeline, after
+            // the classify wrote the tile mask - the screen walk, then a world ray whose hit runs its surface
+            // template's closest-hit shader and is lit here in place (SSR.shader "HitLighting",
+            // Common/SSRTrace.glslh).
+            const ShaderProtocols::Camera cameraBlock = ShaderProtocols::MakeCameraUB( frame );
+            const RDG::BufferRef          camera = graph.CreateBuffer( RDG::BufferDesc{ sizeof( cameraBlock ) },
+                                                                       "Reflections.HitLighting.CameraUB" );
+            graph.QueueBufferUpload(
+                 camera, std::as_bytes( std::span<const ShaderProtocols::Camera>( &cameraBlock, 1 ) ) );
             graph.AddPass(
                  "Deferred: Reflections (HitLighting)", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
                  {
-                     ssr.DeclareHitLightingBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
-                                                     traceUniforms, camera, *traced );
+                     ssr.DeclareHitLightingBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory,
+                                                     hzb, traceUniforms, camera, *traced );
                      ReadAll( pass, { gbuffer[0] }, RDG::Access::SampledCompute );
                      ReadAll( pass, { gbuffer.begin() + 2, gbuffer.end() }, RDG::Access::SampledCompute );
                  },
-                 [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings, sceneHistoryReadable,
-                  seed, hits = traced->HitGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return ssrPtr->RecordHitLighting( context, cameraPos, settings, sceneHistoryReadable, seed, *hits ); } );
+                 [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings,
+                  sceneHistoryReadable, seed,
+                  hits = traced->HitGroups]( RDG::PassContext& context ) -> Common::BoolResultStr {
+                     return ssrPtr->RecordHitLighting( context, cameraPos, settings, sceneHistoryReadable, seed,
+                                                       *hits );
+                 } );
         }
         const RDG::TextureRef resolved =
              ssr.Denoise( graph,

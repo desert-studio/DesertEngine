@@ -50,8 +50,8 @@ namespace Desert::Graphic::RayTracing
         // segment's position, because a hidden submesh contributes no segment and shifts the ones after it.
         uint32_t SubmeshIndex = 0;
         // OPAQUE: a hit is final (no any-hit). Not opaque: every candidate goes to the alpha test, once per
-        // primitive (NO_DUPLICATE_ANY_HIT) - a Masked section material (UE !bForceOpaque) or a landscape tile's cells
-        // that touch a hole; ray queries alpha-test its candidates (RayQueryVisibility.glslh).
+        // primitive (NO_DUPLICATE_ANY_HIT) - a Masked section material (UE !bForceOpaque) or a landscape tile's
+        // cells that touch a hole; ray queries alpha-test its candidates (RayQueryVisibility.glslh).
         bool Opaque                                               = true;
         bool operator==( const RayTracingGeometrySegment& ) const = default;
     };
@@ -200,9 +200,9 @@ namespace Desert::Graphic::RayTracing
     {
         uint64_t                                   VertexAddress = 0; // the attribute stream
         uint64_t                                   IndexAddress  = 0;
-        uint32_t                                   VertexStride  = 0; // bytes between two attribute-stream vertices
-        uint32_t                                   NormalOffset  = kNoMetadataRecord; // none = no normal
-        uint32_t                                   UvOffset      = kNoMetadataRecord; // none = no UV
+        uint32_t                                   VertexStride = 0; // bytes between two attribute-stream vertices
+        uint32_t                                   NormalOffset = kNoMetadataRecord; // none = no normal
+        uint32_t                                   UvOffset     = kNoMetadataRecord; // none = no UV
         std::span<const RayTracingGeometrySegment> Segments;
     };
 

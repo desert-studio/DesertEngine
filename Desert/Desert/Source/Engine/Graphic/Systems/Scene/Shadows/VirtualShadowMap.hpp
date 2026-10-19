@@ -225,14 +225,14 @@ namespace Desert::Graphic::System
                        const VirtualShadowMapQuality& quality, std::span<const VsmInvalidationBox> invalidations,
                        bool staticCastersChanged );
 
-        // "VSM: Cull Casters" of level @p level (UE CullPerPageDrawCommands): every instance of @p cull whose world
-        // box covers a cell of the level holding a page drawn this frame (frame.DirtyMask) is counted into each of
-        // its draw's records and written to the draw's remap slots; a level with no such page draws nothing.
-        // Refused for an empty @p cull (the caller adds no raster node then).
+        // "VSM: Cull Casters" of level @p level (UE CullPerPageDrawCommands): every instance of @p cull whose
+        // world box covers a cell of the level holding a page drawn this frame (frame.DirtyMask) is counted into
+        // each of its draw's records and written to the draw's remap slots; a level with no such page draws
+        // nothing. Refused for an empty @p cull (the caller adds no raster node then).
         [[nodiscard]] Common::ResultStr<VsmCulledCasters> AddCasterCulling( RDG::Builder&                graph,
-                                                                           const VirtualShadowMapFrame& frame,
-                                                                           uint32_t                     level,
-                                                                           const VsmCasterCull& cull ) const;
+                                                                            const VirtualShadowMapFrame& frame,
+                                                                            uint32_t                     level,
+                                                                            const VsmCasterCull& cull ) const;
 
         // "VSM: Project": the sun's screen shadow mask (System::kShadowMaskSunName), 1 = lit.
         [[nodiscard]] Common::ResultStr<RDG::TextureRef> AddProjection( RDG::Builder&                     graph,

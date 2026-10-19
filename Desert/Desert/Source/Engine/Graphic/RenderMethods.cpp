@@ -101,13 +101,12 @@ namespace Desert::Graphic
     {
         const bool    rayQuery = OffersRayQuery( catalog );
         RenderMethods out;
-        out.GlobalIllumination =
-             ResolveAxis( post.GlobalIlluminationMethod,
-                          quality.As<GIMethod>( Parameter::GlobalIlluminationMethod ), rayQuery,
-                          catalog.MaxRenderArea, gBuffer );
-        out.Reflections = ResolveAxis( post.ReflectionsMethod,
-                                       quality.As<ReflectionMethod>( Parameter::ReflectionsMethod ), rayQuery,
-                                       catalog.MaxRenderArea, gBuffer );
+        out.GlobalIllumination = ResolveAxis( post.GlobalIlluminationMethod,
+                                              quality.As<GIMethod>( Parameter::GlobalIlluminationMethod ),
+                                              rayQuery, catalog.MaxRenderArea, gBuffer );
+        out.Reflections =
+             ResolveAxis( post.ReflectionsMethod, quality.As<ReflectionMethod>( Parameter::ReflectionsMethod ),
+                          rayQuery, catalog.MaxRenderArea, gBuffer );
         out.Shadows = ResolveAxis( post.ShadowsMethod, quality.As<ShadowMethod>( Parameter::ShadowsMethod ),
                                    rayQuery, catalog.MaxRenderArea, gBuffer );
         out.ContactShadows       = post.ContactShadows && kContactShadowsImplemented;

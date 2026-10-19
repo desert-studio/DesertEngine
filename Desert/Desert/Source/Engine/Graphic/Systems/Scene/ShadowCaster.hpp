@@ -27,10 +27,11 @@ namespace Desert::Graphic::RDG
 
 namespace Desert::Graphic::System
 {
-    // One thing a caster draws into the sun's virtual shadow map: a hash of what it draws there (it changes whenever
-    // the depth it writes would) and its world box. The virtual shadow map keeps its pages across frames, so the mesh
-    // renderer diffs these between frames (UE: a primitive added, removed or updated invalidates the pages its bounds
-    // cover) - a caster that changed drops the cached pages under its old and its new box, and nothing else.
+    // One thing a caster draws into the sun's virtual shadow map: a hash of what it draws there (it changes
+    // whenever the depth it writes would) and its world box. The virtual shadow map keeps its pages across frames,
+    // so the mesh renderer diffs these between frames (UE: a primitive added, removed or updated invalidates the
+    // pages its bounds cover) - a caster that changed drops the cached pages under its old and its new box, and
+    // nothing else.
     struct ShadowCasterEntry
     {
         uint64_t  Signature = 0;
@@ -38,10 +39,10 @@ namespace Desert::Graphic::System
         glm::vec3 Max{ 0.0f };
     };
 
-    // One draw a caster records into a virtual shadow map level, for the level's GPU cull ("VSM: Cull Casters"): its
-    // world box and its indirect argument record (Graphic/MeshDrawArguments.hpp: a VkDrawIndirectCommand in the first
-    // four words, its instance count 0 - the cull counts the draw's one instance in where its box covers a page drawn
-    // this frame).
+    // One draw a caster records into a virtual shadow map level, for the level's GPU cull ("VSM: Cull Casters"):
+    // its world box and its indirect argument record (Graphic/MeshDrawArguments.hpp: a VkDrawIndirectCommand in
+    // the first four words, its instance count 0 - the cull counts the draw's one instance in where its box covers
+    // a page drawn this frame).
     struct VirtualShadowCasterDraw
     {
         glm::vec3               Min{ 0.0f };
@@ -113,14 +114,13 @@ namespace Desert::Graphic::System
         [[nodiscard]] virtual uint32_t DeclareVirtualShadow( RDG::PassBuilder&                   pass,
                                                              const VirtualShadowBlockParameters& parameters ) = 0;
 
-        // Draws the level through the blocks DeclareVirtualShadow declared (the first at @p firstBlock), projecting
-        // with @p levelViewProj (world -> the level's standard-Z clip; no caster bias: the virtual shadow map biases
-        // its receivers, VirtualShadowMapProject), draw k from the culled record @p firstRecord + k of
+        // Draws the level through the blocks DeclareVirtualShadow declared (the first at @p firstBlock),
+        // projecting with @p levelViewProj (world -> the level's standard-Z clip; no caster bias: the virtual
+        // shadow map biases its receivers, VirtualShadowMapProject), draw k from the culled record @p firstRecord
+        // + k of
         // @p arguments (the node reads it as Access::IndirectArgs).
-        [[nodiscard]] virtual Common::BoolResultStr RecordVirtualShadow( const RDG::PassContext& context,
-                                                                         uint32_t                firstBlock,
-                                                                         const glm::mat4&        levelViewProj,
-                                                                         RDG::BufferRef          arguments,
-                                                                         uint32_t                firstRecord ) = 0;
+        [[nodiscard]] virtual Common::BoolResultStr
+        RecordVirtualShadow( const RDG::PassContext& context, uint32_t firstBlock, const glm::mat4& levelViewProj,
+                             RDG::BufferRef arguments, uint32_t firstRecord ) = 0;
     };
 } // namespace Desert::Graphic::System

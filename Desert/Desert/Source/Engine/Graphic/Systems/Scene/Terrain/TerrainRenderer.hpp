@@ -94,13 +94,12 @@ namespace Desert::Graphic::System
                                                                  const CascadeCasterBias& bias ) override;
 
         void AppendVirtualShadowEntries( std::vector<ShadowCasterEntry>& entries ) const override;
-        [[nodiscard]] uint32_t              DeclareVirtualShadow( RDG::PassBuilder&                   pass,
-                                                                  const VirtualShadowBlockParameters& parameters ) override;
+        [[nodiscard]] uint32_t DeclareVirtualShadow( RDG::PassBuilder&                   pass,
+                                                     const VirtualShadowBlockParameters& parameters ) override;
         void AppendVirtualShadowDraws( std::vector<VirtualShadowCasterDraw>& draws ) const override;
-        [[nodiscard]] Common::BoolResultStr RecordVirtualShadow( const RDG::PassContext& context, uint32_t firstBlock,
-                                                                 const glm::mat4& levelViewProj,
-                                                                 RDG::BufferRef arguments,
-                                                                 uint32_t       firstRecord ) override;
+        [[nodiscard]] Common::BoolResultStr
+        RecordVirtualShadow( const RDG::PassContext& context, uint32_t firstBlock, const glm::mat4& levelViewProj,
+                             RDG::BufferRef arguments, uint32_t firstRecord ) override;
 
         void Submit( const TerrainDrawData& data )
         {
@@ -178,7 +177,7 @@ namespace Desert::Graphic::System
         RecordDraws( const RDG::PassContext& context, uint32_t firstBlock, const GraphicsPipeline& pipeline,
                      std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
                      const glm::mat4&                                       clipFromWorld,
-                     const std::optional<VirtualShadowIndirect>& indirect = std::nullopt );
+                     const std::optional<VirtualShadowIndirect>&            indirect = std::nullopt );
 
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         std::shared_ptr<GraphicsPipeline> m_GBufferPipeline;

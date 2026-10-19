@@ -62,9 +62,9 @@ namespace Desert::Graphic::API::Vulkan
         std::shared_ptr<IndexBuffer>                       m_Indices; // held: the build reads it by address
         std::vector<RayTracing::RayTracingGeometrySegment> m_Segments;
         VkDeviceAddress m_VertexAddress = 0; // the mesh's own vertex buffer: the hit's attribute stream
-        VkDeviceAddress                                    m_IndexAddress = 0;
-        VkDeviceSize                                       m_BuildScratch = 0;
-        bool                                               m_Built        = false;
+        VkDeviceAddress m_IndexAddress  = 0;
+        VkDeviceSize    m_BuildScratch  = 0;
+        bool            m_Built         = false;
 
         VkAccelerationStructureKHR            m_Handle        = VK_NULL_HANDLE;
         VkBuffer                              m_Storage       = VK_NULL_HANDLE;

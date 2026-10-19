@@ -135,10 +135,10 @@ namespace Desert::Graphic::RDG
         // every pixel, so the image's previous contents are not loaded.
         void ResolveTarget( uint32_t slot, TextureRef texture );
         // A raster pass with NO attachment over a @p width x @p height render area (UE: a raster pass whose
-        // render-target binding holds no target, as the virtual shadow map's page raster). Its fragments write only
-        // the storage resources the pass declares, so the area is bounded by the device's framebuffer and viewport
-        // limits, not by any texture: a 16k virtual shadow map is rasterized without a 16k image. Refused with a
-        // ColorTarget / DepthTarget on the same pass, outside a Raster pass, and with a zero side.
+        // render-target binding holds no target, as the virtual shadow map's page raster). Its fragments write
+        // only the storage resources the pass declares, so the area is bounded by the device's framebuffer and
+        // viewport limits, not by any texture: a 16k virtual shadow map is rasterized without a 16k image. Refused
+        // with a ColorTarget / DepthTarget on the same pass, outside a Raster pass, and with a zero side.
         void RenderArea( uint32_t width, uint32_t height );
 
         // RDG-FAULT1. Declares the parameter block of one draw / dispatch this pass records, against the shader it
@@ -409,7 +409,7 @@ namespace Desert::Graphic::RDG
             bool             HasFinalAccess = false;
             Access           FinalAccess    = Access::None;
             // Extracted textures: the accesses later graphs will make (Extract's @p later), as an access mask.
-            uint32_t LaterAccessMask = 0;
+            uint32_t            LaterAccessMask = 0;
             FaultDefault        Default        = FaultDefault::None; // SetFaultDefault (transients)
             ExternalFaultPolicy Policy         = ExternalFaultPolicy::KeepsContents; // SetFaultPolicy (externals)
 

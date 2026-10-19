@@ -1500,7 +1500,8 @@ namespace Desert::Graphic::API::Vulkan
                 return Common::MakeFormattedError(
                      "render area of '{}': {}x{} exceeds the device's framebuffer {}x{} / viewport {}x{}",
                      pass.Name, pass.AreaWidth, pass.AreaHeight, limits.maxFramebufferWidth,
-                     limits.maxFramebufferHeight, limits.maxViewportDimensions[0], limits.maxViewportDimensions[1] );
+                     limits.maxFramebufferHeight, limits.maxViewportDimensions[0],
+                     limits.maxViewportDimensions[1] );
             extent = { pass.AreaWidth, pass.AreaHeight };
         }
         const Common::ResultStr<VkRenderPass> renderPass = GetRenderPass( key );

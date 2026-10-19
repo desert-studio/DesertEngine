@@ -326,8 +326,10 @@ namespace Desert::Graphic::SurfaceCache
                       .Storage( "SurfaceCardPageBuffer", pages, RDG::Access::StorageRead )
                       .Texture( "u_AtlasColor", color, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                       .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Texture( "u_AtlasDepth", depthLayer, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                      .Texture( "u_AtlasOpacity", opacity, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                      .Texture( "u_AtlasDepth", depthLayer, RDG::Access::SampledGraphics,
+                                RDG::SubresourceRange::All() )
+                      .Texture( "u_AtlasOpacity", opacity, RDG::Access::SampledGraphics,
+                                RDG::SubresourceRange::All() )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( SceneViewPush ) ) );
                  pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.02f, 0.02f, 0.03f, 1.0f ) );
                  pass.DepthTarget( depth, RDG::LoadOp::ClearDepth( Core::kDepthClear ), true );

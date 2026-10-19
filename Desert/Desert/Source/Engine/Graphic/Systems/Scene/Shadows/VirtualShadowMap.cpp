@@ -186,9 +186,10 @@ namespace Desert::Graphic::System
         const std::span<const std::byte> bytes = readback.Physical->ReadForHost();
         if ( bytes.size() < kVsmOverflowOffset + sizeof( uint32_t ) )
         {
-            LOG_ERROR( "[Shadows] Virtual Shadow Map: the allocator readback holds {} bytes, the overflow count is at "
-                       "{}; the pool overflow is not known",
-                       bytes.size(), kVsmOverflowOffset );
+            LOG_ERROR(
+                 "[Shadows] Virtual Shadow Map: the allocator readback holds {} bytes, the overflow count is at "
+                 "{}; the pool overflow is not known",
+                 bytes.size(), kVsmOverflowOffset );
             return;
         }
         uint32_t overflow = 0;
@@ -282,7 +283,8 @@ namespace Desert::Graphic::System
             const glm::uvec4 level( i, 0u, 0u, 0u );
             frame.RasterLevel[i] = graph.CreateBuffer( RDG::BufferDesc{ .Bytes = sizeof( level ) },
                                                        std::format( "VSM.RasterLevel{}", i ) );
-            graph.QueueBufferUpload( frame.RasterLevel[i], std::as_bytes( std::span<const glm::uvec4>( &level, 1 ) ) );
+            graph.QueueBufferUpload( frame.RasterLevel[i],
+                                     std::as_bytes( std::span<const glm::uvec4>( &level, 1 ) ) );
         }
 
         const RDG::BufferRef  frameData = frame.FrameData;
@@ -392,9 +394,10 @@ namespace Desert::Graphic::System
              glm::uvec4( pages, 0u, 0u, 0u ), glm::uvec3( entryGroups, kVsmClipmapLevelCount, 1u ) );
 
         // The cells of each level holding a page drawn this frame, for the casters' cull.
-        frame.DirtyMask = graph.CreateBuffer(
-             RDG::BufferDesc{ .Bytes = uint64_t{ kVsmClipmapLevelCount } * kVsmMaskWordsPerLevel * sizeof( uint32_t ) },
-             "VSM.DirtyMask" );
+        frame.DirtyMask =
+             graph.CreateBuffer( RDG::BufferDesc{ .Bytes = uint64_t{ kVsmClipmapLevelCount } *
+                                                           kVsmMaskWordsPerLevel * sizeof( uint32_t ) },
+                                 "VSM.DirtyMask" );
         const std::vector<uint32_t> zeroMask( size_t{ kVsmClipmapLevelCount } * kVsmMaskWordsPerLevel, 0u );
         graph.QueueBufferUpload( frame.DirtyMask, Bytes( zeroMask ) );
         const RDG::BufferRef dirtyMask = frame.DirtyMask;
@@ -441,10 +444,9 @@ namespace Desert::Graphic::System
         return Common::MakeSuccess( frame );
     }
 
-    Common::ResultStr<VsmCulledCasters> VirtualShadowMapRenderer::AddCasterCulling( RDG::Builder&                graph,
-                                                                                   const VirtualShadowMapFrame& frame,
-                                                                                   const uint32_t               level,
-                                                                                   const VsmCasterCull& cull ) const
+    Common::ResultStr<VsmCulledCasters>
+    VirtualShadowMapRenderer::AddCasterCulling( RDG::Builder& graph, const VirtualShadowMapFrame& frame,
+                                                const uint32_t level, const VsmCasterCull& cull ) const
     {
         const KernelProgram& kernel = m_Kernels[CullCasters];
         if ( !kernel.Pipeline )
@@ -461,8 +463,9 @@ namespace Desert::Graphic::System
         const glm::uvec3   grid( std::min( groups, kMaxGroupsX ), Groups( groups, kMaxGroupsX ), 1u );
 
         VsmCulledCasters culled;
-        culled.Arguments = graph.CreateBuffer( RDG::BufferDesc{ .Bytes = cull.Arguments.size() * sizeof( uint32_t ) },
-                                               std::format( "VSM.CasterArguments{}", level ) );
+        culled.Arguments =
+             graph.CreateBuffer( RDG::BufferDesc{ .Bytes = cull.Arguments.size() * sizeof( uint32_t ) },
+                                 std::format( "VSM.CasterArguments{}", level ) );
         graph.QueueBufferUpload( culled.Arguments, Bytes( cull.Arguments ) );
         culled.InstanceRemap =
              graph.CreateBuffer( RDG::BufferDesc{ .Bytes = uint64_t{ cull.RemapSize } * sizeof( uint32_t ) },

@@ -514,8 +514,9 @@ namespace Desert::Graphic::API::Vulkan
     std::size_t VulkanAllocator::QueuedCount() const
     {
         return m_BufferDeletionQueue.size() + m_ImageDeletionQueue.size() + m_FramebufferDeletionQueue.size() +
-               m_RenderPassDeletionQueue.size() + m_QueryPoolDeletionQueue.size() + m_PipelineDeletionQueue.size() +
-               m_AccelerationStructureDeletionQueue.size() + m_DescriptorPoolDeletionQueue.size();
+               m_RenderPassDeletionQueue.size() + m_QueryPoolDeletionQueue.size() +
+               m_PipelineDeletionQueue.size() + m_AccelerationStructureDeletionQueue.size() +
+               m_DescriptorPoolDeletionQueue.size();
     }
 
     VulkanAllocator::~VulkanAllocator()

@@ -44,9 +44,9 @@ namespace Desert::Graphic::System
     {
         if ( view >= kMaxShadowViews )
             return false;
-        // The view's caster cells (CasterPipelinesOf): a virtual shadow map level draws the VirtualShadowDepth cells
-        // through its own pipelines, every other view the ShadowDepth cells; each material is made on the cell its
-        // pipeline draws, so a draw never pairs one cell's program with the other's pipeline.
+        // The view's caster cells (CasterPipelinesOf): a virtual shadow map level draws the VirtualShadowDepth
+        // cells through its own pipelines, every other view the ShadowDepth cells; each material is made on the
+        // cell its pipeline draws, so a draw never pairs one cell's program with the other's pipeline.
         const CasterPipelines casters = CasterPipelinesOf( view );
         if ( casters.Static == nullptr )
             return false;

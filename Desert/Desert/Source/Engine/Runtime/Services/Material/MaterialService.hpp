@@ -41,10 +41,9 @@ namespace Desert::Runtime
     // @p permutation is the cell program's define set (a renderer-chosen axis, e.g. the ray-traced sun shadow):
     // the material is built over ShaderService::AcquireVariant of the cell, so its descriptor sets are allocated
     // from THAT program's reflection. Empty = the cell as registered.
-    std::shared_ptr<Graphic::DataDrivenMaterial> CreateSurfaceMaterial( const Assets::MaterialAsset* asset,
-                                                                        Graphic::MeshVertexPath      path,
-                                                                        Graphic::MeshPass            pass,
-                                                                        const Core::ShaderVariant& permutation = {} );
+    std::shared_ptr<Graphic::DataDrivenMaterial>
+    CreateSurfaceMaterial( const Assets::MaterialAsset* asset, Graphic::MeshVertexPath path,
+                           Graphic::MeshPass pass, const Core::ShaderVariant& permutation = {} );
 
     // (Re)apply a surface asset's parameters and textures onto a live runtime material built from it —
     // CreateSurfaceMaterial's own body, and what the editor and hot reload call on an edit.
@@ -171,7 +170,8 @@ namespace Desert::Runtime
         // exactly as GetVariant's sibling is, owned beside it, edited and retired with it. A permutation with no
         // defines IS GetVariant. Null on GetVariant's terms, or when the permutation does not compile (logged).
         Graphic::DataDrivenMaterial* GetVariant( const Graphic::Material* built, Graphic::MeshVertexPath path,
-                                                 Graphic::MeshPass pass, const Core::ShaderVariant& permutation ) const;
+                                                 Graphic::MeshPass          pass,
+                                                 const Core::ShaderVariant& permutation ) const;
 
         // Whether this runtime material came from a `.demat` this service holds. FALSE for a material a
         // renderer built for itself — the glass pass, the RSM pass, the instanced batch material, and

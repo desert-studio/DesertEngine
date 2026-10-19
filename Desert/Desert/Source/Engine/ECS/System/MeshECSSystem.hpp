@@ -415,12 +415,12 @@ namespace Desert::ECS
                                                                    type->Wind.Height, glm::vec2( air.x, air.z ),
                                                                    m_WindSeconds );
                              }
-                        for ( const auto& d : ismSplit.SectionDraws )
-                            renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
-                                 static_cast<uint32_t>( entity ), targetMesh,
-                                 ism.RuntimeMaterialInstances[d.Slot], d.HiddenMask, ism.RuntimeInstanceSnapshot,
-                                 d.CastShadows, ism.CastContactShadow,
-                                 Graphic::ClipToMaxDrawDistance( cullDistance, ism.MaxDrawDistance ), wind );
+                         for ( const auto& d : ismSplit.SectionDraws )
+                             renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
+                                  static_cast<uint32_t>( entity ), targetMesh,
+                                  ism.RuntimeMaterialInstances[d.Slot], d.HiddenMask, ism.RuntimeInstanceSnapshot,
+                                  d.CastShadows, ism.CastContactShadow,
+                                  Graphic::ClipToMaxDrawDistance( cullDistance, ism.MaxDrawDistance ), wind );
                      } );
             }
 

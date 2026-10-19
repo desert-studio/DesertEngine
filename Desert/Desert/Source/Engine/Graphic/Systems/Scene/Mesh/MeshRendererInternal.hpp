@@ -73,9 +73,9 @@ namespace Desert::Graphic::System
                                                                 MeshPass       pass = MeshPass::Forward );
         std::string                         MeshPathOwnBufferName( MeshVertexPath path );
         // Defined in MeshRendererForward.cpp. A Shader Override draw's material: the texture half of its identity
-        // (two draws share a material only with the same textures), and its overrides written into it. @p logRefused:
-        // false for a program that declares only what it reads (the deferred depth-normal slice), where a texture the
-        // program lacks is no refusal.
+        // (two draws share a material only with the same textures), and its overrides written into it. @p
+        // logRefused: false for a program that declares only what it reads (the deferred depth-normal slice),
+        // where a texture the program lacks is no refusal.
         std::string GenericTextureKey( const MeshRenderer::GenericMeshRenderData& g );
         void ApplyGenericOverrides( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,
                                     std::string_view shaderName, bool logRefused );
@@ -125,6 +125,7 @@ namespace Desert::Graphic::System
     // bone's bind box of its vertices (SkinnedMesh::GetBoneBounds, grown by the twin's morph reach) through
     // transform * submesh.Transform * bone, the matrices its vertex stage applies. The virtual shadow map's caster
     // bounds of a skinned mesh: its invalidation (this frame's and last frame's box) and its GPU cull.
-    [[nodiscard]] Common::Math::AABB SkinnedPoseBounds( const Desert::SkinnedMesh& mesh, const glm::mat4& transform,
+    [[nodiscard]] Common::Math::AABB SkinnedPoseBounds( const Desert::SkinnedMesh& mesh,
+                                                        const glm::mat4&           transform,
                                                         std::span<const glm::mat4> bones );
 } // namespace Desert::Graphic::System

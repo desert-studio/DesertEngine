@@ -64,9 +64,10 @@ namespace Desert::Core
         // the picture, and this function will not trade in that direction.
         [[nodiscard]] bool Intersects( const Common::Math::AABB& worldBox ) const;
 
-        // Opens the frustum on one side: @p plane accepts every point from now on (a zero plane). The sun's virtual
-        // shadow map culls its casters without the plane on the sun's side: they draw with depth clamp, so a caster
-        // nearer the sun than a clipmap level's depth range is flattened onto it rather than clipped (UE VSM).
+        // Opens the frustum on one side: @p plane accepts every point from now on (a zero plane). The sun's
+        // virtual shadow map culls its casters without the plane on the sun's side: they draw with depth clamp, so
+        // a caster nearer the sun than a clipmap level's depth range is flattened onto it rather than clipped (UE
+        // VSM).
         void Open( const FrustumPlane plane )
         {
             m_Planes[plane] = Plane{};

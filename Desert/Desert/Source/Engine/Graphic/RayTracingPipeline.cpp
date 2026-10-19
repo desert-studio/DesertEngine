@@ -27,6 +27,7 @@ namespace Desert::Graphic
                 return Common::MakeSuccess<Result>( std::move( pipeline ) );
             }
         }
-        return Common::MakeFormattedError<Result>( "RayTracingPipeline '{}': unknown rendering API", spec.DebugName );
+        return Common::MakeFormattedError<Result>( "RayTracingPipeline '{}': unknown rendering API",
+                                                   spec.DebugName );
     }
 } // namespace Desert::Graphic

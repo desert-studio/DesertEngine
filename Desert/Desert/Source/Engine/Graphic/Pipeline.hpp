@@ -266,7 +266,7 @@ namespace Desert::Graphic
         // Required): a primitive outside the depth range is clamped onto its end instead of clipped. The virtual
         // shadow map's casters draw with it (UE VSM "pancaking"), so a caster nearer the sun than a level's range
         // still writes its nearest depth.
-        bool  DepthClampEnable  = false;
+        bool DepthClampEnable = false;
 
         float                LineWidth   = 1.0F;
         PrimitiveTopology    Topology    = PrimitiveTopology::Triangles;

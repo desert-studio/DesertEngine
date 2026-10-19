@@ -184,7 +184,8 @@ namespace Desert::Graphic::System
                 m_ShadowInstancedPipeline = instanced.GetValue();
 
                 for ( uint32_t i = 0; i < m_Shadow.CascadeCount; ++i )
-                    m_ShadowInstancedMaterial[i] = std::make_unique<MaterialShadowInstanced>( MeshPass::ShadowDepth );
+                    m_ShadowInstancedMaterial[i] =
+                         std::make_unique<MaterialShadowInstanced>( MeshPass::ShadowDepth );
             }
             else
             {
@@ -421,17 +422,19 @@ namespace Desert::Graphic::System
     DataDrivenMaterial* MeshRenderer::MaskedCasterMaterial( const DataDrivenMaterial* material,
                                                             MeshVertexPath path, uint32_t cascade )
     {
-        const MeshPass pass   = IsVirtualShadowView( cascade ) ? MeshPass::VirtualShadowDepth : MeshPass::ShadowDepth;
-        auto*          caster = Runtime::ResourceRegistry::GetMaterialService()->GetViewVariant( material, path, pass,
-                                                                                                cascade );
+        const MeshPass pass =
+             IsVirtualShadowView( cascade ) ? MeshPass::VirtualShadowDepth : MeshPass::ShadowDepth;
+        auto* caster =
+             Runtime::ResourceRegistry::GetMaterialService()->GetViewVariant( material, path, pass, cascade );
         if ( caster == nullptr )
         {
             // Not drawn through the shared program instead: that is the square shadow this route exists to end.
             static std::unordered_set<const DataDrivenMaterial*> s_Refused;
             if ( s_Refused.insert( material ).second )
-                LOG_ERROR( "[Shadows] a Masked material ('{}') has no ({} x {}) caster of its own; its objects cast "
-                           "NO shadow on that path (MaterialService named the cell it refused).",
-                           material->GetShaderName(), MeshVertexPathName( path ), MeshPassName( pass ) );
+                LOG_ERROR(
+                     "[Shadows] a Masked material ('{}') has no ({} x {}) caster of its own; its objects cast "
+                     "NO shadow on that path (MaterialService named the cell it refused).",
+                     material->GetShaderName(), MeshVertexPathName( path ), MeshPassName( pass ) );
         }
         return caster;
     }
@@ -572,10 +575,11 @@ namespace Desert::Graphic::System
             return found->second.get(); // null = refused before (said once, below)
         auto& slot = m_MaskedCasterPipelines[name];
 
-        // The shared caster's state for this path and pass (vertex layout, standard-Z depth, the cascade target or the
-        // virtual map's render area) — only the program differs, which is the whole difference between an opaque and
-        // a masked caster. The cell's name names its pass, so the name alone keys the pipeline.
-        const CasterPipelines casters = CasterPipelinesOf( pass == MeshPass::VirtualShadowDepth ? kVsmViewBase : 0u );
+        // The shared caster's state for this path and pass (vertex layout, standard-Z depth, the cascade target or
+        // the virtual map's render area) — only the program differs, which is the whole difference between an
+        // opaque and a masked caster. The cell's name names its pass, so the name alone keys the pipeline.
+        const CasterPipelines casters =
+             CasterPipelinesOf( pass == MeshPass::VirtualShadowDepth ? kVsmViewBase : 0u );
         const GraphicsPipeline* shared = nullptr;
         switch ( path )
         {
@@ -625,8 +629,8 @@ namespace Desert::Graphic::System
         m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
                                              m_CascadeCasterBias[c] );
         const MaterialExecutor* casterExecutor = m_ShadowMaterial[c]->GetMaterialExecutor();
-        // The pipelines of the view's caster cells: the cascades' and local views' depth attachment, or the virtual
-        // shadow map's attachment-less pool raster (IsVirtualShadowView).
+        // The pipelines of the view's caster cells: the cascades' and local views' depth attachment, or the
+        // virtual shadow map's attachment-less pool raster (IsVirtualShadowView).
         const CasterPipelines casters = CasterPipelinesOf( c );
 
         // Shadow casters are MATERIAL-INDEPENDENT (depth only), so batch purely by Mesh*: any
@@ -653,8 +657,9 @@ namespace Desert::Graphic::System
         // half-spaces is the same one either way, and Intersects tests all six by value.
         Core::Frustum cascadeFrustum( m_CascadeCasterVP[c], glm::mat4( 1.0f ) );
         // A virtual shadow map level keeps the casters on the sun's side of its depth range: they draw with depth
-        // clamp and land on its sun-side end (EnsureVirtualShadowPipelines). That end is clip z >= 0 of the level's
-        // standard-Z [0,1] projection, the plane the extraction names PLANE_FAR (row 2 alone, Frustum::Rebuild).
+        // clamp and land on its sun-side end (EnsureVirtualShadowPipelines). That end is clip z >= 0 of the
+        // level's standard-Z [0,1] projection, the plane the extraction names PLANE_FAR (row 2 alone,
+        // Frustum::Rebuild).
         if ( IsVirtualShadowView( c ) )
             cascadeFrustum.Open( Core::PLANE_FAR );
 
@@ -862,7 +867,7 @@ namespace Desert::Graphic::System
                         draw.First    = first;
                         draw.LodLevel = level;
                         draw.Wind     = PackInstanceWind( ism.Wind );
-                        draw.BoundsPad = WindBoundsPad( ism.Wind );
+                        draw.BoundsPad         = WindBoundsPad( ism.Wind );
                         m_ScratchMaskedDraws.push_back( draw );
                     }
                     continue;
@@ -874,10 +879,9 @@ namespace Desert::Graphic::System
                     for ( std::size_t i = 0; i < visible.size(); ++i )
                         if ( levels[i] == level )
                             instTransforms.push_back( visible[i] );
-                    batches.push_back( ShadowBatch{ ism.Mesh,
-                                                    static_cast<uint32_t>( instTransforms.size() ) - first, first,
-                                                    level, ism.HiddenSubmeshes, PackInstanceWind( ism.Wind ),
-                                                    WindBoundsPad( ism.Wind ) } );
+                    batches.push_back( ShadowBatch{
+                         ism.Mesh, static_cast<uint32_t>( instTransforms.size() ) - first, first, level,
+                         ism.HiddenSubmeshes, PackInstanceWind( ism.Wind ), WindBoundsPad( ism.Wind ) } );
                 }
             }
         }
@@ -981,7 +985,7 @@ namespace Desert::Graphic::System
                     draw.Instance  = section.Instance;
                     draw.Row       = AppendRow( set.Rows, EffectiveRow( section.Material, section.Instance ) );
                     draw.First     = static_cast<uint32_t>( set.Transforms.size() );
-                    draw.MotionRow         = sd.MotionRow;
+                    draw.MotionRow = sd.MotionRow;
                     draw.HiddenSubmeshMask = section.HiddenSubmeshes;
                     if ( IsVirtualShadowView( c ) )
                         draw.WorldBounds = SkinnedPoseBounds( *sd.Mesh, sd.Transform, sd.BoneMatrices );
@@ -1009,18 +1013,19 @@ namespace Desert::Graphic::System
                     if ( IsVirtualShadowView( c ) )
                         pose = SkinnedPoseBounds( *caster.Data->Mesh, caster.Data->Transform,
                                                   caster.Data->BoneMatrices );
-                    list.Add( { .Pipeline          = casters.Skinned,
-                                .Mesh              = caster.Data->Mesh,
-                                .Transform         = caster.Data->Transform,
-                                .Material          = skinMat->GetMaterialExecutor(),
-                                .HiddenSubmeshMask = caster.Hidden,
-                                .BindState         = [skinMat, offset = caster.BoneOffset, address,
-                                              count = row.SkinCacheVertexCount]
-                                {
-                                    skinMat->SetBoneOffset( offset );
-                                    skinMat->SetSkinCache( address, count );
-                                },
-                                .WorldBounds = pose } );
+                    list.Add(
+                         { .Pipeline          = casters.Skinned,
+                           .Mesh              = caster.Data->Mesh,
+                           .Transform         = caster.Data->Transform,
+                           .Material          = skinMat->GetMaterialExecutor(),
+                           .HiddenSubmeshMask = caster.Hidden,
+                           .BindState =
+                                [skinMat, offset = caster.BoneOffset, address, count = row.SkinCacheVertexCount]
+                           {
+                               skinMat->SetBoneOffset( offset );
+                               skinMat->SetSkinCache( address, count );
+                           },
+                           .WorldBounds = pose } );
                 }
             }
         }
@@ -1046,7 +1051,7 @@ namespace Desert::Graphic::System
                             .FirstInstance     = b.First,
                             .HiddenSubmeshMask = b.HiddenSubmeshMask,
                             .LodLevel          = b.LodLevel,
-                            .BindState = [instMat, wind = b.Wind] { instMat->SetInstancedWind( wind ); },
+                            .BindState         = [instMat, wind = b.Wind] { instMat->SetInstancedWind( wind ); },
                             .Instances = std::span<const glm::mat4>( instTransforms ).subspan( b.First, b.Count ),
                             .BoundsPad = b.BoundsPad } );
             }
@@ -1094,11 +1099,11 @@ namespace Desert::Graphic::System
             DataDrivenMaterial* material  = draw.Set->Caster;
             const bool          instanced = draw.Path == MeshVertexPath::Instanced;
             // A masked caster draws through its OWN pipeline only once the driver has built it (UE: a draw whose
-            // pipeline is not ready is not submitted). Handed to the list unbuilt or refused, the cascade pass would
-            // fault at its bind ("could not be bound in the open render pass") and take the cascade's copy and the
-            // composite reading the cascades with it. Refused (null; MaskedCasterPipeline said why, once) or failed
-            // in the driver: that caster casts no shadow. Still compiling: not drawn THIS frame, and the static
-            // cache is marked stale so the cascade redraws it once the pipeline is ready.
+            // pipeline is not ready is not submitted). Handed to the list unbuilt or refused, the cascade pass
+            // would fault at its bind ("could not be bound in the open render pass") and take the cascade's copy
+            // and the composite reading the cascades with it. Refused (null; MaskedCasterPipeline said why, once)
+            // or failed in the driver: that caster casts no shadow. Still compiling: not drawn THIS frame, and the
+            // static cache is marked stale so the cascade redraws it once the pipeline is ready.
             GraphicsPipeline* const pipeline = MaskedCasterPipeline( *material, draw.Path, casters.Pass );
             if ( pipeline == nullptr || pipeline->GetReadiness() == PipelineReadiness::Failed )
                 continue;
@@ -1107,34 +1112,37 @@ namespace Desert::Graphic::System
                 maskedPending = true;
                 continue;
             }
-            list.Add( { .Pipeline          = pipeline,
-                        .Mesh              = draw.Mesh,
-                        .Transform         = draw.Transform,
-                        .Material          = material->GetMaterialExecutor(),
-                        .InstanceCount     = instanced ? draw.Count : 1,
-                        .FirstInstance     = instanced ? draw.First : 0,
-                        .HiddenSubmeshMask = draw.HiddenSubmeshMask,
-                        .LodLevel          = draw.LodLevel,
-                        .BindState         = [material, draw]
-                        {
-                            material->SetPushMatrix( draw.Transform );
-                            material->SetMaterialIndex( draw.Row );
-                            if ( draw.Path == MeshVertexPath::Instanced )
-                            {
-                                material->SetInstancedWind( draw.Wind );
-                            }
-                            if ( draw.Path == MeshVertexPath::Skinned )
-                            {
-                                material->SetSkinnedBoneOffset( draw.First );
-                                material->SetPrimitiveIndex( draw.MotionRow );
-                            }
-                            material->Bind( draw.Instance );
-                        },
-                        .Instances   = instanced ? std::span<const glm::mat4>( draw.Set->Transforms )
-                                                        .subspan( draw.First, draw.Count )
-                                                 : std::span<const glm::mat4>{},
-                        .BoundsPad   = draw.BoundsPad,
-                        .WorldBounds = draw.WorldBounds } );
+            list.Add(
+                 { .Pipeline          = pipeline,
+                   .Mesh              = draw.Mesh,
+                   .Transform         = draw.Transform,
+                   .Material          = material->GetMaterialExecutor(),
+                   .InstanceCount     = instanced ? draw.Count : 1,
+                   .FirstInstance     = instanced ? draw.First : 0,
+                   .HiddenSubmeshMask = draw.HiddenSubmeshMask,
+                   .LodLevel          = draw.LodLevel,
+                   .BindState =
+                        [material, draw]
+                   {
+                       material->SetPushMatrix( draw.Transform );
+                       material->SetMaterialIndex( draw.Row );
+                       if ( draw.Path == MeshVertexPath::Instanced )
+                       {
+                           material->SetInstancedWind( draw.Wind );
+                       }
+                       if ( draw.Path == MeshVertexPath::Skinned )
+                       {
+                           material->SetSkinnedBoneOffset( draw.First );
+                           material->SetPrimitiveIndex( draw.MotionRow );
+                       }
+                       material->Bind( draw.Instance );
+                   },
+                   .Instances =
+                        instanced
+                             ? std::span<const glm::mat4>( draw.Set->Transforms ).subspan( draw.First, draw.Count )
+                             : std::span<const glm::mat4>{},
+                   .BoundsPad   = draw.BoundsPad,
+                   .WorldBounds = draw.WorldBounds } );
         }
         // The cache drawn now lacks the casters still compiling: the next frame's plan sees no key and redraws it.
         if ( maskedPending && layer == ShadowCasterLayer::Static && c < kMaxCascades )

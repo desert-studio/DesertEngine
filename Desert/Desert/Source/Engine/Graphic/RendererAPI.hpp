@@ -128,8 +128,8 @@ namespace Desert::Graphic
         // of @p pipeline with the pass's bindings resolved against its program, and the shader binding table built
         // from @p hits (one hit record per segment of the frame's TLAS, RayTracingHitGroupTable.hpp) for this
         // launch. Refused on a pipeline that is not built or a hit record naming a group the pipeline lacks.
-        [[nodiscard]] virtual Common::BoolResultStr TraceRays( const RDG::PassBindings&                    bindings,
-                                                               const RayTracingPipeline&                   pipeline,
+        [[nodiscard]] virtual Common::BoolResultStr TraceRays( const RDG::PassBindings&                   bindings,
+                                                               const RayTracingPipeline&                  pipeline,
                                                                const RayTracing::RayTracingHitGroupTable& hits,
                                                                uint32_t width, uint32_t height ) = 0;
         // A non-indexed, vertex-buffer-less draw of @p vertexCount vertices x @p instanceCount instances whose

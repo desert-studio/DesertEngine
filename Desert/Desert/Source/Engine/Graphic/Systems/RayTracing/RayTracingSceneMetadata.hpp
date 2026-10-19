@@ -157,8 +157,9 @@ namespace Desert::Graphic::RayTracing
                     return Common::MakeFormattedError<Result>(
                          "RayTracingMetadata: GPU-scene row {} segment {}: the BLAS is submesh {} ({}), the "
                          "record submesh {} ({})",
-                         primitive.GpuSceneRow, i, segment.SubmeshIndex, segment.Opaque ? "opaque" : "alpha-tested",
-                         source.SubmeshIndex, source.Opaque ? "opaque" : "alpha-tested" );
+                         primitive.GpuSceneRow, i, segment.SubmeshIndex,
+                         segment.Opaque ? "opaque" : "alpha-tested", source.SubmeshIndex,
+                         source.Opaque ? "opaque" : "alpha-tested" );
                 filledBy[index]                  = primitive.Geometry;
                 RayTracingGeometryRecord& record = build.Metadata.Geometry[index];
                 record.VertexAddress             = layout.VertexAddress;

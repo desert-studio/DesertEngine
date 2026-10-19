@@ -695,16 +695,16 @@ namespace Desert::Graphic::API::Vulkan
              ResolveRdgPassBindings( program->GetReflectionData(), program->GetName(), bindings, RdgOtherRoute{} );
         if ( !resolved )
             return Common::MakeError( resolved.GetError() );
-        const auto sets = WriteRdgPassSets( *descriptors.GetValue(), traced.GetLayouts(), resolved.GetValue(), pass );
+        const auto sets =
+             WriteRdgPassSets( *descriptors.GetValue(), traced.GetLayouts(), resolved.GetValue(), pass );
         if ( !sets )
             return Common::MakeError( sets.GetError() );
 
         vkCmdBindPipeline( cmd.GetValue(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, traced.GetVkPipeline() );
         if ( !sets.GetValue().empty() )
-            vkCmdBindDescriptorSets( cmd.GetValue(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-                                     traced.GetVkPipelineLayout(), 0,
-                                     static_cast<uint32_t>( sets.GetValue().size() ), sets.GetValue().data(), 0,
-                                     nullptr );
+            vkCmdBindDescriptorSets(
+                 cmd.GetValue(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, traced.GetVkPipelineLayout(), 0,
+                 static_cast<uint32_t>( sets.GetValue().size() ), sets.GetValue().data(), 0, nullptr );
         const std::span<const std::byte> push = ChoosePushConstants( bindings, {} );
         if ( !push.empty() )
             vkCmdPushConstants( cmd.GetValue(), traced.GetVkPipelineLayout(), traced.GetPushConstantStages(), 0,
@@ -898,9 +898,9 @@ namespace Desert::Graphic::API::Vulkan
                  }
                  const SubmeshIndexRange range = SubmeshIndices( submesh, lodLevel );
                  if ( range.First + range.Count > indexBuffer->GetCount() )
-                     return Common::MakeFormattedError( "{}: submesh {} reads indices [{}, {}) of a {}-index buffer",
-                                                        pass, si, range.First, range.First + range.Count,
-                                                        indexBuffer->GetCount() );
+                     return Common::MakeFormattedError(
+                          "{}: submesh {} reads indices [{}, {}) of a {}-index buffer", pass, si, range.First,
+                          range.First + range.Count, indexBuffer->GetCount() );
                  DrawIndexedCounted( range.Count, instanceCount, range.First,
                                      static_cast<int32_t>( submesh.VertexOffset ), firstInstance );
                  return Common::MakeSuccess( true );
@@ -908,8 +908,8 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirect( const RDG::PassBindings& bindings,
-                                                                 const GraphicsPipeline& pipeline, const Mesh& mesh,
-                                                                 const glm::mat4&        transform,
+                                                                 const GraphicsPipeline&  pipeline,
+                                                                 const Mesh& mesh, const glm::mat4& transform,
                                                                  const MaterialExecutor& material,
                                                                  const RDG::BufferRef args, const uint64_t offset,
                                                                  const uint64_t hiddenSubmeshMask )
@@ -932,7 +932,7 @@ namespace Desert::Graphic::API::Vulkan
         // Not counted by DrawCounter: the instance counts are the GPU's (DrawProceduralIndirect likewise).
         return WalkMeshSubmeshes(
              bindings, pipeline, mesh, transform, material, hiddenSubmeshMask,
-             [&]( const uint32_t drawn, size_t, const Submesh&,
+             [&]( const uint32_t     drawn, size_t, const Submesh&,
                   const IndexBuffer* indexBuffer ) -> Common::BoolResultStr
              {
                  const uint64_t at = offset + ( uint64_t{ drawn } * kMeshDrawArgumentsBytes );
@@ -1339,7 +1339,7 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgDevice.CmdEndLabel   = fpCmdEndDebugUtilsLabelEXT;
             VkPhysicalDeviceProperties properties{};
             vkGetPhysicalDeviceProperties( device->GetPhysicalDevice()->GetVulkanPhysicalDevice(), &properties );
-            m_RdgDevice.Limits = properties.limits;
+            m_RdgDevice.Limits        = properties.limits;
             m_RdgPool                 = std::make_unique<VulkanRdgPool>( m_RdgDevice, slots );
             m_RdgBackend              = std::make_unique<VulkanRdgBackend>( m_RdgDevice, *m_RdgPool );
             // B2: while a graph runs, every renderer's Record() goes through this API, so this API records

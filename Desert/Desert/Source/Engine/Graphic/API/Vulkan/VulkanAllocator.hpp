@@ -210,7 +210,7 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<FramebufferDeletionEntry> m_FramebufferDeletionQueue;
         std::vector<RenderPassDeletionEntry>  m_RenderPassDeletionQueue;
         std::vector<QueryPoolDeletionEntry>      m_QueryPoolDeletionQueue;
-        std::vector<PipelineDeletionEntry>       m_PipelineDeletionQueue;
+        std::vector<PipelineDeletionEntry>              m_PipelineDeletionQueue;
         std::vector<AccelerationStructureDeletionEntry> m_AccelerationStructureDeletionQueue;
         std::vector<DescriptorPoolDeletionEntry> m_DescriptorPoolDeletionQueue;
 

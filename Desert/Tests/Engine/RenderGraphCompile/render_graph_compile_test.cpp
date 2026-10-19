@@ -2567,9 +2567,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
         EXPECT_NE( declaration( "SSAORenderer.hpp" )
                         .find( ".Texture(\"u_GBufferDepth\",depth,RDG::Access::SampledGraphics" ),
                    std::string::npos );
-        EXPECT_NE( declaration( "DeferredLightingRenderer.hpp" )
-                        .find( ".Texture(\"u_SSAO\",inputs.SSAO,kRead,kWhole)" ),
-                   std::string::npos );
+        EXPECT_NE(
+             declaration( "DeferredLightingRenderer.hpp" ).find( ".Texture(\"u_SSAO\",inputs.SSAO,kRead,kWhole)" ),
+             std::string::npos );
     }
 }
 

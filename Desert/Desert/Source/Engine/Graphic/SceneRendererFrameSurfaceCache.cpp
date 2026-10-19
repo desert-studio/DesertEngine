@@ -47,9 +47,9 @@ namespace Desert::Graphic
         return software;
     }
 
-    GlobalIllumination::TracerFrame
-    SceneRenderer::MakeTracerFrame( RDG::Builder& graph, const FrameTextures& textures,
-                                    const GlobalIllumination::Pipeline& pipeline )
+    GlobalIllumination::TracerFrame SceneRenderer::MakeTracerFrame( RDG::Builder&                       graph,
+                                                                    const FrameTextures&                textures,
+                                                                    const GlobalIllumination::Pipeline& pipeline )
     {
         const FrameTransients&          t = textures.Transients;
         GlobalIllumination::TracerFrame tracer{ .Pipeline                      = pipeline,
@@ -71,8 +71,8 @@ namespace Desert::Graphic
             const RayTracing::RayTracingSceneFrame& scene = m_RayTracingScene.GetFrame();
             if ( scene.Built )
             {
-                tracer.Tlas              = scene.Tlas;
-                tracer.Metadata          = scene.Metadata;
+                tracer.Tlas                     = scene.Tlas;
+                tracer.Metadata                 = scene.Metadata;
                 tracer.InstanceSurfaceCacheRows = AddFrameInstanceSurfaceCacheRows( graph );
             }
         }
@@ -90,7 +90,7 @@ namespace Desert::Graphic
         // an instance by its placement (mesh, world: SurfaceCacheScene::PlacementKey) - the key the global
         // distance field's object grid uses for the same rows. A row with no surface cache instance (a skinned
         // mesh, a landscape tile, a mesh the cache does not hold) reads kNoInstance: the hit is lit in place.
-        const std::unordered_map<uint64_t, uint32_t> rows = m_SurfaceCache->GetScene().RowsByPlacement();
+        const std::unordered_map<uint64_t, uint32_t>           rows = m_SurfaceCache->GetScene().RowsByPlacement();
         const std::span<const RayTracing::RayTracingPrimitive> primitives = m_RayTracingScene.GetPrimitives();
         uint32_t                                               count      = 1u; // a graph buffer cannot be empty
         for ( const RayTracing::RayTracingPrimitive& primitive : primitives )
@@ -100,8 +100,8 @@ namespace Desert::Graphic
         {
             if ( primitive.SourceMesh == nullptr )
                 continue;
-            const auto it =
-                 rows.find( SurfaceCache::SurfaceCacheScene::PlacementKey( primitive.SourceMesh, primitive.World ) );
+            const auto it = rows.find(
+                 SurfaceCache::SurfaceCacheScene::PlacementKey( primitive.SourceMesh, primitive.World ) );
             if ( it != rows.end() )
                 table[primitive.GpuSceneRow] = it->second;
         }

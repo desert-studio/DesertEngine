@@ -34,10 +34,14 @@ namespace Desert::Core
                 case Formats::ShaderStage::TessEvaluation: return shaderc_tess_evaluation_shader;
                 case Formats::ShaderStage::Fragment:       return shaderc_fragment_shader;
                 case Formats::ShaderStage::Compute:        return shaderc_compute_shader;
-                case Formats::ShaderStage::RayGen:         return shaderc_raygen_shader;
-                case Formats::ShaderStage::AnyHit:         return shaderc_anyhit_shader;
-                case Formats::ShaderStage::ClosestHit:     return shaderc_closesthit_shader;
-                case Formats::ShaderStage::Miss:           return shaderc_miss_shader;
+                case Formats::ShaderStage::RayGen:
+                    return shaderc_raygen_shader;
+                case Formats::ShaderStage::AnyHit:
+                    return shaderc_anyhit_shader;
+                case Formats::ShaderStage::ClosestHit:
+                    return shaderc_closesthit_shader;
+                case Formats::ShaderStage::Miss:
+                    return shaderc_miss_shader;
                 default:
                     DESERT_VERIFY( false, "Unsupported shader stage for compilation" );
                     return (shaderc_shader_kind)0;

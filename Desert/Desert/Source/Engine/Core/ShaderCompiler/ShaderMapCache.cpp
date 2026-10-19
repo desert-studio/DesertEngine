@@ -57,10 +57,10 @@ namespace Desert::Core
             requires std::is_same_v<std::remove_const_t<Self>, Formats::ShaderProgramMeta>
         void VisitFields( Self& m, Fn&& fn )
         {
-            auto& [params, state, domain, passNames, rayTracingPassNames, mediumSource, particleSource, layoutBindings, blend,
-                   opacityMask] = m;
-            fn( params ), fn( state ), fn( domain ), fn( passNames ), fn( rayTracingPassNames ), fn( mediumSource ), fn( particleSource ),
-                 fn( layoutBindings ), fn( blend ), fn( opacityMask );
+            auto& [params, state, domain, passNames, rayTracingPassNames, mediumSource, particleSource,
+                   layoutBindings, blend, opacityMask] = m;
+            fn( params ), fn( state ), fn( domain ), fn( passNames ), fn( rayTracingPassNames ),
+                 fn( mediumSource ), fn( particleSource ), fn( layoutBindings ), fn( blend ), fn( opacityMask );
         }
 
         template <class Self, class Fn>

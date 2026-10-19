@@ -86,8 +86,8 @@ namespace Desert::Graphic
                      const uint32_t n = sun.Count < kCascades ? sun.Count : kCascades;
                      for ( uint32_t i = 0; i < kCascades; ++i )
                          data.LightViewProj[i] = ( i < n && sun.CascadeVP ) ? sun.CascadeVP[i] : glm::mat4( 1.0f );
-                     data.Params = glm::vec4( sun.SourceTanHalf, sun.Enabled ? 1.0f : 0.0f, 0.0f,
-                                              static_cast<float>( n ) );
+                     data.Params =
+                          glm::vec4( sun.SourceTanHalf, sun.Enabled ? 1.0f : 0.0f, 0.0f, static_cast<float>( n ) );
                      data.CascadeTexelWorld = sun.CascadeWorldPerTexel;
                      data.CascadeDepthRange = sun.CascadeDepthRange;
                  }
@@ -146,7 +146,7 @@ namespace Desert::Graphic
         // Over one program of DeferredLighting (the base one, or its DESERT_SUN_SHADOW_SCREEN_MASK permutation): a
         // permutation's bindings are its own (Material's shader constructor).
         explicit MaterialDeferredLighting( const std::shared_ptr<Shader>& shader )
-            : Material( "MaterialDeferredLighting", shader )
+             : Material( "MaterialDeferredLighting", shader )
         {
         }
 

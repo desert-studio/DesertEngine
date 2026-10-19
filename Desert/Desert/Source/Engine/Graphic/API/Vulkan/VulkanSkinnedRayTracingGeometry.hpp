@@ -103,10 +103,10 @@ namespace Desert::Graphic::API::Vulkan
 
         std::vector<RayTracing::RayTracingGeometrySegment> m_Segments;
         VkDeviceAddress m_VertexAddress = 0; // the mesh's own vertex buffer: the hit's attribute stream
-        VkDeviceAddress                                    m_IndexAddress  = 0;
-        VkDeviceSize                                       m_BuildScratch  = 0;
-        VkDeviceSize                                       m_UpdateScratch = 0;
-        bool m_Built = false; // a build was recorded into the storage: the next one may refit it
+        VkDeviceAddress m_IndexAddress  = 0;
+        VkDeviceSize    m_BuildScratch  = 0;
+        VkDeviceSize    m_UpdateScratch = 0;
+        bool            m_Built = false; // a build was recorded into the storage: the next one may refit it
 
         VkAccelerationStructureKHR            m_Handle        = VK_NULL_HANDLE;
         VkBuffer                              m_Storage       = VK_NULL_HANDLE;

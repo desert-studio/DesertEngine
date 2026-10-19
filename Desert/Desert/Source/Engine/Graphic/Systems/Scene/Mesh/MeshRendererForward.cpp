@@ -221,17 +221,18 @@ namespace Desert::Graphic::System
 
             // -- The slice: which draws this list takes, through which program of their template ----------
             //
-            // A Shader Override naming a SURFACE template (it registers cells) is a surface material: on the deferred
-            // path it is drawn in the G-buffer through its (Static x GBuffer) cell and shaded by the composite, as
-            // the lit queue is - never forward, so it needs no depth-normal program and is never shaded twice. Every
-            // other draw is a template without a Surface block: its opaque ones put depth + normal into the G-buffer
-            // first (the parser refuses an opaque one with no DepthNormal pass), then shade forward over the
-            // composite at CloserOrEqual against that depth.
+            // A Shader Override naming a SURFACE template (it registers cells) is a surface material: on the
+            // deferred path it is drawn in the G-buffer through its (Static x GBuffer) cell and shaded by the
+            // composite, as the lit queue is - never forward, so it needs no depth-normal program and is never
+            // shaded twice. Every other draw is a template without a Surface block: its opaque ones put depth +
+            // normal into the G-buffer first (the parser refuses an opaque one with no DepthNormal pass), then
+            // shade forward over the composite at CloserOrEqual against that depth.
             const auto isRegistered = [shaders]( std::string_view name )
             { return shaders->GetByName( std::string( name ) ) != nullptr; };
             const bool surfaceOverride =
                  g.SlotMaterial == nullptr &&
-                 TemplateCellShader( shaderName, MeshVertexPath::Static, MeshPass::GBuffer, isRegistered ).has_value();
+                 TemplateCellShader( shaderName, MeshVertexPath::Static, MeshPass::GBuffer, isRegistered )
+                      .has_value();
             const auto& state  = shader->GetProgramMeta().State;
             const bool  opaque = !state.Blend.value_or( false ) && state.DepthWrite.value_or( true );
 
@@ -245,16 +246,16 @@ namespace Desert::Graphic::System
                 case GenericSlice::DeferredSurfaceGBuffer:
                     if ( !surfaceOverride )
                         continue;
-                    programName =
-                         *TemplateCellShader( shaderName, MeshVertexPath::Static, MeshPass::GBuffer, isRegistered );
-                    cellPass = MeshPass::GBuffer;
+                    programName = *TemplateCellShader( shaderName, MeshVertexPath::Static, MeshPass::GBuffer,
+                                                       isRegistered );
+                    cellPass    = MeshPass::GBuffer;
                     break;
                 case GenericSlice::DeferredDepthNormal:
                 {
                     if ( surfaceOverride || !opaque )
                         continue;
-                    auto depthNormal =
-                         TemplateCellShader( shaderName, MeshVertexPath::Static, MeshPass::DepthNormal, isRegistered );
+                    auto depthNormal = TemplateCellShader( shaderName, MeshVertexPath::Static,
+                                                           MeshPass::DepthNormal, isRegistered );
                     if ( !depthNormal )
                     {
                         // The parser refuses an opaque mesh-path program without the pass, so this is a program
@@ -286,7 +287,7 @@ namespace Desert::Graphic::System
                     break;
             }
             const std::shared_ptr<Shader> templateShader = shader;
-            const bool ownProgram = programName != shaderName || !permutation.IsDefault();
+            const bool                    ownProgram     = programName != shaderName || !permutation.IsDefault();
             if ( ownProgram )
             {
                 shader = permutation.IsDefault() ? shaders->GetByName( programName )
@@ -294,7 +295,8 @@ namespace Desert::Graphic::System
                 if ( !shader || !shader->IsCompiled() )
                     continue; // ShaderService named the program and its compile error once
             }
-            // The pipeline tracker's and the shared material's name of this program: the permutation is part of it.
+            // The pipeline tracker's and the shared material's name of this program: the permutation is part of
+            // it.
             std::string programKey = programName;
             for ( const auto& define : permutation.Defines )
                 std::format_to( std::back_inserter( programKey ), "|{}", define );
@@ -694,9 +696,9 @@ namespace Desert::Graphic::System
             return;
         }
         // The graph opens the render pass (LOAD, over the deferred lighting composite). The view carries a sun
-        // shadow mask exactly when the frame resolved to a ray-traced sun (SceneRenderer::AddFrameGeneric: the mask,
-        // or System.White when its trace could not be declared), and the opaque programs read it in place of the
-        // cascades - the same decision the depth/normal prepass was declared with.
+        // shadow mask exactly when the frame resolved to a ray-traced sun (SceneRenderer::AddFrameGeneric: the
+        // mask, or System.White when its trace could not be declared), and the opaque programs read it in place of
+        // the cascades - the same decision the depth/normal prepass was declared with.
         BuildGenericDraws( m_GenericDraws, view.SunShadowMask.IsValid() ? GenericSlice::DeferredForwardRayTracedSun
                                                                         : GenericSlice::DeferredForward );
         m_GenericDraws.Declare( pass, view );
@@ -1681,7 +1683,6 @@ namespace Desert::Graphic::System
             }
         }
     }
-
 
     bool MeshRenderer::SetupGeometryPass()
     {
