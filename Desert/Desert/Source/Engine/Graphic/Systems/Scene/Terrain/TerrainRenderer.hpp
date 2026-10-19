@@ -177,7 +177,7 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr
         RecordDraws( const RDG::PassContext& context, uint32_t firstBlock, const GraphicsPipeline& pipeline,
                      std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
-                     const glm::mat4&                                       clipFromWorld ),
+                     const glm::mat4&                                       clipFromWorld,
                      const std::optional<VirtualShadowIndirect>& indirect = std::nullopt );
 
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
