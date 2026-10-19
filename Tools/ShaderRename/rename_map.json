@@ -4,7 +4,11 @@
     "images end in Texture, sampler states in Sampler, abbreviations written as a word (BrdfLut, Ssr).",
     "A string value is used everywhere; an object gives per-pass names: `scopes` lists the files (shaders and",
     "the C++ that binds them) for each new name, `default` serves C++ files in no scope (test fixtures).",
-    "Entries for names only C++ emits into generated GLSL are included so the generator and its readers agree."
+    "Entries for names only C++ emits into generated GLSL are included so the generator and its readers agree.",
+    "`rest` names every file in no scope; `generated_macros` are names the C++ generator #defines (DShaderParser)."
+  ],
+  "generated_macros": [
+    "Material"
   ],
   "names": {
     "u_Active": "Active",
@@ -112,7 +116,17 @@
     "u_CloudSun": "CloudSun",
     "u_CloudSunColour": "CloudSunColour",
     "u_CloudSunTransmittanceLut": "CloudSunTransmittanceLutTexture",
-    "u_CloudTrace": "CloudTraceTexture",
+    "u_CloudTrace": {
+      "rest": "CloudTraceTexture",
+      "scopes": [
+        {
+          "new": "CloudTraceParams",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Clouds/CloudRaymarch.shader"
+          ]
+        }
+      ]
+    },
     "u_CloudTraceGuide": "CloudTraceGuideTexture",
     "u_CloudVisualize": "CloudVisualize",
     "u_CloudWeather": "CloudWeather",
@@ -172,7 +186,17 @@
     "u_Entries": "Entries",
     "u_EnvIrradianceTex": "EnvironmentIrradianceTexture",
     "u_EnvSpecularTex": "EnvironmentSpecularTexture",
-    "u_Exposure": "ExposureTexture",
+    "u_Exposure": {
+      "rest": "ExposureTexture",
+      "scopes": [
+        {
+          "new": "Exposure",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Composite/SceneComposite.shader"
+          ]
+        }
+      ]
+    },
     "u_ExposureKey": "ExposureKey",
     "u_FaceNegX": "FaceNegativeXTexture",
     "u_FaceNegY": "FaceNegativeYTexture",
@@ -378,7 +402,7 @@
       ]
     },
     "u_Material": "Material",
-    "u_Materials": "Materials",
+    "u_Materials": "MaterialRows",
     "u_Matrix": "Matrix",
     "u_MaxBrightness": "MaxBrightness",
     "u_MaxLuma": "MaxLuma",
@@ -654,7 +678,17 @@
     "u_TileCount": "TileCount",
     "u_TileMask": "TileMaskTexture",
     "u_TileMax": "TileMaxTexture",
-    "u_Tiles": "TilesTexture",
+    "u_Tiles": {
+      "rest": "TilesTexture",
+      "scopes": [
+        {
+          "new": "WaterTileRows",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Water/*"
+          ]
+        }
+      ]
+    },
     "u_TintInner": "TintInner",
     "u_TintOuter": "TintOuter",
     "u_TonemapOperator": "TonemapOperator",

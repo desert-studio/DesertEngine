@@ -40,6 +40,8 @@ INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]([^>"]+)[>"]', re.M)
 TEXTURE_DECL = re.compile(
     r"\b(?:u?i?image\w*|u?i?sampler(?:1D|2D|3D|Cube)\w*|u?i?texture(?:1D|2D|3D|Cube)\w*|Texture2D|Texture3D|TextureCube)"
     r"\s+(u_\w+)")
+MACRO = re.compile(r"#\s*define\s+(\w+)")
+MEMBER = re.compile(r"\.\s*(\w+)|\b(?:u?int|float|bool|[iu]?vec[234]|mat[234])\s+(\w+)\s*;")
 SAMPLER_DECL = re.compile(r"\bsampler(?:Shadow)?\s+(u_\w+)")
 
 
@@ -108,6 +110,7 @@ class Map:
     def __init__(self, path):
         data = json.loads(read_text(path))
         self.names = data["names"]
+        self.generated_macros = set(data.get("generated_macros", []))
 
     def resolve(self, old, rel, is_shader):
         """New name for `old` in file `rel`, or (None, reason)."""
@@ -121,6 +124,8 @@ class Map:
             return hits[0], None
         if len(hits) > 1:
             return None, "file listed in several scopes: " + ", ".join(hits)
+        if "rest" in entry:
+            return entry["rest"], None
         if not is_shader and "default" in entry:
             return entry["default"], None
         return None, "scoped name, file in no scope"
@@ -241,6 +246,26 @@ def main():
                 errors.append(f"{rel}: {', '.join(sorted(olds))} all become {new}")
             if new in existing:
                 errors.append(f"{rel}: new name {new} (from {', '.join(sorted(olds))}) is already an identifier here")
+        # A name that becomes a macro (`#define X sampler2D(X, S)`, or one the C++ generator emits) also rewrites
+        # a struct member or a member access of the same spelling, which the identifier check above skips.
+        macros = set(mp.generated_macros)
+        for f in closure:
+            macros.update(MACRO.findall(strip_comments(texts[f])))
+        news = {new for f in closure for _, _, _, new in plans.get(f, [])}
+        for f in closure:
+            body = strip_comments(texts[f])
+            for m in MEMBER.finditer(body):
+                name = m.group(1) or m.group(2)
+                if name in macros and name in news:
+                    errors.append(f"{f}: '{m.group(0).strip()}' is a member spelled like the macro {name}")
+
+    # The C++ generator #defines these in surface and ray-hit passes, whose includes the tool cannot see, so a
+    # member of that spelling is refused in every shader file.
+    for rel in shaders:
+        for m in MEMBER.finditer(strip_comments(texts[rel])):
+            name = m.group(1) or m.group(2)
+            if name in mp.generated_macros:
+                errors.append(f"{rel}: '{m.group(0).strip()}' is a member spelled like the generated macro {name}")
 
     for n in sorted(set(notes)):
         print("note:", n)
