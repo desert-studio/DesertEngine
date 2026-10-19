@@ -72,6 +72,8 @@ namespace Desert::Graphic
         bool      ShadowsEnabled  = true;
         // The view's contact shadows (SceneResources::ContactShadowSettings), packed into the same ShadowUB.
         SceneResources::ContactShadowSettings ContactShadow{};
+        // The sun's PCSS taps (SceneResources::ShadowFilterSettings), packed into the same ShadowUB.
+        SceneResources::ShadowFilterSettings ShadowFilter{};
         int       ShadowDebugMode = 0;
         bool      ShowNormals     = false;
         bool      LightingDebug   = false;

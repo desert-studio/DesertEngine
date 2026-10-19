@@ -66,7 +66,6 @@ namespace Desert::Graphic::SurfaceCache
             RDG::BufferRef Pages;
             RDG::BufferRef MeshCards;
             RDG::BufferRef InstanceRows;  // contract B3: the instance table
-            RDG::BufferRef ObjectGrid;    // and the object grid of a software hit
             RDG::BufferRef LightingPages; // the pages relit this frame (SceneFrame::LightingPages)
         };
         // What the card lighting is lit by: THE SAME inputs the deferred composite reads this frame (its scene
@@ -150,10 +149,12 @@ namespace Desert::Graphic::SurfaceCache
                                                               const glm::mat4& viewProjection,
                                                               const glm::vec3& cameraPosition );
 
-    private:
-        // The direct lighting's program and pipeline for @p tracer's permutation (its shadow rays).
+        // The direct lighting's program and pipeline for @p tracer's permutation (its shadow rays), built on the
+        // first call for that tracer. Asked by the view before the frame's passes, so a permutation that does not
+        // build refuses the methods it serves by name (SceneRenderer::AddFrameSurfaceCache, ProgramRefusals).
         [[nodiscard]] Common::BoolResultStr EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer );
 
+    private:
         [[nodiscard]] Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
         ViewPipeline( std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>>& cache,
                       const std::shared_ptr<Shader>& shader, Core::Formats::ImageFormat format, uint32_t samples,

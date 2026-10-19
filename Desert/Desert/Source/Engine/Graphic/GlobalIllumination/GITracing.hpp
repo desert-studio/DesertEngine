@@ -5,11 +5,13 @@
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneMetadata.hpp>
 
 #include <glm/glm.hpp>
 
 #include <array>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -125,6 +127,32 @@ namespace Desert::Graphic::GlobalIllumination
         return pipeline;
     }
 
+    // THE GI METHODS EACH PROGRAM OF THIS MACHINERY SERVES: a program that does not build on the device refuses
+    // exactly these by its name (SceneRenderer::RefuseProgramMethods, ProgramRefusals), and the view renders the
+    // method below. The surface cache and the world radiance cache serve every traced method; the screen probes
+    // the two that gather through them; the irradiance field gather ProbeVolume alone.
+    inline constexpr std::array<Common::Scalability::GIMethod, 3> kCacheGIMethods{
+         Common::Scalability::GIMethod::ProbeVolume, Common::Scalability::GIMethod::SoftwareTraced,
+         Common::Scalability::GIMethod::HardwareTraced };
+    inline constexpr std::array<Common::Scalability::GIMethod, 2> kScreenProbeGIMethods{
+         Common::Scalability::GIMethod::SoftwareTraced, Common::Scalability::GIMethod::HardwareTraced };
+    inline constexpr std::array<Common::Scalability::GIMethod, 1> kIrradianceFieldGIMethods{
+         Common::Scalability::GIMethod::ProbeVolume };
+
+    // PURE. The GI methods a Trace program compiled for @p pipeline serves (the radiance cache's when
+    // @p screenProbes is false, the screen probes' when true): the hardware permutation serves HardwareTraced
+    // alone (PipelineFor picks it only there), the software one every traced method that walks the SDF.
+    [[nodiscard]] constexpr std::span<const Common::Scalability::GIMethod>
+    TraceProgramGIMethods( const Pipeline& pipeline, const bool screenProbes )
+    {
+        constexpr std::span<const Common::Scalability::GIMethod> cache( kCacheGIMethods );
+        constexpr std::span<const Common::Scalability::GIMethod> probes( kScreenProbeGIMethods );
+        if ( pipeline.Tracer == Tracer::HardwareRayQuery )
+            return cache.subspan( 2, 1 );                                               // HardwareTraced
+        return screenProbes ? probes.first( 1 ) /* SoftwareTraced */ : cache.first( 2 ) /* ProbeVolume, Software */
+             ;
+    }
+
     // PURE. The same, with the hit-lighting allowance read from the machine's quality and ray query from the
     // device's catalogue.
     [[nodiscard]] inline Pipeline PipelineFor( Common::Scalability::GIMethod                 method,
@@ -158,14 +186,33 @@ namespace Desert::Graphic::GlobalIllumination
     // itself.
     //   SoftwareDistanceField  the four global distance field clipmaps (GLOBAL-SDF) and their placement, a
     //                          buffer of four vec4 (centre.xyz cm, voxel cm; FrameField::Levels) — the walk's
-    //                          own record, so the neutral GI frame (GIFramePayload) carries nothing of it;
-    //   HardwareRayQuery       the scene TLAS — added with the ray-query tracer (GI-HWRT).
+    //                          own record, so the neutral GI frame (GIFramePayload) carries nothing of it -
+    //                          and the field's object grid, the rows a hit may belong to (GIHitInstanceRows);
+    //   HardwareRayQuery       the view's scene TLAS (RayTracingSceneFrame::Tlas, RT-SCENE), its per-segment
+    //                          geometry and material records (RayTracingSceneFrame::Metadata, RT-SHADOWS: the
+    //                          hit's vertex streams and alpha test), and the surface cache's instance-table row
+    //                          (contract B3) per TLAS instance custom index (one uint per GPU-scene row,
+    //                          kNoInstance where the cache holds no such instance;
+    //                          SceneRenderer::AddFrameInstanceSurfaceCacheRows). The ray-query walk's own record;
+    //                          it reads no distance field data. It fills four of the tracer's six bindings
+    //                          (GI_TRACER_BINDING + 0..3); + 4 and + 5 stay unbound.
     struct TracerFrame
     {
-        GlobalIllumination::Pipeline   Pipeline{};
-        std::array<RDG::TextureRef, 4> GlobalDistanceField{};
-        RDG::BufferRef                 GlobalDistanceFieldLevels; // "GITracerSoftwareUB"
+        GlobalIllumination::Pipeline        Pipeline{};
+        std::array<RDG::TextureRef, 4>      GlobalDistanceField{};
+        RDG::BufferRef                      GlobalDistanceFieldLevels;     // "GITracerSoftwareUB"
+        RDG::TextureRef                     GlobalDistanceFieldObjectGrid; // "u_GlobalDistanceFieldObjectGrid"
+        RDG::BufferRef                      Tlas;
+        RayTracing::RayTracingMetadataFrame Metadata;
+        RDG::BufferRef                      InstanceSurfaceCacheRows; // "GIInstanceSurfaceCacheRows"
     };
+
+    // The shader names of the hardware tracer's four reads (Common/GITracer.glslh declares them at
+    // GI_TRACER_BINDING + 0..3; the record blocks are Common/RayQueryVisibility.glslh's, shared with RT-SHADOWS).
+    inline constexpr std::string_view kHardwareTracerTlasName                     = "u_SceneTLAS";
+    inline constexpr std::string_view kHardwareTracerGeometryName                 = "RayTracingGeometryRecords";
+    inline constexpr std::string_view kHardwareTracerMaterialsName                = "RayTracingMaterialRecords";
+    inline constexpr std::string_view kHardwareTracerInstanceSurfaceCacheRowsName = "GIInstanceSurfaceCacheRows";
 
     // THE GI FRAME RECORD — what every GI pass knows of the frame, neutral to the tracer. std430 — must match
     // `struct GIFrame` in Common/GIFrame.glslh. 224 bytes. Uploaded once per frame by the frame's owner and bound
@@ -194,7 +241,8 @@ namespace Desert::Graphic::GlobalIllumination
                              RDG::Access sampled = RDG::Access::SampledCompute );
 
     // THIS FRAME'S SURFACE CACHE AS A HIT READS IT (GIHitRadiance, Common/SurfaceCacheSampling.glslh): the card //
-    // records, the instance table and object grid of contract B3 (SurfaceCache.hpp), and the atlas layers a hit
+    // records, the instance table of contract B3 (SurfaceCache.hpp; the rows of a hit come from the tracer,
+    // GIHitInstanceRows), and the atlas layers a hit
     // samples - FinalLighting (what the hit returns: direct + the indirect of the radiosity slot + emissive),
     // Depth and Opacity (whether the card holds the hit). Filled by the frame's owner from the surface cache's
     // update (SurfaceCacheRenderer::HitReads) before any tracing consumer runs.
@@ -204,7 +252,6 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::BufferRef  Pages;        // "SurfaceCardPageBuffer"
         RDG::BufferRef  MeshCards;    // "SurfaceMeshCardsBuffer"
         RDG::BufferRef  InstanceRows; // "SurfaceCacheInstancesUB"
-        RDG::BufferRef  ObjectGrid;   // "SurfaceCacheObjectGridUB"
         RDG::TextureRef FinalLighting;
         RDG::TextureRef Depth;
         RDG::TextureRef Opacity;
@@ -214,6 +261,6 @@ namespace Desert::Graphic::GlobalIllumination
     [[nodiscard]] std::string_view SurfaceCacheFrameMissing( const SurfaceCacheFrame& frame );
 
     // Declares the surface cache's reads of GIHitRadiance on a tracing consumer's binding block, under the names
-    // // Common/SurfaceCacheSampling.glslh declares (at GI_SURFACE_CACHE_BINDING .. + 7).
+    // // Common/SurfaceCacheSampling.glslh declares (at GI_SURFACE_CACHE_BINDING .. + 6).
     void DeclareSurfaceCacheReads( RDG::BindingBlockBuilder& block, const SurfaceCacheFrame& frame );
 } // namespace Desert::Graphic::GlobalIllumination

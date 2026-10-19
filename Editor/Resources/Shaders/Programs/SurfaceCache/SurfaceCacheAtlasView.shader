@@ -18,10 +18,15 @@ Shader "SurfaceCacheAtlasView"
     Fragment
     {
         In(0) vec2 v_Ndc;
-        Uniform(0) sampler2D u_AtlasDepth;
-        Uniform(1) sampler2D u_AtlasAlbedo;
-        Uniform(2) sampler2D u_AtlasOpacity;
-        Uniform(3) sampler2D u_AtlasNormal;
+        Uniform sampler u_PointClampSampler;
+        Uniform(0) texture2D u_AtlasDepth;
+        #define u_AtlasDepth sampler2D(u_AtlasDepth, u_PointClampSampler)
+        Uniform(1) texture2D u_AtlasAlbedo;
+        #define u_AtlasAlbedo sampler2D(u_AtlasAlbedo, u_PointClampSampler)
+        Uniform(2) texture2D u_AtlasOpacity;
+        #define u_AtlasOpacity sampler2D(u_AtlasOpacity, u_PointClampSampler)
+        Uniform(3) texture2D u_AtlasNormal;
+        #define u_AtlasNormal sampler2D(u_AtlasNormal, u_PointClampSampler)
         Out(0) vec4 oColor;
 
         vec3 OctahedronToUnitVector(vec2 o)

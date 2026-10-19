@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Core
@@ -29,6 +30,14 @@ namespace Desert::Core
         ShaderVariant         Variant;
         std::string           Name;
     };
+
+    // THE SHARED-SAMPLER RULE (SharedSamplerBinding.hpp), applied to one program's compiled stages in place:
+    // every sampler the DSL marked with kAutoSamplerBinding gets, per descriptor set, the bindings after the last
+    // one any resource of any stage holds, in name order, one number per name across the stages. Refuses, naming
+    // @p shaderName: a sampler on a binding another resource holds, a marked sampler no stage samples, a resource
+    // left on the marker, a sampler without a name. Device-free: it reads and patches the SPIR-V words.
+    Common::BoolResultStr AssignSharedSamplerBindings( std::vector<ShaderMapStage>& stages,
+                                                       std::string_view             shaderName );
 
     // Reads the shader map cache first; on a miss preprocesses, compiles every stage (through the SPIR-V
     // cache) and stores the map. Safe to call from a worker thread.

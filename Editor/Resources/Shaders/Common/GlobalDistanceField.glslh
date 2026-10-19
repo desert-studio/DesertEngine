@@ -6,7 +6,8 @@
 // REPEAT sampler (texel = world voxel index mod resolution) instead of UE's page atlas, distances stored in
 // centimetres (R32F) rather than normalized by the influence radius.
 //
-// The including shader declares sampler3D u_GlobalDistanceField0..3 before including this file, and passes
+// The including shader declares u_GlobalDistanceField0..3 before including this file (separate texture3Ds, each
+// with a same-name `sampler3D(texture, u_LinearRepeatSampler)` macro: the pass's shared repeat state), and passes
 // the clipmap parameters: GDFLevel[k] = (centre.xyz world cm, voxel size cm), the C++ ClipmapUniforms().
 #ifndef GLOBAL_DISTANCE_FIELD_GLSLH
 #define GLOBAL_DISTANCE_FIELD_GLSLH

@@ -69,14 +69,21 @@ namespace Desert::Graphic
     inline constexpr ViewProfile kReflectionCaptureViewProfile{
          kPreviewShadowQuality, true, false, false, false, false, true };
 
-    // THE SHADOW BUDGET OF A QUALITY RESOLUTION — the three Shadows rows of the Scalability table, in the units
-    // ShadowQuality holds them (centimetres for the distance, like the table).
-    [[nodiscard]] inline ShadowQuality ShadowQualityOf( const Common::Scalability::ResolvedQuality& quality )
+    // THE SHADOW BUDGET OF A QUALITY RESOLUTION — the Shadows rows of the Scalability table, in the units
+    // ShadowQuality holds them (centimetres for the distance, like the table). `sunRayTraced` = the view's Shadows
+    // method resolves to HardwareTraced: the sun's cascades are then only the low-detail ones the blended
+    // programs sample (Shadows.RayTracedTranslucencyCascades / .RayTracedTranslucencyMapSize); the local lights'
+    // atlas keeps Shadows.MapSize either way.
+    [[nodiscard]] inline ShadowQuality ShadowQualityOf( const Common::Scalability::ResolvedQuality& quality,
+                                                        const bool                                  sunRayTraced )
     {
         using Common::Scalability::Parameter;
-        return ShadowQuality{ quality.As<uint32_t>( Parameter::ShadowCascades ),
-                              quality.As<uint32_t>( Parameter::ShadowMapSize ),
-                              quality.As<float>( Parameter::ShadowDistance ) };
+        const auto mapSize = quality.As<uint32_t>( Parameter::ShadowMapSize );
+        return ShadowQuality{ sunRayTraced ? quality.As<uint32_t>( Parameter::ShadowRayTracedTranslucencyCascades )
+                                           : quality.As<uint32_t>( Parameter::ShadowCascades ),
+                              sunRayTraced ? quality.As<uint32_t>( Parameter::ShadowRayTracedTranslucencyMapSize )
+                                           : mapSize,
+                              quality.As<float>( Parameter::ShadowDistance ), mapSize };
     }
 
     // THE RE-ALLOCATION RULE (UE re-creates its shadow depth targets when r.Shadow.* changes): the budget a
@@ -85,11 +92,12 @@ namespace Desert::Graphic
     // (Generation 0: a tool or test host that did not initialise it) is not a level, so the view keeps its own.
     // Pure, so the rule is tested without a device; SceneRenderer calls it when the quality generation moves.
     [[nodiscard]] inline std::optional<ShadowQuality>
-    ShadowReallocation( const ViewProfile& profile, const Common::Scalability::ResolvedQuality& quality )
+    ShadowReallocation( const ViewProfile& profile, const Common::Scalability::ResolvedQuality& quality,
+                        const bool sunRayTraced )
     {
         if ( !profile.ShadowsFollowQuality || quality.Generation == 0 )
             return std::nullopt;
-        const ShadowQuality wanted = ShadowQualityOf( quality );
+        const ShadowQuality wanted = ShadowQualityOf( quality, sunRayTraced );
         if ( wanted == profile.Shadows )
             return std::nullopt;
         return wanted;
@@ -429,7 +437,8 @@ namespace Desert::Graphic
         return static_cast<double>( totals.ViewScaledBytes ) / ( static_cast<double>( width ) * height );
     }
 
-    /// The census as a table, largest first — what the suite prints and the renderer logs once per build.
+    /// The FORECAST as a table, largest first — what the ViewMemory suite prints. The renderer logs the view's
+    /// MEASURED ledger rows instead (FormatViewLedgerMemory, RT-LEDGER-3); this forecast only admits a new view.
     [[nodiscard]] inline std::string FormatViewTargetCensus( std::vector<ViewTarget> rows, const uint32_t width,
                                                              const uint32_t height )
     {

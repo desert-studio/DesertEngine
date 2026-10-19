@@ -1,3 +1,4 @@
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
@@ -49,6 +50,7 @@ namespace Desert::Graphic
 {
     void SceneRenderer::Init()
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         // Init runs on the first scene AND on every scene after it — see the header for the two lifetimes
         // this splits into and the rule that separates them. The timings are logged because the cost of
         // this call is what Г11 was about and a claim about it should be readable from any run's log
@@ -105,8 +107,9 @@ namespace Desert::Graphic
         {
             const uint32_t viewW = m_TargetFramebuffer->GetFramebufferWidth();
             const uint32_t viewH = m_TargetFramebuffer->GetFramebufferHeight();
-            LOG_INFO( "[ViewMemory] view '{}' {}", m_ViewResources.GetName(),
-                      FormatViewTargetCensus( ViewTargetCensus( m_ViewProfile, viewW, viewH ), viewW, viewH ) );
+            // MEASURED: the view's ledger rows and its scene's, not the ViewTargetCensus forecast (RT-LEDGER-3).
+            LOG_INFO( "[ViewMemory] view '{}' {}x{} ledger: {}", m_ViewResources.GetName(), viewW, viewH,
+                      FormatViewLedgerMemory( TakeLedgerMemory() ) );
         }
         LOG_INFO( "[Resources] {}", ResourceLedger::Report() );
 
@@ -201,7 +204,9 @@ namespace Desert::Graphic
         //
         // A texture or mesh lazily built INSIDE this window is still the asset's: the services claim
         // theirs explicitly after the build, and an explicit claim overrides the ambient one.
-        const ResourceAttributionScope owned( ResourceOwner::SceneRenderer );
+        // AND TO THIS VIEW (RT-LEDGER-3): the rows carry the view's instance, and the view's budget
+        // (HeldBytes) is those rows measured, not the ViewTargetCensus forecast of them.
+        const ResourceAttributionScope owned = OpenViewLedgerScope();
 
         // ONE STAGE PER CALL, in the order the systems depend on each other: the post chain is wired to
         // framebuffers the earlier stages made, so a later stage reads its predecessors from m_RenderSystems.
@@ -520,9 +525,14 @@ namespace Desert::Graphic
                 // RenderPath == Deferred. Non-fatal if it fails to init (deferred path is simply unavailable).
                 RegisterSystem<System::DeferredLightingRenderer>( "DeferredLightingSystem", this,
                                                                   m_TargetFramebuffer );
-                if ( !SP_CAST( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] )
-                           ->Initialize() )
-                    LOG_WARN( "[SceneRenderer] Deferred lighting system unavailable." );
+                // A program only some Shadows methods need failing refuses those methods by name
+                // (DeferredLightingRenderer::Refusals, read by every ResolveRenderMethods), not the whole path.
+                const auto& deferred =
+                     SP_CAST( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] );
+                if ( const auto deferredInit = deferred->Initialize(); !deferredInit )
+                    LOG_WARN( "[SceneRenderer] Deferred lighting system unavailable: {}",
+                              deferredInit.GetError() );
+                m_ProgramRefusals.Shadows = deferred->Refusals().Shadows;
                 return "DeferredLighting";
             }
             case 20:
@@ -633,12 +643,72 @@ namespace Desert::Graphic
         }
     } // namespace
 
+    std::string FormatViewLedgerMemory( const ViewLedgerMemory& memory )
+    {
+        constexpr double kMiB = 1024.0 * 1024.0;
+        return std::format( "{} {} rows {:.2f} MiB (the view's budget); {} {} rows {:.2f} MiB (scene-shared, the "
+                            "scene's own budget entry)",
+                            ResourceOwnerInstanceName( memory.View.Instance ), memory.View.Live,
+                            static_cast<double>( memory.View.Bytes ) / kMiB,
+                            ResourceOwnerInstanceName( memory.Scene.Instance ), memory.Scene.Live,
+                            static_cast<double>( memory.Scene.Bytes ) / kMiB );
+    }
+
     uint64_t SceneRenderer::HeldBytes() const
     {
-        return SumViewTargets( ViewTargetCensus( m_ViewProfile, m_ViewExtent.Width, m_ViewExtent.Height ) )
-                    .Total() +
-               m_ViewResources.HeldBytes() + m_ViewState.HeldBytes();
+        // READ FROM THE ROWS (RT-LEDGER-3), and only from them: every entry point that can allocate opens the
+        // view's ledger scope, so the targets, the history, the per-view copies and the RT rows all carry the
+        // view's instance. The ledger is the one statement of those bytes; the budget, the [ViewMemory] lines,
+        // the overlay and the [Resources] census cannot disagree. The scene cache's rows carry the scene's
+        // instance and are its own entry (SceneHoldings), never here — nor are a capture face view's, which
+        // accounts under its scene's instance (LedgerView::Borrowed).
+        if ( m_LedgerView.Borrowed )
+            return 0;
+        return ResourceLedger::TakeFor( m_LedgerView.Instance ).Bytes;
     }
+
+    ViewLedgerMemory SceneRenderer::TakeLedgerMemory() const
+    {
+        return ViewLedgerMemory{ .View  = ResourceLedger::TakeFor( m_LedgerView.Instance ),
+                                 .Scene = ResourceLedger::TakeFor( m_SceneLedgerInstance ) };
+    }
+
+    std::vector<Engine::ViewBudget::HeldView> SceneRenderer::SceneHoldings()
+    {
+        std::vector<Engine::ViewBudget::HeldView> held;
+        for ( const ResourceInstanceCensus& scene : ResourceLedger::TakeInstances( ResourceInstanceKind::Scene ) )
+            held.push_back(
+                 { std::format( "{} (shared by its views)", ResourceOwnerInstanceName( scene.Instance ) ),
+                   scene.Bytes } );
+        return held;
+    }
+
+    SceneRenderer::LedgerView::~LedgerView()
+    try
+    {
+        // A view accounting under its scene's instance has no rows of its own to check: the scene's rows are
+        // held by the scene and outlive this view by design.
+        if ( Borrowed )
+            return;
+        // Every member that held a row of this view has been destroyed by now (this one is declared first).
+        const ResourceInstanceCensus left = ResourceLedger::TakeFor( Instance );
+        if ( left.Live == 0 )
+        {
+            LOG_INFO( "[Resources] {} closed: 0 ledger rows left.", ResourceOwnerInstanceName( Instance ) );
+        }
+        else
+        {
+            LOG_ERROR( "[Resources] {} closed but {} ledger rows ({} bytes) still carry it: a view member's "
+                       "device object outlived the view.",
+                       ResourceOwnerInstanceName( Instance ), left.Live, left.Bytes );
+            // Each by kind, claiming owner and size: the row names no object, these find its holder.
+            for ( const ResourceRowSummary& row : ResourceLedger::RowsOf( Instance ) )
+                LOG_ERROR( "[Resources]   row #{}: {} claimed by {}, {}", row.Id, ResourceKindName( row.Kind ),
+                           ResourceOwnerName( row.Owner ),
+                           row.BytesKnown ? std::format( "{} bytes", row.Bytes ) : std::string( "size unknown" ) );
+        }
+    }
+    DESERT_DESTRUCTOR_GUARD( "~SceneRenderer::LedgerView" )
 
     std::vector<Engine::ViewBudget::HeldView> SceneRenderer::LiveHoldings()
     {
@@ -646,7 +716,13 @@ namespace Desert::Graphic
         std::vector<Engine::ViewBudget::HeldView> held;
         held.reserve( LiveRenderers().size() );
         for ( const SceneRenderer* renderer : LiveRenderers() )
+        {
+            // A capture face view's rows are its scene's entry (SceneHoldings): listing it here would count them
+            // twice, or list a view at 0 bytes that no viewer opened.
+            if ( renderer->m_LedgerView.Borrowed )
+                continue;
             held.push_back( { renderer->m_ViewResources.GetName(), renderer->HeldBytes() } );
+        }
         return held;
     }
 
@@ -655,14 +731,23 @@ namespace Desert::Graphic
         uint64_t held = 0;
         for ( const Engine::ViewBudget::HeldView& view : LiveHoldings() )
             held += view.Bytes;
-        return std::format( "{} live, {:.1f} MiB", ViewResourceRegistry::LiveCount(),
-                            static_cast<double>( held ) / ( 1024.0 * 1024.0 ) );
+        uint64_t shared = 0;
+        for ( const Engine::ViewBudget::HeldView& scene : SceneHoldings() )
+            shared += scene.Bytes;
+        return std::format( "{} live, {:.1f} MiB; scenes {:.1f} MiB shared", ViewResourceRegistry::LiveCount(),
+                            static_cast<double>( held ) / ( 1024.0 * 1024.0 ),
+                            static_cast<double>( shared ) / ( 1024.0 * 1024.0 ) );
     }
 
-    SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile )
-         : m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ), m_ViewExtent( extent ),
-           m_RenderExtent( extent )
+    SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile,
+                                  const ResourceOwnerInstance accountUnder )
+         : m_LedgerView( accountUnder ), m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ),
+           m_ViewExtent( extent ), m_RenderExtent( extent )
     {
+        // Every device object this view makes, here and in each entry point that can allocate (Init, the staged
+        // build, the three frame phases, Resize, the Ensure* builders), is opened under the view's ledger
+        // instance: the view's budget is those rows (HeldBytes), measured, not a forecast (RT-LEDGER-3).
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         {
             const std::scoped_lock lock( LiveRenderersMutex() );
             LiveRenderers().push_back( this );
@@ -670,7 +755,9 @@ namespace Desert::Graphic
 
         // A level's viewport is BUILT at the machine's Shadows level, so a Low machine never allocates the High
         // maps only to re-allocate them on the first frame. Later level changes: BeginScene.
-        if ( const auto budget = ShadowReallocation( m_ViewProfile, m_Quality ) )
+        // Built for the cascaded sun: the Shadows method is resolved by the first BeginScene; the first frame that
+        // draws a ray-traced sun re-budgets to the low-detail cascades (OnUpdate, RebudgetShadowsFor).
+        if ( const auto budget = ShadowReallocation( m_ViewProfile, m_Quality, /*sunRayTraced*/ false ) )
             m_ViewProfile.Shadows = *budget;
         m_ShadowBudgetGeneration = m_Quality.Generation;
 
@@ -701,6 +788,7 @@ namespace Desert::Graphic
         // a per-frame resource; the frame context gets them back on every exit, so nothing written after the
         // last view of a frame lands in this view's copies.
         const ActiveViewScope viewScope( m_ViewResources );
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
 
         // HANDED IN, NOT READ OFF THE SCENE. This used to be `scene.GetMainCamera()`, which is the same
         // answer for every renderer of that scene — so a second view of one world rendered from the
@@ -720,6 +808,11 @@ namespace Desert::Graphic
         m_FrameExtensions = &scene.GetExtensionPasses();
         // The scene's reflection captures, published into this frame's graph (SceneViewInputs).
         m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
+        // The scene's ray-tracing geometry (skin cache, BLAS variants), shared by this frame's views.
+        m_FrameRayTracingCache = &scene.GetRayTracingCache();
+        m_SceneLedgerInstance  = scene.GetLedgerInstance();
+        // The scene's procedural sky environment: baked once per scene, read by this view (SceneSkyEnvironment).
+        skyboxSystem->BindSceneSky( scene.GetSkyEnvironment() );
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -784,8 +877,19 @@ namespace Desert::Graphic
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
-        // device, each lowered axis logged once.
-        m_RenderMethods = ResolveRenderMethods( post, quality, Common::Scalability::QualityState::Catalog() );
+        // The captures' programs serve every Reflections method that reads the captures: built here, before the
+        // resolution, so one that did not build refuses those methods from this frame on (by its name).
+        if ( !m_FrameReflectionCaptures->EnsurePipelines() )
+            RefuseProgramMethods( kCaptureReflectionMethods, m_FrameReflectionCaptures->FailedProgram(),
+                                  "the reflection captures' compute program did not build" );
+        // device x render path x the programs the view's renderers built, each lowered axis logged once.
+        // m_RenderPath (set above, a debug view may force forward) is what the frame graph branches on, so a
+        // method that needs the G-buffer is lowered exactly when the deferred block will not run - under forward,
+        // ray-traced sun shadows resolve to CascadedMaps and the cascades are drawn for the forward meshes that
+        // read them (UE's forward renderer does the same).
+        m_RenderMethods =
+             ResolveRenderMethods( post, quality, Common::Scalability::QualityState::Catalog(),
+                                   m_RenderPath == Core::RenderPath::Deferred && m_GBuffer, m_ProgramRefusals );
         m_GIPipeline    = GlobalIllumination::PipelineFor( m_RenderMethods.GlobalIllumination.Effective, quality,
                                                            Common::Scalability::QualityState::Catalog() );
         ReportRenderMethods( m_RenderMethods );
@@ -797,6 +901,29 @@ namespace Desert::Graphic
         m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
         m_ContactShadowSteps                  = quality.As<int>( Parameter::ShadowContactSteps );
+        m_RayTracedShadowSamples =
+             static_cast<uint32_t>( quality.As<int>( Parameter::ShadowRayTracedSamplesPerPixel ) );
+        m_ShadowFilter = SceneResources::ShadowFilterSettings{
+             .BlockerSearchTaps = quality.As<int>( Parameter::ShadowBlockerSearchTaps ),
+             .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ) };
+        m_ShadowDenoiserRadius = quality.As<uint32_t>( Parameter::ShadowRayTracedDenoiserRadius );
+        m_VirtualShadowQuality = System::VirtualShadowMapQuality{
+             .MaxPhysicalPages =
+                  static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualMaxPhysicalPages ) ),
+             .ResolutionLodBias =
+                  0.1f * static_cast<float>( quality.As<int>( Parameter::ShadowVirtualResolutionLodBias ) ),
+             .SmrtRayCount = static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTRayCount ) ),
+             .SmrtSamplesPerRay =
+                  static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTSamplesPerRay ) ) };
+        m_MegaLightsQuality = System::MegaLightsQuality{
+             .SamplesPerPixel  = quality.As<uint32_t>( Parameter::ShadowMegaLightsSamplesPerPixel ),
+             .SpatialSamples   = quality.As<uint32_t>( Parameter::ShadowMegaLightsSpatialSamples ),
+             .MaxHistory       = quality.As<uint32_t>( Parameter::ShadowMegaLightsMaxHistory ),
+             .DenoiserRadius   = quality.As<uint32_t>( Parameter::ShadowMegaLightsDenoiserRadius ),
+             .DownsampleFactor = quality.As<uint32_t>( Parameter::ShadowMegaLightsDownsampleFactor ) };
+        m_ReflectionDenoiserRadius            = quality.As<uint32_t>( Parameter::ReflectionDenoiserRadius );
+        m_ScreenSpaceGISamples                = quality.As<int>( Parameter::ScreenSpaceGISamples );
+        m_SunSourceAngleDegrees               = shadows.SourceAngleDegrees;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
         m_SunContactShadowLengthInWorldSpace  = shadows.ContactShadowLengthInWorldSpace;
         m_SunContactShadowCastingIntensity    = shadows.ContactShadowCastingIntensity;
@@ -808,23 +935,9 @@ namespace Desert::Graphic
         m_RadianceCacheInputs =
              RadianceCache::MakeRadianceCacheInputs( quality, m_RenderMethods.GlobalIllumination.Effective );
 
-        // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL (UE re-creates its shadow depth targets on r.Shadow.*).
-        // Asked only when the quality generation moved — a level change, never per frame — and the maps are
-        // re-allocated only when the budget really differs (ShadowReallocation, ViewMemory.hpp). The profile is
-        // updated with them so the view's memory census keeps describing what is allocated.
-        if ( m_Quality.Generation != m_ShadowBudgetGeneration )
-        {
-            m_ShadowBudgetGeneration = m_Quality.Generation;
-            if ( const auto budget = ShadowReallocation( m_ViewProfile, quality ) )
-            {
-                m_ViewProfile.Shadows = *budget;
-                if ( !UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-                           ->RebudgetShadows( *budget ) )
-                    LOG_ERROR( "[Shadows] view '{}': the shadow pass could not be set up at {} cascades of {} px; "
-                               "nothing casts a shadow in this view.",
-                               m_ViewResources.GetName(), budget->CascadeCount, budget->ShadowMapSize );
-            }
-        }
+        // THE SHADOW BUDGET is not taken here: it follows the FRAME's sun-shadow path, which OnUpdate decides
+        // after the view's TLAS (LowerShadowsForFrame) - RebudgetShadowsFor, called there before the maps are
+        // imported.
 
         // GPU particles: snapshot the scene's emitters (CPU) here; the compute sim is dispatched in OnUpdate
         // before the render graph, and the billboard pass draws in AddFrameTranslucency.
@@ -863,6 +976,8 @@ namespace Desert::Graphic
              ->SetWireframe( m_DebugView.WireframeMode );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetLODEnabled( quality.As<bool>( Parameter::MeshLOD ) );
+        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
+             ->SetSkinCacheEnabled( quality.As<bool>( Parameter::SkinCache ) );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetShadows( shadows, static_cast<int>( m_DebugView.ShadowDebug ) );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
@@ -959,6 +1074,31 @@ namespace Desert::Graphic
         return BOOLSUCCESS;
     }
 
+    // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL AND THE FRAME'S SUN PATH (UE re-creates its shadow depth targets
+    // on r.Shadow.*). Asked when the quality generation or the sun path the budget was taken for moved - a level
+    // change or a sun that starts/stops being ray traced, never per frame otherwise - and the maps are
+    // re-allocated only when the budget really differs (ShadowReallocation, ViewMemory.hpp). The profile is
+    // updated with them so the view's memory census keeps describing what is allocated. The sun path is part of
+    // the budget (ShadowQualityOf): a ray-traced sun keeps only the low-detail cascades; a frame that fell back to
+    // CascadedMaps gets the full ones.
+    void SceneRenderer::RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality,
+                                            const bool                                  sunRayTraced )
+    {
+        if ( quality.Generation == m_ShadowBudgetGeneration && sunRayTraced == m_ShadowBudgetSunRayTraced )
+            return;
+        m_ShadowBudgetGeneration   = quality.Generation;
+        m_ShadowBudgetSunRayTraced = sunRayTraced;
+        const auto budget          = ShadowReallocation( m_ViewProfile, quality, sunRayTraced );
+        if ( !budget )
+            return;
+        m_ViewProfile.Shadows = *budget;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( !UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->RebudgetShadows( *budget ) )
+            LOG_ERROR( "[Shadows] view '{}': the shadow pass could not be set up at {} cascades of {} px; nothing "
+                       "casts a shadow in this view.",
+                       m_ViewResources.GetName(), budget->CascadeCount, budget->ShadowMapSize );
+    }
+
     void SceneRenderer::OnUpdate( const UpdateInfo& sceneRenderInfo )
     {
         DESERT_PROFILE_SCOPE( "SceneRenderer::OnUpdate" );
@@ -968,6 +1108,7 @@ namespace Desert::Graphic
         // Without this line a second view writes its per-frame GPU state into the frame context instead of
         // its own copies, a torn picture with nothing in the log (Docs/RENDERER_FRAME_STATE.md).
         const ActiveViewScope viewScope( m_ViewResources );
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
         m_DirectionLights        = sceneRenderInfo.DirLights;
@@ -1007,16 +1148,6 @@ namespace Desert::Graphic
         {
             DESERT_PROFILE_PASS( "Shadow: UpdateCascades" );
             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateCascades();
-        }
-
-        // The point and spot lights' shadow views, the same boundary: tiles of the atlas allocated (and the atlas
-        // itself, on the first light that casts), each light's ShadowView written into its payload, and the views
-        // whose cached depth is stale marked for this frame's graph (MeshRenderer::LocalShadowPasses).
-        {
-            DESERT_PROFILE_PASS( "Shadow: UpdateLocalShadows" );
-            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-                 ->UpdateLocalShadows( m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights,
-                                       m_SpotLightShadows );
         }
 
         // Morph targets blend before anything skins (UE: the morph update precedes the GPU skin passes): its own
@@ -1134,7 +1265,7 @@ namespace Desert::Graphic
         ImportSceneViewTextures( graph, textures );
         // The reflection captures, before any lit node reads them (SceneViewInputs).
         if ( m_FrameReflectionCaptures )
-            m_FrameReflectionCaptures->AddPasses( graph, textures, m_ViewProfile.ReflectionCaptures );
+            m_FrameReflectionCaptures->AddPasses( graph, textures, ReadsReflectionCaptures() );
         // The view's velocity: one transient of this graph at the RENDER EXTENT (frame.Split.Render: the scene
         // target and the G-buffer are resized to it by ResizeRenderTargets), a colour slot of the scene target
         // (SceneTargetLayout, slot kSceneTargetVelocitySlot) and of the G-buffer (GBufferLayout, slot
@@ -1174,14 +1305,40 @@ namespace Desert::Graphic
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
             meshes->SetPrevWorldTimeSeconds( GetViewFrame()->PrevTimeSeconds );
-            if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions( m_ViewState.Motion() ); !rows )
+            // Every landscape tile is a GPU-scene primitive too (its TLAS custom index): world-space vertices, so
+            // an identity World.
+            m_ScratchTileMotions.clear();
+            for ( const System::TerrainDrawData& tile : terrain->GetQueue() )
+                m_ScratchTileMotions.push_back(
+                     { .Entity = tile.Landscape.Entity, .Part = 0, .World = glm::mat4( 1.0f ) } );
+            // The scene's GPU skin cache (RayTracingSkinCache.hpp): every view of the scene shares it, each
+            // skinned primitive is skinned once per frame by the skin step of the first view that queues it, the
+            // raster and the TLAS of every view read the result.
+            const uint64_t frameNumber = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+            RayTracing::RayTracingSkinCache* skinCache = nullptr;
+            if ( m_FrameRayTracingCache != nullptr )
+            {
+                m_FrameRayTracingCache->BeginViewFrame( frameNumber );
+                skinCache = &m_FrameRayTracingCache->GetSkinCache();
+                skinCache->SetEnabled( meshes->IsSkinCacheEnabled() );
+            }
+            if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions(
+                      m_ViewState.Motion(), m_ScratchTileMotions, skinCache, frameNumber );
+                 !rows )
             {
                 LOG_ERROR( "[SceneRenderer] {}: the view's motion rows could not be built; nothing is drawn this "
                            "frame: {}",
                            m_ViewResources.GetName(), rows.GetError() );
                 return;
             }
+            // The skin step already ran in BuildObjectMotions (its own graph, submitted before this view graph):
+            // this graph only reads the streams, barriered by their carried state.
+            meshes->SkinCacheReads().clear();
+            if ( skinCache != nullptr )
+                skinCache->DeclareReads( graph, *meshes, frameNumber, meshes->SkinCacheReads() );
         }
 
         const auto sceneColor = [this, &textures]()
@@ -1193,12 +1350,167 @@ namespace Desert::Graphic
 
         AddFrameClearMainFramebuffer( graph, textures );
 
+        // The view's TLAS, before any pass that traces rays is declared (RayTracingSceneRenderer.hpp). A frame
+        // whose TLAS could not be declared still draws; its ray readers see GetFrame().Built == false.
+        {
+            // Every RT allocation this block makes is a ledger row of the scene renderer (RT-SCENE-2 contract,
+            // Memory accounting). The VIEW's rows — its TLAS storage, its landscape tiles' vertex / index buffers
+            // and BLASes — carry this view's instance (RT-LEDGER-2) and are counted in HeldBytes. The scene
+            // cache's variant, procedural and skin-cache BLASes and skinned positions carry the SCENE's instance
+            // (RayTracingSceneRenderer::AddPasses opens the cache's scope around them): shared, in no view's
+            // budget. A mesh BLAS built here by a lazy upload is claimed by the mesh service for its asset (an
+            // explicit claim wins and clears the instance). The graph transients (TLAS instance rows, build
+            // scratch, PrimitiveInstances) live in the device's transient heaps, each a TransientHeap row of the
+            // Device. The view's scope is OnUpdate's (RT-LEDGER-3), not a second one here.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            auto* const     meshes     = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            const auto*     camera     = GetMainCamera();
+            const glm::vec3 viewOrigin = camera != nullptr ? camera->GetPosition() : glm::vec3( 0.0f );
+            const float     lensScale  = camera != nullptr
+                                              ? DrawDistanceScale( Geometry::LODView{ camera->GetPosition(),
+                                                                                 camera->GetProjectionMatrix() } )
+                                              : 1.0f;
+            const bool      required   = RayTracing::RayTracingSceneRequired( m_RenderMethods );
+
+            // The landscape tiles first: their vertex compute, then their BLAS requests join the RT scene's
+            // dynamic-geometry pass, which the TLAS pass reads (orders it after the builds).
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+            std::span<const System::TerrainDrawData>       queue     = terrain->GetQueue();
+            const std::span<const System::TerrainInstance> instances = terrain->GetFrameInstances();
+            const std::span<const glm::vec4>               tints     = terrain->GetFrameTints();
+            const std::span<const uint32_t>                rows      = meshes->GetOtherMotionRows();
+            // Parallel by construction (PrepareFrame packs one row per queued tile, BuildObjectMotions one motion
+            // row per tile record); a mismatch is a broken invariant, said and not traced, never truncated.
+            std::vector<RayTracing::LandscapeRayTracingTile> tiles;
+            if ( instances.size() != queue.size() || tints.size() != queue.size() || rows.size() != queue.size() )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: {} landscape tiles queued but {} terrain rows, {} tints and {} "
+                           "GPU-scene rows; the landscape is not in this frame's TLAS",
+                           m_ViewResources.GetName(), queue.size(), instances.size(), tints.size(), rows.size() );
+                queue = {};
+            }
+            tiles.reserve( queue.size() );
+            for ( std::size_t i = 0; i < queue.size(); ++i )
+            {
+                const System::TerrainDrawData& draw = queue[i];
+                tiles.push_back( { .Entity         = draw.Landscape.Entity,
+                                   .GpuSceneRow    = rows[i],
+                                   .Heightmap      = draw.Heightmap,
+                                   .HeightRevision = draw.Landscape.HeightRevision,
+                                   .Weightmap      = draw.Weights.Weightmap,
+                                   .WeightRevision = draw.Weights.Revision,
+                                   .Instance       = instances[i],
+                                   .Weights        = draw.Weights,
+                                   .Tint           = tints[i] } );
+            }
+            const Common::BoolResultStr landscape =
+                 m_LandscapeRayTracing.AddPasses( graph, textures, required, tiles );
+            if ( !landscape )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: the view's landscape could not enter the TLAS; rays miss it this "
+                           "frame: {}",
+                           m_ViewResources.GetName(), landscape.GetError() );
+            }
+            // A failed AddPasses may have registered tiles whose build was never declared: none enters the TLAS.
+            const RayTracing::LandscapeRayTracingFrame& landscapeFrame = m_LandscapeRayTracing.GetFrame();
+            RayTracing::RayTracingExternalPrimitives    external;
+            if ( landscape.IsSuccess() )
+                external = { .Primitives       = landscapeFrame.Primitives,
+                             .Builds           = landscapeFrame.Builds,
+                             .Resident         = landscapeFrame.Resident,
+                             .Built            = landscapeFrame.Built,
+                             .Refit            = landscapeFrame.Refit,
+                             .VertexBytes      = landscapeFrame.VertexBytes,
+                             .BlasBytes        = landscapeFrame.BlasBytes,
+                             .SegmentRecords   = landscapeFrame.SegmentRecords,
+                             .LandscapeOpacity = landscapeFrame.Opacity };
+
+            Common::BoolResultStr tlas = BOOLSUCCESS;
+            if ( m_FrameRayTracingCache == nullptr )
+                tlas = Common::MakeError(
+                     std::string( "OnUpdate ran outside BeginScene/EndScene: no scene ray-tracing cache" ) );
+            else
+                tlas = m_RayTracingScene.AddPasses( graph, required, *meshes, *m_FrameRayTracingCache, viewOrigin,
+                                                    lensScale, external );
+            for ( const std::string& error : m_RayTracingScene.GetGatherErrors() )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: a mesh row traces nothing this frame: {}",
+                           m_ViewResources.GetName(), error );
+            }
+            if ( !tlas )
+                LOG_ERROR( "[SceneRenderer] {}: the view's TLAS could not be declared; ray-traced methods read "
+                           "nothing this frame: {}",
+                           m_ViewResources.GetName(), tlas.GetError() );
+#if DESERT_DEV_INSTRUMENTS
+            // The RT scene's view-memory lines, beside the targets' census, when its TLAS storage is
+            // (re)allocated: the moment the view's RT memory steps, not every frame.
+            const RayTracing::RayTracingSceneStats& rtStats = m_RayTracingScene.GetStats();
+            if ( rtStats.Built && rtStats.TlasBytes != m_LoggedRayTracingTlasBytes )
+            {
+                m_LoggedRayTracingTlasBytes = rtStats.TlasBytes;
+                LOG_INFO( "[ViewMemory] view '{}' {}", m_ViewResources.GetName(),
+                          RayTracing::FormatRayTracingSceneMemory( rtStats ) );
+                // The view's and the scene's budget entries, from the same rows the budget and the overlay read.
+                LOG_INFO( "[ViewMemory] view '{}' ledger: {}", m_ViewResources.GetName(),
+                          FormatViewLedgerMemory( TakeLedgerMemory() ) );
+            }
+#endif
+
+            // THE FRAME'S SUN-SHADOW PATH, decided here ONCE, before any pass that reads it is declared: a
+            // ray-traced sun whose frame has no traceable scene (TLAS not built - m_RayTracingScene's frame is
+            // only this frame's when AddPasses succeeded - or the trace resources could not be created) resolves
+            // to CascadedMaps for the whole frame (LowerShadowsForFrame: the overlay row and one log line name
+            // it). Every reader - the cascades below, the depth/normal prepass, the trace, the composite,
+            // "Deferred: Generic" - asks SunShadowIsScreenMask() (the ray-traced sun or the virtual shadow map),
+            // which reads this resolution. Stochastic traces the sun AND the local lights: both its resources, or
+            // neither method this frame.
+            const bool sunTraced = SunShadowIsRayTraced();
+            LowerShadowsForFrame(
+                 m_RenderMethods,
+                 !sunTraced || ( tlas && m_RayTracingScene.GetFrame().Built && EnsureRayTracedShadowResources() &&
+                                 ( !LocalLightsAreStochastic() || EnsureMegaLightsResources() ) ) );
+            ReportRenderMethods( m_RenderMethods );
+            // The point and spot lights' shadow views, once the frame's Shadows method is final (and before the
+            // maps are imported): tiles of the atlas allocated (and the atlas itself, on the first light that
+            // casts), each light's ShadowView written into its payload, and the views whose cached depth is stale
+            // marked for this frame's graph (MeshRenderer::LocalShadowPasses). Under Stochastic MegaLights traces
+            // the local lights: no map is drawn for any (UE: MegaLights lights render no shadow depths).
+            {
+                DESERT_PROFILE_PASS( "Shadow: UpdateLocalShadows" );
+                UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
+                     ->UpdateLocalShadows( m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights,
+                                           m_SpotLightShadows, !LocalLightsAreStochastic() );
+            }
+            // The cascade budget follows the FRAME's answer: a frame that fell back to CascadedMaps draws the full
+            // ShadowQuality cascades, the low-detail Shadows.RayTracedTranslucency* ones only while the sun is
+            // ray traced. Then the maps are imported at that budget, before any pass reads them.
+            RebudgetShadowsFor( m_Quality, SunShadowIsScreenMask() );
+            ImportViewShadowMaps( graph, textures );
+            // The sun's cascades this frame: always under CascadedMaps; under a ray-traced sun only when a program
+            // of this frame samples them (MeshRenderer::SunCascadeReadersQueued: blended draws whose program
+            // declares u_ShadowCascades - the low-detail sun CSM, budgeted by the Shadows.RayTracedTranslucency*
+            // rows). Not drawn -> the view binds the far-plane stand-in, never last drawn frame's maps; drawn
+            // after a gap -> every cascade's static cache is redrawn (it went stale while nothing drew it).
+            m_FrameSunCascades =
+                 meshes != nullptr && ( !SunShadowIsScreenMask() || meshes->SunCascadeReadersQueued() );
+            if ( !m_FrameSunCascades )
+                textures.Transients.ShadowCascades = AddFrameNoSunCascades( graph );
+            else if ( !m_SunCascadesDrawnLastFrame )
+                meshes->InvalidateCascadeCaches();
+            m_SunCascadesDrawnLastFrame = m_FrameSunCascades;
+        }
+
         AddFrameParticlesSimulate( graph );
 
         AddFrameCloudShadowMap( graph, textures );
 
         // The opaque raster of the systems, in this order: the cascade depths (the geometry's shadow lookups read
         // them), the scene target's sky and geometry, the outline mask.
+        // This graph's shared traced records (m_TracedFrameShared) are made by their first reader - the surface
+        // cache comes before the traced GI - so they are forgotten HERE, before any reader: a handle from the last
+        // frame's graph is not a handle in this one.
+        m_TracedFrameShared = {};
         AddFrameShadowDepths( graph, textures );
         // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
         // deferred composite, the glass).
@@ -1219,6 +1531,7 @@ namespace Desert::Graphic
 
             AddFrameGBuffer( graph, textures, meshRenderer );
             AddFrameTerrainGBuffer( graph, textures );
+            AddFrameForwardDepthNormal( graph, textures, meshRenderer );
             AddFrameDepthResolve( graph, textures );
 
             const FrameSun  sun        = GetFrameSun();
@@ -1226,36 +1539,67 @@ namespace Desert::Graphic
             const glm::vec4 lightColor = sun.ColorIntensity;
             AddFrameSSAO( graph, textures, gbuffer, frame );
             AddFrameSurfaceCache( graph, textures, frame );
-            AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, frame );
+
+            // The screen traces - SSR's rays and the screen probes' (UE ScreenProbeTraceScreenTextures) - walk
+            // this frame's HZB and return LAST frame's lit scene at a hit: the view's scene colour history, which
+            // this frame's scene copy below refills.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            // ScreenSpace, SoftwareTraced and HardwareTraced run the same pass (the traced two its traced
+            // permutation over their tracer, AddFrameSSR).
+            const Common::Scalability::ReflectionMethod reflections = m_RenderMethods.Reflections.Effective;
+            System::SSRRenderer* const                  ssr =
+                 ( reflections == Common::Scalability::ReflectionMethod::ScreenSpace ||
+                   reflections == Common::Scalability::ReflectionMethod::SoftwareTraced ||
+                   reflections == Common::Scalability::ReflectionMethod::HardwareTraced ) &&
+                           EnsureSSRResources()
+                                       ? UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] )
+                                       : nullptr;
+            const bool             probesTrace = RadianceCacheRuns() && m_GIPipeline.ScreenProbes;
+            const FrameScreenTrace screenTrace =
+                 ( ssr != nullptr || ( probesTrace && EnsureScreenTraceResources() ) )
+                      ? AddFrameScreenTrace( graph, textures, frame )
+                      : FrameScreenTrace{};
+            AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, screenTrace, frame );
 
             // SSR before the lighting, which composes it over the reflection environment (UE: SSR, then the
-            // reflection environment pass). The trace reflects LAST frame's lit scene - SSR's scene colour
-            // history, which this frame's scene copy below refills.
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            System::SSRRenderer* const ssr =
-                 m_RenderMethods.Reflections.Effective == Common::Scalability::ReflectionMethod::ScreenSpace &&
-                           EnsureSSRResources()
-                      ? UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] )
-                      : nullptr;
+            // reflection environment pass).
             const FrameSSR ssrFrame =
-                 ssr != nullptr ? AddFrameSSR( graph, textures, *ssr, gbuffer, frame ) : FrameSSR{};
+                 ssr != nullptr ? AddFrameSSR( graph, textures, *ssr, gbuffer, screenTrace, frame ) : FrameSSR{};
 
             // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
             // with their neutral defaults), not as a second, separately resolved read list.
-            AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, meshRenderer, lightDir, lightColor,
-                               frame );
-            AddFrameGeneric( graph, textures, meshRenderer );
-            AddFrameSkinned( graph, textures, meshRenderer );
+            // "Shadows: Ray Traced Sun" in place of the cascades (SunShadowIsRayTraced): the composite's
+            // DESERT_SUN_SHADOW_SCREEN_MASK permutation reads this mask.
+            // "VSM: Project" likewise: the same mask, the same permutations.
+            const RDG::TextureRef sunShadowMask =
+                 SunShadowIsVirtual()
+                      ? AddFrameVirtualSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
+                 : SunShadowIsRayTraced()
+                      ? AddFrameRayTracedSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
+                      : RDG::TextureRef{};
+            // Shadows Stochastic: the local lights sampled, traced and denoised by MegaLights, which the
+            // composite's MegaLights program reads in place of its light-grid loop.
+            const System::MegaLightsLighting megaLights =
+                 LocalLightsAreStochastic() ? AddFrameMegaLights( graph, textures, gbuffer, frame )
+                                            : System::MegaLightsLighting{};
+            AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, sunShadowMask, megaLights,
+                               meshRenderer, lightDir, lightColor, frame );
+            AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask );
 
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
-            // With SSR on, the copy IS SSR's scene colour history (what next frame's trace reflects): one copy
-            // serves this frame's refraction and next frame's reflections.
+            // With a screen trace on, the copy IS the view's scene colour history (what next frame's traces read):
+            // one copy serves this frame's refraction and next frame's SSR and screen probes.
             std::function<void()> stampHistory;
-            if ( ssrFrame.SceneHistory.IsValid() )
-                stampHistory = [ssr, index = frame.FrameIndex]() { ssr->StampSceneColorHistory( index ); };
+            if ( screenTrace.SceneHistory.IsValid() )
+            {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                auto* history = UNIQUE_GET_AS( System::SceneColorHistoryRenderer,
+                                               m_RenderSystems["SceneColorHistorySystem"] );
+                stampHistory  = [history, index = frame.FrameIndex]() { history->Stamp( index ); };
+            }
             const RDG::TextureRef sceneCopy = AddFrameSceneCopy(
-                 graph, textures, sceneColor(), copy, ssrFrame.SceneHistory, std::move( stampHistory ) );
+                 graph, textures, sceneColor(), copy, screenTrace.SceneHistory, std::move( stampHistory ) );
 
             // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
             // the glass, which then refracts the water behind it.
@@ -1370,6 +1714,7 @@ namespace Desert::Graphic
     NO_DISCARD Common::BoolResultStr SceneRenderer::EndScene()
     {
         const ActiveViewScope viewScope( m_ViewResources ); // same reason as OnUpdate: phases interleave
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
 
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ClearQueues();
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
@@ -1383,36 +1728,9 @@ namespace Desert::Graphic
         m_SpotLightShadows.clear();
         m_FrameExtensions         = nullptr;
         m_FrameReflectionCaptures = nullptr;
+        m_FrameRayTracingCache    = nullptr;
 
         return BOOLSUCCESS;
-    }
-
-    // Capability gate of EnsureSSRResources. SSR accumulates into RGBA32F targets that are sampled and blended,
-    // so a device that cannot do that cannot run it.
-    //
-    // IT ASKS ABOUT THE FORMAT IT ACTUALLY USES. This used to read the cached
-    // `DeviceCapabilities::SupportsFloatRenderTargets` bool while the comment above it claimed to "read
-    // the introspection layer (Engine::Device) rather than assuming — the whole point of it". The bool
-    // IS an assumption: VulkanDevice computes it once at init for one hardcoded format
-    // (VK_FORMAT_R32G32B32A32_SFLOAT) against one hardcoded feature set, so every later reader inherits
-    // whichever format the initialiser happened to pick. Reading it here was a comment describing the
-    // code somebody meant to write.
-    //
-    // `Device::IsFormatSupported` is that code, and until now it had no caller anywhere — it stood in
-    // the PureVirtualCensus register, and its own doc comment says "Prefer this over adding another
-    // Supports<Feature> bool", which made the recommended question the one nobody asked. The three bits
-    // below map exactly onto the three VkFormatFeatureFlags the cached bool hardcodes, so the ANSWER is
-    // unchanged today; what changes is that the question now names its format, and a second float target
-    // in another format gets a truthful answer instead of this one's.
-    bool SceneRenderer::HasFloatRenderTargetSupport() const
-    {
-        const auto device = EngineContext::GetInstance().GetDevice();
-        if ( !device )
-            return false;
-        return device->IsFormatSupported( ViewTargetFormats::kSceneColor,
-                                          static_cast<Engine::FormatUsage>( Engine::FormatUsage_Sampled |
-                                                                            Engine::FormatUsage_ColorAttachment |
-                                                                            Engine::FormatUsage_Blendable ) );
     }
 
     // EnsureSSRResources is LAZY on purpose: every PreviewViewport owns a SceneRenderer, so allocating its
@@ -1421,22 +1739,246 @@ namespace Desert::Graphic
     // WaitDeviceIdle before touching GPU resources, matching what Resize() below does. A failure is non-fatal and
     // latched, so a broken shader cannot make this retry every frame.
 
+    bool SceneRenderer::SunShadowIsRayTraced() const
+    {
+        // Stochastic's sun is the ray-traced one (MegaLights shades the local lights).
+        using Common::Scalability::ShadowMethod;
+        return m_RenderMethods.Shadows.Effective == ShadowMethod::HardwareTraced ||
+               m_RenderMethods.Shadows.Effective == ShadowMethod::Stochastic;
+    }
+
+    bool SceneRenderer::LocalLightsAreStochastic() const
+    {
+        return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::Stochastic;
+    }
+
+    bool SceneRenderer::EnsureMegaLightsResources()
+    {
+        if ( m_MegaLightsReady )
+            return true;
+        if ( m_MegaLightsFailed )
+            return false;
+        if ( const Common::BoolResultStr initialized = m_MegaLights.Initialize(); !initialized )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: MegaLights could not be created; Shadows Stochastic resolves to "
+                       "CascadedMaps: {}",
+                       m_ViewResources.GetName(), initialized.GetError() );
+            m_MegaLightsFailed = true;
+            return false;
+        }
+        m_MegaLightsReady = true;
+        return true;
+    }
+
+    System::MegaLightsLighting SceneRenderer::AddFrameMegaLights( RDG::Builder& graph, FrameTextures& textures,
+                                                                  const std::vector<RDG::TextureRef>& gbuffer,
+                                                                  const ViewFrame&                    frame )
+    {
+        const auto pointCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
+        const auto spotCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
+        if ( pointCount + spotCount == 0 )
+            return {}; // no local light: nothing to sample, the composite adds none
+        if ( gbuffer.size() < 4 )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: MegaLights needs the 4 G-buffer colours, the graph has {}; the local "
+                       "lights are unlit this frame",
+                       m_ViewResources.GetName(), gbuffer.size() );
+            return {};
+        }
+        // The frame resolved to Stochastic only with this frame's TLAS built (OnUpdate, LowerShadowsForFrame).
+        const RayTracing::RayTracingSceneFrame& scene = m_RayTracingScene.GetFrame();
+        const FrameGraphRefs                    refs  = textures.GraphRefs();
+        const System::MegaLightsInputs          inputs{ .Depth       = textures.Depth( m_GBuffer, "GBuffer" ),
+                                                        .GBufferA    = gbuffer[0],
+                                                        .GBufferB    = gbuffer[1],
+                                                        .ShadingWord = gbuffer[2],
+                                                        .Velocity    = textures.Transients.Velocity,
+                                                        .Black       = refs.System.Black,
+                                                        .Tlas        = scene.Tlas,
+                                                        .Metadata    = scene.Metadata,
+                                                        .Lights      = refs.Transients.Lights,
+                                                        .PointLights = pointCount,
+                                                        .SpotLights  = spotCount,
+                                                        .Width       = frame.Split.Render.Width,
+                                                        .Height      = frame.Split.Render.Height,
+                                               // The G-buffer depth is the opaque scene: the march has
+                                               // something to hit (as the composite's contact shadows).
+                                                        .ContactShadowView = SceneResources::ContactShadowViewVector(
+                                                    GetContactShadowSettings( frame, true ) ) };
+        const Common::ResultStr<System::MegaLightsLighting> lighting =
+             m_MegaLights.AddPasses( graph, inputs, m_MegaLightsQuality, frame );
+        if ( !lighting )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: {}; the local lights are unlit this frame", m_ViewResources.GetName(),
+                       lighting.GetError() );
+            return {};
+        }
+        return lighting.GetValue();
+    }
+
+    bool SceneRenderer::SunShadowIsVirtual() const
+    {
+        return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::VirtualMaps;
+    }
+
+    bool SceneRenderer::SunShadowIsScreenMask() const
+    {
+        return SunShadowIsRayTraced() || SunShadowIsVirtual();
+    }
+
+    bool SceneRenderer::EnsureVirtualShadowResources()
+    {
+        if ( m_VirtualShadowReady )
+            return true;
+        if ( m_VirtualShadowFailed )
+            return false;
+        if ( const Common::BoolResultStr initialized = m_VirtualShadowMap.Initialize(); !initialized )
+        {
+            LOG_ERROR(
+                 "[SceneRenderer] {}: Shadows: Virtual Shadow Map could not be created; the sun casts no shadow "
+                 "while the method resolves to VirtualMaps: {}",
+                 m_ViewResources.GetName(), initialized.GetError() );
+            m_VirtualShadowFailed = true;
+            return false;
+        }
+        m_VirtualShadowReady = true;
+        return true;
+    }
+
+    RDG::TextureRef SceneRenderer::AddFrameVirtualSunShadow( RDG::Builder& graph, FrameTextures& textures,
+                                                             const std::vector<RDG::TextureRef>& gbuffer,
+                                                             const glm::vec3&                    directionToSun,
+                                                             const ViewFrame&                    frame )
+    {
+        if ( !EnsureVirtualShadowResources() )
+            return {};
+        const System::VirtualShadowMapViewInputs view{ .Depth  = textures.Depth( m_GBuffer, "GBuffer" ),
+                                                       .Normal = gbuffer[1],
+                                                       .InvJitteredViewProjection =
+                                                            frame.InvJitteredViewProjection,
+                                                       .Projection     = frame.Projection,
+                                                       .CameraPosition = frame.CameraPosition,
+                                                       .Width          = frame.Split.Render.Width,
+                                                       .Height         = frame.Split.Render.Height,
+                                                       .FrameIndex     = frame.FrameIndex };
+        const System::VirtualShadowMapSun        sun{ .DirectionToSun     = directionToSun,
+                                                      .SourceAngleDegrees = m_SunSourceAngleDegrees };
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        // The casters that changed since the last frame drop their cached pages (UE VSM cache invalidation).
+        const System::MeshRenderer::VirtualShadowInvalidation invalidation =
+             meshes->CollectVirtualShadowInvalidation();
+        const Common::ResultStr<System::VirtualShadowMapFrame> pages = m_VirtualShadowMap.AddPagePasses(
+             graph, view, sun, m_VirtualShadowQuality, invalidation.Boxes, invalidation.StaticCastersChanged );
+        if ( !pages )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
+                       pages.GetError() );
+            return {};
+        }
+        // "VSM: Raster": every caster into the dirty pages, before the projection reads the pool. A refusal is
+        // a missing caster program or pipeline, which no later frame repairs: said once, and the method stays
+        // dark.
+        if ( const Common::BoolResultStr raster =
+                  meshes->AddVirtualShadowRasterPasses( graph, pages.GetValue(), m_VirtualShadowMap );
+             !raster.IsSuccess() )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: Shadows: Virtual Shadow Map casters cannot be drawn; the sun casts no "
+                       "shadow while the method resolves to VirtualMaps: {}",
+                       m_ViewResources.GetName(), raster.GetError() );
+            m_VirtualShadowFailed = true;
+            m_VirtualShadowReady  = false;
+            return {};
+        }
+        const Common::ResultStr<RDG::TextureRef> mask =
+             m_VirtualShadowMap.AddProjection( graph, pages.GetValue(), view );
+        if ( !mask )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
+                       mask.GetError() );
+            return {};
+        }
+        return mask.GetValue();
+    }
+
+    bool SceneRenderer::EnsureRayTracedShadowResources()
+    {
+        if ( m_RayTracedShadowReady )
+            return true;
+        if ( m_RayTracedShadowFailed )
+            return false;
+        Common::BoolResultStr initialized = m_RayTracedSunShadow.Initialize();
+        if ( initialized )
+            initialized = m_SunShadowDenoiser.Initialize();
+        if ( !initialized )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: Shadows: Ray Traced Sun could not be created; the sun casts no shadow "
+                       "while the method resolves to HardwareTraced: {}",
+                       m_ViewResources.GetName(), initialized.GetError() );
+            m_RayTracedShadowFailed = true;
+            return false;
+        }
+        m_RayTracedShadowReady = true;
+        return true;
+    }
+
+    RDG::TextureRef SceneRenderer::AddFrameRayTracedSunShadow( RDG::Builder& graph, FrameTextures& textures,
+                                                               const std::vector<RDG::TextureRef>& gbuffer,
+                                                               const glm::vec3&                    directionToSun,
+                                                               const ViewFrame&                    frame )
+    {
+        // The frame resolved to a ray-traced sun only with this frame's TLAS built (OnUpdate,
+        // LowerShadowsForFrame).
+        const RayTracing::RayTracingSceneFrame& scene  = m_RayTracingScene.GetFrame();
+        const uint32_t                          width  = frame.Split.Render.Width;
+        const uint32_t                          height = frame.Split.Render.Height;
+        const RDG::TextureRef                   depth  = textures.Depth( m_GBuffer, "GBuffer" );
+        const System::ScreenShadowMaskInputs    inputs{ .Depth    = depth,
+                                                        .Normal   = gbuffer[1],
+                                                        .Tlas     = scene.Tlas,
+                                                        .Metadata = scene.Metadata,
+                                                        .InvJitteredViewProjection = frame.InvJitteredViewProjection,
+                                                        .Width  = width,
+                                                        .Height = height };
+        const System::RayTracedSunShadowParams  params = System::MakeRayTracedSunShadowParams(
+             m_SunSourceAngleDegrees, directionToSun, m_RayTracedShadowSamples,
+             System::kRayTracedSunShadowMaxDistance, frame.FrameIndex );
+        const Common::ResultStr<System::RayTracedSunShadowOutputs> traced =
+             m_RayTracedSunShadow.AddPass( graph, inputs, params );
+        if ( !traced )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
+                       traced.GetError() );
+            return {};
+        }
+        const RDG::TextureRef velocity = textures.Transients.Velocity;
+        if ( !velocity.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: Shadows: Ray Traced Sun: the denoiser reprojects its history through "
+                       "the view's velocity, the frame has none; the undenoised mask is shaded",
+                       m_ViewResources.GetName() );
+            return traced.GetValue().Mask;
+        }
+        return m_SunShadowDenoiser.DenoiseShadowVisibility(
+             graph,
+             System::ShadowVisibilityDenoiserInputs{ .Mask                    = traced.GetValue().Mask,
+                                                     .ClosestOccluder         = traced.GetValue().ClosestOccluder,
+                                                     .LightSourceAngleRadians = params.SourceAngleRadians,
+                                                     .ReconstructionRadius    = m_ShadowDenoiserRadius },
+             System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
+                                            .GBufferDepth  = depth,
+                                            .Velocity      = velocity,
+                                            .Black         = textures.GraphRefs().System.Black },
+             frame, width, height );
+    }
+
     bool SceneRenderer::EnsureSSRResources()
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( m_SSRResourcesReady )
             return true;
         if ( m_SSRResourcesFailed || !m_ViewProfile.ScreenSpaceReflections )
             return false;
-
-        // Same gate as GI: the trace target and the denoiser's history are sampled float targets
-        // (ViewTargetFormats::kSSRTrace / kDenoiserSignal).
-        if ( !HasFloatRenderTargetSupport() )
-        {
-            LOG_WARN( "[SceneRenderer] SSR needs blendable float render targets, which this device does not "
-                      "report — reflections stay off." );
-            m_SSRResourcesFailed = true;
-            return false;
-        }
 
         Renderer::GetInstance().WaitDeviceIdle();
 
@@ -1444,17 +1986,12 @@ namespace Desert::Graphic
         const auto& ssrSys = SP_CAST( System::SSRRenderer, m_RenderSystems["SSRSystem"] );
         if ( const Common::BoolResultStr initialized = ssrSys->Initialize(); !initialized )
         {
-            LOG_WARN( "[SceneRenderer] SSR system unavailable: {}", initialized.GetError() );
+            RefuseProgramMethods( kScreenTraceReflectionMethods, "SSR", initialized.GetError() );
             m_SSRResourcesFailed = true;
             return false;
         }
-        // The hierarchy SSR walks (HZBRenderer); its first reader is SSR, so it is built with it.
-        RegisterSystem<System::HZBRenderer>( "HZBSystem", this, m_TargetFramebuffer );
-        if ( const Common::BoolResultStr initialized =
-                  SP_CAST( System::HZBRenderer, m_RenderSystems["HZBSystem"] )->Initialize();
-             !initialized )
+        if ( !EnsureScreenTraceResources() )
         {
-            LOG_WARN( "[SceneRenderer] SSR system unavailable: the HZB: {}", initialized.GetError() );
             m_SSRResourcesFailed = true;
             return false;
         }
@@ -1463,8 +2000,71 @@ namespace Desert::Graphic
         return true;
     }
 
+    namespace
+    {
+        template <typename Method, std::size_t N>
+        void RefuseMethods( std::vector<MethodRefusal<Method>>& refusals, const std::span<const Method> methods,
+                            const std::string_view axis, const std::array<std::string_view, N>& names,
+                            const std::string_view program, const std::string_view error )
+        {
+            for ( const Method method : methods )
+                if ( AddRefusal( refusals, method, program ) )
+                    LOG_ERROR( "[SceneRenderer] {} {} refused on this device: its program '{}' did not build: {}",
+                               axis, names[static_cast<std::size_t>( method )], program, error );
+        }
+    } // namespace
+
+    void SceneRenderer::RefuseProgramMethods( const std::span<const Common::Scalability::GIMethod> methods,
+                                              const std::string_view program, const std::string_view error )
+    {
+        RefuseMethods( m_ProgramRefusals.GlobalIllumination, methods, "GI", Common::Scalability::kGIMethodNames,
+                       program, error );
+    }
+
+    void SceneRenderer::RefuseProgramMethods( const std::span<const Common::Scalability::ReflectionMethod> methods,
+                                              const std::string_view program, const std::string_view error )
+    {
+        RefuseMethods( m_ProgramRefusals.Reflections, methods, "Reflections",
+                       Common::Scalability::kReflectionMethodNames, program, error );
+    }
+
+    bool SceneRenderer::EnsureScreenTraceResources()
+    {
+        if ( m_ScreenTraceResourcesReady )
+            return true;
+        if ( m_ScreenTraceResourcesFailed )
+            return false;
+        Renderer::GetInstance().WaitDeviceIdle();
+        // The hierarchy every screen trace walks (HZBRenderer) and the scene colour history every trace returns at
+        // a hit (SceneColorHistoryRenderer): the view's, built with the first trace that needs them.
+        RegisterSystem<System::HZBRenderer>( "HZBSystem", this, m_TargetFramebuffer );
+        if ( const Common::BoolResultStr initialized =
+                  SP_CAST( System::HZBRenderer, m_RenderSystems["HZBSystem"] )->Initialize();
+             !initialized )
+        {
+            // The screen probes run without their screen leg (black HZB, AddFrameTracedGI); the reflections that
+            // trace the screen cannot.
+            RefuseProgramMethods( kScreenTraceReflectionMethods, "HZB", initialized.GetError() );
+            m_ScreenTraceResourcesFailed = true;
+            return false;
+        }
+        RegisterSystem<System::SceneColorHistoryRenderer>( "SceneColorHistorySystem", this, m_TargetFramebuffer );
+        if ( const Common::BoolResultStr initialized =
+                  SP_CAST( System::SceneColorHistoryRenderer, m_RenderSystems["SceneColorHistorySystem"] )
+                       ->Initialize();
+             !initialized )
+        {
+            RefuseProgramMethods( kScreenTraceReflectionMethods, "SceneColorHistory", initialized.GetError() );
+            m_ScreenTraceResourcesFailed = true;
+            return false;
+        }
+        m_ScreenTraceResourcesReady = true;
+        return true;
+    }
+
     void SceneRenderer::Resize( const uint32_t width, const uint32_t height )
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         // A SIZE THAT NO TARGET CAN BE BUILT AT IS SKIPPED, and `width == 0 && height == 0` was not that
         // test. It let through exactly the sizes the UI actually produces: a collapsed dock panel is 0 on ONE
         // side, and a panel dragged shut hands out a negative ImGui float that becomes ~4.29e9 on the cast to
@@ -1518,6 +2118,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::ResizeRenderTargets( const ViewExtent render )
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( !m_TargetFramebuffer || m_RenderExtent == render )
             return;
         m_RenderExtent        = render;
@@ -1590,6 +2191,7 @@ namespace Desert::Graphic
                              .Mesh                     = drawnMesh,
                              .Transform                = transform,
                              .MaterialSlots            = materialSlots,
+                             .SectionSlot              = extra.SectionSlot,
                              .BoneMatrices             = extra.BoneMatrices,
                              .MorphWeights             = extra.MorphWeights,
                              .MorphRevision            = extra.MorphRevision,
@@ -1603,7 +2205,8 @@ namespace Desert::Graphic
                              .TranslucencySortPriority = extra.TranslucencySortPriority } );
     }
 
-    void SceneRenderer::SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile,
+    void SceneRenderer::SubmitLandscapeTile( const std::shared_ptr<Image2D>&    heightmap,
+                                             const System::LandscapeTileDraw&   tile,
                                              const MaterialOverrides&           overrides,
                                              const System::LandscapeWeightDraw& weights )
     {
@@ -1621,7 +2224,8 @@ namespace Desert::Graphic
     void SceneRenderer::SubmitGenericMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                            const std::string& shaderName, const MaterialOverrides& overrides,
                                            bool outlined, Image2D* directTexture,
-                                           const std::string& directTextureSampler, bool castShadows )
+                                           const std::string& directTextureSampler, bool castShadows,
+                                           bool visibleInRayTracing )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -1633,6 +2237,7 @@ namespace Desert::Graphic
                                     .Overrides            = overrides,
                                     .Outlined             = outlined,
                                     .CastShadows          = castShadows,
+                                    .VisibleInRayTracing  = visibleInRayTracing,
                                     .DirectTexture        = directTexture,
                                     .DirectTextureSampler = directTextureSampler } );
     }
@@ -1644,14 +2249,16 @@ namespace Desert::Graphic
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitGenericMesh( { .Entity             = entity,
-                                    .MotionPart         = motionPart,
-                                    .Mesh               = mesh,
-                                    .Transform          = transform,
-                                    .Outlined           = outlined,
-                                    .CastShadows        = castShadows,
-                                    .SlotMaterial       = material,
-                                    .VisibleSubmeshMask = visibleSubmeshMask } );
+             ->SubmitGenericMesh( { .Entity      = entity,
+                                    .MotionPart  = motionPart,
+                                    .Mesh        = mesh,
+                                    .Transform   = transform,
+                                    .Outlined    = outlined,
+                                    .CastShadows = castShadows,
+                                    // A per-slot material draw is always a mesh's submeshes: a surface rays hit.
+                                    .VisibleInRayTracing = true,
+                                    .SlotMaterial        = material,
+                                    .VisibleSubmeshMask  = visibleSubmeshMask } );
     }
 
     uint32_t SceneRenderer::GetIsmInstancesDrawn() const
@@ -1662,7 +2269,8 @@ namespace Desert::Graphic
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
     }
 
-    void SceneRenderer::SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
+    void SceneRenderer::SubmitInstancedMesh( const uint32_t entity, Mesh* mesh,
+                                             const MaterialInstancePtr& material, uint64_t hiddenSubmeshes,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                              bool castShadows, bool castContactShadow,
                                              const InstanceCullDistance& cullDistance, const InstanceWind& wind )
@@ -1676,8 +2284,10 @@ namespace Desert::Graphic
         // as a StaticMesh (RenderMesh takes a Mesh), so nothing broke; the type simply claimed
         // something untrue, and a reader who believed it would reach for members that are not there.
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitInstancedMesh( { .Mesh              = mesh,
+             ->SubmitInstancedMesh( { .Entity            = entity,
+                                      .Mesh              = mesh,
                                       .Material          = material,
+                                      .HiddenSubmeshes   = hiddenSubmeshes,
                                       .Transforms        = transforms,
                                       .CastShadows       = castShadows,
                                       .CastContactShadow = castContactShadow,
@@ -1770,6 +2380,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::EnsureTemporalUpscaler( const TemporalMethod method )
     {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
         const TemporalMethod held = m_TemporalUpscaler ? m_TemporalUpscaler->Method() : TemporalMethod::None;
         if ( held != method )
             m_TemporalUpscaler = CreateTemporalUpscaler( method );
@@ -1923,9 +2534,15 @@ namespace Desert::Graphic
         return overlay;
     }
 
+    // The view reads the captures when its profile has them and its resolved reflection method is Captures or
+    // above (ScreenSpace composes over them, UE's SSR-then-reflection-environment); Off reads the sky alone. The
+    // scene asks before this frame's BeginScene, so a method change reaches the capture schedule one frame later.
     bool SceneRenderer::ReadsReflectionCaptures() const
     {
-        return m_ViewProfile.ReflectionCaptures;
+        // The profile admits captures for the view; the resolved method decides whether this view reflects them
+        // (Off is the sky's environment only - ReflectionMethod).
+        return m_ViewProfile.ReflectionCaptures &&
+               m_RenderMethods.Reflections.Effective != Common::Scalability::ReflectionMethod::Off;
     }
 
     uint64_t SceneRenderer::GetEnvironmentIdentity()
@@ -2029,6 +2646,11 @@ namespace Desert::Graphic
              .SunInWorldSpace        = m_SunContactShadowLengthInWorldSpace,
              .SunCastingIntensity    = m_SunContactShadowCastingIntensity,
              .SunNonCastingIntensity = m_SunContactShadowNonCastingIntensity };
+    }
+
+    SceneResources::ShadowFilterSettings SceneRenderer::GetShadowFilterSettings() const
+    {
+        return m_ShadowFilter;
     }
 
     CloudShadowInput SceneRenderer::GetCloudShadowInput() const

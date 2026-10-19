@@ -5,7 +5,10 @@ Shader "GenerateMipMap_2D"
     {
         LocalSize(32, 32, 1);
 
-        Uniform(0) sampler2D u_InputTexture;
+        // Read by texelFetch only; the shared state exists because GLSL fetches through a sampler.
+        Uniform(0) texture2D u_InputTexture;
+        Uniform(2) sampler u_PointClampSampler;
+        #define u_InputTexture sampler2D(u_InputTexture, u_PointClampSampler)
         Uniform(1) writeonly image2D u_OutputTexture;
 
         void main() {

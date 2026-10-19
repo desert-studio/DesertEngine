@@ -62,8 +62,8 @@ namespace Desert::Graphic::System
                          const RDG::SubresourceRange range =
                               mip == 0u ? RDG::SubresourceRange::All() : RDG::SubresourceRange::Mip( mip - 1u );
                          pass.Bindings( m_Layout.Get( m_Shader ), Renderer::GetPipelineRouteFill( *m_Pipeline ) )
-                              .Sampled( "u_Source", source, RDG::Access::SampledCompute, range,
-                                        RDG::SamplerDesc::PointClamp() )
+                              .Texture( "u_Source", source, RDG::Access::SampledCompute, range )
+                              .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                               .Storage( "u_Output", hzb, RDG::Access::StorageWrite, mip );
                      },
                      [pipeline = m_Pipeline, mip, width,

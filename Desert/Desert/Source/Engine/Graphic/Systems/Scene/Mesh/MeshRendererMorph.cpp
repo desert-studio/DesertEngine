@@ -93,6 +93,14 @@ namespace Desert::Graphic::System
         return twin.Twin.get();
     }
 
+    RDG::ExternalBuffer* MeshRenderer::FindMorphOutput( const uint32_t entity, const SkinnedMesh* const mesh )
+    {
+        const auto found = m_MorphTwins.find( entity );
+        if ( found == m_MorphTwins.end() || found->second.Twin.get() != mesh || !found->second.Blended )
+            return nullptr;
+        return &found->second.OutputImport;
+    }
+
     void MeshRenderer::UpdateMorphTargets()
     {
         // Every twin this frame's queue skins from has a blend, or is put back to its base mesh here: a twin

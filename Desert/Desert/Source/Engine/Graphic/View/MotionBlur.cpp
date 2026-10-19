@@ -138,8 +138,9 @@ namespace Desert::Graphic
     {
         using Kind = RDG::ShaderResourceKind;
         static const auto layout =
-             MakeBlurLayout( kBlurKernelShaders[0], { { "u_Velocity", Kind::SampledTexture },
-                                                      { "u_SceneDepth", Kind::SampledTexture },
+             MakeBlurLayout( kBlurKernelShaders[0], { { "u_Velocity", Kind::Texture },
+                                                      { "u_SceneDepth", Kind::Texture },
+                                                      { "u_PointClampSampler", Kind::Sampler },
                                                       { "u_Flat", Kind::StorageTexture } } );
         return layout;
     }
@@ -148,8 +149,9 @@ namespace Desert::Graphic
     {
         using Kind = RDG::ShaderResourceKind;
         static const auto layout =
-             MakeBlurLayout( kBlurKernelShaders[1],
-                             { { "u_Flat", Kind::SampledTexture }, { "u_TileMax", Kind::StorageTexture } } );
+             MakeBlurLayout( kBlurKernelShaders[1], { { "u_Flat", Kind::Texture },
+                                                      { "u_PointClampSampler", Kind::Sampler },
+                                                      { "u_TileMax", Kind::StorageTexture } } );
         return layout;
     }
 
@@ -157,7 +159,8 @@ namespace Desert::Graphic
     {
         using Kind = RDG::ShaderResourceKind;
         static const auto layout =
-             MakeBlurLayout( kBlurKernelShaders[2], { { "u_TileMax", Kind::SampledTexture },
+             MakeBlurLayout( kBlurKernelShaders[2], { { "u_TileMax", Kind::Texture },
+                                                      { "u_PointClampSampler", Kind::Sampler },
                                                       { "u_NeighborMax", Kind::StorageTexture } } );
         return layout;
     }
@@ -166,9 +169,11 @@ namespace Desert::Graphic
     {
         using Kind = RDG::ShaderResourceKind;
         static const auto layout =
-             MakeBlurLayout( kBlurKernelShaders[3], { { "u_SceneColor", Kind::SampledTexture },
-                                                      { "u_Flat", Kind::SampledTexture },
-                                                      { "u_NeighborMax", Kind::SampledTexture },
+             MakeBlurLayout( kBlurKernelShaders[3], { { "u_SceneColor", Kind::Texture },
+                                                      { "u_Flat", Kind::Texture },
+                                                      { "u_NeighborMax", Kind::Texture },
+                                                      { "u_LinearClampSampler", Kind::Sampler },
+                                                      { "u_PointClampSampler", Kind::Sampler },
                                                       { "u_Output", Kind::StorageTexture } } );
         return layout;
     }
@@ -240,10 +245,12 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( MotionBlurFlattenLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_Velocity", inputs.Velocity, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), point )
-                      .Sampled( "u_SceneDepth", inputs.SceneDepth, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), point )
+                      .Texture( "u_Velocity", inputs.Velocity, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", point )
+                      .Texture( "u_SceneDepth", inputs.SceneDepth, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_Flat", flat, RDG::Access::StorageWrite, 0 )
                       .Storage( "MotionBlurBuffer", buffer, RDG::Access::StorageRead );
              },
@@ -254,7 +261,8 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( MotionBlurTileMaxLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_Flat", flat, RDG::Access::SampledCompute, RDG::SubresourceRange::All(), point )
+                      .Texture( "u_Flat", flat, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_TileMax", tileMax, RDG::Access::StorageWrite, 0 )
                       .Storage( "MotionBlurBuffer", buffer, RDG::Access::StorageRead );
              },
@@ -265,8 +273,8 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( MotionBlurNeighborMaxLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_TileMax", tileMax, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                                point )
+                      .Texture( "u_TileMax", tileMax, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_NeighborMax", neighborMax, RDG::Access::StorageWrite, 0 )
                       .Storage( "MotionBlurBuffer", buffer, RDG::Access::StorageRead );
              },
@@ -279,11 +287,14 @@ namespace Desert::Graphic
                  // The colour taps are bilinear (sub-pixel positions along the velocity); the flattened velocity
                  // and the tiles are read at texel centres.
                  pass.Bindings( MotionBlurGatherLayout(), RDG::OtherRouteFill{} )
-                      .Sampled( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
-                      .Sampled( "u_Flat", flat, RDG::Access::SampledCompute, RDG::SubresourceRange::All(), point )
-                      .Sampled( "u_NeighborMax", neighborMax, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All(), point )
+                      .Texture( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                      .Texture( "u_Flat", flat, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", point )
+                      .Texture( "u_NeighborMax", neighborMax, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Sampler( "u_PointClampSampler", point )
                       .Storage( "u_Output", blurred, RDG::Access::StorageWrite, 0 )
                       .Storage( "MotionBlurBuffer", buffer, RDG::Access::StorageRead );
              },

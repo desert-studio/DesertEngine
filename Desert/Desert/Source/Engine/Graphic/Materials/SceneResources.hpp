@@ -49,7 +49,26 @@ namespace Desert::Graphic::SceneResources
         // x = the sun's ContactShadowLength, y = 1 when it is in world centimetres, z = its Contact Shadow Casting
         // Intensity, w = its Non Casting Intensity (Common/ContactShadow.glslh's `light`).
         glm::vec4 SunContactShadow;
+        // The sun's PCSS cost (Mesh/CascadedShadow.glslh): x = blocker search taps, y = filter taps, zw unused.
+        // Packed by PackShadowFilter.
+        glm::vec4 ShadowFilter;
     };
+
+    // THE COST OF THE SUN'S SOFT SHADOW (Scalability Shadows.BlockerSearchTaps / Shadows.FilterTaps; UE: the
+    // r.ShadowQuality kernel of sg.ShadowQuality): how many Vogel-disc taps the PCSS blocker search and filter
+    // walk. One value per view, so every lit surface - deferred composite, forward meshes, glass, surface-cache
+    // cards - filters the cascades with one kernel. The initialisers are the High column.
+    struct ShadowFilterSettings
+    {
+        int BlockerSearchTaps = 16;
+        int FilterTaps        = 32;
+    };
+
+    inline void PackShadowFilter( ShadowUBData& data, const ShadowFilterSettings& filter )
+    {
+        data.ShadowFilter = glm::vec4( static_cast<float>( filter.BlockerSearchTaps ),
+                                       static_cast<float>( filter.FilterTaps ), 0.0f, 0.0f );
+    }
 
     // THE CONTACT SHADOWS OF A VIEW (UE: the light's ContactShadowLength, marched by ShadowRayCast): the
     // screen-space ray every light with a length marches through the opaque scene depth. It rides the SAME
@@ -69,16 +88,23 @@ namespace Desert::Graphic::SceneResources
         float    SunNonCastingIntensity = 0.0f;  // DirectionalLightData::ContactShadowNonCastingIntensity
     };
 
+    // The view's half of the march as the shaders read it (u_ContactShadowView, Common/ContactShadow.glslh): x =
+    // steps, y = tan(fov / 2), z = dither frame. ShadowUB carries it; MegaLights' view block too.
+    inline glm::vec4 ContactShadowViewVector( const ContactShadowSettings& contact )
+    {
+        return glm::vec4( static_cast<float>( contact.Steps ), contact.TanHalfFovY,
+                          static_cast<float>( contact.DitherFrame ), 0.0f );
+    }
+
     inline void PackContactShadow( ShadowUBData& data, const ContactShadowSettings& contact )
     {
-        data.ContactShadowView = glm::vec4( static_cast<float>( contact.Steps ), contact.TanHalfFovY,
-                                            static_cast<float>( contact.DitherFrame ), 0.0f );
+        data.ContactShadowView = ContactShadowViewVector( contact );
         data.SunContactShadow  = glm::vec4( contact.SunLength, contact.SunInWorldSpace ? 1.0f : 0.0f,
                                             contact.SunCastingIntensity, contact.SunNonCastingIntensity );
     }
 
     inline constexpr const char* kShadowBlockName              = "ShadowUB";
-    inline constexpr const char* kShadowMapName                = "u_ShadowCascades"; // sampler2DArray, layer c
+    inline constexpr const char* kShadowMapName                = "u_ShadowCascades"; // texture2DArray, layer c
     inline constexpr const char* kEnvIrradianceName            = "u_EnvIrradianceTex";
     inline constexpr const char* kEnvSpecularName              = "u_EnvSpecularTex";
     inline constexpr const char* kBrdfLutName                  = "u_BRDFLUTTexture";

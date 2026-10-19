@@ -487,7 +487,7 @@ namespace
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/VelocityViewRenderer.hpp",
                "\"VelocityView\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp",
-               "\"DeferredLighting\"", Verdict::Shipped, "" },
+               "programName", Verdict::Shipped, "one per sun-shadow permutation (cascades, ray-traced mask)" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp",
                "\"LightGridWorldView\"", Verdict::Shipped,
                "the world light grid's view mode (LIGHT-CLUSTER-WORLD)" },

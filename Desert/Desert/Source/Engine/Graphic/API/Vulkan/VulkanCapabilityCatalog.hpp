@@ -36,6 +36,7 @@ namespace Desert::Graphic::API::Vulkan
         VkSampleCountFlags DepthSampleCounts    = VK_SAMPLE_COUNT_1_BIT; // framebufferDepthSampleCounts
         float              MaxSamplerAnisotropy = 1.0f;
         uint32_t           MaxImageDimension2D  = 0;
+        uint32_t           MaxRenderArea        = 0; // min(maxFramebufferWidth/Height, maxViewportDimensions)
 
         bool     AstcLdrSampled = false; // vkGetPhysicalDeviceFormatProperties: ASTC_4x4_UNORM sampled+filter
         uint32_t TimestampValidBitsGraphics  = 0; // queue family timestampValidBits of the graphics family
@@ -62,6 +63,7 @@ namespace Desert::Graphic::API::Vulkan
     //                       each iff available — best first: DLSS, XeSS, MetalFX, FSR, TAAU, None.
     //   RayTracingModes   = None; RayQuery iff RayQuery+AccelerationStructure present; RayTracingPipeline iff
     //                       present and not Portability.
+    //   FragmentStores    = FragmentStoresAndAtomics present.
     //   AnisotropyLevels  = 1,2,4,8,16 up to MaxSamplerAnisotropy; {1} without SamplerAnisotropy.
     //   DisplayOutputs    = SDR_sRGB; HDR10_PQ / scRGB_Linear iff the surface lists their (format, colour space).
     //   PresentModes      = Fifo always (spec); the rest as listed by the surface.

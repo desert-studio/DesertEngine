@@ -119,13 +119,13 @@ namespace Desert::Graphic::System
                                     Renderer::GetPipelineRouteFill( *m_BrightPassPipeline ) );
         if ( mip == 0 )
         {
-            block.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::LinearClamp() );
+            block.Texture( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
         }
         else
         {
-            block.Sampled( "u_Source", source, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ),
-                           RDG::SamplerDesc::LinearClamp() );
+            block.Texture( "u_Source", source, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) )
+                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
         }
         block.Storage( "u_Output", source, RDG::Access::StorageWrite, mip )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( BrightPassPush ) ) );
@@ -154,8 +154,8 @@ namespace Desert::Graphic::System
             return; // RecordFeatures refuses by name
         pass.Bindings( m_FeaturesLayout.Get( m_FeaturesPipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_FeaturesPipeline ) )
-             .Sampled( "u_FlareSource", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::LinearClamp() )
+             .Texture( "u_FlareSource", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
              .Storage( "u_Flare", flare, RDG::Access::StorageWrite, 0 )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( FeaturesPush ) ) );
     }

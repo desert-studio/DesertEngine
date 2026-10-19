@@ -16,6 +16,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRayTracingPipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanVertexBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanIndexBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
@@ -27,6 +28,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/WriteDescriptorSetBuilder.hpp>
 #include <Engine/ShaderResources/API/Vulkan/VulkanStorageBuffer.hpp>
 
+#include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -170,6 +172,9 @@ namespace Desert::Graphic::API::Vulkan
         // The next slot: its previous frame must be complete before the output acquires on its semaphore and
         // before anything that frame used is destroyed (the deletion queue's per-frame drain).
         Engine::FrameManager::GetInstance().NextFrame();
+        if ( BindlessTextureTable* bindless = TryGetBindlessTextureTable() )
+            bindless->EndFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
+                                Engine::FrameManager::GetInstance().GetMaxFramesInFlight() );
         const uint32_t next = EngineContext::GetInstance().GetCurrentFrameIndex();
         if ( const Common::BoolResultStr waited = m_FrameLoop->WaitSlot( next ); !waited )
             return Common::MakeFormattedError<bool>( "the next frame's slot: {}", waited.GetError() );
@@ -441,11 +446,23 @@ namespace Desert::Graphic::API::Vulkan
             using Sets = std::vector<VkDescriptorSet>;
             Sets sets;
             sets.reserve( layouts.size() );
+            // The bindless table's set is not allocated per pass: the one live table set (update-after-bind) is
+            // bound as it is, and slots written into it later reach commands already recorded. A layout is the
+            // table's only when the shader reflected the table (VulkanShader::CreateDescriptorsLayout), so the
+            // table exists whenever this matches.
+            const VulkanBindlessTextureTable* bindless   = BindlessTableIn( layouts );
+            const auto                        isBindless = [bindless]( size_t set )
+            { return bindless != nullptr && set == kBindlessSetIndex; };
             for ( size_t index = 0; index < layouts.size(); ++index )
             {
                 if ( !layouts[index] )
                     return Common::MakeFormattedError<Sets>( "{}: the pipeline has no layout for set {}", pass,
                                                              index );
+                if ( isBindless( index ) )
+                {
+                    sets.push_back( bindless->GetDescriptorSet() );
+                    continue;
+                }
                 const Common::ResultStr<VkDescriptorSet> set = descriptors.Allocate( layouts[index]->Handle() );
                 if ( !set )
                     return Common::MakeFormattedError<Sets>( "{}: set {}: {}", pass, index, set.GetError() );
@@ -459,6 +476,11 @@ namespace Desert::Graphic::API::Vulkan
                 if ( entry.Slot.Set >= sets.size() )
                     return Common::MakeFormattedError<Sets>( "{}: '{}' is in set {}, the pipeline has {} sets",
                                                              pass, name, entry.Slot.Set, sets.size() );
+                if ( isBindless( entry.Slot.Set ) )
+                    return Common::MakeFormattedError<Sets>(
+                         "{}: '{}' is bound into set {}, the bindless texture table's; the table is written only "
+                         "through BindlessTextureTable::Register",
+                         pass, name, entry.Slot.Set );
                 const VkDescriptorSetLayoutBinding* binding =
                      FindLayoutBinding( *layouts[entry.Slot.Set], entry.Slot.Binding );
                 if ( binding == nullptr )
@@ -467,26 +489,38 @@ namespace Desert::Graphic::API::Vulkan
                          entry.Slot.Set, entry.Slot.Binding );
                 VkDescriptorSet       set     = sets[entry.Slot.Set];
                 Common::BoolResultStr written = Common::MakeSuccess( true );
-                if ( entry.Texture != nullptr )
+                if ( entry.Kind == RDG::ShaderResourceKind::Sampler )
+                {
+                    // A shared sampler state: no image, written as VK_DESCRIPTOR_TYPE_SAMPLER.
+                    if ( binding->descriptorType != VK_DESCRIPTOR_TYPE_SAMPLER || !entry.Texture->Sampler )
+                        return Common::MakeFormattedError<Sets>(
+                             "{}: '{}' is bound as a sampler into a slot of descriptor type {}", pass, name,
+                             static_cast<int>( binding->descriptorType ) );
+                    const Common::ResultStr<VkSampler> made = descriptors.GetSampler( *entry.Texture->Sampler );
+                    if ( !made )
+                        return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, made.GetError() );
+                    descriptors.WriteSampler( set, entry.Slot.Binding, made.GetValue() );
+                }
+                else if ( entry.Texture != nullptr )
                 {
                     const RDG::BoundTexture& texture = *entry.Texture;
                     const bool               storage = entry.Kind == RDG::ShaderResourceKind::StorageTexture;
                     const VkImageLayout      layout =
                          storage ? VK_IMAGE_LAYOUT_GENERAL
                                       : RdgVulkanLayout( RDG::GetAccessState( texture.Declared ).Layout );
-                    VkSampler sampler = VK_NULL_HANDLE;
-                    if ( binding->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER )
-                    {
-                        if ( !texture.Sampler )
-                            return Common::MakeFormattedError<Sets>( "{}: '{}' is sampled but names no sampler",
-                                                                     pass, name );
-                        const Common::ResultStr<VkSampler> made = descriptors.GetSampler( *texture.Sampler );
-                        if ( !made )
-                            return Common::MakeFormattedError<Sets>( "{}: '{}': {}", pass, name, made.GetError() );
-                        sampler = made.GetValue();
-                    }
-                    written = descriptors.WriteTexture( set, entry.Slot.Binding, binding->descriptorType,
-                                                        texture.Texture, texture.Range, layout, sampler );
+                    if ( texture.Sampler )
+                        return Common::MakeFormattedError<Sets>(
+                             "{}: '{}' carries a sampler but its slot has none (descriptor type {}); a separate "
+                             "texture is read through a Sampler slot of the pass",
+                             pass, name, static_cast<int>( binding->descriptorType ) );
+                    written =
+                         descriptors.WriteTexture( set, entry.Slot.Binding, binding->descriptorType,
+                                                   texture.Texture, texture.Range, layout, entry.Slot.Element );
+                }
+                else if ( entry.Kind == RDG::ShaderResourceKind::AccelerationStructure )
+                {
+                    written = descriptors.WriteAccelerationStructure(
+                         set, entry.Slot.Binding, binding->descriptorType, entry.Buffer->Buffer );
                 }
                 else
                 {
@@ -631,6 +665,56 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr VulkanRendererAPI::TraceRays( const RDG::PassBindings&                   bindings,
+                                                        const RayTracingPipeline&                  pipeline,
+                                                        const RayTracing::RayTracingHitGroupTable& hits,
+                                                        const uint32_t width, const uint32_t height )
+    {
+        const RDG::PassContext&                  context = bindings.GetContext();
+        const std::string_view                   pass    = context.GetPassName();
+        const Common::ResultStr<VkCommandBuffer> cmd     = VulkanRdgBackend::CommandBufferOf( context );
+        if ( !cmd )
+            return Common::MakeError( cmd.GetError() );
+        const Common::ResultStr<VulkanRdgPassDescriptors*> descriptors =
+             VulkanRdgBackend::DescriptorsOf( context );
+        if ( !descriptors )
+            return Common::MakeError( descriptors.GetError() );
+
+        auto& traced =
+             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast,cppcoreguidelines-pro-type-static-cast-downcast):
+             // only the Vulkan API makes pipelines; a launch writes the pipeline's own shader binding table
+             const_cast<VulkanRayTracingPipeline&>( static_cast<const VulkanRayTracingPipeline&>( pipeline ) );
+        const auto* program = dynamic_cast<const VulkanShader*>( traced.GetSpecification().Program.get() );
+        if ( program == nullptr || traced.GetVkPipeline() == VK_NULL_HANDLE )
+            return Common::MakeFormattedError( "{}: ray tracing pipeline '{}' is not built", pass,
+                                               traced.GetSpecification().DebugName );
+
+        // The program's reflection is the pipeline's layout (VulkanRayTracingPipeline::Build): the pass's
+        // bindings resolve against it alone, as a compute dispatch's against its program; no setter route.
+        const auto resolved =
+             ResolveRdgPassBindings( program->GetReflectionData(), program->GetName(), bindings, RdgOtherRoute{} );
+        if ( !resolved )
+            return Common::MakeError( resolved.GetError() );
+        const auto sets =
+             WriteRdgPassSets( *descriptors.GetValue(), traced.GetLayouts(), resolved.GetValue(), pass );
+        if ( !sets )
+            return Common::MakeError( sets.GetError() );
+
+        vkCmdBindPipeline( cmd.GetValue(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, traced.GetVkPipeline() );
+        if ( !sets.GetValue().empty() )
+            vkCmdBindDescriptorSets(
+                 cmd.GetValue(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, traced.GetVkPipelineLayout(), 0,
+                 static_cast<uint32_t>( sets.GetValue().size() ), sets.GetValue().data(), 0, nullptr );
+        const std::span<const std::byte> push = ChoosePushConstants( bindings, {} );
+        if ( !push.empty() )
+            vkCmdPushConstants( cmd.GetValue(), traced.GetVkPipelineLayout(), traced.GetPushConstantStages(), 0,
+                                static_cast<uint32_t>( push.size() ), push.data() );
+        if ( const Common::BoolResultStr launched = traced.RecordTraceRays( cmd.GetValue(), hits, width, height );
+             !launched )
+            return Common::MakeFormattedError( "{}: {}", pass, launched.GetError() );
+        return Common::MakeSuccess( true );
+    }
+
     Common::BoolResultStr VulkanRendererAPI::DrawProcedural( const RDG::PassBindings& bindings,
                                                              const GraphicsPipeline&  pipeline,
                                                              const MaterialExecutor*  material,
@@ -698,17 +782,14 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr VulkanRendererAPI::RenderMesh( const RDG::PassBindings& bindings,
-                                                         const GraphicsPipeline& pipeline, const Mesh& mesh,
-                                                         const glm::mat4&        transform,
-                                                         const MaterialExecutor& material, uint32_t instanceCount,
-                                                         uint32_t firstInstance, uint64_t hiddenSubmeshMask,
-                                                         uint32_t lodLevel )
+    Common::BoolResultStr VulkanRendererAPI::WalkMeshSubmeshes( const RDG::PassBindings& bindings,
+                                                                const GraphicsPipeline& pipeline, const Mesh& mesh,
+                                                                const glm::mat4&        transform,
+                                                                const MaterialExecutor& material,
+                                                                const uint64_t          hiddenSubmeshMask,
+                                                                const SubmeshDraw&      draw )
     {
-        DESERT_PROFILE_FUNC();
         const std::string_view pass = bindings.GetContext().GetPassName();
-        if ( instanceCount == 0u )
-            return Common::MakeFormattedError( "{}: a mesh draw of zero instances", pass );
         // The push block is the per-submesh transform the material carries (written below for each submesh).
         if ( !bindings.GetPushConstants().empty() )
             return Common::MakeFormattedError(
@@ -772,8 +853,9 @@ namespace Desert::Graphic::API::Vulkan
                 std::memcpy( push.data(), materialPush.Data, std::min<size_t>( push.size(), materialPush.Size ) );
         }
 
-        // RenderMesh's walk: the hidden-submesh mask, the per-submesh push block and the LOD clamp.
+        // The hidden-submesh mask and the per-submesh push block; @p draw records the submesh.
         const auto& submeshes = mesh.GetSubmeshes();
+        uint32_t    drawn     = 0;
         for ( size_t si = 0; si < submeshes.size(); ++si )
         {
             if ( si < 64 && ( ( hiddenSubmeshMask >> si ) & 1ull ) != 0 )
@@ -787,29 +869,85 @@ namespace Desert::Graphic::API::Vulkan
                                     pushConstant->stageFlags, pushConstant->offset, pushConstant->size,
                                     push.data() );
             }
-
-            if ( !indexBuffer )
-            {
-                DrawCounted( submesh.VertexCount, instanceCount, submesh.VertexOffset, firstInstance );
-                continue;
-            }
-            uint32_t drawOffset = submesh.IndexOffset;
-            uint32_t drawCount  = submesh.IndexCount;
-            if ( !submesh.LODs.empty() )
-            {
-                const uint32_t lvl =
-                     lodLevel < submesh.LODs.size() ? lodLevel : static_cast<uint32_t>( submesh.LODs.size() ) - 1;
-                drawOffset = submesh.LODs[lvl].IndexOffset;
-                drawCount  = submesh.LODs[lvl].IndexCount;
-            }
-            if ( drawOffset + drawCount > indexBuffer->GetCount() )
-                return Common::MakeFormattedError( "{}: submesh {} reads indices [{}, {}) of a {}-index buffer",
-                                                   pass, si, drawOffset, drawOffset + drawCount,
-                                                   indexBuffer->GetCount() );
-            DrawIndexedCounted( drawCount, instanceCount, drawOffset, static_cast<int32_t>( submesh.VertexOffset ),
-                                firstInstance );
+            if ( auto recorded = draw( drawn++, si, submesh, indexBuffer.get() ); !recorded )
+                return recorded;
         }
         return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::RenderMesh( const RDG::PassBindings& bindings,
+                                                         const GraphicsPipeline& pipeline, const Mesh& mesh,
+                                                         const glm::mat4&        transform,
+                                                         const MaterialExecutor& material, uint32_t instanceCount,
+                                                         uint32_t firstInstance, uint64_t hiddenSubmeshMask,
+                                                         uint32_t lodLevel )
+    {
+        DESERT_PROFILE_FUNC();
+        const std::string_view pass = bindings.GetContext().GetPassName();
+        if ( instanceCount == 0u )
+            return Common::MakeFormattedError( "{}: a mesh draw of zero instances", pass );
+        return WalkMeshSubmeshes(
+             bindings, pipeline, mesh, transform, material, hiddenSubmeshMask,
+             [&]( uint32_t, const size_t si, const Submesh& submesh,
+                  const IndexBuffer* indexBuffer ) -> Common::BoolResultStr
+             {
+                 if ( indexBuffer == nullptr )
+                 {
+                     DrawCounted( submesh.VertexCount, instanceCount, submesh.VertexOffset, firstInstance );
+                     return Common::MakeSuccess( true );
+                 }
+                 const SubmeshIndexRange range = SubmeshIndices( submesh, lodLevel );
+                 if ( range.First + range.Count > indexBuffer->GetCount() )
+                     return Common::MakeFormattedError(
+                          "{}: submesh {} reads indices [{}, {}) of a {}-index buffer", pass, si, range.First,
+                          range.First + range.Count, indexBuffer->GetCount() );
+                 DrawIndexedCounted( range.Count, instanceCount, range.First,
+                                     static_cast<int32_t>( submesh.VertexOffset ), firstInstance );
+                 return Common::MakeSuccess( true );
+             } );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirect( const RDG::PassBindings& bindings,
+                                                                 const GraphicsPipeline&  pipeline,
+                                                                 const Mesh& mesh, const glm::mat4& transform,
+                                                                 const MaterialExecutor& material,
+                                                                 const RDG::BufferRef args, const uint64_t offset,
+                                                                 const uint64_t hiddenSubmeshMask )
+    {
+        DESERT_PROFILE_FUNC();
+        const RDG::PassContext& context = bindings.GetContext();
+        if ( offset % 4u != 0u )
+            return Common::MakeFormattedError( "{}: indirect arguments at byte {}, not a multiple of four",
+                                               context.GetPassName(), offset );
+        const auto declared = context.GetBuffer( args, RDG::Access::IndirectArgs );
+        if ( !declared )
+            return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
+                                               declared.GetError() );
+        const auto buffer = VulkanRdgBackend::BufferOf( declared.GetValue() );
+        if ( !buffer )
+            return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
+                                               buffer.GetError() );
+        const uint64_t bytes  = declared.GetValue().Desc->Bytes;
+        const VkBuffer vkArgs = buffer.GetValue()->GetBuffer();
+        // Not counted by DrawCounter: the instance counts are the GPU's (DrawProceduralIndirect likewise).
+        return WalkMeshSubmeshes(
+             bindings, pipeline, mesh, transform, material, hiddenSubmeshMask,
+             [&]( const uint32_t     drawn, size_t, const Submesh&,
+                  const IndexBuffer* indexBuffer ) -> Common::BoolResultStr
+             {
+                 const uint64_t at = offset + ( uint64_t{ drawn } * kMeshDrawArgumentsBytes );
+                 if ( at + kMeshDrawArgumentsBytes > bytes )
+                     return Common::MakeFormattedError(
+                          "{}: indirect arguments of drawn submesh {} at byte {} past the end of '{}' ({} bytes)",
+                          context.GetPassName(), drawn, at, declared.GetValue().Name, bytes );
+                 if ( indexBuffer == nullptr )
+                     vkCmdDrawIndirect( m_CurrentCommandBuffer, vkArgs, at, 1,
+                                        static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
+                 else
+                     vkCmdDrawIndexedIndirect( m_CurrentCommandBuffer, vkArgs, at, 1,
+                                               static_cast<uint32_t>( sizeof( VkDrawIndexedIndirectCommand ) ) );
+                 return Common::MakeSuccess( true );
+             } );
     }
 
     Common::BoolResultStr VulkanRendererAPI::BindGraphicsPassState( const RDG::PassBindings& bindings,
@@ -1199,6 +1337,9 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgDevice.Allocator     = VulkanAllocator::GetVMAAllocator();
             m_RdgDevice.CmdBeginLabel = fpCmdBeginDebugUtilsLabelEXT;
             m_RdgDevice.CmdEndLabel   = fpCmdEndDebugUtilsLabelEXT;
+            VkPhysicalDeviceProperties properties{};
+            vkGetPhysicalDeviceProperties( device->GetPhysicalDevice()->GetVulkanPhysicalDevice(), &properties );
+            m_RdgDevice.Limits        = properties.limits;
             m_RdgPool                 = std::make_unique<VulkanRdgPool>( m_RdgDevice, slots );
             m_RdgBackend              = std::make_unique<VulkanRdgBackend>( m_RdgDevice, *m_RdgPool );
             // B2: while a graph runs, every renderer's Record() goes through this API, so this API records
@@ -1207,8 +1348,8 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgBackend->SetRecordingListener( [this]( VkCommandBuffer commandBuffer )
                                                 { SetGraphRecordingTarget( commandBuffer ); } );
             m_RdgTransients  = std::make_unique<VulkanRdgTransientAllocator>( m_RdgDevice, slots );
-            m_RdgDescriptors =
-                 std::make_unique<VulkanRdgPassDescriptors>( m_RdgDevice.Device, EngineSamplerCache(), slots );
+            m_RdgDescriptors = std::make_unique<VulkanRdgPassDescriptors>(
+                 m_RdgDevice.Device, EngineSamplerCache(), slots, device->GetRayTracingFunctions().Complete() );
 
             // The compute queue is the graph's AsyncCompute pipe only when the catalog offers async compute
             // (CapabilityCatalog::AsyncCompute: a separate compute family, and not a portability device whose

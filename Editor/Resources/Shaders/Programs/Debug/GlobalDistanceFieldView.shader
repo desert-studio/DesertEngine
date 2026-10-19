@@ -18,10 +18,17 @@ Shader "GlobalDistanceFieldView"
     Fragment
     {
         In(0) vec2 v_Ndc;
-        Uniform(0) sampler3D u_GlobalDistanceField0;
-        Uniform(1) sampler3D u_GlobalDistanceField1;
-        Uniform(2) sampler3D u_GlobalDistanceField2;
-        Uniform(3) sampler3D u_GlobalDistanceField3;
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound once by the pass by name and numbered by the program build (SharedSamplerBinding.hpp).
+        Uniform sampler u_LinearRepeatSampler;
+        Uniform(0) texture3D u_GlobalDistanceField0;
+        #define u_GlobalDistanceField0 sampler3D(u_GlobalDistanceField0, u_LinearRepeatSampler)
+        Uniform(1) texture3D u_GlobalDistanceField1;
+        #define u_GlobalDistanceField1 sampler3D(u_GlobalDistanceField1, u_LinearRepeatSampler)
+        Uniform(2) texture3D u_GlobalDistanceField2;
+        #define u_GlobalDistanceField2 sampler3D(u_GlobalDistanceField2, u_LinearRepeatSampler)
+        Uniform(3) texture3D u_GlobalDistanceField3;
+        #define u_GlobalDistanceField3 sampler3D(u_GlobalDistanceField3, u_LinearRepeatSampler)
         Out(0) vec4 oColor;
 
         PushConstant GDFViewPush

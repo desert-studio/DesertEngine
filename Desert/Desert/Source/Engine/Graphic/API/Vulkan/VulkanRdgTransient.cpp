@@ -25,9 +25,9 @@ namespace Desert::Graphic::API::Vulkan
         // Resources first: nothing may stay bound to memory that is freed.
         slot.RetiredTextures.clear();
         slot.RetiredBuffers.clear();
-        for ( VmaAllocation memory : slot.RetiredHeaps )
-            vmaFreeMemory( allocator, memory );
-        slot.RetiredHeaps.clear();
+        for ( const RetiredHeap& retired : slot.RetiredHeaps )
+            vmaFreeMemory( allocator, retired.Memory );
+        slot.RetiredHeaps.clear(); // closes the rows with the memory
     }
 
     void VulkanRdgTransientAllocator::Destroy( GraphHeaps& graph ) const
@@ -57,8 +57,10 @@ namespace Desert::Graphic::API::Vulkan
         std::erase_if( graph.Textures, [&]( const PlacedTexture& placed ) { return placed.Heap == heap; } );
         std::erase_if( graph.Buffers, [&]( const PlacedBuffer& placed ) { return placed.Heap == heap; } );
         if ( graph.Heaps[heap].Memory != nullptr )
-            slot.RetiredHeaps.push_back( graph.Heaps[heap].Memory );
+            slot.RetiredHeaps.push_back(
+                 RetiredHeap{ graph.Heaps[heap].Memory, std::move( graph.Heaps[heap].Ledger ) } );
         graph.Heaps[heap].Memory = nullptr;
+        graph.Heaps[heap].Ledger = ResourceOwnership{};
     }
 
     void VulkanRdgTransientAllocator::BeginFrameSlot( uint32_t slot )
@@ -91,8 +93,8 @@ namespace Desert::Graphic::API::Vulkan
         }
     }
 
-    Common::ResultStr<VulkanRdgTransientAllocator::Heap>
-    VulkanRdgTransientAllocator::AllocateHeap( const RDG::TransientHeapDesc& desc ) const
+    Common::BoolResultStr VulkanRdgTransientAllocator::AllocateHeap( const RDG::TransientHeapDesc& desc,
+                                                                     Heap&                         out ) const
     {
         // One vkAllocateMemory per heap (dedicated): the heap is the unit the plan's offsets are relative to.
         VkMemoryRequirements requirements{};
@@ -107,12 +109,18 @@ namespace Desert::Graphic::API::Vulkan
         const VkResult    result =
              vmaAllocateMemory( m_Device.Allocator, &requirements, &create, &heap.Memory, &info );
         if ( result != VK_SUCCESS )
-            return Common::MakeFormattedError<Heap>( "transient heap of {} bytes (memory types {:#x}): "
+            return Common::MakeFormattedError<bool>( "transient heap of {} bytes (memory types {:#x}): "
                                                      "vmaAllocateMemory failed ({})",
                                                      desc.Bytes, desc.MemoryTypeBits, static_cast<int>( result ) );
         heap.Desc       = desc;
         heap.MemoryType = info.memoryType;
-        return Common::MakeSuccess( heap );
+        // Graph execution runs outside every attribution scope, and the heap serves every view's graph: the
+        // device owns it.
+        heap.Ledger =
+             ResourceOwnership::Take( ResourceKind::TransientHeap, static_cast<std::size_t>( info.size ) );
+        heap.Ledger.Claim( ResourceOwner::Device );
+        out = std::move( heap );
+        return BOOLSUCCESS;
     }
 
     Common::BoolResultStr
@@ -155,13 +163,13 @@ namespace Desert::Graphic::API::Vulkan
                 // this slot, but it is retired, not freed, so no bound resource outlives its memory.
                 Retire( slot, entry, i );
             }
-            const Common::ResultStr<Heap> allocated = AllocateHeap( want );
-            if ( !allocated )
-                return Common::MakeFormattedError( "graph '{}': {}", graph, allocated.GetError() );
+            Heap allocated;
+            if ( const Common::BoolResultStr made = AllocateHeap( want, allocated ); !made )
+                return Common::MakeFormattedError( "graph '{}': {}", graph, made.GetError() );
             if ( i < entry.Heaps.size() )
-                entry.Heaps[i] = allocated.GetValue();
+                entry.Heaps[i] = std::move( allocated );
             else
-                entry.Heaps.push_back( allocated.GetValue() );
+                entry.Heaps.push_back( std::move( allocated ) );
         }
         m_Current = static_cast<int32_t>( index );
         return Common::MakeSuccess( true );
@@ -267,10 +275,10 @@ namespace Desert::Graphic::API::Vulkan
                 }
             }
             // A retired heap is still reserved until its slot is re-begun.
-            for ( VmaAllocation memory : slot.RetiredHeaps )
+            for ( const RetiredHeap& retired : slot.RetiredHeaps )
             {
                 VmaAllocationInfo info{};
-                vmaGetAllocationInfo( m_Device.Allocator, memory, &info );
+                vmaGetAllocationInfo( m_Device.Allocator, retired.Memory, &info );
                 stats.ReservedBytes += info.size;
                 ++stats.HeapCount;
             }

@@ -104,6 +104,10 @@ namespace Desert::Graphic::GlobalIllumination
         // The five tracer-independent shaders and pipelines; Trace's is acquired per tracer permutation on the
         // first update (EnsureTraceProgram). An error names what is missing.
         [[nodiscard]] Common::BoolResultStr Initialize();
+        // The Trace program compiled under TracerVariant( @p pipeline ), re-acquired when the pipeline changes.
+        // Public so the view asks for it before the update and refuses the GI methods of that tracer by name
+        // when it does not build (SceneRenderer::AddFrameTracedGI); AddUpdatePasses asks again (cached).
+        [[nodiscard]] Common::BoolResultStr EnsureTraceProgram( const Pipeline& pipeline );
 
         using ImportImage = std::function<RDG::TextureRef( const std::shared_ptr<Image>&, std::string_view )>;
 
@@ -127,8 +131,6 @@ namespace Desert::Graphic::GlobalIllumination
         };
 
         [[nodiscard]] Common::BoolResultStr EnsureResources( const RadianceCache::RadianceCacheInputs& shape );
-        // The Trace program compiled under TracerVariant( @p pipeline ), re-acquired when the pipeline changes.
-        [[nodiscard]] Common::BoolResultStr EnsureTraceProgram( const Pipeline& pipeline );
 
         std::array<std::shared_ptr<Shader>, PassCount>          m_Shaders;
         std::array<std::shared_ptr<ComputePipeline>, PassCount> m_Pipelines;

@@ -50,23 +50,20 @@ Shader "TerrainShadow"
 
         // The tile's weightmap, as TerrainSurface.glslh reads it; bound only when the tile has layers
         // (Params2.y > 0), the backend's white fallback otherwise.
-        Uniform(10) sampler2D u_Weightmap;
+        // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
+        // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
+        Uniform(10) texture2D u_Weightmap;
+        Uniform(12) sampler u_WeightmapSampler;
+        #define u_Weightmap sampler2D(u_Weightmap, u_WeightmapSampler)
 
         #include <Common/LandscapeWeights.glslh>
+        #include <Programs/Terrain/TerrainCasterHole.glslh>
 
         void main()
         {
             // A hole casts no shadow: the same visibility test as the surface (LandscapeIsHole).
-            if ( u_T.Params2.y > 0.5 && u_T.Params.z > 0.5 )
-            {
-                vec2  size  = vec2( textureSize( u_Weightmap, 0 ) );
-                float pages = u_T.Params2.z;
-                vec4  w0    = texture( u_Weightmap, LandscapeWeightmapPageUV( v_TileSample, 0.0, size, pages ) );
-                vec4  w1    = pages > 1.5 ? texture( u_Weightmap, LandscapeWeightmapPageUV( v_TileSample, 1.0, size, pages ) )
-                                          : vec4( 0.0 );
-                if ( LandscapeIsHole( LandscapeVisibility( w0, w1, u_T.Params.z ) ) )
-                    discard;
-            }
+            if ( TerrainCasterIsHole( v_TileSample ) )
+                discard;
             // No depth written here: the whole bias is in the vertex stage's clip depth (TerrainVertex.glslh,
             // Common/ShadowCasterBias.glslh), so the rasterised depth is the one stored and early depth stays on.
         }

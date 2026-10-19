@@ -7,6 +7,8 @@
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
+#include <Engine/Graphic/RayTracingPipeline.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <memory>
 
@@ -122,6 +124,14 @@ namespace Desert::Graphic
                                                                              const ComputePipeline&   pipeline,
                                                                              RDG::BufferRef           args,
                                                                              uint64_t                 offset ) = 0;
+        // The ray tracing pipeline's launch (UE RayTraceDispatch): @p width x @p height ray generation invocations
+        // of @p pipeline with the pass's bindings resolved against its program, and the shader binding table built
+        // from @p hits (one hit record per segment of the frame's TLAS, RayTracingHitGroupTable.hpp) for this
+        // launch. Refused on a pipeline that is not built or a hit record naming a group the pipeline lacks.
+        [[nodiscard]] virtual Common::BoolResultStr TraceRays( const RDG::PassBindings&                   bindings,
+                                                               const RayTracingPipeline&                  pipeline,
+                                                               const RayTracing::RayTracingHitGroupTable& hits,
+                                                               uint32_t width, uint32_t height ) = 0;
         // A non-indexed, vertex-buffer-less draw of @p vertexCount vertices x @p instanceCount instances whose
         // vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex (UE DrawPrimitive; the
         // fullscreen triangle is 3 x 1; the SSR tile grid is six vertices per tile).
@@ -151,6 +161,11 @@ namespace Desert::Graphic
         RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                     const glm::mat4& transform, const MaterialExecutor& material, uint32_t instanceCount,
                     uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel ) = 0;
+        // RenderMesh with its counts in a graph buffer (see Renderer::RenderMeshIndirect).
+        [[nodiscard]] virtual Common::BoolResultStr
+        RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
+                            const glm::mat4& transform, const MaterialExecutor& material, RDG::BufferRef args,
+                            uint64_t offset, uint64_t hiddenSubmeshMask ) = 0;
 
         // Transition a storage image to GENERAL for compute writes in the current frame command buffer,
         // making prior graphics (color/shader) writes visible to compute. Pair with ComputeImageEndWrite.

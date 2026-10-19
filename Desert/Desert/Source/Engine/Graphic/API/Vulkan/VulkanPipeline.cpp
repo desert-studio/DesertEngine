@@ -365,7 +365,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         m_Rasterizer = VkPipelineRasterizationStateCreateInfo{
              .sType                   = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-             .depthClampEnable        = VK_FALSE,
+             .depthClampEnable        = m_Specification.DepthClampEnable ? VK_TRUE : VK_FALSE,
              .rasterizerDiscardEnable = VK_FALSE,
              .polygonMode             = ConvertVkPolygonMode( m_Specification.PolygonMode ),
              .cullMode                = ConvertCullMode( m_Specification.CullMode ),

@@ -14,7 +14,8 @@ namespace Desert::Graphic::API::Vulkan
         for ( auto format : formats )
         {
             CreateFallbackTexture2D( format );
-            CreateFallbackTextureCube( format );
+            CreateFallbackTextureCube( format, false );
+            CreateFallbackTextureCube( format, true );
             CreateFallbackStorageImage2D( format );
             CreateFallbackTexture3D( format );
             CreateFallbackStorageImage3D( format );
@@ -40,6 +41,12 @@ namespace Desert::Graphic::API::Vulkan
     VulkanFallbackTextures::GetFallbackTextureCube( Core::Formats::ImageFormat format ) const
     {
         return m_FallbackTexturesCube.at( format );
+    }
+
+    const std::shared_ptr<ImageCube>&
+    VulkanFallbackTextures::GetFallbackTextureCubeArray( Core::Formats::ImageFormat format ) const
+    {
+        return m_FallbackTexturesCubeArray.at( format );
     }
 
     const std::shared_ptr<Image3D>&
@@ -89,14 +96,16 @@ namespace Desert::Graphic::API::Vulkan
         }
     }
 
-    void VulkanFallbackTextures::CreateFallbackTextureCube( Core::Formats::ImageFormat format )
+    void VulkanFallbackTextures::CreateFallbackTextureCube( Core::Formats::ImageFormat format, bool array )
     {
+        // @p array: the same black cube viewed as a cube array of one cube (GetFallbackTextureCubeArray).
         Core::Formats::ImageCubeSpecification spec = {
-             .Tag        = "VulkanFallbackTextures-Cube",
+             .Tag        = array ? "VulkanFallbackTextures-CubeArray" : "VulkanFallbackTextures-Cube",
              .FaceSize   = 4,
              .Format     = format,
              .Mips       = 1,
              .Properties = Core::Formats::ImageProperties::Sample,
+             .CubeArray  = array,
         };
 
         // NO `spec.Data`, AND THAT IS THE CORRECTION. It used to carry six white faces, which never
@@ -134,7 +143,7 @@ namespace Desert::Graphic::API::Vulkan
                        "so a cube binding that nothing has bound samples UNDEFINED texels: {}",
                        static_cast<uint32_t>( format ), cleared.GetError() );
 
-        m_FallbackTexturesCube[format] = texture;
+        ( array ? m_FallbackTexturesCubeArray : m_FallbackTexturesCube )[format] = texture;
     }
 
     void VulkanFallbackTextures::CreateFallbackStorageImage2D( Core::Formats::ImageFormat format )
@@ -245,8 +254,8 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanFallbackTextures::Release()
     {
         // KEEP RELEASING AFTER THE FIRST FAILURE, and report the first message. This runs once at
-        // teardown over five independent caches; stopping at the first refusal would leak every image
-        // after it, and returning success unconditionally — which is what these five loops did by
+        // teardown over six independent caches; stopping at the first refusal would leak every image
+        // after it, and returning success unconditionally — which is what these loops did by
         // dropping every `Release()` result — makes the `[[nodiscard]]` on the caller's side a lie.
         std::string firstError;
         const auto  release = [&firstError]( auto& texture )
@@ -262,6 +271,9 @@ namespace Desert::Graphic::API::Vulkan
 
         for ( auto& textureCube : m_FallbackTexturesCube )
             release( textureCube.second );
+
+        for ( auto& textureCubeArray : m_FallbackTexturesCubeArray )
+            release( textureCubeArray.second );
 
         for ( auto& storageImage : m_FallbackStorageImages2D )
             release( storageImage.second );

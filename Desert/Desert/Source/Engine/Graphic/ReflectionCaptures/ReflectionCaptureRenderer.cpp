@@ -177,7 +177,9 @@ namespace Desert::Graphic
         Camera                         View;
     };
 
-    ReflectionCaptureRenderer::ReflectionCaptureRenderer() = default;
+    ReflectionCaptureRenderer::ReflectionCaptureRenderer( const ResourceOwnerInstance scene ) : m_Scene( scene )
+    {
+    }
 
     ReflectionCaptureRenderer::~ReflectionCaptureRenderer() = default;
 
@@ -187,10 +189,14 @@ namespace Desert::Graphic
             return true;
         if ( m_PipelinesFailed )
             return false;
-        m_Assemble        = MakeCompute( "ReflectionCaptureAssemble" );
-        m_Downsample      = MakeCompute( "ReflectionCaptureDownsample" );
-        m_Filter          = MakeCompute( "ReflectionCaptureFilter" );
+        constexpr std::string_view kAssemble   = "ReflectionCaptureAssemble";
+        constexpr std::string_view kDownsample = "ReflectionCaptureDownsample";
+        constexpr std::string_view kFilter     = "ReflectionCaptureFilter";
+        m_Assemble                             = MakeCompute( kAssemble );
+        m_Downsample                           = MakeCompute( kDownsample );
+        m_Filter                               = MakeCompute( kFilter );
         m_PipelinesFailed = !( m_Assemble && m_Downsample && m_Filter );
+        m_FailedProgram = !m_Assemble ? kAssemble : !m_Downsample ? kDownsample : !m_Filter ? kFilter : "";
         return !m_PipelinesFailed;
     }
 
@@ -278,8 +284,10 @@ namespace Desert::Graphic
             if ( !m_Faces[f] )
             {
                 m_Faces[f]           = std::make_unique<FaceView>();
+                // The face views render the SCENE's captures, not a viewer's picture: their rows are the scene's
+                // ("scene #N", RT-LEDGER-4), so a capture is in the scene's budget entry and in no view's.
                 m_Faces[f]->Renderer = std::make_unique<SceneRenderer>( ViewExtent{ faceSize, faceSize },
-                                                                        kReflectionCaptureViewProfile );
+                                                                        kReflectionCaptureViewProfile, m_Scene );
                 m_Faces[f]->Renderer->Init();
                 m_Faces[f]->Renderer->Resize( faceSize, faceSize );
             }
@@ -362,8 +370,10 @@ namespace Desert::Graphic
                  auto bindings = pass.Bindings( m_AssembleLayout.Get( m_Assemble->GetSpecification().Shader ),
                                                 Renderer::GetPipelineRouteFill( *m_Assemble ) );
                  for ( size_t f = 0; f < faces.size(); ++f )
-                     bindings.Sampled( kFaceNames[f], faces[f], RDG::Access::SampledCompute,
-                                       RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
+                     bindings
+                          .Texture( kFaceNames[f], faces[f], RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
                  bindings.Storage( "ReflectionCaptureFacesUB", facesBuffer, RDG::Access::StorageRead )
                       .Storage( "u_Output", radiance, RDG::Access::StorageWrite, 0 );
              },
@@ -381,8 +391,9 @@ namespace Desert::Graphic
                  {
                      pass.Bindings( m_DownsampleLayout.Get( m_Downsample->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_Downsample ) )
-                          .Sampled( "u_Source", radiance, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::Mip( mip - 1 ), RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_Source", radiance, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::Mip( mip - 1 ) )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
                           .Storage( "u_Output", radiance, RDG::Access::StorageWrite, mip );
                  },
                  [pipeline = m_Downsample, mip, faceSize]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -400,8 +411,9 @@ namespace Desert::Graphic
                  {
                      pass.Bindings( m_FilterLayout.Get( m_Filter->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_Filter ) )
-                          .Sampled( "u_Radiance", radiance, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_Radiance", radiance, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
                           .Storage( "u_Output", array, RDG::Access::StorageWrite, mip )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( FilterPush ) ) );
                  },
@@ -436,7 +448,12 @@ namespace Desert::Graphic
                                                     .Layers = 6u * cubes,
                                                     .Dim    = RDG::TextureDim::CubeArray },
                                   name );
-        graph.Extract( created, array.Texture, RDG::Access::SampledGraphics );
+        {
+            // THE ARRAY IS THE SCENE'S, whichever view's graph creates it: the extraction is attributed to the
+            // scene, and the backend's pool opens the array's ledger row under it (RDG::Builder::Extract).
+            const ResourceAttributionScope sceneScope( ResourceOwner::SceneRenderer, m_Scene );
+            graph.Extract( created, array.Texture, RDG::Access::SampledGraphics );
+        }
         array.Cubes    = cubes;
         array.FaceSize = faceSize;
         array.Built    = true;
@@ -448,26 +465,38 @@ namespace Desert::Graphic
 
     void ReflectionCaptureRenderer::AddPasses( RDG::Builder& graph, FrameTextures& textures, bool readsCaptures )
     {
+        // The capture list every lit pass binds (ReflectionCapturesUB), as this graph's buffer.
+        const auto publishList = [&graph, &textures]( const std::vector<std::byte>& list )
+        {
+            const RDG::BufferRef buffer =
+                 graph.CreateBuffer( RDG::BufferDesc{ list.size() }, "ReflectionCaptures.List" );
+            graph.QueueBufferUpload( buffer, list );
+            textures.Transients.ReflectionCaptures = buffer;
+        };
+        // Nothing to read: the engine's black cube array (UE GBlackCubeArrayTexture) and the empty list, so the
+        // lighting that binds them still draws and reads no capture. No compute pass is needed to make it.
+        const auto publishNone = [&]()
+        {
+            textures.Transients.ReflectionCaptureCubes = textures.System.BlackCubeArray;
+            publishList( PackReflectionCaptures( {}, {} ) );
+        };
         if ( !EnsurePipelines() )
-            return; // logged once by MakeCompute; the composite then reports its unbound inputs by name
+        {
+            // No cube can be assembled on this device (logged once by MakeCompute). The views refuse the
+            // Reflections methods that read captures by FailedProgram()'s name (SceneRenderer::BeginScene).
+            publishNone();
+            return;
+        }
 
         constexpr size_t kRetiredKept = 3;
         if ( m_Retired.size() > kRetiredKept )
             m_Retired.erase( m_Retired.begin(), m_Retired.end() - kRetiredKept );
 
-        // The views that read no captures, and every view while the face size is refused: one black cube at the
-        // smallest legal face (a 1x1 cube is all the lighting can read from it).
+        // The views that read no captures, and every view while the face size is refused.
         const bool capturing = readsCaptures && std::has_single_bit( m_FaceSize );
         if ( !capturing )
         {
-            const RDG::TextureRef black =
-                 AcquireArray( graph, textures, m_Black, 1u, 1u, "ReflectionCaptures.Black" ).first;
-            const std::vector<std::byte> list = PackReflectionCaptures( {}, {} );
-            const RDG::BufferRef         buffer =
-                 graph.CreateBuffer( RDG::BufferDesc{ list.size() }, "ReflectionCaptures.List" );
-            graph.QueueBufferUpload( buffer, list );
-            textures.Transients.ReflectionCaptureCubes = black;
-            textures.Transients.ReflectionCaptures     = buffer;
+            publishNone();
             return;
         }
 
@@ -491,12 +520,7 @@ namespace Desert::Graphic
             m_FacesRenderedThisFrame = false;
         }
 
-        const std::vector<std::byte> list = PackReflectionCaptures( m_Captures, m_Captured );
-        const RDG::BufferRef         buffer =
-             graph.CreateBuffer( RDG::BufferDesc{ list.size() }, "ReflectionCaptures.List" );
-        graph.QueueBufferUpload( buffer, list );
-
         textures.Transients.ReflectionCaptureCubes = array;
-        textures.Transients.ReflectionCaptures     = buffer;
+        publishList( PackReflectionCaptures( m_Captures, m_Captured ) );
     }
 } // namespace Desert::Graphic

@@ -121,7 +121,7 @@ TEST( VelocityTarget, GpuObjectMotionHasAStd430TwinInGlsl )
          ReadFile( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Common/ObjectMotion.glslh" );
     ASSERT_FALSE( source.empty() );
     const auto members = GlslStructMembers( source, "GpuObjectMotion" );
-    ASSERT_EQ( members.size(), 6u ); // World, PrevWorld, BoneOffset, PrevBoneOffset, Pad0, Pad1
+    ASSERT_EQ( members.size(), 10u ); // World, PrevWorld, BoneOffset, PrevBoneOffset, SkinCache x3, Pad0-2
     EXPECT_EQ( members[0].second, "World" );
     EXPECT_EQ( members[1].second, "PrevWorld" );
     EXPECT_EQ( members[2].second, "BoneOffset" );
@@ -463,7 +463,7 @@ TEST( VelocityTarget, MotionRowsAreBuiltBeforeAnyViewPassIsDeclared )
     const auto scene = ReadFile( root / "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
     const auto body  = scene.find( "void SceneRenderer::OnUpdate(" );
     ASSERT_NE( body, std::string::npos );
-    const auto build = scene.find( "->BuildObjectMotions( m_ViewState.Motion() )", body );
+    const auto build = scene.find( "->BuildObjectMotions(", body );
     const auto prev  = scene.find( "->SetPrevWorldTimeSeconds( GetViewFrame()->PrevTimeSeconds )", body );
     const auto first = scene.find( "AddFrame", body );
     ASSERT_NE( build, std::string::npos ) << "OnUpdate must build the view's motion rows";

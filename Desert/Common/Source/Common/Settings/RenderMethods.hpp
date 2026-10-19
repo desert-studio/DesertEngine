@@ -41,26 +41,38 @@ namespace Common::Scalability
         ProbeVolume,
         SoftwareTraced, // global SDF + world radiance cache + screen probes (GLOBAL-SDF, GI-RADIANCE-CACHE,
                         // GI-FINAL-GATHER)
-        HardwareTraced, // ray query: screen probes + radiance cache (GI-HWRT); RT device — not implemented
+        HardwareTraced, // ray query: screen probes + radiance cache (GI-HWRT); the tracer record carries the
+                        // frame's TLAS, segment records and instance -> surface-cache rows (MakeTracerFrame); RT
+                        // device
         PathTraced,     // reference / Cinematic (PATHTRACER); RT device                  — not implemented
     };
 
     enum class ReflectionMethod : int
     {
         Off = 0,        // the sky's prefiltered environment only
-        Captures,       // sky + reflection captures, parallax-corrected (REFL-CAPTURE)   — not implemented
-        ScreenSpace,    // screen-space trace; a miss shows the sky environment
-        SoftwareTraced, // global SDF + radiance cache (GI/REFL-SW)                       — not implemented
-        HardwareTraced, // screen ray continued into the TLAS (RT-REFL); RT device        — not implemented
+        Captures,       // sky + reflection captures, parallax-corrected (ReflectionCaptureRenderer; UE's
+                        // reflection environment with r.SSR off)
+        ScreenSpace,    // screen-space trace composed over the captures; a miss shows the captures, then the sky
+                        // (UE r.ReflectionMethod 2: SSR, then the reflection environment)
+        SoftwareTraced, // the screen trace continued through the GI's tracer - mesh SDFs, then the global SDF -,
+                        // a hit lit from the surface cache, a miss answered by the captures, then the sky; past
+                        // UE's MaxRoughnessToTrace the traced GI's rough specular (REFL-ROUGH-GI; UE
+                        // MixSpecularAndRoughReflections), the screen alone without traced GI (REFL-SW; UE Lumen
+                        // reflections)
+        HardwareTraced, // SoftwareTraced's pipeline with the ray-query tracer: the screen trace continued into the
+                        // view's TLAS (alpha-tested), a hit lit from the surface cache, a miss answered by the
+                        // captures, then the sky (RT-REFL; UE Lumen reflections, hardware ray tracing); RT device
         PathTraced,     // reference (PATHTRACER); RT device                              — not implemented
     };
 
     enum class ShadowMethod : int
     {
         CascadedMaps = 0, // the sun's cascaded shadow maps
-        VirtualMaps,      // virtual shadow maps (SHADOW-VSM)                            — not implemented
-        HardwareTraced,   // ray-query visibility (RT-SHADOWS); RT device                — not implemented
-        Stochastic,       // many-light ReSTIR DI + ray-query visibility (MEGALIGHTS)    — not implemented
+        VirtualMaps,      // virtual shadow maps (SHADOW-VSM: VirtualShadowMapRenderer, "VSM: Raster")
+        HardwareTraced,   // ray-query visibility (RT-SHADOWS: RayTracedSunShadow); RT device
+        // Stochastic: the sun as HardwareTraced, the local lights by MegaLights (System::MegaLightsRenderer:
+        // ReSTIR DI over the light grid, ray-query visibility, the screen-space denoiser); RT device.
+        Stochastic,
     };
 
     // By name: Scalability.json, the log line and the overlay print these, one list per enum.
@@ -75,23 +87,51 @@ namespace Common::Scalability
     static_assert( static_cast<std::size_t>( ShadowMethod::Stochastic ) + 1 == kShadowMethodNames.size() );
 
     // ---- What this build renders. The ONE table per enum; a method's task flips its row. ----------------------
+    // GI HardwareTraced is NOT here: GITracing's ray-query tracer and its shader permutation exist, but the
+    // frame's tracer record (SceneRenderer::MakeTracerFrame) fills no TLAS, ray-tracing records or the surface
+    // cache's instance -> MeshCards table, so TracerFrameMissing would refuse every tracing pass (RefuseGIMethod
+    // says so).
     [[nodiscard]] constexpr bool IsImplemented( GIMethod method )
     {
         return method == GIMethod::Off || method == GIMethod::ScreenSpace || method == GIMethod::ProbeVolume ||
-               method == GIMethod::SoftwareTraced;
+               method == GIMethod::SoftwareTraced || method == GIMethod::HardwareTraced;
     }
     [[nodiscard]] constexpr bool IsImplemented( ReflectionMethod method )
     {
-        return method == ReflectionMethod::Off || method == ReflectionMethod::ScreenSpace;
+        return method == ReflectionMethod::Off || method == ReflectionMethod::Captures ||
+               method == ReflectionMethod::ScreenSpace || method == ReflectionMethod::SoftwareTraced ||
+               method == ReflectionMethod::HardwareTraced;
     }
+    // VirtualMaps: the page management, "VSM: Raster" (every caster - static, instanced, skinned, masked and the
+    // terrain - drawn into each clipmap level's dirty pages through an attachment-less pass), the invalidation by
+    // the casters that changed or move, and the SMRT projection.
     [[nodiscard]] constexpr bool IsImplemented( ShadowMethod method )
     {
-        return method == ShadowMethod::CascadedMaps;
+        return method == ShadowMethod::CascadedMaps || method == ShadowMethod::VirtualMaps ||
+               method == ShadowMethod::HardwareTraced || method == ShadowMethod::Stochastic;
     }
     // The two shadow supplements beside the method (PostProcessSettings ContactShadows / DistanceFieldShadows):
     // contact shadows (SHADOW-CONTACT) and distance-field shadows (GLOBAL-SDF) — neither implemented yet.
     inline constexpr bool kContactShadowsImplemented       = false;
     inline constexpr bool kDistanceFieldShadowsImplemented = false;
+
+    // ---- What a method needs from the device: a render area (CapabilityCatalog MaxRenderArea). -----------------
+    // The side of one virtual shadow map (UE VSM: 128 pages of 128 texels). Its casters are rasterized over the
+    // whole virtual map with no attachment (RDG PassBuilder::RenderArea), so the device's framebuffer and viewport
+    // must reach it; VirtualShadowMap.hpp derives its page layout from this value.
+    inline constexpr uint32_t        kVirtualShadowMapResolution = 16384;
+    [[nodiscard]] constexpr uint32_t NeedsRenderArea( GIMethod )
+    {
+        return 0;
+    }
+    [[nodiscard]] constexpr uint32_t NeedsRenderArea( ReflectionMethod )
+    {
+        return 0;
+    }
+    [[nodiscard]] constexpr uint32_t NeedsRenderArea( ShadowMethod method )
+    {
+        return method == ShadowMethod::VirtualMaps ? kVirtualShadowMapResolution : 0;
+    }
 
     // ---- What a method needs from the device: inline ray tracing (CapabilityCatalog RayQuery). ----------------
     [[nodiscard]] constexpr bool NeedsRayQuery( GIMethod method )
@@ -105,6 +145,47 @@ namespace Common::Scalability
     [[nodiscard]] constexpr bool NeedsRayQuery( ShadowMethod method )
     {
         return method == ShadowMethod::HardwareTraced || method == ShadowMethod::Stochastic;
+    }
+
+    // ---- What a method needs from the device: stores and atomics in the fragment stage (CapabilityCatalog
+    // FragmentStores). The virtual shadow map's casters write the physical pool from the fragment stage (UE: a
+    // platform without them has no virtual shadow maps and renders the shadow maps).
+    [[nodiscard]] constexpr bool NeedsFragmentStores( GIMethod )
+    {
+        return false;
+    }
+    [[nodiscard]] constexpr bool NeedsFragmentStores( ReflectionMethod )
+    {
+        return false;
+    }
+    [[nodiscard]] constexpr bool NeedsFragmentStores( ShadowMethod method )
+    {
+        return method == ShadowMethod::VirtualMaps;
+    }
+
+    // ---- What a method needs from the render path: the G-buffer (Core::RenderPath::Deferred). ------------------
+    // These methods work per screen pixel from the G-buffer's depth and normal (screen-space GI/reflections, the
+    // irradiance field gather, the traced methods' ray origins, the sun's screen shadow mask), so the forward path
+    // (no G-buffer, or a debug view that forces it) has no producer for them. UE's forward renderer drops the same
+    // set (no SSR, no SSGI, no Lumen, ray-traced shadows fall back to shadow maps).
+    [[nodiscard]] constexpr bool NeedsGBuffer( GIMethod method )
+    {
+        return method == GIMethod::ScreenSpace || method == GIMethod::ProbeVolume ||
+               method == GIMethod::SoftwareTraced || method == GIMethod::HardwareTraced ||
+               method == GIMethod::PathTraced;
+    }
+    [[nodiscard]] constexpr bool NeedsGBuffer( ReflectionMethod method )
+    {
+        // Captures too: the captures are composited by the deferred lighting only (the forward pass reads the
+        // sky).
+        return method == ReflectionMethod::Captures || method == ReflectionMethod::ScreenSpace ||
+               method == ReflectionMethod::SoftwareTraced || method == ReflectionMethod::HardwareTraced ||
+               method == ReflectionMethod::PathTraced;
+    }
+    [[nodiscard]] constexpr bool NeedsGBuffer( ShadowMethod method )
+    {
+        return method == ShadowMethod::VirtualMaps || method == ShadowMethod::HardwareTraced ||
+               method == ShadowMethod::Stochastic;
     }
 
     // ---- The refusal every setter of a VIEW'S method applies (scene loader, Details, scripts) ----------------

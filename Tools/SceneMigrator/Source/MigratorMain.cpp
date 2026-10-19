@@ -508,8 +508,13 @@ namespace
                 out << "; kept " << kept;
             out << ")";
         }
+        if ( report.SourceAngleRaised && report.SourceAnglesStated > 0 )
+            out << std::format( " scene v{}->v{} ({} DirectionLight block(s) given SourceAngle {})",
+                                Desert::Migration::kSceneVersionScriptDefaults,
+                                Desert::Migration::kSceneVersionSourceAngle, report.SourceAnglesStated,
+                                Desert::Migration::kSourceAngleDefault );
         if ( report.LightUnitsRaised && ( report.LightUnits.Lights > 0 || report.LightUnits.Volumes > 0 ) )
-            out << " scene v" << Desert::Migration::kSceneVersionScriptDefaults << "->v"
+            out << " scene v" << Desert::Migration::kSceneVersionSourceAngle << "->v"
                 << Desert::Migration::kSceneVersionLightUnits << " (" << report.LightUnits.Lights
                 << " light(s) state Unitless, " << report.LightUnits.Volumes << " exposure range(s) in EV100)";
         if ( report.SkySunFromLightRaised &&

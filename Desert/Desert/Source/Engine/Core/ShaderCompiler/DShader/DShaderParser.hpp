@@ -80,7 +80,8 @@ namespace Desert::Core::Preprocess
     // the one home of the cell set and of the headers a cell is built from — the parser writes the cells
     // from them and ComputeShaderMapKey hashes the same headers, so the two cannot disagree.
     inline constexpr std::array<std::string_view, 3> kSurfaceVertexPaths = { "Static", "Instanced", "Skinned" };
-    inline constexpr std::array<std::string_view, 3> kSurfaceCellPasses  = { "Forward", "GBuffer", "ShadowDepth" };
+    inline constexpr std::array<std::string_view, 4> kSurfaceCellPasses   = { "Forward", "GBuffer", "ShadowDepth",
+                                                                              "VirtualShadowDepth" };
     inline constexpr std::string_view                kSurfaceTypesInclude = "Mesh/Surface/SurfaceTypes.glslh";
     // THE PARTICLE SPRITE USAGE (UE: a material's bUsedWithParticleSprites). A template that declares
     // `Usage ParticleSprites` gets ONE more cell, `ParticleSprite.Forward`, after the mesh cells: the sprite
@@ -92,6 +93,14 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceParticleSpritePass        = "Forward";
     inline constexpr std::string_view kSurfaceParticleSpritePassInclude = "Mesh/Surface/Pass_ParticleSprite.glslh";
     inline constexpr std::string_view kSurfaceParticleSpriteDefine      = "DESERT_SURFACE_PARTICLE_SPRITE";
+    // THE RAY TRACING HIT CELL (UE: the material's hit group). Every Opaque / Masked template whose bindings are
+    // all row slots gets `RayTracing.Hit` after its mesh cells: ClosestHit (the surface into the ray's payload)
+    // and, Masked, AnyHit (the OpacityMask test). Its stages define DESERT_SURFACE_PASS_Hit; their material row
+    // comes from the hit group's shader record (kSurfaceRayHitRecordInclude), the geometry from the same record.
+    inline constexpr std::string_view kSurfaceRayHitPath          = "RayTracing";
+    inline constexpr std::string_view kSurfaceRayHitPass          = "Hit";
+    inline constexpr std::string_view kSurfaceRayHitPassInclude   = "Mesh/Surface/Pass_RayHit.glslh";
+    inline constexpr std::string_view kSurfaceRayHitRecordInclude = "Common/RayTracingHitRecord.glslh";
     // Defined in both stages of every cell of a `BlendMode Translucent` template (the sprite pass blends on it).
     inline constexpr std::string_view kSurfaceTranslucentDefine = "DESERT_SURFACE_TRANSLUCENT";
     // Defined in every cell of a `ResponsiveAA` template (UE: the material's bResponsiveAA): the translucent pass
@@ -101,6 +110,14 @@ namespace Desert::Core::Preprocess
     // A template has no program of its own besides its cells, so its DEFAULT program (the empty pass name,
     // what the boot content compiles and what a lookup by shader name returns) is this one cell, by name.
     inline constexpr std::string_view kSurfaceDefaultCell = "Static.Forward";
+    // THE DEPTH-NORMAL ENTRY OF A TEMPLATE WITHOUT A SURFACE BLOCK (Graphic::MeshPass::DepthNormal). Such a
+    // template is hand-written, so the parser cannot derive the pass from a surface function: an OPAQUE
+    // mesh-domain one declares it as a named pass of this name, writing reversed-Z depth and the world normal
+    // into the G-buffer's normal slot (Mesh/Generic/DepthNormal.glslh; every other colour slot unwritten, so
+    // its write mask is 0 - VulkanShaderReflection BuildColorBlendAttachments). A `BlendMode Masked` template
+    // discards there exactly as its default program does. The deferred path draws it in "Deferred: Forward
+    // Depth/Normal" so the G-buffer's screen-space readers see the forward-shaded mesh (UE: the depth prepass).
+    inline constexpr std::string_view kGenericDepthNormalPass = "DepthNormal";
     // THE DEFAULT PROGRAM AND THE DEFAULT CELL ARE ONE PROGRAM (UE: one FMaterialShaderMap entry per cell, not a
     // copy for the lookup by name). Every consumer that enumerates a template's cells — ShaderService's
     // registration, the boot content's shader maps, the package cook, the shader map key — compiles the default
@@ -110,9 +127,25 @@ namespace Desert::Core::Preprocess
     {
         return isSurfaceTemplate && passName == kSurfaceDefaultCell;
     }
+    // The same rule from a parse's metadata, for EVERY program: a surface template's default cell and the first
+    // named pass of a shader without top-level stages (ShaderProgramMeta::DefaultPassName). Registration, the boot
+    // shader maps, the package cook and the pass metadata use this one; IsSurfaceDefaultCell remains for the
+    // callers that hold only the program's text (the shader map key).
+    inline bool IsDefaultProgramPass( const Formats::ShaderProgramMeta& meta, const std::string_view passName )
+    {
+        return !meta.DefaultPassName.empty() && passName == meta.DefaultPassName;
+    }
     // The pass whose opaque cells never evaluate the surface: their fragment stage is the pass header alone (no
     // surface function, no material row, no push block), so the cell's layout is the shadow shader's.
     inline constexpr std::string_view kSurfaceDepthPass = "ShadowDepth";
+    // The virtual shadow map's caster pass (UE: the VSM page raster, a non-Nanite mesh's shadow-depth shader
+    // writing the physical pool): the same depth-only cell, its fragment stage writing the pool by an atomic max
+    // instead of a depth attachment (Mesh/Surface/Pass_VirtualShadowDepth.glslh).
+    inline constexpr std::string_view kSurfaceVirtualDepthPass = "VirtualShadowDepth";
+    constexpr bool                    IsSurfaceDepthOnlyPass( const std::string_view pass )
+    {
+        return pass == kSurfaceDepthPass || pass == kSurfaceVirtualDepthPass;
+    }
 
     // The template's blend mode lives on the program metadata (Core/Formats/ShaderProgramMeta.hpp), where the
     // renderer reads it. Masked: the pass headers discard below u_Material.<kSurfaceMaskClipParam>. Translucent:
@@ -158,6 +191,11 @@ namespace Desert::Core::Preprocess
         bool ResponsiveAA = false;
         Common::UUID             ShadingModel{ ShadingModels::kDefaultLitGuid };
         std::vector<std::string> Cells; // `<Path>.<Pass>`, in kSurfaceVertexPaths × kSurfaceCellPasses order
+        // `RayTracing.Hit` when the template has its hit cell (also in Cells); otherwise empty, and RayHitRefusal
+        // says why for an Opaque / Masked template (empty for a translucent one, which has no hit group by
+        // design).
+        std::string RayHitCell;
+        std::string RayHitRefusal;
     };
 
     struct DShaderParseResult
@@ -176,8 +214,14 @@ namespace Desert::Core::Preprocess
         // first pass", so the default program and its lookup are the same cell by construction.
         const DShaderPass* FindPass( const std::string& name ) const
         {
-            const std::string_view wanted =
-                 name.empty() && !Surface.Cells.empty() ? kSurfaceDefaultCell : std::string_view( name );
+            // Meta.DefaultPassName names the pass the default program IS (a surface template's default cell, or
+            // the first named pass of a shader with no top-level stages); empty when the default program is the
+            // shader's own top-level stage set.
+            const std::string_view wanted = !name.empty() ? std::string_view( name )
+                                            : !Meta.DefaultPassName.empty()
+                                                 ? std::string_view( Meta.DefaultPassName )
+                                            : !Surface.Cells.empty() ? kSurfaceDefaultCell
+                                                                     : std::string_view( name );
             for ( const auto& p : Passes )
                 if ( p.Name == wanted )
                     return &p;
@@ -188,8 +232,8 @@ namespace Desert::Core::Preprocess
     // Headers the parser writes into a stage that the authored text never names. A key computed over the
     // AUTHORED text (the shader map's, see ShaderCacheKey.hpp) must hash these as well, or editing one would
     // leave every material program on its old binary.
-    inline constexpr std::array<std::string_view, 1> kParserInjectedIncludes = {
-         "Common/MaterialTransport.glslh" };
+    inline constexpr std::array<std::string_view, 2> kParserInjectedIncludes = { "Common/MaterialTransport.glslh",
+                                                                                 "Common/BindlessTextures.glslh" };
 
     class DShaderParser
     {

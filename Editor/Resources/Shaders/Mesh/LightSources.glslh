@@ -10,7 +10,7 @@
 #include <Mesh/BRDF.glslh> // LightFalloffFactor, the one distance model
 #include <ShadingModels/ShadingModelContract.glslh>
 
-// std430 layout — must match ShaderProtocols::PointLightPayload (64 bytes).
+// std430 layout — must match ShaderProtocols::PointLightPayload (80 bytes).
 struct PointLight {
     vec3  color;
     float intensity;
@@ -24,9 +24,13 @@ struct PointLight {
     float contactShadowCastingIntensity;    // UE ContactShadowCastingIntensity (a hit on a caster)
     float contactShadowNonCastingIntensity; // UE ContactShadowNonCastingIntensity (a hit on a non-caster)
     int   shadowCaster; // 1: casts shadows in this view (a -1 shadowView is then a light the maps refused)
+    float sourceRadius; // UE SourceRadius (cm): the sphere traced shadows aim at (MegaLights); 0 = a point
+    float pad0;
+    float pad1;
+    float pad2;
 };
 
-// std430 layout — must match ShaderProtocols::SpotLightPayload (80 bytes).
+// std430 layout — must match ShaderProtocols::SpotLightPayload (96 bytes).
 struct SpotLight {
     vec3  color;
     float intensity;
@@ -42,6 +46,10 @@ struct SpotLight {
     float contactShadowCastingIntensity;    // UE ContactShadowCastingIntensity (a hit on a caster)
     float contactShadowNonCastingIntensity; // UE ContactShadowNonCastingIntensity (a hit on a non-caster)
     int   shadowCaster; // 1: casts shadows in this view (a -1 shadowView is then a light the maps refused)
+    float sourceRadius; // UE SourceRadius (cm): the sphere traced shadows aim at (MegaLights); 0 = a point
+    float pad0;
+    float pad1;
+    float pad2;
 };
 
 // A local light's half of its contact shadow, as Common/ContactShadow.glslh takes it: (length, in world space,

@@ -42,14 +42,20 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::EnsureShadowViewMaterials( const uint32_t view )
     {
-        if ( !m_ShadowPipeline || view >= kMaxShadowViews )
+        if ( view >= kMaxShadowViews )
+            return false;
+        // The view's caster cells (CasterPipelinesOf): a virtual shadow map level draws the VirtualShadowDepth
+        // cells through its own pipelines, every other view the ShadowDepth cells; each material is made on the
+        // cell its pipeline draws, so a draw never pairs one cell's program with the other's pipeline.
+        const CasterPipelines casters = CasterPipelinesOf( view );
+        if ( casters.Static == nullptr )
             return false;
         if ( !m_ShadowMaterial[view] )
-            m_ShadowMaterial[view] = std::make_unique<MaterialShadow>();
-        if ( m_ShadowInstancedPipeline && !m_ShadowInstancedMaterial[view] )
-            m_ShadowInstancedMaterial[view] = std::make_unique<MaterialShadowInstanced>();
-        if ( m_ShadowSkinnedPipeline && !m_ShadowSkinnedMaterial[view] )
-            m_ShadowSkinnedMaterial[view] = std::make_unique<MaterialShadowSkinned>();
+            m_ShadowMaterial[view] = std::make_unique<MaterialShadow>( casters.Pass );
+        if ( casters.Instanced != nullptr && !m_ShadowInstancedMaterial[view] )
+            m_ShadowInstancedMaterial[view] = std::make_unique<MaterialShadowInstanced>( casters.Pass );
+        if ( casters.Skinned != nullptr && !m_ShadowSkinnedMaterial[view] )
+            m_ShadowSkinnedMaterial[view] = std::make_unique<MaterialShadowSkinned>( casters.Pass );
         return true;
     }
 
@@ -64,6 +70,9 @@ namespace Desert::Graphic::System
                 continue;
             hash.Add( rd.Mesh );
             hash.Add( rd.Transform );
+            // One entry per section material: which submeshes it casts, and through which slot's route.
+            hash.Add( rd.HiddenSubmeshes );
+            hash.Add( rd.SectionSlot );
         }
         for ( const auto& g : m_GenericQueue )
         {
@@ -97,7 +106,10 @@ namespace Desert::Graphic::System
                 any = true;
             }
             if ( any )
+            {
                 hash.Add( ism.Mesh );
+                hash.Add( ism.HiddenSubmeshes );
+            }
         }
         return hash.Value;
     }
@@ -105,7 +117,8 @@ namespace Desert::Graphic::System
     void MeshRenderer::UpdateLocalShadows( std::vector<ShaderProtocols::PointLightPayload>& points,
                                            const std::vector<LocalLightShadowSettings>&     pointShadows,
                                            std::vector<ShaderProtocols::SpotLightPayload>&  spots,
-                                           const std::vector<LocalLightShadowSettings>&     spotShadows )
+                                           const std::vector<LocalLightShadowSettings>&     spotShadows,
+                                           const bool                                       shadowMaps )
     {
         // Every path out of here leaves the frame's table and every payload saying the truth: no view unless one
         // was given below.
@@ -123,9 +136,22 @@ namespace Desert::Graphic::System
             spot.ShadowCaster = 0;
         }
 
+        // MegaLights (Shadows Stochastic) traces every local light's visibility (System::MegaLightsRenderer): each
+        // light that casts in a view with shadows is a caster, and no map is drawn for any.
+        if ( !shadowMaps )
+        {
+            if ( !m_ShadowsEnabled )
+                return;
+            for ( std::size_t i = 0; i < points.size() && i < pointShadows.size(); ++i )
+                points[i].ShadowCaster = pointShadows[i].CastShadows ? 1 : 0;
+            for ( std::size_t i = 0; i < spots.size() && i < spotShadows.size(); ++i )
+                spots[i].ShadowCaster = spotShadows[i].CastShadows ? 1 : 0;
+            return;
+        }
+
         // A renderer with no shadow budget has no caster pipeline (SetupShadowPass), and a view with shadows off
         // draws none: the lights are then unshadowed, exactly as the sun is.
-        const uint32_t atlasSide = LocalShadowAtlasSize( m_Shadow.ShadowMapSize );
+        const uint32_t atlasSide = LocalShadowAtlasSize( m_Shadow.LocalShadowMapSize );
         if ( !m_ShadowsEnabled || !m_ShadowPipeline || atlasSide < kMinLocalShadowTile )
             return;
 
@@ -371,6 +397,10 @@ namespace Desert::Graphic::System
                 m_LocalDraws[slot].Clear();
                 BuildShadowCascadeDraws( view, m_LocalDraws[slot] );
                 m_LocalDraws[slot].Declare( declared, std::nullopt );
+                // The skin cache's streams its skinned casters fetch (BuildShadowCascadeDraws pushes each draw's
+                // address, the masked ones read it from their row); written by the scene's skin step.
+                for ( const RDG::BufferRef& streams : m_SkinCacheReads )
+                    declared.Read( streams, RDG::Access::StorageRead );
             };
             passes.push_back( std::move( pass ) );
         }

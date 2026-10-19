@@ -5,6 +5,7 @@
 
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
@@ -35,6 +36,12 @@ namespace Desert::Graphic::API::Vulkan
         return *this;
     }
 
+    ComputePipeline& VulkanPipelineCompute::SetSampler( uint32_t binding, const RDG::SamplerDesc& desc )
+    {
+        m_BoundSamplers.insert_or_assign( binding, desc );
+        return *this;
+    }
+
     ComputePipeline& VulkanPipelineCompute::SetOutput( uint32_t binding, Image* image, uint32_t mip )
     {
         m_BoundOutputs[binding] = { image, mip };
@@ -55,35 +62,12 @@ namespace Desert::Graphic::API::Vulkan
         return *this;
     }
 
-    namespace
-    {
-        // A sampled input is bound with the descriptor write that matches its DIMENSIONALITY. This is not
-        // cosmetic: GetSampler2DWDS substitutes a 2D fallback texture whenever the supplied image info is
-        // incomplete, and a 2D view landing in a `sampler3D` (or a `samplerCube`) binding does not fail —
-        // it quietly samples the wrong thing, which is the most expensive failure mode there is.
-        enum class SampledImageKind
-        {
-            Texture2D,
-            Cube,
-            Volume
-        };
-
-        SampledImageKind ClassifySampledImage( Image* image )
-        {
-            if ( dynamic_cast<Image3D*>( image ) )
-                return SampledImageKind::Volume;
-            if ( dynamic_cast<ImageCube*>( image ) )
-                return SampledImageKind::Cube;
-            return SampledImageKind::Texture2D;
-        }
-    } // namespace
-
     Common::BoolResultStr VulkanPipelineCompute::WriteBoundResources( VkDescriptorSet descriptorSet )
     {
         // The image infos must outlive UpdateDescriptorSet (each write stores a pointer into here),
         // so reserve up front to avoid a reallocation invalidating those pointers.
         std::vector<VkDescriptorImageInfo> infos;
-        infos.reserve( m_BoundInputs.size() + m_BoundOutputs.size() );
+        infos.reserve( m_BoundInputs.size() + m_BoundOutputs.size() + m_BoundSamplers.size() );
         std::vector<VkWriteDescriptorSet> writes;
 
         // Outputs: bind the chosen mip view as a storage image (the caller has already put the image
@@ -98,18 +82,31 @@ namespace Desert::Graphic::API::Vulkan
                                                                   binding, 1, &infos.back() ) );
         }
 
-        // Inputs: sampled images (2D, cube and volume share the same VkDescriptorImageInfo shape, but not
-        // the same write builder — see ClassifySampledImage). Every input names the view it declared (one
+        // Inputs: separate textures (SAMPLED_IMAGE), the view alone. Every input names the view it declared (one
         // mip, or all) in the layout its declared access guarantees: the graph's transition in a graph node, the
-        // pipeline's own one (RecordTransitionedDispatch) outside it.
+        // pipeline's own one (RecordTransitionedDispatch) outside it. No fallback is substituted: an input
+        // without a view drops the dispatch with its binding named.
+        const auto separateImageWrite = [&infos]( uint32_t binding, VkDescriptorType type )
+        {
+            VkWriteDescriptorSet write{};
+            write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstBinding      = binding;
+            write.descriptorCount = 1;
+            write.descriptorType  = type;
+            write.pImageInfo      = &infos.back();
+            return write;
+        };
         for ( const auto& [binding, input] : m_BoundInputs )
         {
-            Image* image = input.Image;
-            auto*  img   = dynamic_cast<IVulkanImage*>( image );
+            auto* img = dynamic_cast<IVulkanImage*>( input.Image );
             if ( !img )
-                continue;
-            const auto&            r    = img->GetResource();
-            const SampledImageKind kind = ClassifySampledImage( image );
+            {
+                return Common::MakeFormattedError(
+                     "ComputePipeline '{}': input at binding {} is not a Vulkan image; "
+                     "dispatch skipped",
+                     m_Specification.DebugName, binding );
+            }
+            const auto& r = img->GetResource();
 
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes graph
             // textures
@@ -124,7 +121,7 @@ namespace Desert::Graphic::API::Vulkan
                      "dispatch skipped",
                      m_Specification.DebugName, binding, resolved.GetError() );
             }
-            VkImageView            view           = resolved.GetValue();
+            const VkImageView      view           = resolved.GetValue();
             const RDG::ImageLayout declaredLayout = RDG::GetAccessState( input.Declared ).Layout;
             if ( declaredLayout != RDG::ImageLayout::ShaderReadOnly &&
                  declaredLayout != RDG::ImageLayout::General )
@@ -134,38 +131,29 @@ namespace Desert::Graphic::API::Vulkan
                      "leave the image sampleable; dispatch skipped",
                      m_Specification.DebugName, binding, RDG::GetAccessName( input.Declared ) );
             }
-            const VkImageLayout layout = RdgVulkanLayout( declaredLayout );
-
-            if ( kind == SampledImageKind::Volume &&
-                 ( view == VK_NULL_HANDLE || r.Sampler == VK_NULL_HANDLE || layout == VK_IMAGE_LAYOUT_UNDEFINED ) )
+            if ( view == VK_NULL_HANDLE )
             {
-                // No fallback exists for a volume, and dispatching with a stale descriptor would read
-                // whatever the previous user of this ring slot bound. Say exactly what is missing and
-                // drop the dispatch instead.
+                return Common::MakeFormattedError( "ComputePipeline '{}': input at binding {} has no image view; "
+                                                   "dispatch skipped",
+                                                   m_Specification.DebugName, binding );
+            }
+            infos.push_back( { VK_NULL_HANDLE, view, RdgVulkanLayout( declaredLayout ) } );
+            writes.push_back( separateImageWrite( binding, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE ) );
+        }
+
+        // Shared sampler states (VK_DESCRIPTOR_TYPE_SAMPLER), acquired from the engine sampler cache.
+        for ( const auto& [binding, desc] : m_BoundSamplers )
+        {
+            const Common::ResultStr<VkSampler> sampler =
+                 EngineSamplerCache().Acquire( RdgSamplerCreateInfo( desc ) );
+            if ( !sampler.IsSuccess() )
+            {
                 return Common::MakeFormattedError(
-                     "ComputePipeline '{}': volume input at binding {} is not sampleable "
-                     "(view={}, sampler={}, layout={}); dispatch skipped",
-                     m_Specification.DebugName, binding, view != VK_NULL_HANDLE, r.Sampler != VK_NULL_HANDLE,
-                     static_cast<int>( layout ) );
+                     "ComputePipeline '{}': sampler at binding {}: {}; dispatch skipped",
+                     m_Specification.DebugName, binding, sampler.GetError() );
             }
-
-            infos.push_back( { r.Sampler, view, layout } );
-
-            switch ( kind )
-            {
-                case SampledImageKind::Volume:
-                    writes.push_back( DescriptorSetBuilder::GetSampler3DWDS( m_VulkanMaterialBackend.get(), 0, 0,
-                                                                             binding, 1, &infos.back() ) );
-                    break;
-                case SampledImageKind::Cube:
-                    writes.push_back( DescriptorSetBuilder::GetSamplerCubeWDS( m_VulkanMaterialBackend.get(), 0, 0,
-                                                                               binding, 1, &infos.back() ) );
-                    break;
-                case SampledImageKind::Texture2D:
-                    writes.push_back( DescriptorSetBuilder::GetSampler2DWDS( m_VulkanMaterialBackend.get(), 0, 0,
-                                                                             binding, 1, &infos.back() ) );
-                    break;
-            }
+            infos.push_back( { sampler.GetValue(), VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED } );
+            writes.push_back( separateImageWrite( binding, VK_DESCRIPTOR_TYPE_SAMPLER ) );
         }
 
         // Storage buffers (read-write; e.g. a luminance histogram): the active view's copy for this frame
@@ -213,6 +201,14 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipeline );
         vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipelineLayout, 0, 1,
                                  &descriptorSet, 0, nullptr );
+        // The bindless table's set is the table's one live set, never one of this pipeline's (see
+        // EnsureBatchRing).
+        if ( const VulkanBindlessTextureTable* bindless = BindlessTableIn( m_Layouts ) )
+        {
+            const VkDescriptorSet table = bindless->GetDescriptorSet();
+            vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipelineLayout,
+                                     kBindlessSetIndex, 1, &table, 0, nullptr );
+        }
 
         if ( !m_BoundPushConstants.empty() )
             vkCmdPushConstants( cmd, m_ComputePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
@@ -299,10 +295,13 @@ namespace Desert::Graphic::API::Vulkan
         // Pool sized from the CAPTURED layout's own bindings — the same contract the sets below are
         // allocated from — rather than from the shader's current reflection, which a recompile may have
         // moved on from since this pipeline was built.
+        // The bindless table's layout is left out: its set is the table's own (RecordDescriptorsAndDispatch),
+        // and its update-after-bind array would size this pool at the table's whole capacity.
+        const VulkanBindlessTextureTable* bindless = BindlessTableIn( m_Layouts );
         std::unordered_map<int, uint32_t> countsByType;
         for ( const auto& layout : m_Layouts )
         {
-            if ( !layout )
+            if ( !layout || ( bindless != nullptr && layout == bindless->GetLayout() ) )
                 continue;
             for ( const auto& binding : layout->Bindings() )
                 countsByType[static_cast<int>( binding.descriptorType )] += binding.descriptorCount;
@@ -341,8 +340,11 @@ namespace Desert::Graphic::API::Vulkan
     std::vector<uint32_t> VulkanPipelineCompute::GetBoundBindings() const
     {
         std::vector<uint32_t> bindings;
-        bindings.reserve( m_BoundInputs.size() + m_BoundOutputs.size() + m_BoundStorageBuffers.size() );
+        bindings.reserve( m_BoundInputs.size() + m_BoundSamplers.size() + m_BoundOutputs.size() +
+                          m_BoundStorageBuffers.size() );
         for ( const auto& [binding, input] : m_BoundInputs )
+            bindings.push_back( binding );
+        for ( const auto& [binding, sampler] : m_BoundSamplers )
             bindings.push_back( binding );
         for ( const auto& [binding, output] : m_BoundOutputs )
             bindings.push_back( binding );

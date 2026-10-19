@@ -159,9 +159,17 @@ namespace Desert::Graphic
         GBuffer     = 1, // deferred albedo/normal MRT (also the Reflective Shadow Map, from the sun)
         Glass       = 2, // transparent, samples the composited scene for refraction
         ShadowDepth = 3, // depth only, into a cascade
+        // Depth + G-buffer normal only, for a template WITHOUT a Surface block (drawn on the generic path): the
+        // deferred path's "Deferred: Forward Depth/Normal" prepass, so the screen-space consumers of the
+        // G-buffer (the ray-traced sun's mask, SSAO, SSR) see the forward-shaded opaque meshes too (UE: the
+        // depth prepass every opaque mesh draws). A surface template has no such cell: it is in the G-buffer.
+        DepthNormal = 4,
+        // Depth only, into the virtual shadow map's physical pool (SHADOW-VSM "VSM: Raster"): the ShadowDepth
+        // cell's vertex stage, a fragment stage that atomic-maxes the depth into the page its texel maps to.
+        VirtualShadowDepth = 5,
     };
 
-    inline constexpr uint32_t kMeshPassCount = 4;
+    inline constexpr uint32_t kMeshPassCount = 6;
 
     // (path x pass) -> the surface CELL that draws it, "<Path>.<Pass>" (DShaderParser's SurfaceCellName), or
     // nullptr where the pass is not drawn through a surface template's cell (Glass, which is its own program).
@@ -176,8 +184,9 @@ namespace Desert::Graphic
     // holes are deliberate and each has a reason:
     //
     //   (Skinned  x GBuffer) is NOT a hole any more: Forward and GBuffer are cells of every surface
-    //                          template, which has every path. The skinned mesh is still drawn forward
-    //                          (MeshRenderer::RenderSkinnedManual); the cell exists unused.
+    //                          template, which has every path. The deferred path draws the skinned mesh
+    //                          through it in the G-buffer node (MeshRenderer::BuildSkinnedDraws), as UE's
+    //                          base pass; there is no forward redraw over the composite.
     //   (* x Glass)          — no cell of its own: the translucency pass draws a translucent template's
     //                          (Static x Forward) cell (MeshShaderFor); no skinned or instanced glass exists.
     //
@@ -202,10 +211,11 @@ namespace Desert::Graphic
     // THE ONE RULE of which (path x pass) cells a material on the template @p templateName HAS, and the shader
     // that draws each. A template with a Surface block registers every cell of the table ("<Template>/<Cell>"),
     // and the cell is MeshShaderFor. A template with no Surface block registers no cells: it is drawn by its own
-    // default program on the generic path, which is its (Static x Forward) and nothing else — so every other cell
-    // is a hole the caller must refuse. @p isRegistered answers whether a program of that name is registered
-    // (ShaderService at run time); MaterialService builds by this and answers CellOf by it, so "can this draw
-    // here" and "what draws here" cannot disagree. Empty = no cell.
+    // default program on the generic path, which is its (Static x Forward), and its declared depth-normal pass
+    // (DShaderParser kGenericDepthNormalPass, "<Template>/DepthNormal") is its (Static x DepthNormal) — every
+    // other cell is a hole the caller must refuse. @p isRegistered answers whether a program of that name is
+    // registered (ShaderService at run time); MaterialService builds by this and answers CellOf by it, so "can
+    // this draw here" and "what draws here" cannot disagree. Empty = no cell.
     std::optional<std::string> TemplateCellShader( std::string_view templateName, MeshVertexPath path,
                                                    MeshPass                                       pass,
                                                    const std::function<bool( std::string_view )>& isRegistered );

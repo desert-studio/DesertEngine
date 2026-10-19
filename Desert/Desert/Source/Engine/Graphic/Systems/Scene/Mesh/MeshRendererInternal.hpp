@@ -38,13 +38,14 @@
 #include <unordered_map>
 #include <optional>
 #include <memory>
+#include <span>
 
 namespace Desert::Graphic::System
 {
     namespace MeshRendererDetail
     {
         // The slot a batched path draws, AND its surface: the one cast is asked here, so no caller downcasts
-        // the parent again on the promise that FirstSurfaceSlot already checked it.
+        // the parent again on the promise that SectionSurface already checked it.
         struct SurfaceSlot
         {
             MaterialInstance*   Instance = nullptr;
@@ -60,7 +61,10 @@ namespace Desert::Graphic::System
                                                       MaterialInstance*         instance );
         bool                            IsTranslucent( const DataDrivenMaterial* material );
         uint32_t AppendRow( std::vector<glm::vec4>& rows, const Core::Formats::MaterialParamRow& row );
-        SurfaceSlot FirstSurfaceSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path );
+        // A static draw's section material (UE: the section's MaterialIndex): slot @p sectionSlot of @p slots when
+        // it holds a Static mesh-cell material, else empty. Every pass that draws a StaticMeshRenderData shades it
+        // with this, so lit, G-buffer, translucency and the casters agree per section.
+        SurfaceSlot SectionSurface( const MaterialSlotBinding* slots, uint32_t sectionSlot );
         std::optional<std::string>          DefaultSurfaceShaderName( MeshVertexPath path, MeshPass pass );
         std::shared_ptr<Shader>             DefaultSurfaceProgram( MeshVertexPath path, MeshPass pass );
         std::shared_ptr<Shader>             DefaultSurfaceProgramVariant( MeshVertexPath path, MeshPass pass,
@@ -69,10 +73,12 @@ namespace Desert::Graphic::System
                                                                 MeshPass       pass = MeshPass::Forward );
         std::string                         MeshPathOwnBufferName( MeshVertexPath path );
         // Defined in MeshRendererForward.cpp. A Shader Override draw's material: the texture half of its identity
-        // (two draws share a material only with the same textures), and its overrides written into it.
+        // (two draws share a material only with the same textures), and its overrides written into it. @p
+        // logRefused: false for a program that declares only what it reads (the deferred depth-normal slice),
+        // where a texture the program lacks is no refusal.
         std::string GenericTextureKey( const MeshRenderer::GenericMeshRenderData& g );
         void ApplyGenericOverrides( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,
-                                    std::string_view shaderName );
+                                    std::string_view shaderName, bool logRefused );
 
         static_assert( SceneResources::kMaxCascades == kSceneViewShadowCascades,
                        "the lit materials' cascade count is the scene/view inputs' cascade count" );
@@ -109,9 +115,17 @@ namespace Desert::Graphic::System
     using MeshRendererDetail::DefaultSurfaceProgramVariant;
     using MeshRendererDetail::DefaultSurfaceShaderName;
     using MeshRendererDetail::EffectiveRow;
-    using MeshRendererDetail::FirstSurfaceSlot;
     using MeshRendererDetail::GenericTextureKey;
     using MeshRendererDetail::IsTranslucent;
     using MeshRendererDetail::MeshPathOwnBufferName;
+    using MeshRendererDetail::SectionSurface;
     using MeshRendererDetail::SurfaceSlot;
+
+    // The world box of skinned mesh @p mesh posed by @p bones (its skinning palette) under @p transform: every
+    // bone's bind box of its vertices (SkinnedMesh::GetBoneBounds, grown by the twin's morph reach) through
+    // transform * submesh.Transform * bone, the matrices its vertex stage applies. The virtual shadow map's caster
+    // bounds of a skinned mesh: its invalidation (this frame's and last frame's box) and its GPU cull.
+    [[nodiscard]] Common::Math::AABB SkinnedPoseBounds( const Desert::SkinnedMesh& mesh,
+                                                        const glm::mat4&           transform,
+                                                        std::span<const glm::mat4> bones );
 } // namespace Desert::Graphic::System

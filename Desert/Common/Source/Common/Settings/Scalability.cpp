@@ -77,12 +77,64 @@ namespace Common::Scalability
                "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the reflection method ceiling" },
              { P::ShadowsMethod, G::Shadows, "Shadows.Method", 0, LastOf( kShadowMethodNames.size() ), CL::None,
                "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the shadow method ceiling" },
+             { P::SkinCache, G::Effects, "Effects.SkinCache", 0, 1, CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::SetSkinCacheEnabled -> "
+               "RayTracingSkinCache::SetEnabled" },
              { P::LightGridPixelSize, G::Shadows, "Shadows.LightGridPixelSize", 16, 256, CL::None,
                "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" tiles)" },
              { P::LightGridSlices, G::Shadows, "Shadows.LightGridSlices", 8, 128, CL::None,
                "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" slices)" },
              { P::LightGridMaxLightsPerCell, G::Shadows, "Shadows.LightGridMaxLightsPerCell", 8, 256, CL::None,
                "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" lists)" },
+             { P::ShadowRayTracedSamplesPerPixel, G::Shadows, "Shadows.RayTracedSamplesPerPixel", 1, 8, CL::None,
+               "SceneRenderer::BeginScene -> System::MakeRayTracedSunShadowParams (\"Shadows: Ray Traced Sun\")" },
+             { P::ShadowRayTracedTranslucencyCascades, G::Shadows, "Shadows.RayTracedTranslucencyCascades", 1, 4,
+               CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows under a ray-traced sun (blended "
+               "u_ShadowCascades readers, MeshRenderer::SunCascadeReadersQueued)" },
+             { P::ShadowRayTracedTranslucencyMapSize, G::Shadows, "Shadows.RayTracedTranslucencyMapSize", 256,
+               2048, CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows under a ray-traced sun (blended "
+               "u_ShadowCascades readers, MeshRenderer::SunCascadeReadersQueued)" },
+             { P::ShadowFilterTaps, G::Shadows, "Shadows.FilterTaps", 4, 64, CL::None,
+               "SceneRenderer::BeginScene -> SceneResources::PackShadowFilter (ShadowUB u_ShadowFilter.y: "
+               "Mesh/CascadedShadow.glslh PCSS filter taps)" },
+             { P::ShadowBlockerSearchTaps, G::Shadows, "Shadows.BlockerSearchTaps", 4, 32, CL::None,
+               "SceneRenderer::BeginScene -> SceneResources::PackShadowFilter (ShadowUB u_ShadowFilter.x: "
+               "Mesh/CascadedShadow.glslh PCSS blocker search taps)" },
+             { P::ShadowRayTracedDenoiserRadius, G::Shadows, "Shadows.RayTracedDenoiserRadius", 1, 3, CL::None,
+               "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseShadowVisibility (reconstruction "
+               "kernel)" },
+             { P::ShadowVirtualMaxPhysicalPages, G::Shadows, "Shadows.VirtualMaxPhysicalPages", 256, 8192,
+               CL::None,
+               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (the physical pool)" },
+             { P::ShadowVirtualResolutionLodBias, G::Shadows, "Shadows.VirtualResolutionLodBias", -30, 30,
+               CL::None,
+               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Lod.x, tenths)" },
+             { P::ShadowVirtualSMRTRayCount, G::Shadows, "Shadows.VirtualSMRTRayCount", 0, 16, CL::None,
+               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Smrt.x: "
+               "VirtualShadowMapProject.shader rays)" },
+             { P::ShadowVirtualSMRTSamplesPerRay, G::Shadows, "Shadows.VirtualSMRTSamplesPerRay", 1, 16, CL::None,
+               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Smrt.y: "
+               "VirtualShadowMapProject.shader samples per ray)" },
+             { P::ShadowMegaLightsSamplesPerPixel, G::Shadows, "Shadows.MegaLightsSamplesPerPixel", 1, 4, CL::None,
+               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (reservoirs per pixel)" },
+             { P::ShadowMegaLightsSpatialSamples, G::Shadows, "Shadows.MegaLightsSpatialSamples", 0, 8, CL::None,
+               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (\"MegaLights: Spatial Resampling\")" },
+             { P::ShadowMegaLightsMaxHistory, G::Shadows, "Shadows.MegaLightsMaxHistory", 0, 30, CL::None,
+               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (\"MegaLights: Temporal "
+               "Resampling\")" },
+             { P::ShadowMegaLightsDenoiserRadius, G::Shadows, "Shadows.MegaLightsDenoiserRadius", 1, 3, CL::None,
+               "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseDiffuseIndirect / DenoiseDirectSpecular "
+               "(MegaLights kernel)" },
+             { P::ShadowMegaLightsDownsampleFactor, G::Shadows, "Shadows.MegaLightsDownsampleFactor", 1, 2,
+               CL::None, "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (sample pixels per side)" },
+             { P::ScreenSpaceGISamples, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceSamples", 4, 64,
+               CL::None,
+               "SceneRenderer::BeginScene -> MaterialDeferredLighting (u_ScreenSpaceGI.x: DeferredLighting.shader "
+               "GatherIndirectGI samples)" },
+             { P::ReflectionDenoiserRadius, G::Reflections, "Reflections.DenoiserRadius", 1, 3, CL::None,
+               "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseReflections (reconstruction kernel)" },
              { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
              { P::TextureStreamingPoolMiB, G::Textures, "Textures.StreamingPoolMiB", 256, 16384, CL::None,
                std::nullopt },
@@ -108,11 +160,23 @@ namespace Common::Scalability
              { P::SurfaceCacheRadiosityProbeResolution, G::GlobalIllumination,
                "GlobalIllumination.RadiosityHemisphereProbeResolution", 2, 8, CL::None, std::nullopt },
              { P::RadianceCacheProbeResolution, G::GlobalIllumination,
-               "GlobalIllumination.RadianceCacheProbeResolution", 8, 64, CL::None, std::nullopt },
+               "GlobalIllumination.RadianceCacheProbeResolution", 8, 64, CL::None,
+               "SceneRenderer::BeginScene -> RadianceCache::MakeRadianceCacheInputs (probe texels per side)" },
              { P::RadianceCacheProbesPerFrame, G::GlobalIllumination,
-               "GlobalIllumination.RadianceCacheProbesPerFrame", 10, 2000, CL::None, std::nullopt },
+               "GlobalIllumination.RadianceCacheProbesPerFrame", 10, 2000, CL::None,
+               "SceneRenderer::BeginScene -> RadianceCache::MakeRadianceCacheInputs (probes traced per frame)" },
              { P::HitLightingAllowed, G::GlobalIllumination, "GlobalIllumination.HitLighting", 0, 1, CL::None,
-               std::nullopt },
+               "SceneRenderer::BeginScene -> GlobalIllumination::PipelineFor (hardware-traced hits lit in "
+               "place)" },
+             { P::ScreenProbeDownsample, G::GlobalIllumination, "GlobalIllumination.ScreenProbeDownsample", 8, 64,
+               CL::None, std::nullopt },
+             { P::ScreenProbeTracedTexels, G::GlobalIllumination, "GlobalIllumination.ScreenProbeTracedTexels", 4,
+               16, CL::None, std::nullopt },
+             { P::IrradianceFieldProbesPerFrame, G::GlobalIllumination,
+               "GlobalIllumination.IrradianceFieldProbesPerFrame", 10, 2000, CL::None, std::nullopt },
+             { P::ReflectionsHitLighting, G::Reflections, "Reflections.HitLighting", 0, 1, CL::None,
+               "SceneRenderer::ReflectionsTracer -> SSR.shader \"HitLighting\" ray generation "
+               "(Renderer::TraceRays)" },
         } };
     } // namespace
 
@@ -220,6 +284,23 @@ namespace Common::Scalability
             return true;
         }
 
+        // The render-method ceilings' refusal (RenderMethods.hpp, RefuseGIMethod and its siblings): empty for
+        // every other parameter and for an implemented method.
+        [[nodiscard]] std::string_view RefuseMethodCeiling( Parameter parameter, ParameterValue value )
+        {
+            switch ( parameter )
+            {
+                case Parameter::GlobalIlluminationMethod:
+                    return RefuseGIMethod( value );
+                case Parameter::ReflectionsMethod:
+                    return RefuseReflectionMethod( value );
+                case Parameter::ShadowsMethod:
+                    return RefuseShadowMethod( value );
+                default:
+                    return {};
+            }
+        }
+
         std::optional<ParameterValue> ParseValue( const ParameterSpec& spec, const Json::Node& node,
                                                   Errors& errors )
         {
@@ -251,6 +332,14 @@ namespace Common::Scalability
             if ( value < spec.Min || value > spec.Max )
             {
                 errors.Add( node, "{}: {} is outside [{}, {}]", spec.Key, value, spec.Min, spec.Max );
+                return std::nullopt;
+            }
+            // A level states the render method it renders (RenderMethods.hpp): one this build has not implemented
+            // would be lowered on every machine, so the level would say one thing and every frame show another.
+            if ( const std::string_view refused = RefuseMethodCeiling( spec.Id, value ); !refused.empty() )
+            {
+                errors.Add( node, "{}: '{}' is {}; a level names a method this build renders", spec.Key,
+                            names[static_cast<std::size_t>( value )], refused );
                 return std::nullopt;
             }
             return value;
@@ -485,6 +574,39 @@ namespace Common::Scalability
         };
 
         constexpr std::string_view kNotOffered = "not offered by this device";
+
+        // A render-method ceiling (RenderMethods.hpp) down its ladder - the enum's order - past what this device
+        // cannot run (no ray query) and what this build does not implement. The table cannot name an unimplemented
+        // method (ParseValue refuses it), an override can; either lowering is a Fallback, logged by Publish like
+        // every other, so the resolved ceiling is what the machine renders and the log says why it is lower.
+        template <typename Method>
+        void NarrowMethod( Parameter parameter, bool rayQuery, bool fragmentStores, Resolution& r )
+        {
+            auto             method = static_cast<Method>( r.Get( parameter ) );
+            std::string_view reason;
+            for ( ;; )
+            {
+                std::string_view blocked;
+                if ( NeedsRayQuery( method ) && !rayQuery )
+                    blocked = "the device offers no ray query";
+                else if ( NeedsFragmentStores( method ) && !fragmentStores )
+                    blocked = "the device offers no fragmentStoresAndAtomics";
+                else if ( !IsImplemented( method ) )
+                    blocked = "not implemented in this build";
+                if ( blocked.empty() )
+                    break;
+                if ( reason.empty() )
+                    reason = blocked;
+                method = static_cast<Method>( static_cast<int>( method ) - 1 );
+            }
+            r.Set( parameter, static_cast<ParameterValue>( method ), reason );
+        }
+
+        [[nodiscard]] bool OffersRayQuery( const CapabilityCatalog& catalog )
+        {
+            return std::any_of( catalog.RayTracingModes.begin(), catalog.RayTracingModes.end(),
+                                []( RayTracingMode m ) { return m != RayTracingMode::None; } );
+        }
 
         // Largest offered <= value; the list's front when none is (MSAACounts / AnisotropyLevels are ascending
         // and start at 1).
@@ -726,6 +848,12 @@ namespace Common::Scalability
         {
             r.Set( spec.Id, std::clamp( r.Get( spec.Id ), spec.Min, spec.Max ), "outside the parameter's range" );
             NarrowByCatalog( spec, catalog, r );
+        }
+        {
+            const bool rayQuery = OffersRayQuery( catalog );
+            NarrowMethod<GIMethod>( Parameter::GlobalIlluminationMethod, rayQuery, catalog.FragmentStores, r );
+            NarrowMethod<ReflectionMethod>( Parameter::ReflectionsMethod, rayQuery, catalog.FragmentStores, r );
+            NarrowMethod<ShadowMethod>( Parameter::ShadowsMethod, rayQuery, catalog.FragmentStores, r );
         }
 
         // 5. The two axes are coupled (UE: below 100 % r.ScreenPercentage the AA method's temporal pass upscales,

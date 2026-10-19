@@ -29,8 +29,14 @@ layout( binding = 3 ) uniform DirectionLightsUB
 }
 directionLights;
 
+// Shared sampler states (UE's shared samplers): each scene input below is a separate texture read through one of
+// these, bound by the pass with the inputs; 13 and 14, as in Pass_Forward.glslh.
+layout( binding = 13 ) uniform sampler u_LinearRepeatSampler;
+layout( binding = 14 ) uniform sampler u_LinearClampSampler;
+
 // The specular cube is the ONE environment binding glass reads: a mirror term at grazing angles, not an ambient.
-layout( binding = 8 ) uniform samplerCube u_EnvSpecularTex;
+layout( binding = 8 ) uniform textureCube u_EnvSpecularTex;
+#define u_EnvSpecularTex samplerCube(u_EnvSpecularTex, u_LinearClampSampler)
 layout( binding = 22 ) uniform SkyLookUB
 {
     vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
@@ -40,10 +46,12 @@ skyLook;
 #include <Common/SkyLook.glslh>
 
 // A copy of the composited opaque scene, for refraction (bound by the translucency pass only).
-layout( binding = 19 ) uniform sampler2D u_SceneColor;
+layout( binding = 19 ) uniform texture2D u_SceneColor;
+#define u_SceneColor sampler2D(u_SceneColor, u_LinearRepeatSampler)
 
 // The cloud layer's shadow on the world: it takes the sun's highlight away with it.
-layout( binding = 20 ) uniform sampler2D u_CloudShadowMap;
+layout( binding = 20 ) uniform texture2D u_CloudShadowMap;
+#define u_CloudShadowMap sampler2D(u_CloudShadowMap, u_LinearRepeatSampler)
 layout( binding = 21 ) uniform CloudShadowUB
 {
     mat4 u_CloudShadowWorldToMap;
@@ -65,6 +73,7 @@ layout( binding = 7 ) uniform ShadowUB
     vec4 u_ContactShadowView; // x = contact shadow ray steps (0 = off), y = tan(fovY / 2), z = dither frame 0..7
     vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5),
                               // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
+    vec4 u_ShadowFilter;
 };
 // The hit texel's caster bit: the opaque scene's shading word (u_SceneShadingWord, SurfaceTypes.glslh).
 #include <ShadingModels/ShadingModelContract.glslh>

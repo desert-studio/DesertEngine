@@ -360,10 +360,11 @@ namespace Desert::Graphic
     Environment EnvironmentManager::CreateProcedural( uint32_t panoramaWidth, uint32_t panoramaHeight,
                                                       ShaderResources::StorageBuffer* skyParams,
                                                       Image2D* transmittanceLut, Image2D* multiScatterLut,
-                                                      const CloudBakeBinding& clouds )
+                                                      const CloudBakeBinding&     clouds,
+                                                      const ResourceOwnerInstance scene )
     {
         const auto bake = BeginProcedural( panoramaWidth, panoramaHeight, skyParams, transmittanceLut,
-                                           multiScatterLut, clouds );
+                                           multiScatterLut, clouds, scene );
         if ( !bake )
             return {};
         bake->Wait();
@@ -373,10 +374,13 @@ namespace Desert::Graphic
     std::unique_ptr<ProceduralEnvironmentBake>
     EnvironmentManager::BeginProcedural( uint32_t panoramaWidth, uint32_t panoramaHeight,
                                          ShaderResources::StorageBuffer* skyParams, Image2D* transmittanceLut,
-                                         Image2D* multiScatterLut, const CloudBakeBinding& clouds )
+                                         Image2D* multiScatterLut, const CloudBakeBinding& clouds,
+                                         const ResourceOwnerInstance scene )
     {
-        // Same reason as Create() above: a procedural sky's bake products have no file behind them at all.
-        const ResourceAttributionScope owned( ResourceOwner::Environment );
+        // Same reason as Create() above: a procedural sky's bake products have no file behind them at all. And
+        // they are the SCENE's rows (RT-LEDGER-4, lead decision): the bake lights the scene, so it is counted
+        // once in the scene's budget entry, not in the view whose frame started it.
+        const ResourceAttributionScope owned( ResourceOwner::Environment, scene );
 
         auto* imageService = Runtime::ResourceRegistry::GetImageService();
 

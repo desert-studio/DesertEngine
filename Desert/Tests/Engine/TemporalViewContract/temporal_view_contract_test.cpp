@@ -315,7 +315,7 @@ TEST( TemporalViewContract, NonTemporalFrameIsUnjitteredAndHoldsNoHistory )
     EXPECT_EQ( f.JitterSequenceLength, 0u );
     EXPECT_EQ( f.JitterNdc, glm::vec2( 0.0f ) );
     EXPECT_EQ( f.JitteredProjection, f.Projection ); // bit-identical to a pre-TAA1 frame
-    EXPECT_EQ( state.History().HeldBytes(), 0u );
+    EXPECT_TRUE( state.History().Descs().empty() );
 }
 
 TEST( TemporalViewContract, UpscaleBiasesMaterialMipsByTheScale )
@@ -426,14 +426,17 @@ TEST( TemporalViewContract, HistoryShapeComesFromTheUpscalerAndResizeRecreatesIt
     SceneViewState        state;
     const FixtureUpscaler taa( TemporalMethod::TAA );
     (void)state.BeginFrame( Inputs( 1.0 ), &taa );
-    const uint64_t at1080 = state.History().HeldBytes();
-    EXPECT_EQ( at1080, 2ull * 1920 * 1080 * 8 ); // a pair of RGBA16F at OutputExtent
+    ASSERT_EQ( state.History().Descs().size(), 1u );
+    EXPECT_EQ( state.History().Descs()[0].Desc.Size.Width, 1920u ); // at OutputExtent
+    EXPECT_EQ( state.History().Descs()[0].Desc.Size.Height, 1080u );
     state.EndFrame( RDG::ExecuteReport{} );
 
     ViewInputs smaller = Inputs( 1.25 );
     smaller.Output     = { 1280, 720 };
     (void)state.BeginFrame( smaller, &taa );
-    EXPECT_EQ( state.History().HeldBytes(), 2ull * 1280 * 720 * 8 );
+    ASSERT_EQ( state.History().Descs().size(), 1u );
+    EXPECT_EQ( state.History().Descs()[0].Desc.Size.Width, 1280u );
+    EXPECT_EQ( state.History().Descs()[0].Desc.Size.Height, 720u );
 }
 
 // ---- MotionHistory ------------------------------------------------------------------------------------------
@@ -506,7 +509,9 @@ TEST( TemporalViewContract, ASceneChangeClearsMotion )
 // 16-byte std430 stride. VelocityTarget.GpuObjectMotionHasAStd430TwinInGlsl pins the GLSL twin member by member.
 TEST( TemporalViewContract, GpuObjectMotionIsTwoMatricesAndTwoPaletteOffsets )
 {
-    EXPECT_EQ( sizeof( GpuObjectMotion ), 144u );
+    EXPECT_EQ( sizeof( GpuObjectMotion ), 160u );
+    EXPECT_EQ( offsetof( GpuObjectMotion, SkinCacheAddressLo ), 136u );
+    EXPECT_EQ( offsetof( GpuObjectMotion, SkinCacheVertexCount ), 144u );
     EXPECT_EQ( offsetof( GpuObjectMotion, PrevWorld ), 64u );
     EXPECT_EQ( offsetof( GpuObjectMotion, BoneOffset ), 128u );
     EXPECT_EQ( offsetof( GpuObjectMotion, PrevBoneOffset ), 132u );
@@ -747,5 +752,5 @@ TEST( TemporalViewContract, AnUpscalerWhoseHistorySidesShareANameIsRefused )
     const auto            frame = state.BeginFrame( Inputs( 1.0 ), &oneName );
     ASSERT_FALSE( frame.IsSuccess() );
     EXPECT_NE( std::string( frame.GetError() ).find( "TAA.History" ), std::string::npos ) << frame.GetError();
-    EXPECT_EQ( state.HeldBytes(), 0u ) << "a refused frame changed the state";
+    EXPECT_TRUE( state.History().Descs().empty() ) << "a refused frame changed the state";
 }

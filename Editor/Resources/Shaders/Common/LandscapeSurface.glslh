@@ -1,0 +1,53 @@
+// WHAT THE GROUND IS at a point of a landscape tile, from the tile's TerrainInstances row and its two weightmap pages:
+// the one statement both shading paths of a tile read - the raster fragment (Programs/Terrain/TerrainSurface.glslh)
+// and the landscape's ray tracing hit group (Programs/Terrain/TerrainRayHit.shader, UE: the landscape material's hit
+// shaders). Each caller samples the weightmap its own way (a bound texture, or the bindless table at a LOD); the
+// arithmetic between the samples and the albedo is here, once.
+#ifndef LANDSCAPE_SURFACE_GLSLH
+#define LANDSCAPE_SURFACE_GLSLH
+
+#include <Common/TerrainInstance.glslh>
+#include <Common/LandscapeWeights.glslh>
+
+// The tile's sample coordinate at world point @p worldPosition (cm): the same global-sample frame the vertex stage
+// places the tile by, so the texel centre of sample i is (i + 0.5) / size.
+vec2 LandscapeTileSampleCoord( TerrainInstance t, vec3 worldPosition )
+{
+    return ( worldPosition.xz - t.LandscapeFrame.xz ) / t.LandscapeFrame.w - t.LandscapeTile.xy;
+}
+
+// Does the tile have painted layers (and so a weightmap to sample)?
+bool LandscapeTileHasLayers( TerrainInstance t )
+{
+    return t.Params2.y > 0.5;
+}
+
+// The weightmap pages the tile has (Params2.z).
+float LandscapeTilePages( TerrainInstance t )
+{
+    return t.Params2.z;
+}
+
+// UE's Landscape Visibility Mask on the tile's pages: true where the visibility layer punches a hole.
+bool LandscapeTileIsHole( TerrainInstance t, vec4 w0, vec4 w1 )
+{
+    return LandscapeIsHole( LandscapeVisibility( w0, w1, t.Params.z ) );
+}
+
+// The untinted albedo: the root's first layer (white ground when the root names none), the painted layers over it
+// when the tile has any (@p w0 / @p w1 are then its pages at the point; ignored otherwise).
+vec3 LandscapeGroundAlbedo( TerrainInstance t, vec4 w0, vec4 w1 )
+{
+    vec3 albedo = t.GroundColor.a > 0.5 ? t.GroundColor.rgb : vec3( 1.0 );
+    if ( !LandscapeTileHasLayers( t ) )
+        return albedo;
+    return LandscapeWeightBlend( w0, w1, t.LayerColors[0], t.LayerColors[1], t.LayerColors[2], t.LayerColors[3],
+                                 t.LayerColors[4], t.LayerColors[5], t.LayerColors[6], t.LayerColors[7],
+                                 t.LayerAlphaBlend[0], t.LayerAlphaBlend[1], albedo );
+}
+
+// A matte dielectric: the deferred program writes this roughness into the G-buffer (TerrainGBuffer.shader), the hit
+// group into the ray's payload.
+const float kLandscapeRoughness = 0.9;
+
+#endif // LANDSCAPE_SURFACE_GLSLH

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Engine/Graphic/BindlessTextureTable.hpp>
 #include <Engine/Graphic/DynamicResources.hpp>
 
 #include <Engine/Graphic/MipMapGenerator.hpp>
@@ -180,6 +181,17 @@ namespace Desert::Graphic
         // blitted a chain on the GPU after decoding a PNG/HDR. A 2D image's levels come from the cooked
         // container now (`Image2DSpecification::MipLevels`) or it has one level; see Texture.hpp.
         static std::shared_ptr<Image2D> Create( const Core::Formats::Image2DSpecification& spec );
+
+        /// This image's slot in the global bindless table (BindlessTextureTable): valid for a sampled image
+        /// (Image2DUsage::Image2D), with or without uploaded pixels, that is neither storage nor multisampled;
+        /// invalid (0) otherwise. Stable until the image's GPU resource is released.
+        [[nodiscard]] BindlessTextureSlot GetBindlessSlot() const noexcept
+        {
+            return m_BindlessSlot;
+        }
+
+    protected:
+        BindlessTextureSlot m_BindlessSlot;
     };
 
     class ImageCube : public Image, public DynamicResources

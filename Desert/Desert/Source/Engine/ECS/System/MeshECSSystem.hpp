@@ -267,54 +267,43 @@ namespace Desert::ECS
                                  // This draw REPLACES the entity's lit draw (note the return), so it is
                                  // the only draw that could carry the caster — and before it did, a
                                  // Shader Override mesh cast no shadow at all.
-                                 const bool overrideCasts =
-                                      Rules::RouteMeshShadowCaster( mesh.CastShadows, /*shaderOverride*/ true,
-                                                                    /*slotDrawCount*/ 0,
-                                                                    /*surfaceDrawEmitted*/ false ) ==
-                                      Rules::MeshShadowCaster::ShaderOverride;
+                                 const bool overrideCasts = mesh.CastShadows;
 
                                  renderCommandBuffer.Emplace<Graphic::Render::DrawGenericMeshCommand>(
                                       static_cast<uint32_t>( entity ), targetMesh, worldTransform, matc.ShaderName,
                                       Graphic::MaterialOverrides{ std::move( overrides ),
                                                                   std::move( texOverrides ) },
                                       outlined, /*directTexture*/ nullptr, /*directTextureSampler*/ std::string{},
-                                      overrideCasts, mesh.MaxDrawDistance );
+                                      overrideCasts, mesh.MaxDrawDistance, /*visibleInRayTracing*/ true );
                                  return; // skip the lit path for this entity
                              }
                          }
 
-                         // ── v3 per-slot shader routing ──────────────────────────────────────
-                         // Submesh i uses slot min(i, slots-1). Submeshes whose slot material is
-                         // a custom-shader material (DataDrivenMaterial) leave the batched lit
-                         // path and are drawn per-slot through the generic path; the lit draw
-                         // masks them out (Rules::SplitMeshSlotDraws, the rule fracture pieces split by too).
+                         // ── Per-section draws (UE: each mesh section draws with its own material slot) ──
+                         // Section i takes slot SectionMaterialSlot( i, slots ). A section whose slot material is
+                         // a custom-shader material (DataDrivenMaterial without a mesh cell) leaves the batched
+                         // passes for a per-slot generic draw; every other section is drawn by the batched passes
+                         // with ITS slot, one draw per slot (Rules::SplitMeshSlotDraws, the rule fracture pieces
+                         // split by too). Each draw masks out every submesh it does not draw.
                          const size_t submeshCount =
                               std::min<size_t>( targetMesh->GetSubmeshes().size(), 64 );
-                         const size_t materialSlotCount = mesh.RuntimeMaterialInstances.size();
-                         const auto   split             = Rules::SplitMeshSlotDraws<Graphic::Material*>(
-                              submeshCount, mesh.HiddenSubmeshes, mesh.CastShadows,
-                              [&]( size_t si ) -> Graphic::Material*
-                              {
-                                  if ( materialSlotCount == 0 )
-                                      return nullptr;
-                                  return CustomSlotMaterial(
-                                       mesh.RuntimeMaterialInstances[std::min( si, materialSlotCount - 1 )]
-                                            .get() );
-                              } );
+                         const auto split = Rules::SplitMeshSlotDraws<Graphic::Material*>(
+                              submeshCount, mesh.RuntimeMaterialInstances.size(), mesh.HiddenSubmeshes,
+                              mesh.CastShadows, [&]( size_t slot ) -> Graphic::Material*
+                              { return CustomSlotMaterial( mesh.RuntimeMaterialInstances[slot].get() ); } );
 
                          for ( const auto& d : split.SlotDraws )
                              renderCommandBuffer.Emplace<Graphic::Render::DrawSlotMaterialMeshCommand>(
                                   static_cast<uint32_t>( entity ), targetMesh, worldTransform, d.Mat,
                                   d.VisibleMask, outlined, d.CastShadows, mesh.MaxDrawDistance );
 
-                         // Lit path draws the remaining submeshes (skip entirely when every
-                         // submesh went custom).
-                         if ( split.SurfaceDrawEmitted )
+                         for ( const auto& d : split.SectionDraws )
                              renderCommandBuffer.Emplace<Graphic::Render::DrawStaticMeshCommand>(
-                                  static_cast<uint32_t>( entity ), targetMesh, mesh.RuntimeSlots, worldTransform,
-                                  outlined, split.SurfaceHidden, mesh.ForcedLOD, mesh.LODBias,
-                                  split.SurfaceCastShadows, mesh.ReceiveShadows, mesh.TranslucencySortPriority,
-                                  mesh.MaxDrawDistance, /*motionPart*/ 0, mesh.CastContactShadow );
+                                  static_cast<uint32_t>( entity ), targetMesh, mesh.RuntimeSlots,
+                                  static_cast<uint32_t>( d.Slot ), worldTransform, outlined, d.HiddenMask,
+                                  mesh.ForcedLOD, mesh.LODBias, d.CastShadows, mesh.ReceiveShadows,
+                                  mesh.TranslucencySortPriority, mesh.MaxDrawDistance, /*motionPart*/ 0,
+                                  mesh.CastContactShadow );
                      } );
             }
 
@@ -349,7 +338,7 @@ namespace Desert::ECS
                              ism.SeenMaterialsVersion = materialsVersion;
                          }
 
-                         // One lit material instance (slot 0), rebuilt only when the slot set changes.
+                         // One material instance per slot, rebuilt only when the slot set changes.
                          const size_t slotCount = ism.MaterialSlots.empty() ? 1 : ism.MaterialSlots.size();
                          if ( ism.RuntimeMaterialInstances.size() != slotCount )
                          {
@@ -370,36 +359,31 @@ namespace Desert::ECS
                          if ( ism.RuntimeMaterialInstances.empty() )
                              return;
 
-                         // ISM draws through the batched lit instancing path — a custom-shader slot
-                         // material can't drive it. Use the first lit slot; if none, warn once and
-                         // skip (per-instance generic draws would defeat the point of an ISM).
-                         // CO-OWNED, for the same reason the static path's slots are: this instance is
-                         // owned by THIS component's RuntimeMaterialInstances, and the entity can be
-                         // destroyed by Lua between recording the draw and executing it.
-                         Graphic::MaterialInstancePtr ismInstancePtr;
-                         for ( const auto& inst : ism.RuntimeMaterialInstances )
-                         {
-                             const auto* surface = inst ? dynamic_cast<const Graphic::DataDrivenMaterial*>(
-                                                               inst->GetParentMaterial() )
-                                                        : nullptr;
-                             if ( surface != nullptr && Graphic::MeshCellPath( surface->GetShaderName() ) )
-                             {
-                                 ismInstancePtr = inst;
-                                 break;
-                             }
-                         }
-                         if ( !ismInstancePtr )
+                         // Per section, as a static mesh splits (Rules::SplitMeshSlotDraws): one instanced draw
+                         // per surface slot, each masking the sections of the others. A custom-shader slot cannot
+                         // drive the batched instancing path, and per-instance generic draws would defeat the
+                         // point of an ISM: its sections are not drawn, said once. CO-OWNED instances, for the
+                         // same reason the static path's slots are: they are owned by THIS component's
+                         // RuntimeMaterialInstances, and the entity can be destroyed by Lua between recording the
+                         // draw and executing it.
+                         const auto ismSplit = Rules::SplitMeshSlotDraws<Graphic::Material*>(
+                              std::min<size_t>( targetMesh->GetSubmeshes().size(), 64 ),
+                              ism.RuntimeMaterialInstances.size(), /*hidden*/ 0ull, ism.CastShadows,
+                              [&]( size_t slot ) -> Graphic::Material*
+                              { return CustomSlotMaterial( ism.RuntimeMaterialInstances[slot].get() ); } );
+                         if ( !ismSplit.SlotDraws.empty() )
                          {
                              static bool s_WarnedCustomISM = false;
                              if ( !s_WarnedCustomISM )
                              {
                                  LOG_WARN( "Instanced Static Mesh doesn't support custom-shader materials "
-                                           "(instancing is a lit-path optimization) — entity skipped. "
-                                           "Assign a lit material." );
+                                           "(instancing is a lit-path optimization) — the sections using one "
+                                           "are not drawn. Assign a lit material." );
                                  s_WarnedCustomISM = true;
                              }
-                             return;
                          }
+                         if ( ismSplit.SectionDraws.empty() )
+                             return;
 
                          // InstanceTransforms are WORLD-space (the entity is a container). The command
                          // carries a CO-OWNED snapshot, not the component's address: see the member's own
@@ -431,10 +415,12 @@ namespace Desert::ECS
                                                                    type->Wind.Height, glm::vec2( air.x, air.z ),
                                                                    m_WindSeconds );
                              }
-                         renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
-                              targetMesh, ismInstancePtr, ism.RuntimeInstanceSnapshot, ism.CastShadows,
-                              ism.CastContactShadow,
-                              Graphic::ClipToMaxDrawDistance( cullDistance, ism.MaxDrawDistance ), wind );
+                         for ( const auto& d : ismSplit.SectionDraws )
+                             renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
+                                  static_cast<uint32_t>( entity ), targetMesh,
+                                  ism.RuntimeMaterialInstances[d.Slot], d.HiddenMask, ism.RuntimeInstanceSnapshot,
+                                  d.CastShadows, ism.CastContactShadow,
+                                  Graphic::ClipToMaxDrawDistance( cullDistance, ism.MaxDrawDistance ), wind );
                      } );
             }
 

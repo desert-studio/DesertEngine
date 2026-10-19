@@ -7,7 +7,13 @@ Shader "JFA_Step"
 
         Out(0) vec4 o_Result;
 
-        Uniform(0, 0) sampler2D u_InputTexture;
+        // Shared sampler states (UE's shared samplers): each input below is a separate texture read through one.
+
+        Uniform(0, 1) sampler u_PointClampSampler;
+
+        Uniform(0, 0) texture2D u_InputTexture;
+
+        #define u_InputTexture sampler2D(u_InputTexture, u_PointClampSampler)
 
         PushConstant PushConstants
         {

@@ -35,8 +35,11 @@
 // material fills are errors returned by the consumer, never a silent fallback image. Binding indices never
 // appear at a call site: they are the shader's business and drift with it.
 //
-// SAMPLERS. A sampled entry names the sampler it is read with (SamplerDesc), as UE's pass parameters carry a
-// TStaticSamplerState next to the texture. There is no default and no implicit sampler on the graph route: the
+// SAMPLERS. UE's shared-sampler form is the one form a pass has: an input is a separate texture (Texture) and
+// the shader reads it through a sampler slot the pass fills with a SamplerDesc (Sampler), as UE's pass parameters
+// carry TStaticSamplerState next to the textures. A pass never binds a combined sampler (sampler2D): one sampler
+// descriptor per input put the deferred composite over maxPerStageDescriptorSamplers. There is no default and no
+// implicit sampler on the graph route: the
 // call site passes one, usually a named constant (SamplerDesc::LinearClamp()). The backend turns the description
 // into a device object it caches for the device's lifetime (Vulkan: VulkanRdgPassDescriptors::GetSampler), so
 // equal descriptions share one object and nothing is created per frame. Asset textures bound through a material
@@ -48,11 +51,11 @@ namespace Desert::Graphic::RDG
     struct BoundTexture
     {
         std::string        ShaderName;
-        ShaderResourceKind Kind = ShaderResourceKind::SampledTexture;
+        ShaderResourceKind Kind = ShaderResourceKind::Texture;
         TextureBinding     Texture;
         SubresourceRange   Range    = SubresourceRange::All();
         Access             Declared = Access::None;
-        // Set for SampledTexture (the entry's sampler), empty for StorageTexture.
+        // Set for Sampler (the shared state), empty for the texture kinds.
         std::optional<SamplerDesc> Sampler;
     };
 
@@ -69,12 +72,22 @@ namespace Desert::Graphic::RDG
     class BindingBlockBuilder
     {
     public:
-        BindingBlockBuilder& Sampled( std::string_view shaderName, TextureRef texture, Access declared,
-                                      SubresourceRange range, SamplerDesc sampler );
+        // A separate texture slot (ShaderResourceKind::Texture): the image alone, sampled through a Sampler slot
+        // of the same pass. An element of an arrayed slot is named "<name>[<element>]".
+        BindingBlockBuilder& Texture( std::string_view shaderName, TextureRef texture, Access declared,
+                                      SubresourceRange range );
+        // A separate sampler slot (ShaderResourceKind::Sampler): the state, no resource. A SHARED state: every
+        // Texture entry read through it names it, and the block keeps one entry per slot - naming it again with
+        // the same state adds nothing, with another state it is a second entry that ValidatePassBindings refuses
+        // ("bound twice"), so one slot never carries two states.
+        BindingBlockBuilder& Sampler( std::string_view shaderName, SamplerDesc sampler );
         BindingBlockBuilder& Storage( std::string_view shaderName, TextureRef texture, Access declared,
                                       uint32_t mip = 0 );
         BindingBlockBuilder& Uniform( std::string_view shaderName, BufferRef buffer );
         BindingBlockBuilder& Storage( std::string_view shaderName, BufferRef buffer, Access declared );
+        // A ray-queried scene: @p tlas is the buffer an acceleration-structure build wrote (RayTracingSceneFrame::
+        // Tlas); declared AccelStructRead, bound as the acceleration structure it stores.
+        BindingBlockBuilder& AccelerationStructure( std::string_view shaderName, BufferRef tlas );
         // The size the exec's PassBindings::PushConstants will give; 0 = none.
         BindingBlockBuilder& PushConstantBytes( uint32_t bytes );
 
@@ -139,8 +152,11 @@ namespace Desert::Graphic::RDG
         // How the constructor resolves one declared entry. A sampled texture: @p range = Mip(m) is a view of that
         // mip alone (the shader samples it at lod 0), All the whole image. A storage image: one mip over every
         // layer.
-        void ResolveSampled( std::string_view shaderName, TextureRef texture, Access declared,
-                             SubresourceRange range, SamplerDesc sampler );
+        // A separate texture (ShaderResourceKind::Texture) resolves the same way with no @p sampler.
+        void ResolveSampled( std::string_view shaderName, ShaderResourceKind kind, TextureRef texture,
+                             Access declared, SubresourceRange range, std::optional<SamplerDesc> sampler );
+        // A sampler slot: no resource, only the state.
+        void ResolveSampler( std::string_view shaderName, SamplerDesc sampler );
         void ResolveStorageImage( std::string_view shaderName, TextureRef texture, Access declared, uint32_t mip );
 
         const PassContext&        m_Context;

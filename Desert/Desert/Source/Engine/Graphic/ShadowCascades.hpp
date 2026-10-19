@@ -47,6 +47,10 @@ namespace Desert::Graphic
         uint32_t ShadowMapSize = 2048;
         // How far from the camera shadows are computed at all — see CascadeSetup::MaxDistance.
         float MaxDistance = Common::Units::Metres( 150.0f );
+        // The texel side the local lights' atlas is sized from (LocalShadowAtlasSize): the Shadows.MapSize row,
+        // held apart from the sun's ShadowMapSize because a ray-traced sun takes its cascades at low detail
+        // (Shadows.RayTracedTranslucency*) while the point and spot lights keep their maps.
+        uint32_t LocalShadowMapSize = 2048;
 
         bool operator==( const ShadowQuality& ) const = default;
     };
@@ -57,7 +61,7 @@ namespace Desert::Graphic
     // An asset preview: ONE cascade at 1024 over 10 m. Ten metres is the whole preview world — the
     // primitives are 1 m across (PrimitiveMeshFactory::kPrimitiveSize) and the floor a few metres — so
     // the single cascade is spent entirely on the subject instead of on empty distance.
-    inline constexpr ShadowQuality kPreviewShadowQuality{ 1u, 1024u, Common::Units::Metres( 10.0f ) };
+    inline constexpr ShadowQuality kPreviewShadowQuality{ 1u, 1024u, Common::Units::Metres( 10.0f ), 1024u };
 
     // A RENDERER THAT WILL NEVER DRAW A SHADOW, and therefore holds no map to draw one into. Zero is a
     // legal cascade count everywhere the count already travels: ComputeShadowCascades returns 0,
@@ -76,7 +80,7 @@ namespace Desert::Graphic
     // All three numbers are zero on purpose rather than "4 cascades of size 0": the decision is "this
     // renderer spends nothing on the sun", and a resolution or a distance left standing beside a count
     // of zero is a number the next reader has to work out is dead.
-    inline constexpr ShadowQuality kNoShadowQuality{ 0u, 0u, 0.0f };
+    inline constexpr ShadowQuality kNoShadowQuality{ 0u, 0u, 0.0f, 0u };
 
     // HOW MANY DEPTH IMAGES ONE CASCADE HOLDS: the map the receivers sample, and the cache of its STATIC casters
     // (UE: the cached shadow map of a directional light's cascades, r.Shadow.CSMCaching). The cache is drawn only

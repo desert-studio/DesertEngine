@@ -1,0 +1,45 @@
+#ifndef TERRAIN_RAY_HIT_GLSLH
+#define TERRAIN_RAY_HIT_GLSLH
+
+// What the landscape's hit group (Programs/Terrain/TerrainRayHit.shader) knows at a hit: the tile's row, read
+// through the hit record's MaterialRow address, and the tile's weightmap pages at the hit point, read through the
+// bindless table. The arithmetic after the samples is Common/LandscapeSurface.glslh, the raster's own.
+
+#include <Common/BindlessTextures.glslh>
+#include <Common/RayTracingHitTriangle.glslh>
+#include <Common/LandscapeSurface.glslh>
+
+// The tile's hit-group row. C++ twin: Graphic/Systems/Scene/Terrain/LandscapeRayTracing.cpp LandscapeRayHitRow
+// (kLandscapeRayHitRowSlots: TerrainInstance's 17 slots, the Tint, the weightmap slots).
+layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer LandscapeRayHitRowRef
+{
+    TerrainInstance Tile;      // the raster's TerrainInstances row of the tile this frame
+    vec4            Tint;      // the terrain material's Tint the raster drew the tile with
+    uvec4           Weightmap; // x = bindless texture slot of the weightmap (0 = none), y = its bindless sampler slot
+};
+
+// The hit point (cm): along the ray to the hit, for the closest hit and for a candidate in the any hit.
+vec3 LandscapeRayHitPosition()
+{
+    return gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
+}
+
+// The tile's two weightmap pages at world point @p worldPosition, as the raster samples them
+// (Programs/Terrain/TerrainSurface.glslh): zero when the tile has no painted layers. Level 0: a hit has no
+// derivatives, and the raster's weightmap has one level.
+void LandscapeRayHitWeights( TerrainInstance tile, uvec4 weightmap, vec3 worldPosition, out vec4 w0, out vec4 w1 )
+{
+    w0 = vec4( 0.0 );
+    w1 = vec4( 0.0 );
+    if ( weightmap.x == 0u || !LandscapeTileHasLayers( tile ) )
+        return;
+    const BindlessTexture map   = BindlessTexture( weightmap.x, weightmap.y, 0u, 0u );
+    const vec2            g     = LandscapeTileSampleCoord( tile, worldPosition );
+    const vec2            size  = vec2( BindlessTextureSize( map, 0 ) );
+    const float           pages = LandscapeTilePages( tile );
+    w0                          = SampleBindlessLod( map, LandscapeWeightmapPageUV( g, 0.0, size, pages ), 0.0 );
+    if ( pages > 1.5 )
+        w1 = SampleBindlessLod( map, LandscapeWeightmapPageUV( g, 1.0, size, pages ), 0.0 );
+}
+
+#endif // TERRAIN_RAY_HIT_GLSLH

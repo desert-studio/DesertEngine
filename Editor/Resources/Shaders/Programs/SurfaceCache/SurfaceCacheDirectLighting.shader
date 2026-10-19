@@ -66,18 +66,33 @@ Shader "SurfaceCacheDirectLighting"
         {
             SurfaceCard surfaceCards[];
         };
-        Uniform(3) sampler2D u_AtlasDepth;
-        Uniform(4) sampler2D u_AtlasAlbedo;
-        Uniform(5) sampler2D u_AtlasOpacity;
-        Uniform(7) sampler2D u_AtlasNormal;
-        Uniform(8) sampler2D u_AtlasEmissive;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass and numbered by the program build (SharedSamplerBinding.hpp); a
+        // same-name macro after each texture keeps the sampled form. The repeat state is the software tracer's too
+        // (Common/GITracer.glslh): declared once, under its guard.
+        #ifndef DESERT_SHARED_LINEAR_REPEAT_SAMPLER
+        #define DESERT_SHARED_LINEAR_REPEAT_SAMPLER
+        Uniform sampler u_LinearRepeatSampler;
+        #endif
+        Uniform sampler u_PointClampSampler;
+        Uniform(3) texture2D u_AtlasDepth;
+        #define u_AtlasDepth sampler2D(u_AtlasDepth, u_PointClampSampler)
+        Uniform(4) texture2D u_AtlasAlbedo;
+        #define u_AtlasAlbedo sampler2D(u_AtlasAlbedo, u_PointClampSampler)
+        Uniform(5) texture2D u_AtlasOpacity;
+        #define u_AtlasOpacity sampler2D(u_AtlasOpacity, u_PointClampSampler)
+        Uniform(7) texture2D u_AtlasNormal;
+        #define u_AtlasNormal sampler2D(u_AtlasNormal, u_PointClampSampler)
+        Uniform(8) texture2D u_AtlasEmissive;
+        #define u_AtlasEmissive sampler2D(u_AtlasEmissive, u_PointClampSampler)
 
         #include <Mesh/PointLight.glslh> // binding 6  (PointLightsUB) + LightSources + BRDF
         #include <Mesh/Spotlight.glslh>  // binding 16 (SpotLightsUB)
 
         // The sun's cascades: the composite's maps and the composite's ShadowUB values (same packer on the C++
         // side, SurfaceCacheRenderer::DirectLightingInputs), as a storage block of the same members.
-        Uniform(9) sampler2DArray u_ShadowCascades; // one layer per cascade (10..12 free)
+        Uniform(9) texture2DArray u_ShadowCascades; // one layer per cascade (10..12 free)
+        #define u_ShadowCascades sampler2DArray(u_ShadowCascades, u_LinearRepeatSampler)
         ReadBuffer(13) SurfaceCacheShadowUB
         {
             mat4 u_LightViewProj[4];
@@ -90,10 +105,12 @@ Shader "SurfaceCacheDirectLighting"
             // Common/ContactShadow.glslh, so Mesh/LocalLightShadow.glslh offers it the shadow-map terms only.
             vec4 u_ContactShadowView;
             vec4 u_SunContactShadow;
+            vec4 u_ShadowFilter;      // x = PCSS blocker search taps, y = PCSS filter taps
         };
         #include <Mesh/CascadedShadow.glslh>
 
-        Uniform(14) sampler2D u_CloudShadowMap;
+        Uniform(14) texture2D u_CloudShadowMap;
+        #define u_CloudShadowMap sampler2D(u_CloudShadowMap, u_LinearRepeatSampler)
         ReadBuffer(15) SurfaceCacheCloudShadowUB
         {
             mat4 u_CloudShadowWorldToMap;
@@ -102,7 +119,8 @@ Shader "SurfaceCacheDirectLighting"
         #include <Common/CloudShadowReceiver.glslh>
 
         #include <Mesh/LocalLightShadowView.glslh>
-        Uniform(17) sampler2D u_LocalShadowAtlas;
+        Uniform(17) texture2D u_LocalShadowAtlas;
+        #define u_LocalShadowAtlas sampler2D(u_LocalShadowAtlas, u_PointClampSampler)
         ReadBuffer(18) LocalShadowViewsUB
         {
             LocalShadowView localShadowViews[];
@@ -123,9 +141,10 @@ Shader "SurfaceCacheDirectLighting"
         #include <Mesh/LightGrid.glslh>
 
         // The indirect light the page last received (SurfaceCacheIndirectLighting.shader).
-        Uniform(26) sampler2D u_AtlasIndirectLighting;
+        Uniform(27) texture2D u_AtlasIndirectLighting;
+        #define u_AtlasIndirectLighting sampler2D(u_AtlasIndirectLighting, u_PointClampSampler)
 
-        // The active GI tracer's reads (GlobalIllumination::DeclareTracerReads), bindings 21..25.
+        // The active GI tracer's reads (GlobalIllumination::DeclareTracerReads), bindings 21..26.
         #define GI_TRACER_BINDING 21
         #include <Common/GITracer.glslh>
 

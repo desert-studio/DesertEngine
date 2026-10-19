@@ -22,6 +22,10 @@ namespace Desert::Graphic
         // material's schema), and it is born holding that parameter's default: the declared `= "kind"`, or
         // White when none is declared (ShaderParam::DefaultTexture). The first Apply binds it if nothing
         // else was assigned, so no slot of a material ever shows "whatever was bound last".
+        //
+        // A ROW texture (Core::Formats::IsRowTexture) has no @p uniform: it is no descriptor of the material's
+        // set. The shader reads it from the row through the bindless table, and the row slot is written from
+        // GetBindlessSlot / GetBindlessSampler when the row is copied (DataDrivenMaterial::GetParamRow).
         Texture2DProperty( std::shared_ptr<ShaderResources::UniformImage2D> uniform,
                            Core::Formats::DefaultTextureKind                defaultTexture )
              : m_Uniform( std::move( uniform ) ), m_Default( defaultTexture )
@@ -47,6 +51,8 @@ namespace Desert::Graphic
         void Apply( MaterialBackend* backend ) override
         {
             if ( m_Texture == nullptr && !RestoreDefault() )
+                return;
+            if ( IsRowTexture() )
                 return;
 
             // The uniform is shared by every view, so it is re-pointed once per write, not per view.
@@ -130,9 +136,27 @@ namespace Desert::Graphic
         {
             return m_SamplesEncoded;
         }
+        /// The bindless slot of what this property draws NOW: the bound image's, or — while the texture is
+        /// Pending (AM2) and nothing is bound — the schema default's, the same image raster binds. The material is
+        /// on RebuildWhenReady, so its rebuild re-reads the real slot once the texture is resident.
+        [[nodiscard]] BindlessTextureSlot GetBindlessSlot() const
+        {
+            const Image2D* image = m_Texture != nullptr ? m_Texture : DefaultTextures::Get().Resolve( m_Default );
+            return image != nullptr ? image->GetBindlessSlot() : BindlessTextureSlot{};
+        }
+        [[nodiscard]] BindlessSamplerSlot GetBindlessSampler() const
+        {
+            return BindlessSamplerFor( GetSamplerState() );
+        }
+
         [[nodiscard]] const Image2D* GetImage() const noexcept
         {
             return m_Texture;
+        }
+
+        [[nodiscard]] bool IsRowTexture() const noexcept
+        {
+            return m_Uniform == nullptr;
         }
 
         const auto& GetUniform() const

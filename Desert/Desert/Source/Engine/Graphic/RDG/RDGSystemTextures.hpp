@@ -22,6 +22,10 @@ namespace Desert::Graphic::RDG
         // where its producer did not run - a float image there is a format mismatch, not a neutral input.
         // Registered by the frame setup (FrameTextures) from FallbackTextures; invalid in a graph without it.
         TextureRef ZeroUint;
+        // The black cube as a cube ARRAY of one cube (UE GBlackCubeArrayTexture): what a samplerCubeArray is
+        // handed where its producer cannot run (the reflection captures when their programs did not build).
+        // Registered by the frame setup (FrameTextures) from FallbackTextures; invalid in a graph without it.
+        TextureRef BlackCubeArray;
     };
 
     // Registers @p black, @p white and @p blackCube (externals already holding the engine images and their

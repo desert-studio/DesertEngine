@@ -1,0 +1,46 @@
+// THE GPU SKIN CACHE'S STREAMS, as its raster readers see them (Systems/RayTracing/RayTracingSkinCache.hpp): one
+// buffer per skinned primitive, written ONCE per frame by "SkinCache: Skin" (Programs/Compute/SkinCache.shader),
+// fetched by address in every vertex stage that draws the primitive — the view passes and the light views
+// (Mesh/Surface/Vertex_Skinned.glslh), the selection silhouette (Programs/Silhouette/Silhouette_Skinned.shader) —
+// so no raster pass skins a primitive the cache holds (UE FGPUSkinPassthroughVertexFactory).
+//
+// All float, V = the entry's vertex count, the mesh's own vertex order (gl_VertexIndex addresses it unchanged:
+// every draw binds the mesh's vertex buffer at offset 0):
+//   [0, 3V)   current positions   [3V, 6V) previous positions   [6V, 15V) normal, tangent, bitangent
+// GL_EXT_buffer_reference(_uvec2) is enabled for every stage by the assembler (DShaderParser.cpp AssembleStage):
+// an #extension here would follow declarations, where glslang refuses it.
+#ifndef DESERT_SKIN_CACHE_STREAMS_GLSLH
+#define DESERT_SKIN_CACHE_STREAMS_GLSLH
+
+layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer SkinCacheStreams
+{
+    float Values[];
+};
+
+SkinCacheStreams DesertSkinCacheStreams( uint addressLo, uint addressHi )
+{
+    return SkinCacheStreams( uvec2( addressLo, addressHi ) );
+}
+
+vec3 DesertSkinCacheFetch( SkinCacheStreams streams, uint first )
+{
+    return vec3( streams.Values[first], streams.Values[first + 1u], streams.Values[first + 2u] );
+}
+
+vec3 DesertSkinCachePosition( SkinCacheStreams streams, uint vertex )
+{
+    return DesertSkinCacheFetch( streams, vertex * 3u );
+}
+
+vec3 DesertSkinCachePrevPosition( SkinCacheStreams streams, uint vertexCount, uint vertex )
+{
+    return DesertSkinCacheFetch( streams, vertexCount * 3u + vertex * 3u );
+}
+
+// 0 normal, 1 tangent, 2 bitangent.
+vec3 DesertSkinCacheFrame( SkinCacheStreams streams, uint vertexCount, uint vertex, uint axis )
+{
+    return DesertSkinCacheFetch( streams, vertexCount * 6u + vertex * 9u + axis * 3u );
+}
+
+#endif

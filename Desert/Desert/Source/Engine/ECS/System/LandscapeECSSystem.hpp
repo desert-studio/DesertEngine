@@ -2,6 +2,8 @@
 
 #include "System.hpp"
 
+#include <Engine/Graphic/ResourceLedger.hpp>
+
 #include <entt/entt.hpp>
 
 #include <cstdint>
@@ -43,7 +45,12 @@ namespace Desert::ECS
     class LandscapeECSSystem : public System
     {
     public:
-        using System::System;
+        // @p scene: the ledger instance of the scene that runs this system (its RayTracingSceneCache's). The
+        // tiles' GPU copies are that scene's rows, "scene #N" (RT-LEDGER-4, lead decision): derived from the
+        // scene's components, held as long as the scene holds the tiles, shared by every view that draws them.
+        explicit LandscapeECSSystem( Graphic::ResourceOwnerInstance scene ) : m_SceneLedger( scene )
+        {
+        }
         ~LandscapeECSSystem() override;
 
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
@@ -66,13 +73,19 @@ namespace Desert::ECS
             std::shared_ptr<Graphic::Image2D> Weightmap;
             uint32_t                          WeightmapX = 0u;
             uint32_t                          WeightmapZ = 0u;
+            // Revisions of the two images' PIXELS (from m_Revision): bumped on every rewrite or recreation,
+            // since an in-place rewrite keeps the address. The view's ray-tracing BLAS rebuilds on a change.
+            uint64_t HeightRevision = 0u;
+            uint64_t WeightRevision = 0u;
         };
 
         // Creates, rewrites in place, or drops the tile's weightmap copy to match its weight layers.
         void UpdateWeightmap( TileGpu& gpu, const World::Landscape::LandscapeTileData& heights,
                               entt::entity entity, const LandscapeTileComponent& tileComp, bool weightsDirty );
 
+        Graphic::ResourceOwnerInstance            m_SceneLedger;
         std::unordered_map<entt::entity, TileGpu> m_Tiles;
+        uint64_t                                  m_Revision = 0u; // the last revision handed out
         // Said once per tile, not once per frame: a tile that cannot be drawn stays that way until edited.
         std::unordered_set<entt::entity> m_Warned;
         // Weight-layer problems (a layer the root does not name, a weightmap that could not be created or

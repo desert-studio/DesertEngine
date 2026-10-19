@@ -62,6 +62,12 @@ namespace Desert::Graphic
     // VolumetricCloudRenderer::SampledVolumes).
     inline constexpr uint32_t kSkyBakeCloudLayoutPatternBinding = 15;
     inline constexpr uint32_t kSkyBakeCloudLayoutMaskBinding    = 16;
+    // The bake's two shared sampler states (ComputePipeline::SetSampler), the states the screen passes read the
+    // same images through: u_LinearRepeatSampler for the cloud volumes and maps (CloudRaymarch), and
+    // u_GlobalFilterSampler for the sky's LUTs and the distant sky light (the image's own Global-policy state).
+    // The authored medium's textures read through its generated u_CloudMediumSampler, bound right after them.
+    inline constexpr uint32_t kSkyBakeLinearRepeatSamplerBinding = 17;
+    inline constexpr uint32_t kSkyBakeGlobalFilterSamplerBinding = 18;
 
     // ---------------------------------------------------------------------------------------------------
     // What the cloud renderer hands over

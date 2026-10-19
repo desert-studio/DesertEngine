@@ -16,7 +16,8 @@
 //     {
 //         <SurfaceOutput field>;                     // every field the body's result depends on
 //     }
-//     <GLSL body: Evaluate and EvaluateAmbient, the signatures of ShadingModels/ShadingModelContract.glslh>
+//     <GLSL body: Evaluate, EvaluateSpecular and EvaluateAmbient, the signatures of
+//     ShadingModels/ShadingModelContract.glslh>
 //
 // Everything after the closing brace of Inputs, to the end of the file, is the body. Both blocks are required,
 // and may be empty (Unlit's are). `//` comments are allowed anywhere in the manifest.
@@ -44,6 +45,11 @@
 //         return S.BaseColor * L.Radiance * ( lit + rim * lit );
 //     }
 //
+//     vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
+//     {
+//         return vec3( 0.0 );
+//     }
+//
 //     vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
 //     {
 //         return S.BaseColor * A.Irradiance * A.Occlusion;
@@ -55,7 +61,7 @@
 //   * Payload with more than kMaxPayloadFloats lines, a pin that is not CustomData0..3, a pin twice;
 //   * an Inputs field that is not a SurfaceOutput field (checked by ShadingModelRegistry, which reads
 //     SurfaceOutput from Mesh/Surface/SurfaceTypes.glslh — the struct is the one list of fields);
-//   * a body that does not define both Evaluate and EvaluateAmbient.
+//   * a body that does not define Evaluate, EvaluateSpecular and EvaluateAmbient.
 
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>

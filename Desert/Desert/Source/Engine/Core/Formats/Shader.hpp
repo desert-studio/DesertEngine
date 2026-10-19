@@ -12,8 +12,22 @@ namespace Desert::Core::Formats
         TessControl    = 0x00000002,
         TessEvaluation = 0x00000004,
         Fragment       = 0x00000010,
-        Compute        = 0x00000020
+        Compute        = 0x00000020,
+        // The ray tracing pipeline's stages (VK_KHR_ray_tracing_pipeline): a pass of a program (RayGen, Miss) or
+        // the hit cell of a surface template (ClosestHit, AnyHit, DShaderParser kSurfaceRayHitPath).
+        RayGen     = 0x00000100,
+        AnyHit     = 0x00000200,
+        ClosestHit = 0x00000400,
+        Miss       = 0x00000800
     };
+
+    // Whether @p stage runs in a ray tracing pipeline: it is compiled with GL_EXT_ray_tracing and needs a device
+    // with VK_KHR_ray_tracing_pipeline.
+    constexpr bool IsRayTracingStage( ShaderStage stage )
+    {
+        return stage == ShaderStage::RayGen || stage == ShaderStage::AnyHit || stage == ShaderStage::ClosestHit ||
+               stage == ShaderStage::Miss;
+    }
 
     enum class ShaderPragmas
     {

@@ -5,6 +5,10 @@
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
+#include <Engine/Graphic/ShaderProtocols/Camera.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupBuild.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/MeshRendererInternal.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
@@ -28,6 +32,7 @@
 #include <initializer_list>
 #include <map>
 #include <memory>
+#include <span>
 #include <atomic>
 #include <chrono>
 #include <format>
@@ -58,9 +63,53 @@ namespace Desert::Graphic
             for ( const RDG::TextureRef ref : refs )
                 pass.Read( ref, access );
         }
+
+        // The name of a Trace program a refusal carries (static storage): the radiance cache's or the screen
+        // probes' shader under @p pipeline's tracer and hit lighting (GlobalIllumination::TracerVariant).
+        std::string_view TraceProgramName( const GlobalIllumination::Pipeline& pipeline, const bool screenProbes )
+        {
+            using GlobalIllumination::HitLighting;
+            using GlobalIllumination::Tracer;
+            if ( pipeline.Tracer == Tracer::SoftwareDistanceField )
+                return screenProbes ? "ScreenProbeTrace (DESERT_GI_TRACER_SOFTWARE)"
+                                    : "RadianceCacheTrace (DESERT_GI_TRACER_SOFTWARE)";
+            if ( pipeline.Hits == HitLighting::InPlace )
+                return screenProbes
+                            ? "ScreenProbeTrace (DESERT_GI_TRACER_HARDWARE, DESERT_GI_HIT_LIGHTING_IN_PLACE)"
+                            : "RadianceCacheTrace (DESERT_GI_TRACER_HARDWARE, DESERT_GI_HIT_LIGHTING_IN_PLACE)";
+            return screenProbes ? "ScreenProbeTrace (DESERT_GI_TRACER_HARDWARE)"
+                                : "RadianceCacheTrace (DESERT_GI_TRACER_HARDWARE)";
+        }
+
+        // The traced reflections' permutation of SSR (SSRRenderer::EnsureTracedProgram), by tracer and hit
+        // lighting.
+        std::string_view TracedReflectionProgramName( const GlobalIllumination::Pipeline& tracer,
+                                                      const bool                          hitLit )
+        {
+            if ( tracer.Tracer == GlobalIllumination::Tracer::SoftwareDistanceField )
+                return "SSRTrace (DESERT_GI_TRACER_SOFTWARE, DESERT_REFLECTIONS_TRACED)";
+            return hitLit ? "SSRTrace (DESERT_GI_TRACER_HARDWARE, DESERT_REFLECTIONS_TRACED, "
+                            "DESERT_REFLECTIONS_HIT_LIGHTING)"
+                          : "SSRTrace (DESERT_GI_TRACER_HARDWARE, DESERT_REFLECTIONS_TRACED)";
+        }
     } // namespace
 
-    void SceneRenderer::ImportSceneViewTextures( RDG::Builder& graph, FrameTextures& textures )
+    RDG::TextureRef SceneRenderer::AddFrameNoSunCascades( RDG::Builder& graph )
+    {
+        const RDG::TextureRef none =
+             graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = 1, .Height = 1 },
+                                                    .Format = ViewTargetFormats::kShadowDepth,
+                                                    .Layers = 1,
+                                                    .Dim    = RDG::TextureDim::Tex2DArray },
+                                  "CSM.None" );
+        graph.AddPass(
+             "CSM.None", RDG::PassFlags::Raster,
+             [none]( RDG::PassBuilder& pass ) { pass.DepthTarget( none, RDG::LoadOp::ClearDepth( 1.0f ) ); },
+             []( RDG::PassContext& ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
+        return none;
+    }
+
+    void SceneRenderer::ImportViewShadowMaps( RDG::Builder& graph, FrameTextures& textures )
     {
         FrameTransients& view = textures.Transients;
         if ( const auto it = m_RenderSystems.find( "MeshSystem" ); it != m_RenderSystems.end() )
@@ -78,17 +127,15 @@ namespace Desert::Graphic
         // which takes no 2D stand-in, so the view gets a one-texel array cleared to the far plane - 1 under the
         // cascades' standard Z, "no occluder" - and the shader's cascade count (0) never reads it anyway.
         if ( !view.ShadowCascades.IsValid() )
-        {
-            view.ShadowCascades = graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = 1, .Height = 1 },
-                                                                         .Format = ViewTargetFormats::kShadowDepth,
-                                                                         .Layers = 1,
-                                                                         .Dim    = RDG::TextureDim::Tex2DArray },
-                                                       "CSM.None" );
-            graph.AddPass(
-                 "CSM.None", RDG::PassFlags::Raster, [&]( RDG::PassBuilder& pass )
-                 { pass.DepthTarget( view.ShadowCascades, RDG::LoadOp::ClearDepth( 1.0f ) ); },
-                 []( RDG::PassContext& ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
-        }
+            view.ShadowCascades = AddFrameNoSunCascades( graph );
+    }
+
+    void SceneRenderer::ImportSceneViewTextures( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // The sun's cascades and the local lights' atlas are NOT imported here: their budget follows the frame's
+        // sun-shadow path, decided after the view's TLAS (OnUpdate), so OnUpdate imports them then
+        // (ImportViewShadowMaps).
+        FrameTransients& view   = textures.Transients;
         auto* images = Runtime::ResourceRegistry::GetImageService();
         if ( const auto env = GetEnvironment(); env.has_value() )
         {
@@ -339,7 +386,8 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
                                           const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
-                                          const glm::vec4& lightColor, const ViewFrame& frame )
+                                          const glm::vec4& lightColor, const FrameScreenTrace& screenTrace,
+                                          const ViewFrame& frame )
     {
         if ( !RadianceCacheRuns() )
             return;
@@ -356,7 +404,8 @@ namespace Desert::Graphic
             auto cache = std::make_unique<GlobalIllumination::WorldRadianceCache>();
             if ( const auto initialized = cache->Initialize(); !initialized )
             {
-                LOG_ERROR( "[SceneRenderer] RadianceCache: {}", initialized.GetError() );
+                RefuseProgramMethods( GlobalIllumination::kCacheGIMethods, "RadianceCache",
+                                      initialized.GetError() );
                 return;
             }
             m_RadianceCache = std::move( cache );
@@ -366,7 +415,8 @@ namespace Desert::Graphic
             auto gather = std::make_unique<GlobalIllumination::ScreenProbeGather>();
             if ( const auto initialized = gather->Initialize(); !initialized )
             {
-                LOG_ERROR( "[SceneRenderer] ScreenProbes: {}", initialized.GetError() );
+                RefuseProgramMethods( GlobalIllumination::kScreenProbeGIMethods, "ScreenProbes",
+                                      initialized.GetError() );
                 return;
             }
             m_ScreenProbeGather = std::move( gather );
@@ -376,11 +426,27 @@ namespace Desert::Graphic
             auto gather = std::make_unique<GlobalIllumination::IrradianceFieldGather>();
             if ( const auto initialized = gather->Initialize(); !initialized )
             {
-                LOG_ERROR( "[SceneRenderer] IrradianceField: {}", initialized.GetError() );
+                RefuseProgramMethods( GlobalIllumination::kIrradianceFieldGIMethods, "IrradianceField",
+                                      initialized.GetError() );
                 return;
             }
             m_IrradianceFieldGather = std::move( gather );
         }
+        // The Trace programs of this frame's tracer, asked before the update so the one that does not build
+        // refuses the GI methods of that tracer alone (the update and the gather ask again, cached).
+        if ( const auto traced = m_RadianceCache->EnsureTraceProgram( m_GIPipeline ); !traced )
+        {
+            RefuseProgramMethods( GlobalIllumination::TraceProgramGIMethods( m_GIPipeline, false ),
+                                  TraceProgramName( m_GIPipeline, false ), traced.GetError() );
+            return;
+        }
+        if ( m_GIPipeline.ScreenProbes )
+            if ( const auto traced = m_ScreenProbeGather->EnsureTraceProgram( m_GIPipeline ); !traced )
+            {
+                RefuseProgramMethods( GlobalIllumination::TraceProgramGIMethods( m_GIPipeline, true ),
+                                      TraceProgramName( m_GIPipeline, true ), traced.GetError() );
+                return;
+            }
         const RDG::TextureRef depth = textures.Depth( m_GBuffer, "GBuffer" );
         const auto            desc  = graph.GetTextureDesc( depth );
         if ( !desc )
@@ -407,22 +473,8 @@ namespace Desert::Graphic
         inputs.CameraPosition  = frame.CameraPosition;
         inputs.Extent          = glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height );
 
-        GlobalIllumination::GIFramePayload payload;
-        payload.InvViewProjection = frame.InvJitteredViewProjection;
-        payload.ViewProjection    = glm::inverse( frame.InvJitteredViewProjection );
-        payload.Camera            = glm::vec4( frame.CameraPosition, 1.0f );
-        const bool hasSun         = !m_DirectionLights.DirectionLights.empty();
-        payload.SunTravel         = glm::vec4( glm::normalize( glm::vec3( lightDir ) ), hasSun ? 1.0f : 0.0f );
-        payload.SunRadiance       = glm::vec4( glm::vec3( lightColor ) * lightColor.w, 0.0f );
-        if ( const auto& env = GetEnvironment(); env.has_value() )
-        {
-            const SkyLookGPU look = ToGPU( env->Look );
-            payload.SkyYawCosSin  = look.YawCosSin;
-            payload.SkyGain       = look.Gain;
-        }
-        payload.Screen = glm::vec4( glm::vec2( inputs.Extent ), 1.0f / glm::vec2( inputs.Extent ) );
-        inputs.GIFrame = graph.CreateBuffer( RDG::BufferDesc{ sizeof( payload ) }, "GI.Frame" );
-        graph.QueueBufferUpload( inputs.GIFrame, std::as_bytes( std::span( &payload, 1 ) ) );
+        inputs.GIFrame              = AddFrameGIRecord( graph, frame, lightDir, lightColor, inputs.Extent );
+        m_TracedFrameShared.GIFrame = inputs.GIFrame;
 
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };
@@ -432,6 +484,7 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] RadianceCache: {}", cache.GetError() );
             return;
         }
+        m_TracedFrameShared.RadianceCache = cache.GetValue();
 
         // The cards' indirect light off this update (the radiosity slot): the frame's relit pages.
         if ( m_SurfaceCache && m_SurfaceCacheFrame )
@@ -484,7 +537,25 @@ namespace Desert::Graphic
         gather.Extent             = inputs.Extent;
         gather.PrevViewProjection = frame.PrevViewProjection;
         gather.PrevCameraPosition = frame.PrevCameraPosition;
-        const auto gathered       = m_ScreenProbeGather->AddPasses( graph, import, gather );
+        // The screen leg (UE ScreenProbeTraceScreenTextures): the view's HZB and scene colour history, or the
+        // system black texture with the leg off when the view has no screen trace.
+        gather.HZB = screenTrace.HZB.IsValid() ? screenTrace.HZB : refs.System.Black;
+        gather.SceneColorHistory =
+             screenTrace.SceneHistory.IsValid() ? screenTrace.SceneHistory : refs.System.Black;
+        gather.SceneColorHistoryReadable =
+             screenTrace.HZB.IsValid() && screenTrace.SceneHistory.IsValid() && screenTrace.SceneHistoryReadable;
+        // The mesh SDF leg (UE ScreenProbeTraceMeshSDFs over LumenMeshSDFCulling's list): the software tracer's.
+        if ( GlobalIllumination::TracerReadsGlobalDistanceField( m_GIPipeline ) )
+        {
+            const auto meshSDFs = AddFrameMeshSDFReads( graph, textures, frame );
+            if ( !meshSDFs )
+            {
+                LOG_ERROR( "[SceneRenderer] ScreenProbes: {}", meshSDFs.GetError() );
+                return;
+            }
+            gather.MeshSDFs = meshSDFs.GetValue();
+        }
+        const auto gathered = m_ScreenProbeGather->AddPasses( graph, import, gather );
         if ( !gathered )
         {
             LOG_ERROR( "[SceneRenderer] ScreenProbes: {}", gathered.GetError() );
@@ -496,7 +567,8 @@ namespace Desert::Graphic
 
     bool SceneRenderer::WorldLightGridRead() const
     {
-        // The traced GI's hits lit in place, and the surface cache's card lighting.
+        // The traced GI's hits lit in place, the traced reflections' (the surface cache brings those up too), and
+        // the surface cache's card lighting.
         if ( RadianceCacheRuns() || SurfaceCacheRuns() )
             return true;
 #if DESERT_DEV_INSTRUMENTS
@@ -538,11 +610,19 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
+                                           const RDG::TextureRef             sunShadowMask,
+                                           const System::MegaLightsLighting& megaLights,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const ViewFrame& frame )
     {
-        // w: whether u_SSR holds this frame's traced reflection (DeferredLighting.shader DeferredUB).
-        const glm::vec4 cameraPos( frame.CameraPosition, ssr.IsValid() ? 1.0f : 0.0f );
+        // w: what u_SSR holds (DeferredLighting.shader REFLECTION_INPUT_*): 0 nothing, 1 the screen trace, 2 the
+        // traced reflection, which the composite fades into the traced GI's rough specular past
+        // MaxRoughnessToTrace (UE MixSpecularAndRoughReflections).
+        constexpr float kReflectionInputNone = 0.0f, kReflectionInputScreen = 1.0f, kReflectionInputTraced = 2.0f;
+        const float     reflectionInput = !ssr.IsValid()        ? kReflectionInputNone
+                                          : ReflectionsTraced() ? kReflectionInputTraced
+                                                                : kReflectionInputScreen;
+        const glm::vec4 cameraPos( frame.CameraPosition, reflectionInput );
         // LOAD/STORE on every scene-target attachment. The depth is declared written because the passes after
         // this one that are not graph nodes yet (forward meshes, glass, fog, clouds, overlays) begin their own
         // render passes on it in the depth-attachment layout, and DepthResolve left it a transfer destination.
@@ -583,17 +663,28 @@ namespace Desert::Graphic
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.
         DeferredShadowInput shadow;
-        if ( meshRenderer != nullptr )
+        if ( SunShadowIsScreenMask() )
         {
-            shadow.CascadeVP            = meshRenderer->GetCascadeViewProj();
-            shadow.Count                = meshRenderer->GetValidCascadeCount();
-            shadow.Enabled              = meshRenderer->AreShadowsEnabled();
-            shadow.CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel();
-            shadow.CascadeDepthRange    = meshRenderer->GetCascadeDepthRange();
-            shadow.SourceTanHalf        = meshRenderer->GetSunSourceTanHalf();
+            // AddFrameRayTracedSunShadow logged why a mask is missing; the sun is then unshadowed (System.White),
+            // never shadowed by cascades no pass drew.
+            inputs.SunShadowMask = sunShadowMask.IsValid() ? sunShadowMask : refs.System.White;
+            shadow.Sun           = DeferredScreenShadowMask{ .Mask = inputs.SunShadowMask };
+            // Shadows Stochastic: MegaLights' local lighting (AddFrameMegaLights logged why one is missing; a view
+            // without local lights has none to add): black adds no local light, never the unshadowed grid loop.
+            shadow.MegaLightsLocalLights = LocalLightsAreStochastic();
         }
+        else if ( meshRenderer != nullptr )
+            shadow.Sun = DeferredCascadeShadow{ .CascadeVP            = meshRenderer->GetCascadeViewProj(),
+                                                .Count                = meshRenderer->GetValidCascadeCount(),
+                                                .Enabled              = meshRenderer->AreShadowsEnabled(),
+                                                .CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel(),
+                                                .CascadeDepthRange    = meshRenderer->GetCascadeDepthRange(),
+                                                .SourceTanHalf        = meshRenderer->GetSunSourceTanHalf() };
+        inputs.MegaLightsDiffuse  = megaLights.Diffuse.IsValid() ? megaLights.Diffuse : refs.System.Black;
+        inputs.MegaLightsSpecular = megaLights.Specular.IsValid() ? megaLights.Specular : refs.System.Black;
         // The composite marches the G-buffer depth, so its view always has one (GetContactShadowSettings).
         shadow.Contact                       = GetContactShadowSettings( frame, true );
+        shadow.Filter                        = GetShadowFilterSettings();
         const CloudShadowInput   cloudShadow = GetCloudShadowInput();
         DeferredEnvironmentInput environment;
         {
@@ -618,8 +709,10 @@ namespace Desert::Graphic
         // (Common/Settings/RenderMethods.hpp).
         using Common::Scalability::GIMethod;
         const GIMethod gi            = m_RenderMethods.GlobalIllumination.Effective;
-        const int      compositeGI   = gi == GIMethod::ScreenSpace ? 1 : traced ? 2 : 0;
-        const float    giIntensity   = ( gi == GIMethod::ScreenSpace ) ? m_GIIntensity : 0.0f;
+        const int             giMode        = gi == GIMethod::ScreenSpace ? 1 : traced ? 2 : 0;
+        const DeferredGIInput compositeGI{ .Mode      = giMode,
+                                           .Intensity = gi == GIMethod::ScreenSpace ? m_GIIntensity : 0.0f,
+                                           .ScreenSpaceSamples = m_ScreenSpaceGISamples };
 
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
@@ -639,7 +732,7 @@ namespace Desert::Graphic
              {
                  deferred->FillMaterial( lightDir, lightColor, cameraPos, frame.InvJitteredViewProjection,
                                          static_cast<int>( m_DebugView.DeferredDebug ), pointCount, spotCount,
-                                         shadow, giIntensity, m_EnableSSAO, compositeGI, cloudShadow, environment,
+                                         shadow, compositeGI, m_EnableSSAO, cloudShadow, environment,
                                          frame.JitteredViewProjection );
                  deferred->DeclareCompositeBindings( pass, inputs, lights );
                  DeferredFrameNodes::LoadTarget( pass, target, loads );
@@ -688,25 +781,35 @@ namespace Desert::Graphic
         // Every static and instanced mesh of the frame that carries a field, whole - the field holds what is
         // off-screen too (a trace leaves the frustum).
         std::vector<DistanceField::GlobalDistanceFieldObject> objects;
+        // The surface cache's instance-table row of each placement (mesh, world), which the field's object grid
+        // lists (UE: the object's GPUSceneInstanceIndex). The cache updates after the field in the frame, so these
+        // are the last update's rows; a row is stable while its instance lives, and a new one recomposites the
+        // object the frame it appears (GlobalDistanceField: the row is part of the object's identity).
+        const std::unordered_map<uint64_t, uint32_t> rows = m_SurfaceCache
+                                                                 ? m_SurfaceCache->GetScene().RowsByPlacement()
+                                                                 : std::unordered_map<uint64_t, uint32_t>{};
         // One object per volume of the mesh's field, each owning the whole field (an aliasing pointer: the
         // volume lives as long as the field it belongs to). A mesh whose field is still being derived (the
         // asynchronous queue) is not in it yet.
-        const auto place = [&objects]( const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
-                                       const glm::mat4&                                            world )
+        const auto place = [&objects, &rows]( const void*                                                 mesh,
+                                              const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
+                                              const glm::mat4&                                            world )
         {
+            const auto     it  = rows.find( SurfaceCache::SurfaceCacheScene::PlacementKey( mesh, world ) );
+            const uint32_t row = it != rows.end() ? it->second : DistanceField::kNoObjectGridRow;
             for ( const Assets::MeshDistanceFieldVolume& volume : field->Volumes )
                 objects.push_back(
-                     { std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ), world } );
+                     { std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ), world, row } );
         };
         for ( const auto& draw : meshRenderer->GetStaticQueue() )
             if ( draw.Mesh != nullptr )
                 if ( const auto field = draw.Mesh->GetDistanceField() )
-                    place( field, draw.Transform );
+                    place( draw.Mesh, field, draw.Transform );
         for ( const auto& ism : meshRenderer->GetInstancedQueue() )
             if ( ism.Mesh != nullptr && ism.Transforms )
                 if ( const auto field = ism.Mesh->GetDistanceField() )
                     for ( const glm::mat4& world : *ism.Transforms )
-                        place( field, world );
+                        place( ism.Mesh, field, world );
 
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };
@@ -722,6 +825,7 @@ namespace Desert::Graphic
         }
         textures.Transients.GlobalDistanceField       = field.GetValue().Clipmaps;
         textures.Transients.GlobalDistanceFieldLevels = field.GetValue().Levels;
+        textures.Transients.GlobalDistanceFieldObjectGrid = field.GetValue().ObjectGrid;
     }
 
 #if DESERT_DEV_INSTRUMENTS
@@ -856,8 +960,8 @@ namespace Desert::Graphic
         copyDesc.Samples                   = 1;
         const RDG::TextureRef sceneCopy    = into.IsValid() ? into : graph.CreateTexture( copyDesc, "SceneCopy" );
         const RDG::TextureRef source       = sceneColor.front();
-        // -> Deferred: Glass, Water; and, as SSR's scene colour history, next frame's Deferred: SSR
-        // (u_SceneColor).
+        // -> Deferred: Glass, Water; and, as the view's scene colour history, next frame's screen traces
+        // (Deferred: SSR's u_SceneColor, ScreenProbes: Trace's u_SceneColorHistory).
         textures.Transients.SceneColorCopy = sceneCopy;
         graph.AddPass(
              "Deferred: SceneCopy", RDG::PassFlags::Raster,
@@ -894,9 +998,298 @@ namespace Desert::Graphic
         return hzb->AddPasses( graph, depth, desc.GetValue().Size.Width, desc.GetValue().Size.Height );
     }
 
+    SceneRenderer::FrameScreenTrace
+    SceneRenderer::AddFrameScreenTrace( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* history =
+             UNIQUE_GET_AS( System::SceneColorHistoryRenderer, m_RenderSystems["SceneColorHistorySystem"] );
+        if ( history == nullptr || !history->Prepare() )
+            return {};
+        const RDG::TextureRef hzb = AddFrameHZB( graph, textures );
+        if ( !hzb.IsValid() )
+            return {};
+        // Build time, after Prepare: the exec runs after the frame was built and must not consult a stamp a later
+        // frame may have written.
+        return FrameScreenTrace{ .HZB          = hzb,
+                                 .SceneHistory = textures.Import( history->GetImage(), "SceneColorHistory" ),
+                                 .SceneHistoryReadable = history->ReadableIn( frame ) };
+    }
+
+    RDG::BufferRef SceneRenderer::AddFrameGIRecord( RDG::Builder& graph, const ViewFrame& frame,
+                                                    const glm::vec4& lightDir, const glm::vec4& lightColor,
+                                                    const glm::uvec2 extent )
+    {
+        GlobalIllumination::GIFramePayload payload;
+        payload.InvViewProjection = frame.InvJitteredViewProjection;
+        payload.ViewProjection    = glm::inverse( frame.InvJitteredViewProjection );
+        payload.Camera            = glm::vec4( frame.CameraPosition, 1.0f );
+        const bool hasSun         = !m_DirectionLights.DirectionLights.empty();
+        payload.SunTravel         = glm::vec4( glm::normalize( glm::vec3( lightDir ) ), hasSun ? 1.0f : 0.0f );
+        payload.SunRadiance       = glm::vec4( glm::vec3( lightColor ) * lightColor.w, 0.0f );
+        if ( const auto& env = GetEnvironment(); env.has_value() )
+        {
+            const SkyLookGPU look = ToGPU( env->Look );
+            payload.SkyYawCosSin  = look.YawCosSin;
+            payload.SkyGain       = look.Gain;
+        }
+        payload.Screen              = glm::vec4( glm::vec2( extent ), 1.0f / glm::vec2( extent ) );
+        const RDG::BufferRef record = graph.CreateBuffer( RDG::BufferDesc{ sizeof( payload ) }, "GI.Frame" );
+        graph.QueueBufferUpload( record, std::as_bytes( std::span( &payload, 1 ) ) );
+        return record;
+    }
+
+    Common::ResultStr<DistanceField::GlobalDistanceField::MeshSDFScene>
+    SceneRenderer::AddFrameMeshSDFReads( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    {
+        if ( m_TracedFrameShared.MeshSDFs )
+            return Common::MakeSuccess(
+                 DistanceField::GlobalDistanceField::MeshSDFScene( *m_TracedFrameShared.MeshSDFs ) );
+        if ( !m_GlobalDistanceField )
+            return Common::MakeError<DistanceField::GlobalDistanceField::MeshSDFScene>(
+                 "the mesh SDFs: the view has no global distance field" );
+        DistanceField::GlobalDistanceField::MeshSDFCull cull;
+        cull.View                  = Core::Frustum( frame.Projection, frame.View );
+        cull.Camera                = frame.CameraPosition;
+        cull.TraceDistance         = GlobalIllumination::ScreenProbeLayout::kMeshSDFTraceDistance;
+        cull.EndDistanceFromCamera = GlobalIllumination::ScreenProbeLayout::kMeshSDFEndDistanceFromCamera;
+        const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
+        { return textures.Import( image, name ); };
+        auto meshSDFs = m_GlobalDistanceField->AddMeshSDFReads( graph, import, cull );
+        if ( meshSDFs )
+            m_TracedFrameShared.MeshSDFs = meshSDFs.GetValue();
+        return meshSDFs;
+    }
+
+    bool SceneRenderer::ReflectionsTraced() const
+    {
+        const Common::Scalability::ReflectionMethod method = m_RenderMethods.Reflections.Effective;
+        return m_RenderPath == Core::RenderPath::Deferred && m_ViewProfile.ScreenSpaceReflections &&
+               ( method == Common::Scalability::ReflectionMethod::SoftwareTraced ||
+                 method == Common::Scalability::ReflectionMethod::HardwareTraced );
+    }
+
+    GlobalIllumination::Pipeline SceneRenderer::ReflectionsTracer() const
+    {
+        GlobalIllumination::Pipeline pipeline;
+        pipeline.Traced = true;
+        // Hit-lit reflections light each hit in place from its own material (the closest-hit payload); the
+        // others read the surface cache's cards.
+        pipeline.Hits = ReflectionsHitLit() ? GlobalIllumination::HitLighting::InPlace
+                                            : GlobalIllumination::HitLighting::SurfaceCache;
+        pipeline.Tracer =
+             m_RenderMethods.Reflections.Effective == Common::Scalability::ReflectionMethod::HardwareTraced
+                  ? GlobalIllumination::Tracer::HardwareRayQuery
+                  : GlobalIllumination::Tracer::SoftwareDistanceField;
+        return pipeline;
+    }
+
+    bool SceneRenderer::ReflectionsHitLit() const
+    {
+        using namespace Common::Scalability;
+        return m_RenderMethods.Reflections.Effective == ReflectionMethod::HardwareTraced &&
+               QualityState::Resolved().As<int>( Parameter::ReflectionsHitLighting ) != 0 &&
+               CapabilityCatalog::Offers( QualityState::Catalog().RayTracingModes,
+                                          RayTracingMode::RayTracingPipeline );
+    }
+
+    Common::BoolResultStr SceneRenderer::BuildReflectionHitGroups()
+    {
+        auto*      materials       = Runtime::ResourceRegistry::GetMaterialService();
+        auto*      shaders         = Runtime::ResourceRegistry::GetShaderService();
+        const auto defaultTemplate = materials->DefaultSurfaceTemplate();
+        if ( !defaultTemplate )
+            return Common::MakeError( defaultTemplate.GetError() );
+        // The default surface's row: a material of its (Static x GBuffer) cell - the same MaterialParams as its
+        // hit cell, with the template's default textures in their slots - made once (UE: the default material's
+        // hit group shades what has no ray tracing material of its own).
+        const auto defaultCell = materials->DefaultSurfaceShader( MeshVertexPath::Static, MeshPass::GBuffer );
+        if ( !defaultCell )
+            return Common::MakeError( defaultCell.GetError() );
+        if ( !m_ReflectionDefaultSurface || m_ReflectionDefaultSurface->GetShaderName() != defaultCell.GetValue() )
+            m_ReflectionDefaultSurface = std::make_shared<DataDrivenMaterial>( defaultCell.GetValue() );
+        const auto hasHitGroup = [shaders]( const std::string& name )
+        {
+            const auto hit = shaders->GetByName( std::format( "{}/RayTracing.Hit", name ) );
+            return hit && hit->IsCompiled();
+        };
+        const RayTracing::RayTracingSegmentSurface defaultSurface{ defaultTemplate.GetValue(),
+                                                                   m_ReflectionDefaultSurface->GetParamRow() };
+        // A landscape tile's segment is shaded by the landscape's own hit group from the raster's inputs (UE: the
+        // landscape material's hit shaders); its row is the tile's, by the record's LandscapeTile.
+        const std::span<const RayTracing::LandscapeRayTracingMaterial> landscape =
+             m_LandscapeRayTracing.GetFrame().Materials;
+        const auto surfaceOf = [landscape]( const RayTracing::RayTracingSegmentRecord& segment )
+        {
+            RayTracing::RayTracingSegmentSurface surface;
+            if ( segment.LandscapeTile != RayTracing::kNoLandscapeTile )
+            {
+                if ( segment.LandscapeTile < landscape.size() )
+                {
+                    surface.Template = std::string( RayTracing::kLandscapeRayHitTemplate );
+                    surface.Row      = RayTracing::LandscapeRayHitRow( landscape[segment.LandscapeTile] );
+                }
+                return surface; // past the tile list: a broken invariant, the default surface, counted
+            }
+            const auto* material = dynamic_cast<const DataDrivenMaterial*>( segment.SurfaceMaterial );
+            if ( material == nullptr )
+                return surface; // a whole-entity override: the default surface, counted
+            const std::string& cell  = material->GetShaderName();
+            const auto         slash = cell.find( '/' );
+            surface.Template         = slash == std::string::npos ? cell : cell.substr( 0, slash );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast): EffectiveRow reads the instance's overrides
+            surface.Row = System::MeshRendererDetail::EffectiveRow(
+                 material, const_cast<MaterialInstance*>( segment.Instance ) );
+            return surface;
+        };
+        auto table = RayTracing::BuildRayTracingHitGroupTable( m_RayTracingScene.GetGeometryRecords(),
+                                                               m_RayTracingScene.GetSegmentRecords(), surfaceOf,
+                                                               defaultSurface, hasHitGroup );
+        if ( !table )
+            return Common::MakeError( table.GetError() );
+        m_ReflectionHitGroups = std::move( table.GetValue() );
+        for ( const RayTracing::RayTracingHitGroupFallback& fallback :
+              m_ReflectionHitGroups.TemplatesWithoutHitGroup )
+        {
+            if ( std::ranges::find( m_ReportedHitGroupFallbacks, fallback.Template ) !=
+                 m_ReportedHitGroupFallbacks.end() )
+                continue;
+            m_ReportedHitGroupFallbacks.push_back( fallback.Template );
+            LOG_WARN(
+                 "[SceneRenderer] Reflections hit lighting: '{}' has no compiled hit group ('{}/RayTracing.Hit' "
+                 "refused or failed: DShaderParser SurfaceTemplateInfo::RayHitRefusal, or the shader log) - its "
+                 "{} segments this frame shade with the default surface '{}'",
+                 fallback.Template, fallback.Template, fallback.Segments, defaultTemplate.GetValue() );
+        }
+        return BOOLSUCCESS;
+    }
+
+    std::optional<System::SSRRenderer::TracedReads>
+    SceneRenderer::MakeTracedReflectionReads( RDG::Builder& graph, FrameTextures& textures,
+                                              System::SSRRenderer&                ssr,
+                                              const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame )
+    {
+        FrameTransients& t = textures.Transients;
+        const auto refuse  = [&]( const std::string_view why ) -> std::optional<System::SSRRenderer::TracedReads>
+        {
+            LOG_ERROR( "[SceneRenderer] Reflections ({}): {} - the frame reflects the screen alone",
+                       Common::Scalability::kReflectionMethodNames[static_cast<std::size_t>(
+                            m_RenderMethods.Reflections.Effective )],
+                       why );
+            return std::nullopt;
+        };
+        if ( gbuffer.size() < 4 )
+            return refuse( "the G-buffer has fewer than 4 colours" );
+        if ( !t.Lights.WorldGridCells.IsValid() )
+            return refuse( "the world light grid was not built" );
+        const GlobalIllumination::Pipeline tracer = ReflectionsTracer();
+        {
+            using namespace Common::Scalability;
+            if ( m_RenderMethods.Reflections.Effective == ReflectionMethod::HardwareTraced &&
+                 QualityState::Resolved().As<int>( Parameter::ReflectionsHitLighting ) != 0 &&
+                 !ReflectionsHitLit() && !m_ReportedHitLightingDevice )
+            {
+                m_ReportedHitLightingDevice = true;
+                LOG_WARN( "[SceneRenderer] Reflections.HitLighting is on, but the device offers no ray tracing "
+                          "pipeline: the hardware-traced reflections read the surface cache" );
+            }
+        }
+        const bool hitLit = ReflectionsHitLit();
+        if ( const auto made = ssr.EnsureTracedProgram( tracer, hitLit ); !made )
+        {
+            // The traced permutation serves the method of its tracer alone.
+            RefuseProgramMethods(
+                 std::span( kTracedReflectionMethods )
+                      .subspan( tracer.Tracer == GlobalIllumination::Tracer::HardwareRayQuery ? 1 : 0, 1 ),
+                 TracedReflectionProgramName( tracer, hitLit ), made.GetError() );
+            return refuse( made.GetError() );
+        }
+        if ( hitLit )
+        {
+            if ( !m_RayTracingScene.GetFrame().Built )
+                return refuse( "hit lighting traces the view's TLAS, which this frame did not build" );
+            if ( const auto built = BuildReflectionHitGroups(); !built )
+                return refuse( built.GetError() );
+            if ( const auto made = ssr.EnsureHitLightingPipeline( m_ReflectionHitGroups.Templates ); !made )
+            {
+                RefuseProgramMethods( std::span( kTracedReflectionMethods ).subspan( 1, 1 ), "SSRHitLighting",
+                                      made.GetError() );
+                return refuse( made.GetError() );
+            }
+        }
+
+        System::SSRRenderer::TracedReads reads;
+        reads.Tracer = MakeTracerFrame( graph, textures, tracer );
+        if ( const std::string_view missing = GlobalIllumination::TracerFrameMissing( reads.Tracer );
+             !missing.empty() )
+            return refuse( missing );
+        if ( tracer.Hits == GlobalIllumination::HitLighting::SurfaceCache )
+        {
+            if ( !m_SurfaceCacheFrame )
+                return refuse( "the surface cache was not brought up this frame" );
+            reads.SurfaceCache = m_SurfaceCacheFrame->Hits;
+            if ( const std::string_view missing =
+                      GlobalIllumination::SurfaceCacheFrameMissing( reads.SurfaceCache );
+                 !missing.empty() )
+                return refuse( missing );
+        }
+        if ( GlobalIllumination::TracerReadsGlobalDistanceField( tracer ) )
+        {
+            auto meshSDFs = AddFrameMeshSDFReads( graph, textures, frame );
+            if ( !meshSDFs )
+                return refuse( meshSDFs.GetError() );
+            reads.MeshSDFs             = meshSDFs.GetValue();
+            reads.MeshSDFTraceDistance = GlobalIllumination::ScreenProbeLayout::kMeshSDFTraceDistance;
+            reads.MeshSDFEndDistanceFromCamera =
+                 GlobalIllumination::ScreenProbeLayout::kMeshSDFEndDistanceFromCamera;
+        }
+
+        const FrameGraphRefs refs = textures.GraphRefs();
+        // The GI's record of this frame when it traced; otherwise this frame's own (the same payload).
+        reads.GIFrame = m_TracedFrameShared.GIFrame;
+        if ( !reads.GIFrame.IsValid() )
+        {
+            const auto desc = graph.GetTextureDesc( gbuffer[0] );
+            if ( !desc )
+                return refuse( desc.GetError() );
+            const FrameSun sun = GetFrameSun();
+            reads.GIFrame =
+                 AddFrameGIRecord( graph, frame, sun.Direction, sun.ColorIntensity,
+                                   glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height ) );
+        }
+        // The radiance cache's read: the GI's when it runs (an in-place lit hit takes its bounce), otherwise one
+        // that covers nothing (no clipmap: RadianceCacheIrradianceAt answers "no coverage", the hit keeps its
+        // direct light).
+        if ( m_TracedFrameShared.RadianceCache )
+            reads.RadianceCache = *m_TracedFrameShared.RadianceCache;
+        else
+        {
+            const std::array<uint8_t, sizeof( RadianceCache::RadianceCacheParamsPayload )> zeros{};
+            const RDG::BufferRef                                                           none =
+                 graph.CreateBuffer( RDG::BufferDesc{ zeros.size() }, "Reflections.RadianceCacheNone" );
+            graph.QueueBufferUpload( none, std::as_bytes( std::span( zeros ) ) );
+            reads.RadianceCache = GlobalIllumination::RadianceCacheFrame{ .Params      = none,
+                                                                          .Indirection = none,
+                                                                          .Probes      = none,
+                                                                          .Irradiance  = refs.System.Black,
+                                                                          .Depth       = refs.System.Black,
+                                                                          .Radiance    = refs.System.Black };
+        }
+        reads.PointLights     = t.Lights.Point;
+        reads.SpotLights      = t.Lights.Spot;
+        reads.WorldGridParams = t.Lights.WorldGridParams;
+        reads.WorldGridCells  = t.Lights.WorldGridCells;
+        reads.EnvSpecular     = SceneViewInputsOf( refs ).EnvSpecular;
+        reads.GBufferA        = gbuffer[0];
+        reads.GBufferEmissive = gbuffer[3];
+        reads.HitGroups       = hitLit ? &m_ReflectionHitGroups : nullptr;
+        return reads;
+    }
+
     SceneRenderer::FrameSSR SceneRenderer::AddFrameSSR( RDG::Builder& graph, FrameTextures& textures,
                                                         System::SSRRenderer&                ssr,
                                                         const std::vector<RDG::TextureRef>& gbuffer,
+                                                        const FrameScreenTrace&             screenTrace,
                                                         const ViewFrame&                    frame )
     {
         if ( gbuffer.size() < 3 )
@@ -906,7 +1299,7 @@ namespace Desert::Graphic
             return {};
         }
         const std::optional<System::SSRRenderer::TraceTargets> traceTargets = ssr.Prepare();
-        if ( !traceTargets )
+        if ( !traceTargets || !screenTrace.HZB.IsValid() )
             return {};
         const RDG::TextureRef velocity = textures.Transients.Velocity;
         if ( !velocity.IsValid() )
@@ -915,9 +1308,7 @@ namespace Desert::Graphic
                        "frame has none" );
             return {};
         }
-        const RDG::TextureRef hzb = AddFrameHZB( graph, textures );
-        if ( !hzb.IsValid() )
-            return {};
+        const RDG::TextureRef hzb = screenTrace.HZB;
         // Transients of this graph, sized from this frame's view: written by the trace, read by the tiled resolve.
         const RDG::TextureRef trace    = graph.CreateTexture( traceTargets->Trace, "SSR.Trace" );
         const RDG::TextureRef traceRay = graph.CreateTexture( traceTargets->TraceRay, "SSR.TraceRay" );
@@ -927,8 +1318,7 @@ namespace Desert::Graphic
         graph.SetFaultDefault( trace, RDG::FaultDefault::Black );
         graph.SetFaultDefault( traceRay, RDG::FaultDefault::Black );
         graph.SetFaultDefault( tiles, RDG::FaultDefault::Black );
-        const RDG::TextureRef sceneHistory =
-             textures.Import( ssr.GetSceneColorHistoryImage(), "SSR.SceneColorHistory" );
+        const RDG::TextureRef sceneHistory = screenTrace.SceneHistory;
         // Sampled by name in every SSR pass (no G-buffer image crosses into a pass exec).
         // World positions come from the G-buffer depth (Common/ReconstructPosition.glslh).
         const System::SSRRenderer::GBufferInputs inputs{ gbuffer[0], gbuffer[1],
@@ -937,7 +1327,7 @@ namespace Desert::Graphic
              graph, frame.InvJitteredViewProjection, frame.JitteredViewProjection );
         // Build time, after Prepare: the exec runs after the frame was built and must not consult a stamp a later
         // frame may have written.
-        const bool                         sceneHistoryReadable = ssr.SceneColorHistoryReadableIn( frame );
+        const bool                         sceneHistoryReadable = screenTrace.SceneHistoryReadable;
         const uint32_t                     seed                 = ssr.NextTraceSeed();
         System::SSRRenderer::TraceSettings settings;
         settings.RaysPerPixel = m_SSRRaysPerPixel;
@@ -945,12 +1335,29 @@ namespace Desert::Graphic
         settings.MaxDistance  = m_SSRMaxDistance;
         settings.Intensity    = m_SSRIntensity;
         settings.Thickness    = Common::Units::Metres( 0.5f ); // literature: 0.5 m
+        // SoftwareTraced / HardwareTraced: the rays the screen does not answer go on through the reflections'
+        // tracer (ReflectionsTracer, TracedReads).
+        std::optional<System::SSRRenderer::TracedReads> traced;
+        if ( ReflectionsTraced() )
+            traced = MakeTracedReflectionReads( graph, textures, ssr, gbuffer, frame );
+        if ( traced )
+        {
+            settings.Traced                       = true;
+            settings.MeshSDFTraceDistance         = traced->MeshSDFTraceDistance;
+            settings.MeshSDFEndDistanceFromCamera = traced->MeshSDFEndDistanceFromCamera;
+        }
+        const bool hitLit = traced && traced->HitGroups != nullptr;
         graph.AddPass(
-             "Deferred: SSR", RDG::PassFlags::Compute,
+             !traced  ? "Deferred: SSR"
+             : hitLit ? "Deferred: Reflections (classify)"
+             : traced->Tracer.Pipeline.Tracer == GlobalIllumination::Tracer::HardwareRayQuery
+                  ? "Deferred: Reflections (HardwareTraced)"
+                  : "Deferred: Reflections (SoftwareTraced)",
+             RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
-                                           traceUniforms );
+                                           traceUniforms, traced ? &*traced : nullptr );
                  // The G-buffer colours the trace does not sample stay declared as before.
                  ReadAll( pass, { gbuffer[0] }, RDG::Access::SampledCompute );
                  ReadAll( pass, { gbuffer.begin() + 2, gbuffer.end() }, RDG::Access::SampledCompute );
@@ -958,15 +1365,45 @@ namespace Desert::Graphic
              [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings, sceneHistoryReadable,
               seed]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return ssrPtr->RecordTrace( context, cameraPos, settings, sceneHistoryReadable, seed ); } );
+        if ( hitLit )
+        {
+            // THE HIT-LIT TRACE (Reflections.HitLighting): every trace texel from the ray tracing pipeline, after
+            // the classify wrote the tile mask - the screen walk, then a world ray whose hit runs its surface
+            // template's closest-hit shader and is lit here in place (SSR.shader "HitLighting",
+            // Common/SSRTrace.glslh).
+            const ShaderProtocols::Camera cameraBlock = ShaderProtocols::MakeCameraUB( frame );
+            const RDG::BufferRef          camera = graph.CreateBuffer( RDG::BufferDesc{ sizeof( cameraBlock ) },
+                                                                       "Reflections.HitLighting.CameraUB" );
+            graph.QueueBufferUpload(
+                 camera, std::as_bytes( std::span<const ShaderProtocols::Camera>( &cameraBlock, 1 ) ) );
+            graph.AddPass(
+                 "Deferred: Reflections (HitLighting)", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     ssr.DeclareHitLightingBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory,
+                                                     hzb, traceUniforms, camera, *traced );
+                     ReadAll( pass, { gbuffer[0] }, RDG::Access::SampledCompute );
+                     ReadAll( pass, { gbuffer.begin() + 2, gbuffer.end() }, RDG::Access::SampledCompute );
+                 },
+                 [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings,
+                  sceneHistoryReadable, seed,
+                  hits = traced->HitGroups]( RDG::PassContext& context ) -> Common::BoolResultStr {
+                     return ssrPtr->RecordHitLighting( context, cameraPos, settings, sceneHistoryReadable, seed,
+                                                       *hits );
+                 } );
+        }
         const RDG::TextureRef resolved =
              ssr.Denoise( graph,
-                          System::ReflectionsDenoiserInputs{
-                               .Trace = trace, .TraceRay = traceRay, .TileMask = tiles, .TraceSeed = seed },
+                          System::ReflectionsDenoiserInputs{ .Trace                = trace,
+                                                             .TraceRay             = traceRay,
+                                                             .TileMask             = tiles,
+                                                             .TraceSeed            = seed,
+                                                             .ReconstructionRadius = m_ReflectionDenoiserRadius },
                           System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
                                                          .GBufferDepth  = inputs[2],
                                                          .Velocity      = velocity,
                                                          .Black         = textures.GraphRefs().System.Black },
                           frame );
-        return FrameSSR{ .Resolved = resolved, .SceneHistory = sceneHistory };
+        return FrameSSR{ .Resolved = resolved };
     }
 } // namespace Desert::Graphic

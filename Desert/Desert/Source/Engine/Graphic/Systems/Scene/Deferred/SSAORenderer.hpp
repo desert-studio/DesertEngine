@@ -62,10 +62,10 @@ namespace Desert::Graphic::System
                 return;
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
-                 .Sampled( "u_GBufferDepth", depth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::PointClamp() )
-                 .Sampled( "u_GBufferNormal", normal, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           kSampler );
+                 .Texture( "u_GBufferDepth", depth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                 .Texture( "u_GBufferNormal", normal, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "u_LinearRepeatSampler", kSampler );
         }
 
         [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context, const glm::mat4& viewProj,

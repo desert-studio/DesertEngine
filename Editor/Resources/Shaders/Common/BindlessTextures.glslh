@@ -1,0 +1,119 @@
+#ifndef DESERT_BINDLESS_TEXTURES_GLSLH
+#define DESERT_BINDLESS_TEXTURES_GLSLH
+
+// THE GLOBAL BINDLESS TEXTURE TABLE (Engine/Graphic/BindlessTextureTable.hpp, VulkanBindlessTextureTable.hpp).
+// Every texture created from uploaded pixels has a slot for its GPU life; slot 0 is the magenta "missing" texture.
+// Sampled images and samplers are separate arrays: the sampler is the material slot's state, picked from a FIXED
+// set (one per wrap U x wrap V x filter), never one per texture.
+//
+// The set index, both binding numbers and the sampler count are the engine's constants
+// (Core/ShaderCompiler/BindlessSetIndex.hpp kBindlessShaderDefines), handed to every compile as defines, so the
+// shader and the pipeline layout cannot disagree.
+
+#extension GL_EXT_nonuniform_qualifier : require
+
+#if !defined( DESERT_BINDLESS_SET ) || !defined( DESERT_BINDLESS_SAMPLER_BINDING )
+#error "the bindless defines come from the shader compiler (kBindlessShaderDefines); this shader was compiled without them"
+#endif
+#if !defined( DESERT_BINDLESS_TEXTURE_BINDING ) || !defined( DESERT_BINDLESS_SAMPLER_COUNT )
+#error "the bindless defines come from the shader compiler (kBindlessShaderDefines); this shader was compiled without them"
+#endif
+#ifndef DESERT_BINDLESS_SAMPLER_WRAP_COUNT
+#error "the bindless defines come from the shader compiler (kBindlessShaderDefines); this shader was compiled without them"
+#endif
+
+layout( set = DESERT_BINDLESS_SET, binding = DESERT_BINDLESS_SAMPLER_BINDING ) uniform sampler
+     u_BindlessSamplers[DESERT_BINDLESS_SAMPLER_COUNT];
+layout( set = DESERT_BINDLESS_SET, binding = DESERT_BINDLESS_TEXTURE_BINDING ) uniform texture2D u_BindlessTextures[];
+
+// Sampler indices: wrapU + W * wrapV + W * W * filter with W = DESERT_BINDLESS_SAMPLER_WRAP_COUNT, wrap Repeat 0 /
+// Clamp 1 / Mirror 2 and filter Linear 0 / Nearest 1 (BindlessSamplerFor in BindlessTextureTable.hpp).
+const uint BINDLESS_SAMPLER_WRAP_COUNT = uint( DESERT_BINDLESS_SAMPLER_WRAP_COUNT );
+
+uint BindlessSamplerIndex( uint wrapU, uint wrapV, uint filterMode )
+{
+    return wrapU + BINDLESS_SAMPLER_WRAP_COUNT * wrapV + BINDLESS_SAMPLER_WRAP_COUNT * BINDLESS_SAMPLER_WRAP_COUNT * filterMode;
+}
+
+const uint BINDLESS_SAMPLER_LINEAR_REPEAT  = 0u;
+const uint BINDLESS_SAMPLER_LINEAR_CLAMP   = 1u + BINDLESS_SAMPLER_WRAP_COUNT * 1u;
+const uint BINDLESS_SAMPLER_LINEAR_MIRROR  = 2u + BINDLESS_SAMPLER_WRAP_COUNT * 2u;
+const uint BINDLESS_SAMPLER_NEAREST_REPEAT = BINDLESS_SAMPLER_WRAP_COUNT * BINDLESS_SAMPLER_WRAP_COUNT;
+const uint BINDLESS_SAMPLER_NEAREST_CLAMP  = 1u + BINDLESS_SAMPLER_WRAP_COUNT * 1u + BINDLESS_SAMPLER_NEAREST_REPEAT;
+
+// Both indices are nonuniformEXT: a ray hit or a material record diverges across a subgroup, and an index that
+// is not dynamically uniform without the qualifier is undefined behaviour.
+vec4 SampleBindless( uint textureSlot, uint samplerSlot, vec2 uv, float lod )
+{
+    return textureLod( sampler2D( u_BindlessTextures[nonuniformEXT( textureSlot )],
+                                  u_BindlessSamplers[nonuniformEXT( samplerSlot )] ),
+                       uv, lod );
+}
+
+// A material texture as the material row carries it (Core::Formats::MaterialLayout, kMaterialTextureGlslType): the
+// table slot and the sampler index, written by Graphic::DataDrivenMaterial::GetParamRow from the material's
+// Texture2DProperty. Exactly one 16-byte row slot; the two reserved words are the slot's remainder.
+struct BindlessTexture
+{
+    uint Texture;
+    uint Sampler;
+    uint Reserved0;
+    uint Reserved1;
+};
+
+// Implicit-LOD forms. A ray tracing stage has no derivatives: its forms are below, at the ray cone's mip.
+#ifndef DESERT_RAY_TRACING_STAGE
+vec4 SampleBindless( BindlessTexture t, vec2 uv )
+{
+    return texture( sampler2D( u_BindlessTextures[nonuniformEXT( t.Texture )],
+                               u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
+                    uv );
+}
+
+// Fragment stage only, as GLSL's own bias form.
+vec4 SampleBindlessBias( BindlessTexture t, vec2 uv, float bias )
+{
+    return texture( sampler2D( u_BindlessTextures[nonuniformEXT( t.Texture )],
+                               u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
+                    uv, bias );
+}
+#endif // !DESERT_RAY_TRACING_STAGE
+
+vec4 SampleBindlessLod( BindlessTexture t, vec2 uv, float lod )
+{
+    return SampleBindless( t.Texture, t.Sampler, uv, lod );
+}
+
+ivec2 BindlessTextureSize( BindlessTexture t, int lod )
+{
+    return textureSize( sampler2D( u_BindlessTextures[nonuniformEXT( t.Texture )],
+                                   u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
+                        lod );
+}
+
+
+#ifdef DESERT_RAY_TRACING_STAGE
+// A ray tracing stage has no screen derivatives: its mip is the RAY CONE's (UE RayTracingCommon.ush ComputeRayConeLod;
+// Akenine-Moller et al. 2021, "Improved Shader and Texture Level of Detail Using Ray Cones"). Mesh/Surface/
+// Pass_RayHit.glslh sets this to log2( cone width / sqrt( world area / uv area ) / |cos| ) before it evaluates the
+// surface; a texture adds half the log2 of its texel count. 0 outside a hit (ray generation samples mip 0).
+float g_DesertRayHitLod = 0.0;
+
+float RayHitTextureLod( BindlessTexture t )
+{
+    const ivec2 size = BindlessTextureSize( t, 0 );
+    return max( g_DesertRayHitLod + 0.5 * log2( float( max( size.x * size.y, 1 ) ) ), 0.0 );
+}
+
+// The implicit-LOD forms a surface function calls, at the ray cone's mip (the bias form adds its bias to it).
+vec4 SampleBindless( BindlessTexture t, vec2 uv )
+{
+    return SampleBindlessLod( t, uv, RayHitTextureLod( t ) );
+}
+
+vec4 SampleBindlessBias( BindlessTexture t, vec2 uv, float bias )
+{
+    return SampleBindlessLod( t, uv, RayHitTextureLod( t ) + bias );
+}
+#endif // DESERT_RAY_TRACING_STAGE
+#endif

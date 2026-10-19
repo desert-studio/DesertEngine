@@ -20,23 +20,18 @@ namespace Desert::Graphic::API::Vulkan
                                                    const uint32_t                descriptorCount,
                                                    const VkDescriptorBufferInfo* pBufferInfo );
 
-        static VkWriteDescriptorSet GetSampler2DWDS( VulkanMaterialBackend* materialBackend, const uint32_t frame,
-                                                     const uint32_t set, const uint32_t dstBinding,
-                                                     const uint32_t               descriptorCount,
-                                                     const VkDescriptorImageInfo* pImageInfo );
+        // A separate texture (VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE): the info's view and layout, no sampler. There is
+        // no combined image sampler in this engine; the texture's sampler state is a separate SAMPLER write.
+        static VkWriteDescriptorSet GetSampledImageWDS( VulkanMaterialBackend* materialBackend,
+                                                        const uint32_t frame, const uint32_t set,
+                                                        const uint32_t               dstBinding,
+                                                        const VkDescriptorImageInfo* pImageInfo );
 
-        static VkWriteDescriptorSet GetSamplerCubeWDS( VulkanMaterialBackend* materialBackend,
-                                                       const uint32_t frame, const uint32_t set,
-                                                       const uint32_t dstBinding, const uint32_t descriptorCount,
-                                                       const VkDescriptorImageInfo* pImageInfo );
-
-        // Volume sampler (`sampler3D`). Unlike the 2D and cube variants there is deliberately NO fallback
-        // texture: the fallbacks are 2D images, and a 2D view bound to a sampler3D does not fail — it
-        // samples garbage. Callers must therefore validate the image info before calling.
-        static VkWriteDescriptorSet GetSampler3DWDS( VulkanMaterialBackend* materialBackend, const uint32_t frame,
-                                                     const uint32_t set, const uint32_t dstBinding,
-                                                     const uint32_t               descriptorCount,
-                                                     const VkDescriptorImageInfo* pImageInfo );
+        // A separate sampler state (VK_DESCRIPTOR_TYPE_SAMPLER): the info's sampler alone.
+        static VkWriteDescriptorSet GetSamplerStateWDS( VulkanMaterialBackend* materialBackend,
+                                                        const uint32_t frame, const uint32_t set,
+                                                        const uint32_t               dstBinding,
+                                                        const VkDescriptorImageInfo* pImageInfo );
 
         static VkWriteDescriptorSet GetStorageWDS( VulkanMaterialBackend* materialBackend, const uint32_t frame,
                                                    const uint32_t set, const uint32_t dstBinding,

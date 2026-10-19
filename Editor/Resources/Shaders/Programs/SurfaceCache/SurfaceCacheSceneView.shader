@@ -56,9 +56,13 @@ Shader "SurfaceCacheSceneView"
         {
             SurfaceCardPage surfaceCardPages[];
         };
-        Uniform(2) sampler2D u_AtlasColor; // albedo ("Lumen Scene (Cards)") or FinalLighting ("(Lit)")
-        Uniform(3) sampler2D u_AtlasDepth;
-        Uniform(4) sampler2D u_AtlasOpacity;
+        Uniform sampler u_PointClampSampler;
+        Uniform(2) texture2D u_AtlasColor; // albedo ("Lumen Scene (Cards)") or FinalLighting ("(Lit)")
+        #define u_AtlasColor sampler2D(u_AtlasColor, u_PointClampSampler)
+        Uniform(3) texture2D u_AtlasDepth;
+        #define u_AtlasDepth sampler2D(u_AtlasDepth, u_PointClampSampler)
+        Uniform(4) texture2D u_AtlasOpacity;
+        #define u_AtlasOpacity sampler2D(u_AtlasOpacity, u_PointClampSampler)
         In(0) vec2 v_Local;
         In(1) vec4 v_Clip;
         layout(location = 2) in flat vec4 v_ClipDepthStep;

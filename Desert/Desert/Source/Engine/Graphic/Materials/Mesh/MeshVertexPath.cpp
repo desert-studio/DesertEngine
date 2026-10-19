@@ -1,6 +1,7 @@
 #include "MeshVertexPath.hpp"
 
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
+#include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <format>
 #include <functional>
@@ -18,11 +19,14 @@ namespace Desert::Graphic
         // with no surface evaluated. Glass is not a cell of its own: the translucent template's Forward cell draws
         // it.
         constexpr const char* kMeshCells[kMeshVertexPathCount][kMeshPassCount] = {
-             // Forward             GBuffer              Glass    Shadow depth
-             { "Static.Forward", "Static.GBuffer", nullptr, "Static.ShadowDepth" },
-             { "Skinned.Forward", "Skinned.GBuffer", nullptr, "Skinned.ShadowDepth" },
-             { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth" },
-             { "ParticleSprite.Forward", nullptr, nullptr, nullptr },
+             // Forward  GBuffer  Glass  Shadow depth  Depth/normal  Virtual shadow depth
+             { "Static.Forward", "Static.GBuffer", nullptr, "Static.ShadowDepth", nullptr,
+               "Static.VirtualShadowDepth" },
+             { "Skinned.Forward", "Skinned.GBuffer", nullptr, "Skinned.ShadowDepth", nullptr,
+               "Skinned.VirtualShadowDepth" },
+             { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth", nullptr,
+               "Instanced.VirtualShadowDepth" },
+             { "ParticleSprite.Forward", nullptr, nullptr, nullptr, nullptr, nullptr },
         };
     } // namespace
 
@@ -49,6 +53,15 @@ namespace Desert::Graphic
                                                    MeshPass                                       pass,
                                                    const std::function<bool( std::string_view )>& isRegistered )
     {
+        // A template without a Surface block declares its depth-normal program as a named pass of its own (the
+        // parser refuses an opaque one that does not); a surface template is in the G-buffer and has none.
+        if ( pass == MeshPass::DepthNormal )
+        {
+            if ( path != MeshVertexPath::Static || templateName.empty() )
+                return std::nullopt;
+            std::string own = std::format( "{}/{}", templateName, Core::Preprocess::kGenericDepthNormalPass );
+            return isRegistered( own ) ? std::optional<std::string>( std::move( own ) ) : std::nullopt;
+        }
         auto cell = MeshShaderFor( templateName, path, pass );
         if ( cell && MeshCellPath( *cell ) && !isRegistered( *cell ) )
             cell = ( path == MeshVertexPath::Static && pass == MeshPass::Forward )
@@ -132,6 +145,10 @@ namespace Desert::Graphic
                 return "Glass";
             case MeshPass::ShadowDepth:
                 return "ShadowDepth";
+            case MeshPass::DepthNormal:
+                return "DepthNormal";
+            case MeshPass::VirtualShadowDepth:
+                return "VirtualShadowDepth";
         }
         return "?";
     }

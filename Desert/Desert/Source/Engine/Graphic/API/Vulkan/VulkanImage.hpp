@@ -159,6 +159,10 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_Specification;
         }
+        [[nodiscard]] const Core::Formats::Image2DSpecification& GetSpecification() const
+        {
+            return m_Specification;
+        }
         NO_DISCARD Common::ResultStr<std::vector<uint8_t>> ReadPixelsRGBA8() override;
         NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>> BeginReadbackRGBA8() override;
 
@@ -278,7 +282,7 @@ namespace Desert::Graphic::API::Vulkan
             desc.Format = m_Specification.Format;
             desc.Mips   = m_Resource.MipLevels;
             desc.Layers = m_Resource.LayerCount;
-            desc.Dim    = RDG::TextureDim::Cube;
+            desc.Dim    = m_Specification.CubeArray ? RDG::TextureDim::CubeArray : RDG::TextureDim::Cube;
             return desc;
         }
         void RecordLayouts( std::vector<VkImageLayout> layouts ) override

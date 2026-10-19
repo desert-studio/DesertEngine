@@ -1,4 +1,5 @@
 #include "TerrainRenderer.hpp"
+#include <Engine/Graphic/MeshDrawArguments.hpp>
 
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
@@ -9,8 +10,10 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/RenderPass.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/Units.hpp>
 
@@ -88,6 +91,28 @@ namespace Desert::Graphic::System
 
         // Which landscape and which tile of it: tiles of one root share its origin, and a tile's index is its
         // first sample over the tile size. Two roots at one origin would be one landscape drawn twice.
+        // A tile's world box: its quads and the whole height range its R16 samples can encode
+        // (Common/LandscapeHeight.glslh: (s - 32768) / 128 * ZScale, s in 0..65535).
+        struct VsmTileBox
+        {
+            glm::vec3 Min{ 0.0f };
+            glm::vec3 Max{ 0.0f };
+        };
+        VsmTileBox TileBox( const LandscapeTileDraw& at )
+        {
+            constexpr float kLowestLocal  = ( 0.0f - 32768.0f ) / 128.0f;
+            constexpr float kHighestLocal = ( 65535.0f - 32768.0f ) / 128.0f;
+            const float     x0            = at.OriginX + ( static_cast<float>( at.FirstSampleX ) * at.SpacingCm );
+            const float     z0            = at.OriginZ + ( static_cast<float>( at.FirstSampleZ ) * at.SpacingCm );
+            const float     extent        = static_cast<float>( at.QuadsPerTile ) * at.SpacingCm;
+            const float     y0            = at.BaseY + ( kLowestLocal * at.ZScale );
+            const float     y1            = at.BaseY + ( kHighestLocal * at.ZScale );
+            return {
+                 .Min = glm::vec3( std::min( x0, x0 + extent ), std::min( y0, y1 ), std::min( z0, z0 + extent ) ),
+                 .Max =
+                      glm::vec3( std::max( x0, x0 + extent ), std::max( y0, y1 ), std::max( z0, z0 + extent ) ) };
+        }
+
         struct TileKey
         {
             float   OriginX                            = 0.0f;
@@ -222,6 +247,8 @@ namespace Desert::Graphic::System
     {
         m_FrameGroups.clear();
         m_FrameDraws.clear();
+        m_FrameInstances.clear();
+        m_FrameTints.clear();
         if ( m_Queue.empty() )
             return;
 
@@ -249,6 +276,8 @@ namespace Desert::Graphic::System
         // against the old one.
         std::unordered_map<std::string, size_t> groupIndex;
         m_FrameDraws.reserve( m_Queue.size() );
+        m_FrameInstances.reserve( m_Queue.size() );
+        m_FrameTints.reserve( m_Queue.size() );
 
         // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
         std::unordered_map<TileKey, float, TileKeyHash> tileLods;
@@ -258,7 +287,8 @@ namespace Desert::Graphic::System
         for ( const auto& t : m_Queue )
         {
             const auto [it, inserted] = groupIndex.try_emplace(
-                 TerrainTextureKey( t.Overrides, t.Heightmap, t.Weights.Weightmap ), m_FrameGroups.size() );
+                 TerrainTextureKey( t.Overrides, t.Heightmap.get(), t.Weights.Weightmap.get() ),
+                 m_FrameGroups.size() );
             ProgramMaterials& materials = m_Materials[it->first];
             if ( inserted )
             {
@@ -267,6 +297,7 @@ namespace Desert::Graphic::System
                     materials.Forward = std::make_unique<DataDrivenMaterial>( "Terrain" );
                     materials.GBuffer = std::make_unique<DataDrivenMaterial>( "TerrainGBuffer" );
                     materials.Shadow  = std::make_unique<DataDrivenMaterial>( "TerrainShadow" );
+                    materials.VirtualShadow = std::make_unique<DataDrivenMaterial>( "TerrainVirtualShadow" );
                 }
                 m_FrameGroups.push_back( { it->first, {}, {} } );
 
@@ -290,13 +321,15 @@ namespace Desert::Graphic::System
                     if ( img != nullptr && !surface->SetTexture( name, img ) )
                         LogRefusedTextureOverride( surface->GetShaderName(), name );
                 }
-                surface->SetTexture( "u_Heightmap", t.Heightmap );
-                materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap );
+                surface->SetTexture( "u_Heightmap", t.Heightmap.get() );
+                materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap.get() );
+                materials.VirtualShadow->SetTexture( "u_Heightmap", t.Heightmap.get() );
                 if ( t.Weights.Weightmap != nullptr )
                 {
-                    surface->SetTexture( "u_Weightmap", t.Weights.Weightmap );
-                    // The caster reads the visibility channel too: a hole must not cast a shadow.
-                    materials.Shadow->SetTexture( "u_Weightmap", t.Weights.Weightmap );
+                    surface->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
+                    // The casters read the visibility channel too: a hole must not cast a shadow.
+                    materials.Shadow->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
+                    materials.VirtualShadow->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
                 }
             }
             FrameGroup&         group   = m_FrameGroups[it->second];
@@ -325,6 +358,16 @@ namespace Desert::Graphic::System
             group.ParamRows.insert( group.ParamRows.end(), surface->GetParamRow().begin(),
                                     surface->GetParamRow().end() );
             group.Instances.push_back( instance );
+            m_FrameInstances.push_back( instance );
+            // Terrain.shader and TerrainGBuffer.shader declare Tint (the ShaderCacheKey suite holds the two
+            // Properties blocks equal); a cell without it is a broken shader, said, and its hits draw untinted.
+            const std::optional<glm::vec4> tint =
+                 MaterialBinder::ReadRowParam( surface->GetMaterialLayout(), surface->GetParamRow(), "Tint" );
+            if ( !tint )
+                LOG_ERROR( "[TerrainRenderer] '{}' has no Tint parameter: the landscape's ray tracing hits shade "
+                           "untinted",
+                           surface->GetShaderName() );
+            m_FrameTints.push_back( tint.value_or( glm::vec4( 1.0f ) ) );
         }
 
         // ── Upload every group's buffers + the shared frame data, still before any draw ─────────────────
@@ -339,9 +382,10 @@ namespace Desert::Graphic::System
         {
             ProgramMaterials const& materials = m_Materials[group.Key];
             DataDrivenMaterial* surface   = deferred ? materials.GBuffer.get() : materials.Forward.get();
-            for ( DataDrivenMaterial* material : { surface, materials.Shadow.get() } )
+            for ( DataDrivenMaterial* material :
+                  { surface, materials.Shadow.get(), materials.VirtualShadow.get() } )
             {
-                // The shadow program has no TerrainUB: its vertices are the camera's (the LOD rides in the row).
+                // The shadow programs have no TerrainUB: its vertices are the camera's (the LOD rides in the row).
                 if ( auto* terrainUB = material->Get<UniformBufferProperty>( "TerrainUB" ) )
                     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a uniform block uploaded as
                     // bytes
@@ -414,18 +458,32 @@ namespace Desert::Graphic::System
     // first refused draw is the node's error.
     Common::BoolResultStr TerrainRenderer::RecordDraws(
          const RDG::PassContext& context, const uint32_t firstBlock, const GraphicsPipeline& pipeline,
-         std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program, const glm::mat4& clipFromWorld )
+         std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program, const glm::mat4& clipFromWorld,
+         const std::optional<VirtualShadowIndirect>& indirect )
     {
         std::vector<std::unique_ptr<RDG::PassBindings>> blocks;
         blocks.reserve( m_FrameGroups.size() );
         for ( uint32_t group = 0; group < static_cast<uint32_t>( m_FrameGroups.size() ); ++group )
             blocks.push_back(
                  std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( firstBlock + group ) ) );
-        for ( const auto& draw : m_FrameDraws )
+        for ( size_t k = 0; k < m_FrameDraws.size(); ++k )
         {
-            auto* material = ( m_Materials[m_FrameGroups[draw.Group].Key].*program ).get();
+            const FrameDraw& draw     = m_FrameDraws[k];
+            auto*            material = ( m_Materials[m_FrameGroups[draw.Group].Key].*program ).get();
             material->SetMaterialIndex( draw.Row );
             material->SetPushMatrix( clipFromWorld );
+            if ( indirect )
+            {
+                // The level's cull kept or dropped this tile (AppendVirtualShadowDraws: record k of the
+                // terrain's).
+                const uint64_t offset = ( uint64_t{ indirect->FirstRecord } + k ) * kMeshDrawArgumentsBytes;
+                if ( auto drawn = Renderer::DrawProceduralIndirect( *blocks[draw.Group], pipeline,
+                                                                    material->GetMaterialExecutor(),
+                                                                    indirect->Arguments, offset );
+                     !drawn.IsSuccess() )
+                    return drawn;
+                continue;
+            }
             if ( auto drawn = Renderer::GetInstance().DrawProcedural(
                       *blocks[draw.Group], pipeline, material->GetMaterialExecutor(), draw.VertexCount, 1 );
                  !drawn.IsSuccess() )
@@ -529,4 +587,140 @@ namespace Desert::Graphic::System
         // Through the blocks DeclareShadowCascade declared on this cascade's node.
         return RecordDraws( context, firstBlock, *m_ShadowPipeline, &ProgramMaterials::Shadow, cascadeViewProj );
     }
+
+    void TerrainRenderer::AppendVirtualShadowEntries( std::vector<ShadowCasterEntry>& entries ) const
+    {
+        // A tile's depth changes with its heightmap's pixels (HeightRevision), its holes (the weightmap's Revision
+        // and its visibility layer), where it sits and the grid it is drawn with: its LOD grid (Params.w) and the
+        // whole LODs its borders stitch to (LodEdges / LodCorners), the main camera's (PrepareFrame; the frame's
+        // instances are parallel to the queue). A grid change redraws the tile's pages (UE: a landscape LOD change
+        // invalidates its virtual shadow pages); the morph inside one grid is not tracked (REMAINDER).
+        for ( size_t index = 0; index < m_Queue.size(); ++index )
+        {
+            const TerrainDrawData&   tile = m_Queue[index];
+            const LandscapeTileDraw& at   = tile.Landscape;
+            uint64_t                 hash = 1469598103934665603ull;
+            const auto               add  = [&hash]( const auto& value )
+            {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): FNV-1a over the value's bytes
+                const auto* bytes = reinterpret_cast<const unsigned char*>( &value );
+                for ( std::size_t i = 0; i < sizeof( value ); ++i )
+                {
+                    hash ^= bytes[i];
+                    hash *= 1099511628211ull;
+                }
+            };
+            add( tile.Heightmap.get() );
+            add( at.OriginX );
+            add( at.OriginZ );
+            add( at.BaseY );
+            add( at.SpacingCm );
+            add( at.ZScale );
+            add( at.FirstSampleX );
+            add( at.FirstSampleZ );
+            add( at.QuadsPerTile );
+            add( at.NeighbourMask );
+            add( at.Entity );
+            add( at.HeightRevision );
+            add( tile.Weights.Weightmap.get() );
+            add( tile.Weights.Revision );
+            add( tile.Weights.VisibilityLayer );
+            if ( m_FrameInstances.size() == m_Queue.size() )
+            {
+                const TerrainInstance& instance = m_FrameInstances[index];
+                add( instance.Params.w );
+                add( glm::floor( instance.LodEdges ) );
+                add( glm::floor( instance.LodCorners ) );
+            }
+
+            const VsmTileBox box = TileBox( at );
+            entries.push_back( { .Signature = hash, .Min = box.Min, .Max = box.Max } );
+        }
+    }
+
+    void TerrainRenderer::AppendVirtualShadowDraws( std::vector<VirtualShadowCasterDraw>& draws ) const
+    {
+        // RecordVirtualShadow draws m_FrameDraws in order, one per queued tile (PrepareFrame).
+        DESERT_VERIFY( m_FrameDraws.empty() || m_FrameDraws.size() == m_Queue.size(),
+                       "the terrain's frame draws are one per queued tile" );
+        for ( size_t k = 0; k < m_FrameDraws.size(); ++k )
+        {
+            const VsmTileBox box = TileBox( m_Queue[k].Landscape );
+            draws.push_back( { .Min       = box.Min,
+                               .Max       = box.Max,
+                               .Arguments = { m_FrameDraws[k].VertexCount, 0u, 0u, 0u, 0u } } );
+        }
+    }
+
+    const GraphicsPipeline* TerrainRenderer::VirtualShadowPipeline()
+    {
+        if ( m_VirtualShadowPipeline || m_VirtualShadowRefused )
+            return m_VirtualShadowPipeline.get();
+        const auto refuse = [this]( const std::string& why ) -> const GraphicsPipeline*
+        {
+            m_VirtualShadowRefused = true;
+            LOG_ERROR( "[TerrainRenderer] the terrain casts no virtual shadow: {}", why );
+            return nullptr;
+        };
+        const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "TerrainVirtualShadow" );
+        if ( !shader )
+            return refuse( "missing shader 'TerrainVirtualShadow'" );
+
+        GraphicsPipelineSpecification spec;
+        spec.DebugName = "TerrainVirtualShadowPipeline";
+        spec.Shader    = shader;
+        ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
+        // The level's node has no attachment (RDG PassBuilder::RenderArea): no colour, no depth, and so no depth
+        // test; the fragment keeps the nearest occluder itself (imageAtomicMax). Depth clamp, as the mesh casters
+        // (MeshRenderer::EnsureVirtualShadowPipelines): ground nearer the sun than the level's range still writes.
+        spec.TargetLayout      = RenderTargetLayout{};
+        spec.BlendEnable       = false;
+        spec.DepthTestEnabled  = false;
+        spec.DepthWriteEnabled = false;
+        spec.DepthClampEnable  = true;
+        spec.CullMode          = CullMode::None;
+        const auto pipeline    = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        if ( !pipeline )
+            return refuse( pipeline.GetError() );
+        m_VirtualShadowPipeline = pipeline.GetValue();
+        return m_VirtualShadowPipeline.get();
+    }
+
+    uint32_t TerrainRenderer::DeclareVirtualShadow( RDG::PassBuilder&                   pass,
+                                                    const VirtualShadowBlockParameters& parameters )
+    {
+        if ( m_FrameDraws.empty() )
+            return 0;
+        const GraphicsPipeline* pipeline = VirtualShadowPipeline();
+        if ( pipeline == nullptr )
+            return 0;
+        const std::shared_ptr<const RDG::ShaderBindingLayout>& layout =
+             m_VirtualShadowLayout.Get( pipeline->GetSpecification().Shader );
+        const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::VirtualShadow );
+        for ( const MaterialExecutor* executor : executors )
+        {
+            auto block = pass.Bindings( layout, executor->GetRouteFill() );
+            parameters( block, *layout );
+        }
+        return static_cast<uint32_t>( executors.size() );
+    }
+
+    Common::BoolResultStr TerrainRenderer::RecordVirtualShadow( const RDG::PassContext& context,
+                                                                const uint32_t          firstBlock,
+                                                                const glm::mat4&        levelViewProj,
+                                                                const RDG::BufferRef    arguments,
+                                                                const uint32_t          firstRecord )
+    {
+        if ( !m_VirtualShadowPipeline || m_FrameDraws.empty() )
+            return BOOLSUCCESS;
+        // No caster bias in the virtual shadow map: its receivers are offset along their normals instead
+        // (kVsmNormalBiasTexels, "VSM: Project").
+        for ( const auto& group : m_FrameGroups )
+            m_Materials.at( group.Key ).VirtualShadow->SetShadowSlopeBias( 0.0f, 0.0f );
+        DESERT_PROFILE_PASS( "TerrainVirtualShadow" );
+        return RecordDraws( context, firstBlock, *m_VirtualShadowPipeline, &ProgramMaterials::VirtualShadow,
+                            levelViewProj,
+                            VirtualShadowIndirect{ .Arguments = arguments, .FirstRecord = firstRecord } );
+    }
+
 } // namespace Desert::Graphic::System

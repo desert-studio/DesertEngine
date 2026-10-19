@@ -7,6 +7,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/SkyPayload.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
@@ -120,6 +121,11 @@ namespace Desert::Graphic
                                  : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
                             RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
 
+        // Every input above and below is a separate texture; the two shared states it is read through are the
+        // ones the screen passes read the same images with (kSkyBakeLinearRepeatSamplerBinding).
+        pipeline->SetSampler( kSkyBakeGlobalFilterSamplerBinding, GlobalTextureFilterSampler() );
+        pipeline->SetSampler( kSkyBakeLinearRepeatSamplerBinding, RDG::SamplerDesc::LinearRepeat() );
+
         // ---- THE CLOUD LAYER -------------------------------------------------------------------------
         //
         // EVERY ONE OF THESE IS WRITTEN ON EVERY PATH, whether the layer exists or not. A declared
@@ -217,6 +223,12 @@ namespace Desert::Graphic
                                      ? clouds.MediumImages[slot]
                                      : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+        // The medium's shared state sits right after its textures (ShaderGraph's Volume-domain emitter), in the
+        // state the screen march binds it with (VolumetricCloudRenderer, u_CloudMediumSampler).
+        if ( !clouds.MediumImages.empty() )
+            pipeline->SetSampler( Core::kCloudMediumTextureFirst +
+                                       static_cast<uint32_t>( clouds.MediumImages.size() ),
+                                  GlobalTextureFilterSampler() );
 
         // x marches, y reads the sky-occlusion volume, z is the aerial perspective's start depth, w applies
         // the atmosphere's transmittance at each cloud sample's own altitude. The last three are ANDed with
@@ -276,8 +288,10 @@ namespace Desert::Graphic
         }
         const auto& pipeline = built.GetValue();
 
-        pipeline->SetInput( 0, input, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        pipeline->SetOutput( 1, output.get(), 0 );
+        pipeline->SetInput( kComputeImagesInputBinding, input, RDG::Access::SampledCompute,
+                            RDG::SubresourceRange::All() );
+        pipeline->SetSampler( kComputeImagesSamplerBinding, RDG::SamplerDesc::LinearRepeat() );
+        pipeline->SetOutput( kComputeImagesOutputBinding, output.get(), 0 );
 
         // One thread per face texel (the shaders normalize by `imageSize(outputTexture)`, which is the
         // face). When this dispatch was derived from the old cross-layout Width it launched 4x3 = TWELVE
@@ -360,8 +374,10 @@ namespace Desert::Graphic
             const uint32_t mipSize   = std::max( 1u, faceSize >> mip );
             const uint32_t groups    = DispatchGroupCount( mipSize, kComputeImagesWorkGroupSize );
 
-            pipeline->SetInput( 0, radiance, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-            pipeline->SetOutput( 1, output.get(), mip );
+            pipeline->SetInput( kComputeImagesInputBinding, radiance, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() );
+            pipeline->SetSampler( kComputeImagesSamplerBinding, RDG::SamplerDesc::LinearRepeat() );
+            pipeline->SetOutput( kComputeImagesOutputBinding, output.get(), mip );
             pipeline->SetPushConstants( &push, sizeof( push ) );
             pipeline->Record( batch, groups, groups, 6u );
         }

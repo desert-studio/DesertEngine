@@ -317,6 +317,29 @@ namespace Desert::Core::Formats
         return blend == SurfaceBlendMode::Translucent || blend == SurfaceBlendMode::Additive;
     }
 
+    // UE's OpacityMask input of a `BlendMode Masked` template, as its `OpacityMask` line states it
+    // (DShaderParser): WHICH texture parameter is the mask, which channel of it, read at which UV set through
+    // which UV transform, and which Float parameter is the clip threshold (UE's OpacityMaskClipValue). It is the
+    // one definition of the mask: the parser GENERATES the surface cells' DesertSurfaceOpacityMask() from it
+    // (every pass clips with that function, Mesh/Surface/SurfaceTypes.glslh DESERT_SURFACE_CLIP), and a reader
+    // outside the raster cells (ray- traced shadows' any-hit / alpha test) evaluates the same five values from the
+    // material's own parameters, so the two cannot cut a different shape. Present exactly when Blend == Masked.
+    struct SurfaceOpacityMask
+    {
+        std::string Texture;      // a Texture2D parameter of the template's Properties
+        std::string ChannelParam; // a Float parameter holding the channel (0 = R .. 3 = A); empty = Channel
+        uint32_t    Channel = 3;  // the fixed channel (0 = R .. 3 = A) when ChannelParam is empty
+        uint32_t    UVSet   = 0;  // 0 = SurfaceInput.UV0, 1 = UV1
+        // The UV transform (SurfaceTransformUV: uv * tiling rotated by rotation about 0.5, plus offset; a tiling
+        // component <= 0 reads as 1). All three empty = the UV set as it stands; otherwise all three are named.
+        std::string TilingParam;   // Vec2
+        std::string OffsetParam;   // Vec2
+        std::string RotationParam; // Float, radians
+        std::string ClipParam;     // the Float clip threshold: a texel whose mask is below it is cut
+
+        bool operator==( const SurfaceOpacityMask& ) const = default;
+    };
+
     struct ShaderProgramMeta
     {
         std::vector<ShaderParam> Params;
@@ -327,6 +350,16 @@ namespace Desert::Core::Formats
         // Each is a separate program registered in the ShaderService as "<Shader>/<Pass>";
         // empty for legacy single-program shaders.
         std::vector<std::string> PassNames;
+        // The passes of PassNames whose stages run in a ray tracing pipeline (RayGen / Miss / ClosestHit /
+        // AnyHit; a surface template's `RayTracing.Hit` cell). ShaderService builds them only on a device that
+        // offers the pipeline (CapabilityCatalog RayTracingMode::RayTracingPipeline): their SPIR-V needs the
+        // RayTracingKHR capability, which no other device can take a module of.
+        std::vector<std::string> RayTracingPassNames;
+        // THE NAMED PASS THE DEFAULT PROGRAM IS, or empty when the default program is the shader's own top-level
+        // stage set: a surface template's default cell (kSurfaceDefaultCell), or the first named pass of a shader
+        // that has no top-level stages (DShaderParser). "<Shader>/<DefaultPassName>" and "<Shader>" are ONE
+        // program - registered, cooked and built once (Preprocess::IsDefaultProgramPass), never compiled twice.
+        std::string DefaultPassName;
 
         // THE BODY OF A `Medium { ... }` BLOCK — a PROGRAM FRAGMENT, not a stage.
         //
@@ -352,6 +385,8 @@ namespace Desert::Core::Formats
 
         // The `BlendMode` of a `Domain Surface` template (Opaque for every other program).
         SurfaceBlendMode Blend = SurfaceBlendMode::Opaque;
+        // The mask a Masked template cuts with (see SurfaceOpacityMask); nullopt for every other program.
+        std::optional<SurfaceOpacityMask> OpacityMask;
 
         // A program fragment and nothing else: no stages of its own, so it compiles to no modules and is
         // never used to build a pipeline. ShaderService registers it by name without complaining that it

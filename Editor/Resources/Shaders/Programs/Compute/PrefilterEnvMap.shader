@@ -11,7 +11,11 @@ Shader "PrefilterEnvMap"
         const float InvNumSamples = 1.0 / float(NumSamples);
 
 
-        Uniform(0, 0) samplerCube inputTexture;
+        // The source is a separate texture read through the bake's one shared state
+        // (Graphic::kComputeImagesSamplerBinding).
+        Uniform(0, 0) textureCube inputTexture;
+        Uniform(0, 2) sampler u_LinearRepeatSampler;
+        #define inputTexture samplerCube(inputTexture, u_LinearRepeatSampler)
         layout(set=0, binding=1, rgba32f) restrict writeonly uniform imageCube outputTexture;
 
         // The mip this dispatch writes and the cube's last mip index: its roughness is the engine's one ramp

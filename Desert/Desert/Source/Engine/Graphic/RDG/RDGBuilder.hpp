@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <optional>
 #include <span>
 #include <string>
@@ -133,6 +134,12 @@ namespace Desert::Graphic::RDG
         // pass. The ColorTarget is declared first; both have the same format and size. The resolve overwrites
         // every pixel, so the image's previous contents are not loaded.
         void ResolveTarget( uint32_t slot, TextureRef texture );
+        // A raster pass with NO attachment over a @p width x @p height render area (UE: a raster pass whose
+        // render-target binding holds no target, as the virtual shadow map's page raster). Its fragments write
+        // only the storage resources the pass declares, so the area is bounded by the device's framebuffer and
+        // viewport limits, not by any texture: a 16k virtual shadow map is rasterized without a 16k image. Refused
+        // with a ColorTarget / DepthTarget on the same pass, outside a Raster pass, and with a zero side.
+        void RenderArea( uint32_t width, uint32_t height );
 
         // RDG-FAULT1. Declares the parameter block of one draw / dispatch this pass records, against the shader it
         // records with (UE: the pass parameter struct handed to AddPass, validated before the pass runs). Every
@@ -204,10 +211,16 @@ namespace Desert::Graphic::RDG
                                                std::span<ExternalTexture* const> resolves = {} );
 
         // A transient extracted into @p into survives the graph: it is a culling root, is never aliased,
-        // and @p into receives its description and final states on Execute. For an external resource
+        // and @p into receives its description and final states on Execute. Its device memory is a ledger row
+        // of the CALLER'S attribution scope (CurrentResourceAttribution at this call), not of the scope the graph
+        // later executes in: the extractor is who holds it. For an external resource
         // @p into must be the object it was registered from, and the call only sets the final access
         // (e.g. Present for a swapchain image).
-        void Extract( TextureRef texture, ExternalTexture& into, Access final );
+        // @p later: the accesses the holder will declare on it in LATER graphs that this graph may not make
+        // (UE: the TexCreate flags of a pooled render target). The image is created for this graph's uses, its
+        // final access and these; a later graph declaring anything else faults that pass (CreatedAccessMask).
+        void Extract( TextureRef texture, ExternalTexture& into, Access final,
+                      std::initializer_list<Access> later = {} );
         void Extract( BufferRef buffer, ExternalBuffer& into, Access final );
 
         // RDG-FAULT1 C3b (UE: FRDGBuilder::QueueBufferUpload). CPU data for a buffer of this graph, the only way
@@ -371,6 +384,9 @@ namespace Desert::Graphic::RDG
             PassFlags                     Flags = PassFlags::None;
             std::vector<ResourceUse>      Uses;
             std::vector<AttachmentRecord> Attachments;
+            // PassBuilder::RenderArea; zero when the render area is the attachments' size.
+            uint32_t                      AreaWidth  = 0;
+            uint32_t                      AreaHeight = 0;
             ExecFunction                  Exec;
             // RDG-FAULT1: the binding blocks its setup declared (PassBuilder::Bindings) and the first malformed
             // declaration of THIS pass. A pass with a declaration error is a Declaration fault, not a graph error.
@@ -388,8 +404,12 @@ namespace Desert::Graphic::RDG
             ExternalBuffer*  ExternalBuf    = nullptr;
             ExternalTexture* ExtractTex     = nullptr;
             ExternalBuffer*  ExtractBuf     = nullptr;
+            // The scope Extract was called in: the owner of the extracted resource's ledger row (ResourceView).
+            ResourceAttribution ExtractOwner;
             bool             HasFinalAccess = false;
             Access           FinalAccess    = Access::None;
+            // Extracted textures: the accesses later graphs will make (Extract's @p later), as an access mask.
+            uint32_t            LaterAccessMask = 0;
             FaultDefault        Default        = FaultDefault::None; // SetFaultDefault (transients)
             ExternalFaultPolicy Policy         = ExternalFaultPolicy::KeepsContents; // SetFaultPolicy (externals)
 

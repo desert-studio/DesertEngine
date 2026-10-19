@@ -42,11 +42,20 @@ Shader "TemporalAA"
 
         #include <Common/ReconstructPosition.glslh>
 
-        Uniform(0) sampler2D u_SceneColor; // linear HDR, RenderExtent, jittered (texel fetches only)
-        Uniform(1) sampler2D u_SceneDepth; // reversed-Z device depth, RenderExtent
-        Uniform(2) sampler2D u_Velocity;   // NDC current - previous, RenderExtent
-        Uniform(3) sampler2D u_Exposure;   // 1x1 previous adapted luminance (AutoExposure)
-        Uniform(4) sampler2D u_History;    // previous resolve, this pass's extent
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(9) sampler u_LinearClampSampler;
+        Uniform(10) sampler u_PointClampSampler;
+        Uniform(0) texture2D u_SceneColor; // linear HDR, RenderExtent, jittered (texel fetches only)
+        #define u_SceneColor sampler2D(u_SceneColor, u_LinearClampSampler)
+        Uniform(1) texture2D u_SceneDepth; // reversed-Z device depth, RenderExtent
+        #define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
+        Uniform(2) texture2D u_Velocity;   // NDC current - previous, RenderExtent
+        #define u_Velocity sampler2D(u_Velocity, u_PointClampSampler)
+        Uniform(3) texture2D u_Exposure;   // 1x1 previous adapted luminance (AutoExposure)
+        #define u_Exposure sampler2D(u_Exposure, u_PointClampSampler)
+        Uniform(4) texture2D u_History;    // previous resolve, this pass's extent
+        #define u_History sampler2D(u_History, u_LinearClampSampler)
         layout(binding = 5, rgba16f) restrict writeonly uniform image2D u_HistoryOut;
         layout(binding = 6, rgba16f) restrict writeonly uniform image2D u_Output;
 
@@ -61,7 +70,8 @@ Shader "TemporalAA"
             float u_HistoryValid;
             float u_Pad;
         };
-        Uniform(8) sampler2D u_ResponsiveAA; // R8 coverage of responsive translucency, RenderExtent
+        Uniform(8) texture2D u_ResponsiveAA; // R8 coverage of responsive translucency, RenderExtent
+        #define u_ResponsiveAA sampler2D(u_ResponsiveAA, u_PointClampSampler)
 
 
         const float kCurrentWeight       = 0.04;  // UE r.TemporalAA.CurrentFrameWeight

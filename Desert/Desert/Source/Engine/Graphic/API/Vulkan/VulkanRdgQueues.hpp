@@ -124,6 +124,12 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<VulkanRdgSubmission>   m_Submissions;
     };
 
-    // Vulkan 1.0 stage mask of graph stages (VulkanRenderGraph.cpp).
+    // Vulkan 1.0 stage mask of graph stages (VulkanRenderGraph.cpp). The graph's compute stage is every stage a
+    // compute-class pass runs shaders in: on a device with the ray tracing pipeline that includes
+    // RAY_TRACING_SHADER (a hit-lit trace is a compute-class pass, Renderer::TraceRays), as UE's Vulkan RHI folds
+    // the ray tracing stage into its compute accesses when ray tracing is on.
     VkPipelineStageFlags RdgVulkanStages( RDG::PipelineStageFlags stages );
+    // Set once by the logical device after it enabled its features: whether VK_KHR_ray_tracing_pipeline is on,
+    // so RdgVulkanStages may name the ray tracing stage (a stage bit of a feature that is off is invalid).
+    void SetRdgRayTracingShaderStages( bool enabled );
 } // namespace Desert::Graphic::API::Vulkan

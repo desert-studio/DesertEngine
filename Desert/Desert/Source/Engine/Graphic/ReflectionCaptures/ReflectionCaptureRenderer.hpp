@@ -4,6 +4,7 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
 #include <Common/Core/Timestep.hpp>
@@ -89,12 +90,15 @@ namespace Desert::Graphic
      * UE's "recapture on change", never every frame. One capture per frame while any is pending.
      *
      * A view whose profile does not read captures (previews, thumbnails, the face views themselves) is handed
-     * an empty list and the scene's one-cube black array: the lighting shader declares the bindings.
+     * an empty list and the engine's black cube array (System.BlackCubeArray): the lighting shader declares the
+     * bindings.
      */
     class ReflectionCaptureRenderer
     {
     public:
-        ReflectionCaptureRenderer();
+        // @p scene is the owning Core::Scene's ledger instance (Scene::GetLedgerInstance): the capture arrays and
+        // the face views' rows are the scene's.
+        explicit ReflectionCaptureRenderer( ResourceOwnerInstance scene );
         ~ReflectionCaptureRenderer();
         ReflectionCaptureRenderer( const ReflectionCaptureRenderer& )            = delete;
         ReflectionCaptureRenderer& operator=( const ReflectionCaptureRenderer& ) = delete;
@@ -111,8 +115,20 @@ namespace Desert::Graphic
         /// In a view's graph, before any lit node: the scene's array and capture list published to @p textures
         /// (SceneViewInputs). The first view that reads captures after a face-view frame also records the passes
         /// that turn the face views into the capture's cube; the others register the array as it is.
-        /// @p readsCaptures false (ViewProfile::ReflectionCaptures): the empty list and the black array.
+        /// @p readsCaptures false (ViewProfile::ReflectionCaptures), or the programs did not build: the empty list
+        /// and System.BlackCubeArray.
         void AddPasses( RDG::Builder& graph, FrameTextures& textures, bool readsCaptures );
+
+        /// The three compute programs that turn face views into a capture's cube, built on the first call; false
+        /// when one did not build on this device (then for good, logged once). Asked by every view's BeginScene
+        /// before it resolves its methods: the Reflections methods that read the captures are then refused by
+        /// FailedProgram()'s name (SceneRenderer, ProgramRefusals).
+        [[nodiscard]] bool EnsurePipelines();
+        /// The first program that did not build (static storage), empty while EnsurePipelines succeeds.
+        [[nodiscard]] std::string_view FailedProgram() const
+        {
+            return m_FailedProgram;
+        }
 
     private:
         struct FaceView;
@@ -126,7 +142,6 @@ namespace Desert::Graphic
             bool                 Built    = false;
         };
 
-        [[nodiscard]] bool EnsurePipelines();
         // The array registered into @p graph, created (and every cube written black) when it does not exist or
         // has another shape. Returns the ref and whether it was created in this graph.
         [[nodiscard]] std::pair<RDG::TextureRef, bool> AcquireArray( RDG::Builder& graph, FrameTextures& textures,
@@ -145,7 +160,8 @@ namespace Desert::Graphic
         uint64_t                            m_Signature = 0;
 
         // The capture whose faces are being rendered, and how many consecutive frames its face views have had a
-        // sky environment (the face views bake their own sky; the capture is written once they have it).
+        // sky environment (the face views read the scene's sky, SceneSkyEnvironment; the capture is written once
+        // it has landed).
         static constexpr uint32_t kNoCapture               = 0xFFFFFFFFu;
         uint32_t                  m_Pending                = kNoCapture;
         uint32_t                  m_PendingSettled         = 0;
@@ -158,8 +174,9 @@ namespace Desert::Graphic
         // that rendered the last face is still on the GPU when the next one releases them.
         Assets::FrameRetireQueue<std::unique_ptr<FaceView>> m_RetiringFaces;
 
+        ResourceOwnerInstance m_Scene; // see the constructor
+
         SharedArray m_Cubes; // the scene's captures
-        SharedArray m_Black; // one black cube, for the views that read none
         // Arrays retired by a reshape stay alive while the frames in flight may still sample them.
         std::vector<std::unique_ptr<RDG::ExternalTexture>> m_Retired;
 
@@ -167,6 +184,7 @@ namespace Desert::Graphic
         std::shared_ptr<ComputePipeline> m_Downsample;
         std::shared_ptr<ComputePipeline> m_Filter;
         bool                             m_PipelinesFailed = false;
+        std::string_view                 m_FailedProgram;
         mutable ShaderBindingLayoutCache m_AssembleLayout;
         mutable ShaderBindingLayoutCache m_DownsampleLayout;
         mutable ShaderBindingLayoutCache m_FilterLayout;

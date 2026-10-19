@@ -8,7 +8,11 @@ Shader "ReflectionCaptureDownsample"
         // filter's filtered importance sampling reads (ReflectionCaptureFilter: a wide lobe samples a coarse mip),
         // exactly as the sky's prefilter reads its radiance cube's chain.
 
-        Uniform(0) samplerCube u_Source; // the source mip only (a single-mip view)
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(2) sampler u_LinearClampSampler;
+        Uniform(0) textureCube u_Source; // the source mip only (a single-mip view)
+        #define u_Source samplerCube(u_Source, u_LinearClampSampler)
         layout(binding = 1, rgba16f) writeonly uniform imageCube u_Output;
 
         vec3 CubeDirection(vec2 texel, uint face, vec2 size)

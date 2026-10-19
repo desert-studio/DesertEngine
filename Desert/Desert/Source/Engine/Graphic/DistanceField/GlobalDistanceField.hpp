@@ -18,6 +18,7 @@
 #include <Common/Core/Math/AABB.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
+#include <Engine/Core/Frustum.hpp>
 #include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -53,12 +54,25 @@ namespace Desert::Graphic::DistanceField
 {
     inline constexpr int kGlobalDistanceFieldClipmaps = 4;
 
+    // THE OBJECT GRID (UE GlobalDistanceFieldPageObjectGridBuffer, GlobalDistanceFieldObjectGrid.ush): per clipmap
+    // a toroidal grid of cells of two voxels, each listing up to four instance-table rows whose mesh distance
+    // field surface lies within the card interpolation range of the cell, nearest first - what a software hit
+    // reads to find its cards (Common/GITraceDistanceField.glslh GIHitInstanceRows). Written by the composite with
+    // the distances, brick by brick. One R32_UINT 3D image: x = cell x * 4 + slot, y = cell y, z = level * cells +
+    // cell z; a slot packs the row (24 bits) under the quantised distance (8 bits) so that sorting the words sorts
+    // the distances, kNoObjectGridRow ends the list. The constants are DistanceFieldShared.glslh's
+    // GDF_OBJECT_GRID_*.
+    inline constexpr uint32_t kNoObjectGridRow = 0xFFFFFFFFu;
+
     // One object the field is composited from: one volume of a mesh's field placed in the world (a mesh whose
     // field has several volumes - Assets::MeshDistanceFieldData::Volumes - is that many objects).
     struct GlobalDistanceFieldObject
     {
         std::shared_ptr<const Assets::MeshDistanceFieldVolume> Field;
         glm::mat4                                            World = glm::mat4( 1.0f );
+        // The instance-table row (SurfaceCache.hpp, contract B3) of the mesh instance this volume belongs to, or
+        // kNoObjectGridRow when the surface cache holds none (no cards): what the object grid lists.
+        uint32_t Row = kNoObjectGridRow;
     };
 
     // The parameters of a clipmap level (pure, shared by the update and every reader): its voxel in centimetres,
@@ -92,6 +106,7 @@ namespace Desert::Graphic::DistanceField
         {
             std::array<RDG::TextureRef, kGlobalDistanceFieldClipmaps> Clipmaps;
             std::array<glm::vec4, kGlobalDistanceFieldClipmaps>       Levels{};
+            RDG::TextureRef                                           ObjectGrid; // the object grid (above)
         };
 
         // Brings the clipmaps up to @p camera and @p objects: residency and mip streaming in the brick atlas of
@@ -100,6 +115,37 @@ namespace Desert::Graphic::DistanceField
         [[nodiscard]] Common::ResultStr<FrameField>
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
                          const std::vector<GlobalDistanceFieldObject>& objects, uint32_t poolMiB );
+
+        // THE MESH SDFS AS A NEAR-FIELD TRACE READS THEM (UE: the distance field object buffers + the view cull of
+        // LumenMeshSDFCulling.usf, CullMeshSDFObjectsForViewCS): this frame's objects - the field's own records,
+        // in the order AddUpdatePasses composited them - uploaded for the trace, beside the list of the objects a
+        // trace from the view's surfaces can reach. Bindings by name (Common/GITraceMeshSDF.glslh).
+        struct MeshSDFScene
+        {
+            RDG::TextureRef BrickAtlas;  // "u_DFBrickAtlas"
+            RDG::BufferRef  AssetData;   // "DFAssetData"
+            RDG::BufferRef  Indirection; // "DFIndirection"
+            RDG::BufferRef  Objects;     // "DFObjects"
+            RDG::BufferRef  ObjectRows;  // "GIMeshSDFObjectRowsUB": per object its instance-table row
+            // "GIMeshSDFCulledUB": uvec4(count, 0, 0, 0), then per culled object two vec4: its world box min with
+            // the object index's bits in w, its world box max.
+            RDG::BufferRef Culled;
+        };
+        // Which objects the near field may meet: the box grown by @p traceDistance (cm) inside @p view and nearer
+        // @p camera than @p endDistanceFromCamera + @p traceDistance (UE CardTraceEndDistanceFromCamera: a probe
+        // farther than that traces no mesh SDF).
+        struct MeshSDFCull
+        {
+            Core::Frustum View;
+            glm::vec3     Camera{ 0.0f };
+            float         TraceDistance         = 0.0f;
+            float         EndDistanceFromCamera = 0.0f;
+        };
+        // After AddUpdatePasses of the same frame. An error when the field holds no frame yet. The records live in
+        // device buffers of the field's own, uploaded by the graph only in a frame where they changed
+        // (DistanceFieldSceneData::GetRevision, the objects' list); the cull is this frame's.
+        [[nodiscard]] Common::ResultStr<MeshSDFScene>
+        AddMeshSDFReads( RDG::Builder& graph, const ImportImage& import, const MeshSDFCull& cull );
 
         // "Debug: Global Distance Field" over @p target (a full-screen sphere trace of the clipmaps).
         [[nodiscard]] Common::BoolResultStr AddDebugViewPass( RDG::Builder& graph, const FrameField& field,
@@ -125,7 +171,26 @@ namespace Desert::Graphic::DistanceField
                                                                   uint32_t                   samples );
 
         DistanceFieldSceneData                                              m_SceneData;
+        // The last AddUpdatePasses' objects (AddMeshSDFReads): the object records, their rows, their world boxes.
+        std::vector<glm::vec4>          m_FrameObjectData;
+        std::vector<uint32_t>           m_FrameObjectRows;
+        std::vector<Common::Math::AABB> m_FrameObjectBounds;
+        uint64_t m_FrameObjectsRevision = 0; // bumped when the objects or their rows changed
+        bool     m_HasFrame             = false;
+        // A device copy of one record list for the mesh SDF readers: one persistent buffer, grown as needed,
+        // written by a graph upload when the list's revision moved.
+        struct DeviceRecords
+        {
+            std::shared_ptr<ShaderResources::StorageBuffer> Buffer;
+            RDG::ExternalBuffer                             Import;
+            uint64_t                                        Revision = ~0ull;
+        };
+        DeviceRecords                                                       m_MeshSDFAssetData;
+        DeviceRecords                                                       m_MeshSDFIndirection;
+        DeviceRecords                                                       m_MeshSDFObjects;
+        DeviceRecords                                                       m_MeshSDFObjectRows;
         std::array<std::shared_ptr<Image3D>, kGlobalDistanceFieldClipmaps>  m_Clipmaps;
+        std::shared_ptr<Image3D>                                            m_ObjectGrid;
         std::array<std::optional<glm::ivec3>, kGlobalDistanceFieldClipmaps> m_ValidCentre;
         // The objects the clipmaps hold, by identity (field and transform): a difference is a dirty box.
         std::unordered_map<uint64_t, TrackedObject> m_Tracked;
@@ -144,5 +209,6 @@ namespace Desert::Graphic::DistanceField
         std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_UpdateBrickBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_BrickObjectBuffer;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectRowBuffer;
     };
 } // namespace Desert::Graphic::DistanceField

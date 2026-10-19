@@ -23,13 +23,20 @@ Shader "SSDReconstructReflections"
 
     Compute
     {
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound once by the pass by name and numbered by the program build (SharedSamplerBinding.hpp).
+        // Declared before Common/ScreenSpaceDenoise.glslh, whose SSDLoadSceneInfo reads the G-buffer through u_PointClampSampler.
+        Uniform sampler u_PointClampSampler;
         #include <Common/ScreenSpaceDenoise.glslh>
 
-        Uniform(1) sampler2D u_GBufferNormal;   // rgb = world normal, a = roughness
-        Uniform(2) sampler2D u_GBufferDepth;    // device depth (nearest)
-        Uniform(3) sampler2D u_Trace;           // half resolution: rgb = hit radiance, a = coverage (SSR.shader)
-        Uniform(4) sampler2D u_TraceRay;        // half resolution: xyz = hit point, w = log2 pdf (SSR.shader)
-        Uniform(5) sampler2D u_TileMask;        // one texel per SSR tile, 1 = something in it reflects
+        Uniform(1) texture2D u_GBufferNormal;   // rgb = world normal, a = roughness
+        Uniform(2) texture2D u_GBufferDepth;    // device depth (nearest)
+        Uniform(3) texture2D u_Trace;           // half resolution: rgb = hit radiance, a = coverage (SSR.shader)
+        #define u_Trace sampler2D(u_Trace, u_PointClampSampler)
+        Uniform(4) texture2D u_TraceRay;        // half resolution: xyz = hit point, w = log2 pdf (SSR.shader)
+        #define u_TraceRay sampler2D(u_TraceRay, u_PointClampSampler)
+        Uniform(5) texture2D u_TileMask;        // one texel per SSR tile, 1 = something in it reflects
+        #define u_TileMask sampler2D(u_TileMask, u_PointClampSampler)
         layout(binding = 6, rgba16f) writeonly uniform image2D u_Signal;     // premultiplied (rgb * a, a)
 
         // ScreenSpaceDenoiser::ViewUniforms (std140).
@@ -42,7 +49,8 @@ Shader "SSDReconstructReflections"
 
         PushConstant PushConstants
         {
-        	vec4 u_Params; // x = the trace's frame seed (its 2x2 block rotation), yzw unused
+        	vec4 u_Params; // x = the trace's frame seed (its 2x2 block rotation), y = kernel radius in trace texels
+        	               // (Scalability Reflections.DenoiserRadius: 2 = 5x5), zw unused
         };
 
         LocalSize(8, 8, 1);
@@ -57,13 +65,13 @@ Shader "SSDReconstructReflections"
 
         void main()
         {
-        	const ivec2 viewSize = textureSize(u_GBufferNormal, 0);
+        	const ivec2 viewSize = textureSize(sampler2D(u_GBufferNormal, u_PointClampSampler), 0);
         	const ivec2 pixel    = ivec2(gl_GlobalInvocationID.xy);
         	if (pixel.x >= viewSize.x || pixel.y >= viewSize.y)
         		return;
         	const ivec2 grid  = textureSize(u_TileMask, 0);
         	const ivec2 tile  = min(ivec2(floor((vec2(pixel) + 0.5) * vec2(grid) / vec2(viewSize))), grid - 1);
-        	const vec4  gb    = texelFetch(u_GBufferNormal, pixel, 0);
+        	const vec4  gb    = texelFetch(sampler2D(u_GBufferNormal, u_PointClampSampler), pixel, 0);
         	if (texelFetch(u_TileMask, tile, 0).r < 0.5 || !SSDPixelHasSignal(kSSDSignalReflections, gb))
         	{
         		imageStore(u_Signal, pixel, vec4(0.0));
@@ -81,20 +89,21 @@ Shader "SSDReconstructReflections"
         	const float        g1V   = SmithG1(nDotV, a2);
         	const vec4         lobe  = SSDRoughnessLobe(ref.Roughness, N, V);
         	// A neighbour texel's source pixel is up to ~6 pixels away; the plane tolerates that many pixel radii.
-        	const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(u_GBufferDepth, pixel, 0).r, ref.Position,
+        	const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(sampler2D(u_GBufferDepth, u_PointClampSampler), pixel, 0).r, ref.Position,
         	                                              1.0 / size, u_InvJitteredViewProjection);
         	const float maxPlaneDistance = max(pixelRadius * 6.0, 1e-3);
 
         	const ivec2 traceSize = textureSize(u_Trace, 0);
         	const ivec2 centre    = clamp(pixel / 2, ivec2(0), traceSize - 1);
         	const int   frame     = int(u_Params.x);
+        	const int   radius    = int(u_Params.y + 0.5);
         	const ivec2 rotation  = ivec2(frame & 1, (frame >> 1) & 1);
         	vec3  radiance    = vec3(0.0);
         	float hitWeight   = 0.0;
         	float coverage    = 0.0;
         	float weightSum   = 0.0;
-        	for (int y = -2; y <= 2; ++y)
-        		for (int x = -2; x <= 2; ++x)
+        	for (int y = -radius; y <= radius; ++y)
+        		for (int x = -radius; x <= radius; ++x)
         		{
         			const ivec2 t   = clamp(centre + ivec2(x, y), ivec2(0), traceSize - 1);
         			const vec4  ray = texelFetch(u_TraceRay, t, 0);

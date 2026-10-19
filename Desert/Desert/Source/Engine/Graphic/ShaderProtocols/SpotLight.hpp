@@ -8,7 +8,7 @@
 
 namespace Desert::Graphic::ShaderProtocols
 {
-    // std430 layout matching `struct SpotLight` in Mesh/LightSources.glslh (80 bytes). CosInner/CosOuter are the
+    // std430 layout matching `struct SpotLight` in Mesh/LightSources.glslh (96 bytes). CosInner/CosOuter are the
     // COSINES of the inner/outer cone half-angles (precomputed on the CPU so the shader avoids acos).
     struct SpotLightPayload
     {
@@ -35,8 +35,15 @@ namespace Desert::Graphic::ShaderProtocols
         // receiver with no ShadowView then is one the shadow maps do not cover (the view budget refused the
         // light), and the surface cache traces its shadow through the global distance field instead. Written by
         // MeshRenderer::UpdateLocalShadows with ShadowView.
-        int32_t ShadowCaster = 0; // 76 -> 80
+        int32_t ShadowCaster = 0; // 76
+        // UE SourceRadius (cm): the emitter sphere traced shadows aim at (MegaLights); 0 = a point.
+        float SourceRadius = 0.0f; // 80
+        // std430 rounds the array stride of a struct with a vec3 to 16 bytes: explicit, so sizeof matches.
+        float Pad0 = 0.0f;
+        float Pad1 = 0.0f;
+        float Pad2 = 0.0f; // -> 96
     };
+    static_assert( sizeof( SpotLightPayload ) == 96, "struct SpotLight (Mesh/LightSources.glslh) is 96 bytes" );
 
     struct SpotLight
     {

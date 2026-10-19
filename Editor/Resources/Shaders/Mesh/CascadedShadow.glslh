@@ -33,7 +33,8 @@
 // mesh shaders' 8/9/10), the mesh shaders share one layout with the G-buffer pass, and a shader-graph
 // material's layout is generated. The includer must declare, at whatever slots are free in ITS layout:
 //
-//     Uniform(a) sampler2DArray u_ShadowCascades; // layer c = cascade c
+//     Uniform(a) texture2DArray u_ShadowCascades; // layer c = cascade c
+//     #define u_ShadowCascades sampler2DArray(u_ShadowCascades, u_LinearRepeatSampler) // a shared state of the pass
 //     Uniform(e) ShadowUB {
 //         mat4 u_LightViewProj[4];
 //         vec4 u_ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
@@ -42,6 +43,7 @@
 //         vec4 u_CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (x..w = cascade 0..3)
 //         vec4 u_ContactShadowView; // the view's contact shadow march (Common/ContactShadow.glslh)
 //         vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5)
+//         vec4 u_ShadowFilter;      // x = PCSS blocker search taps, y = PCSS filter taps (SceneResources::PackShadowFilter)
 //     };
 //
 // The cascades are the layers of ONE D32F DEPTH array (ViewTargetFormats::kShadowDepth; UE: the whole-scene
@@ -105,8 +107,6 @@ int chooseCascade(vec3 worldPos)
 
 // UE's r.Shadow.MaxSoftKernelSize: the widest the soft kernel may get, in texels of its cascade.
 const float kMaxSoftKernelTexels = 40.0;
-const int   kBlockerSearchTaps   = 16;
-const int   kFilterTaps          = 32;
 const float kGoldenAngle         = 2.39996323;
 
 // Jimenez 2014, the noise UE's shadow filters turn their discs by.
@@ -162,6 +162,9 @@ float sampleCascade(int c, vec3 worldPos, vec3 N, float NdotL)
 	float depthRange = max(u_CascadeDepthRange[c], 1e-3);   // world cm per unit of map depth
 	float tanHalf    = u_ShadowParams.x;                     // tan(sun source angle / 2)
 	float phi        = 6.28318531 * shadowInterleavedGradientNoise(gl_FragCoord.xy);
+	// The kernel's cost (Scalability Shadows.BlockerSearchTaps / Shadows.FilterTaps, the view's ShadowUB).
+	int   blockerSearchTaps = int(u_ShadowFilter.x + 0.5);
+	int   filterTaps        = int(u_ShadowFilter.y + 0.5);
 
 	// THE RECEIVER PLANE across the kernel. A tap `r` centimetres from the centre reads a map texel of the
 	// receiver's own plane that lies r * tan(theta) nearer the sun at most (theta: the receiver's angle to the
@@ -174,9 +177,9 @@ float sampleCascade(int c, vec3 worldPos, vec3 N, float NdotL)
 		searchTexels = clamp(tanHalf * currentDepth * depthRange / texelWorld, 1.0, kMaxSoftKernelTexels);
 	float blockerSum   = 0.0;
 	float blockerCount = 0.0;
-	for (int i = 0; i < kBlockerSearchTaps; ++i)
+	for (int i = 0; i < blockerSearchTaps; ++i)
 	{
-		vec2  offset = shadowVogelDisk(i, kBlockerSearchTaps, phi) * searchTexels;
+		vec2  offset = shadowVogelDisk(i, blockerSearchTaps, phi) * searchTexels;
 		float slack  = length(offset) * texelWorld * tanTheta / depthRange;
 		vec4  d      = gatherShadowMap(c, uv + offset * texel);
 		vec4  isBlocker = step(d, vec4(currentDepth - slack - 1e-6));
@@ -193,13 +196,13 @@ float sampleCascade(int c, vec3 worldPos, vec3 N, float NdotL)
 	float penumbraTexels = clamp(tanHalf * distanceWorld / texelWorld, 1.0, kMaxSoftKernelTexels);
 
 	float lit = 0.0;
-	for (int i = 0; i < kFilterTaps; ++i)
+	for (int i = 0; i < filterTaps; ++i)
 	{
-		vec2  offset = shadowVogelDisk(i, kFilterTaps, phi) * penumbraTexels;
+		vec2  offset = shadowVogelDisk(i, filterTaps, phi) * penumbraTexels;
 		float slack  = length(offset) * texelWorld * tanTheta / depthRange;
 		lit += shadowCompare2x2(c, uv + offset * texel, size, currentDepth - slack);
 	}
-	return lit / float(kFilterTaps);
+	return lit / float(filterTaps);
 }
 
 // N = world-space surface normal, L = world-space direction TOWARD the sun (both normalized).

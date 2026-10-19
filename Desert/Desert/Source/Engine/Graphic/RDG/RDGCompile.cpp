@@ -428,13 +428,26 @@ namespace Desert::Graphic::RDG
     void Builder::Compiler::FoldUse( const PassRecord& pass, const ResourceUse& use, std::vector<int32_t>& slot,
                                      std::vector<RdgSubUse>& uses, std::string& error ) const
     {
-        const ResourceRecord& record   = m_Resources[use.Resource];
-        const AccessState     state    = GetAccessState( use.Usage );
-        bool                  consumes = true;
+        const ResourceRecord& record = m_Resources[use.Resource];
+        // A texture an earlier graph created and extracted takes only the accesses it was created for (its usage
+        // flags): any other faults the pass here, before a command the image cannot take is recorded.
+        if ( record.ExternalTex != nullptr && record.ExternalTex->CreatedAccessMask != 0 &&
+             ( record.ExternalTex->CreatedAccessMask & ( 1u << static_cast<uint32_t>( use.Usage ) ) ) == 0 )
+        {
+            error = fmt::format( "graph '{}' pass '{}' declares texture '{}' as {}, an access the graph that "
+                                 "created it did not extract it for (Builder::Extract @p later)",
+                                 m_Name, pass.Name, record.Name, GetAccessName( use.Usage ) );
+            return;
+        }
+        AccessState state    = GetAccessState( use.Usage );
+        bool        consumes = true;
         if ( use.Attachment >= 0 )
         {
-            const LoadAction load = pass.Attachments[static_cast<size_t>( use.Attachment )].Load.Action;
-            consumes              = load == LoadAction::Load;
+            const AttachmentRecord& attachment = pass.Attachments[static_cast<size_t>( use.Attachment )];
+            consumes                           = attachment.Load.Action == LoadAction::Load;
+            // The render pass's store op writes the attachment, a read-only depth one too (AttachmentAccessState):
+            // the barrier after this pass must make that write available.
+            state = AttachmentAccessState( use.Usage, attachment.IsDepth );
         }
         for ( uint32_t layer = use.Range.BaseLayer; layer < use.Range.BaseLayer + use.Range.LayerCount; ++layer )
         {
@@ -495,26 +508,6 @@ namespace Desert::Graphic::RDG
                 FoldUse( m_Passes[p], use, slot, uses, conflict );
                 if ( !conflict.empty() )
                     break;
-            }
-            // A read-only attachment (the only one is a DepthRead depth) is still stored by its render pass: the
-            // pass's state on it carries the storeOp's write, so the barrier after the pass waits on it. Folded
-            // last, after every declaration of the subresource (a DepthRead + SampledGraphics pair) has merged.
-            for ( const ResourceUse& use : m_Passes[p].Uses )
-            {
-                if ( !conflict.empty() || use.Attachment < 0 || IsWriteAccess( use.Usage ) )
-                    continue;
-                const ResourceRecord& record = m_Resources[use.Resource];
-                for ( uint32_t layer = use.Range.BaseLayer; layer < use.Range.BaseLayer + use.Range.LayerCount;
-                      ++layer )
-                {
-                    for ( uint32_t mip = use.Range.BaseMip; mip < use.Range.BaseMip + use.Range.MipCount; ++mip )
-                    {
-                        const int32_t at =
-                             slot[m_SubBase[use.Resource] + record.Texture.SubresourceIndex( mip, layer )];
-                        RdgSubUse& folded = uses[static_cast<size_t>( at )];
-                        folded.State      = ReadOnlyAttachmentStoreState( folded.State );
-                    }
-                }
             }
             for ( const RdgSubUse& use : uses )
                 slot[use.Sub] = -1;
@@ -1008,7 +1001,7 @@ namespace Desert::Graphic::RDG
         {
             const ResourceRecord& record = m_Resources[usage.Resource];
             if ( record.IsExtracted() )
-                usage.AccessMask |= 1u << static_cast<uint32_t>( record.FinalAccess );
+                usage.AccessMask |= ( 1u << static_cast<uint32_t>( record.FinalAccess ) ) | record.LaterAccessMask;
         }
     }
 
@@ -1293,6 +1286,8 @@ namespace Desert::Graphic::RDG
         compiled.Pass        = p;
         compiled.Name        = pass.Name;
         compiled.Flags       = pass.Flags;
+        compiled.AreaWidth   = pass.AreaWidth;
+        compiled.AreaHeight  = pass.AreaHeight;
         compiled.OnPipe      = m_PipeAt[position];
         compiled.WaitSyncs   = m_WaitAt[position];
         compiled.SignalSyncs = m_SignalAt[position];

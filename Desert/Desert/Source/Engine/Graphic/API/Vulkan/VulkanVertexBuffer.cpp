@@ -1,5 +1,6 @@
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanVertexBuffer.hpp>
+#include <Engine/Graphic/API/Vulkan/MeshBufferUsage.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 
@@ -57,6 +58,12 @@ namespace Desert::Graphic::API::Vulkan
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
                               ->GetVulkanAllocator()
                               .get();
+
+        // A static buffer drops its host copy once the copy is on the device (below), so a second upload would
+        // send nothing: new contents are a new buffer (every mesh rebuild makes one).
+        if ( m_HostCopyReleased )
+            return Common::MakeFormattedError<bool>(
+                 "static vertex buffer of {} bytes uploaded again after its host copy was released", m_Size );
 
         if ( m_VulkanBuffer )
         {
@@ -149,14 +156,11 @@ namespace Desert::Graphic::API::Vulkan
                 }
             }
 
-            // STORAGE beside VERTEX: a static mesh's vertices are also what a compute pass reads them as - the
-            // morph update blends a skinned mesh's base vertices into a component's morphed copy
-            // (MeshRendererMorph.cpp, UE GPUMorphUpdateCS reading the base vertex buffer).
-            auto vertexBufferCreateInfo =
-                 CreateVertexBufferInfo( m_Size,
-                                         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                                         VK_SHARING_MODE_EXCLUSIVE );
+            // The usage is MeshBufferUsage's: storage for the morph update, a BLAS build input where the device
+            // can build one.
+            auto vertexBufferCreateInfo = CreateVertexBufferInfo(
+                 m_Size, MeshBufferUsage( MeshBufferRole::Vertex, allocator->GetDeviceCaps() ),
+                 VK_SHARING_MODE_EXCLUSIVE );
 
             const auto buffer = allocator->RT_AllocateBuffer( "VertexBuffer", vertexBufferCreateInfo,
                                                               VMA_MEMORY_USAGE_GPU_ONLY, m_VulkanBuffer );
@@ -180,7 +184,16 @@ namespace Desert::Graphic::API::Vulkan
             vkCmdCopyBuffer( copyCmdVal, stagingBuffer, m_VulkanBuffer, 1, &copyRegion );
 
             const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( copyCmdVal );
+            const bool uploaded = flushed.IsSuccess() && flushed.GetValue() == VK_SUCCESS;
             allocator->RT_ReleaseStaging( stagingBuffer, stagingBufferAllocationVAL, flushed );
+            // UE drops a static buffer's resource array once it is on the RHI (no bNeedsCPUAccess): nothing reads
+            // the host copy after the upload, and holding it doubled every mesh's geometry in the heap (~250 MB
+            // on B16_Bistro_Street). The mesh asset keeps its own arrays for the CPU readers.
+            if ( uploaded )
+            {
+                m_StorageBuffer.Release();
+                m_HostCopyReleased = true;
+            }
         }
         return Common::MakeSuccess( true );
     }

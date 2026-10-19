@@ -40,10 +40,16 @@ Shader "IrradianceFieldGather"
         {
             RadianceCacheProbe radianceCacheProbes[];
         };
-        Uniform(4) sampler2D u_GBufferDepth;
-        Uniform(5) sampler2D u_GBufferB;
-        Uniform(6) sampler2D u_RadianceCacheIrradiance;
-        Uniform(7) sampler2D u_RadianceCacheDepth;
+        Uniform sampler u_LinearClampSampler;
+        Uniform sampler u_PointClampSampler;
+        Uniform(4) texture2D u_GBufferDepth;
+        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
+        Uniform(5) texture2D u_GBufferB;
+        #define u_GBufferB sampler2D(u_GBufferB, u_PointClampSampler)
+        Uniform(6) texture2D u_RadianceCacheIrradiance;
+        #define u_RadianceCacheIrradiance sampler2D(u_RadianceCacheIrradiance, u_LinearClampSampler)
+        Uniform(7) texture2D u_RadianceCacheDepth;
+        #define u_RadianceCacheDepth sampler2D(u_RadianceCacheDepth, u_LinearClampSampler)
         layout(binding = 8, rgba16f) restrict writeonly uniform image2D u_GIHalfDiffuseOut;
         layout(binding = 9, rgba16f) restrict writeonly uniform image2D u_GIHalfSpecularOut;
 

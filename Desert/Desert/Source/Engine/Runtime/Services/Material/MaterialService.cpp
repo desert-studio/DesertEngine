@@ -174,7 +174,8 @@ namespace Desert::Runtime
 
     std::shared_ptr<Graphic::DataDrivenMaterial> CreateSurfaceMaterial( const Assets::MaterialAsset* asset,
                                                                         Graphic::MeshVertexPath      path,
-                                                                        Graphic::MeshPass            pass )
+                                                                        Graphic::MeshPass            pass,
+                                                                        const Core::ShaderVariant&   permutation )
     {
         if ( asset == nullptr )
             return nullptr;
@@ -209,7 +210,33 @@ namespace Desert::Runtime
         }
 
         const std::string& shaderName = cell.GetValue();
-        auto               material   = std::make_shared<Graphic::DataDrivenMaterial>( shaderName );
+        if ( !permutation.IsDefault() )
+        {
+            // A material permutation is a DEFINE set of the cell program; substituted sources are a volume
+            // medium's axis and no mesh pass asks for one.
+            if ( !permutation.VirtualSources.empty() )
+            {
+                LOG_ERROR( "[Materials] Material '{}': a permutation of the cell '{}' carries {} substituted "
+                           "source(s); a mesh material permutation is a define set only. Refused.",
+                           asset->GetMetadata().Filepath.generic_string(), shaderName,
+                           permutation.VirtualSources.size() );
+                return nullptr;
+            }
+            auto shader = ResourceRegistry::GetShaderService()->AcquireVariant( shaderName, permutation );
+            if ( !shader )
+            {
+                LOG_ERROR( "[Materials] Material '{}': the permutation ({} define(s)) of the cell '{}' did not "
+                           "compile; the draw asking for it is refused.",
+                           asset->GetMetadata().Filepath.generic_string(), permutation.Defines.size(),
+                           shaderName );
+                return nullptr;
+            }
+            auto variant = std::make_shared<Graphic::DataDrivenMaterial>( shader );
+            if ( const auto* surface = dynamic_cast<const Assets::SurfaceMaterialAsset*>( asset ) )
+                ApplySurfaceAsset( *variant, *surface );
+            return variant;
+        }
+        auto material = std::make_shared<Graphic::DataDrivenMaterial>( shaderName );
         // ON LOAD, not at the first draw (AL1-12, UE's PSO precache): every renderer starts this shader's
         // pipeline compile on a worker from its next frame, so it has usually landed before the mesh is seen.
         // The request is for the GENERIC path's pipeline; a mesh-table cell is never drawn there (the mesh
@@ -572,6 +599,23 @@ namespace Desert::Runtime
                                                                   Graphic::MeshVertexPath  path,
                                                                   Graphic::MeshPass pass, uint32_t view ) const
     {
+        return SiblingOf( built, path, pass, view, Core::ShaderVariant{} );
+    }
+
+    Graphic::DataDrivenMaterial* MaterialService::GetVariant( const Graphic::Material* built,
+                                                              Graphic::MeshVertexPath path, Graphic::MeshPass pass,
+                                                              const Core::ShaderVariant& permutation ) const
+    {
+        if ( permutation.IsDefault() )
+            return GetVariant( built, path, pass );
+        return SiblingOf( built, path, pass, kEveryView, permutation );
+    }
+
+    Graphic::DataDrivenMaterial* MaterialService::SiblingOf( const Graphic::Material* built,
+                                                             Graphic::MeshVertexPath path, Graphic::MeshPass pass,
+                                                             uint32_t                   view,
+                                                             const Core::ShaderVariant& permutation ) const
+    {
         // The sibling first: it resolves the asset (instance chain, unread shell, cell refusal) once, and a
         // view variant exists only where the plain one does.
         const auto* sibling = GetVariant( built, path, pass );
@@ -584,18 +628,18 @@ namespace Desert::Runtime
         const size_t slot  = VariantSlot( path, pass );
         auto&        views = m_ViewMaterials[owner->second];
         for ( const auto& v : views )
-            if ( v.Slot == slot && v.View == view )
+            if ( v.Slot == slot && v.View == view && v.Defines == permutation.Defines )
                 return v.Material.get();
 
         const auto ait = m_MaterialAssets.find( owner->second );
         if ( ait == m_MaterialAssets.end() )
             return nullptr;
-        auto material = CreateSurfaceMaterial( ait->second.get(), path, pass );
+        auto material = CreateSurfaceMaterial( ait->second.get(), path, pass, permutation );
         if ( !material )
             return nullptr; // CreateSurfaceMaterial named the material and the cell it refused
         auto* raw = material.get();
         raw->ClaimOwnership( Graphic::ResourceOwner::AssetService, owner->second );
-        views.push_back( ViewVariant{ slot, view, std::move( material ) } );
+        views.push_back( ViewVariant{ slot, view, permutation.Defines, std::move( material ) } );
         return raw;
     }
 

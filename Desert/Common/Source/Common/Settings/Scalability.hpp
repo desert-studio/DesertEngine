@@ -122,12 +122,64 @@ namespace Common::Scalability
         GlobalIlluminationMethod, // Values: GIMethod
         ReflectionsMethod,        // Values: ReflectionMethod
         ShadowsMethod,            // Values: ShadowMethod
+        // GPU skin cache (RayTracing::RayTracingSkinCache): 1 = each skinned primitive skinned once per frame in
+        // compute, the raster fetches it and the TLAS traces it; 0 = the raster skins in the vertex stage, no
+        // skinned TLAS geometry. Values: 0/1
+        SkinCache,
         // The view's light grid (Graphic::LightGridQuality, "Deferred: LightGrid"): what the per-pixel light loop
         // costs against what building the grid costs. The image is the same at every value (a cell whose list is
         // full is shaded by every light), so these are cost knobs only - UE's r.Forward.LightGrid* cvars.
         LightGridPixelSize,        // tile edge in render pixels. 16..256
         LightGridSlices,           // logarithmic depth slices. 8..128
         LightGridMaxLightsPerCell, // list capacity of one cell. 8..256
+        // Shadow rays per pixel of "Shadows: Ray Traced Sun" inside the SourceAngle cone (UE
+        // r.RayTracing.Shadows.SamplesPerPixel); the denoiser's ShadowVisibility signal takes at most 8. 1..8
+        ShadowRayTracedSamplesPerPixel,
+        // Under a ray-traced sun, the sun's cascades kept for the blended programs that sample u_ShadowCascades
+        // (translucency; volumes when one reads them): drawn only on a frame with such a reader
+        // (MeshRenderer::SunCascadeReadersQueued). Count 1..4 and texel side 256..2048.
+        ShadowRayTracedTranslucencyCascades,
+        ShadowRayTracedTranslucencyMapSize,
+        // THE QUALITY OF EACH IMPLEMENTED METHOD (METHOD-QUALITY; UE sg.ShadowQuality / GlobalIlluminationQuality
+        // / ReflectionQuality set the method's own r.* cost cvars per level). Cost knobs only: the look stays
+        // authored, Cinematic spends without compromise.
+        // CascadedMaps: the sun's PCSS (Mesh/CascadedShadow.glslh, ShadowUB u_ShadowFilter) - Vogel-disc taps of
+        // the percentage-closer filter (UE r.Shadow.FilterMethod / the r.ShadowQuality kernel) and of the blocker
+        // search. 4..64 and 4..32.
+        ShadowFilterTaps,
+        ShadowBlockerSearchTaps,
+        // HardwareTraced sun: the ShadowVisibility denoiser's reconstruction kernel, in taps from the centre per
+        // side (2 = 5x5; UE r.Shadow.Denoiser.ReconstructionSamples). 1..3
+        ShadowRayTracedDenoiserRadius,
+        // VirtualMaps sun (Graphic::System::VirtualShadowMapRenderer; UE r.Shadow.Virtual.*): the physical page
+        // pool's size in 128 x 128 pages (MaxPhysicalPages; a frame whose requests exceed it shades the rest from
+        // coarser levels), the clipmap's resolution LOD bias in tenths of a level (ResolutionLodBiasDirectional;
+        // negative = finer), and the shadow-map ray tracing's rays per pixel inside the SourceAngle cone and
+        // samples per ray (SMRT.RayCountDirectional / SamplesPerRayDirectional; 0 rays = one hard lookup).
+        // 256..8192, -30..30, 0..16 and 1..16.
+        ShadowVirtualMaxPhysicalPages,
+        ShadowVirtualResolutionLodBias,
+        ShadowVirtualSMRTRayCount,
+        ShadowVirtualSMRTSamplesPerRay,
+        // Shadows Stochastic (MegaLights, System::MegaLightsRenderer; UE r.MegaLights.*): the traced light samples
+        // per sample pixel (reservoirs, each traced once after the reuse; UE NumSamplesPerPixel), the ReSTIR
+        // spatial reuse's neighbours per sample (0 = no spatial reuse), the temporal reuse's history cap in frames
+        // (a reprojected reservoir weighs at most this many of the current frame's; 0 = no temporal reuse; UE
+        // Temporal.MaxFramesAccumulated), and the denoiser's reconstruction kernel, taps per side from the centre
+        // (ScreenSpaceDenoiser DiffuseIndirect and DirectSpecular), and the render pixels per sample pixel, per
+        // side (UE r.MegaLights.DownsampleFactor: 2 = the samples at half resolution, upsampled by the
+        // shading). 1..4, 0..8, 0..30, 1..3, 1..2.
+        ShadowMegaLightsSamplesPerPixel,
+        ShadowMegaLightsSpatialSamples,
+        ShadowMegaLightsMaxHistory,
+        ShadowMegaLightsDenoiserRadius,
+        ShadowMegaLightsDownsampleFactor,
+        // GI ScreenSpace: the one-bounce gather's samples per pixel (DeferredLighting.shader GatherIndirectGI,
+        // u_ScreenSpaceGI.x). 4..64
+        ScreenSpaceGISamples,
+        // Reflections ScreenSpace: the Reflections denoiser's reconstruction kernel, taps per side from the centre
+        // (UE r.Reflections.Denoiser.ReconstructionSamples). 1..3
+        ReflectionDenoiserRadius,
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget
@@ -137,7 +189,8 @@ namespace Common::Scalability
         // GlobalIllumination: the budgets of the surface cache and the world radiance cache (GI-CACHE-IFACE,
         // Graphic/GlobalIllumination). Each gains its reader with the pass that spends it (GI-SURFACE-CACHE,
         // GI-RADIANCE-CACHE, GI-HWRT); the per-level values are UE's BaseScalability.ini
-        // GlobalIlluminationQuality.
+        // GlobalIlluminationQuality. Read today: the atlas/card/direct-lighting rows (SurfaceCacheScene), the
+        // two radiance-cache rows and HitLighting; the three radiosity rows are still placeholders.
         SurfaceCacheAtlasSize,                  // texels per side of the surface cache atlases (UE
                                                 // r.LumenScene.SurfaceCache.AtlasSize)
         SurfaceCacheCardTexelDensity,           // card texels per world unit, percent (UE
@@ -160,6 +213,19 @@ namespace Common::Scalability
                                                 // r.Lumen.ScreenProbeGather.RadianceCache.NumProbesToTraceBudget)
         HitLightingAllowed,                     // 0/1: a hardware-traced hit may be lit in place (UE
                                                 // r.Lumen.HardwareRayTracing.HitLighting.Allowed)
+        // GI SoftwareTraced / ProbeVolume costs still fixed in code that another task owns (ScreenProbeGather,
+        // WorldRadianceCache: FOLIAGE-LOOK-7). Reserved with their per-level values; each gains its reader there.
+        ScreenProbeDownsample,   // screen pixels per probe side (UE r.Lumen.ScreenProbeGather.DownsampleFactor;
+                                 // today ScreenProbeGather::kDownsample = SP_DOWNSAMPLE = 16)
+        ScreenProbeTracedTexels, // traced octahedral texels per probe side (UE
+                                 // r.Lumen.ScreenProbeGather.TracingOctahedronResolution; today kTracedTexels
+                                 // = SP_RES = 8)
+        IrradianceFieldProbesPerFrame, // ProbeVolume's radiance-cache probes traced per frame (UE
+                                       // r.Lumen.IrradianceFieldGather.NumProbesToTraceBudget; today
+                                       // RadianceCache::MakeRadianceCacheInputs scales ProbesPerFrame by 200/300)
+        ReflectionsHitLighting,        // 0/1: HardwareTraced reflections run hit lighting - the ray
+                                       // tracing pipeline with each hit surface's own material (UE
+                                       // r.Lumen.Reflections.HardwareRayTracing.LightingMode = hit lighting)
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
