@@ -1,6 +1,9 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 namespace Desert::Core
 {
@@ -115,11 +118,79 @@ namespace Desert::Core
                binding < kParticleReadBindingFirst + kParticleReadBindingCount;
     }
 
+    /**
+     * THE RESERVED VIRTUAL-SHADOW-RASTER RANGE: the set-0 slots a VirtualShadowDepth cell rasterizes through (UE: the
+     * VSM page-raster parameters of FVirtualShadowMapUniformParameters, which a material cannot collide with) - the
+     * frame's level table, the page table, the physical pool, the drawn level, and the instanced path's per-page
+     * remap - declared by Common/VirtualShadowRaster.glslh and Mesh/Surface/Vertex_Instanced.glslh and bound by
+     * NAME (VirtualShadowMap, MeshRendererVirtualShadow). They had sat at 40..44, i.e. on the ribbon's counters
+     * (40) and in the graph's window (41+): a graph material with own bindings drawn into the VSM shared a
+     * descriptor slot with the page table. DShaderParser refuses a Properties row or texture run that reaches in.
+     */
+    inline constexpr uint32_t kVirtualShadowRasterBindingFirst = kParticleReadBindingFirst + kParticleReadBindingCount;
+    inline constexpr uint32_t kVsmFrameDataBinding             = kVirtualShadowRasterBindingFirst;      // VsmFrameData
+    inline constexpr uint32_t kVsmPageTableBinding             = kVirtualShadowRasterBindingFirst + 1u; // VsmPageTable
+    inline constexpr uint32_t kVsmPhysicalPoolBinding          = kVirtualShadowRasterBindingFirst + 2u; // u_PhysicalPool
+    inline constexpr uint32_t kVsmRasterLevelBinding           = kVirtualShadowRasterBindingFirst + 3u; // VsmRasterLevel
+    inline constexpr uint32_t kVsmInstanceRemapBinding         = kVirtualShadowRasterBindingFirst + 4u; // instanced
+    inline constexpr uint32_t kVirtualShadowRasterBindingCount = 5u;
+    static_assert( kVirtualShadowRasterBindingFirst == 41u,
+                   "Common/VirtualShadowRaster.glslh spells 41..44 and Vertex_Instanced.glslh 45: move them with "
+                   "this range" );
+
+    /// One reserved range of THE SLOT TABLE below.
+    struct ReservedBindingRange
+    {
+        uint32_t         First = 0;
+        uint32_t         Count = 0;
+        std::string_view Name;   ///< "scene-read", "particle-read", "virtual-shadow-raster"
+        std::string_view Detail; ///< what declares it, for a refusal
+    };
+
+    /**
+     * THE SLOT TABLE: every set-0 range a surface cell's own headers declare, in slot order, then the graph's
+     * window above the last. The ranges are disjoint and contiguous (static_asserts below), so no pass - forward,
+     * G-buffer, depth, shadow, VSM, particle or not - can see two declarations on one slot, whatever subset of the
+     * headers it includes. A material's own bindings start at kGraphOwnedBindingFirst; DShaderParser refuses a
+     * Properties row or texture run inside any reserved range (ReservedBindingRangeOf).
+     *
+     *   25..34  scene-read             ObjectMotion / SurfaceTypes / Pass_Forward / MegaLightsVolume
+     *   35..40  particle-read          Vertex_Particle{Sprite,Mesh,Ribbon}
+     *   41..45  virtual-shadow-raster  VirtualShadowRaster / Vertex_Instanced (VirtualShadowDepth cells)
+     *   46..    the graph's window     the material's own rows and textures
+     */
+    inline constexpr std::array<ReservedBindingRange, 3> kReservedBindingRanges = { {
+         { kSceneReadBindingFirst, kSceneReadBindingCount, "scene-read",
+           "the view's motion rows, scene depth, light grid and MegaLights volume" },
+         { kParticleReadBindingFirst, kParticleReadBindingCount, "particle-read", "the particle vertex paths' buffers" },
+         { kVirtualShadowRasterBindingFirst, kVirtualShadowRasterBindingCount, "virtual-shadow-raster",
+           "the VSM caster cells' level table, page table, pool, level and instance remap" },
+    } };
+
+    /// The reserved range @p binding lies in, or nullptr.
+    [[nodiscard]] constexpr const ReservedBindingRange* ReservedBindingRangeOf( uint32_t binding )
+    {
+        for ( const ReservedBindingRange& range : kReservedBindingRanges )
+            if ( binding >= range.First && binding < range.First + range.Count )
+                return &range;
+        return nullptr;
+    }
+
     // Raised from 24 (TAA1 step 4), then from 27 (the scene depth joined the range), then from 28 (the scene
     // shading word and the light grid joined it), then from 31 (the MegaLights volume joined it), to sit above the
-    // scene-read range, then from 35 (VFX-RENDER: the particle-read range) to sit above that; see the paragraph on
-    // moving it above.
-    inline constexpr uint32_t kGraphOwnedBindingFirst = kParticleReadBindingFirst + kParticleReadBindingCount;
-    static_assert( kGraphOwnedBindingFirst == 41u,
-                   "the graph's window opens right above the particle-read range" );
+    // scene-read range, then from 35 (VFX-RENDER: the particle-read range), then from 41 (INT-VFX-2: the
+    // virtual-shadow-raster range) to sit above the last reserved range; see the paragraph on moving it above.
+    inline constexpr uint32_t kGraphOwnedBindingFirst =
+         kReservedBindingRanges.back().First + kReservedBindingRanges.back().Count;
+    static_assert( kGraphOwnedBindingFirst == 46u, "the graph's window opens right above the last reserved range" );
+
+    [[nodiscard]] constexpr bool ReservedBindingRangesAreContiguous()
+    {
+        for ( std::size_t k = 1; k < kReservedBindingRanges.size(); ++k )
+            if ( const ReservedBindingRange& below = kReservedBindingRanges[k - 1];
+                 kReservedBindingRanges[k].First != below.First + below.Count )
+                return false;
+        return true;
+    }
+    static_assert( ReservedBindingRangesAreContiguous(), "the slot table's ranges are disjoint and in slot order" );
 } // namespace Desert::Core

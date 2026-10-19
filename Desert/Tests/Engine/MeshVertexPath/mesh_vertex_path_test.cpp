@@ -725,7 +725,7 @@ namespace
         return R"(Shader "LayoutMock"
 {
     Domain Surface
-    Properties Binding(41) TextureBinding(42)
+    Properties Binding(46) TextureBinding(47)
     {
         Color     Tint    ("Tint")    = (1, 1, 1, 1)
         Float     Tiling  ("Tiling")  = 2
@@ -752,7 +752,7 @@ namespace
         return R"(Shader "PushMock"
 {
     Domain Surface
-    Properties TextureBinding(42)
+    Properties TextureBinding(47)
     {
         Texture2D u_Mask ("Mask") = "white"
     }
@@ -785,11 +785,11 @@ TEST_F( MeshVertexPathShaderRoot, AMockTemplatesLayoutIsItsPropertiesAndItsPushB
 
     if ( !cell.Layout.RowBinding.has_value() )
         FAIL() << "the layout has no row binding";
-    EXPECT_EQ( *cell.Layout.RowBinding, 41u );
+    EXPECT_EQ( *cell.Layout.RowBinding, 46u );
     ASSERT_NE( cell.Layout.FindParam( "Tiling" ), nullptr );
     EXPECT_EQ( cell.Layout.FindParam( "Tiling" )->Offset, 16u );
     ASSERT_NE( cell.Layout.FindTexture( "u_Mask" ), nullptr );
-    EXPECT_EQ( cell.Layout.FindTexture( "u_Mask" )->Binding, 42u );
+    EXPECT_EQ( cell.Layout.FindTexture( "u_Mask" )->Binding, 47u );
 
     const auto* index = cell.Layout.FindPush( "MaterialIndex" );
     ASSERT_NE( index, nullptr );

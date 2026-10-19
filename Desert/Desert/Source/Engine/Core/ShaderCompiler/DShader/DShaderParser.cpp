@@ -2471,53 +2471,29 @@ namespace Desert::Core::Preprocess
 
         result.Meta.LayoutBindings  = MaterialLayoutBindings{ propInfo.UBBinding, propInfo.TextureBinding };
         result.Layout               = BuildMaterialLayout( result.Meta );
-        // The reserved scene-read range (Core::kSceneReadBindingFirst, ShaderGraphBindings.hpp) is declared into
-        // every view-pass cell by Common/ObjectMotion.glslh; a material row or texture numbered into it would
-        // share a descriptor slot with the view's motion rows, which GLSL accepts without a word.
-        if ( result.Layout.RowBinding && Core::IsSceneReadBinding( *result.Layout.RowBinding ) )
-        {
-            err = { c.Line, std::format( "Properties Binding({}) is inside the reserved scene-read range [{}, {}) "
-                                         "(ObjectMotions / ObjectBones); number the material row elsewhere",
-                                         *result.Layout.RowBinding, Core::kSceneReadBindingFirst,
-                                         Core::kSceneReadBindingFirst + Core::kSceneReadBindingCount ) };
-            return fail();
-        }
-        if ( result.Layout.RowBinding && Core::IsParticleReadBinding( *result.Layout.RowBinding ) )
-        {
-            err = { c.Line,
-                    std::format( "Properties Binding({}) is inside the reserved particle-read range [{}, {}) "
-                                 "(the particle vertex paths' buffers); number the material row elsewhere",
-                                 *result.Layout.RowBinding, Core::kParticleReadBindingFirst,
-                                 Core::kParticleReadBindingFirst + Core::kParticleReadBindingCount ) };
-            return fail();
-        }
+        // The reserved ranges of the slot table (Core::kReservedBindingRanges, ShaderGraphBindings.hpp) are declared
+        // into the cells by the engine's own headers (scene reads, particle vertex paths, the VSM raster); a material
+        // row or texture numbered into one would share a descriptor slot with them, which GLSL accepts without a word.
+        if ( result.Layout.RowBinding )
+            if ( const Core::ReservedBindingRange* range = Core::ReservedBindingRangeOf( *result.Layout.RowBinding ) )
+            {
+                err = { c.Line, std::format( "Properties Binding({}) is inside the reserved {} range [{}, {}) ({}); "
+                                             "number the material row elsewhere",
+                                             *result.Layout.RowBinding, range->Name, range->First,
+                                             range->First + range->Count, range->Detail ) };
+                return fail();
+            }
         for ( const auto& texture : result.Layout.Textures )
             for ( const uint32_t binding : { texture.Binding, texture.SamplerBinding } )
-            {
-                if ( Core::IsSceneReadBinding( binding ) )
+                if ( const Core::ReservedBindingRange* range = Core::ReservedBindingRangeOf( binding ) )
                 {
-                    err = { c.Line,
-                            std::format(
-                                 "texture property '{}' (or its sampler state) lands on binding {}, inside "
-                                 "the reserved scene-read range [{}, {}) (ObjectMotions / ObjectBones); move "
-                                 "TextureBinding() so the run of textures and their samplers stays clear of it",
-                                 texture.Name, binding, Core::kSceneReadBindingFirst,
-                                 Core::kSceneReadBindingFirst + Core::kSceneReadBindingCount ) };
+                    err = { c.Line, std::format( "texture property '{}' (or its sampler state) lands on binding {}, "
+                                                 "inside the reserved {} range [{}, {}) ({}); move TextureBinding() "
+                                                 "so the run of textures and their samplers stays clear of it",
+                                                 texture.Name, binding, range->Name, range->First,
+                                                 range->First + range->Count, range->Detail ) };
                     return fail();
                 }
-                if ( Core::IsParticleReadBinding( binding ) )
-                {
-                    err = { c.Line,
-                            std::format(
-                                 "texture property '{}' (or its sampler state) lands on binding {}, inside "
-                                 "the reserved particle-read range [{}, {}) (the particle vertex paths' "
-                                 "buffers); move TextureBinding() so the run of textures and their samplers "
-                                 "stays clear of it",
-                                 texture.Name, binding, Core::kParticleReadBindingFirst,
-                                 Core::kParticleReadBindingFirst + Core::kParticleReadBindingCount ) };
-                    return fail();
-                }
-            }
         const std::string autoDecls = BuildAutoDeclarations( result.Layout );
         // The hit cell's: the same row, named through the hit group's shader record.
         const std::string rayHitAutoDecls = BuildAutoDeclarations( result.Layout, true );

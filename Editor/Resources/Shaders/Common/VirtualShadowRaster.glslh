@@ -17,18 +17,21 @@
 
 #include <Common/VirtualShadowMap.glslh>
 
-layout( std430, binding = 40 ) restrict readonly buffer VsmFrameData
+// The reserved virtual-shadow-raster range 41..45 (Core::kVirtualShadowRasterBindingFirst, ShaderGraphBindings.hpp:
+// the slot table); bound by name.
+
+layout( std430, binding = 41 ) restrict readonly buffer VsmFrameData
 {
     VsmFrame u_Frame;
     VsmLevel u_Levels[];
 };
-layout( std430, binding = 41 ) restrict readonly buffer VsmPageTable
+layout( std430, binding = 42 ) restrict readonly buffer VsmPageTable
 {
     VsmPageEntry u_Entries[];
 };
-layout( binding = 42, r32ui ) restrict uniform uimage2D u_PhysicalPool;
+layout( binding = 43, r32ui ) restrict uniform uimage2D u_PhysicalPool;
 // The level this draw rasterizes (VirtualShadowMapFrame::RasterLevel): x = level index.
-layout( std430, binding = 43 ) restrict readonly buffer VsmRasterLevel
+layout( std430, binding = 44 ) restrict readonly buffer VsmRasterLevel
 {
     uvec4 u_RasterLevel;
 };

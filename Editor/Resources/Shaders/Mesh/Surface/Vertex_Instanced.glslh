@@ -30,7 +30,8 @@ layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 // The virtual shadow map draws only the instances "VSM: Cull Casters" kept for this level: gl_InstanceIndex is a slot of
 // the draw's compacted list (the records' first instance is the draw's remap base), the slot holds the instance to fetch
 // (UE: the per-page draw's instance id list).
-layout( std430, binding = 44 ) restrict readonly buffer VsmInstanceRemap
+// Core::kVsmInstanceRemapBinding, the last slot of the reserved virtual-shadow-raster range (ShaderGraphBindings.hpp).
+layout( std430, binding = 45 ) restrict readonly buffer VsmInstanceRemap
 {
     uint u_InstanceRemap[];
 };
