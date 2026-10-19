@@ -1,0 +1,16 @@
+// DesertAsset {"Kind":"VFXModule","Guid":"8079c58d9d214db694607abaf9c1a4b2","Versions":{"VFXM":1},"Dependencies":[]}
+Module "ShapePoint"
+{
+    Stage ParticleSpawn
+    Category Location
+    Description "Places a newborn at a point."
+    Attribute Position vec3
+    Input Offset vec3
+
+    // Engine VFX module ShapePoint (UE Shape Location, primitive Point): the particle is born at the emitter's
+    // origin plus Offset (centimetres). Spawn group.
+    void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
+    {
+        p.Position += i.Offset;
+    }
+}

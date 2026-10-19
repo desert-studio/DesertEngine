@@ -30,6 +30,8 @@ namespace Desert::VFX
 {
     using Assets::Serialization::VFXValueType;
 
+    class VFXModuleResolver; // VFXModuleFormat.hpp
+
     /// One `Attribute <Name> <type>` or `Input <Name> <type>` line of a module.
     struct VFXModuleDecl
     {
@@ -40,7 +42,7 @@ namespace Desert::VFX
     };
 
     /**
-     * @brief One stack module, read from its `.shader` (`Domain Particle`, a `Particle { }` block).
+     * @brief One stack module's block, read from its `.dfxmod` (VFXModuleFormat.hpp).
      *
      * The block opens with declaration lines — `Attribute <Name> <float|vec2|vec3|vec4|int|bool>` (a particle
      * attribute the module reads or writes as `p.<Name>`) and `Input <Name> <type>` (a value the stack row
@@ -52,11 +54,15 @@ namespace Desert::VFX
         std::vector<VFXModuleDecl> Attributes;
         std::vector<VFXModuleDecl> Inputs; ///< in declaration order (the slot order)
         std::string                Body;   ///< the GLSL after the declarations
+
+        [[nodiscard]] bool operator==( const VFXParticleModule& ) const = default;
     };
 
-    /// Parses one module's whole `.shader` text. @p where names it in every error.
-    Common::ResultStr<VFXParticleModule> ParseParticleModule( const std::string& shaderText,
-                                                              std::string_view   where );
+    /// The inside of a `.dfxmod` module block (VFXModuleFormat.hpp): the `Attribute` / `Input` declaration
+    /// lines, then the GLSL. @p requireModuleFunction is false only for a module with no particle stage, which
+    /// declares inputs and has no GLSL.
+    Common::ResultStr<VFXParticleModule> ParseModuleBlock( const std::string& source, std::string_view where,
+                                                           bool requireModuleFunction );
 
     /// The GLSL spelling of a value type ("float", "vec3", "int", "bool"...).
     [[nodiscard]] std::string_view GlslTypeName( VFXValueType type );
@@ -136,20 +142,19 @@ namespace Desert::VFX
         std::vector<VFXParamSlot> Slots; ///< the parameter buffer, row by row
     };
 
-    /// Where the engine module library lives: ShaderDir()/VFX/Modules; `engine:<Name>` is `<Name>.shader` there.
-    [[nodiscard]] std::filesystem::path EngineModuleDir();
-
     /**
      * @brief Compiles emitter @p emitterIndex of @p system.
      *
-     * `engine:<Name>` modules are read from @p engineModuleDir (a missing file is an error naming its path),
-     * `local:<Id>` from the system's LocalModules. A disabled module contributes nothing. An input the module
+     * Every row's module is the `.dfxmod` @p modules resolves its GUID to (the engine answers from the
+     * ContentRegistry, Assets::RegistryVFXModuleResolver), and it must state the row's group as a Stage. A
+     * module that also states EmitterUpdate gives its GLSL no inputs: the row's inputs are its CPU half's. A
+     * disabled module contributes nothing. An input the module
      * does not declare, a declared input the row leaves out, a type that disagrees, an attribute declared with
      * two types are errors naming the emitter, group, module and input.
      */
     Common::ResultStr<VFXCompiledEmitter> CompileEmitterStack( const Assets::Serialization::VFXSystemData& system,
-                                                               std::size_t                  emitterIndex,
-                                                               const std::filesystem::path& engineModuleDir );
+                                                               std::size_t              emitterIndex,
+                                                               const VFXModuleResolver& modules );
 
     struct VFXCurveAtlas;
 

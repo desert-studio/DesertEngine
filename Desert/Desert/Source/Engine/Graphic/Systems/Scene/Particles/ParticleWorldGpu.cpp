@@ -2,6 +2,7 @@
 
 #include "ParticleEmitterRetire.hpp"
 
+#include <Engine/Assets/VFXModuleAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
@@ -164,7 +165,7 @@ namespace Desert::Graphic::System
             gpu.Pipeline = nullptr;
         };
 
-        const auto compiled = VFX::CompileEmitterStack( system, index, VFX::EngineModuleDir() );
+        const auto compiled = VFX::CompileEmitterStack( system, index, Assets::RegistryVFXModuleResolver{} );
         if ( !compiled.IsSuccess() )
             return refuse( compiled.GetError() );
         const auto curves = VFX::BuildCurveAtlas( system );

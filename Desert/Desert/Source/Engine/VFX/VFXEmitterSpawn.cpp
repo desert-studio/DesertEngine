@@ -9,6 +9,23 @@
 
 namespace Desert::VFX
 {
+    Assets::AssetGuidRef ModuleRef( const VFXEngineCpuModule& module )
+    {
+        return { Common::Content::AssetGuidToText( module.Guid ), std::string( module.Path ) };
+    }
+
+    bool HasCpuBehaviour( const Common::Content::AssetGuid& guid )
+    {
+        return guid == kVFXSpawnRateModule.Guid || guid == kVFXSpawnBurstModule.Guid ||
+               guid == kVFXSpawnFromChannelModule.Guid;
+    }
+
+    bool UsesModule( const Assets::Serialization::VFXModuleUse& use, const VFXEngineCpuModule& module )
+    {
+        const auto guid = Common::Content::AssetGuidFromText( use.Module.Guid );
+        return guid && guid.GetValue() == module.Guid;
+    }
+
     namespace S = Assets::Serialization;
 
     namespace
@@ -100,7 +117,7 @@ namespace Desert::VFX
             return nullptr;
         }
 
-        // engine:SpawnFromChannel's inputs (see the header): the channel and its fields are DataChannel.*
+        // SpawnFromChannel's inputs (see the header): the channel and its fields are DataChannel.*
         // bindings, the counts and the filter bound are Values.
         Common::ResultStr<VFXChannelSpawnModule> ReadChannelSpawn( const S::VFXModuleUse& use,
                                                                    const std::string&     where )
@@ -234,9 +251,9 @@ namespace Desert::VFX
             const S::VFXModuleUse& use = group[m];
             if ( !use.Enabled )
                 continue;
-            const std::string where =
-                 std::format( "emitter '{}' EmitterUpdate module {} '{}'", emitter.Name, m, use.Module );
-            if ( use.Module == kVFXSpawnRateModule )
+            const std::string where = std::format( "emitter '{}' EmitterUpdate module {} '{}' ({})", emitter.Name,
+                                                   m, use.Module.Path, use.Module.Guid );
+            if ( UsesModule( use, kVFXSpawnRateModule ) )
             {
                 auto in = ReadInputs( system, use, { { "SpawnRate", S::VFXValueType::Float } }, where );
                 if ( !in.IsSuccess() )
@@ -246,7 +263,7 @@ namespace Desert::VFX
                                                                in.GetValue()[0] );
                 plan.Rate += in.GetValue()[0];
             }
-            else if ( use.Module == kVFXSpawnBurstModule )
+            else if ( UsesModule( use, kVFXSpawnBurstModule ) )
             {
                 auto in = ReadInputs(
                      system, use,
@@ -263,7 +280,7 @@ namespace Desert::VFX
                          plan.Lifecycle.LoopDuration );
                 plan.Bursts.push_back( { time, static_cast<std::uint32_t>( count ) } );
             }
-            else if ( use.Module == kVFXSpawnFromChannelModule )
+            else if ( UsesModule( use, kVFXSpawnFromChannelModule ) )
             {
                 if ( plan.Channel )
                     return Common::MakeFormattedError<Result>( "{}: an emitter spawns from one channel", where );
@@ -274,8 +291,8 @@ namespace Desert::VFX
             }
             else
                 return Common::MakeFormattedError<Result>(
-                     "{}: EmitterUpdate runs on the CPU and knows only {}, {} and {}", where, kVFXSpawnRateModule,
-                     kVFXSpawnBurstModule, kVFXSpawnFromChannelModule );
+                     "{}: EmitterUpdate runs on the CPU and the engine has C++ for {}, {} and {} only", where,
+                     kVFXSpawnRateModule.Name, kVFXSpawnBurstModule.Name, kVFXSpawnFromChannelModule.Name );
         }
         return Common::MakeSuccess( std::move( plan ) );
     }

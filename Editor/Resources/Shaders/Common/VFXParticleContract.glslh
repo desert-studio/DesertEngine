@@ -27,7 +27,8 @@
 // order. Spawned = this step created the particle (its attributes start at zero and the spawn group runs);
 // a module sets Kill to retire it.
 // Channel is 1 + the Spawn from Channel row of a newborn (VFX-10; UE: the Niagara Data Channel read a spawn module
-// makes), 0 for every other particle; only engine:SpawnFromChannel (VFX/Modules/SpawnFromChannel.shader) reads it.
+// makes), 0 for every other particle; only the SpawnFromChannel module (Engine/VFX/Modules/SpawnFromChannel.dfxmod)
+// reads it.
 struct VFXSim
 {
     float DeltaTime;

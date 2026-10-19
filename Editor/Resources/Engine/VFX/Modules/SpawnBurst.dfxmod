@@ -1,0 +1,9 @@
+// DesertAsset {"Kind":"VFXModule","Guid":"02637a2ef2774901a0a88452af542abd","Versions":{"VFXM":1},"Dependencies":[]}
+Module "SpawnBurst"
+{
+    Stage EmitterUpdate
+    Category Spawn
+    Description "Spawns SpawnCount particles once per loop, SpawnTime seconds into it."
+    Input SpawnCount int
+    Input SpawnTime float
+}

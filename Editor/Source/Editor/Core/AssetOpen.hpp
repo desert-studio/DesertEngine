@@ -58,6 +58,7 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::ControlRig:     // the Control Rig editor (ControlRigDocument)
             case Assets::AssetTypeID::Retarget:       // the IK Retargeter editor (RetargetDocument)
             case Assets::AssetTypeID::VFXDataChannel: // the `.dfxch` field-list editor (VFX-10c)
+            case Assets::AssetTypeID::VFXModule:      // the `.dfxmod` module editor (VFXModuleDocument)
                 return nullptr;
             case Assets::AssetTypeID::Unknown:
                 return "the asset has no type — nothing can say which editor opens it";

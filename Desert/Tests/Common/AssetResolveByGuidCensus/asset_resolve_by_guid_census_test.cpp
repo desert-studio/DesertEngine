@@ -143,7 +143,10 @@ namespace
          ContentKind::LevelSequence,
          // An Audio Source states its `.desound` as {Guid, Path} and ResolveGuidRef reads the GUID first
          // (ComponentRegistry.cpp's SoundAsset branch, the AssetsRelative form in StoredAssetForm.cpp).
-         ContentKind::Sound };
+         ContentKind::Sound,
+         // VFXS 3 (VFX-MODULE-ASSET): a .dfx stack row states its module as {Guid, Path} and the stack compiler
+         // resolves the GUID through the registry (VFX::RegistryModuleResolver); the path is for the reader.
+         ContentKind::VFXModule };
 
     template <class Array>
     bool Contains( const Array& kinds, ContentKind kind )
@@ -328,6 +331,21 @@ namespace
                      "\n",
                      Common::Content::AssetGuidToText( guid ) );
                 return { text.begin(), text.end() };
+            }
+            case ContentKind::VFXModule:
+            {
+                // The `.dfxmod` header is its first line's comment, as a shader's; the body is the least
+                // ParseVFXModule accepts (a CPU-stage module declares no GLSL).
+                const std::array versions{
+                     Common::Content::SubsystemVersion{ Common::Content::FourCC( "VFXM" ), 1u } };
+                const std::string text = Common::Content::WriteShaderHeaderLine(
+                                              Common::Content::MakeTextHeader( kind, guid, versions ) ) +
+                                         "Module \"AF10a_Probe\"
+                {
+                    Stage EmitterUpdate Category Spawn
+                }
+                ";
+                     return { text.begin(), text.end() };
             }
             case ContentKind::Sound:
             {

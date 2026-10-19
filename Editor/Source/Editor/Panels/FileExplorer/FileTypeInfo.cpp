@@ -75,6 +75,7 @@ namespace Desert::Editor
                            "VFX Data Channel",
                            { 0.95f, 0.70f, 0.20f, 1.00f },
                            ICON_MDI_ACCESS_POINT },
+             FileTypeInfo{ FileType::VFXModule, "VFX Module", { 0.95f, 0.55f, 0.20f, 1.00f }, ICON_MDI_PUZZLE },
         };
 
         constexpr bool RowsAreInEnumOrder()

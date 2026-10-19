@@ -1984,17 +1984,17 @@ TEST_F( ShaderCacheKeyShaderRoot, AChannelColourAndLifetimeReachTheParticle )
          << "the host no longer hands the channel colour to the stack";
     EXPECT_NE( simulate.find( "sim.ChannelScalars   = channel.Scalars;" ), std::string::npos )
          << "the host no longer hands the channel lifetime / size scale to the stack";
-    const auto        modules = Common::Constants::Path::ShaderDir() / "VFX" / "Modules";
-    const std::string colour  = ReadFile( modules / "InitializeColor.shader" );
+    const auto        modules = Common::Constants::Path::ENGINE_CONTENT_PATH / "VFX" / "Modules";
+    const std::string colour  = ReadFile( modules / "InitializeColor.dfxmod" );
     EXPECT_NE( colour.find( "const vec4 colour = sim.ChannelScalars.z > 0.5 ? sim.ChannelColor : i.Color;" ),
                std::string::npos )
          << "InitializeColor no longer takes a bound channel colour";
     EXPECT_NE( colour.find( "p.InitialColor = colour;" ), std::string::npos )
          << "the channel colour is no longer the base ColorOverLife scales";
-    EXPECT_NE( ReadFile( modules / "ColorOverLife.shader" ).find( "p.Color = p.InitialColor * i.Scale;" ),
+    EXPECT_NE( ReadFile( modules / "ColorOverLife.dfxmod" ).find( "p.Color = p.InitialColor * i.Scale;" ),
                std::string::npos )
          << "ColorOverLife no longer scales the initial (channel) colour";
-    EXPECT_NE( ReadFile( modules / "InitializeLifetime.shader" )
+    EXPECT_NE( ReadFile( modules / "InitializeLifetime.dfxmod" )
                     .find( "p.Lifetime = sim.ChannelScalars.w > 0.5 ? max( sim.ChannelScalars.x, 0.0 )" ),
                std::string::npos )
          << "a bound channel lifetime no longer replaces the emitter's";
@@ -2010,8 +2010,8 @@ TEST_F( ShaderCacheKeyShaderRoot, AChannelColourAndLifetimeReachTheParticle )
 TEST_F( ShaderCacheKeyShaderRoot, AChannelSizeScalesTheParticleBaseSize )
 {
     const std::string simulate = ReadFile( ShaderPath( "Particles/ParticleSimulate.shader" ) );
-    const auto        modules  = Common::Constants::Path::ShaderDir() / "VFX" / "Modules";
-    const std::string size     = ReadFile( modules / "InitializeSpriteSize.shader" );
+    const auto        modules  = Common::Constants::Path::ENGINE_CONTENT_PATH / "VFX" / "Modules";
+    const std::string size     = ReadFile( modules / "InitializeSpriteSize.dfxmod" );
     EXPECT_NE( size.find( "p.SpriteSize        = max( i.Size, vec2( 0.0 ) ) * sim.ChannelScalars.y;" ),
                std::string::npos )
          << "InitializeSpriteSize no longer scales the base size by the channel size";
