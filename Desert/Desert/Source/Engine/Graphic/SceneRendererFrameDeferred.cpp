@@ -573,7 +573,7 @@ namespace Desert::Graphic
         // traced reflection, which the composite fades into the traced GI's rough specular past
         // MaxRoughnessToTrace (UE MixSpecularAndRoughReflections).
         constexpr float kReflectionInputNone = 0.0f, kReflectionInputScreen = 1.0f, kReflectionInputTraced = 2.0f;
-        const float     reflectionInput = !ssr.IsValid()      ? kReflectionInputNone
+        const float     reflectionInput = !ssr.IsValid()        ? kReflectionInputNone
                                           : ReflectionsTraced() ? kReflectionInputTraced
                                                                 : kReflectionInputScreen;
         const glm::vec4 cameraPos( frame.CameraPosition, reflectionInput );
