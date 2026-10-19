@@ -411,7 +411,8 @@ namespace Common::Settings
             for ( std::size_t g = 0; g < Scalability::kGroupCount; ++g )
                 std::format_to( std::back_inserter( levels ), "{}{} {}", g == 0 ? "" : ", ",
                                 Scalability::GroupKey( static_cast<Scalability::Group>( g ) ),
-                                Scalability::LevelKey( quality->Levels[g] ) );
+                                s_UnreadLevels.test( g ) ? std::string_view( "unread" )
+                                                         : Scalability::LevelKey( quality->Levels[g] ) );
             LOG_INFO( "[Machine] {} — quality {}; {} override(s); VSync {}", s_File.string(), levels,
                       quality->Overrides.size(), Get().Display.VSync ? "on" : "off" );
         }
