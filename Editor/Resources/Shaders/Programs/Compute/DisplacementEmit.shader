@@ -75,7 +75,9 @@ Shader "DisplacementEmit"
             const uint  v1           = TopologyWords[triangle * 3u + 1u];
             const uint  v2           = TopologyWords[triangle * 3u + 2u];
 
-            const uint out0 = vertex * 14u;
+            // Counts.y: the pool vertex this batch starts at (DisplacementCache::EmitPieces).
+            const uint target = Counts.y + vertex;
+            const uint out0   = target * 14u;
             OutputVertexValues[out0 + 0u] = Positions[point * 3u + 0u];
             OutputVertexValues[out0 + 1u] = Positions[point * 3u + 1u];
             OutputVertexValues[out0 + 2u] = Positions[point * 3u + 2u];
@@ -109,9 +111,9 @@ Shader "DisplacementEmit"
                            uintBitsToFloat( SourceStreamWords[v1 * 3u + 2u] ) ) * w1 +
                      vec2( uintBitsToFloat( SourceStreamWords[v2 * 3u + 1u] ),
                            uintBitsToFloat( SourceStreamWords[v2 * 3u + 2u] ) ) * w2;
-                OutputStreamWords[vertex * 3u + 0u] = packUnorm4x8( colour );
-                OutputStreamWords[vertex * 3u + 1u] = floatBitsToUint( uv1.x );
-                OutputStreamWords[vertex * 3u + 2u] = floatBitsToUint( uv1.y );
+                OutputStreamWords[target * 3u + 0u] = packUnorm4x8( colour );
+                OutputStreamWords[target * 3u + 1u] = floatBitsToUint( uv1.x );
+                OutputStreamWords[target * 3u + 2u] = floatBitsToUint( uv1.y );
             }
         }
     }

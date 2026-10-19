@@ -19,9 +19,12 @@
 #include <bit>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <format>
 #include <limits>
 #include <string>
+#include <span>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace Desert::Graphic::System
@@ -133,6 +136,7 @@ namespace Desert::Graphic::System
             // Retired on the frame ring by the buffers themselves: a frame in flight still reads them safely.
             m_Entries.clear();
             m_Shared.clear();
+            m_Pools.clear();
             m_TopologyWords.clear();
             if ( wasEnabled )
                 LOG_INFO(
@@ -294,71 +298,127 @@ namespace Desert::Graphic::System
         return words;
     }
 
-    Common::ResultStr<std::shared_ptr<DisplacementCache::SharedGeometry>>
-    DisplacementCache::Emit( const BuildKey& key, const Tessellation& t )
+    namespace
     {
-        using Result                                              = std::shared_ptr<SharedGeometry>;
-        const StaticMesh&                             base        = *key.Mesh;
-        const Desert::Geometry::DisplacementTopology& topology    = *base.GetDisplacementTopology();
-        const uint32_t                                vertexCount = static_cast<uint32_t>( t.Vertices.size() );
-        const uint32_t                                pointCount  = static_cast<uint32_t>( t.Points.size() );
-        if ( vertexCount == 0 || pointCount == 0 || t.Indices.empty() )
-            return Common::MakeFormattedError<Result>(
-                 "displacement: the tessellation has {} vertices, {} points, {} indices", vertexCount, pointCount,
-                 t.Indices.size() );
-        const bool streams = base.GetStreamBuffer() != nullptr;
-
-        auto geometry                          = std::make_shared<SharedGeometry>();
-        geometry->Key                          = key;
-        std::shared_ptr<VertexBuffer> vertices = VertexBuffer::Create(
-             static_cast<uint32_t>( vertexCount * sizeof( Vertex ) ), BufferUsage::GpuWritten );
-        if ( const auto built = vertices->RT_Invalidate(); !built.IsSuccess() )
-            return Common::MakeFormattedError<Result>( "displacement: {} vertices could not be allocated: {}",
-                                                       vertexCount, built.GetError() );
-        // Ledger rows (§5): the scene renderer's, like the skin cache's streams - rebuilt by redisplacing.
-        vertices->ClaimOwnership( ResourceOwner::SceneRenderer );
-        std::shared_ptr<VertexBuffer> streamBuffer;
-        if ( streams )
+        // A piece = a cluster at its own level and the level each border with a neighbour dices at (the larger of
+        // the two clusters' levels): exactly what TessellateCluster reads, so equal keys are equal tessellations.
+        std::string PieceKeyOf( const Desert::Geometry::DisplacementTopology& topology, std::span<const uint8_t> levels,
+                                const uint32_t cluster )
         {
-            streamBuffer = VertexBuffer::Create(
-                 static_cast<uint32_t>( vertexCount * sizeof( MeshVertexStreams ) ), BufferUsage::GpuWritten );
-            if ( const auto built = streamBuffer->RT_Invalidate(); !built.IsSuccess() )
-                return Common::MakeFormattedError<Result>(
-                     "displacement: {} stream vertices could not be allocated: {}", vertexCount,
-                     built.GetError() );
-            streamBuffer->ClaimOwnership( ResourceOwner::SceneRenderer );
+            const auto& neighbours = topology.Clusters[cluster].Neighbours;
+            std::string key( sizeof( uint32_t ) + 1 + neighbours.size(), '\0' );
+            std::memcpy( key.data(), &cluster, sizeof( uint32_t ) );
+            key[sizeof( uint32_t )] = static_cast<char>( levels[cluster] );
+            for ( size_t n = 0; n < neighbours.size(); ++n )
+                key[sizeof( uint32_t ) + 1 + n] =
+                     static_cast<char>( std::max( levels[cluster], levels[neighbours[n]] ) );
+            return key;
         }
-        std::shared_ptr<IndexBuffer> indices =
-             IndexBuffer::Create( t.Indices.data(), static_cast<uint32_t>( t.Indices.size() * sizeof( uint32_t ) ),
-                                  BufferUsage::Static );
-        if ( const auto built = indices->RT_Invalidate(); !built.IsSuccess() )
-            return Common::MakeFormattedError<Result>( "displacement: {} indices could not be uploaded: {}",
-                                                       t.Indices.size(), built.GetError() );
-        indices->ClaimOwnership( ResourceOwner::SceneRenderer );
 
-        // The graph: base vertices (+ streams) in, the twin's vertices (+ streams) out.
-        RDG::ExternalBuffer baseVertices, baseStreams, twinVertices, twinStreams;
+        uint32_t PoolStride( const bool streams )
+        {
+            return static_cast<uint32_t>( sizeof( Vertex ) + ( streams ? sizeof( MeshVertexStreams ) : 0u ) );
+        }
+    } // namespace
+
+    uint64_t DisplacementCache::Tessellation::VertexCount() const
+    {
+        uint64_t count = 0;
+        for ( const auto& cluster : Clusters )
+            count += cluster->Vertices.size();
+        return count;
+    }
+
+    uint64_t DisplacementCache::Tessellation::IndexCount() const
+    {
+        uint64_t count = 0;
+        for ( const auto& cluster : Clusters )
+            count += cluster->Indices.size();
+        return count;
+    }
+
+    std::shared_ptr<DisplacementCache::VertexPool> DisplacementCache::PoolFor( const BuildKey& key )
+    {
+        uint64_t hash = std::hash<const void*>{}( key.Mesh ) ^ ( std::hash<const void*>{}( key.Topology ) << 1u );
+        for ( const DisplacementMaterialRecord& m : key.Materials )
+            hash = hash * 1099511628211ull ^
+                   ( static_cast<uint64_t>( m.Texture ) << 32u | std::bit_cast<uint32_t>( m.ScaleCm ) );
+        const auto [first, last] = m_Pools.equal_range( hash );
+        for ( auto it = first; it != last; ++it )
+            if ( auto pool = it->second.lock() )
+                if ( pool->Mesh == key.Mesh && pool->Topology == key.Topology && pool->Materials == key.Materials )
+                    return pool;
+        auto pool       = std::make_shared<VertexPool>();
+        pool->Mesh      = key.Mesh;
+        pool->Topology  = key.Topology;
+        pool->Materials = key.Materials;
+        m_Pools.emplace( hash, pool );
+        return pool;
+    }
+
+    Common::BoolResultStr DisplacementCache::EmitPieces( VertexPool& pool, std::vector<PoolPiece*>& batch,
+                                                         const uint32_t firstVertex )
+    {
+        if ( batch.empty() )
+            return BOOLSUCCESS;
+        const StaticMesh&                             base     = *pool.Mesh;
+        const Desert::Geometry::DisplacementTopology& topology = *pool.Topology;
+        const bool                                    streams  = pool.Streams != nullptr;
+
+        // The batch as one dispatch pair: points, samples and vertex records concatenated, rebased per piece.
+        std::vector<Desert::Geometry::DisplacementPoint>  points;
+        std::vector<Desert::Geometry::DisplacementSample> samples;
+        std::vector<Desert::Geometry::DisplacementVertex> records;
+        uint32_t                                          next = firstVertex;
+        for ( PoolPiece* piece : batch )
+        {
+            const Desert::Geometry::TessellatedCluster& r          = *piece->Source;
+            const auto                                  pointBase  = static_cast<uint32_t>( points.size() );
+            const auto                                  sampleBase = static_cast<uint32_t>( samples.size() );
+            for ( Desert::Geometry::DisplacementPoint p : r.Points )
+            {
+                p.SampleOffset += sampleBase;
+                points.push_back( p );
+            }
+            samples.insert( samples.end(), r.Samples.begin(), r.Samples.end() );
+            for ( Desert::Geometry::DisplacementVertex v : r.Vertices )
+            {
+                v.Point += pointBase;
+                records.push_back( v );
+            }
+            piece->First = next;
+            piece->Count = static_cast<uint32_t>( r.Vertices.size() );
+            next += piece->Count;
+        }
+        const auto vertexCount = static_cast<uint32_t>( records.size() );
+        const auto pointCount  = static_cast<uint32_t>( points.size() );
+        if ( firstVertex + vertexCount > pool.Capacity )
+            return Common::MakeFormattedError<bool>(
+                 "displacement: {} vertices from {} overflow the pool of {}", vertexCount, firstVertex, pool.Capacity );
+
+        RDG::ExternalBuffer baseVertices, baseStreams, poolVertices, poolStreams;
         if ( const auto in = Renderer::ImportVertexBuffer( base.GetVertexBuffer(), baseVertices ); !in )
-            return Common::MakeError<Result>( in.GetError() );
+            return Common::MakeError<bool>( in.GetError() );
         if ( streams )
             if ( const auto in = Renderer::ImportVertexBuffer( base.GetStreamBuffer(), baseStreams ); !in )
-                return Common::MakeError<Result>( in.GetError() );
-        if ( const auto in = Renderer::ImportVertexBuffer( vertices, twinVertices ); !in )
-            return Common::MakeError<Result>( in.GetError() );
+                return Common::MakeError<bool>( in.GetError() );
+        if ( const auto in = Renderer::ImportVertexBuffer( pool.Vertices, poolVertices ); !in )
+            return Common::MakeError<bool>( in.GetError() );
         if ( streams )
-            if ( const auto in = Renderer::ImportVertexBuffer( streamBuffer, twinStreams ); !in )
-                return Common::MakeError<Result>( in.GetError() );
+            if ( const auto in = Renderer::ImportVertexBuffer( pool.Streams, poolStreams ); !in )
+                return Common::MakeError<bool>( in.GetError() );
 
         const std::vector<uint32_t>& topologyWords = TopologyWords( topology );
-        const uint32_t               triangles     = static_cast<uint32_t>( topology.TriangleSubmesh.size() );
-        const uint32_t               welds         = static_cast<uint32_t>( topology.WeldPosition.size() );
+        const auto                   triangles     = static_cast<uint32_t>( topology.TriangleSubmesh.size() );
+        const auto                   welds         = static_cast<uint32_t>( topology.WeldPosition.size() );
         std::vector<uint32_t>        materials;
-        for ( const DisplacementMaterialRecord& m : key.Materials )
+        for ( const DisplacementMaterialRecord& m : pool.Materials )
         {
             const auto* words = reinterpret_cast<const uint32_t*>( &m );
             materials.insert( materials.end(), words,
                               words + sizeof( DisplacementMaterialRecord ) / sizeof( uint32_t ) );
         }
+        // Counts.y: the pool vertex the Emit pass writes the batch's first record to.
         const std::array<uint32_t, 12> heightsDispatch = { pointCount,
                                                            0,
                                                            0,
@@ -373,13 +433,14 @@ namespace Desert::Graphic::System
                                                            0 };
         std::array<uint32_t, 12>       emitDispatch    = heightsDispatch;
         emitDispatch[0]                                = vertexCount;
+        emitDispatch[1]                                = firstVertex;
 
         RDG::Builder         graph( "Displacement" );
         const RDG::BufferRef baseVerticesRef =
              graph.RegisterExternal( baseVertices, "Displacement.SourceVertices" );
         const RDG::BufferRef baseStreamsRef =
              streams ? graph.RegisterExternal( baseStreams, "Displacement.SourceStreams" ) : baseVerticesRef;
-        const RDG::BufferRef outVerticesRef = graph.RegisterExternal( twinVertices, "Displacement.Vertices" );
+        const RDG::BufferRef outVerticesRef = graph.RegisterExternal( poolVertices, "Displacement.Vertices" );
         const auto           upload         = [&]( const auto& values, const char* name )
         {
             const RDG::BufferRef ref = graph.CreateBuffer( RDG::BufferDesc{ BytesOf( values ).size() }, name );
@@ -390,28 +451,25 @@ namespace Desert::Graphic::System
         const std::vector<uint32_t> emitDispatchWords( emitDispatch.begin(), emitDispatch.end() );
         const RDG::BufferRef        topologyRef  = upload( topologyWords, "Displacement.Topology" );
         const RDG::BufferRef        materialsRef = upload( materials, "Displacement.Materials" );
-        const RDG::BufferRef        pointsRef    = upload( t.Points, "Displacement.Points" );
-        const RDG::BufferRef        samplesRef   = upload( t.Samples, "Displacement.Samples" );
-        const RDG::BufferRef        recordsRef   = upload( t.Vertices, "Displacement.VertexRecords" );
+        const RDG::BufferRef        pointsRef    = upload( points, "Displacement.Points" );
+        const RDG::BufferRef        samplesRef   = upload( samples, "Displacement.Samples" );
+        const RDG::BufferRef        recordsRef   = upload( records, "Displacement.VertexRecords" );
         const RDG::BufferRef        heightsArgs  = upload( heightsDispatchWords, "Displacement.HeightsDispatch" );
         const RDG::BufferRef        emitArgs     = upload( emitDispatchWords, "Displacement.EmitDispatch" );
         const RDG::BufferRef        positionsRef =
              graph.CreateBuffer( RDG::BufferDesc{ static_cast<uint64_t>( pointCount ) * 3u * sizeof( float ) },
                                  "Displacement.Positions" );
-        // Without streams the output-streams slot is bound to a buffer nothing reads back (Offsets.w = 0).
         const RDG::BufferRef outStreamsRef =
-             streams ? graph.RegisterExternal( twinStreams, "Displacement.Streams" )
+             streams ? graph.RegisterExternal( poolStreams, "Displacement.Streams" )
                      : graph.CreateBuffer( RDG::BufferDesc{ 16 }, "Displacement.NoStreams" );
-
-        const std::shared_ptr<ComputePipeline> heights = m_HeightsPipeline;
-        const std::shared_ptr<ComputePipeline> emit    = m_EmitPipeline;
-        const auto&               heightsLayout        = m_HeightsLayout.Get( heights->GetSpecification().Shader );
-        const auto&               emitLayout           = m_EmitLayout.Get( emit->GetSpecification().Shader );
-        const RDG::OtherRouteFill heightsFill          = Renderer::GetPipelineRouteFill( *heights );
-        const RDG::OtherRouteFill emitFill             = Renderer::GetPipelineRouteFill( *emit );
+        const std::shared_ptr<ComputePipeline> heights       = m_HeightsPipeline;
+        const std::shared_ptr<ComputePipeline> emit          = m_EmitPipeline;
+        const auto& heightsLayout = m_HeightsLayout.Get( heights->GetSpecification().Shader );
+        const auto& emitLayout    = m_EmitLayout.Get( emit->GetSpecification().Shader );
+        const RDG::OtherRouteFill              heightsFill   = Renderer::GetPipelineRouteFill( *heights );
+        const RDG::OtherRouteFill              emitFill      = Renderer::GetPipelineRouteFill( *emit );
         const uint32_t pointGroups  = ( pointCount + kDisplacementGroupSize - 1 ) / kDisplacementGroupSize;
         const uint32_t vertexGroups = ( vertexCount + kDisplacementGroupSize - 1 ) / kDisplacementGroupSize;
-
         graph.AddPass(
              kDisplacementHeightsPassName, RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
@@ -450,29 +508,183 @@ namespace Desert::Graphic::System
                  const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  return Renderer::DispatchCompute( bindings, *emit, vertexGroups, 1, 1 );
              } );
-        // Handed to vertex input at the graph's end: the view graphs bind the twin's vertices as their vertex
-        // stream (MeshRenderer's morph twin rule); the BLAS build declares its own AccelStructBuildInput read.
-        graph.Extract( outVerticesRef, twinVertices, RDG::Access::VertexIndex );
+        // Handed to vertex input at the graph's end: the view graphs bind the pool as their vertex stream (the
+        // morph twin rule); the BLAS build declares its own AccelStructBuildInput read.
+        graph.Extract( outVerticesRef, poolVertices, RDG::Access::VertexIndex );
         if ( streams )
-            graph.Extract( outStreamsRef, twinStreams, RDG::Access::VertexIndex );
+            graph.Extract( outStreamsRef, poolStreams, RDG::Access::VertexIndex );
         if ( const Common::BoolResultStr executed = Renderer::ExecuteGraph( graph ); !executed )
-            return Common::MakeFormattedError<Result>(
-                 "displacement: the graph of {} vertices did not execute: {}", vertexCount, executed.GetError() );
+            return Common::MakeFormattedError<bool>( "displacement: the graph of {} vertices did not execute: {}",
+                                               vertexCount, executed.GetError() );
+        pool.Used = std::max( pool.Used, next );
+        return BOOLSUCCESS;
+    }
 
-        std::vector<StaticMesh::DisplacedRange> ranges( t.SubmeshFirstIndex.size() );
-        for ( size_t s = 0; s < ranges.size(); ++s )
-            ranges[s] = { t.SubmeshFirstIndex[s], t.SubmeshIndexCount[s] };
+    Common::BoolResultStr DisplacementCache::RebuildPool( VertexPool& pool, const std::vector<std::string>& wanted,
+                                                          const Tessellation& t )
+    {
+        // Live = what the pool's live geometries draw, plus the geometry being built.
+        std::vector<std::shared_ptr<SharedGeometry>> geometries;
+        std::unordered_set<std::string>              live( wanted.begin(), wanted.end() );
+        for ( const auto& [hash, weak] : m_Shared )
+            if ( auto geometry = weak.lock(); geometry && geometry->Pool.get() == &pool )
+            {
+                live.insert( geometry->Pieces.begin(), geometry->Pieces.end() );
+                geometries.push_back( std::move( geometry ) );
+            }
+        std::unordered_map<std::string, PoolPiece> pieces;
+        uint64_t                                   total = 0;
+        for ( const std::string& key : live )
+        {
+            PoolPiece piece;
+            if ( const auto found = pool.Pieces.find( key ); found != pool.Pieces.end() )
+                piece = found->second;
+            else
+            {
+                uint32_t cluster = 0;
+                std::memcpy( &cluster, key.data(), sizeof( uint32_t ) );
+                piece.Source  = t.Clusters[cluster];
+                piece.Submesh = pool.Topology->Clusters[cluster].Submesh;
+            }
+            total += piece.Source->Vertices.size();
+            pieces.emplace( key, std::move( piece ) );
+        }
+        const bool     streams  = pool.Mesh->GetStreamBuffer() != nullptr;
+        const uint64_t capacity = std::max<uint64_t>( 2 * total, 4096 );
+        if ( capacity > std::numeric_limits<uint32_t>::max() / PoolStride( streams ) )
+            return Common::MakeFormattedError<bool>( "displacement: a vertex pool of {} vertices exceeds a buffer",
+                                               capacity );
+        auto vertices = VertexBuffer::Create( static_cast<uint32_t>( capacity * sizeof( Vertex ) ),
+                                              BufferUsage::GpuWritten );
+        if ( const auto built = vertices->RT_Invalidate(); !built.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "displacement: a pool of {} vertices could not be allocated: {}",
+                                               capacity, built.GetError() );
+        vertices->ClaimOwnership( ResourceOwner::SceneRenderer );
+        std::shared_ptr<VertexBuffer> streamBuffer;
+        if ( streams )
+        {
+            streamBuffer = VertexBuffer::Create( static_cast<uint32_t>( capacity * sizeof( MeshVertexStreams ) ),
+                                                 BufferUsage::GpuWritten );
+            if ( const auto built = streamBuffer->RT_Invalidate(); !built.IsSuccess() )
+                return Common::MakeFormattedError<bool>(
+                     "displacement: a pool of {} stream vertices could not be allocated: {}", capacity,
+                     built.GetError() );
+            streamBuffer->ClaimOwnership( ResourceOwner::SceneRenderer );
+        }
+        pool.Vertices = std::move( vertices );
+        pool.Streams  = std::move( streamBuffer );
+        pool.Capacity = static_cast<uint32_t>( capacity );
+        pool.Used     = 0;
+        pool.Pieces   = std::move( pieces );
+        // Re-emitted in key order: a deterministic layout.
+        std::vector<std::pair<const std::string*, PoolPiece*>> order;
+        for ( auto& [key, piece] : pool.Pieces )
+            order.emplace_back( &key, &piece );
+        std::sort( order.begin(), order.end(), []( const auto& a, const auto& b ) { return *a.first < *b.first; } );
+        std::vector<PoolPiece*> batch;
+        for ( const auto& [key, piece] : order )
+            batch.push_back( piece );
+        if ( const Common::BoolResultStr emitted = EmitPieces( pool, batch, 0 ); !emitted )
+            return emitted;
+        for ( const auto& geometry : geometries )
+            if ( const Common::BoolResultStr indexed = IndexGeometry( *geometry ); !indexed )
+                return indexed;
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr DisplacementCache::IndexGeometry( SharedGeometry& geometry )
+    {
+        const VertexPool&                             pool     = *geometry.Pool;
+        const Desert::Geometry::DisplacementTopology& topology = *pool.Topology;
+        const size_t                                  submeshes = pool.Mesh->GetSubmeshes().size();
+        // Clusters are cooked per submesh in order, so each submesh's indices are contiguous.
+        std::vector<StaticMesh::DisplacedRange> ranges( submeshes );
+        std::vector<uint32_t>                   indices;
+        for ( uint32_t c = 0; c < geometry.Pieces.size(); ++c )
+        {
+            const auto found = pool.Pieces.find( geometry.Pieces[c] );
+            if ( found == pool.Pieces.end() )
+                return Common::MakeFormattedError<bool>( "displacement: cluster {} has no piece in its pool", c );
+            const PoolPiece& piece   = found->second;
+            const uint32_t   submesh = topology.Clusters[c].Submesh;
+            if ( ranges[submesh].IndexCount == 0 )
+                ranges[submesh].FirstIndex = static_cast<uint32_t>( indices.size() );
+            for ( const uint32_t index : piece.Source->Indices )
+                indices.push_back( piece.First + index );
+            ranges[submesh].IndexCount += static_cast<uint32_t>( piece.Source->Indices.size() );
+        }
+        if ( indices.empty() )
+            return Common::MakeError<bool>( "displacement: the geometry draws no triangles" );
+        auto indexBuffer = IndexBuffer::Create(
+             indices.data(), static_cast<uint32_t>( indices.size() * sizeof( uint32_t ) ), BufferUsage::Static );
+        if ( const auto built = indexBuffer->RT_Invalidate(); !built.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "displacement: {} indices could not be uploaded: {}",
+                                                     indices.size(), built.GetError() );
+        indexBuffer->ClaimOwnership( ResourceOwner::SceneRenderer );
         // The bounds grow by the largest displacement any submesh can apply: |ScaleCm| times the farther of the
         // centre's two distances to the height range ends.
         float growth = 0.0f;
-        for ( const DisplacementMaterialRecord& m : key.Materials )
+        for ( const DisplacementMaterialRecord& m : pool.Materials )
             if ( m.Texture != 0xffffffffu )
                 growth = std::max( growth, std::abs( m.ScaleCm ) * std::max( m.Center, 1.0f - m.Center ) );
-        geometry->Twin =
-             StaticMesh::MakeDisplacedTwin( base, vertices, streamBuffer, indices, ranges, vertexCount, growth );
-        geometry->Bytes = static_cast<uint64_t>( vertexCount ) *
-                               ( sizeof( Vertex ) + ( streams ? sizeof( MeshVertexStreams ) : 0u ) ) +
-                          t.Indices.size() * sizeof( uint32_t );
+        geometry.Twin = StaticMesh::MakeDisplacedTwin( *pool.Mesh, pool.Vertices, pool.Streams, indexBuffer, ranges,
+                                                       pool.Capacity, growth );
+        return BOOLSUCCESS;
+    }
+
+    Common::ResultStr<std::shared_ptr<DisplacementCache::SharedGeometry>>
+    DisplacementCache::Emit( const BuildKey& key, const Tessellation& t )
+    {
+        using Result                                           = std::shared_ptr<SharedGeometry>;
+        const Desert::Geometry::DisplacementTopology& topology = *key.Topology;
+        if ( t.Clusters.size() != topology.Clusters.size() || t.VertexCount() == 0 || t.IndexCount() == 0 )
+            return Common::MakeFormattedError<Result>(
+                 "displacement: the tessellation has {} clusters of {}, {} vertices, {} indices", t.Clusters.size(),
+                 topology.Clusters.size(), t.VertexCount(), t.IndexCount() );
+        auto geometry  = std::make_shared<SharedGeometry>();
+        geometry->Key  = key;
+        geometry->Pool = PoolFor( key );
+        VertexPool& pool = *geometry->Pool;
+        const bool  streams = key.Mesh->GetStreamBuffer() != nullptr;
+
+        // The pieces this geometry draws: the pool's, or appended.
+        geometry->Pieces.resize( t.Clusters.size() );
+        std::vector<uint32_t> missing;
+        uint64_t              missingVertices = 0;
+        for ( uint32_t c = 0; c < t.Clusters.size(); ++c )
+        {
+            geometry->Pieces[c] = PieceKeyOf( topology, key.Levels, c );
+            if ( !pool.Pieces.contains( geometry->Pieces[c] ) )
+            {
+                missing.push_back( c );
+                missingVertices += t.Clusters[c]->Vertices.size();
+            }
+        }
+        if ( pool.Vertices == nullptr || pool.Used + missingVertices > pool.Capacity )
+        {
+            if ( const Common::BoolResultStr rebuilt = RebuildPool( pool, geometry->Pieces, t ); !rebuilt )
+                return Common::MakeError<Result>( rebuilt.GetError() );
+        }
+        else if ( !missing.empty() )
+        {
+            std::vector<PoolPiece*> batch;
+            for ( const uint32_t c : missing )
+            {
+                PoolPiece& piece = pool.Pieces[geometry->Pieces[c]];
+                piece.Source     = t.Clusters[c];
+                piece.Submesh    = topology.Clusters[c].Submesh;
+                batch.push_back( &piece );
+            }
+            if ( const Common::BoolResultStr emitted = EmitPieces( pool, batch, pool.Used ); !emitted )
+            {
+                for ( const uint32_t c : missing )
+                    pool.Pieces.erase( geometry->Pieces[c] );
+                return Common::MakeError<Result>( emitted.GetError() );
+            }
+        }
+        if ( const Common::BoolResultStr indexed = IndexGeometry( *geometry ); !indexed )
+            return Common::MakeError<Result>( indexed.GetError() );
+        geometry->Bytes = missingVertices * PoolStride( streams ) + t.IndexCount() * sizeof( uint32_t );
         return Common::MakeSuccess( geometry );
     }
 
@@ -549,9 +761,9 @@ namespace Desert::Graphic::System
                     continue;
                 }
                 const Tessellation& t     = done.GetValue();
-                const uint64_t      bytes = static_cast<uint64_t>( t.Vertices.size() ) *
-                                            ( sizeof( Vertex ) + sizeof( MeshVertexStreams ) ) +
-                                       t.Indices.size() * sizeof( uint32_t );
+                // At most this much: pieces the pool already holds are not appended again.
+                const uint64_t bytes = t.VertexCount() * ( sizeof( Vertex ) + sizeof( MeshVertexStreams ) ) +
+                                       t.IndexCount() * sizeof( uint32_t );
                 const uint64_t released =
                      entry.Current && entry.Current.use_count() == 1 ? entry.Current->Bytes : 0;
                 if ( m_Quality.PoolBytes != 0 && liveBytes - released + bytes > m_Quality.PoolBytes )
@@ -611,40 +823,17 @@ namespace Desert::Graphic::System
             entry.PendingKey            = wanted;
             pendingKeys.emplace( HashKey( wanted ), wanted );
             entry.Pending               = Common::JobSystem::Get().Async(
-                 [topology, levels = std::move( levels ),
-                  submeshes = static_cast<uint32_t>(
-                       entry.Mesh->GetSubmeshes().size() )]() -> Common::ResultStr<Tessellation>
+                 [topology, levels = std::move( levels )]() -> Common::ResultStr<Tessellation>
                  {
                      Tessellation out;
-                     out.SubmeshFirstIndex.assign( submeshes, 0 );
-                     out.SubmeshIndexCount.assign( submeshes, 0 );
+                     out.Clusters.reserve( topology->Clusters.size() );
                      for ( uint32_t c = 0; c < topology->Clusters.size(); ++c )
                      {
                          auto cluster = Desert::Geometry::TessellateCluster( *topology, c, levels );
                          if ( !cluster.IsSuccess() )
                              return Common::MakeError<Tessellation>( cluster.GetError() );
-                         const Desert::Geometry::TessellatedCluster& r = cluster.GetValue();
-                         const uint32_t pointBase  = static_cast<uint32_t>( out.Points.size() );
-                         const uint32_t sampleBase = static_cast<uint32_t>( out.Samples.size() );
-                         const uint32_t vertexBase = static_cast<uint32_t>( out.Vertices.size() );
-                         const uint32_t submesh    = topology->Clusters[c].Submesh;
-                         // Clusters are cooked per submesh in order, so each submesh's indices are contiguous.
-                         if ( out.SubmeshIndexCount[submesh] == 0 )
-                             out.SubmeshFirstIndex[submesh] = static_cast<uint32_t>( out.Indices.size() );
-                         for ( Desert::Geometry::DisplacementPoint p : r.Points )
-                         {
-                             p.SampleOffset += sampleBase;
-                             out.Points.push_back( p );
-                         }
-                         out.Samples.insert( out.Samples.end(), r.Samples.begin(), r.Samples.end() );
-                         for ( Desert::Geometry::DisplacementVertex v : r.Vertices )
-                         {
-                             v.Point += pointBase;
-                             out.Vertices.push_back( v );
-                         }
-                         for ( const uint32_t index : r.Indices )
-                             out.Indices.push_back( index + vertexBase );
-                         out.SubmeshIndexCount[submesh] += static_cast<uint32_t>( r.Indices.size() );
+                         out.Clusters.push_back(
+                              std::make_shared<const Desert::Geometry::TessellatedCluster>( cluster.ExtractValue() ) );
                      }
                      return Common::MakeSuccess( std::move( out ) );
                  } );
@@ -672,6 +861,7 @@ namespace Desert::Graphic::System
     {
         std::erase_if( m_Entries, [frame]( const auto& item ) { return item.second.LastFrame != frame; } );
         std::erase_if( m_Shared, []( const auto& shared ) { return shared.second.expired(); } );
+        std::erase_if( m_Pools, []( const auto& pool ) { return pool.second.expired(); } );
 
         std::unordered_set<const Desert::Geometry::DisplacementTopology*> topologies;
         std::unordered_set<const SharedGeometry*>                         geometries;

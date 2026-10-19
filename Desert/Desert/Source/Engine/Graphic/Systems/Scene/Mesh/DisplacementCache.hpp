@@ -38,6 +38,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -48,6 +49,8 @@ namespace Desert
 namespace Desert::Graphic
 {
     class ComputePipeline;
+    class IndexBuffer;
+    class VertexBuffer;
 }
 
 namespace Desert::Graphic::System
@@ -163,21 +166,49 @@ namespace Desert::Graphic::System
         [[nodiscard]] static uint64_t HashKey( const BuildKey& key );
 
         // CPU tessellation of one BuildKey, gathered over the clusters in submesh order.
+        // One entry's tessellation, per cluster (index = topology cluster): the pool reuses the pieces it has.
         struct Tessellation
         {
-            std::vector<Desert::Geometry::DisplacementPoint>  Points;
-            std::vector<Desert::Geometry::DisplacementSample> Samples;
-            std::vector<Desert::Geometry::DisplacementVertex> Vertices;
-            std::vector<uint32_t>                     Indices; // entry-global vertex indices
-            std::vector<uint32_t>                     SubmeshFirstIndex, SubmeshIndexCount;
+            std::vector<std::shared_ptr<const Desert::Geometry::TessellatedCluster>> Clusters;
+            [[nodiscard]] uint64_t VertexCount() const;
+            [[nodiscard]] uint64_t IndexCount() const;
+        };
+
+        // THE PER-CLUSTER VERTEX POOL (§9.8): one growable GpuWritten vertex (+streams) buffer per (mesh, topology,
+        // material records) holding every displaced cluster PIECE once - a piece is a cluster at its own level and
+        // its neighbours' border levels (PieceKeyOf), which is all TessellateCluster reads. Entries with DIFFERENT
+        // level combinations share the pieces they have in common; each geometry owns only its index buffer (and
+        // the BLAS built over the twin). Appends go at Used; when the buffer is full the pool is rebuilt at twice
+        // the live size with only the pieces live geometries still draw (dead pieces are reclaimed there), and
+        // every live geometry of the pool gets a new index buffer and twin. Owned by its geometries (shared_ptr);
+        // m_Pools only finds it.
+        struct PoolPiece
+        {
+            uint32_t First   = 0; // first vertex in the pool
+            uint32_t Count   = 0;
+            uint32_t Submesh = 0;
+            std::shared_ptr<const Desert::Geometry::TessellatedCluster> Source; // re-emitted on a rebuild
+        };
+        struct VertexPool
+        {
+            const StaticMesh*                             Mesh     = nullptr;
+            const Desert::Geometry::DisplacementTopology* Topology = nullptr;
+            std::vector<DisplacementMaterialRecord>       Materials;
+            std::shared_ptr<VertexBuffer>                 Vertices;
+            std::shared_ptr<VertexBuffer>                 Streams; // null when the base mesh has none
+            uint32_t                                      Capacity = 0;
+            uint32_t                                      Used     = 0;
+            std::unordered_map<std::string, PoolPiece>    Pieces; // by PieceKeyOf
         };
 
         // One displaced geometry, shared by every entry whose key equals Key.
         struct SharedGeometry
         {
             BuildKey                    Key;
+            std::shared_ptr<VertexPool> Pool;
+            std::vector<std::string>    Pieces; // per cluster, its piece in Pool
             std::shared_ptr<StaticMesh> Twin;
-            uint64_t                    Bytes = 0;
+            uint64_t                    Bytes = 0; // own index buffer + the vertices this geometry appended
         };
 
         struct Entry
@@ -206,6 +237,16 @@ namespace Desert::Graphic::System
         [[nodiscard]] std::shared_ptr<SharedGeometry>                    FindShared( const BuildKey& key ) const;
         [[nodiscard]] Common::ResultStr<std::shared_ptr<SharedGeometry>> Emit( const BuildKey&     key,
                                                                          const Tessellation& t );
+        [[nodiscard]] std::shared_ptr<VertexPool> PoolFor( const BuildKey& key );
+        // Heights + Emit of @p batch into the pool from vertex @p firstVertex (sets each piece's First).
+        [[nodiscard]] Common::BoolResultStr EmitPieces( VertexPool& pool, std::vector<PoolPiece*>& batch,
+                                                        uint32_t firstVertex );
+        // A fresh buffer at twice the live size; live = the pieces live geometries draw plus @p wanted (taken
+        // from @p t where the pool lacks them). Every other live geometry of the pool is re-indexed.
+        [[nodiscard]] Common::BoolResultStr RebuildPool( VertexPool& pool, const std::vector<std::string>& wanted,
+                                                         const Tessellation& t );
+        // The geometry's index buffer and twin over its pool's current buffer.
+        [[nodiscard]] Common::BoolResultStr IndexGeometry( SharedGeometry& geometry );
         [[nodiscard]] const std::vector<uint32_t>& TopologyWords( const Desert::Geometry::DisplacementTopology& topology );
 
         DisplacementQuality                  m_Quality;
@@ -213,6 +254,8 @@ namespace Desert::Graphic::System
         std::unordered_multimap<uint64_t, std::weak_ptr<SharedGeometry>> m_Shared; // by HashKey
         // The GPU form of each live topology (CornerVertex | TriangleSubmesh | WeldPosition | WeldDirection).
         std::unordered_map<const Desert::Geometry::DisplacementTopology*, std::vector<uint32_t>> m_TopologyWords;
+        std::unordered_multimap<uint64_t, std::weak_ptr<VertexPool>>                     m_Pools; // by mesh/topology
+
         std::shared_ptr<ComputePipeline>                                                 m_HeightsPipeline;
         std::shared_ptr<ComputePipeline>                                                 m_EmitPipeline;
         ShaderBindingLayoutCache                                                         m_HeightsLayout;
