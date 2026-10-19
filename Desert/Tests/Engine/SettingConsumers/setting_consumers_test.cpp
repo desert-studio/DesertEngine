@@ -320,6 +320,11 @@ namespace
          // packer as an offset. WIND STAYS ON THE COMPONENT deliberately (the one named divergence from
          // the UE split): the collector may not touch Runtime::ResourceRegistry, and accumulating in the
          // renderer would let two viewports of one scene drift apart.
+         //
+         // CLOUD-OFFSET-BAKE: the AUTHORED start of that offset and the switch that lets game time move it
+         // both live on the layer and are both read by the system that integrates the drift.
+         { "WindOffset", kCloudSystem },
+         { "Drift", kCloudSystem },
     };
 
     // ------------------------------------------------------------------------------------------------

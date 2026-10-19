@@ -1,6 +1,7 @@
 #include "Editor/LevelEditor/PlaySession.hpp"
 
 #include "Editor/Core/CommandHistory.hpp"
+#include "Editor/Core/PlayKeptChanges.hpp"
 #include "Editor/Core/Selection/SelectionManager.hpp"
 #include "Editor/Core/ShotOptions.hpp"
 #include "Editor/Core/ThemeManager.hpp"
@@ -90,6 +91,7 @@ namespace Desert::Editor
         Desert::Core::SceneLoadPhases       phases( "Play start" );
         const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
         m_PlayWorld.Begin( serializer.SerializeToJson() );
+        PlayKeptChanges::Clear(); // a new session keeps nothing an earlier one left unapplied
         phases.Lap( "write the Play snapshot", scene->GetAllEntities().size() );
         // The edit world's packages (which entities differ from their files, which records an editor region
         // left on disk) go with the snapshot: the restore at Stop is a load, and a load forgets them.
@@ -235,6 +237,9 @@ namespace Desert::Editor
         phases.LogSummary();
 
         scene->SetState( SceneState::Edit );
+        // What Play asked to keep (Capture current sky) lands on the restored world, undoable, now that it is
+        // the edit world again.
+        PlayKeptChanges::ApplyTo( *scene );
         // The session ends with the world: without this the editor kept reporting Play (MCP state "playing")
         // after every Stop — only a closed scene view used to end it (EndIfBoundTo).
         m_State = State::Paused;

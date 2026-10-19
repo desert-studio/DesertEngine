@@ -58,11 +58,11 @@ namespace Desert::Runtime
          * CloudLayoutData to stand for "none", and a table of zeros is not nothing: under the zero-mean
          * pattern rule it would push every cell's coverage the same way.
          *
-         * SHARED AND NOT BORROWED, through the aliasing constructor: the pointer owns a share of the ASSET
-         * and addresses its layout member. The bake's parameters are CACHED by the renderer across frames
+         * SHARED AND NOT BORROWED: the pointer owns the asset's current immutable REVISION of the pixels
+         * (CloudLayoutAsset::SharedLayout). The bake's parameters are CACHED by the renderer across frames
          * and re-used whenever the region shifts, so a borrowed pointer would outlive an asset the user
-         * unloaded — and the failure would be a read of freed pixels inside a bake, which is the least
-         * diagnosable crash this subsystem could have.
+         * unloaded or a stroke that replaced the pixels — and the failure would be a read of freed pixels
+         * inside a bake, which is the least diagnosable crash this subsystem could have.
          */
         /**
          * @brief THE THREE-STATE ANSWER, and the only thing that starts a read.
@@ -77,10 +77,10 @@ namespace Desert::Runtime
          *   change is about, and it is why the two states cannot share a null pointer.
          * - **Ready** — the pixels are here.
          *
-         * SHARED AND NOT BORROWED, through the aliasing constructor, exactly as the pointer this replaces
-         * was: the payload owns a share of the ASSET and addresses its layout member. The bake's
-         * parameters are cached across frames, so a borrowed pointer would outlive an unloaded asset and
-         * the failure would be a read of freed pixels inside a bake.
+         * SHARED AND NOT BORROWED: the payload owns the asset's current revision of the pixels, which an
+         * in-memory edit replaces rather than changes. The bake's parameters are cached across frames, so
+         * a borrowed pointer would outlive an unloaded asset or an edited revision, and the failure would
+         * be a read of freed pixels inside a bake.
          */
         Assets::AssetRef<const Assets::CloudLayoutData> Require( const Assets::AssetHandle& handle );
 

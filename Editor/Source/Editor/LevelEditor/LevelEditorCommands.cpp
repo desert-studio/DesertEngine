@@ -85,7 +85,8 @@ namespace Desert::Editor
                                      out.push_back( std::move( command ) );
                                  }
                              } );
-        m_Commands.Register( "Clouds", []( Out& out ) { AppendCloudCommands( out ); } );
+        m_Commands.Register( "Clouds",
+                             [&workspace]( Out& out ) { AppendCloudCommands( out, workspace.ActiveScene() ); } );
         m_Commands.Register( "Language", []( Out& out ) { AppendLanguageCommands( out ); } );
         m_Commands.Register( "Documents", [&documents]( Out& out ) { documents.AppendDocumentCommands( out ); } );
         m_Commands.Register( "Entity", [this]( Out& out ) { m_EntityCommands.Append( out ); } );
