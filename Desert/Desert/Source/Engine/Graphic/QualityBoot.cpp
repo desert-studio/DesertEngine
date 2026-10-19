@@ -69,8 +69,15 @@ namespace Desert::Graphic::QualityBoot
             window->SetDisplay( machine.Display );
 
         const auto&                            capabilities = EngineContext::GetInstance().GetCapabilities();
-        const MachineSettings::StartingQuality start        = MachineSettings::StartFrom(
-             machine, Engine::MakeBenchmarkCacheKey( capabilities, table.GetValue().Version ) );
+        const MachineSettings::StartingQuality start =
+             MachineSettings::StartFrom( machine, MachineSettings::UnreadLevels(),
+                                         Engine::MakeBenchmarkCacheKey( capabilities, table.GetValue().Version ) );
+        // Load named each refused level (ERROR); this is the level the group actually starts on.
+        for ( std::size_t g = 0; g < Common::Scalability::kGroupCount; ++g )
+            if ( MachineSettings::UnreadLevels().test( g ) )
+                LOG_INFO( "[Scalability] the {} group's saved level did not read: it starts at {}",
+                          Common::Scalability::GroupKey( static_cast<Common::Scalability::Group>( g ) ),
+                          Common::Scalability::LevelKey( start.Selection.Levels[g] ) );
         // A first run with a valid recommendation starts on High and then APPLIES the recommendation, so the
         // Saver writes it: from then on machine.json holds a selection and the benchmark never overrides it.
         // A named local, not the conditional inline in the by-value argument: MSVC 19.44 never finishes compiling

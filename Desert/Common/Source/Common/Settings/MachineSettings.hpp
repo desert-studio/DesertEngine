@@ -1,5 +1,6 @@
 #pragma once
 
+#include <bitset>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -88,6 +89,9 @@ namespace Common::Settings
 
     struct MachineSettings
     {
+        // A set of quality groups, indexed by Scalability::Group.
+        using LevelGroups = std::bitset<Scalability::kGroupCount>;
+
         // THE QUALITY THIS MACHINE ASKED FOR (SCAL1): a level per group plus per-parameter overrides. Written only
         // through Scalability::QualityState (its Saver lands here); every renderer reads the RESOLVED values
         // (QualityState::Resolved()), never this.
@@ -158,6 +162,8 @@ namespace Common::Settings
         //                                                     (the host applies them through
         //                                                     QualityState::ApplyRecommended, which saves);
         //   no Quality, Recommended absent or stale        -> HighSelection(), FromRecommended false.
+        // A group in `unreadLevels` (its saved level did not read, UnreadLevels()) takes the no-Quality answer's
+        // level for that group; the saved selection's other groups and its overrides stand.
         struct StartingQuality
         {
             Scalability::QualitySelection Selection;
@@ -165,7 +171,12 @@ namespace Common::Settings
             bool                          operator==( const StartingQuality& ) const = default;
         };
         [[nodiscard]] static StartingQuality StartFrom( const MachineSettings&                settings,
+                                                        const LevelGroups&                    unreadLevels,
                                                         const Scalability::BenchmarkCacheKey& device );
+
+        // The Quality.Levels groups whose element the last Load() refused (not a level name), each reported by
+        // an ERROR naming the group. Empty after a clean Load, without one, or when Quality was refused whole.
+        [[nodiscard]] static const LevelGroups& UnreadLevels();
     };
     DESERT_JSON_STRUCT( MachineSettings, "MachineSettings", 1 )
 

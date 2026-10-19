@@ -1372,24 +1372,24 @@ TEST( ConfigOwnership, AMachineWithNoSavedQualityStartsOnAValidRecommendationAnd
     const MachineSettings::StartingQuality allHigh{ MachineSettings::HighSelection(), false };
 
     MachineSettings fresh;
-    EXPECT_EQ( MachineSettings::StartFrom( fresh, device ), allHigh );
+    EXPECT_EQ( MachineSettings::StartFrom( fresh, {}, device ), allHigh );
 
     fresh.Recommended = recommended;
-    const auto start  = MachineSettings::StartFrom( fresh, device );
+    const auto start  = MachineSettings::StartFrom( fresh, {}, device );
     EXPECT_TRUE( start.FromRecommended );
     EXPECT_EQ( start.Selection.Levels, recommended.Levels );
     EXPECT_TRUE( start.Selection.Overrides.empty() );
 
     auto otherDriver          = device;
     otherDriver.DriverVersion = 43;
-    EXPECT_EQ( MachineSettings::StartFrom( fresh, otherDriver ), allHigh )
+    EXPECT_EQ( MachineSettings::StartFrom( fresh, {}, otherDriver ), allHigh )
          << "a recommendation measured on another driver must not be applied";
 
     MachineSettings chosen = fresh;
     chosen.Quality.emplace();
     chosen.Quality->Levels.fill( Common::Scalability::Level::Low );
     const MachineSettings::StartingQuality saved{ *chosen.Quality, false };
-    EXPECT_EQ( MachineSettings::StartFrom( chosen, device ), saved )
+    EXPECT_EQ( MachineSettings::StartFrom( chosen, {}, device ), saved )
          << "the benchmark overwrote the player's choice";
 }
 

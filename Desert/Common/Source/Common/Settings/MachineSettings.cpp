@@ -6,6 +6,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
+#include <variant>
 #include <format>
 #include <iterator>
 #include <cstdlib>
@@ -28,6 +29,10 @@ namespace Common::Settings
         // so the worst a stale memo can do is skip a write — and the re-read below is what keeps it from
         // being stale in the ordinary case.
         std::string s_OnDisk;
+
+        // The Quality.Levels groups the last Load() refused (ScreenLevels). Read by the host through
+        // MachineSettings::UnreadLevels() into StartFrom; a load-time fact about the file, never written.
+        MachineSettings::LevelGroups s_UnreadLevels;
 
         // Which top-level keys differ between two serializations of this file, by name. The key list is
         // the UNION of what the two texts actually contain rather than the fields MachineSettings declares,
@@ -106,6 +111,8 @@ namespace Common::Settings
         {
             MachineSettings        Settings;
             std::vector<Rejection> Rejections;
+            // The Quality.Levels groups whose element was refused (ScreenLevels); empty when Quality was refused.
+            MachineSettings::LevelGroups UnreadLevels;
         };
 
         constexpr std::string_view kOverrideForm =
@@ -146,16 +153,15 @@ namespace Common::Settings
             return std::nullopt;
         }
 
-        // The Quality member with every dropped override taken out of its Overrides array. A Quality that is not
-        // an object, or Overrides that is not an array, comes back as written: the member check refuses it whole.
-        Json::Value ScreenOverrides( const Json::Node& quality, std::vector<Rejection>& rejections )
+        // Quality.Overrides with every dropped override taken out. Overrides that is not an array comes back as
+        // written: the member check refuses it whole.
+        Json::Value ScreenOverrides( const Json::Node& overrides, std::vector<Rejection>& rejections )
         {
-            const std::optional<Json::Node> overrides = quality.Find( "Overrides" );
-            if ( !overrides || overrides->GetKind() != Json::Kind::Array )
-                return quality.Raw();
+            if ( overrides.GetKind() != Json::Kind::Array )
+                return overrides.Raw();
 
             Json::Value::Array kept;
-            overrides->ForEachElement(
+            overrides.ForEachElement(
                  [&]( std::size_t, const Json::Node& entry )
                  {
                      std::optional<Rejection> rejection = ScreenOverride( entry );
@@ -164,11 +170,67 @@ namespace Common::Settings
                      if ( rejection )
                          rejections.push_back( std::move( *rejection ) );
                  } );
+            return Json::Value( std::move( kept ) );
+        }
 
-            const Json::Value   screened( std::move( kept ) );
+        // Quality.Levels read PER GROUP: an element that is not a level name is refused by its group's name and
+        // marked in `unread`; MachineSettings::StartFrom gives that group the level this device starts on with no
+        // choice, so the other groups and the overrides stand. The marked element is written back as High only
+        // to keep the array readable — the mask, not that value, is what StartFrom reads. An array of the wrong
+        // length (or not an array) comes back as written and the member check refuses Quality whole: its
+        // elements cannot be matched to groups.
+        Json::Value ScreenLevels( const Json::Node& levels, std::vector<Rejection>& rejections,
+                                  MachineSettings::LevelGroups& unread )
+        {
+            const auto* array = std::get_if<Json::Value::Array>( &levels.Raw().variant() );
+            if ( array == nullptr || array->size() != Scalability::kGroupCount )
+                return levels.Raw();
+
+            Json::Value::Array kept;
+            levels.ForEachElement(
+                 [&]( std::size_t g, const Json::Node& entry )
+                 {
+                     if ( entry.As<Scalability::Level>() )
+                     {
+                         kept.push_back( entry.Raw() );
+                         return;
+                     }
+                     const std::string_view group = Scalability::GroupKey( static_cast<Scalability::Group>( g ) );
+                     std::string            names;
+                     for ( std::size_t l = 0; l < Scalability::kLevelCount; ++l )
+                         std::format_to( std::back_inserter( names ), "{}{}", l == 0 ? "" : ", ",
+                                         Scalability::LevelKey( static_cast<Scalability::Level>( l ) ) );
+                     rejections.push_back( { std::format(
+                          "{}: the {} group's level {} is not a level ({}); the {} group runs at the level this "
+                          "device starts on with no choice (the benchmark's recommendation when it is valid "
+                          "for this device, else High), the other groups and the overrides stand",
+                          entry.Where().ToString(), group, Json::Write( entry.Raw() ), names, group ) } );
+                     unread.set( g );
+                     kept.push_back(
+                          Json::Value( std::string( Scalability::LevelKey( Scalability::Level::High ) ) ) );
+                 } );
+            return Json::Value( std::move( kept ) );
+        }
+
+        // The Quality member with its Levels and Overrides screened. A Quality that is not an object comes back as
+        // written: the member check refuses it whole.
+        Json::Value ScreenQuality( const Json::Node& quality, std::vector<Rejection>& rejections,
+                                   MachineSettings::LevelGroups& unread )
+        {
+            if ( quality.GetKind() != Json::Kind::Object )
+                return quality.Raw();
+
             Json::ObjectBuilder rebuilt;
-            quality.ForEachMember( [&]( std::string_view name, const Json::Node& member )
-                                   { rebuilt.Set( name, name == "Overrides" ? screened : member.Raw() ); } );
+            quality.ForEachMember(
+                 [&]( std::string_view name, const Json::Node& member )
+                 {
+                     if ( name == "Levels" )
+                         rebuilt.Set( name, ScreenLevels( member, rejections, unread ) );
+                     else if ( name == "Overrides" )
+                         rebuilt.Set( name, ScreenOverrides( member, rejections ) );
+                     else
+                         rebuilt.Set( name, member.Raw() );
+                 } );
             return Json::Value( rebuilt.Build() );
         }
 
@@ -192,12 +254,15 @@ namespace Common::Settings
                  [&]( std::string_view name, const Json::Node& member )
                  {
                      const Json::Value value =
-                          name == "Quality" ? ScreenOverrides( member, screened.Rejections ) : member.Raw();
+                          name == "Quality" ? ScreenQuality( member, screened.Rejections, screened.UnreadLevels )
+                                            : member.Raw();
                      const Json::Value alone( Json::ObjectBuilder().Set( name, value ).Build() );
                      if ( auto read = Json::Root( alone ).As<MachineSettings>(); !read )
                      {
                          screened.Rejections.push_back( { std::format( "{} is ignored and keeps its default: {}",
                                                                        name, read.GetError() ) } );
+                         if ( name == "Quality" )
+                             screened.UnreadLevels.reset();
                          return;
                      }
                      kept.Set( name, value );
@@ -285,6 +350,7 @@ namespace Common::Settings
         // Anything short of a file we read AND understood leaves the memo empty, which means "we cannot
         // claim the disk agrees with us" and forces the next save to write. That is the safe direction.
         s_OnDisk.clear();
+        s_UnreadLevels.reset();
 
         // This machine has never chosen anything: the defaults stand, and no error line — an absent file
         // is the expected first-run state, not a failure.
@@ -327,6 +393,7 @@ namespace Common::Settings
         }
 
         ScreenedFile screened = parsed.ExtractValue();
+        s_UnreadLevels        = screened.UnreadLevels;
         for ( const Rejection& rejection : screened.Rejections )
             LOG_ERROR( "[Machine] {}: {}{}", s_File.string(), rejection.Problem,
                        rejection.Dropped ? " — the next saved change writes the file without it." : "." );
@@ -367,19 +434,28 @@ namespace Common::Settings
         }
     }
 
-    MachineSettings::StartingQuality MachineSettings::StartFrom( const MachineSettings&                settings,
+    MachineSettings::StartingQuality MachineSettings::StartFrom( const MachineSettings& settings,
+                                                                 const LevelGroups&     unreadLevels,
                                                                  const Scalability::BenchmarkCacheKey& device )
     {
-        if ( settings.Quality )
-            return { *settings.Quality, false };
+        // The answer for a machine that never chose: the benchmark's levels when they are valid for this device.
+        StartingQuality noChoice{ HighSelection(), false };
         if ( const auto& cached = settings.Recommended;
              cached.has_value() && Scalability::CacheValid( cached, device ) )
-        {
-            Scalability::QualitySelection recommended;
-            recommended.Levels = cached->Levels;
-            return { std::move( recommended ), true };
-        }
-        return { HighSelection(), false };
+            noChoice = { Scalability::QualitySelection{ cached->Levels, {} }, true };
+
+        if ( !settings.Quality )
+            return noChoice;
+        Scalability::QualitySelection saved = *settings.Quality;
+        for ( std::size_t g = 0; g < Scalability::kGroupCount; ++g )
+            if ( unreadLevels.test( g ) )
+                saved.Levels[g] = noChoice.Selection.Levels[g];
+        return { std::move( saved ), false };
+    }
+
+    const MachineSettings::LevelGroups& MachineSettings::UnreadLevels()
+    {
+        return s_UnreadLevels;
     }
 
     Scalability::QualitySelection MachineSettings::HighSelection()

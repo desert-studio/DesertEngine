@@ -295,37 +295,6 @@ namespace Desert::Graphic::API::Vulkan
         return m_DeviceName;
     }
 
-    bool VulkanLogicalDevice::IsFormatSupported( ::Desert::Core::Formats::ImageFormat format,
-                                                 Engine::FormatUsage                  usage ) const
-    {
-        const VkFormat vkFormat = GetImageVulkanFormat( format );
-        if ( vkFormat == VK_FORMAT_UNDEFINED )
-            return false;
-
-        VkFormatProperties props{};
-        vkGetPhysicalDeviceFormatProperties( m_PhysicalDevice->GetVulkanPhysicalDevice(), vkFormat, &props );
-
-        // Optimal tiling only: every image the engine creates is VK_IMAGE_TILING_OPTIMAL. Asking about
-        // linear tiling would answer a question nothing here can act on.
-        const VkFormatFeatureFlags features = props.optimalTilingFeatures;
-
-        VkFormatFeatureFlags required = 0;
-        if ( usage & Engine::FormatUsage_Sampled )
-            required |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
-        if ( usage & Engine::FormatUsage_ColorAttachment )
-            required |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
-        if ( usage & Engine::FormatUsage_DepthAttachment )
-            required |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
-        if ( usage & Engine::FormatUsage_Blendable )
-            required |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT;
-        if ( usage & Engine::FormatUsage_Storage )
-            required |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
-        if ( usage & Engine::FormatUsage_LinearFilter )
-            required |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
-
-        return ( features & required ) == required;
-    }
-
     VkResult VulkanLogicalDevice::SubmitToQueue( VkQueue queue, uint32_t submitCount, const VkSubmitInfo* submits,
                                                  VkFence fence ) const
     {

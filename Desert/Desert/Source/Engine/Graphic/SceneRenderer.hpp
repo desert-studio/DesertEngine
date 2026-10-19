@@ -1283,8 +1283,6 @@ namespace Desert::Graphic
         bool EnsureScreenTraceResources();
         bool m_ScreenTraceResourcesReady  = false;
         bool m_ScreenTraceResourcesFailed = false;
-        // Device can sample+blend RGBA32F colour attachments — SSR's precondition.
-        bool                                                            HasFloatRenderTargetSupport() const;
         bool m_SSRResourcesReady  = false;
         // "Shadows: Ray Traced Sun" and its denoiser (per view: the denoiser keeps this view's history), created
         // on the first frame that resolves the sun to HardwareTraced.
