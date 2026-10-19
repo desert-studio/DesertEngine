@@ -20,24 +20,24 @@
                 "Height": 32,
                 "Width": 1.0,
                 "Taper": 0.9,
-                "Curvature": 0.4,
+                "Curvature": 0.5,
                 "Stiffness": 0.3,
                 "BaseColor": [
-                    0.07,
-                    0.08,
-                    0.025
+                    0.05,
+                    0.05,
+                    0.018
                 ],
                 "TipColor": [
-                    0.36,
-                    0.34,
-                    0.13
+                    0.22,
+                    0.2,
+                    0.08
                 ],
                 "DryTipColor": [
-                    0.55,
-                    0.47,
-                    0.27
+                    0.4,
+                    0.33,
+                    0.17
                 ],
-                "DryTipShare": 0.55,
+                "DryTipShare": 0.6,
                 "DryTipLength": 0.5,
                 "Clumping": 0.55,
                 "ClumpSize": 35,
@@ -86,24 +86,24 @@
                 "Height": 60,
                 "Width": 1.4,
                 "Taper": 0.92,
-                "Curvature": 0.5,
+                "Curvature": 0.55,
                 "Stiffness": 0.2,
                 "BaseColor": [
-                    0.08,
-                    0.085,
-                    0.03
+                    0.06,
+                    0.055,
+                    0.02
                 ],
                 "TipColor": [
-                    0.42,
-                    0.38,
-                    0.16
+                    0.26,
+                    0.23,
+                    0.1
                 ],
                 "DryTipColor": [
-                    0.6,
-                    0.52,
-                    0.3
+                    0.45,
+                    0.37,
+                    0.2
                 ],
-                "DryTipShare": 0.7,
+                "DryTipShare": 0.75,
                 "DryTipLength": 0.55,
                 "Clumping": 0.6,
                 "ClumpSize": 50,

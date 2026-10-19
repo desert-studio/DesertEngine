@@ -331,13 +331,6 @@ namespace Desert::Graphic::System
         {
             m_WorldTimeSeconds = seconds;
         }
-        // The scene time of the view's PREVIOUS frame (ViewFrame::PrevTimeSeconds; equal to this frame's on a
-        // history reset), handed over by SceneRenderer::OnUpdate: the instanced view passes evaluate the wind at
-        // it for the instances' velocity (PackViewInstanceWind).
-        void SetPrevWorldTimeSeconds( double seconds )
-        {
-            m_PrevWorldTimeSeconds = seconds;
-        }
 
         // The view's motion rows for this frame — UE's GPUScene primitive data: ONE GpuObjectMotion per drawn
         // primitive (key {Entity, slot}; the static, generic and slot-material records of one entity share
@@ -1332,7 +1325,6 @@ namespace Desert::Graphic::System
         std::vector<GenericDraw>                 m_ScratchGenericDraws;
         std::vector<std::pair<DataDrivenMaterial*, MaterialRows>> m_ScratchGenericRows;
         float                                                     m_WorldTimeSeconds = 0.0f;
-        double                                                    m_PrevWorldTimeSeconds = 0.0;
         // BuildObjectMotions' output: the rows and both frames' palettes (CPU scratch, capacity kept) and the
         // per-(frame x view) buffers they are uploaded into (StorageBuffer::Create non-persistent: one copy per
         // frame in flight). Created on the first frame, grown by SetData.

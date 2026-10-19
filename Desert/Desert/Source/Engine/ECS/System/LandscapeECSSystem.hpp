@@ -112,6 +112,7 @@ namespace Desert::ECS
         std::unordered_map<uint64_t, GrassSections>  m_GrassSections;
         uint64_t                                     m_GrassRevision = 0;
         double                                       m_WindSeconds   = 0.0;
+        double                                       m_PrevWindSeconds = 0.0;
         std::unordered_set<std::string>              m_WarnedGrass;
 
         // Material handles already reported as unresolvable, so the warning is said once and not once a frame.

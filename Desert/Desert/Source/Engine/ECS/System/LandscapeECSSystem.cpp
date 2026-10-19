@@ -319,6 +319,7 @@ namespace Desert::ECS
         }
 
         // Pass 3 (GRASS-GPU): every root whose layers grow grass hands the grass renderer its field and varieties.
+        m_PrevWindSeconds = m_WindSeconds;
         m_WindSeconds += static_cast<double>( ts.GetSeconds() );
         std::map<uint64_t, std::vector<GrassTile>>          grassRoots;
         std::map<uint64_t, Landscape::LandscapeRoot> grassFrames;
@@ -591,8 +592,9 @@ namespace Desert::ECS
                     p.RandomRotation            = v.RandomRotation;
                     p.AlignToSurface            = v.AlignToSurface;
                     p.CastDynamicShadow         = v.CastDynamicShadow;
-                    variety.Wind = Graphic::MakeInstanceWind( v.Wind.Strength, v.Wind.Speed, v.Wind.Height,
-                                                              glm::vec2( air.x, air.z ), m_WindSeconds );
+                    variety.Wind =
+                         Graphic::MakeInstanceWind( v.Wind.Strength, v.Wind.Speed, v.Wind.Height,
+                                                    glm::vec2( air.x, air.z ), m_WindSeconds, m_PrevWindSeconds );
                     draw.Varieties.push_back( std::move( variety ) );
                 }
             }

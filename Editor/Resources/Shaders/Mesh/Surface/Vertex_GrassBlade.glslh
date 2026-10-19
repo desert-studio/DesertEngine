@@ -94,7 +94,8 @@ void main()
     vec3 colour = mix( u_Blade.Base.rgb, u_Blade.Tip.rgb, t );
     if ( model[0].w < u_Blade.Tip.w )
         colour = mix( colour, u_Blade.Dry.rgb, smoothstep( 1.0 - u_Blade.Dry.w, 1.0, t ) );
-    colour *= 0.8 + 0.4 * model[2].w;
+    // Cool and dark to warm and light, so clumps read as patches of one meadow and not as one green
+    colour *= mix( vec3( 0.75, 0.9, 0.85 ), vec3( 1.2, 1.1, 0.8 ), model[2].w );
     v_Surface.WorldPosition = blade.Position;
     v_Surface.Normal        = normal;
     v_Surface.UV0           = vec2( a_TextureCoord.x, 1.0 - a_TextureCoord.y );
@@ -103,7 +104,7 @@ void main()
     v_Surface.TBN           = mat3( blade.Right, along, normal );
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
-    // The blade is world-static but for the wind, evaluated again at the view's previous time (WindB.z,
+    // The blade is world-static but for the wind, evaluated again at the wind clock's previous step (WindB.z,
     // Graphic::InstanceWindPush), as Vertex_Instanced.glslh.
     const BladePoint previous = BladeAt( model, side, t, m_PushConstants.WindA,
                                          vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );

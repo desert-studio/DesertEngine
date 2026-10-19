@@ -13,13 +13,13 @@ Shader "GrassBladeSurface"
     Properties Binding(2)
     {
         Color       AlbedoColor ("Albedo Tint", Category("Surface")) = (1, 1, 1, 1)
-        Float       RoughnessFactor ("Roughness", Range(0,1), Category("Surface")) = 0.65
+        Float       RoughnessFactor ("Roughness", Range(0,1), Category("Surface")) = 0.7
         // UE's Specular pin: a blade's waxy sheen is weaker than a common dielectric's 4 %.
-        Float       Specular ("Specular", Range(0,1), Category("Surface")) = 0.35
+        Float       Specular ("Specular", Range(0,1), Category("Surface")) = 0.3
         // Material half of the sun-shadow receive decision (as StandardSurface).
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
         // The light a blade lets through, as a tint of its own colour (UE's SubsurfaceColor pin).
-        Color       SubsurfaceColor ("Subsurface Color", Category("Foliage")) = (0.8, 1, 0.5, 1)
+        Color       SubsurfaceColor ("Subsurface Color", Category("Foliage")) = (0.6, 0.7, 0.35, 1)
     }
 
     ShadingModel TwoSidedFoliage

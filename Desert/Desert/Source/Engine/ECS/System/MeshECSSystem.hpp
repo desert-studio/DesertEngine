@@ -43,6 +43,7 @@ namespace Desert::ECS
         {
             // Foliage wind's clock (FO-7): the GAMEPLAY step the scene hands every system - the fixed step
             // under --play, zero while editing - accumulated, never a wall clock, so one time is one pose.
+            m_PrevWindSeconds = m_WindSeconds;
             m_WindSeconds += static_cast<double>( ts.GetSeconds() );
 
             // Frame-constant invalidation stamp: cached instance sets built against an older stamp
@@ -413,7 +414,7 @@ namespace Desert::ECS
                                  const glm::vec3 air = ECS::WindAt( registry, fieldOrigin ).Velocity;
                                  wind = Graphic::MakeInstanceWind( type->Wind.Strength, type->Wind.Speed,
                                                                    type->Wind.Height, glm::vec2( air.x, air.z ),
-                                                                   m_WindSeconds );
+                                                                   m_WindSeconds, m_PrevWindSeconds );
                              }
                          for ( const auto& d : ismSplit.SectionDraws )
                              renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
@@ -634,5 +635,6 @@ namespace Desert::ECS
         // Gameplay seconds since the scene's systems started (FO-7). Double: a float clock loses the sway's
         // sub-frame steps after a few hours of play; MakeInstanceWind wraps it to the sway period.
         double m_WindSeconds = 0.0;
+        double m_PrevWindSeconds = 0.0; // the clock one gameplay step ago: the instances' velocity
     };
 } // namespace Desert::ECS

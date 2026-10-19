@@ -1194,7 +1194,6 @@ namespace Desert::Graphic
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-            meshes->SetPrevWorldTimeSeconds( GetViewFrame()->PrevTimeSeconds );
             if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions( m_ViewState.Motion() ); !rows )
             {
                 LOG_ERROR( "[SceneRenderer] {}: the view's motion rows could not be built; nothing is drawn this "

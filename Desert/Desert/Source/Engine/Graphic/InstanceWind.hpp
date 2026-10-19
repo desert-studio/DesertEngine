@@ -26,6 +26,10 @@ namespace Desert::Graphic
         float     Speed    = 0.0f;         // cycles per second of the fundamental
         float     Height   = 100.0f;       // mesh-local cm at which the sway is full
         float     Seconds  = 0.0f;         // gameplay time, already wrapped to the sway's period
+        // The same clock at the previous gameplay step, wrapped alike: what a view pass evaluates the wind at for
+        // the instance's velocity. From the clock that made Seconds, never from another one (the view's scene time
+        // has another origin: two clocks gave a still meadow a velocity of the whole sway, GRASS-BLADE).
+        float PrevSeconds = 0.0f;
 
         [[nodiscard]] bool Sways() const
         {
@@ -52,7 +56,8 @@ namespace Desert::Graphic
     /// world XZ components of ECS::WindAt's velocity, cm/s) at @p gameplaySeconds. The direction is the scene's,
     /// never the type's: air with no horizontal motion sways nothing, whatever the type's Strength.
     [[nodiscard]] inline InstanceWind MakeInstanceWind( float strength, float speed, float height,
-                                                        const glm::vec2& windXZ, double gameplaySeconds )
+                                                        const glm::vec2& windXZ, double gameplaySeconds,
+                                                        double prevGameplaySeconds )
     {
         InstanceWind wind;
         const float  horizontal = glm::length( windXZ );
@@ -63,6 +68,7 @@ namespace Desert::Graphic
         wind.Speed           = speed;
         wind.Height          = height;
         wind.Seconds         = WindSecondsAt( speed, gameplaySeconds );
+        wind.PrevSeconds     = WindSecondsAt( speed, prevGameplaySeconds );
         return wind;
     }
 
@@ -133,13 +139,12 @@ namespace Desert::Graphic
                  glm::vec4( wind.Speed, wind.Seconds, 0.0f, 0.0f ) };
     }
 
-    /// A view pass's push: PackInstanceWind plus B.z = the wind clock at the view's previous frame.
-    [[nodiscard]] inline InstanceWindPush PackViewInstanceWind( const InstanceWind& wind,
-                                                                const double        prevGameplaySeconds )
+    /// A view pass's push: PackInstanceWind plus B.z = the wind clock at the previous gameplay step.
+    [[nodiscard]] inline InstanceWindPush PackViewInstanceWind( const InstanceWind& wind )
     {
         InstanceWindPush push = PackInstanceWind( wind );
         if ( wind.Sways() )
-            push.B.z = WindSecondsAt( wind.Speed, prevGameplaySeconds );
+            push.B.z = wind.PrevSeconds;
         return push;
     }
 } // namespace Desert::Graphic
