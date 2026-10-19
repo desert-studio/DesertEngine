@@ -1,9 +1,9 @@
 // DesertAsset {"Kind":"Shader","Guid":"0590522cedcb4ee198f06ebf369b0f1b","Versions":{"SHDR":1},"Dependencies":[]}
-// THE PATH TRACER (GIMethod / ReflectionMethod PathTraced; System::PathTracer). The reference image of the view: one
-// path per pixel per frame through the view's TLAS and the SAME hit groups the hit-lit passes use (each surface
-// template's `RayTracing.Hit` cell, the landscape's TerrainRayHit: the payload carries the hit's material, this
-// ray generation lights it), summed into the view's accumulation image; PathTracerResolve.shader divides by the
-// sample count and replaces the lit scene before post.
+// THE PATH TRACER (GIMethod / ReflectionMethod PathTraced; System::PathTracer). The reference image of the view:
+// PathTracing.SamplesPerPixel paths per pixel per frame through the view's TLAS and the SAME hit groups the hit-lit
+// passes use (each surface template's `RayTracing.Hit` cell, the landscape's TerrainRayHit: the payload carries the
+// hit's material, this ray generation lights it), summed into the view's accumulation image;
+// PathTracerResolve.shader divides by the sample count and replaces the lit scene before post.
 //
 // Ported from UE 5.8 Engine/Shaders/Private/PathTracing - PathTracingCore.ush (the bounce loop: next event
 // estimation with one light chosen by its estimate, the light ray and the material ray combined by the power
@@ -62,7 +62,7 @@ Shader "PathTracer"
             PushConstant PushConstants
             {
                 uvec4 u_Counts; // x = point lights, y = spot lights, z = paths already summed (0: overwrite), w = max bounces
-                uvec4 u_Sky;    // x = sky side S (0: no sky light), y = its pyramid levels, z = frame seed
+                uvec4 u_Sky;    // x = sky side S (0: no sky light), y = its pyramid levels, z = frame seed, w = paths this frame (>= 1)
                 vec4  u_Sun;    // x = sin of half the sun's source angle (0: a delta direction), y = pixel spread angle
             };
 
@@ -213,9 +213,11 @@ Shader "PathTracer"
             {
                 return giFrame.sunTravel.w > 0.5;
             }
+            // A sky with no light (the black cube of a view without an environment, or a black sky) is no light
+            // source: its mean weight is 0, and every pdf of it would divide by that mean.
             bool PathTracingHasSky()
             {
-                return u_Sky.x > 0u;
+                return u_Sky.x > 0u && PathTracingSkyMean(u_Sky.x, u_Sky.y) > 0.0;
             }
 
             // The sun's cone: 1 - cos(theta max) and its solid angle (UE DirectionalLight_TraceLight).
@@ -351,13 +353,12 @@ Shader "PathTracer"
                 return radiance;
             }
 
-            void main()
+            // One path of the pixel: the camera ray, then up to u_Counts.w bounces. @p sampleIndex is the path's index
+            // in the pixel's accumulation (paths summed before it + its place in this frame), so every path of the
+            // pixel since the restart draws its own random sequence.
+            vec3 PathTracingTracePath(ivec2 pixel, ivec2 size, uint sampleIndex)
             {
-                const ivec2 pixel = ivec2(gl_LaunchIDEXT.xy);
-                const ivec2 size  = imageSize(u_Accumulation);
-                if (pixel.x >= size.x || pixel.y >= size.y)
-                    return;
-                uint rng = PathTracingHash(uint(pixel.x) + PathTracingHash(uint(pixel.y) + PathTracingHash(u_Counts.z + PathTracingHash(u_Sky.z))));
+                uint rng = PathTracingHash(uint(pixel.x) + PathTracingHash(uint(pixel.y) + PathTracingHash(sampleIndex + PathTracingHash(u_Sky.z))));
 
                 // The camera ray through a uniformly chosen point of the pixel (a box filter).
                 const vec2 uv     = (vec2(pixel) + PathTracingRandom2(rng)) / vec2(size);
@@ -417,8 +418,22 @@ Shader "PathTracer"
                 // black), as UE's accumulation does.
                 if (any(isnan(radiance)) || any(isinf(radiance)))
                     radiance = vec3(0.0);
+                return radiance;
+            }
+
+            // This frame's u_Sky.w paths of the pixel (PathTracing.SamplesPerPixel, cut to what PathTracing.MaxSamples
+            // leaves), added to the running sum in one read and one write.
+            void main()
+            {
+                const ivec2 pixel = ivec2(gl_LaunchIDEXT.xy);
+                const ivec2 size  = imageSize(u_Accumulation);
+                if (pixel.x >= size.x || pixel.y >= size.y)
+                    return;
+                vec3 sum = vec3(0.0);
+                for (uint s = 0u; s < u_Sky.w; ++s)
+                    sum += PathTracingTracePath(pixel, size, u_Counts.z + s);
                 const vec4 previous = u_Counts.z == 0u ? vec4(0.0) : imageLoad(u_Accumulation, pixel);
-                imageStore(u_Accumulation, pixel, vec4(previous.rgb + radiance, previous.a + 1.0));
+                imageStore(u_Accumulation, pixel, vec4(previous.rgb + sum, previous.a + float(u_Sky.w)));
             }
         }
 

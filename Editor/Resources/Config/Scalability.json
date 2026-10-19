@@ -238,7 +238,10 @@
                 "GlobalIllumination.ScreenSpaceSamples": 6,
                 "GlobalIllumination.ScreenProbeDownsample": 32,
                 "GlobalIllumination.ScreenProbeTracedTexels": 8,
-                "GlobalIllumination.IrradianceFieldProbesPerFrame": 66
+                "GlobalIllumination.IrradianceFieldProbesPerFrame": 66,
+                "PathTracing.SamplesPerPixel": 1,
+                "PathTracing.MaxBounces": 4,
+                "PathTracing.MaxSamples": 64
             },
             "Medium": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 128,
@@ -257,7 +260,10 @@
                 "GlobalIllumination.ScreenSpaceSamples": 8,
                 "GlobalIllumination.ScreenProbeDownsample": 32,
                 "GlobalIllumination.ScreenProbeTracedTexels": 8,
-                "GlobalIllumination.IrradianceFieldProbesPerFrame": 66
+                "GlobalIllumination.IrradianceFieldProbesPerFrame": 66,
+                "PathTracing.SamplesPerPixel": 1,
+                "PathTracing.MaxBounces": 8,
+                "PathTracing.MaxSamples": 256
             },
             "High": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 384,
@@ -276,7 +282,10 @@
                 "GlobalIllumination.ScreenSpaceSamples": 12,
                 "GlobalIllumination.ScreenProbeDownsample": 16,
                 "GlobalIllumination.ScreenProbeTracedTexels": 8,
-                "GlobalIllumination.IrradianceFieldProbesPerFrame": 66
+                "GlobalIllumination.IrradianceFieldProbesPerFrame": 66,
+                "PathTracing.SamplesPerPixel": 1,
+                "PathTracing.MaxBounces": 16,
+                "PathTracing.MaxSamples": 1024
             },
             "Epic": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 384,
@@ -295,7 +304,10 @@
                 "GlobalIllumination.ScreenSpaceSamples": 16,
                 "GlobalIllumination.ScreenProbeDownsample": 16,
                 "GlobalIllumination.ScreenProbeTracedTexels": 8,
-                "GlobalIllumination.IrradianceFieldProbesPerFrame": 100
+                "GlobalIllumination.IrradianceFieldProbesPerFrame": 100,
+                "PathTracing.SamplesPerPixel": 2,
+                "PathTracing.MaxBounces": 32,
+                "PathTracing.MaxSamples": 4096
             },
             "Cinematic": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 512,
@@ -314,7 +326,10 @@
                 "GlobalIllumination.ScreenSpaceSamples": 32,
                 "GlobalIllumination.ScreenProbeDownsample": 8,
                 "GlobalIllumination.ScreenProbeTracedTexels": 16,
-                "GlobalIllumination.IrradianceFieldProbesPerFrame": 233
+                "GlobalIllumination.IrradianceFieldProbesPerFrame": 233,
+                "PathTracing.SamplesPerPixel": 4,
+                "PathTracing.MaxBounces": 32,
+                "PathTracing.MaxSamples": 16384
             }
         },
         "Reflections": {

@@ -64,6 +64,13 @@ namespace Desert::Graphic::ViewTargetFormats
     // VolumetricCloudRenderer::EnsureTraceTargets.
     inline constexpr ImageFormat kCloudTrace = ImageFormat::RGBA16F;
 
+    // The path tracer (System::PathTracer). The accumulation sums up to PathTracing.MaxSamples paths per pixel
+    // (rgb) and counts them (a): a half float stops adding 1 at 2048, so it is 32-bit. The sky's equal-area
+    // radiance square (rgb) with each texel's sampling weight (a), read texel by texel
+    // (Common/PathTracingSky.glslh).
+    inline constexpr ImageFormat kPathTracingAccumulation = ImageFormat::RGBA32F;
+    inline constexpr ImageFormat kPathTracingSkyRadiance  = ImageFormat::RGBA32F;
+
     // Screen-space reflections.
     inline constexpr ImageFormat kSSRTrace  = ImageFormat::RGBA16F;
     // The trace texel's ray (SSR.shader u_TraceRay): xyz = the WORLD point it hit (centimetres: half floats step
