@@ -9,6 +9,7 @@
 // vertical axis is world Z (the ground plane of a Y-up engine) instead of UE's Y.
 
 #include "WorldPartitionPanel.hpp"
+#include "EditorLoadedRegions.hpp"
 
 #include "../../Core/CommandHistory.hpp"
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
@@ -383,6 +384,13 @@ namespace Desert::Editor
                           outcome.Loaded, outcome.Unloaded, outcome.NotLoaded, outcome.Selection.InRegions,
                           outcome.Selection.AlwaysLoaded, outcome.Selection.Unplaced );
         m_EditPlanStale = true;
+        // The next open of this world holds what it holds now (UE's EditorLoadedRegions). The change itself
+        // stands either way; a refusal here is the status line's, so the user knows the next open will differ.
+        if ( const auto& baseline = m_Scene->Packages()->BaselinePath() )
+            if ( const auto kept = EditorLoadedRegions::Remember(
+                      *baseline, ::Desert::Core::EditorRegions::HeldRegions{ request.Regions, request.Whole } );
+                 !kept )
+                m_RegionStatus += " The loaded regions were not kept for the next open: " + kept.GetError();
         return BOOLSUCCESS;
     }
 

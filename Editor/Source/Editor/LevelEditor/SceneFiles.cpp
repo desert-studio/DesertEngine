@@ -10,6 +10,7 @@
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/EditorRegions.hpp>
+#include <Editor/Panels/WorldPartition/EditorLoadedRegions.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
@@ -258,15 +259,24 @@ namespace Desert::Editor
         // and says why, with the command that fixes the file.
         Desert::Core::SceneLoadPhases phases( fmt::format( "Open '{}'", path.filename().string() ) );
 
-        // A PARTITIONED WORLD OPENS UNLOADED (WP20, owner's decision O3 - UE's World Partition editor): only its
-        // always-loaded part is read, and the user loads regions from the World Partition panel's map. Play plays
-        // the whole world whatever is loaded (PlaySession::Play completes it from the files). A level template
-        // or a recovery copy is not the world's files - it is read whole, as the scene it becomes.
+        // A PARTITIONED WORLD OPENS WITH WHAT THE USER HAD LOADED (WP20/WP19-REST, owner's decision O3 - UE's
+        // World Partition editor): its always-loaded part and the regions of the last region load in this
+        // project (EditorLoadedRegions, UE's EditorLoadedRegions), nothing else read; the user changes them from
+        // the World Partition panel's map. Play plays the whole world whatever is loaded (PlaySession::Play
+        // completes it from the files). A level template or a recovery copy is not the world's files - it is
+        // read whole, as the scene it becomes.
         const bool opensItsFiles = openAs != OpenAs::Untitled && !Autosave::SceneFor( path );
         const auto read          = [&]() -> Common::ResultStr<Desert::Core::EditorRegions::OpenRead>
         {
             if ( opensItsFiles )
-                return Desert::Core::EditorRegions::ReadForOpen( path );
+            {
+                auto held = Editor::EditorLoadedRegions::Remembered( path );
+                if ( !held )
+                    return Common::MakeError<Desert::Core::EditorRegions::OpenRead>( std::format(
+                         "'{}' was not opened: the regions the editor had loaded could not be read: {}",
+                         path.string(), held.GetError() ) );
+                return Desert::Core::EditorRegions::ReadForOpen( path, held.GetValue() );
+            }
             auto whole = Desert::Core::ExternalEntities::ReadSceneFileText( path );
             if ( !whole )
                 return Common::MakeError<Desert::Core::EditorRegions::OpenRead>( whole.GetError() );
@@ -392,8 +402,13 @@ namespace Desert::Editor
             const Desert::Core::SceneSerializer         held( m_Workspace.ActiveScene().get(), m_Assets.get() );
             const std::vector<Desert::Core::LiveEntity> live = held.LiveEntities();
             m_Workspace.ActiveScene()->Packages()->AdoptRegion( live, opened.NotLoaded );
-            LOG_INFO( "[WorldPartition] '{}' opened unloaded: {} always-loaded composite(s), {} record(s) on disk",
-                      path.string(), opened.Selection.AlwaysLoaded, opened.NotLoaded.size() );
+            const std::size_t readCount = opened.Selection.Records.size();
+            const std::size_t total     = readCount + opened.NotLoaded.size();
+            LOG_INFO(
+                 "[WorldPartition] '{}' opened: {} of {} record(s) read ({} always-loaded composite(s), {} in "
+                 "the editor's loaded regions); {} record(s) left on disk",
+                 path.string(), readCount, total, opened.Selection.AlwaysLoaded, opened.Selection.InRegions,
+                 opened.NotLoaded.size() );
         }
 
         // Update recent scenes
