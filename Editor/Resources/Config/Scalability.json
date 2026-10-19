@@ -325,7 +325,7 @@
             },
             "Epic": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 384,
-                "GlobalIllumination.Method": "SoftwareTraced",
+                "GlobalIllumination.Method": "HardwareTraced",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 4096,
                 "GlobalIllumination.CardTexelDensityScale": 100,
                 "GlobalIllumination.CardMinResolution": 2,
@@ -344,7 +344,7 @@
             },
             "Cinematic": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 512,
-                "GlobalIllumination.Method": "SoftwareTraced",
+                "GlobalIllumination.Method": "HardwareTraced",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 4096,
                 "GlobalIllumination.CardTexelDensityScale": 100,
                 "GlobalIllumination.CardMinResolution": 2,
