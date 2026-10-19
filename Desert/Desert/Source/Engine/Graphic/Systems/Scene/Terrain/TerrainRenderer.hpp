@@ -11,6 +11,7 @@
 
 #include <glm/glm.hpp>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -95,8 +96,11 @@ namespace Desert::Graphic::System
         void AppendVirtualShadowEntries( std::vector<ShadowCasterEntry>& entries ) const override;
         [[nodiscard]] uint32_t              DeclareVirtualShadow( RDG::PassBuilder&                   pass,
                                                                   const VirtualShadowBlockParameters& parameters ) override;
+        void AppendVirtualShadowDraws( std::vector<VirtualShadowCasterDraw>& draws ) const override;
         [[nodiscard]] Common::BoolResultStr RecordVirtualShadow( const RDG::PassContext& context, uint32_t firstBlock,
-                                                                 const glm::mat4& levelViewProj ) override;
+                                                                 const glm::mat4& levelViewProj,
+                                                                 RDG::BufferRef arguments,
+                                                                 uint32_t       firstRecord ) override;
 
         void Submit( const TerrainDrawData& data )
         {
@@ -152,13 +156,22 @@ namespace Desert::Graphic::System
         // The executors of @p program's material of every frame group, in group order: a node drawing the
         // terrain declares one binding block per entry (block firstBlock + group), and RecordDraws records group
         // g's draws through block firstBlock + g.
+        // The culled records a virtual shadow map level draws the tiles from (RecordVirtualShadow): tile k's at
+        // record FirstRecord + k of Arguments.
+        struct VirtualShadowIndirect
+        {
+            RDG::BufferRef Arguments;
+            uint32_t       FirstRecord = 0;
+        };
+
         [[nodiscard]] std::vector<const MaterialExecutor*>
         GroupExecutors( std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program ) const;
 
         [[nodiscard]] Common::BoolResultStr
         RecordDraws( const RDG::PassContext& context, uint32_t firstBlock, const GraphicsPipeline& pipeline,
                      std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
-                     const glm::mat4&                                       clipFromWorld );
+                     const glm::mat4&                                       clipFromWorld ),
+                     const std::optional<VirtualShadowIndirect>& indirect = std::nullopt );
 
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         std::shared_ptr<GraphicsPipeline> m_GBufferPipeline;

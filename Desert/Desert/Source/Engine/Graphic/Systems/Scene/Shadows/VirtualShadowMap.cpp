@@ -27,7 +27,7 @@ namespace Desert::Graphic::System
             const char* Shader;
             const char* Pass;
         };
-        constexpr std::array<KernelName, 8> kKernelNames{ {
+        constexpr std::array<KernelName, 10> kKernelNames{ {
              { "VirtualShadowMapInvalidate", "VSM: Invalidate" },
              { "VirtualShadowMapInvalidateCasters", "VSM: Invalidate Casters" },
              { "VirtualShadowMapMark", "VSM: Mark" },
@@ -36,6 +36,8 @@ namespace Desert::Graphic::System
              { "VirtualShadowMapClearArgs", "VSM: Clear Args" },
              { "VirtualShadowMapClear", "VSM: Clear Pages" },
              { "VirtualShadowMapProject", "VSM: Project" },
+             { "VirtualShadowMapDirtyMask", "VSM: Dirty Mask" },
+             { "VirtualShadowMapCullCasters", "VSM: Cull Casters" },
         } };
 
         constexpr uint32_t kGroup64    = 64; // LocalSize(64, 1, 1) of the page and physical-page kernels
@@ -389,6 +391,23 @@ namespace Desert::Graphic::System
              },
              glm::uvec4( pages, 0u, 0u, 0u ), glm::uvec3( entryGroups, kVsmClipmapLevelCount, 1u ) );
 
+        // The cells of each level holding a page drawn this frame, for the casters' cull.
+        frame.DirtyMask = graph.CreateBuffer(
+             RDG::BufferDesc{ .Bytes = uint64_t{ kVsmClipmapLevelCount } * kVsmMaskWordsPerLevel * sizeof( uint32_t ) },
+             "VSM.DirtyMask" );
+        const std::vector<uint32_t> zeroMask( size_t{ kVsmClipmapLevelCount } * kVsmMaskWordsPerLevel, 0u );
+        graph.QueueBufferUpload( frame.DirtyMask, Bytes( zeroMask ) );
+        const RDG::BufferRef dirtyMask = frame.DirtyMask;
+        dispatch(
+             DirtyMask,
+             [&]( RDG::BindingBlockBuilder& block )
+             {
+                 block.Storage( "VsmFrameData", frameData, kR )
+                      .Storage( "VsmPageTable", pageTable, kR )
+                      .Storage( "VsmDirtyMask", dirtyMask, kW );
+             },
+             std::nullopt, glm::uvec3( entryGroups, kVsmClipmapLevelCount, 1u ) );
+
         dispatch(
              ClearArgs, [&]( RDG::BindingBlockBuilder& block ) { block.Storage( "VsmAllocator", allocator, kW ); },
              std::nullopt, glm::uvec3( 1u ) );
@@ -420,6 +439,67 @@ namespace Desert::Graphic::System
                  } );
         }
         return Common::MakeSuccess( frame );
+    }
+
+    Common::ResultStr<VsmCulledCasters> VirtualShadowMapRenderer::AddCasterCulling( RDG::Builder&                graph,
+                                                                                   const VirtualShadowMapFrame& frame,
+                                                                                   const uint32_t               level,
+                                                                                   const VsmCasterCull& cull ) const
+    {
+        const KernelProgram& kernel = m_Kernels[CullCasters];
+        if ( !kernel.Pipeline )
+            return Common::MakeError<VsmCulledCasters>(
+                 "Shadows: Virtual Shadow Map: the pipelines are not initialised" );
+        if ( cull.Instances.empty() || cull.Draws.empty() || cull.Arguments.empty() || cull.RemapSize == 0 )
+            return Common::MakeError<VsmCulledCasters>(
+                 std::format( "VSM: Cull Casters L{}: nothing to cull ({} instances, {} draws, {} argument words)",
+                              level, cull.Instances.size(), cull.Draws.size(), cull.Arguments.size() ) );
+        const auto instances = static_cast<uint32_t>( cull.Instances.size() );
+        // One thread per instance, the groups spread over y past the dispatch limit of x.
+        constexpr uint32_t kMaxGroupsX = 65535u;
+        const uint32_t     groups      = Groups( instances, kGroup64 );
+        const glm::uvec3   grid( std::min( groups, kMaxGroupsX ), Groups( groups, kMaxGroupsX ), 1u );
+
+        VsmCulledCasters culled;
+        culled.Arguments = graph.CreateBuffer( RDG::BufferDesc{ .Bytes = cull.Arguments.size() * sizeof( uint32_t ) },
+                                               std::format( "VSM.CasterArguments{}", level ) );
+        graph.QueueBufferUpload( culled.Arguments, Bytes( cull.Arguments ) );
+        culled.InstanceRemap =
+             graph.CreateBuffer( RDG::BufferDesc{ .Bytes = uint64_t{ cull.RemapSize } * sizeof( uint32_t ) },
+                                 std::format( "VSM.InstanceRemap{}", level ) );
+        const RDG::BufferRef draws =
+             graph.CreateBuffer( RDG::BufferDesc{ .Bytes = cull.Draws.size() * sizeof( VsmCullDrawGpu ) },
+                                 std::format( "VSM.CullDraws{}", level ) );
+        graph.QueueBufferUpload( draws, Bytes( cull.Draws ) );
+        const RDG::BufferRef boxes =
+             graph.CreateBuffer( RDG::BufferDesc{ .Bytes = cull.Instances.size() * sizeof( VsmCullInstanceGpu ) },
+                                 std::format( "VSM.CullInstances{}", level ) );
+        graph.QueueBufferUpload( boxes, Bytes( cull.Instances ) );
+
+        // x = level, y = instance count, z = threads per row of groups (the y stride of the instance index).
+        const glm::uvec4 push( level, instances, grid.x * kGroup64, 0u );
+        graph.AddPass(
+             std::format( "VSM: Cull Casters L{}", level ), RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Bindings( kernel.Layout.Get( kernel.Program ),
+                                Renderer::GetPipelineRouteFill( *kernel.Pipeline ) )
+                      .Storage( "VsmFrameData", frame.FrameData, RDG::Access::StorageRead )
+                      .Storage( "VsmDirtyMask", frame.DirtyMask, RDG::Access::StorageRead )
+                      .Storage( "VsmCullInstances", boxes, RDG::Access::StorageRead )
+                      .Storage( "VsmCullDraws", draws, RDG::Access::StorageRead )
+                      .Storage( "VsmCasterArguments", culled.Arguments, RDG::Access::StorageWrite )
+                      .Storage( "VsmInstanceRemap", culled.InstanceRemap, RDG::Access::StorageWrite )
+                      .PushConstantBytes( static_cast<uint32_t>( sizeof( push ) ) );
+             },
+             [pipeline = kernel.Pipeline, push, grid]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 DESERT_PROFILE_PASS( "VSM: Cull Casters" );
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, grid.x, grid.y, grid.z );
+             } );
+        return Common::MakeSuccess( culled );
     }
 
     Common::ResultStr<RDG::TextureRef>

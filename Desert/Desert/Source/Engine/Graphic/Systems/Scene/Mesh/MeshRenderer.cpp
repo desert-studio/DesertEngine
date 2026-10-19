@@ -3,6 +3,7 @@
 
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
+#include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/View/ObjectMotionRows.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
@@ -231,7 +232,21 @@ namespace Desert::Graphic::System
             m_BlockOf.clear();
             m_Blocks.clear();
             m_Error.reset();
+            m_IndirectArguments = {};
+            m_FirstRecords.clear();
             m_Layouts.DropExpired();
+        }
+
+        void MeshDrawList::SetIndirect( const RDG::BufferRef arguments, std::vector<uint32_t> firstRecords )
+        {
+            if ( firstRecords.size() != m_Commands.size() )
+            {
+                Fail( std::format( "indirect mesh draws: {} first records for {} commands", firstRecords.size(),
+                                   m_Commands.size() ) );
+                return;
+            }
+            m_IndirectArguments = arguments;
+            m_FirstRecords      = std::move( firstRecords );
         }
 
         void MeshDrawList::Add( MeshDrawCommand command )
@@ -333,6 +348,16 @@ namespace Desert::Graphic::System
                 if ( draw.BindState )
                 {
                     draw.BindState();
+                }
+                if ( m_IndirectArguments.IsValid() )
+                {
+                    if ( auto drawn = Renderer::RenderMeshIndirect(
+                              *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
+                              m_IndirectArguments, uint64_t{ m_FirstRecords[i] } * kMeshDrawArgumentsBytes,
+                              draw.HiddenSubmeshMask );
+                         !drawn.IsSuccess() )
+                        return drawn;
+                    continue;
                 }
                 if ( auto drawn = Renderer::RenderMesh(
                           *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,

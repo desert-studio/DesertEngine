@@ -161,6 +161,11 @@ namespace Desert::Graphic
         RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                     const glm::mat4& transform, const MaterialExecutor& material, uint32_t instanceCount,
                     uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel ) = 0;
+        // RenderMesh with its counts in a graph buffer (see Renderer::RenderMeshIndirect).
+        [[nodiscard]] virtual Common::BoolResultStr
+        RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
+                            const glm::mat4& transform, const MaterialExecutor& material, RDG::BufferRef args,
+                            uint64_t offset, uint64_t hiddenSubmeshMask ) = 0;
 
         // Transition a storage image to GENERAL for compute writes in the current frame command buffer,
         // making prior graphics (color/shader) writes visible to compute. Pair with ComputeImageEndWrite.

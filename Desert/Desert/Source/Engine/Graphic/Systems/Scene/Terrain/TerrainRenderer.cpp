@@ -1,4 +1,5 @@
 #include "TerrainRenderer.hpp"
+#include <Engine/Graphic/MeshDrawArguments.hpp>
 
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
@@ -89,6 +90,26 @@ namespace Desert::Graphic::System
 
         // Which landscape and which tile of it: tiles of one root share its origin, and a tile's index is its
         // first sample over the tile size. Two roots at one origin would be one landscape drawn twice.
+        // A tile's world box: its quads and the whole height range its R16 samples can encode
+        // (Common/LandscapeHeight.glslh: (s - 32768) / 128 * ZScale, s in 0..65535).
+        struct VsmTileBox
+        {
+            glm::vec3 Min{ 0.0f };
+            glm::vec3 Max{ 0.0f };
+        };
+        VsmTileBox TileBox( const LandscapeTileDraw& at )
+        {
+            constexpr float kLowestLocal  = ( 0.0f - 32768.0f ) / 128.0f;
+            constexpr float kHighestLocal = ( 65535.0f - 32768.0f ) / 128.0f;
+            const float     x0            = at.OriginX + ( static_cast<float>( at.FirstSampleX ) * at.SpacingCm );
+            const float     z0            = at.OriginZ + ( static_cast<float>( at.FirstSampleZ ) * at.SpacingCm );
+            const float     extent        = static_cast<float>( at.QuadsPerTile ) * at.SpacingCm;
+            const float     y0            = at.BaseY + ( kLowestLocal * at.ZScale );
+            const float     y1            = at.BaseY + ( kHighestLocal * at.ZScale );
+            return { .Min = glm::vec3( std::min( x0, x0 + extent ), std::min( y0, y1 ), std::min( z0, z0 + extent ) ),
+                     .Max = glm::vec3( std::max( x0, x0 + extent ), std::max( y0, y1 ), std::max( z0, z0 + extent ) ) };
+        }
+
         struct TileKey
         {
             float   OriginX                            = 0.0f;
@@ -422,18 +443,31 @@ namespace Desert::Graphic::System
     // first refused draw is the node's error.
     Common::BoolResultStr TerrainRenderer::RecordDraws(
          const RDG::PassContext& context, const uint32_t firstBlock, const GraphicsPipeline& pipeline,
-         std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program, const glm::mat4& clipFromWorld )
+         std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program, const glm::mat4& clipFromWorld,
+         const std::optional<VirtualShadowIndirect>& indirect )
     {
         std::vector<std::unique_ptr<RDG::PassBindings>> blocks;
         blocks.reserve( m_FrameGroups.size() );
         for ( uint32_t group = 0; group < static_cast<uint32_t>( m_FrameGroups.size() ); ++group )
             blocks.push_back(
                  std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( firstBlock + group ) ) );
-        for ( const auto& draw : m_FrameDraws )
+        for ( size_t k = 0; k < m_FrameDraws.size(); ++k )
         {
-            auto* material = ( m_Materials[m_FrameGroups[draw.Group].Key].*program ).get();
+            const FrameDraw& draw     = m_FrameDraws[k];
+            auto*            material = ( m_Materials[m_FrameGroups[draw.Group].Key].*program ).get();
             material->SetMaterialIndex( draw.Row );
             material->SetPushMatrix( clipFromWorld );
+            if ( indirect )
+            {
+                // The level's cull kept or dropped this tile (AppendVirtualShadowDraws: record k of the terrain's).
+                const uint64_t offset = ( uint64_t{ indirect->FirstRecord } + k ) * kMeshDrawArgumentsBytes;
+                if ( auto drawn = Renderer::DrawProceduralIndirect( *blocks[draw.Group], pipeline,
+                                                                    material->GetMaterialExecutor(),
+                                                                    indirect->Arguments, offset );
+                     !drawn.IsSuccess() )
+                    return drawn;
+                continue;
+            }
             if ( auto drawn = Renderer::GetInstance().DrawProcedural(
                       *blocks[draw.Group], pipeline, material->GetMaterialExecutor(), draw.VertexCount, 1 );
                  !drawn.IsSuccess() )
@@ -541,14 +575,13 @@ namespace Desert::Graphic::System
     void TerrainRenderer::AppendVirtualShadowEntries( std::vector<ShadowCasterEntry>& entries ) const
     {
         // A tile's depth changes with its heightmap's pixels (HeightRevision), its holes (the weightmap's Revision
-        // and its visibility layer) and where it sits; its box spans the tile's quads and the whole height range
-        // its R16 samples can encode (Common/LandscapeHeight.glslh: (s - 32768) / 128 * ZScale, s in 0..65535).
-        // NOT the LOD: the grid follows the main camera every frame (the cascades draw the camera's vertices), and
-        // invalidating on it would redraw the ground's pages whenever the camera moves.
-        constexpr float kLowestLocal  = ( 0.0f - 32768.0f ) / 128.0f;
-        constexpr float kHighestLocal = ( 65535.0f - 32768.0f ) / 128.0f;
-        for ( const TerrainDrawData& tile : m_Queue )
+        // and its visibility layer), where it sits and the grid it is drawn with: its LOD grid (Params.w) and the
+        // whole LODs its borders stitch to (LodEdges / LodCorners), the main camera's (PrepareFrame; the frame's
+        // instances are parallel to the queue). A grid change redraws the tile's pages (UE: a landscape LOD change
+        // invalidates its virtual shadow pages); the morph inside one grid is not tracked (REMAINDER).
+        for ( size_t index = 0; index < m_Queue.size(); ++index )
         {
+            const TerrainDrawData& tile = m_Queue[index];
             const LandscapeTileDraw& at   = tile.Landscape;
             uint64_t                 hash = 1469598103934665603ull;
             const auto               add  = [&hash]( const auto& value )
@@ -576,17 +609,28 @@ namespace Desert::Graphic::System
             add( tile.Weights.Weightmap.get() );
             add( tile.Weights.Revision );
             add( tile.Weights.VisibilityLayer );
+            if ( m_FrameInstances.size() == m_Queue.size() )
+            {
+                const TerrainInstance& instance = m_FrameInstances[index];
+                add( instance.Params.w );
+                add( glm::floor( instance.LodEdges ) );
+                add( glm::floor( instance.LodCorners ) );
+            }
 
-            const float x0     = at.OriginX + ( static_cast<float>( at.FirstSampleX ) * at.SpacingCm );
-            const float z0     = at.OriginZ + ( static_cast<float>( at.FirstSampleZ ) * at.SpacingCm );
-            const float extent = static_cast<float>( at.QuadsPerTile ) * at.SpacingCm;
-            const float y0     = at.BaseY + ( kLowestLocal * at.ZScale );
-            const float y1     = at.BaseY + ( kHighestLocal * at.ZScale );
-            entries.push_back( { .Signature = hash,
-                                 .Min       = glm::vec3( std::min( x0, x0 + extent ), std::min( y0, y1 ),
-                                                         std::min( z0, z0 + extent ) ),
-                                 .Max       = glm::vec3( std::max( x0, x0 + extent ), std::max( y0, y1 ),
-                                                         std::max( z0, z0 + extent ) ) } );
+            const VsmTileBox box = TileBox( at );
+            entries.push_back( { .Signature = hash, .Min = box.Min, .Max = box.Max } );
+        }
+    }
+
+    void TerrainRenderer::AppendVirtualShadowDraws( std::vector<VirtualShadowCasterDraw>& draws ) const
+    {
+        // RecordVirtualShadow draws m_FrameDraws in order, one per queued tile (PrepareFrame).
+        DESERT_VERIFY( m_FrameDraws.empty() || m_FrameDraws.size() == m_Queue.size(),
+                       "the terrain's frame draws are one per queued tile" );
+        for ( size_t k = 0; k < m_FrameDraws.size(); ++k )
+        {
+            const VsmTileBox box = TileBox( m_Queue[k].Landscape );
+            draws.push_back( { .Min = box.Min, .Max = box.Max, .Arguments = { m_FrameDraws[k].VertexCount, 0u, 0u, 0u, 0u } } );
         }
     }
 
@@ -645,7 +689,9 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr TerrainRenderer::RecordVirtualShadow( const RDG::PassContext& context,
                                                                 const uint32_t          firstBlock,
-                                                                const glm::mat4&        levelViewProj )
+                                                                const glm::mat4&        levelViewProj,
+                                                                const RDG::BufferRef    arguments,
+                                                                const uint32_t          firstRecord )
     {
         if ( !m_VirtualShadowPipeline || m_FrameDraws.empty() )
             return BOOLSUCCESS;
@@ -655,7 +701,8 @@ namespace Desert::Graphic::System
             m_Materials.at( group.Key ).VirtualShadow->SetShadowSlopeBias( 0.0f, 0.0f );
         DESERT_PROFILE_PASS( "TerrainVirtualShadow" );
         return RecordDraws( context, firstBlock, *m_VirtualShadowPipeline, &ProgramMaterials::VirtualShadow,
-                            levelViewProj );
+                            levelViewProj,
+                            VirtualShadowIndirect{ .Arguments = arguments, .FirstRecord = firstRecord } );
     }
 
 } // namespace Desert::Graphic::System

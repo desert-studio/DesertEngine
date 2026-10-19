@@ -20,6 +20,12 @@
 #define VSM_VIRTUAL_RESOLUTION  16384.0
 #define VSM_POOL_PAGES_PER_ROW  64u
 #define VSM_INVALID             0xFFFFFFFFu
+// "VSM: Dirty Mask" (kVsmMaskCellPages ...): one bit per cell of 8 x 8 window pages holding a page drawn this frame.
+#define VSM_MASK_CELL_PAGES      8u
+#define VSM_MASK_CELLS           16u
+#define VSM_MASK_WORDS_PER_LEVEL 8u
+// Graphic/MeshDrawArguments.hpp kMeshDrawArgumentWords: one VkDrawIndexedIndirectCommand per caster record.
+#define VSM_DRAW_ARGUMENT_WORDS  5u
 
 #define VSM_FLAG_ALLOCATED 1u // maps a physical page
 #define VSM_FLAG_DIRTY     2u // its physical page does not hold its current depth: cleared and drawn when requested

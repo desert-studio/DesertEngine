@@ -26,6 +26,19 @@ layout( std430, binding = 17 ) readonly buffer InstanceTransforms
     mat4 transforms[];
 };
 
+#ifdef DESERT_SURFACE_PASS_VirtualShadowDepth
+// The virtual shadow map draws only the instances "VSM: Cull Casters" kept for this level: gl_InstanceIndex is a slot of
+// the draw's compacted list (the records' first instance is the draw's remap base), the slot holds the instance to fetch
+// (UE: the per-page draw's instance id list).
+layout( std430, binding = 44 ) restrict readonly buffer VsmInstanceRemap
+{
+    uint u_InstanceRemap[];
+};
+#define DESERT_INSTANCE_INDEX u_InstanceRemap[gl_InstanceIndex]
+#else
+#define DESERT_INSTANCE_INDEX gl_InstanceIndex
+#endif
+
 #include <Common/MaterialTransport.glslh>
 #include <Common/FoliageWind.glslh>
 
@@ -35,7 +48,7 @@ DESERT_SURFACE_VARYINGS( out )
 
 void main()
 {
-    const mat4 model = transforms[gl_InstanceIndex];
+    const mat4 model = transforms[DESERT_INSTANCE_INDEX];
     const vec3 worldPosition =
          InstancedWorldPosition( model, a_Position, m_PushConstants.WindA, m_PushConstants.WindB );
 #ifdef DESERT_SURFACE_HAS_VARYINGS

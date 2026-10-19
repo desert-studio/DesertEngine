@@ -7,6 +7,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRdgTransient.hpp> // m_RdgTransients is owned here
 #include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>    // m_FrameLoop is owned here
 
+#include <functional>
 #include <memory>
 
 #include <vulkan/vulkan.h>
@@ -83,6 +84,10 @@ namespace Desert::Graphic::API::Vulkan
                                           const MaterialExecutor& material, uint32_t instanceCount,
                                           uint32_t firstInstance, uint64_t hiddenSubmeshMask,
                                           uint32_t lodLevel ) override;
+        Common::BoolResultStr RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                                  const Mesh& mesh, const glm::mat4& transform,
+                                                  const MaterialExecutor& material, RDG::BufferRef args,
+                                                  uint64_t offset, uint64_t hiddenSubmeshMask ) override;
 
         virtual void ComputeImageBeginWrite( Image* image ) override;
         virtual void ComputeImageEndWrite( Image* image ) override;
@@ -129,6 +134,18 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr BindGraphicsPassState( const RDG::PassBindings& bindings,
                                                      const GraphicsPipeline&  pipeline,
                                                      const MaterialExecutor*  material );
+        // Records one drawn submesh: its index among the drawn ones, its index in the mesh, the submesh, the
+        // mesh's index buffer (null: a mesh without indices).
+        using SubmeshDraw =
+             std::function<Common::BoolResultStr( uint32_t drawn, size_t index, const Submesh& submesh,
+                                                  const IndexBuffer* indexBuffer )>;
+        // RenderMesh's walk, shared by the direct and the indirect mesh draw: the pass state, the mesh's vertex,
+        // stream and index buffers, then for every submesh the hidden mask leaves its push block (the material's,
+        // transform * submesh.Transform over the first mat4) before @p draw records it.
+        Common::BoolResultStr WalkMeshSubmeshes( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                                 const Mesh& mesh, const glm::mat4& transform,
+                                                 const MaterialExecutor& material, uint64_t hiddenSubmeshMask,
+                                                 const SubmeshDraw& draw );
         void DrawIndexedCounted( uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
                                  int32_t vertexOffset, uint32_t firstInstance );
         void DrawCounted( uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,
