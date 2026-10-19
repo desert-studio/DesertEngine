@@ -85,6 +85,7 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
+#include <Engine/Graphic/Systems/Scene/Shadows/MegaLights.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/RayTracedSunShadow.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
 
@@ -823,6 +824,17 @@ namespace Desert::Graphic
                                                     const std::vector<RDG::TextureRef>& gbuffer,
                                                     const glm::vec3& directionToSun, const ViewFrame& frame );
         bool            EnsureRayTracedShadowResources();
+        // This frame's local lights are MegaLights' (the Shadows method resolved to Stochastic, its sun ray
+        // traced): the composite's MegaLights program reads AddFrameMegaLights' lighting in place of the
+        // light-grid loop.
+        [[nodiscard]] bool LocalLightsAreStochastic() const;
+        // MegaLights (System::MegaLightsRenderer) over the G-buffer and the view's light grid and TLAS: the
+        // denoised, demodulated local lighting. Invalid when the view has no local light (nothing to shade), or -
+        // logged - when the passes could not be declared; the composite then binds System.Black (no local light
+        // that frame).
+        RDG::TextureRef AddFrameMegaLights( RDG::Builder& graph, FrameTextures& textures,
+                                            const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
+        bool            EnsureMegaLightsResources();
         // This frame's sun shadow is the virtual shadow map (the Shadows method resolved to VirtualMaps).
         [[nodiscard]] bool SunShadowIsVirtual() const;
         // THE ONE ANSWER TO "is the sun shadowed from a screen mask this frame" (the ray-traced sun or the virtual
@@ -1024,11 +1036,11 @@ namespace Desert::Graphic
                                            const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const FrameScreenTrace& screenTrace,
                                            const ViewFrame& frame );
-        void AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
-                                const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
-                                RDG::TextureRef sunShadowMask,
-                                System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                const glm::vec4& lightColor, const ViewFrame& frame );
+        void             AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
+                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
+                                            RDG::TextureRef sunShadowMask, RDG::TextureRef megaLights,
+                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
+                                            const glm::vec4& lightColor, const ViewFrame& frame );
         // The scene snapshot (UE: CreateTexture from the scene colour's desc, copied by a raster node): published
         // as FrameTransients::SceneColorCopy and returned; invalid when no copy was made (no copy system, no scene
         // colour, its desc refused - logged). @p into: the imported image to copy into (the view's scene
@@ -1252,6 +1264,12 @@ namespace Desert::Graphic
         System::ScreenSpaceDenoiser        m_SunShadowDenoiser{ System::DenoiserSignal::ShadowVisibility };
         bool                               m_RayTracedShadowReady  = false;
         bool                               m_RayTracedShadowFailed = false;
+        // MegaLights (per view: its reservoir and denoiser histories are this view's), created on the first frame
+        // that resolves Shadows to Stochastic; its quality (Shadows.MegaLights*) taken each BeginScene.
+        System::MegaLightsRenderer m_MegaLights;
+        System::MegaLightsQuality  m_MegaLightsQuality;
+        bool                       m_MegaLightsReady  = false;
+        bool                       m_MegaLightsFailed = false;
         // "Shadows: Virtual Shadow Map" (per view: the page cache is this view's), created on the first frame that
         // resolves the sun to VirtualMaps; its quality (Shadows.Virtual*) taken each BeginScene.
         System::VirtualShadowMapRenderer m_VirtualShadowMap;

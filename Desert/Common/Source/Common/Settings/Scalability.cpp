@@ -105,9 +105,11 @@ namespace Common::Scalability
              { P::ShadowRayTracedDenoiserRadius, G::Shadows, "Shadows.RayTracedDenoiserRadius", 1, 3, CL::None,
                "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseShadowVisibility (reconstruction "
                "kernel)" },
-             { P::ShadowVirtualMaxPhysicalPages, G::Shadows, "Shadows.VirtualMaxPhysicalPages", 256, 8192, CL::None,
+             { P::ShadowVirtualMaxPhysicalPages, G::Shadows, "Shadows.VirtualMaxPhysicalPages", 256, 8192,
+               CL::None,
                "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (the physical pool)" },
-             { P::ShadowVirtualResolutionLodBias, G::Shadows, "Shadows.VirtualResolutionLodBias", -30, 30, CL::None,
+             { P::ShadowVirtualResolutionLodBias, G::Shadows, "Shadows.VirtualResolutionLodBias", -30, 30,
+               CL::None,
                "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Lod.x, tenths)" },
              { P::ShadowVirtualSMRTRayCount, G::Shadows, "Shadows.VirtualSMRTRayCount", 0, 16, CL::None,
                "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Smrt.x: "
@@ -115,6 +117,15 @@ namespace Common::Scalability
              { P::ShadowVirtualSMRTSamplesPerRay, G::Shadows, "Shadows.VirtualSMRTSamplesPerRay", 1, 16, CL::None,
                "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Smrt.y: "
                "VirtualShadowMapProject.shader samples per ray)" },
+             { P::ShadowMegaLightsSamplesPerPixel, G::Shadows, "Shadows.MegaLightsSamplesPerPixel", 1, 4, CL::None,
+               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (reservoirs per pixel)" },
+             { P::ShadowMegaLightsSpatialSamples, G::Shadows, "Shadows.MegaLightsSpatialSamples", 0, 8, CL::None,
+               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (\"MegaLights: Spatial Resampling\")" },
+             { P::ShadowMegaLightsMaxHistory, G::Shadows, "Shadows.MegaLightsMaxHistory", 0, 30, CL::None,
+               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (\"MegaLights: Temporal "
+               "Resampling\")" },
+             { P::ShadowMegaLightsDenoiserRadius, G::Shadows, "Shadows.MegaLightsDenoiserRadius", 1, 3, CL::None,
+               "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseDiffuseIndirect (MegaLights kernel)" },
              { P::ScreenSpaceGISamples, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceSamples", 4, 64,
                CL::None,
                "SceneRenderer::BeginScene -> MaterialDeferredLighting (u_ScreenSpaceGI.x: DeferredLighting.shader "
@@ -161,7 +172,8 @@ namespace Common::Scalability
              { P::IrradianceFieldProbesPerFrame, G::GlobalIllumination,
                "GlobalIllumination.IrradianceFieldProbesPerFrame", 10, 2000, CL::None, std::nullopt },
              { P::ReflectionsHitLighting, G::Reflections, "Reflections.HitLighting", 0, 1, CL::None,
-               "SceneRenderer::ReflectionsTracer -> SSR.shader \"HitLighting\" ray generation (Renderer::TraceRays)" },
+               "SceneRenderer::ReflectionsTracer -> SSR.shader \"HitLighting\" ray generation "
+               "(Renderer::TraceRays)" },
         } };
     } // namespace
 

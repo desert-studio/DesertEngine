@@ -67,7 +67,9 @@ namespace Common::Scalability
         CascadedMaps = 0, // the sun's cascaded shadow maps
         VirtualMaps,      // virtual shadow maps (SHADOW-VSM: VirtualShadowMapRenderer, "VSM: Raster")
         HardwareTraced,   // ray-query visibility (RT-SHADOWS: RayTracedSunShadow); RT device
-        Stochastic,       // many-light ReSTIR DI + ray-query visibility (MEGALIGHTS)    — not implemented
+        // Stochastic: the sun as HardwareTraced, the local lights by MegaLights (System::MegaLightsRenderer:
+        // ReSTIR DI over the light grid, ray-query visibility, the screen-space denoiser); RT device.
+        Stochastic,
     };
 
     // By name: Scalability.json, the log line and the overlay print these, one list per enum.
@@ -102,7 +104,7 @@ namespace Common::Scalability
     [[nodiscard]] constexpr bool IsImplemented( ShadowMethod method )
     {
         return method == ShadowMethod::CascadedMaps || method == ShadowMethod::VirtualMaps ||
-               method == ShadowMethod::HardwareTraced;
+               method == ShadowMethod::HardwareTraced || method == ShadowMethod::Stochastic;
     }
     // The two shadow supplements beside the method (PostProcessSettings ContactShadows / DistanceFieldShadows):
     // contact shadows (SHADOW-CONTACT) and distance-field shadows (GLOBAL-SDF) — neither implemented yet.

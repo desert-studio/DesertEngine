@@ -900,6 +900,11 @@ namespace Desert::Graphic
              .ResolutionLodBias = 0.1f * static_cast<float>( quality.As<int>( Parameter::ShadowVirtualResolutionLodBias ) ),
              .SmrtRayCount      = static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTRayCount ) ),
              .SmrtSamplesPerRay = static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTSamplesPerRay ) ) };
+        m_MegaLightsQuality = System::MegaLightsQuality{
+             .SamplesPerPixel = quality.As<uint32_t>( Parameter::ShadowMegaLightsSamplesPerPixel ),
+             .SpatialSamples  = quality.As<uint32_t>( Parameter::ShadowMegaLightsSpatialSamples ),
+             .MaxHistory      = quality.As<uint32_t>( Parameter::ShadowMegaLightsMaxHistory ),
+             .DenoiserRadius  = quality.As<uint32_t>( Parameter::ShadowMegaLightsDenoiserRadius ) };
         m_ReflectionDenoiserRadius            = quality.As<uint32_t>( Parameter::ReflectionDenoiserRadius );
         m_ScreenSpaceGISamples                = quality.As<int>( Parameter::ScreenSpaceGISamples );
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
@@ -1445,16 +1450,19 @@ namespace Desert::Graphic
             }
 #endif
 
-            // THE FRAME'S SUN-SHADOW PATH, decided here ONCE, before any pass that reads it is declared: a ray-traced
-            // sun whose frame has no traceable scene (TLAS not built - m_RayTracingScene's frame is only this
-            // frame's when AddPasses succeeded - or the trace resources could not be created) resolves to
-            // CascadedMaps for the whole frame (LowerShadowsForFrame: the overlay row and one log line name it).
-            // Every reader - the cascades below, the depth/normal prepass, the trace, the composite, "Deferred:
-            // Generic" - asks SunShadowIsScreenMask() (the ray-traced sun or the virtual shadow map), which reads
-            // this resolution.
+            // THE FRAME'S SUN-SHADOW PATH, decided here ONCE, before any pass that reads it is declared: a
+            // ray-traced sun whose frame has no traceable scene (TLAS not built - m_RayTracingScene's frame is
+            // only this frame's when AddPasses succeeded - or the trace resources could not be created) resolves
+            // to CascadedMaps for the whole frame (LowerShadowsForFrame: the overlay row and one log line name
+            // it). Every reader - the cascades below, the depth/normal prepass, the trace, the composite,
+            // "Deferred: Generic" - asks SunShadowIsScreenMask() (the ray-traced sun or the virtual shadow map),
+            // which reads this resolution. Stochastic traces the sun AND the local lights: both its resources, or
+            // neither method this frame.
             const bool sunTraced = SunShadowIsRayTraced();
-            LowerShadowsForFrame( m_RenderMethods, !sunTraced || ( tlas && m_RayTracingScene.GetFrame().Built &&
-                                                                   EnsureRayTracedShadowResources() ) );
+            LowerShadowsForFrame(
+                 m_RenderMethods,
+                 !sunTraced || ( tlas && m_RayTracingScene.GetFrame().Built && EnsureRayTracedShadowResources() &&
+                                 ( !LocalLightsAreStochastic() || EnsureMegaLightsResources() ) ) );
             ReportRenderMethods( m_RenderMethods );
             // The cascade budget follows the FRAME's answer: a frame that fell back to CascadedMaps draws the full
             // ShadowQuality cascades, the low-detail Shadows.RayTracedTranslucency* ones only while the sun is
@@ -1546,8 +1554,13 @@ namespace Desert::Graphic
                  : SunShadowIsRayTraced()
                       ? AddFrameRayTracedSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
                       : RDG::TextureRef{};
-            AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, sunShadowMask, meshRenderer,
-                               lightDir, lightColor, frame );
+            // Shadows Stochastic: the local lights sampled, traced and denoised by MegaLights, which the
+            // composite's MegaLights program reads in place of its light-grid loop.
+            const RDG::TextureRef megaLights = LocalLightsAreStochastic()
+                                                    ? AddFrameMegaLights( graph, textures, gbuffer, frame )
+                                                    : RDG::TextureRef{};
+            AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, sunShadowMask, megaLights,
+                               meshRenderer, lightDir, lightColor, frame );
             AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask );
 
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
@@ -1733,7 +1746,75 @@ namespace Desert::Graphic
 
     bool SceneRenderer::SunShadowIsRayTraced() const
     {
-        return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::HardwareTraced;
+        // Stochastic's sun is the ray-traced one (MegaLights shades the local lights).
+        using Common::Scalability::ShadowMethod;
+        return m_RenderMethods.Shadows.Effective == ShadowMethod::HardwareTraced ||
+               m_RenderMethods.Shadows.Effective == ShadowMethod::Stochastic;
+    }
+
+    bool SceneRenderer::LocalLightsAreStochastic() const
+    {
+        return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::Stochastic;
+    }
+
+    bool SceneRenderer::EnsureMegaLightsResources()
+    {
+        if ( m_MegaLightsReady )
+            return true;
+        if ( m_MegaLightsFailed )
+            return false;
+        if ( const Common::BoolResultStr initialized = m_MegaLights.Initialize(); !initialized )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: MegaLights could not be created; Shadows Stochastic resolves to "
+                       "CascadedMaps: {}",
+                       m_ViewResources.GetName(), initialized.GetError() );
+            m_MegaLightsFailed = true;
+            return false;
+        }
+        m_MegaLightsReady = true;
+        return true;
+    }
+
+    RDG::TextureRef SceneRenderer::AddFrameMegaLights( RDG::Builder& graph, FrameTextures& textures,
+                                                       const std::vector<RDG::TextureRef>& gbuffer,
+                                                       const ViewFrame&                    frame )
+    {
+        const auto pointCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
+        const auto spotCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
+        if ( pointCount + spotCount == 0 )
+            return {}; // no local light: nothing to sample, the composite adds none
+        if ( gbuffer.size() < 4 )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: MegaLights needs the 4 G-buffer colours, the graph has {}; the local "
+                       "lights are unlit this frame",
+                       m_ViewResources.GetName(), gbuffer.size() );
+            return {};
+        }
+        // The frame resolved to Stochastic only with this frame's TLAS built (OnUpdate, LowerShadowsForFrame).
+        const RayTracing::RayTracingSceneFrame&  scene = m_RayTracingScene.GetFrame();
+        const FrameGraphRefs                     refs  = textures.GraphRefs();
+        const System::MegaLightsInputs           inputs{ .Depth       = textures.Depth( m_GBuffer, "GBuffer" ),
+                                                         .GBufferA    = gbuffer[0],
+                                                         .GBufferB    = gbuffer[1],
+                                                         .ShadingWord = gbuffer[2],
+                                                         .Velocity    = textures.Transients.Velocity,
+                                                         .Black       = refs.System.Black,
+                                                         .Tlas        = scene.Tlas,
+                                                         .Metadata    = scene.Metadata,
+                                                         .Lights      = refs.Transients.Lights,
+                                                         .PointLights = pointCount,
+                                                         .SpotLights  = spotCount,
+                                                         .Width       = frame.Split.Render.Width,
+                                                         .Height      = frame.Split.Render.Height };
+        const Common::ResultStr<RDG::TextureRef> lighting =
+             m_MegaLights.AddPasses( graph, inputs, m_MegaLightsQuality, frame );
+        if ( !lighting )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: {}; the local lights are unlit this frame", m_ViewResources.GetName(),
+                       lighting.GetError() );
+            return {};
+        }
+        return lighting.GetValue();
     }
 
     bool SceneRenderer::SunShadowIsVirtual() const

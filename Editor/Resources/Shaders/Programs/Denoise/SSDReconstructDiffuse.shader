@@ -4,7 +4,8 @@ Shader "SSDReconstructDiffuse"
     // The screen-space denoiser's RECONSTRUCTION of the diffuse-indirect signal (UE ScreenSpaceDenoiser, diffuse
     // indirect: SSDSpatialAccumulation.usf STAGE_RECONSTRUCTION, BILATERAL_PRESET_DIFFUSE), at full resolution
     // from the RSM-GI gather's one jittered estimate per pixel (GIResolve.shader: rgb = bounce light, a = 1 where
-    // it gathered). A 5x5 kernel (tent-weighted) where each tap is weighed by the BILATERAL weight of its surface
+    // it gathered; MegaLights' demodulated local light). A (2r+1)^2 kernel (tent-weighted, r = the producer's
+    // ReconstructionRadius, 2 = 5x5) where each tap is weighed by the BILATERAL weight of its surface
     // against this pixel's: its distance off this pixel's tangent plane (UE BILATERAL_POSITION_BASED(2)) and the
     // agreement of the normals (UE BILATERAL_NORMAL, N.N^4) - bounce light does not cross a crease or a depth
     // edge. Diffuse light carries no direction, so the lobe does not enter. Written premultiplied to u_Signal.
@@ -31,6 +32,12 @@ Shader "SSDReconstructDiffuse"
         	mat4 u_InvJitteredViewProjection;
         };
 
+        // DiffuseIndirectDenoiserInputs::ReconstructionRadius.
+        PushConstant PushConstants
+        {
+        	vec4 u_Reconstruction; // x = taps per side from the centre
+        };
+
         LocalSize(8, 8, 1);
 
         void main()
@@ -48,22 +55,23 @@ Shader "SSDReconstructDiffuse"
         	const vec2         uv   = (vec2(pixel) + 0.5) / size;
         	const SSDSceneInfo ref  = SSDLoadSceneInfo(u_GBufferNormal, u_GBufferDepth, u_InvJitteredViewProjection,
         	                                           pixel, size);
-        	// The farthest tap is 2 * sqrt(2) pixels away (UE WorldBluringRadiusToBilateralWorldDistance).
+        	// The farthest tap is r * sqrt(2) pixels away (UE WorldBluringRadiusToBilateralWorldDistance).
         	const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(sampler2D(u_GBufferDepth, u_PointClampSampler), pixel, 0).r, ref.Position,
         	                                              1.0 / size, u_InvJitteredViewProjection);
-        	const float maxPlaneDistance = max(pixelRadius * 2.0 * 2.0 * sqrt(2.0), 1e-3);
+        	const int   radius           = max(int(u_Reconstruction.x + 0.5), 1);
+        	const float maxPlaneDistance = max(pixelRadius * 2.0 * float(radius) * sqrt(2.0), 1e-3);
 
         	vec4  sum       = vec4(0.0); // premultiplied
         	float weightSum = 0.0;
-        	for (int y = -2; y <= 2; ++y)
-        		for (int x = -2; x <= 2; ++x)
+        	for (int y = -radius; y <= radius; ++y)
+        		for (int x = -radius; x <= radius; ++x)
         		{
         			const ivec2 p = clamp(pixel + ivec2(x, y), ivec2(0), viewSize - 1);
         			const SSDSceneInfo other = SSDLoadSceneInfo(u_GBufferNormal, u_GBufferDepth,
         			                                            u_InvJitteredViewProjection, p, size);
         			if (dot(other.Normal, other.Normal) <= 0.0)
         				continue; // sky
-        			const float w = (3.0 - abs(float(x))) * (3.0 - abs(float(y))) *
+        			const float w = (float(radius + 1) - abs(float(x))) * (float(radius + 1) - abs(float(y))) *
         			                SSDPlaneWeight(ref, other.Position, maxPlaneDistance) *
         			                SSDNormalWeight(ref.Normal, other.Normal);
         			const vec4 s = texelFetch(u_Input, p, 0);

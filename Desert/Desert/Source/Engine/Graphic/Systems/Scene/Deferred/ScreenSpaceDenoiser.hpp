@@ -14,6 +14,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -56,10 +57,14 @@ namespace Desert::Graphic::System
     };
 
     // What a diffuse-indirect producer hands the denoiser (UE FDiffuseIndirectInputs): its full-resolution
-    // estimate, rgb = light, a = the share it answered.
+    // estimate, rgb = light, a = the share it answered - RSM-GI's bounce light, MegaLights' demodulated local
+    // light.
     struct DiffuseIndirectDenoiserInputs
     {
         RDG::TextureRef Signal;
+        // The reconstruction's kernel, taps per side from the centre (UE r.*.Denoiser.ReconstructionSamples;
+        // MegaLights: Scalability Shadows.MegaLightsDenoiserRadius). 2 = 5x5.
+        uint32_t ReconstructionRadius = 2;
     };
 
     // UE FShadowVisibilityInputs: a penumbra mask and the closest occluder distance, whatever produced them (no
@@ -203,6 +208,9 @@ namespace Desert::Graphic::System
             const RDG::TextureRef signal =
                  graph.CreateTexture( Desc( width, height, kSignalFormat ), "SSD.Signal" );
             graph.SetFaultDefault( signal, RDG::FaultDefault::Black );
+            // x = the kernel's taps per side from the centre (SSDReconstructDiffuse.shader).
+            const glm::vec4 push( static_cast<float>( std::max( in.ReconstructionRadius, 1u ) ), 0.0f, 0.0f,
+                                  0.0f );
             graph.AddPass(
                  "Denoise: Diffuse Reconstruction", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -217,12 +225,14 @@ namespace Desert::Graphic::System
                           .Texture( "u_Input", in.Signal, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
                           .Storage( "u_Signal", signal, RDG::Access::StorageWrite )
-                          .Uniform( "DenoiserViewUB", uniforms );
+                          .Uniform( "DenoiserViewUB", uniforms )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
                  },
-                 [this, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Denoise: Diffuse Reconstruction" );
-                     const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                      return Renderer::GetInstance().DispatchCompute( bindings, *m_ReconstructPipeline,
                                                                      Groups( width ), Groups( height ), 1 );
                  } );

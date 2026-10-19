@@ -1,0 +1,33 @@
+#ifndef MEGALIGHTS_DEMODULATION_GLSLH
+#define MEGALIGHTS_DEMODULATION_GLSLH
+
+// THE ONE DEMODULATION of the MegaLights local lighting (UE MegaLights: the denoiser filters lighting divided by the
+// surface's reflectance, so an albedo edge is not blurred into its neighbours). "MegaLights: Shade Samples" divides
+// the pixel's shaded local light by this factor before the denoiser, and the deferred composite's DESERT_MEGALIGHTS
+// program multiplies the denoised texel by the same factor of the same G-buffer texel: one function, so the two
+// sides cannot drift and a pixel the denoiser left alone gets back exactly what was shaded. The factor is the
+// split-sum reflectance - the diffuse colour plus the specular colour weighed by the environment BRDF (Karis'
+// analytic fit, UE EnvBRDFApprox, so neither side needs the BRDF LUT) - floored so a black surface is not divided
+// by zero. Binding-free.
+
+vec2 MegaLightsEnvBRDFApprox(float roughness, float NoV)
+{
+	const vec4  c0  = vec4(-1.0, -0.0275, -0.572, 0.022);
+	const vec4  c1  = vec4(1.0, 0.0425, 1.04, -0.04);
+	const vec4  r   = roughness * c0 + c1;
+	const float a004 = min(r.x * r.x, exp2(-9.28 * NoV)) * r.x + r.y;
+	return vec2(-1.04, 1.04) * a004 + r.zw;
+}
+
+// @p albedo / @p metallic: GBufferA; @p roughness: GBufferB.a floored as the composite floors it (0.04); @p N / @p V:
+// the unit world normal and the unit direction toward the eye.
+vec3 MegaLightsReflectance(vec3 albedo, float metallic, float roughness, vec3 N, vec3 V)
+{
+	const float NoV     = clamp(dot(N, V), 1e-4, 1.0);
+	const vec3  F0      = mix(vec3(0.04), albedo, metallic);
+	const vec2  AB      = MegaLightsEnvBRDFApprox(roughness, NoV);
+	const vec3  diffuse = albedo * (1.0 - metallic);
+	return max(diffuse + F0 * AB.x + AB.y, vec3(1e-3));
+}
+
+#endif // MEGALIGHTS_DEMODULATION_GLSLH

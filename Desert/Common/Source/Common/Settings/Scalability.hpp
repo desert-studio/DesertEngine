@@ -154,13 +154,23 @@ namespace Common::Scalability
         // VirtualMaps sun (Graphic::System::VirtualShadowMapRenderer; UE r.Shadow.Virtual.*): the physical page
         // pool's size in 128 x 128 pages (MaxPhysicalPages; a frame whose requests exceed it shades the rest from
         // coarser levels), the clipmap's resolution LOD bias in tenths of a level (ResolutionLodBiasDirectional;
-        // negative = finer), and the shadow-map ray tracing's rays per pixel inside the SourceAngle cone and samples
-        // per ray (SMRT.RayCountDirectional / SamplesPerRayDirectional; 0 rays = one hard lookup).
+        // negative = finer), and the shadow-map ray tracing's rays per pixel inside the SourceAngle cone and
+        // samples per ray (SMRT.RayCountDirectional / SamplesPerRayDirectional; 0 rays = one hard lookup).
         // 256..8192, -30..30, 0..16 and 1..16.
         ShadowVirtualMaxPhysicalPages,
         ShadowVirtualResolutionLodBias,
         ShadowVirtualSMRTRayCount,
         ShadowVirtualSMRTSamplesPerRay,
+        // Shadows Stochastic (MegaLights, System::MegaLightsRenderer; UE r.MegaLights.*): the traced light samples
+        // per pixel (reservoirs, each one visibility ray before the reuse and one at the shading; UE
+        // NumSamplesPerPixel), the ReSTIR spatial reuse's neighbours per sample (0 = no spatial reuse), the
+        // temporal reuse's history cap in frames (a reprojected reservoir weighs at most this many of the current
+        // frame's; 0 = no temporal reuse; UE Temporal.MaxFramesAccumulated), and the denoiser's reconstruction
+        // kernel, taps per side from the centre (ScreenSpaceDenoiser DiffuseIndirect). 1..4, 0..8, 0..30, 1..3.
+        ShadowMegaLightsSamplesPerPixel,
+        ShadowMegaLightsSpatialSamples,
+        ShadowMegaLightsMaxHistory,
+        ShadowMegaLightsDenoiserRadius,
         // GI ScreenSpace: the one-bounce gather's samples per pixel (DeferredLighting.shader GatherIndirectGI,
         // u_ScreenSpaceGI.x). 4..64
         ScreenSpaceGISamples,
@@ -210,9 +220,9 @@ namespace Common::Scalability
         IrradianceFieldProbesPerFrame, // ProbeVolume's radiance-cache probes traced per frame (UE
                                        // r.Lumen.IrradianceFieldGather.NumProbesToTraceBudget; today
                                        // RadianceCache::MakeRadianceCacheInputs scales ProbesPerFrame by 200/300)
-        ReflectionsHitLighting,                 // 0/1: HardwareTraced reflections run hit lighting - the ray
-                                                // tracing pipeline with each hit surface's own material (UE
-                                                // r.Lumen.Reflections.HardwareRayTracing.LightingMode = hit lighting)
+        ReflectionsHitLighting,        // 0/1: HardwareTraced reflections run hit lighting - the ray
+                                       // tracing pipeline with each hit surface's own material (UE
+                                       // r.Lumen.Reflections.HardwareRayTracing.LightingMode = hit lighting)
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

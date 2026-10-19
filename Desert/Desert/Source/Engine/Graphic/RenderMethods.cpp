@@ -117,7 +117,7 @@ namespace Desert::Graphic
 
     void LowerShadowsForFrame( RenderMethods& methods, const bool rayTracedSceneReady )
     {
-        if ( rayTracedSceneReady || methods.Shadows.Effective != ShadowMethod::HardwareTraced )
+        if ( rayTracedSceneReady || !NeedsRayQuery( methods.Shadows.Effective ) )
             return;
         methods.Shadows.Effective = ShadowMethod::CascadedMaps;
         if ( methods.Shadows.Limit == MethodLimit::None )

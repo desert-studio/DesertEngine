@@ -46,6 +46,9 @@ namespace Desert::Graphic::System
         // modes).
         RDG::TextureRef GIDiffuse;
         RDG::TextureRef GISpecular;
+        // MegaLights' denoised, demodulated local lighting (System::MegaLightsRenderer), or System.Black; bound by
+        // the MegaLights program only (DeferredShadowInput::MegaLightsLocalLights).
+        RDG::TextureRef MegaLights;
         // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
         SceneViewInputs View;
     };
@@ -80,6 +83,14 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
                  "DeferredLighting", Core::ShaderVariant{ .Defines = { std::string( kSunShadowScreenMaskDefine ) } } );
             if ( !m_Programs[kScreenMaskSunProgram].Shader )
                 return Common::MakeError( "DeferredLighting (DESERT_SUN_SHADOW_SCREEN_MASK) did not compile" );
+            // Shadows Stochastic: the ray-traced sun's mask, and the local lights from MegaLights in place of the
+            // light-grid loop and its shadow maps.
+            m_Programs[kMegaLightsProgram].Shader = shaders->AcquireVariant(
+                 "DeferredLighting", Core::ShaderVariant{ .Defines = { std::string( kSunShadowScreenMaskDefine ),
+                                                                       std::string( kMegaLightsDefine ) } } );
+            if ( !m_Programs[kMegaLightsProgram].Shader )
+                return Common::MakeError(
+                     "DeferredLighting (DESERT_SUN_SHADOW_SCREEN_MASK + DESERT_MEGALIGHTS) did not compile" );
 
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target )
@@ -264,8 +275,9 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
                            bool ssaoEnabled, const CloudShadowInput& cloudShadow,
                            const DeferredEnvironmentInput& environment, const glm::mat4& jitteredViewProjection )
         {
-            // The sun's arm picks the program this frame's composite draws with.
-            m_Active                         = shadow.Sun.index();
+            // The sun's arm picks the program this frame's composite draws with; MegaLights' local lights pick
+            // theirs (the sun is then the ray-traced mask: SceneRenderer resolves Stochastic's sun to it).
+            m_Active = shadow.MegaLightsLocalLights ? kMegaLightsProgram : shadow.Sun.index();
             const CompositeProgram& program = m_Programs[m_Active];
             if ( !program.Material )
                 return;
@@ -303,13 +315,18 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
                  .Texture( "u_SSAO", inputs.SSAO, kRead, kWhole )
                  // The resolved reflections, read through the clamped state (UE: the SSR composite input).
                  .Texture( "u_SSR", inputs.SSR, kRead, kWhole )
-                 .Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
-                 .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
-                 .Storage( kLocalShadowViewsBlockName, lights.ShadowViews, RDG::Access::StorageRead )
                  // One texel per pixel, read through the point-clamped state like the depth.
                  .Texture( "u_GIDiffuse", inputs.GIDiffuse, kRead, kWhole )
                  .Texture( "u_GISpecular", inputs.GISpecular, kRead, kWhole );
-            if ( m_Active == kScreenMaskSunProgram )
+            // The light rows and their shadow views: the light-grid loop's. The MegaLights program reads
+            // MegaLights' lighting instead.
+            if ( m_Active == kMegaLightsProgram )
+                block.Texture( "u_MegaLightsLighting", inputs.MegaLights, kRead, kWhole );
+            else
+                block.Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
+                     .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
+                     .Storage( kLocalShadowViewsBlockName, lights.ShadowViews, RDG::Access::StorageRead );
+            if ( m_Active == kScreenMaskSunProgram || m_Active == kMegaLightsProgram )
                 block.Texture( "u_ScreenShadowMask", inputs.SunShadowMask, kRead, kWhole );
             if ( layout )
                 BindSceneViewInputs( block, inputs.View, *layout );
@@ -365,7 +382,8 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
         }
 
         // One program per DeferredShadowInput::Sun arm (the index): the cascades, and the
-        // DESERT_SUN_SHADOW_SCREEN_MASK permutation reading the screen shadow mask.
+        // DESERT_SUN_SHADOW_SCREEN_MASK permutation reading the screen shadow mask; then the MegaLights program
+        // (the screen mask + DESERT_MEGALIGHTS) for Shadows Stochastic.
         struct CompositeProgram
         {
             std::shared_ptr<Shader>                   Shader;
@@ -375,9 +393,10 @@ auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
         };
         static constexpr std::size_t kCascadeProgram      = 0; // DeferredCascadeShadow
         static constexpr std::size_t kScreenMaskSunProgram = 1; // DeferredScreenShadowMask
-        static constexpr std::array<std::string_view, 2> kProgramDebugNames = { "DeferredLighting",
-                                                                                "DeferredLighting RayTracedSun" };
-        std::array<CompositeProgram, 2> m_Programs;
+        static constexpr std::size_t kMegaLightsProgram    = 2; // DeferredShadowInput::MegaLightsLocalLights
+        static constexpr std::array<std::string_view, 3> kProgramDebugNames = {
+             "DeferredLighting", "DeferredLighting RayTracedSun", "DeferredLighting MegaLights" };
+        std::array<CompositeProgram, 3> m_Programs;
         std::size_t                     m_Active = kCascadeProgram; // FillMaterial's arm, this frame
 
         // "LightGrid": the froxel light lists the composite reads.

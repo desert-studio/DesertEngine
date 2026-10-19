@@ -24,8 +24,13 @@ Shader "DeferredLighting"
         // instead shows a raw G-buffer channel full-screen. Non-geometry texels are discarded so the LOADed forward
         // scene (real procedural sky / skybox + grid) shows through.
 
+        // DESERT_MEGALIGHTS (Shadows Stochastic, DeferredLightingRenderer's MegaLights program): the local lights
+        // arrive as MegaLights' denoised lighting (u_MegaLightsLighting below), so this program reads neither the
+        // light rows nor their shadow maps.
+        #ifndef DESERT_MEGALIGHTS
         #include <Mesh/PointLight.glslh>      // binding 6  (SSBO PointLightsUB) + BRDF
         #include <Mesh/Spotlight.glslh>       // binding 16 (SSBO SpotLightsUB)
+        #endif
         #include <Mesh/LightsMetadata.glslh>  // binding 4  (UB LightsMetadata: point/spot/dir counts)
         // THE direct-light BRDF, shared with the forward mesh shaders and with the point/spot headers
         // above (which already include it). Named explicitly because this pass calls it directly.
@@ -294,6 +299,7 @@ Shader "DeferredLighting"
         // THE POINT AND SPOT LIGHTS' SHADOWS: the view's local shadow atlas and the table of its views
         // (Graphic/LocalShadows.hpp; MeshRenderer::UpdateLocalShadows writes both, and each light's shadowView).
         // The row struct first, then the two bindings, then the reader, which names them.
+        #ifndef DESERT_MEGALIGHTS
         #include <Mesh/LocalLightShadowView.glslh>
         Uniform(13) texture2D u_LocalShadowAtlas; // 13/14: freed by the cascade array
         #define u_LocalShadowAtlas sampler2D(u_LocalShadowAtlas, u_PointClampSampler)
@@ -302,6 +308,13 @@ Shader "DeferredLighting"
         	LocalShadowView localShadowViews[];
         };
         #include <Mesh/LocalLightShadow.glslh>
+        #else
+        // MegaLights' local lighting (System::MegaLightsRenderer: ReSTIR DI over the light grid, ray-query visibility,
+        // the screen-space denoiser), demodulated: rgb * MegaLightsReflectance of this texel is its light.
+        Uniform(32) texture2D u_MegaLightsLighting;
+        #define u_MegaLightsLighting sampler2D(u_MegaLightsLighting, u_PointClampSampler)
+        #include <Mesh/MegaLightsDemodulation.glslh>
+        #endif
 
         // THE VIEW'S LIGHT GRID ("LightGrid", Programs/Deferred/LightGridBuild.shader): a pixel is shaded by
         // the point and spot lights of its froxel only (UE LightGrid). The parameters, then the cells, at set-0
@@ -316,6 +329,7 @@ Shader "DeferredLighting"
         	uint lightGridCells[];
         };
 
+        #ifndef DESERT_MEGALIGHTS
         // One light of the grid's index space (Mesh/LightGrid.glslh): points first, then spots.
         vec3 ShadeGridLight(uint light, int shadingModel, vec3 worldPos, vec3 N, float subsurfaceOpacity,
                             DesertSurface surface, DesertPayload payload)
@@ -329,6 +343,7 @@ Shader "DeferredLighting"
         	                                                            worldPos, N, subsurfaceOpacity),
         	                                  surface, payload);
         }
+        #endif
 
         // Heat ramp for the Light-Complexity debug view: 0 -> dark blue, up through cyan/green/yellow -> red.
         // Standard "jet"-style piecewise map so overlapping light volumes read as hotter pixels.
@@ -447,6 +462,12 @@ Shader "DeferredLighting"
         	// Point and spot lights (the city payoff): full Cook-Torrance lit, each occluded by its atlas views when it
         	// casts shadows — the lights of this pixel's froxel only, in the order the full loop would sum them. An
         	// overflowed cell (more lights than its list holds) is shaded by every light: slower, never wrong.
+        	// Under MegaLights the same lights arrive sampled, traced and denoised: the texel remodulated by the
+        	// reflectance it was demodulated with ("MegaLights: Shade Samples").
+        #ifdef DESERT_MEGALIGHTS
+        	result += texelFetch(u_MegaLightsLighting, ivec2(gl_FragCoord.xy), 0).rgb *
+        	          MegaLightsReflectance(albedo, metallic, roughness, N, view);
+        #else
         	const uint cell  = LightGridCellAt(lightGrid, gl_FragCoord.xy, worldPos);
         	const uint count = lightGridCells[cell];
         	if (!LightGridCellOverflowed(lightGrid, count))
@@ -462,6 +483,7 @@ Shader "DeferredLighting"
         		for (uint i = 0u; i < lights; i++)
         			result += ShadeGridLight(i, shadingModel, worldPos, N, subsurfaceOpacity, surface, payload);
         	}
+        #endif
 
         	// One-bounce screen-space GI (D6, u_Params.w == 1): gather from sun-lit G-buffer neighbours. Cheap and
         	// self-contained, but only geometry currently ON SCREEN can bounce, and there is no denoiser.
