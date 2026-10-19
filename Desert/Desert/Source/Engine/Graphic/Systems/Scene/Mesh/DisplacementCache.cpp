@@ -139,6 +139,7 @@ namespace Desert::Graphic::System
                 if ( entry.Current )
                     RetireTwin( entry.Current->Twin );
             m_Entries.clear();
+            ClearSkinned();
             m_Shared.clear();
             m_Pools.clear();
             m_TopologyWords.clear();
@@ -423,9 +424,10 @@ namespace Desert::Graphic::System
                               words + sizeof( DisplacementMaterialRecord ) / sizeof( uint32_t ) );
         }
         // Counts.y: the pool vertex the Emit pass writes the batch's first record to.
+        // Counts.z: words per source vertex (Desert::Vertex); Counts.w = 0: the Emit output is Desert::Vertex.
         const std::array<uint32_t, 12> heightsDispatch = { pointCount,
                                                            0,
-                                                           0,
+                                                           static_cast<uint32_t>( sizeof( Vertex ) / 4u ),
                                                            0,
                                                            3 * triangles,
                                                            4 * triangles,
@@ -461,8 +463,11 @@ namespace Desert::Graphic::System
         const RDG::BufferRef        heightsArgs  = upload( heightsDispatchWords, "Displacement.HeightsDispatch" );
         const RDG::BufferRef        emitArgs     = upload( emitDispatchWords, "Displacement.EmitDispatch" );
         const RDG::BufferRef        positionsRef =
-             graph.CreateBuffer( RDG::BufferDesc{ static_cast<uint64_t>( pointCount ) * 3u * sizeof( float ) },
+             graph.CreateBuffer( RDG::BufferDesc{ static_cast<uint64_t>( pointCount ) * 4u * sizeof( float ) },
                                  "Displacement.Positions" );
+        // Static output writes no skinned records (Counts.w = 0): the binding is satisfied by a placeholder.
+        const RDG::BufferRef noSkinRecordsRef =
+             graph.CreateBuffer( RDG::BufferDesc{ 16 }, "Displacement.NoSkinRecords" );
         const RDG::BufferRef outStreamsRef =
              streams ? graph.RegisterExternal( poolStreams, "Displacement.Streams" )
                      : graph.CreateBuffer( RDG::BufferDesc{ 16 }, "Displacement.NoStreams" );
@@ -505,7 +510,9 @@ namespace Desert::Graphic::System
                       .Storage( "DisplacementPositions", positionsRef, RDG::Access::StorageRead )
                       .Storage( "DisplacementDispatch", emitArgs, RDG::Access::StorageRead )
                       .Storage( "DisplacementOutputVertices", outVerticesRef, RDG::Access::StorageWrite )
-                      .Storage( "DisplacementOutputStreams", outStreamsRef, RDG::Access::StorageWrite );
+                      .Storage( "DisplacementOutputStreams", outStreamsRef, RDG::Access::StorageWrite )
+                      .Storage( "DisplacementOutputSkinRecords", noSkinRecordsRef, RDG::Access::StorageWrite )
+                      .Storage( "DisplacementPoints", pointsRef, RDG::Access::StorageRead );
              },
              [emit, vertexGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
@@ -714,12 +721,13 @@ namespace Desert::Graphic::System
         {
             const auto& frames = ::Desert::Engine::FrameManager::GetInstance();
             m_RetiringTwins.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+            m_RetiringSkinnedTwins.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
         }
         m_Stats.Rebuilt       = 0;
         m_Stats.LevelsLowered = 0;
         m_Stats.LevelsRaised  = 0;
         m_Stats.LevelsHeld    = 0;
-        if ( !m_Quality.Enabled || m_Entries.empty() || !EnsurePipelines() )
+        if ( !m_Quality.Enabled || ( m_Entries.empty() && m_SkinnedEntries.empty() ) || !EnsurePipelines() )
             return BOOLSUCCESS;
 
         uint64_t liveBytes = 0;
@@ -729,6 +737,13 @@ namespace Desert::Graphic::System
                 if ( entry.Current && counted.insert( entry.Current.get() ).second )
                     liveBytes += entry.Current->Bytes;
         }
+        // Skinned geometries first (they share the pool with the static ones, §5): their errors are reported here,
+        // the static pass below reports its own.
+        if ( !m_SkinnedEntries.empty() )
+            if ( const Common::BoolResultStr skinned = DisplaceSkinned( liveBytes ); !skinned )
+                LOG_ERROR( "{}", skinned.GetError() );
+        if ( m_Entries.empty() )
+            return BOOLSUCCESS;
 
         // The keys in flight at the start of this pass, and those launched during it (value-hashed).
         // Copies: a pending key is moved out of its entry when its tessellation is collected below.
@@ -910,6 +925,7 @@ namespace Desert::Graphic::System
             if ( entry.Topology && topologies.insert( entry.Topology.get() ).second )
                 m_Stats.TopologyBytes += entry.Topology->GetBytes();
         }
+        m_Stats.BufferBytes += EndSkinnedFrame( frame );
         m_Stats.Geometries = static_cast<uint32_t>( geometries.size() );
         // The GPU words of a topology no live entry reads are dropped (the address could be reused by a new mesh).
         std::erase_if( m_TopologyWords, [&]( const auto& item ) { return !topologies.contains( item.first ); } );

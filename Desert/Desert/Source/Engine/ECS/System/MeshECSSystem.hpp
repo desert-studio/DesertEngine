@@ -498,6 +498,7 @@ namespace Desert::ECS
                          if ( mesh.SeenMaterialsVersion != materialsVersion )
                          {
                              mesh.RuntimeMaterialInstances.clear();
+                             mesh.RuntimeDisplacedInstances.clear();
                              mesh.SeenMaterialsVersion = materialsVersion;
                          }
                          const size_t slotCount = mesh.MaterialSlots.empty() ? 1 : mesh.MaterialSlots.size();
@@ -535,6 +536,32 @@ namespace Desert::ECS
                          slots->Slots.reserve( slots->Owned.size() );
                          for ( const auto& inst : slots->Owned )
                              slots->Slots.push_back( inst.get() );
+                         // A displaced skinned mesh (Runtime, CONTRACT-DISPLACE §9.8) draws its twin with the
+                         // displaced siblings of the same slots: base cells, so the relief is not marched again
+                         // over the triangles that carry it (the static rule above).
+                         if ( skinnedMesh->IsDisplaced() && !mesh.MaterialSlots.empty() )
+                         {
+                             if ( mesh.RuntimeDisplacedInstances.size() != mesh.MaterialSlots.size() )
+                             {
+                                 mesh.RuntimeDisplacedInstances.clear();
+                                 for ( const auto& h : mesh.MaterialSlots )
+                                 {
+                                     auto inst =
+                                          Runtime::ResourceRegistry::GetMaterialService()->CreateRuntimeInstance(
+                                               h, Graphic::MeshVertexPath::Skinned, true );
+                                     mesh.RuntimeDisplacedInstances.push_back(
+                                          inst ? std::move( inst )
+                                               : DefaultInstance( Graphic::MeshVertexPath::Skinned ) );
+                                 }
+                             }
+                             auto displaced   = std::make_shared<Graphic::MaterialSlotBinding>();
+                             displaced->Owned = mesh.RuntimeDisplacedInstances;
+                             for ( const auto& inst : displaced->Owned )
+                                 displaced->Slots.push_back( inst.get() );
+                             slots->Displaced = std::move( displaced );
+                         }
+                         else
+                             mesh.RuntimeDisplacedInstances.clear();
 
                          // Bone matrices: animated pose if an Animator exists, else bind pose (identity = the
                          // skeleton's rest shape, which stays correct after Phase-2 rest-pose edits since

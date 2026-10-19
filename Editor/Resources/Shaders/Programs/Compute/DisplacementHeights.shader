@@ -15,8 +15,9 @@ Shader "DisplacementHeights"
         #include <Common/BindlessTextures.glslh>
         #include <Common/SurfaceInputs.glslh>
 
-        // The source mesh's vertices: Desert::Vertex as 14 words (Position 0-2, Normal 3-5, Tangent 6-8,
-        // Bitangent 9-11, TexCoord 12-13; Geometry/MeshTypes.hpp).
+        // The source mesh's vertices, Counts.z words each: Desert::Vertex (14: Position 0-2, Normal 3-5, Tangent 6-8,
+        // Bitangent 9-11, TexCoord 12-13; Geometry/MeshTypes.hpp) or a skinned mesh's rest SkinnedVertex (22: the
+        // same 14 words, then bone ids and weights).
         Buffer(0) DisplacementSourceVertices
         {
             uint SourceVertexWords[];
@@ -48,7 +49,8 @@ Shader "DisplacementHeights"
         {
             uint SampleWords[];
         };
-        // Counts.x = points; Offsets = the topology sections (x, y, z as above), Offsets.w = 1 when the source has
+        // Counts.x = points, Counts.z = words per source vertex;
+        // Offsets = the topology sections (x, y, z as above), Offsets.w = 1 when the source has
         // streams; Parameters.x = the mesh's level-0 edge length (cm).
         Buffer(6) DisplacementDispatch
         {
@@ -56,7 +58,8 @@ Shader "DisplacementHeights"
             uvec4 Offsets;
             vec4  Parameters;
         };
-        // Out: the displaced position of each point, 3 floats.
+        // Out: per point the displaced position (3 floats) and the displacement along its direction (cm): the skinned
+        // pass moves the point with the pose and re-applies that displacement along the posed direction.
         Buffer(7) DisplacementPositions
         {
             float Positions[];
@@ -66,7 +69,7 @@ Shader "DisplacementHeights"
 
         vec3 SourceVec3( uint vertex, uint word )
         {
-            const uint first = vertex * 14u + word;
+            const uint first = vertex * Counts.z + word;
             return vec3( uintBitsToFloat( SourceVertexWords[first] ),
                          uintBitsToFloat( SourceVertexWords[first + 1u] ),
                          uintBitsToFloat( SourceVertexWords[first + 2u] ) );
@@ -75,8 +78,8 @@ Shader "DisplacementHeights"
         vec2 SourceUV( uint vertex, uint uvSet )
         {
             if ( uvSet == 0u || Offsets.w == 0u )
-                return vec2( uintBitsToFloat( SourceVertexWords[vertex * 14u + 12u] ),
-                             uintBitsToFloat( SourceVertexWords[vertex * 14u + 13u] ) );
+                return vec2( uintBitsToFloat( SourceVertexWords[vertex * Counts.z + 12u] ),
+                             uintBitsToFloat( SourceVertexWords[vertex * Counts.z + 13u] ) );
             return vec2( uintBitsToFloat( SourceStreamWords[vertex * 3u + 1u] ),
                          uintBitsToFloat( SourceStreamWords[vertex * 3u + 2u] ) );
         }
@@ -174,9 +177,10 @@ Shader "DisplacementHeights"
             displacement /= float( max( count, 1u ) );
 
             const vec3 displaced = position + direction * displacement;
-            Positions[point * 3u + 0u] = displaced.x;
-            Positions[point * 3u + 1u] = displaced.y;
-            Positions[point * 3u + 2u] = displaced.z;
+            Positions[point * 4u + 0u] = displaced.x;
+            Positions[point * 4u + 1u] = displaced.y;
+            Positions[point * 4u + 2u] = displaced.z;
+            Positions[point * 4u + 3u] = displacement;
         }
     }
 }

@@ -1,5 +1,6 @@
 #include "MeshRendererInternal.hpp"
 
+#include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/DisplacementCache.hpp>
@@ -10,6 +11,7 @@
 #include <bit>
 #include <memory>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace Desert::Graphic::System
@@ -114,8 +116,98 @@ namespace Desert::Graphic::System
                                viewHeightPixels, frame );
         }
 
+        // SKINNED records (§9.8): displaced over the skin cache's pose, so only while the skin cache runs (off, the
+        // vertex stage skins and nothing can move the twin: the base draws, as with the cache's own Low level). The
+        // entry key is the skin cache's: the n-th skinned record of the entity in queue order (KeyRecords).
+        const bool skinnedDisplacement = IsSkinCacheEnabled();
+        std::unordered_map<uint32_t, uint32_t> skinnedSlots;
+        for ( const SkinnedMeshRenderData& data : m_SkinnedQueue )
+        {
+            const uint32_t slot = skinnedSlots[data.Entity]++;
+            if ( !requestLevels || !skinnedDisplacement )
+                continue;
+            if ( data.Mesh == nullptr || !data.Mesh->GetDisplacementTopology() || !data.MaterialSlots ||
+                 data.MaterialSlots->Slots.empty() || !data.MaterialSlots->Displaced )
+                continue;
+            const std::vector<Submesh>& submeshes = data.Mesh->GetSubmeshes();
+            materials.assign( submeshes.size(), std::nullopt );
+            for ( size_t s = 0; s < submeshes.size(); ++s )
+            {
+                const SurfaceSlot surface = SectionSurface(
+                     data.MaterialSlots.get(),
+                     static_cast<uint32_t>( SectionMaterialSlot( s, data.MaterialSlots->Slots.size() ) ) );
+                if ( surface.Surface == nullptr )
+                    continue;
+                const auto record = ResolveDisplacementMaterial(
+                     surface.Surface->GetSchema(), surface.Surface->GetMaterialLayout(),
+                     EffectiveRow( surface.Surface, surface.Instance ),
+                     IsParallaxCell( surface.Surface->GetShaderName() ) );
+                if ( !record.IsSuccess() )
+                {
+                    LOG_ERROR( "[Displacement] skinned entity {} section {}: not displaced: {}", data.Entity, s,
+                               record.GetError() );
+                    continue;
+                }
+                materials[s] = record.GetValue();
+            }
+            if ( std::none_of( materials.begin(), materials.end(),
+                               []( const std::optional<DisplacementMaterialRecord>& m ) { return m.has_value(); } ) )
+                continue;
+            cache.RequestSkinned( data.Entity, slot, *data.Mesh, data.Transform, data.BoneMatrices, materials, view,
+                                  viewHeightPixels, frame );
+        }
+
         if ( const Common::BoolResultStr displaced = cache.DisplaceFrame( frame ); !displaced )
             LOG_ERROR( "{}", displaced.GetError() );
+
+        // The skinned twins: the record draws the twin (index buffer, submeshes, rest vertices) and the skin cache
+        // skins its base (SkinSource), then writes the twin's pose; every section draws its displaced sibling.
+        skinnedSlots.clear();
+        for ( SkinnedMeshRenderData& data : m_SkinnedQueue )
+        {
+            const uint32_t slot = skinnedSlots[data.Entity]++;
+            if ( !skinnedDisplacement || data.Mesh == nullptr || !data.MaterialSlots ||
+                 !data.MaterialSlots->Displaced )
+                continue;
+            const std::shared_ptr<SkinnedMesh> twin = cache.FindSkinned( data.Entity, slot );
+            if ( twin == nullptr )
+                continue;
+            const auto& slots     = data.MaterialSlots->Slots;
+            const auto& displaced = data.MaterialSlots->Displaced->Slots;
+            std::vector<SkinnedSection> sections = data.Sections;
+            bool                        complete = displaced.size() == slots.size();
+            for ( SkinnedSection& section : sections )
+            {
+                const auto it = std::find( slots.begin(), slots.end(), section.Instance );
+                if ( !complete || it == slots.end() )
+                {
+                    complete = false;
+                    break;
+                }
+                MaterialInstance* const   inst    = displaced[static_cast<size_t>( it - slots.begin() )];
+                DataDrivenMaterial* const surface =
+                     inst != nullptr ? dynamic_cast<DataDrivenMaterial*>( inst->GetParentMaterial() ) : nullptr;
+                if ( surface == nullptr || MeshCellPath( surface->GetShaderName() ) != MeshVertexPath::Skinned )
+                {
+                    complete = false;
+                    break;
+                }
+                section.Material = surface;
+                section.Instance = inst;
+            }
+            if ( !complete )
+            {
+                // The twin would draw with the relief marched a second time, or with a static cell: refused by
+                // name, the base surface draws (parallax) instead.
+                LOG_ERROR( "[Displacement] skinned entity {}: a section has no skinned displaced material; the base "
+                           "surface is drawn",
+                           data.Entity );
+                continue;
+            }
+            data.Sections   = std::move( sections );
+            data.SkinSource = data.Mesh;
+            data.Mesh       = twin.get(); // the cache holds the twin past this frame's draws (parked on release)
+        }
         for ( StaticMeshRenderData& data : m_StaticQueue )
             if ( const std::shared_ptr<StaticMesh> twin = cache.Find( data.Entity, data.MotionPart ) )
             {

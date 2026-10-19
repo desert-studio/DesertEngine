@@ -31,6 +31,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
+#include <Common/Core/Math/AABB.hpp>
 #include <glm/glm.hpp>
 
 #include <cstdint>
@@ -45,6 +46,7 @@
 
 namespace Desert
 {
+    class SkinnedMesh;
     class StaticMesh;
 }
 namespace Desert::Graphic
@@ -60,7 +62,11 @@ namespace Desert::Graphic::System
     inline constexpr std::string_view kDisplacementEmitShader      = "DisplacementEmit";
     inline constexpr std::string_view kDisplacementHeightsPassName = "Displacement: Heights";
     inline constexpr std::string_view kDisplacementEmitPassName    = "Displacement: Emit";
-    inline constexpr uint32_t         kDisplacementGroupSize       = 64; // LocalSize of both programs
+    inline constexpr std::string_view kDisplacementPoseShader      = "DisplacementPose";
+    inline constexpr std::string_view kDisplacementSkinnedShader   = "DisplacementSkinned";
+    inline constexpr std::string_view kDisplacementPosePassName    = "Displacement: Pose";
+    inline constexpr std::string_view kDisplacementSkinnedPassName = "Displacement: Skinned";
+    inline constexpr uint32_t         kDisplacementGroupSize       = 64; // LocalSize of the four programs
 
     // The Scalability rows' values (ViewDistance.DisplacementDicingRate / DisplacementPoolMiB; Low turns runtime
     // displacement off and the surfaces keep their parallax - §9.10), set by SceneRenderer::BeginScene.
@@ -145,6 +151,28 @@ namespace Desert::Graphic::System
 
         // 4. Drops the entries no view asked for in @p frame.
         void EndFrame( uint64_t frame );
+
+        // SKINNED (§9.8): the same levels, tessellation and cooked heights over the REST pose, emitted once per
+        // (mesh, topology, levels, materials) into a SkinnedMesh twin (rest SkinnedVertex buffer + its skinned
+        // records); the deformation is not shared - every frame "Displacement: Pose" + "Displacement: Skinned" move
+        // the twin's points with the skin cache's posed base vertices into the record's displaced streams.
+        // 1s. A camera view's request for skinned record @p slot (the skin cache's key: the n-th skinned record of
+        //     @p entity) of @p base posed by @p bones under @p objectToWorld: each cluster's level from its posed
+        //     bounds (the bone boxes meeting it, through objectToWorld * submesh.Transform * bone).
+        void RequestSkinned( uint32_t entity, uint32_t slot, const SkinnedMesh& base, const glm::mat4& objectToWorld,
+                             std::span<const glm::mat4>                                 bones,
+                             std::span<const std::optional<DisplacementMaterialRecord>> materials,
+                             const Desert::Geometry::LODView& view, float viewHeightPixels, uint64_t frame );
+        // 3s. The twin the skinned record draws (its index buffer, submeshes and rest vertices); null = the base.
+        [[nodiscard]] std::shared_ptr<SkinnedMesh> FindSkinned( uint32_t entity, uint32_t slot ) const;
+        // 5s. RayTracingSkinCache::SkinFrame, in its skin graph after "SkinCache: Skin" of the base: declares the
+        //     Pose and Skinned passes of record @p slot reading @p baseStreams (@p baseVertexCount vertices) and
+        //     writing @p displacedStreams (the twin's vertex count; @p history = they hold last frame's pose).
+        //     @p graphRefs: the graph's registrations of externals, shared with the caller (one per graph).
+        [[nodiscard]] Common::BoolResultStr
+        AddSkinnedPasses( RDG::Builder& graph, uint32_t entity, uint32_t slot, RDG::BufferRef baseStreams,
+                          uint32_t baseVertexCount, RDG::BufferRef displacedStreams, bool history,
+                          std::unordered_map<RDG::ExternalBuffer*, RDG::BufferRef>& graphRefs );
 
         [[nodiscard]] DisplacementStats GetStats() const
         {
@@ -255,6 +283,68 @@ namespace Desert::Graphic::System
         void RetireTwin( std::shared_ptr<StaticMesh> twin );
         [[nodiscard]] const std::vector<uint32_t>& TopologyWords( const Desert::Geometry::DisplacementTopology& topology );
 
+        // ---- skinned (DisplacementCacheSkinned.cpp) ----
+        struct SkinnedKey
+        {
+            const SkinnedMesh*                            Mesh     = nullptr;
+            const Desert::Geometry::DisplacementTopology* Topology = nullptr;
+            std::vector<uint8_t>                          Levels;    // one per cluster
+            std::vector<DisplacementMaterialRecord>       Materials; // one per submesh
+            bool                                          operator==( const SkinnedKey& ) const = default;
+        };
+        // One skinned displaced geometry (rest pose), shared by every skinned entry whose key equals Key.
+        struct SkinnedGeometry
+        {
+            SkinnedKey                    Key;
+            std::shared_ptr<VertexBuffer> RestVertices; // SkinnedVertex x VertexCount (the twin's vertex buffer)
+            std::shared_ptr<VertexBuffer> Streams;      // MeshVertexStreams x VertexCount; null without
+            std::shared_ptr<VertexBuffer> SkinRecords;  // 7 words x VertexCount (DisplacementSkinned.shader)
+            RDG::ExternalBuffer           SkinRecordsImport;
+            std::shared_ptr<SkinnedMesh>  Twin;
+            uint32_t                      VertexCount = 0;
+            uint64_t                      Bytes       = 0;
+        };
+        // The per-frame passes' view of a topology, uploaded once: CornerVertex, and the weld -> distinct copies CSR.
+        struct SkinnedTopologyBuffers
+        {
+            std::shared_ptr<VertexBuffer> Corners;
+            std::shared_ptr<VertexBuffer> WeldCopies; // CopyOffset [0, W + 1), then the copies from CopyWord
+            RDG::ExternalBuffer           CornersImport;
+            RDG::ExternalBuffer           WeldCopiesImport;
+            uint32_t                      CopyWord = 0;
+            uint32_t                      Welds    = 0;
+            uint64_t                      Bytes    = 0;
+        };
+        struct SkinnedEntry
+        {
+            const SkinnedMesh* Mesh = nullptr; // the drawn base (or its morph twin), alive while a view submits it
+            std::shared_ptr<const Desert::Geometry::DisplacementTopology> Topology;
+            // Per cluster, the bone boxes of its submesh meeting its rest box, intersected with it (posed bounds).
+            std::vector<std::vector<std::pair<uint32_t, Common::Math::AABB>>> ClusterBones;
+            std::vector<uint8_t>                         Asked;
+            std::vector<uint8_t>                         Using;
+            float                                        SmallestScreen = 0.0f;
+            std::vector<DisplacementMaterialRecord>      Materials;
+            std::shared_ptr<SkinnedGeometry>             Current;
+            std::optional<SkinnedKey>                    PendingKey;
+            std::future<Common::ResultStr<Tessellation>> Pending;
+            uint8_t                                      Lowered       = 0; // levels taken off to fit the pool (§5)
+            uint64_t                                     RaiseBytes    = 0; // what one step higher needed
+            uint64_t                                     LastFrame     = 0;
+            bool                                         RefusalLogged = false;
+        };
+        [[nodiscard]] bool                  EnsureSkinnedPipelines();
+        [[nodiscard]] Common::BoolResultStr DisplaceSkinned( uint64_t staticLiveBytes );
+        [[nodiscard]] Common::ResultStr<std::shared_ptr<SkinnedGeometry>> EmitSkinned( const SkinnedKey&   key,
+                                                                                  const Tessellation& t );
+        [[nodiscard]] Common::ResultStr<SkinnedTopologyBuffers*>
+        SkinnedTopology( const Desert::Geometry::DisplacementTopology& topology );
+        void RetireSkinnedTwin( std::shared_ptr<SkinnedMesh> twin );
+        // EndFrame for the skinned entries: drops the unasked ones; returns the live skinned bytes (stats).
+        uint64_t EndSkinnedFrame( uint64_t frame );
+        // SetQuality(off): every skinned entry dropped, its twin parked.
+        void ClearSkinned();
+
         DisplacementQuality                  m_Quality;
         std::unordered_map<uint64_t, Entry>  m_Entries;
         std::unordered_multimap<uint64_t, std::weak_ptr<SharedGeometry>> m_Shared; // by HashKey
@@ -268,6 +358,14 @@ namespace Desert::Graphic::System
         ShaderBindingLayoutCache                                                         m_EmitLayout;
         DisplacementStats                                                                m_Stats;
         Assets::FrameRetireQueue<std::shared_ptr<StaticMesh>>                            m_RetiringTwins;
+        std::unordered_map<uint64_t, SkinnedEntry>                                       m_SkinnedEntries;
+        std::vector<std::weak_ptr<SkinnedGeometry>>                                      m_SkinnedShared;
+        std::unordered_map<const Desert::Geometry::DisplacementTopology*, SkinnedTopologyBuffers> m_SkinnedTopologies;
+        std::shared_ptr<ComputePipeline>                                                 m_PosePipeline;
+        std::shared_ptr<ComputePipeline>                                                 m_SkinnedPipeline;
+        ShaderBindingLayoutCache                                                         m_PoseLayout;
+        ShaderBindingLayoutCache                                                         m_SkinnedLayout;
+        Assets::FrameRetireQueue<std::shared_ptr<SkinnedMesh>>                           m_RetiringSkinnedTwins;
         uint64_t                                                                         m_Frame = 0;
         uint64_t m_DisplacedFrame = UINT64_MAX; // the frame DisplaceFrame last ran for (once per frame)
         bool m_PipelineRefusalLogged                                                             = false;

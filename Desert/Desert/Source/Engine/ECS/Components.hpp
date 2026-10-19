@@ -231,6 +231,9 @@ namespace Desert::ECS
         std::vector<Assets::AssetHandle> MaterialSlots;
         std::vector<Graphic::MaterialInstancePtr>
                  RuntimeMaterialInstances; // Cache to keep instances alive and avoid per-frame allocations
+        // The displaced (base-cell) siblings of the same slots, drawn over the displaced twin (CONTRACT-DISPLACE
+        // §9.8); built when the mesh is displaced, empty otherwise. Transient like the cache above.
+        std::vector<Graphic::MaterialInstancePtr> RuntimeDisplacedInstances;
         uint32_t SeenMaterialsVersion = 0; // see StaticMeshComponent
         bool     CastShadows          = true; // false = skipped by the shadow (depth) passes, like the static twin
 

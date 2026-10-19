@@ -243,6 +243,9 @@ namespace Desert::Graphic::System
             // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
             uint32_t                   MotionRow = 0;
             class Desert::SkinnedMesh* Mesh      = nullptr;
+            // The mesh the skin cache skins when Mesh is a displaced twin (ApplyDisplacement, CONTRACT-DISPLACE
+            // §9.8): the base (or its morph twin); the twin's streams are then written from that pose. Null = Mesh.
+            class Desert::SkinnedMesh* SkinSource = nullptr;
             glm::mat4                  Transform = glm::mat4( 1.0f );
             // The binding every section's instance below was selected FROM, carried so that it keeps those
             // instances alive: the entity that authored it can be destroyed between the record and this queue
