@@ -226,7 +226,8 @@ namespace Desert::Graphic::DistanceField
         for ( const auto& [name, shader, cullPipeline] :
               { std::tuple{ "MeshSDFCullObjects", &m_CullObjectsShader, &m_CullObjectsPipeline },
                 std::tuple{ "MeshSDFCullGrid", &m_CullGridShader, &m_CullGridPipeline },
-                std::tuple{ "MeshSDFCullGridOffsets", &m_CullOffsetsShader, &m_CullOffsetsPipeline } } )
+                std::tuple{ "MeshSDFCullGridOffsets", &m_CullOffsetsShader, &m_CullOffsetsPipeline },
+                std::tuple{ "MeshSDFCullGridSort", &m_CullSortShader, &m_CullSortPipeline } } )
         {
             *shader = shaders->GetByName( name );
             if ( !*shader )
@@ -568,6 +569,9 @@ namespace Desert::Graphic::DistanceField
         graph.QueueBufferUpload( culled, std::as_bytes( std::span( culledInitial ) ) );
         const RDG::BufferRef grid =
              graph.CreateBuffer( RDG::BufferDesc{ gridUints * 4ull }, "DistanceField.NearField.Grid" );
+        // The scatter's (object, key) pairs, one per list entry, sorted into the grid's lists by step 5.
+        const RDG::BufferRef unsorted = graph.CreateBuffer( RDG::BufferDesc{ m_NearFieldListRoom * 8ull },
+                                                            "DistanceField.NearField.Unsorted" );
         const RDG::BufferRef feedback = graph.CreateBuffer( RDG::BufferDesc{ kCullFeedbackUints * 4ull },
                                                             "DistanceField.NearField.Feedback" );
 
@@ -594,7 +598,8 @@ namespace Desert::Graphic::DistanceField
                      return Renderer::DispatchCompute( bindings, *pipeline, groups, 1u, 1u );
                  } );
         }
-        // Steps 2-4: count per froxel, the counts' prefix sum into the lists' first indices, scatter.
+        // Steps 2-5: count per froxel, the counts' prefix sum into the lists' first indices, scatter with the sort
+        // keys, each list sorted closest first.
         const auto addGridPass = [&]( const uint32_t gridPass )
         {
             ComputePipeline* const    pipeline = m_CullGridPipeline.get();
@@ -612,6 +617,7 @@ namespace Desert::Graphic::DistanceField
                           .Storage( "DFObjects", fields.Objects, kR )
                           .Storage( "MeshSDFCulledObjectsUB", culled, kR )
                           .Storage( "MeshSDFGridCellsUB", grid, kW )
+                          .Storage( "MeshSDFGridUnsortedUB", unsorted, kW )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( MeshSDFCullGridPush ) ) );
                  },
                  [pipeline, groups, push]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -642,6 +648,28 @@ namespace Desert::Graphic::DistanceField
                  } );
         }
         addGridPass( 1u );
+        {
+            // One workgroup per cell, 2D past the 65535 groups Vulkan guarantees per dimension.
+            constexpr uint32_t     kMaxGroups = 65535u;
+            ComputePipeline* const pipeline   = m_CullSortPipeline.get();
+            const uint32_t         groupsX    = std::min( total, kMaxGroups );
+            const uint32_t         groupsY    = ( total + groupsX - 1u ) / groupsX;
+            graph.AddPass(
+                 std::format( "DistanceField: Near-field grid sort ({} cells)", total ), RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     pass.Bindings( m_CullSortLayout.Get( m_CullSortShader ),
+                                    Renderer::GetPipelineRouteFill( *pipeline ) )
+                          .Storage( "MeshSDFCullParamsUB", params, kR )
+                          .Storage( "MeshSDFGridCellsUB", grid, kW )
+                          .Storage( "MeshSDFGridUnsortedUB", unsorted, kR );
+                 },
+                 [pipeline, groupsX, groupsY]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     return Renderer::DispatchCompute( bindings, *pipeline, groupsX, groupsY, 1u );
+                 } );
+        }
         graph.Extract( feedback, m_NearFieldFeedback[slot], RDG::Access::HostRead );
         m_NearFieldFeedbackStamp[slot] = m_NearFieldStamp;
         fields.NearFieldGrid          = grid;

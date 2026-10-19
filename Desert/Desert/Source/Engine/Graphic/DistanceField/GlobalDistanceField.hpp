@@ -123,12 +123,13 @@ namespace Desert::Graphic::DistanceField
 
         // THE NEAR FIELD'S FROXEL GRID (UE LumenMeshSDFCulling: CullMeshSDFObjectsForView,
         // CullMeshSDFObjectsToViewGrid, ComputeCulledObjectsStartOffset, CompactCulledObjects - written from
-        // memory): four compute passes over @p field's objects - the ones near @p view's frustum; per froxel of
+        // memory): five compute passes over @p field's objects - the ones near @p view's frustum; per froxel of
         // Common/MeshSDFGrid.glslh the count of those within DF_MESH_SDF_TRACE_DISTANCE of it; the counts' prefix
-        // sum; the objects scattered into the froxels' compacted lists - every object, no per-cell cap. The lists'
-        // room is m_NearFieldListRoom, grown from what earlier frames needed (ReadNearFieldFeedback); a frame that
-        // needs more is refused on the GPU (every list empty) and logged. Fills @p field.MeshFields' NearFieldGrid
-        // and NearFieldGridPlacement. An error names the bad input.
+        // sum; the objects scattered into the froxels' compacted lists - every object, no per-cell cap; each list
+        // sorted closest to its froxel first (MeshSDFCullGridSort.shader: what lets a near hit clip the rest). The
+        // lists' room is m_NearFieldListRoom, grown from what earlier frames needed (ReadNearFieldFeedback); a
+        // frame that needs more is refused on the GPU (every list empty) and logged. Fills @p field.MeshFields'
+        // NearFieldGrid and NearFieldGridPlacement. An error names the bad input.
         [[nodiscard]] Common::BoolResultStr AddNearFieldCullPasses( RDG::Builder& graph, FrameField& field,
                                                                     const NearFieldView& view );
 
@@ -190,6 +191,9 @@ namespace Desert::Graphic::DistanceField
         std::shared_ptr<Shader>          m_CullOffsetsShader;
         std::shared_ptr<ComputePipeline> m_CullOffsetsPipeline;
         mutable ShaderBindingLayoutCache m_CullOffsetsLayout;
+        std::shared_ptr<Shader>          m_CullSortShader;
+        std::shared_ptr<ComputePipeline> m_CullSortPipeline;
+        mutable ShaderBindingLayoutCache m_CullSortLayout;
 
         // What the cull of frame slot @p slot handed back (MeshSDFCullFeedbackUints of Common/MeshSDFGrid.glslh),
         // read once that slot comes round again (its fence waited): grows m_NearFieldListRoom to what the lists

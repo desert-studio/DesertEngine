@@ -144,7 +144,8 @@ GITraceResult GITraceRay( GITraceInput ray )
                       ( d.y * 2246822519u );
 
     // The near field: the objects of the origin's froxel, the closest hit. The list holds every object the ray can
-    // reach before DF_MESH_SDF_TRACE_DISTANCE (each within that of the froxel), uncapped.
+    // reach before DF_MESH_SDF_TRACE_DISTANCE (each within that of the froxel), uncapped, closest to the froxel first:
+    // an early near hit clips every later object to its box test.
     float       globalStart = ray.tMin;
     const float nearEnd     = min( ray.tMax, DF_MESH_SDF_TRACE_DISTANCE );
     uvec2       list        = uvec2( 0u );

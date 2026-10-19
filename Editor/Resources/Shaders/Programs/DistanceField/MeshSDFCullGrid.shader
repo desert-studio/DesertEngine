@@ -4,7 +4,9 @@
 // step 1's candidates and keeps every object whose world box lies within DF_MESH_SDF_TRACE_DISTANCE of the froxel's
 // world box - every object a ray starting in the froxel reaches in its near field, no cap. Dispatched twice:
 // u_Pass 0 COUNTS them into the cell's header, MeshSDFCullGridOffsets.shader (step 3) sums the counts into each
-// list's first index, u_Pass 1 SCATTERS the same objects, in the candidates' order, into the cell's list. UE appends
+// list's first index, u_Pass 1 SCATTERS the same objects, in the candidates' order, with their sort keys (the squared
+// distance from the froxel's centre to the object's box) into the unsorted pairs at the list's place, and
+// MeshSDFCullGridSort.shader (step 5) writes each list closest first, as the capped lists were. UE appends
 // (object, cell) pairs in its count pass and compacts those; recounting here needs no pair buffer sized by a guess,
 // and the second walk costs what the first did (the boxes come through shared memory 64 at a time either way).
 Shader "MeshSDFCullGrid"
@@ -31,6 +33,11 @@ Shader "MeshSDFCullGrid"
         Buffer(3) MeshSDFGridCellsUB
         {
             uint u_GridCells[];
+        };
+        // Scatter: (object index, sort key bits) per list entry, at the entry's index less the headers.
+        Buffer(4) MeshSDFGridUnsortedUB
+        {
+            uvec2 u_Unsorted[];
         };
         PushConstant MeshSDFCullGridPush
         {
@@ -78,11 +85,12 @@ Shader "MeshSDFCullGrid"
             vec3 boxMax = vec3(0.0);
             if (valid)
                 CellBox(cell, boxMin, boxMax);
+            const vec3  centre  = 0.5 * (boxMin + boxMax);
             const float reach2  = DF_MESH_SDF_TRACE_DISTANCE * DF_MESH_SDF_TRACE_DISTANCE;
             const uint  header  = cell * MeshSDFGridHeaderStride;
             const bool  scatter = u_Pass != 0u;
             // Scatter: the list step 3 placed (empty when it refused the frame's lists).
-            const uint first  = scatter && valid ? u_GridCells[header] : 0u;
+            const uint first  = scatter && valid ? u_GridCells[header] - u_Cull.grid.cells.w * MeshSDFGridHeaderStride : 0u;
             const uint length = scatter && valid ? u_GridCells[header + 1u] : 0u;
 
             uint       n     = 0u;
@@ -110,7 +118,8 @@ Shader "MeshSDFCullGrid"
                         {
                             if (n == length)
                                 break;
-                            u_GridCells[first + n] = floatBitsToUint(s_Min[k].w);
+                            const vec3 toCentre = max(max(s_Min[k].xyz - centre, centre - s_Max[k]), vec3(0.0));
+                            u_Unsorted[first + n] = uvec2(floatBitsToUint(s_Min[k].w), floatBitsToUint(dot(toCentre, toCentre)));
                         }
                         ++n;
                     }

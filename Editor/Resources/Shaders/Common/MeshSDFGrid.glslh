@@ -9,8 +9,9 @@
 // GridCulledMeshSDFObjectStartOffsetArray): MeshSDFGridHeaderStride uints per cell first - where the cell's list
 // begins in the same buffer, then its length - and the lists after the headers, cell after cell. Culled on the GPU
 // every frame (Programs/DistanceField/MeshSDFCullGrid.shader counts, MeshSDFCullGridOffsets.shader sums,
-// MeshSDFCullGrid.shader scatters; DistanceField::GlobalDistanceField::AddNearFieldCullPasses), read by the software
-// tracer (Common/GITraceDistanceField.glslh) by a ray origin's cell.
+// MeshSDFCullGrid.shader scatters, MeshSDFCullGridSort.shader orders each list closest first;
+// DistanceField::GlobalDistanceField::AddNearFieldCullPasses), read by the software tracer
+// (Common/GITraceDistanceField.glslh) by a ray origin's cell.
 //
 // The one statement of the grid's placement and of the cell <-> depth mapping: the cull and the tracer include it.
 
