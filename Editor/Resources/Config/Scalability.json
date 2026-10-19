@@ -369,7 +369,8 @@
                 "Reflections.RaysPerPixel": 1,
                 "Reflections.Method": "Captures",
                 "Reflections.DenoiserRadius": 1,
-                "Reflections.HitLighting": 0
+                "Reflections.HitLighting": 0,
+                "Reflections.TranslucentFrontLayer": 0
             },
             "Medium": {
                 "Reflections.MaxSteps": 32,
@@ -377,7 +378,8 @@
                 "Reflections.RaysPerPixel": 1,
                 "Reflections.Method": "ScreenSpace",
                 "Reflections.DenoiserRadius": 1,
-                "Reflections.HitLighting": 0
+                "Reflections.HitLighting": 0,
+                "Reflections.TranslucentFrontLayer": 0
             },
             "High": {
                 "Reflections.MaxSteps": 48,
@@ -385,7 +387,8 @@
                 "Reflections.RaysPerPixel": 2,
                 "Reflections.Method": "HardwareTraced",
                 "Reflections.DenoiserRadius": 2,
-                "Reflections.HitLighting": 0
+                "Reflections.HitLighting": 0,
+                "Reflections.TranslucentFrontLayer": 1
             },
             "Epic": {
                 "Reflections.MaxSteps": 64,
@@ -393,7 +396,8 @@
                 "Reflections.RaysPerPixel": 4,
                 "Reflections.Method": "HardwareTraced",
                 "Reflections.DenoiserRadius": 2,
-                "Reflections.HitLighting": 0
+                "Reflections.HitLighting": 0,
+                "Reflections.TranslucentFrontLayer": 1
             },
             "Cinematic": {
                 "Reflections.MaxSteps": 96,
@@ -401,7 +405,8 @@
                 "Reflections.RaysPerPixel": 8,
                 "Reflections.Method": "HardwareTraced",
                 "Reflections.DenoiserRadius": 3,
-                "Reflections.HitLighting": 1
+                "Reflections.HitLighting": 1,
+                "Reflections.TranslucentFrontLayer": 1
             }
         },
         "PostProcess": {

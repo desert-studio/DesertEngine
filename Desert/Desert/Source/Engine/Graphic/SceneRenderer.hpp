@@ -915,9 +915,26 @@ namespace Desert::Graphic
         // generic program's DESERT_SUN_SHADOW_SCREEN_MASK permutation reads it (SceneViewInputs.SunShadowMask).
         void AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
                               RDG::TextureRef sunShadowMask );
+        // THE TRANSLUCENT FRONT LAYER of the frame (UE FFrontLayerTranslucencyData, Reflections.TranslucentFrontLayer):
+        // the nearest translucent surface's normal + roughness, motion and depth ("Translucency: Front Layer G-buffer",
+        // Mesh/Surface/Pass_FrontLayer.glslh), graph transients of the frame - the surface AddFrameSSR's front layer
+        // renderer starts its rays from.
+        struct FrontLayerSurface
+        {
+            RDG::TextureRef Normal;
+            RDG::TextureRef Velocity;
+            RDG::TextureRef Depth;
+        };
+        // What the glass reads of it: the denoised reflection and the depth it belongs to. Invalid both: no front layer.
+        struct FrameFrontLayer
+        {
+            RDG::TextureRef Reflection;
+            RDG::TextureRef Depth;
+        };
         // @p sceneCopy: this frame's scene snapshot (FrameTransients::SceneColorCopy); invalid -> no glass node.
         void AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
-                            System::MeshRenderer* meshRenderer );
+                            System::MeshRenderer* meshRenderer ,
+                           const FrameFrontLayer& frontLayer );
         // The water surface (WATER-W6), into the scene target with depth, after the scene copy and before the
         // glass.
         void AddFrameWater( RDG::Builder& graph, FrameTextures& textures );
@@ -1055,13 +1072,25 @@ namespace Desert::Graphic
         RDG::TextureRef AddFrameHZB( RDG::Builder& graph, FrameTextures& textures );
         // SSR's trace + denoiser over @p screenTrace, before the lighting. Resolved: the reflection the lighting
         // composes (u_SSR); invalid when SSR did not run.
+        // Reflections.TranslucentFrontLayer of the resolved quality.
+        [[nodiscard]] bool TranslucentFrontLayerReflections() const;
+        // The front layer's G-buffer, then its reflections through the "FrontLayerReflectionsSystem" (an SSRRenderer
+        // tracing from TranslucentFrontLayer: the same tracer, hit lighting and denoiser as the opaque reflections).
+        // Empty: no translucent object is visible, or the reflections could not run (said by the step that refused).
+        FrameFrontLayer AddFrameTranslucentFrontLayer( RDG::Builder& graph, FrameTextures& textures,
+                                                       System::MeshRenderer*               meshRenderer,
+                                                       const std::vector<RDG::TextureRef>& gbuffer,
+                                                       const FrameScreenTrace& screenTrace, const ViewFrame& frame );
+        bool m_FrontLayerReflectionsFailed = false;
+
         struct FrameSSR
         {
             RDG::TextureRef Resolved;
         };
         FrameSSR AddFrameSSR( RDG::Builder& graph, FrameTextures& textures, System::SSRRenderer& ssr,
                               const std::vector<RDG::TextureRef>& gbuffer, const FrameScreenTrace& screenTrace,
-                              const ViewFrame& frame );
+                              const ViewFrame& frame ,
+                              const FrontLayerSurface* frontLayer = nullptr );
         void AddFrameParticlesSimulate( RDG::Builder& graph );
         // MESH-PB1: imports this frame's scene/view inputs (CSM cascades, the environment's cubes, the BRDF LUT)
         // into FrameTransients before any node is added; what is absent stays invalid (SceneViewInputsOf).

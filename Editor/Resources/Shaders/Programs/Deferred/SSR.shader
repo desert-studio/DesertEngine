@@ -84,7 +84,7 @@ Shader "SSR"
         		for (int ox = 0; ox < 2; ox++)
         		{
         			ivec2 p = p0 + ivec2(gl_LocalInvocationID.xy) + ivec2(ox, oy) * 8;
-        			if (p.x < p1.x && p.y < p1.y && SSRPixelCanReflect(texelFetch(u_GBufferNormal, p, 0)))
+        			if (p.x < p1.x && p.y < p1.y && SSRPixelCanReflect(SSRSurfaceNormal(p)))
         				reflects = true;
         		}
         	if (reflects)
@@ -116,8 +116,8 @@ Shader "SSR"
         	// world box of the tile's traced surfaces that send rays past the screen, nearest first. ---
         	if (owns && tileReflects)
         	{
-        		const vec4 gb = texelFetch(u_GBufferNormal, src, 0);
-        		const vec3 P  = ReconstructWorldPosition((vec2(src) + 0.5) / vec2(full), texelFetch(u_GBufferDepth, src, 0).r,
+        		const vec4 gb = SSRSurfaceNormal(src);
+        		const vec3 P  = ReconstructWorldPosition((vec2(src) + 0.5) / vec2(full), SSRSurfaceDepth(src),
         		                                         u_InvJitteredViewProjection);
         		nearField = SSRPixelCanReflect(gb) && gb.a < kTracedMaxRoughness &&
         		            distance(P, u_CameraPos.xyz) <= u_SSRParams2.w;
