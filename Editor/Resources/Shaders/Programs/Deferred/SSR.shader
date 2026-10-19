@@ -363,32 +363,25 @@ Shader "SSR"
         		weightSum += w;
         		rayDir    += w * Lt;
 
-        		// THE SCREEN. The screen direction: the ray's end a short way along (a quarter of the origin's view
-        		// depth, cut short of the camera plane), projected. The walk extends it to the screen edge.
+        		// THE SCREEN. The segment: up to maxDistance (past it a hit fades out to nothing, SSRHitConfidence),
+        		// cut at 0.99 of the way to the camera plane so it projects (UE TraceHZB); the walk clips it to the screen.
         		float confidence = 0.0;
         		vec3  surface    = origin;
         		vec3  L_i        = vec3(0.0);
         		float start      = 0.0; // traced: where the world legs start along the ray (0: uncertain)
         		const float dw   = (u_JitteredViewProjection * vec4(L, 0.0)).w;
-        		float rayLength  = 0.25 * originW;
-        		if (dw < 0.0)
-        			rayLength = min(rayLength, 0.5 * originW / -dw);
+        		const float rayLength = dw < 0.0 ? min(0.99 * originW / -dw, maxDistance) : maxDistance;
         		vec3 endScreen;
         		if (screenLeg && onScreen && ProjectToScreen(u_JitteredViewProjection, origin + L * rayLength, endScreen))
         		{
-        			const HZBTraceResult walk = HZBTraceScreen(originScreen, endScreen - originScreen, iterations);
-        			if (walk.Exhausted)
+        			const HZBTraceResult walk = HZBTraceScreen(originScreen, endScreen, iterations);
+        			if (!walk.Stopped)
         			{
         #if defined( DESERT_REFLECTIONS_TRACED )
-        				// Off the screen in front of every surface it passed: certain that far (UE writes the distance).
-        				const bool offScreen = any(lessThan(walk.Position.xy, vec2(0.0))) ||
-        				                       any(greaterThan(walk.Position.xy, vec2(1.0)));
-        				if (offScreen && walk.Position.z > 0.0 && walk.Position.z < 1.0)
-        				{
-        					const vec3 exitWorld = ReconstructWorldPosition(clamp(walk.Position.xy, 0.0, 1.0),
-        					                                                walk.Position.z, u_InvJitteredViewProjection);
-        					start = max(distance(origin, exitWorld) - kWorldStartBackoff, 0.0);
-        				}
+        				// In front of every surface it passed, as far as it got: certain that far (UE writes the distance).
+        				const vec3 reached = ReconstructWorldPosition(walk.Position.xy, walk.Position.z,
+        				                                              u_InvJitteredViewProjection);
+        				start = max(distance(origin, reached) - kWorldStartBackoff, 0.0);
         #endif
         			}
         			else

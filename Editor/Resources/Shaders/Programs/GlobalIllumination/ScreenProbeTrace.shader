@@ -6,9 +6,10 @@
 //   SCREEN    over this frame's closest-depth HZB (Common/HZBTrace.glslh, the walk SSR uses); a hit within the
 //             depth buffer's thickness returns LAST frame's lit scene where the hit was (the view's scene colour
 //             history, reprojected by the camera - UE GetHistoryScreenPosition), which carries every bounce the
-//             view has lit so far. A ray that left the screen in front of everything is certain to the screen edge:
-//             the next leg starts there; one that went behind a surface or ran out of steps is uncertain: the next
-//             leg starts at the probe (UE bUncertain).
+//             view has lit so far. The walk goes only as far as the world legs would (the radiance cache's
+//             coverage); every point it crossed in front of the depth buffer is certain, so a ray it does not answer
+//             (off the screen, out of steps, behind a surface, stopped by something thin) goes on from the last such
+//             point (UE bWriteDepthOnMiss), and one that walked the whole way leaves the world legs nothing to do.
 //   WORLD     the GI ray contract (Common/GITracing.glslh: the permutation's tracer, GIHitRadiance on a hit) from
 //             where the screen left off - the software tracer marches the mesh SDFs of the view's near-field
 //             froxel grid first (UE LumenMeshSDFCulling; a hit reads its object's cards first), then the global
@@ -104,11 +105,13 @@ Shader "ScreenProbeTrace"
 
         // How far a ray looks before it is a miss, cm (UE r.Lumen.MaxTraceDistance; the radiance cache's own).
         #define SP_TRACE_DISTANCE 20000.0
-        // The screen leg (UE r.Lumen.ScreenProbeGather.ScreenTraces.HZBTraversal.MaxIterations / RelativeDepthThickness):
-        // the walk's step budget, and how far behind the depth buffer's surface a stop still counts as a hit, as a
-        // share of the surface's view depth.
+        // The screen leg (UE r.Lumen.ScreenProbeGather.ScreenTraces.HZBTraversal.*, LumenScreenProbeTracing.cpp:66-93):
+        // the walk's step budget (MaxIterations); how far behind the depth buffer's surface a stop still counts as a
+        // hit, as a share of the surface's view depth (RelativeDepthThickness); the mip-0 texels past a hit that must
+        // stay behind the depth for the hit to be certain (NumThicknessStepsToDetermineCertainty).
         #define SP_SCREEN_ITERATIONS 50
         #define SP_SCREEN_RELATIVE_THICKNESS 0.02
+        #define SP_SCREEN_THICKNESS_STEPS 4
         // cm the screen ray leaves the probe's surface along its normal (SSR's).
         #define SP_SCREEN_BIAS 2.0
         // cm a world leg starts before the point up to which the screen was certain (twice UE's mesh SDF
@@ -131,10 +134,14 @@ Shader "ScreenProbeTrace"
         {
             bool  hit;      // radiance holds last frame's lit scene at the hit
             vec3  radiance;
-            float distance; // the hit's, or where the next leg starts (0: uncertain, from the probe)
+            float distance; // the hit's, or where the next leg starts (0: from the probe)
         };
 
-        // UE ScreenProbeTraceScreenTexturesCS over the HZB walk, from @p origin (world, biased) along @p dir.
+        // UE ScreenProbeTraceScreenTexturesCS (LumenScreenProbeTracing.usf:57-370, the HZB-traversal permutation):
+        // the walk from @p origin (world, biased) along @p dir only as far as @p tMax, the distance past which the
+        // radiance cache answers (UE TraceDistance = min(MaxTraceDistance, MinTraceDistanceBeforeInterpolation)).
+        // Whatever the screen does not answer, the world legs go on with from the last point the walk found in front
+        // of the depth buffer (UE writes the trace distance on every miss of the HZB walk, bWriteDepthOnMiss).
         SPScreenTrace SPTraceScreen( vec3 origin, vec3 dir, float tMax, float noise )
         {
             SPScreenTrace result;
@@ -145,36 +152,45 @@ Shader "ScreenProbeTrace"
             if ( !SPProjectToScreen( origin, originScreen ) || any( lessThan( originScreen.xy, vec2( 0.0 ) ) ) ||
                  any( greaterThan( originScreen.xy, vec2( 1.0 ) ) ) )
                 return result; // UE: the bias pushed the start off the screen
-            // The screen direction: a point a short way along, cut short of the camera plane (SSR.shader).
+            // The segment's end: tMax along, cut at 0.99 of the way to the camera plane so it projects (UE TraceHZB).
             const float originW = ( giFrame.viewProjection * vec4( origin, 1.0 ) ).w;
             const float dw      = ( giFrame.viewProjection * vec4( dir, 0.0 ) ).w;
-            float       rayLength = 0.25 * originW;
-            if ( dw < 0.0 )
-                rayLength = min( rayLength, 0.5 * originW / -dw );
+            const float endDistance = dw < 0.0 ? min( 0.99 * originW / -dw, tMax ) : tMax;
             vec3 endScreen;
-            if ( !SPProjectToScreen( origin + dir * rayLength, endScreen ) )
+            if ( !SPProjectToScreen( origin + dir * endDistance, endScreen ) )
                 return result;
-            const HZBTraceResult walk = HZBTraceScreen( originScreen, endScreen - originScreen, SP_SCREEN_ITERATIONS );
-            const bool offScreen = any( lessThan( walk.Position.xy, vec2( 0.0 ) ) ) ||
-                                   any( greaterThan( walk.Position.xy, vec2( 1.0 ) ) );
-            if ( walk.Exhausted )
+            const HZBTraceResult walk = HZBTraceScreen( originScreen, endScreen, SP_SCREEN_ITERATIONS );
+            if ( !walk.Stopped )
             {
-                // Off the screen in front of every surface it passed: certain that far (UE writes the distance).
-                if ( offScreen && walk.Position.z > 0.0 && walk.Position.z < 1.0 )
+                // In front of every surface it passed, as far as it got: certain that far. The whole segment up to
+                // tMax: nothing on screen before the trace's end, the world legs have nothing left to do.
+                if ( walk.ReachedEnd && !walk.Clipped && endDistance >= tMax )
                 {
-                    const vec3 exitWorld =
-                         ReconstructWorldPosition( clamp( walk.Position.xy, 0.0, 1.0 ), walk.Position.z,
-                                                   giFrame.invViewProjection );
-                    result.distance = min( max( distance( origin, exitWorld ) - SP_WORLD_START_BACKOFF, 0.0 ), tMax );
+                    result.distance = tMax;
+                    return result;
                 }
+                const vec3 reached =
+                     ReconstructWorldPosition( walk.Position.xy, walk.Position.z, giFrame.invViewProjection );
+                result.distance = min( max( distance( origin, reached ) - SP_WORLD_START_BACKOFF, 0.0 ), tMax );
                 return result;
             }
-            const float surfaceZ = textureLod( u_GBufferDepth, walk.Position.xy, 0.0 ).r;
-            const vec3  rayAt    = ReconstructWorldPosition( walk.Position.xy, walk.Position.z, giFrame.invViewProjection );
-            const vec3  surface  = ReconstructWorldPosition( walk.Position.xy, surfaceZ, giFrame.invViewProjection );
+            // The stop's thickness (UE TraceHZB: the ray's view depth behind the surface's, relative to it).
+            const float surfaceZ  = texelFetch( u_HZB, clamp( ivec2( walk.Position.xy * vec2( textureSize( u_HZB, 0 ) ) ),
+                                                              ivec2( 0 ), textureSize( u_HZB, 0 ) - 1 ), 0 ).r;
+            const vec3  rayAt     = ReconstructWorldPosition( walk.Position.xy, walk.Position.z, giFrame.invViewProjection );
+            const vec3  surface   = ReconstructWorldPosition( walk.Position.xy, surfaceZ, giFrame.invViewProjection );
+            const float rayDepth  = ( giFrame.viewProjection * vec4( rayAt, 1.0 ) ).w;
             const float viewDepth = ( giFrame.viewProjection * vec4( surface, 1.0 ) ).w;
-            if ( distance( rayAt, surface ) > SP_SCREEN_RELATIVE_THICKNESS * viewDepth )
-                return result; // behind the depth buffer's first layer: uncertain, the world legs from the probe
+            if ( rayDepth - viewDepth >= SP_SCREEN_RELATIVE_THICKNESS * viewDepth ||
+                 HZBThinSurfaceAhead( walk, originScreen, SP_SCREEN_THICKNESS_STEPS ) )
+            {
+                // Behind the depth buffer's first layer, or stopped by something thin: the world legs go on from
+                // the last point the walk saw in front of the depth.
+                const vec3 visible =
+                     ReconstructWorldPosition( walk.LastVisible.xy, walk.LastVisible.z, giFrame.invViewProjection );
+                result.distance = min( max( distance( origin, visible ) - SP_WORLD_START_BACKOFF, 0.0 ), tMax );
+                return result;
+            }
             const float hitDistance = distance( origin, surface );
             if ( hitDistance >= tMax )
             {
