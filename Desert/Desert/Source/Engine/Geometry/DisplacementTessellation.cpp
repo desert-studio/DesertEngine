@@ -10,6 +10,7 @@
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -17,6 +18,7 @@
 #include <map>
 #include <mutex>
 #include <numeric>
+#include <queue>
 #include <tuple>
 #include <unordered_map>
 
@@ -305,41 +307,252 @@ namespace Desert::Geometry
             }
         };
 
-        // Splits [begin, end) of @p tris at the centroid median of the longest axis until each piece fits a
-        // cluster. Median split keeps clusters spatially compact and deterministic; UE partitions a triangle graph
-        // with METIS (FGraphPartitioner), which is not vendored here - see REMAINDER-DISPLACE.
-        void PartitionClusters( std::vector<uint32_t>& tris, size_t begin, size_t end,
-                                const std::vector<glm::vec3>&           centroids,
-                                std::vector<std::pair<size_t, size_t>>& out )
+        // Graph partitioning of one submesh's triangles into clusters of at most kDisplacementClusterTriangles,
+        // minimising the welded edges cut (UE: FGraphPartitioner over METIS in the Nanite builder; METIS is not
+        // vendored here, so this is a recursive bisection of the same graph: pseudo-peripheral BFS growth followed
+        // by Fiduccia-Mattheyses refinement under an exact balance window). Compact clusters with short borders
+        // mean fewer level seams: a border edge dices at the higher of its two clusters' levels.
+        class ClusterPartitioner
         {
-            if ( end - begin <= kDisplacementClusterTriangles )
+        public:
+            ClusterPartitioner( const DisplacementTopology& topology, size_t triangleCount )
+                : m_Topology( topology ), m_LocalOf( triangleCount, kNone )
             {
-                out.emplace_back( begin, end );
-                return;
             }
-            glm::vec3 lo( std::numeric_limits<float>::max() );
-            glm::vec3 hi( std::numeric_limits<float>::lowest() );
-            for ( size_t i = begin; i < end; ++i )
+
+            // Reorders @p tris so every emitted range [first, second) is one cluster.
+            void Partition( std::vector<uint32_t>& tris, size_t begin, size_t end,
+                            std::vector<std::pair<size_t, size_t>>& out )
             {
-                lo = glm::min( lo, centroids[tris[i]] );
-                hi = glm::max( hi, centroids[tris[i]] );
+                const size_t count = end - begin;
+                if ( count <= kDisplacementClusterTriangles )
+                {
+                    out.emplace_back( begin, end );
+                    return;
+                }
+                // k parts in the end; the left half takes kLeft of them. The left size window is exact: each side
+                // must still split into parts of at most kDisplacementClusterTriangles.
+                const size_t parts    = ( count + kDisplacementClusterTriangles - 1 ) / kDisplacementClusterTriangles;
+                const size_t kLeft    = parts / 2;
+                const size_t kRight   = parts - kLeft;
+                const size_t highLeft = kLeft * kDisplacementClusterTriangles;
+                const size_t lowLeft  = count > kRight * kDisplacementClusterTriangles
+                                             ? count - kRight * kDisplacementClusterTriangles
+                                             : 1;
+                const size_t target   = count * kLeft / parts;
+
+                BuildGraph( tris, begin, end );
+                GrowInitial( target );
+                Refine( lowLeft, highLeft, target );
+
+                // Side 0 first, each side in ascending triangle order (a deterministic cook).
+                std::vector<uint32_t> left;
+                std::vector<uint32_t> right;
+                for ( uint32_t v = 0; v < m_Nodes.size(); ++v )
+                    ( m_Side[v] == 0 ? left : right ).push_back( m_Nodes[v] );
+                for ( const uint32_t t : m_Nodes )
+                    m_LocalOf[t] = kNone;
+                std::copy( left.begin(), left.end(), tris.begin() + static_cast<std::ptrdiff_t>( begin ) );
+                std::copy( right.begin(), right.end(),
+                           tris.begin() + static_cast<std::ptrdiff_t>( begin + left.size() ) );
+                const size_t middle = begin + left.size();
+                Partition( tris, begin, middle, out );
+                Partition( tris, middle, end, out );
             }
-            const glm::vec3 extent = hi - lo;
-            const int       axis =
-                 extent.x >= extent.y ? ( extent.x >= extent.z ? 0 : 2 ) : ( extent.y >= extent.z ? 1 : 2 );
-            const size_t middle = begin + ( end - begin ) / 2;
-            std::nth_element( tris.begin() + static_cast<std::ptrdiff_t>( begin ),
-                              tris.begin() + static_cast<std::ptrdiff_t>( middle ),
-                              tris.begin() + static_cast<std::ptrdiff_t>( end ),
-                              [&]( uint32_t a, uint32_t b )
-                              {
-                                  const float ca = centroids[a][axis];
-                                  const float cb = centroids[b][axis];
-                                  return ca != cb ? ca < cb : a < b;
-                              } );
-            PartitionClusters( tris, begin, middle, centroids, out );
-            PartitionClusters( tris, middle, end, centroids, out );
-        }
+
+        private:
+            static constexpr uint32_t kNone = std::numeric_limits<uint32_t>::max();
+
+            // Adjacency of the range's triangles through shared welded edges (CSR, ascending neighbours).
+            void BuildGraph( const std::vector<uint32_t>& tris, size_t begin, size_t end )
+            {
+                m_Nodes.assign( tris.begin() + static_cast<std::ptrdiff_t>( begin ),
+                                tris.begin() + static_cast<std::ptrdiff_t>( end ) );
+                std::sort( m_Nodes.begin(), m_Nodes.end() );
+                for ( uint32_t v = 0; v < m_Nodes.size(); ++v )
+                    m_LocalOf[m_Nodes[v]] = v;
+                m_AdjacencyOffset.assign( m_Nodes.size() + 1, 0 );
+                m_Adjacency.clear();
+                std::vector<uint32_t> around;
+                for ( uint32_t v = 0; v < m_Nodes.size(); ++v )
+                {
+                    around.clear();
+                    const uint32_t t = m_Nodes[v];
+                    for ( uint32_t c = 0; c < 3; ++c )
+                    {
+                        const uint32_t edge = m_Topology.CornerEdge[3 * t + c];
+                        for ( uint32_t i = m_Topology.EdgeTriangleOffset[edge];
+                              i < m_Topology.EdgeTriangleOffset[edge + 1]; ++i )
+                        {
+                            const uint32_t other = m_Topology.EdgeTriangles[i];
+                            if ( other != t && m_LocalOf[other] != kNone )
+                                around.push_back( m_LocalOf[other] );
+                        }
+                    }
+                    std::sort( around.begin(), around.end() );
+                    around.erase( std::unique( around.begin(), around.end() ), around.end() );
+                    m_Adjacency.insert( m_Adjacency.end(), around.begin(), around.end() );
+                    m_AdjacencyOffset[v + 1] = static_cast<uint32_t>( m_Adjacency.size() );
+                }
+            }
+
+            // The last node a BFS from @p seed reaches inside seed's component.
+            [[nodiscard]] uint32_t FarthestFrom( uint32_t seed ) const
+            {
+                std::vector<uint8_t>  seen( m_Nodes.size(), 0 );
+                std::vector<uint32_t> queue{ seed };
+                seen[seed] = 1;
+                for ( size_t head = 0; head < queue.size(); ++head )
+                {
+                    const uint32_t v = queue[head];
+                    for ( uint32_t i = m_AdjacencyOffset[v]; i < m_AdjacencyOffset[v + 1]; ++i )
+                        if ( !seen[m_Adjacency[i]] )
+                        {
+                            seen[m_Adjacency[i]] = 1;
+                            queue.push_back( m_Adjacency[i] );
+                        }
+                }
+                return queue.back();
+            }
+
+            // BFS growth of side 0 from a pseudo-peripheral node (George-Liu: two sweeps) up to @p target nodes.
+            void GrowInitial( size_t target )
+            {
+                const uint32_t nodeCount = static_cast<uint32_t>( m_Nodes.size() );
+                m_Side.assign( nodeCount, 1 );
+                const uint32_t        seed = FarthestFrom( FarthestFrom( 0 ) );
+                std::vector<uint8_t>  seen( nodeCount, 0 );
+                std::vector<uint32_t> queue;
+                uint32_t              nextSeed = 0;
+                auto                  enqueue  = [&]( uint32_t v )
+                {
+                    seen[v] = 1;
+                    queue.push_back( v );
+                };
+                enqueue( seed );
+                for ( size_t head = 0, grown = 0; grown < target; ++head, ++grown )
+                {
+                    if ( head == queue.size() )
+                    {
+                        // The component is exhausted: continue in the next one (a submesh of disconnected pieces).
+                        while ( seen[nextSeed] )
+                            ++nextSeed;
+                        enqueue( nextSeed );
+                    }
+                    const uint32_t v = queue[head];
+                    m_Side[v]        = 0;
+                    for ( uint32_t i = m_AdjacencyOffset[v]; i < m_AdjacencyOffset[v + 1]; ++i )
+                        if ( !seen[m_Adjacency[i]] )
+                            enqueue( m_Adjacency[i] );
+                }
+            }
+
+            // Cut edges removed minus cut edges added if @p v changes side.
+            [[nodiscard]] int32_t Gain( uint32_t v ) const
+            {
+                int32_t gain = 0;
+                for ( uint32_t i = m_AdjacencyOffset[v]; i < m_AdjacencyOffset[v + 1]; ++i )
+                    gain += m_Side[m_Adjacency[i]] != m_Side[v] ? 1 : -1;
+                return gain;
+            }
+
+            // Fiduccia-Mattheyses passes: move the best legal unlocked node, keep the best prefix of the pass (the
+            // lowest cut, then the closest balance), stop when a pass no longer lowers the cut.
+            void Refine( size_t lowLeft, size_t highLeft, size_t target )
+            {
+                const uint32_t nodeCount = static_cast<uint32_t>( m_Nodes.size() );
+                size_t         leftSize  = 0;
+                for ( const uint8_t s : m_Side )
+                    leftSize += s == 0 ? 1u : 0u;
+                auto distance = [target]( size_t size ) { return size > target ? size - target : target - size; };
+                using HeapItem = std::pair<int32_t, int64_t>; // (gain, -node): equal gains take the lower node
+                for ( ;; )
+                {
+                    std::vector<int32_t>                         gain( nodeCount );
+                    std::vector<uint8_t>                         locked( nodeCount, 0 );
+                    std::array<std::priority_queue<HeapItem>, 2> heaps;
+                    for ( uint32_t v = 0; v < nodeCount; ++v )
+                    {
+                        gain[v] = Gain( v );
+                        heaps[m_Side[v]].emplace( gain[v], -static_cast<int64_t>( v ) );
+                    }
+                    std::vector<uint32_t> moves;
+                    int64_t               cumulative    = 0;
+                    int64_t               best          = 0;
+                    size_t                bestMoves     = 0;
+                    size_t                bestImbalance = distance( leftSize );
+                    for ( ;; )
+                    {
+                        // The top valid entry of each side; a side may give only while the window allows it.
+                        std::array<int64_t, 2> candidate{ -1, -1 };
+                        for ( uint32_t s = 0; s < 2; ++s )
+                        {
+                            const bool legal = s == 0 ? leftSize > lowLeft : leftSize < highLeft;
+                            while ( legal && !heaps[s].empty() )
+                            {
+                                const auto [g, negNode] = heaps[s].top();
+                                const uint32_t v        = static_cast<uint32_t>( -negNode );
+                                if ( locked[v] || m_Side[v] != s || gain[v] != g )
+                                {
+                                    heaps[s].pop(); // stale entry
+                                    continue;
+                                }
+                                candidate[s] = v;
+                                break;
+                            }
+                        }
+                        if ( candidate[0] < 0 && candidate[1] < 0 )
+                            break;
+                        uint32_t from = candidate[0] < 0 ? 1u : 0u;
+                        if ( candidate[0] >= 0 && candidate[1] >= 0 )
+                        {
+                            const int32_t g0 = gain[static_cast<uint32_t>( candidate[0] )];
+                            const int32_t g1 = gain[static_cast<uint32_t>( candidate[1] )];
+                            // Equal gains: move toward the target balance.
+                            from = g0 != g1 ? ( g0 > g1 ? 0u : 1u ) : ( leftSize > target ? 0u : 1u );
+                        }
+                        const uint32_t v = static_cast<uint32_t>( candidate[from] );
+                        heaps[from].pop();
+                        locked[v] = 1;
+                        cumulative += gain[v];
+                        m_Side[v] = static_cast<uint8_t>( 1u - from );
+                        leftSize  = from == 0 ? leftSize - 1 : leftSize + 1;
+                        moves.push_back( v );
+                        for ( uint32_t i = m_AdjacencyOffset[v]; i < m_AdjacencyOffset[v + 1]; ++i )
+                        {
+                            const uint32_t u = m_Adjacency[i];
+                            if ( locked[u] )
+                                continue;
+                            gain[u] = Gain( u );
+                            heaps[m_Side[u]].emplace( gain[u], -static_cast<int64_t>( u ) );
+                        }
+                        const size_t imbalance = distance( leftSize );
+                        if ( cumulative > best || ( cumulative == best && imbalance < bestImbalance ) )
+                        {
+                            best          = cumulative;
+                            bestMoves     = moves.size();
+                            bestImbalance = imbalance;
+                        }
+                    }
+                    // Undo the moves past the best prefix.
+                    for ( size_t i = moves.size(); i > bestMoves; --i )
+                    {
+                        const uint32_t v = moves[i - 1];
+                        leftSize         = m_Side[v] == 0 ? leftSize - 1 : leftSize + 1;
+                        m_Side[v]        = static_cast<uint8_t>( 1u - m_Side[v] );
+                    }
+                    if ( best <= 0 )
+                        break;
+                }
+            }
+
+            const DisplacementTopology& m_Topology;
+            std::vector<uint32_t>       m_LocalOf; // mesh triangle -> node of the current range, kNone outside
+            std::vector<uint32_t>       m_Nodes;   // node -> mesh triangle, ascending
+            std::vector<uint32_t>       m_AdjacencyOffset;
+            std::vector<uint32_t>       m_Adjacency;
+            std::vector<uint8_t>        m_Side;
+        };
 
         uint32_t FloatBits( float v )
         {
@@ -922,13 +1135,8 @@ namespace Desert::Geometry
                  "displacement topology: the median of {} welded edges has length {} cm", sorted.size(),
                  topology.BaseEdgeCm );
 
-        // Clusters, per submesh.
-        std::vector<glm::vec3> centroids( triangleCount );
-        for ( uint32_t t = 0; t < triangleCount; ++t )
-            centroids[t] = ( topology.WeldPosition[topology.CornerWeld[3 * t]] +
-                             topology.WeldPosition[topology.CornerWeld[3 * t + 1]] +
-                             topology.WeldPosition[topology.CornerWeld[3 * t + 2]] ) /
-                           3.0f;
+        // Clusters, per submesh: min-cut partitions of the welded-edge triangle graph.
+        ClusterPartitioner partitioner( topology, triangleCount );
         topology.TriangleCluster.resize( triangleCount );
         uint32_t first = 0;
         while ( first < triangleCount )
@@ -940,7 +1148,7 @@ namespace Desert::Geometry
             std::vector<uint32_t> tris( last - first );
             std::iota( tris.begin(), tris.end(), first );
             std::vector<std::pair<size_t, size_t>> ranges;
-            PartitionClusters( tris, 0, tris.size(), centroids, ranges );
+            partitioner.Partition( tris, 0, tris.size(), ranges );
             for ( const auto& [b, e] : ranges )
             {
                 DisplacementCluster cluster;

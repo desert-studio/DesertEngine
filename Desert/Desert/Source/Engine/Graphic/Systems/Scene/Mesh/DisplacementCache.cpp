@@ -185,7 +185,7 @@ namespace Desert::Graphic::System
     {
         if ( !m_Quality.Enabled || !mesh.GetDisplacementTopology() )
             return;
-        const Desert::Geometry::DisplacementTopology& topology  = *mesh->GetDisplacementTopology();
+        const Desert::Geometry::DisplacementTopology& topology  = *mesh.GetDisplacementTopology();
         const std::vector<Submesh>&                   submeshes = mesh.GetSubmeshes();
 
         Entry& entry = m_Entries[EntryKey( entity, part )];
