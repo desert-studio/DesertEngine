@@ -115,7 +115,7 @@ namespace
             uint32_t            mask = MemoryAccess_None;
             if ( pass )
                 for ( const Barrier& barrier : pass->Barriers )
-                    if ( barrier.Kind == ResourceKind::Texture && barrier.Resource == resource.Index )
+                    if ( barrier.Kind == RDG::ResourceKind::Texture && barrier.Resource == resource.Index )
                         mask |= barrier.After.Memory;
             return static_cast<MemoryAccessFlags>( mask );
         }
@@ -184,7 +184,6 @@ namespace
              .PostProcess = ::Common::Scalability::AntiAliasingMethod::FXAA };
         const auto resolved =
              ResolveViewResolution( ViewExtent{ 1920, 1080 }, 100, 50, fxaa, ::Common::Scalability::Upscaler::None,
-                                    ::Common::Scalability::EngineTemporalUpscaler::TAAU,
                                     ::Common::Scalability::EngineTemporalUpscaler::TAAU,
                                     []( TemporalMethod ) -> const ITemporalUpscaler* { return nullptr; } );
         ASSERT_TRUE( resolved ) << resolved.GetError();
@@ -379,7 +378,7 @@ TEST( SpatialUpscale, TheNodesReadTheResolvedColourAndWriteTheOutputExtent )
         uint32_t mask = MemoryAccess_None;
         if ( const CompiledPass* pass = result.FindPass( passName ) )
             for ( const Barrier& barrier : pass->Barriers )
-                if ( barrier.Kind == ResourceKind::Texture && barrier.Resource == resource.Index )
+                if ( barrier.Kind == RDG::ResourceKind::Texture && barrier.Resource == resource.Index )
                     mask |= barrier.After.Memory;
         return mask;
     };

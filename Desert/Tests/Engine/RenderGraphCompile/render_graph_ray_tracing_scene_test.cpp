@@ -14,7 +14,6 @@ namespace
     using namespace Desert::Graphic;
     using namespace Desert::Graphic::RDG;
     using namespace Desert::Graphic::RayTracing;
-    namespace Common = Desert::Common;
 
     class Estimate final : public IMemoryRequirementsProvider
     {

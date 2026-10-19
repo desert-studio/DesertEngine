@@ -365,36 +365,21 @@ TEST_F( ShaderMapBuildFixture, ARayQueryShaderCompilesForTheShaderTarget )
 {
     const Desert::TestSupport::DerivedDataSandbox cache( "ShaderMapBuildRayQuery" );
     const std::string                             source =
-         "#version 460
-         "
-         "#extension GL_EXT_ray_query : require
-         "
-         "layout( local_size_x = 8, local_size_y = 8 ) in;
-         "
-         "layout( set = 0, binding = 0 ) uniform accelerationStructureEXT u_Scene;
-         "
-         "layout( set = 0, binding = 1, r32f ) uniform writeonly image2D u_Visibility;
-         "
-         "void main()
-         "
-         "{
-         "
-         "    rayQueryEXT query;
-         "
-         "    rayQueryInitializeEXT( query, u_Scene, gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,
-         "
-         "                           vec3( 0.0 ), 0.0, vec3( 0.0, 0.0, -1.0 ), 1000.0 );
-         "
-         "    while ( rayQueryProceedEXT( query ) ) {}
-         "
-         "    const bool hit = rayQueryGetIntersectionTypeEXT( query, true ) !=
-         "
-         "                     gl_RayQueryCommittedIntersectionNoneEXT;
-         "
-         "    imageStore( u_Visibility, ivec2( gl_GlobalInvocationID.xy ), vec4( hit ? 0.0 : 1.0 ) );
-         "
-         "}
-         ";
+         "#version 460\n"
+         "#extension GL_EXT_ray_query : require\n"
+         "layout( local_size_x = 8, local_size_y = 8 ) in;\n"
+         "layout( set = 0, binding = 0 ) uniform accelerationStructureEXT u_Scene;\n"
+         "layout( set = 0, binding = 1, r32f ) uniform writeonly image2D u_Visibility;\n"
+         "void main()\n"
+         "{\n"
+         "    rayQueryEXT query;\n"
+         "    rayQueryInitializeEXT( query, u_Scene, gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,\n"
+         "                           vec3( 0.0 ), 0.0, vec3( 0.0, 0.0, -1.0 ), 1000.0 );\n"
+         "    while ( rayQueryProceedEXT( query ) ) {}\n"
+         "    const bool hit = rayQueryGetIntersectionTypeEXT( query, true ) !=\n"
+         "                     gl_RayQueryCommittedIntersectionNoneEXT;\n"
+         "    imageStore( u_Visibility, ivec2( gl_GlobalInvocationID.xy ), vec4( hit ? 0.0 : 1.0 ) );\n"
+         "}\n";
          const auto compiled =
               Desert::Core::ShaderCompiler::CompileGLSLToSPIRV( Desert::Core::Formats::ShaderStage::Compute,
                                                                 source,

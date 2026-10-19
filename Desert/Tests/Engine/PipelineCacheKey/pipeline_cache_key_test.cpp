@@ -468,12 +468,12 @@ TEST( PipelineCacheKey, EveryFieldOfTheSpecificationIsAccountedFor )
     // 19 + 2 == 21 passes forever and checks nothing. Structured bindings must name every member of the
     // aggregate exactly, so adding or removing one in Pipeline.hpp fails to build right here.
     //
-    // Separating (22): the binding names them in declaration order.
+    // Separating (23): the binding names them in declaration order.
     // Deliberately inert (2): lineWidth is dynamic state, debugName is a label.
     GraphicsPipelineSpecification spec                                      = Baseline();
     auto& [shader, framebuffer, targetLayout, renderpass, layout, pullingConfig, depthTest, depthCompare,
            stencilTest, stencilFront, stencilBack, cullMode, depthWrite, blendEnable, srcBlend, dstBlend,
-           useLoadRenderPass, depthBiasConstant, depthBiasSlope, lineWidth, topology, polygonMode,
+           useLoadRenderPass, depthBiasConstant, depthBiasSlope, depthClamp, lineWidth, topology, polygonMode,
            patchControlPoints, debugName]                                   = spec;
 
     // Touch the two inert ones so the census also states WHICH members were excused, rather than leaving a

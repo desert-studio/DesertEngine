@@ -194,7 +194,7 @@ TEST( MotionBlur, TheFourNodesDeclareTheirReadsAndWritesAndANonBlurringFrameAdds
         uint32_t mask = MemoryAccess_None;
         if ( const CompiledPass* pass = result.FindPass( passName ) )
             for ( const Barrier& barrier : pass->Barriers )
-                if ( barrier.Kind == ResourceKind::Texture && barrier.Resource == resource.Index )
+                if ( barrier.Kind == RDG::ResourceKind::Texture && barrier.Resource == resource.Index )
                     mask |= barrier.After.Memory;
         return mask;
     };
@@ -207,7 +207,7 @@ TEST( MotionBlur, TheFourNodesDeclareTheirReadsAndWritesAndANonBlurringFrameAdds
         for ( const CompiledPass& pass : result.Passes )
         {
             for ( const Barrier& barrier : pass.Barriers )
-                if ( barrier.Kind == ResourceKind::Texture && barrier.Resource == resource.Index )
+                if ( barrier.Kind == RDG::ResourceKind::Texture && barrier.Resource == resource.Index )
                     mask = barrier.After.Memory;
             if ( pass.Name == passName )
                 return mask;
@@ -219,7 +219,7 @@ TEST( MotionBlur, TheFourNodesDeclareTheirReadsAndWritesAndANonBlurringFrameAdds
         // The node's storage-written texture other than the output: found through its reader's sampled read.
         for ( const CompiledPass* pass = result.FindPass( passName ); pass != nullptr; pass = nullptr )
             for ( const Barrier& barrier : pass->Barriers )
-                if ( barrier.Kind == ResourceKind::Texture &&
+                if ( barrier.Kind == RDG::ResourceKind::Texture &&
                      ( barrier.After.Memory & MemoryAccess_ShaderStorageWrite ) )
                 {
                     const TextureRef ref{ barrier.Resource };
