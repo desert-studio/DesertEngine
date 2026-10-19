@@ -162,14 +162,6 @@ Shader "ScreenProbeIntegrate"
             return mix( 0.0, occlusion, clamp( ( unoccludedAngle - 0.1 ) / 0.2, 0.0, 1.0 ) );
         }
 
-        // UE r.Lumen.ScreenProbeGather.MaxRoughnessToEvaluateRoughSpecular (0.8) and RoughReflectionsDiffuseLerp's
-        // fade (0.2, LumenScreenProbeTileClassication.ush): above, the rough specular is the diffuse.
-        #define SP_MAX_ROUGHNESS_TO_EVALUATE_ROUGH_SPECULAR 0.8
-        #define SP_ROUGH_SPECULAR_FADE 0.2
-        // UE: the lobe a probe this coarse can resolve (Material.Roughness = max(Roughness, 0.2)).
-        #define SP_MIN_ROUGH_SPECULAR_ROUGHNESS 0.2
-        // UE NumSpecularSamples.
-        #define SP_ROUGH_SPECULAR_SAMPLES 4u
         // The probes a pixel interpolates: four per level.
         #define SP_PIXEL_PROBES ( 4u * SP_LEVELS )
 

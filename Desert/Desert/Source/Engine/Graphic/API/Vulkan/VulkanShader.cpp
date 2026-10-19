@@ -373,16 +373,21 @@ namespace Desert::Graphic::API::Vulkan
         // The material-route texture models: every single separate texture of @p dimension, each paired with its
         // own sampler state `<name>Sampler` in the same set when the shader declares one. A pass's inputs are
         // among them too; MaterialExecutor makes a property only for the ones the template's Properties block
-        // names.
+        // names. A texture2DArray is a 2D model (LANDSCAPE-MAT-2's layer arrays, `Texture2DArray` in Properties):
+        // its Image2D carries the layers, and the view the image makes for them is the 2D array view.
         template <typename Model>
         std::vector<Model> TextureModels( const ShaderResource::ReflectionData&                data,
                                           ShaderResources::ShaderLayout::SampledImageDimension dimension )
         {
+            using Dimension = ShaderResources::ShaderLayout::SampledImageDimension;
             std::vector<Model> models;
             for ( const auto& [set, dSet] : data.ShaderDescriptorSets )
                 for ( const auto& [binding, image] : dSet.SampledImages )
                 {
-                    if ( image.Dimension != dimension || image.ArraySize != 1 )
+                    const bool sameDimension =
+                         image.Dimension == dimension ||
+                         ( dimension == Dimension::Texture2D && image.Dimension == Dimension::Texture2DArray );
+                    if ( !sameDimension || image.ArraySize != 1 )
                         continue;
                     Model model;
                     model.BindingPoint  = binding;

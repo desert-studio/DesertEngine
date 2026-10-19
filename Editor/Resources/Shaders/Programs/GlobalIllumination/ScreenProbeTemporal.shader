@@ -47,13 +47,9 @@ Shader "ScreenProbeTemporal"
         Uniform(7) texture2D BackfaceDiffuseIndirect;
         #define BackfaceDiffuseIndirect sampler2D(BackfaceDiffuseIndirect, u_PointClampSampler)
         Uniform(8) texture2D DiffuseIndirectHistory;   // the view's previous set
-        #define DiffuseIndirectHistory sampler2D(DiffuseIndirectHistory, u_PointClampSampler)
         Uniform(9) texture2D RoughSpecularIndirectHistory; // .a = the fast-update amount
-        #define RoughSpecularIndirectHistory sampler2D(RoughSpecularIndirectHistory, u_PointClampSampler)
         Uniform(10) texture2D BackfaceDiffuseIndirectHistory;
-        #define BackfaceDiffuseIndirectHistory sampler2D(BackfaceDiffuseIndirectHistory, u_PointClampSampler)
         Uniform(11) texture2D HistoryGuide;
-        #define HistoryGuide sampler2D(HistoryGuide, u_PointClampSampler)
         layout(binding = 12, rgba16f) restrict writeonly uniform image2D NewHistoryDiffuseIndirect;
         layout(binding = 13, rgba16f) restrict writeonly uniform image2D NewHistoryRoughSpecularIndirect;
         layout(binding = 14, rgba16f) restrict writeonly uniform image2D NewHistoryBackfaceDiffuseIndirect;

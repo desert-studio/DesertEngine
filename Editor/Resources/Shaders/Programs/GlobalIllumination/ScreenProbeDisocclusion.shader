@@ -41,9 +41,7 @@ Shader "ScreenProbeDisocclusion"
         Uniform(6) texture2D Velocity;
         #define Velocity sampler2D(Velocity, u_PointClampSampler)
         Uniform(7) texture2D DiffuseIndirectHistory;
-        #define DiffuseIndirectHistory sampler2D(DiffuseIndirectHistory, u_PointClampSampler)
         Uniform(8) texture2D HistoryGuide;
-        #define HistoryGuide sampler2D(HistoryGuide, u_PointClampSampler)
         WriteBuffer(9) ScreenProbeDisocclusionUB
         {
             float screenProbeDisocclusion[]; // per probe: the disoccluded share of its tile, [0, 1]
