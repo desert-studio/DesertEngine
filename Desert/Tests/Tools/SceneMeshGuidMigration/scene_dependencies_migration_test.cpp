@@ -103,8 +103,7 @@ TEST( SceneDependenciesMigration, EveryCorpusSceneStatesWhatTheSaveWouldGather )
     const auto root  = Desert::TestSupport::RepositoryRoot();
     size_t     count = 0;
     for ( const char* dir : { "Projects/Desert/Content/Scenes", "Editor/Resources/Engine/Maps/Templates",
-                              "Games/Mirage/Content/Scenes", "Templates/Starter/Payload/Assets/Scenes",
-                              "Desert/Tests/Data/Resources/Assets/Scenes" } )
+                              "Templates/Starter/Payload/Assets/Scenes", "Desert/Tests/Data/Resources/Assets/Scenes" } )
     {
         if ( !std::filesystem::is_directory( root / dir ) )
             continue;

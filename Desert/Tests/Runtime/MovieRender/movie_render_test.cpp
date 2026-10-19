@@ -1,7 +1,7 @@
 // MovieRender — the parse of `--render-movie` (Runtime/Source/MovieRender.hpp): every flag required once a
 // movie is asked for, the frame count and step derived from one place, and frames named for ffmpeg's %05d.
-// The byte-for-byte determinism of two real renders is checked by Games/Mirage/Content/Movies/Source/
-// check_movie_determinism.sh (it needs the GPU and the Runtime binary, which a suite does not link).
+// The byte-for-byte determinism of two real renders is checked by scripts/Dev/check_movie_determinism.sh
+// on a Projects/Desert map (it needs the GPU and the Runtime binary, which a suite does not link).
 
 #include "MovieRender.hpp"
 
