@@ -114,6 +114,8 @@ namespace Desert::Graphic::SceneResources
     inline constexpr const char* kObjectMotionsName            = "ObjectMotions";
     inline constexpr const char* kObjectBonesName              = "ObjectBones";
     inline constexpr const char* kWorldParametersName          = "WorldParameters";
+    inline constexpr const char* kRainOcclusionBlockName       = "RainOcclusionUB";
+    inline constexpr const char* kRainOcclusionMapName         = "u_RainOcclusionMap";
 
     struct Entry
     {
@@ -146,6 +148,8 @@ namespace Desert::Graphic::SceneResources
                  { kObjectMotionsName, SceneRead::ObjectMotion },
                  { kObjectBonesName, SceneRead::ObjectBones },
                  { kWorldParametersName, SceneRead::WorldParameters },
+                 { kRainOcclusionBlockName, SceneRead::RainOcclusion },
+                 { kRainOcclusionMapName, SceneRead::RainOcclusion },
             };
             t.push_back( { kShadowMapName, SceneRead::Shadow } );
             return t;

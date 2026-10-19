@@ -935,6 +935,16 @@ namespace Desert::Graphic
         m_ShadowFilter = SceneResources::ShadowFilterSettings{
              .BlockerSearchTaps = quality.As<int>( Parameter::ShadowBlockerSearchTaps ),
              .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ) };
+        if ( const auto mesh = m_RenderSystems.find( "MeshSystem" ); mesh != m_RenderSystems.end() )
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            UNIQUE_GET_AS( System::MeshRenderer, mesh->second )
+                 ->SetRainOcclusionQuality( RainOcclusionQuality{
+                      .MapSize = quality.As<uint32_t>( Parameter::ShadowRainOcclusionMapSize ),
+                      .Extent  = static_cast<float>( quality.As<int>( Parameter::ShadowRainOcclusionExtent ) ),
+                      .RefreshFraction = 0.01f * static_cast<float>( quality.As<int>(
+                                                      Parameter::ShadowRainOcclusionRefreshPercent ) ) } );
+        }
         m_ShadowDenoiserRadius = quality.As<uint32_t>( Parameter::ShadowRayTracedDenoiserRadius );
         m_VirtualShadowQuality = System::VirtualShadowMapQuality{
              .MaxPhysicalPages =
@@ -1177,6 +1187,12 @@ namespace Desert::Graphic
         {
             DESERT_PROFILE_PASS( "Shadow: UpdateCascades" );
             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateCascades();
+        }
+        // The rain occlusion's box, and whether its map is redrawn this frame (the same boundary: its pass only
+        // reads the matrix).
+        {
+            DESERT_PROFILE_PASS( "Weather: UpdateRainOcclusion" );
+            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateRainOcclusion();
         }
 
         // Morph targets blend before anything skins (UE: the morph update precedes the GPU skin passes): its own

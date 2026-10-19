@@ -129,6 +129,14 @@ namespace Common::Scalability
                "(MegaLights kernel)" },
              { P::ShadowMegaLightsDownsampleFactor, G::Shadows, "Shadows.MegaLightsDownsampleFactor", 1, 2,
                CL::None, "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (sample pixels per side)" },
+             { P::ShadowRainOcclusionMapSize, G::Shadows, "Shadows.RainOcclusionMapSize", 256, 4096, CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (\"Weather: RainOcclusion\" "
+               "target side)" },
+             { P::ShadowRainOcclusionExtent, G::Shadows, "Shadows.RainOcclusionExtent", 1000, 100000, CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (box side, world cm)" },
+             { P::ShadowRainOcclusionRefreshPercent, G::Shadows, "Shadows.RainOcclusionRefreshPercent", 5, 50,
+               CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (recentre distance)" },
              { P::ScreenSpaceGISamples, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceSamples", 4, 64,
                CL::None,
                "SceneRenderer::BeginScene -> MaterialDeferredLighting (u_ScreenSpaceGI.x: DeferredLighting.shader "

@@ -72,6 +72,9 @@ namespace Desert::Graphic
         // The cloud layer's shadow map (VolumetricCloudRenderer::GetShadowMap, imported: the renderer owns it),
         // set once its shadow node was accepted; invalid when the frame has none   -> Deferred: Composite
         RDG::TextureRef CloudShadowMap;
+        // The view's rain occlusion map (MeshRenderer::GetRainOcclusionImage, imported: the renderer owns it and
+        // redraws it only when its box moves); invalid when the view has none   -> the wetted mesh cells
+        RDG::TextureRef RainOcclusionMap;
         // The view's velocity (ViewRasterTargets.hpp CreateViewVelocity): one per view graph, the colour slot
         // every depth-writing node on the scene target / G-buffer writes, never on a light view   -> TAA
         RDG::TextureRef Velocity;
@@ -172,6 +175,7 @@ namespace Desert::Graphic
         // SceneRenderer::AddFrameRayTracedSunShadow), read by a forward draw's DESERT_SUN_SHADOW_SCREEN_MASK
         // permutation in place of the cascades. Invalid when the sun is not ray traced (nothing then reads it).
         RDG::TextureRef SunShadowMask;
+        RDG::TextureRef RainOcclusionMap; // the view's map, or System.White (depth 1: nothing overhead)
 
         // Each distinct texture once (System.White fills several slots): what the node declares as read.
         [[nodiscard]] std::vector<RDG::TextureRef> Refs() const
@@ -185,7 +189,7 @@ namespace Desert::Graphic
             add( ShadowCascades );
             for ( const RDG::TextureRef ref :
                   { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, ReflectionCaptureCubes, LocalShadowAtlas,
-                    SceneDepth, SceneShadingWord, SunShadowMask } )
+                    SceneDepth, SceneShadingWord, SunShadowMask, RainOcclusionMap } )
                 add( ref );
             return refs;
         }
@@ -207,6 +211,9 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewSceneShadingWordName = "u_SceneShadingWord";
     // DeferredLighting.shader and Mesh/Surface/Pass_Forward.glslh's DESERT_SUN_SHADOW_SCREEN_MASK branch.
     inline constexpr std::string_view kSceneViewSunShadowMaskName = "u_ScreenShadowMask";
+    inline constexpr std::string_view kSceneViewRainOcclusionMapName = "u_RainOcclusionMap";
+    // Its own shared sampler state (SharedSamplerBinding.hpp): the G-buffer cells declare none of the others.
+    inline constexpr std::string_view kSceneViewRainOcclusionSamplerName = "u_RainOcclusionSampler";
     // The permutation define of every program that reads kSceneViewSunShadowMaskName in place of the cascades
     // (DeferredLighting.shader, Mesh/Surface/Pass_Forward.glslh): one name for every renderer that acquires it.
     inline constexpr std::string_view kSunShadowScreenMaskDefine = "DESERT_SUN_SHADOW_SCREEN_MASK";
@@ -234,6 +241,7 @@ namespace Desert::Graphic
         inputs.LocalShadowAtlas       = t.LocalShadowAtlas.IsValid() ? t.LocalShadowAtlas : refs.System.White;
         inputs.SceneDepth             = t.SceneDepth.IsValid() ? t.SceneDepth : refs.System.Black;
         inputs.SceneShadingWord       = t.SceneShadingWord.IsValid() ? t.SceneShadingWord : refs.System.ZeroUint;
+        inputs.RainOcclusionMap       = t.RainOcclusionMap.IsValid() ? t.RainOcclusionMap : refs.System.White;
         inputs.LightGridParams        = t.Lights.GridParams;
         inputs.LightGridCells         = t.Lights.GridCells;
         return inputs;
@@ -298,6 +306,10 @@ namespace Desert::Graphic
             // Read with texelFetch at the hit texel (an integer format is never filtered).
             bind( kSceneViewSceneShadingWordName, inputs.SceneShadingWord, kPoint,
                   RDG::SamplerDesc::PointClamp() );
+            // Gathered 2x2 and compared by hand (SurfaceWeather.glslh RainOcclusion): nearest, clamped.
+            if ( inputs.RainOcclusionMap.IsValid() )
+                bind( kSceneViewRainOcclusionMapName, inputs.RainOcclusionMap, kSceneViewRainOcclusionSamplerName,
+                      RDG::SamplerDesc::PointClamp() );
         }
     } // namespace SceneViewDetail
 
@@ -307,7 +319,8 @@ namespace Desert::Graphic
     {
         for ( std::string_view name :
               { kSceneViewShadowCascadesName, kSceneViewEnvIrradianceName, kSceneViewEnvSpecularName,
-                kSceneViewBrdfLutName, kSceneViewCloudShadowMapName, kSceneViewLocalShadowAtlasName } )
+                kSceneViewBrdfLutName, kSceneViewCloudShadowMapName, kSceneViewLocalShadowAtlasName,
+                kSceneViewRainOcclusionMapName } )
             if ( SceneViewDetail::LayoutSamples( layout, name ) )
                 return true;
         return false;

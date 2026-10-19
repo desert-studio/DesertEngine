@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/Clouds/CloudShadowBinding.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
+#include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
 #include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
 
 namespace Desert::Graphic
@@ -77,6 +78,13 @@ namespace Desert::Graphic
             const bool bound = table != nullptr && WorldParameters != nullptr;
             DESERT_VERIFY( bound, "a material reads WorldParameters but the frame carries none" );
             table->SetBuffer( WorldParameters );
+        }
+        // The block only: u_RainOcclusionMap is a pass parameter, bound by the mesh node that draws these
+        // materials (SceneViewInputs::RainOcclusionMap through BindSceneViewInputs).
+        if ( Reads( groups, SceneRead::RainOcclusion ) )
+        {
+            if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kRainOcclusionBlockName ) )
+                ub->SetRawData( reinterpret_cast<const std::byte*>( &RainOcclusion ), sizeof( RainOcclusion ) );
         }
     }
 

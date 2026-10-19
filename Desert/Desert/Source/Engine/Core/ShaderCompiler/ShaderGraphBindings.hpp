@@ -75,7 +75,14 @@ namespace Desert::Core
     // The world's parameters (`WorldParameters`, Common/WorldParameters.glslh): declared only into the cells whose
     // surface reads one (DShaderParser lowers `WorldParameter( "Name" )`), bound by SceneFrameBinding::ApplyTo.
     inline constexpr uint32_t kWorldParametersBinding = kSceneReadBindingFirst + 6u;
-    inline constexpr uint32_t kSceneReadBindingCount  = 7u;
+    // The view's rain occlusion (Graphic/RainOcclusion.hpp, Mesh/Surface/SurfaceWeather.glslh): the top-down depth
+    // of what stands over the camera's surroundings (`u_RainOcclusionMap`) and the block that projects a world
+    // position into it (`RainOcclusionUB`). Declared only into the cells that wet a surface
+    // (DESERT_SURFACE_WEATHER: the Forward and GBuffer mesh cells); the map is bound from the frame graph
+    // (BindSceneViewInputs), the block by SceneFrameBinding::ApplyTo.
+    inline constexpr uint32_t kRainOcclusionMapBinding   = kSceneReadBindingFirst + 7u;
+    inline constexpr uint32_t kRainOcclusionBlockBinding = kSceneReadBindingFirst + 8u;
+    inline constexpr uint32_t kSceneReadBindingCount     = 9u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
     {
@@ -84,8 +91,9 @@ namespace Desert::Core
 
     // Raised from 24 (TAA1 step 4), then from 27 (the scene depth joined the range), then from 28 (the scene
     // shading word and the light grid joined it), then from 31 (the world parameters joined it; no `.dgraph` in
-    // the tree compiled a texture, so no generated shader held the old base), to sit above the scene-read range;
+    // the tree compiled a texture, so no generated shader held the old base), then from 32 (the rain occlusion's
+    // map and block joined it; the same holds), to sit above the scene-read range;
     // see the paragraph on moving it above.
     inline constexpr uint32_t kGraphOwnedBindingFirst = kSceneReadBindingFirst + kSceneReadBindingCount;
-    static_assert( kGraphOwnedBindingFirst == 32u, "the graph's window opens right above the scene-read range" );
+    static_assert( kGraphOwnedBindingFirst == 34u, "the graph's window opens right above the scene-read range" );
 } // namespace Desert::Core
