@@ -365,6 +365,18 @@ namespace Desert::ECS
                          if ( ism.RuntimeMaterialInstances.size() != slotCount )
                          {
                              ism.RuntimeMaterialInstances.clear();
+                             ism.RuntimeDisplacedInstances.clear();
+                             // A displaced mesh's twins draw with the displaced siblings (base cells).
+                             if ( targetMesh->IsDisplaced() )
+                                 for ( const auto& h : ism.MaterialSlots )
+                                 {
+                                     auto inst = Runtime::ResourceRegistry::GetMaterialService()
+                                                      ->CreateRuntimeInstance(
+                                                           h, Graphic::MeshVertexPath::Static, true );
+                                     ism.RuntimeDisplacedInstances.push_back(
+                                          inst ? std::move( inst )
+                                               : DefaultInstance( Graphic::MeshVertexPath::Static ) );
+                                 }
                              if ( ism.MaterialSlots.empty() )
                                  ism.RuntimeMaterialInstances.push_back(
                                       DefaultInstance( Graphic::MeshVertexPath::Static ) );
@@ -442,7 +454,10 @@ namespace Desert::ECS
                                   static_cast<uint32_t>( entity ), targetMesh,
                                   ism.RuntimeMaterialInstances[d.Slot], d.HiddenMask, ism.RuntimeInstanceSnapshot,
                                   d.CastShadows, ism.CastContactShadow,
-                                  Graphic::ClipToMaxDrawDistance( cullDistance, ism.MaxDrawDistance ), wind );
+                                  Graphic::ClipToMaxDrawDistance( cullDistance, ism.MaxDrawDistance ), wind,
+                                  d.Slot < ism.RuntimeDisplacedInstances.size()
+                                       ? ism.RuntimeDisplacedInstances[d.Slot]
+                                       : Graphic::MaterialInstancePtr{} );
                      } );
             }
 

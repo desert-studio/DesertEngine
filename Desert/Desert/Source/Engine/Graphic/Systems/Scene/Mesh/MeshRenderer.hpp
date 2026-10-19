@@ -269,6 +269,12 @@ namespace Desert::Graphic::System
             uint32_t                                      Entity = 0;
             class Desert::Mesh*                           Mesh   = nullptr;
             MaterialInstancePtr                           Material; // the section group's slot (a mesh cell)
+            // The same slot for displaced geometry (MaterialService displaced sibling: base cells, no parallax
+            // march); null when the mesh is not displaced. ApplyDisplacement draws the twins' groups with it.
+            MaterialInstancePtr DisplacedMaterial;
+            // The component's instance index of each transform when ApplyDisplacement split the record by twin
+            // (null = the transforms ARE the component's, in order): the GPU-scene row stays {Entity, index + 1}.
+            std::shared_ptr<const std::vector<uint32_t>> InstanceIds;
             uint64_t                                      HiddenSubmeshes = 0; // the other slots' sections
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
             bool                                          CastShadows = true;

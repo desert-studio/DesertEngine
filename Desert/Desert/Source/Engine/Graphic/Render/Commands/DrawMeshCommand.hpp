@@ -80,6 +80,7 @@ namespace Desert::Graphic::Render
         uint32_t                                      Entity; // keys each instance's GPU-scene row
         Desert::Mesh*                                 Mesh;
         Graphic::MaterialInstancePtr                  Material;        // the section group's slot instance
+        Graphic::MaterialInstancePtr DisplacedMaterial; // its displaced sibling; null = the mesh is not displaced
         uint64_t                                      HiddenSubmeshes; // the sections of the other slots
         std::shared_ptr<const std::vector<glm::mat4>> Transforms;
         bool                                          CastShadows;
@@ -91,8 +92,9 @@ namespace Desert::Graphic::Render
                                         uint64_t                                      hiddenSubmeshes,
                                         std::shared_ptr<const std::vector<glm::mat4>> transforms, bool castShadows,
                                         bool castContactShadow, const InstanceCullDistance& cullDistance,
-                                        const InstanceWind& wind )
+                                        const InstanceWind& wind, Graphic::MaterialInstancePtr displacedMaterial )
              : Entity( entity ), Mesh( mesh ), Material( std::move( material ) ),
+               DisplacedMaterial( std::move( displacedMaterial ) ),
                HiddenSubmeshes( hiddenSubmeshes ), Transforms( std::move( transforms ) ),
                CastShadows( castShadows ), CastContactShadow( castContactShadow ), CullDistance( cullDistance ),
                Wind( wind )
@@ -103,7 +105,7 @@ namespace Desert::Graphic::Render
         {
             if ( Mesh && Material && Transforms )
                 renderer.SubmitInstancedMesh( Entity, Mesh, Material, HiddenSubmeshes, Transforms, CastShadows,
-                                              CastContactShadow, CullDistance, Wind );
+                                              CastContactShadow, CullDistance, Wind, DisplacedMaterial );
         }
     };
 } // namespace Desert::Graphic::Render

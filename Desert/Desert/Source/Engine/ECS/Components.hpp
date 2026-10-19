@@ -273,6 +273,8 @@ namespace Desert::ECS
         std::optional<Geometry::PrimitiveType>    Primitive;
         std::shared_ptr<DynamicMesh>              RuntimeMesh;
         std::vector<Graphic::MaterialInstancePtr> RuntimeMaterialInstances;
+        // The displaced siblings of the same slots (built when the mesh is displaced, empty otherwise).
+        std::vector<Graphic::MaterialInstancePtr> RuntimeDisplacedInstances;
         uint32_t                                  SeenMaterialsVersion = 0; // see StaticMeshComponent
 
         // `InstancesDirty` STOOD HERE, WRITTEN BY FIVE PLACES AND READ BY NONE. Every one of the five was

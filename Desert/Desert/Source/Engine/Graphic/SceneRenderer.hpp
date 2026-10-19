@@ -335,7 +335,8 @@ namespace Desert::Graphic
                                   uint64_t                                             hiddenSubmeshes,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                   bool castShadows, bool castContactShadow,
-                                  const InstanceCullDistance& cullDistance, const InstanceWind& wind );
+                                  const InstanceCullDistance& cullDistance, const InstanceWind& wind,
+                                  const MaterialInstancePtr& displacedMaterial );
 
         void SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look );
 

@@ -2298,7 +2298,8 @@ namespace Desert::Graphic
                                              const MaterialInstancePtr& material, uint64_t hiddenSubmeshes,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                              bool castShadows, bool castContactShadow,
-                                             const InstanceCullDistance& cullDistance, const InstanceWind& wind )
+                                             const InstanceCullDistance& cullDistance, const InstanceWind& wind,
+                                             const MaterialInstancePtr& displacedMaterial )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -2312,6 +2313,7 @@ namespace Desert::Graphic
              ->SubmitInstancedMesh( { .Entity            = entity,
                                       .Mesh              = mesh,
                                       .Material          = material,
+                                      .DisplacedMaterial = displacedMaterial,
                                       .HiddenSubmeshes   = hiddenSubmeshes,
                                       .Transforms        = transforms,
                                       .CastShadows       = castShadows,
