@@ -1,8 +1,9 @@
 // The screen-space denoiser's shared kernel (UE ScreenSpaceDenoise: SSDSignalFramework.ush, SSDSpatialKernel.ush,
-// SSDTemporalAccumulation.usf), included by the four passes of System::ScreenSpaceDenoiser:
+// SSDTemporalAccumulation.usf), included by the passes of System::ScreenSpaceDenoiser:
 //   Programs/Denoise/SSDReconstructReflections.shader - reflections: ratio estimator over the half-res trace
 //   Programs/Denoise/SSDReconstructDiffuse.shader     - diffuse indirect: bilateral spatial reconstruction
 //   Programs/Denoise/SSDReconstructShadowVisibility.shader - shadow visibility: penumbra-sized bilateral kernel
+//   Programs/Denoise/SSDReconstructDirectSpecular.shader - MegaLights' specular: lobe-aware bilateral kernel
 //   Programs/Denoise/SSDTemporalAccumulation.shader   - every signal: reprojection, variance rejection, counting
 //   Programs/Denoise/SSDHistoryConvolution.shader     - every signal: bilateral post filter by the sample count
 // A signal is (rgb, a): rgb = the radiance where the signal answered, a = the share it answered (the COVERAGE;
@@ -17,6 +18,13 @@ const float kSSDPi = 3.14159265358979;
 const int kSSDSignalReflections     = 0;
 const int kSSDSignalDiffuseIndirect = 1;
 const int kSSDSignalShadowVisibility = 2;
+const int kSSDSignalDirectSpecular   = 3;
+
+// The signals whose taps are weighed by the agreement of the specular lobes (reflections, MegaLights' specular).
+bool SSDSignalIsSpecular(int signal)
+{
+	return signal == kSSDSignalReflections || signal == kSSDSignalDirectSpecular;
+}
 
 // Whether the signal has anything to say at a pixel (UE: the per-signal shading-model gate). Reflections: the
 // trace's own gate (sky / too rough - Common/SSRGate.glslh); diffuse indirect and shadow visibility: every

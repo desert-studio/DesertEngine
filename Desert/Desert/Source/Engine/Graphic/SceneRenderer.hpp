@@ -829,11 +829,12 @@ namespace Desert::Graphic
         // light-grid loop.
         [[nodiscard]] bool LocalLightsAreStochastic() const;
         // MegaLights (System::MegaLightsRenderer) over the G-buffer and the view's light grid and TLAS: the
-        // denoised, demodulated local lighting. Invalid when the view has no local light (nothing to shade), or -
-        // logged - when the passes could not be declared; the composite then binds System.Black (no local light
-        // that frame).
-        RDG::TextureRef AddFrameMegaLights( RDG::Builder& graph, FrameTextures& textures,
-                                            const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
+        // denoised, demodulated local lighting, diffuse and specular. Both invalid when the view has no local
+        // light (nothing to shade), or - logged - when the passes could not be declared; the composite then binds
+        // System.Black (no local light that frame).
+        System::MegaLightsLighting AddFrameMegaLights( RDG::Builder& graph, FrameTextures& textures,
+                                                       const std::vector<RDG::TextureRef>& gbuffer,
+                                                       const ViewFrame&                    frame );
         bool            EnsureMegaLightsResources();
         // This frame's sun shadow is the virtual shadow map (the Shadows method resolved to VirtualMaps).
         [[nodiscard]] bool SunShadowIsVirtual() const;
@@ -1038,7 +1039,7 @@ namespace Desert::Graphic
                                            const ViewFrame& frame );
         void             AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                             const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
-                                            RDG::TextureRef sunShadowMask, RDG::TextureRef megaLights,
+                                            RDG::TextureRef sunShadowMask, const System::MegaLightsLighting& megaLights,
                                             System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                             const glm::vec4& lightColor, const ViewFrame& frame );
         // The scene snapshot (UE: CreateTexture from the scene colour's desc, copied by a raster node): published

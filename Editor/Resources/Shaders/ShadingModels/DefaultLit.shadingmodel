@@ -32,6 +32,11 @@ vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
            L.Shadow;
 }
 
+vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    return EvaluateDirectLightSpecular( L.L, L.Radiance, S.V, S.N, DefaultLitF0( S ), S.Roughness ) * L.Shadow;
+}
+
 vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
 {
     const vec3 ibl = EvaluateAmbientIBL( A.Irradiance, A.Prefiltered, A.SpecularBRDF, DefaultLitF0( S ), S.BaseColor,

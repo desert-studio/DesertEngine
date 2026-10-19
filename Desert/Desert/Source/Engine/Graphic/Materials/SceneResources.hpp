@@ -88,10 +88,17 @@ namespace Desert::Graphic::SceneResources
         float    SunNonCastingIntensity = 0.0f;  // DirectionalLightData::ContactShadowNonCastingIntensity
     };
 
+    // The view's half of the march as the shaders read it (u_ContactShadowView, Common/ContactShadow.glslh): x =
+    // steps, y = tan(fov / 2), z = dither frame. ShadowUB carries it; MegaLights' view block too.
+    inline glm::vec4 ContactShadowViewVector( const ContactShadowSettings& contact )
+    {
+        return glm::vec4( static_cast<float>( contact.Steps ), contact.TanHalfFovY,
+                          static_cast<float>( contact.DitherFrame ), 0.0f );
+    }
+
     inline void PackContactShadow( ShadowUBData& data, const ContactShadowSettings& contact )
     {
-        data.ContactShadowView = glm::vec4( static_cast<float>( contact.Steps ), contact.TanHalfFovY,
-                                            static_cast<float>( contact.DitherFrame ), 0.0f );
+        data.ContactShadowView = ContactShadowViewVector( contact );
         data.SunContactShadow  = glm::vec4( contact.SunLength, contact.SunInWorldSpace ? 1.0f : 0.0f,
                                             contact.SunCastingIntensity, contact.SunNonCastingIntensity );
     }

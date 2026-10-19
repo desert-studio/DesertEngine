@@ -2,10 +2,12 @@
 Shader "MegaLightsGenerateSamples"
 {
     // "MegaLights: Generate Samples" (UE MegaLightsGenerateSamples, weighted reservoir sampling of the pixel's
-    // froxel): every light of the pixel's light-grid cell (every light when the cell overflowed, as the composite's
+    // froxel), per SAMPLE PIXEL at its representative render pixel (Common/MegaLights.glslh MegaLightsScreenPixel):
+    // every light of the pixel's light-grid cell (every light when the cell overflowed, as the composite's
     // loop) is a candidate, weighed by the target function - its unshadowed contribution's luminance - and each of
     // the pixel's reservoirs takes one candidate in proportion to that weight (resampled importance sampling over
-    // the whole cell: W = sum(p^) / p^(chosen)). No visibility here: the next pass traces it.
+    // the whole cell: W = sum(p^) / p^(chosen)). No visibility here: only the samples that survive the temporal and
+    // spatial reuse are traced ("MegaLights: Trace Samples", one ray each).
 
     Compute
     {
@@ -30,12 +32,13 @@ Shader "MegaLightsGenerateSamples"
 
         void main()
         {
-        	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-        	const ivec2 size  = MegaLightsViewSize();
+        	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy); // a sample pixel
+        	const ivec2 size  = MegaLightsSampleSize();
         	if (pixel.x >= size.x || pixel.y >= size.y)
         		return;
         	const uint            samples = MegaLightsSamplesPerPixel();
-        	const MegaLightsPixel p       = MegaLightsLoadPixel(pixel);
+        	const ivec2           screen  = MegaLightsScreenPixel(pixel);
+        	const MegaLightsPixel p       = MegaLightsLoadPixel(screen);
 
         	int   chosen[MEGALIGHTS_MAX_SAMPLES];
         	float chosenTarget[MEGALIGHTS_MAX_SAMPLES];
@@ -47,7 +50,7 @@ Shader "MegaLightsGenerateSamples"
         	float weightSum = 0.0;
         	if (p.Valid)
         	{
-        		const uint cell       = LightGridCellAt(lightGrid, vec2(pixel) + 0.5, p.Position);
+        		const uint cell       = LightGridCellAt(lightGrid, vec2(screen) + 0.5, p.Position);
         		const uint count      = lightGridCells[cell];
         		const bool overflowed = LightGridCellOverflowed(lightGrid, count);
         		const uint candidates = overflowed ? uint(MegaLightsLightCount()) : count;

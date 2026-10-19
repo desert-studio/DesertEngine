@@ -4,22 +4,29 @@
 // THE CONTRACT BETWEEN A SHADING MODEL AND THE PASSES THAT LIGHT IT.
 //
 // A shading model is a file, ShadingModels/<Name>.shadingmodel (format: Engine/Core/ShaderCompiler/ShadingModels/
-// ShadingModelManifest.hpp). Its GLSL body defines exactly two functions with the signatures below; nothing else
+// ShadingModelManifest.hpp). Its GLSL body defines exactly three functions with the signatures below; nothing else
 // of a model reaches a pass. Unlit and DefaultLit are such files too — no pass and no C++ names either of them.
 //
 //   vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P );
 //        The light ONE source reflects toward the eye (radiance, before exposure). Called once per source: the
 //        sun, every point light, every spot light. The model applies L.Shadow itself (a toon model may band it).
 //
+//   vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P );
+//        The share of Evaluate that is the model's specular lobe (UE FDirectLighting.Specular); Evaluate minus it
+//        is the diffuse share (transmission included). MegaLights denoises the two as separate signals
+//        (Programs/Shadows/MegaLightsShadeSamples.shader), so a glossy highlight is not blurred by the diffuse
+//        kernel. A model with no specular lobe returns vec3( 0.0 ).
+//
 //   vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P );
 //        The environment's contribution: IBL, the indirect bounce, the ambient floor, all times A.Occlusion.
 //
 // Emission is NOT the model's: the pass adds SurfaceOutput.Emissive after both calls, for every model. So Unlit is
-// the model whose two functions return vec3( 0.0 ) — the texel is its emission, with no special case anywhere.
+// the model whose functions all return vec3( 0.0 ) — the texel is its emission, with no special case anywhere.
 //
 // Who includes what. The registry (ShadingModelRegistry) generates ShadingModels.generated.glslh, which includes
 // this file, then every model body, then the dispatch:
 //   vec3  DesertEvaluateShadingModel( int index, DesertLight L, DesertSurface S, DesertPayload P );
+//   vec3  DesertEvaluateShadingModelSpecular( int index, DesertLight L, DesertSurface S, DesertPayload P );
 //   vec3  DesertEvaluateShadingModelAmbient( int index, DesertAmbient A, DesertSurface S, DesertPayload P );
 //   uvec2 DesertPackShadingWord( int index, float sampledTextureCount, DesertPayload P );
 //   int   DesertShadingModelIndex( uvec2 shadingWord );

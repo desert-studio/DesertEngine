@@ -66,6 +66,13 @@ vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
     return ( surface + transmission ) * L.Shadow;
 }
 
+// The surface's GGX lobe; the transmission is diffuse (UE FDirectLighting.Transmission joins the diffuse signal).
+vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    const vec3 F0 = mix( vec3( 0.04 ), S.BaseColor, S.Metallic );
+    return EvaluateDirectLightSpecular( L.L, L.Radiance, S.V, S.N, F0, S.Roughness ) * L.Shadow;
+}
+
 vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
 {
     const vec3 F0  = mix( vec3( 0.04 ), S.BaseColor, S.Metallic );

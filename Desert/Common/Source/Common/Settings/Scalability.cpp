@@ -125,7 +125,10 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (\"MegaLights: Temporal "
                "Resampling\")" },
              { P::ShadowMegaLightsDenoiserRadius, G::Shadows, "Shadows.MegaLightsDenoiserRadius", 1, 3, CL::None,
-               "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseDiffuseIndirect (MegaLights kernel)" },
+               "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseDiffuseIndirect / DenoiseDirectSpecular "
+               "(MegaLights kernel)" },
+             { P::ShadowMegaLightsDownsampleFactor, G::Shadows, "Shadows.MegaLightsDownsampleFactor", 1, 2, CL::None,
+               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (sample pixels per side)" },
              { P::ScreenSpaceGISamples, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceSamples", 4, 64,
                CL::None,
                "SceneRenderer::BeginScene -> MaterialDeferredLighting (u_ScreenSpaceGI.x: DeferredLighting.shader "

@@ -63,6 +63,7 @@ namespace Desert::ECS
                      light.Position  = glm::vec3(worldTransform[3]); // Extract translation from world matrix
                      light.Radius    = pointlight.Data.Radius;
                      light.MinRadius = pointlight.Data.MinRadius;
+                     light.SourceRadius = pointlight.Data.SourceRadius;
                      light.Falloff   = static_cast<int32_t>( pointlight.Data.Falloff );
                      // UE: contact shadows are part of the light's shadowing, so a light that casts none has none.
                      light.ContactShadowLength =

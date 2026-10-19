@@ -2,9 +2,9 @@
 Shader "MegaLightsTemporalResampling"
 {
     // "MegaLights: Temporal Resampling" (ReSTIR DI temporal reuse; UE MegaLights' history through the velocity): the
-    // pixel's surface is reprojected into the view's previous frame through the velocity (NDC current - previous,
-    // View/Velocity.hpp), and the reservoirs the previous frame SHADED there (after its visibility, written by
-    // "MegaLights: Shade Samples") are merged into this frame's, each re-weighed by the target function at THIS pixel
+    // sample pixel's representative surface is reprojected into the view's previous frame through the velocity (NDC
+    // current - previous, View/Velocity.hpp), and the reservoirs the previous frame TRACED at the sample pixel there
+    // (their visibility applied, written by "MegaLights: Trace Samples") are merged into this frame's, each re-weighed by the target function at THIS pixel
     // and its confidence capped at Shadows.MegaLightsMaxHistory frames of the current one (so a light that moved, or
     // a shadow that arrived, is forgotten in that many frames). A disocclusion (the previous frame's surface there is
     // another one: its normal or its depth differs) or an unreadable history keeps this frame's reservoirs alone.
@@ -15,11 +15,12 @@ Shader "MegaLightsTemporalResampling"
         #define MEGALIGHTS_SHADING
         #include <Common/MegaLights.glslh>
 
-        Uniform(10) texture2D u_Reservoirs;        // "MegaLights: Trace Samples"
+        Uniform(10) texture2D u_Reservoirs;        // "MegaLights: Generate Samples"
         #define u_Reservoirs sampler2D(u_Reservoirs, u_PointClampSampler)
-        Uniform(12) texture2D u_HistoryReservoirs; // the previous frame's shaded reservoirs (stacked layers)
+        Uniform(12) texture2D u_HistoryReservoirs; // the previous frame's traced reservoirs (stacked layers)
         #define u_HistoryReservoirs sampler2D(u_HistoryReservoirs, u_PointClampSampler)
-        Uniform(13) texture2D u_HistorySurface;    // the previous frame's surface: xyz = normal, w = clip w (0 = none)
+        Uniform(13) texture2D u_HistorySurface;    // the previous frame's representatives: xyz = normal, w = clip w
+                                                   // (0 = none); sample-pixel sized
         #define u_HistorySurface sampler2D(u_HistorySurface, u_PointClampSampler)
         Uniform(14) texture2D u_Velocity;          // NDC current - previous, unjittered
         #define u_Velocity sampler2D(u_Velocity, u_PointClampSampler)
@@ -34,12 +35,13 @@ Shader "MegaLightsTemporalResampling"
 
         void main()
         {
-        	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-        	const ivec2 size  = MegaLightsViewSize();
+        	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy); // a sample pixel
+        	const ivec2 size  = MegaLightsSampleSize();
         	if (pixel.x >= size.x || pixel.y >= size.y)
         		return;
         	const uint            samples = MegaLightsSamplesPerPixel();
-        	const MegaLightsPixel p       = MegaLightsLoadPixel(pixel);
+        	const ivec2           screen  = MegaLightsScreenPixel(pixel);
+        	const MegaLightsPixel p       = MegaLightsLoadPixel(screen);
 
         	// The reprojected pixel, when the previous frame shaded this surface there.
         	bool  reprojected = false;
@@ -49,11 +51,11 @@ Shader "MegaLightsTemporalResampling"
         		const vec4 clip = u_ViewProjection * vec4(p.Position, 1.0);
         		if (clip.w > 0.0)
         		{
-        			const vec2 prevNdc = clip.xy / clip.w - texelFetch(u_Velocity, pixel, 0).xy;
+        			const vec2 prevNdc = clip.xy / clip.w - texelFetch(u_Velocity, screen, 0).xy;
         			const vec2 prevUV  = vec2(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * 0.5); // Y-flipped
         			if (prevUV.x >= 0.0 && prevUV.x < 1.0 && prevUV.y >= 0.0 && prevUV.y < 1.0)
         			{
-        				previous                = ivec2(prevUV * vec2(size));
+        				previous                = ivec2(prevUV * vec2(size)); // the previous sample pixel
         				const vec4  surface     = texelFetch(u_HistorySurface, previous, 0);
         				const float expected    = (u_PrevViewProjection * vec4(p.Position, 1.0)).w;
         				reprojected = surface.w > 0.0 && dot(surface.xyz, p.N) > kNormalThreshold &&

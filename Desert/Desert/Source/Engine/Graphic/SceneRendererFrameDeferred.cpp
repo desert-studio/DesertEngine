@@ -563,7 +563,8 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
-                                           const RDG::TextureRef sunShadowMask, const RDG::TextureRef megaLights,
+                                           const RDG::TextureRef            sunShadowMask,
+                                           const System::MegaLightsLighting& megaLights,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const ViewFrame& frame )
     {
@@ -619,7 +620,8 @@ namespace Desert::Graphic
             // without local lights has none to add): black adds no local light, never the unshadowed grid loop.
             shadow.MegaLightsLocalLights = LocalLightsAreStochastic();
         }
-        inputs.MegaLights = megaLights.IsValid() ? megaLights : refs.System.Black;
+        inputs.MegaLightsDiffuse  = megaLights.Diffuse.IsValid() ? megaLights.Diffuse : refs.System.Black;
+        inputs.MegaLightsSpecular = megaLights.Specular.IsValid() ? megaLights.Specular : refs.System.Black;
         else if ( meshRenderer != nullptr )
             shadow.Sun = DeferredCascadeShadow{ .CascadeVP            = meshRenderer->GetCascadeViewProj(),
                                                 .Count                = meshRenderer->GetValidCascadeCount(),

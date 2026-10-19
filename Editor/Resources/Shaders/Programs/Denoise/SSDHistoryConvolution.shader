@@ -70,7 +70,7 @@ Shader "SSDHistoryConvolution"
         	                                              1.0 / size, u_InvJitteredViewProjection);
         	float radius = kMaxRadius / sqrt(count);
         	vec4  lobe   = vec4(0.0);
-        	if (signal == kSSDSignalReflections)
+        	if (SSDSignalIsSpecular(signal))
         	{
         		const vec3 nearPoint = ReconstructWorldPosition(uv, 1.0, u_InvJitteredViewProjection);
         		const vec2 radii     = SSDLobePixelRadii(ref.Roughness, abs(dot(ref.Normal, V)), pixelRadius,
@@ -97,7 +97,7 @@ Shader "SSDHistoryConvolution"
         				          SSDPlaneWeight(ref, other.Position, maxPlaneDistance) *
         				          SSDNormalWeight(ref.Normal, other.Normal);
         				const vec4 s = texelFetch(u_History, p, 0);
-        				if (signal == kSSDSignalReflections)
+        				if (SSDSignalIsSpecular(signal))
         				{
         					const vec3 otherV = SSDViewVector((vec2(p) + 0.5) / size, other.Position,
         					                                  u_InvJitteredViewProjection);

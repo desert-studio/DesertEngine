@@ -210,7 +210,8 @@ namespace Desert::Core::ShadingModels
                                       "(Mesh/Surface/SurfaceTypes.glslh)",
                                       FileName( m ), input ) );
             for ( const std::string_view function :
-                  { std::string_view( "Evaluate" ), std::string_view( "EvaluateAmbient" ) } )
+                  { std::string_view( "Evaluate" ), std::string_view( "EvaluateSpecular" ),
+                    std::string_view( "EvaluateAmbient" ) } )
                 if ( !NamesFunction( m.Body, function ) )
                     return Common::MakeError<ShadingModelRegistry>(
                          std::format( "{}: the body does not define {} (ShadingModels/ShadingModelContract.glslh "
@@ -311,18 +312,20 @@ namespace Desert::Core::ShadingModels
         for ( const ShadingModelEntry& e : m_Entries )
             std::format_to( emit, "#define {} {}\n", ShadingModelIndexDefine( e.Manifest.Name ), e.Index );
 
-        // Each body as written, its two functions renamed by the preprocessor (token-exact: EvaluateAmbient is
-        // not touched by the Evaluate macro).
+        // Each body as written, its three functions renamed by the preprocessor (token-exact: EvaluateSpecular and
+        // EvaluateAmbient are not touched by the Evaluate macro).
         for ( const ShadingModelEntry& e : m_Entries )
             std::format_to( emit,
                             "\n// ---- {} (Guid {}, index {}) ----\n"
                             "#define Evaluate {}_Evaluate\n"
+                            "#define EvaluateSpecular {}_EvaluateSpecular\n"
                             "#define EvaluateAmbient {}_EvaluateAmbient\n"
                             "{}\n"
                             "#undef Evaluate\n"
+                            "#undef EvaluateSpecular\n"
                             "#undef EvaluateAmbient\n",
                             RootRelativeName( e.Manifest ), e.Manifest.Guid.ToString(), e.Index, e.Manifest.Name,
-                            e.Manifest.Name, e.Manifest.Body );
+                            e.Manifest.Name, e.Manifest.Name, e.Manifest.Body );
 
         const auto dispatch =
              [&]( const std::string_view signature, const std::string_view suffix, const std::string_view args )
@@ -336,6 +339,9 @@ namespace Desert::Core::ShadingModels
         };
         dispatch( "vec3 DesertEvaluateShadingModel( int index, DesertLight L, DesertSurface S, DesertPayload P )",
                   "Evaluate", "L, S, P" );
+        dispatch( "vec3 DesertEvaluateShadingModelSpecular( int index, DesertLight L, DesertSurface S, "
+                  "DesertPayload P )",
+                  "EvaluateSpecular", "L, S, P" );
         dispatch( "vec3 DesertEvaluateShadingModelAmbient( int index, DesertAmbient A, DesertSurface S, "
                   "DesertPayload P )",
                   "EvaluateAmbient", "A, S, P" );

@@ -2,10 +2,11 @@
 Shader "MegaLightsSpatialResampling"
 {
     // "MegaLights: Spatial Resampling" (ReSTIR DI spatial reuse): each reservoir merges the same layer of
-    // Shadows.MegaLightsSpatialSamples neighbours drawn inside a disc of the method's radius around the pixel, each
+    // Shadows.MegaLightsSpatialSamples neighbouring sample pixels drawn inside a disc of the method's radius (in sample
+    // pixels) around the sample pixel, each
     // re-weighed by the target function at THIS pixel. A neighbour on another surface (its normal or depth differs)
-    // is skipped: its lights' weights there say nothing about this surface. The neighbours' visibility is theirs;
-    // "MegaLights: Shade Samples" traces the merged light again from this pixel before it is shaded.
+    // is skipped: its lights' weights there say nothing about this surface. Nothing is traced yet: "MegaLights: Trace
+    // Samples" tests the light each reservoir ends with, once.
 
     Compute
     {
@@ -13,7 +14,7 @@ Shader "MegaLightsSpatialResampling"
         #define MEGALIGHTS_SHADING
         #include <Common/MegaLights.glslh>
 
-        Uniform(10) texture2D u_Reservoirs; // "MegaLights: Temporal Resampling"
+        Uniform(10) texture2D u_Reservoirs; // "MegaLights: Temporal Resampling", sample-pixel sized
         #define u_Reservoirs sampler2D(u_Reservoirs, u_PointClampSampler)
         layout(binding = 11, rgba32f) writeonly uniform image2D u_OutReservoirs;
 
@@ -25,13 +26,13 @@ Shader "MegaLightsSpatialResampling"
 
         void main()
         {
-        	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-        	const ivec2 size  = MegaLightsViewSize();
+        	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy); // a sample pixel
+        	const ivec2 size  = MegaLightsSampleSize();
         	if (pixel.x >= size.x || pixel.y >= size.y)
         		return;
         	const uint            samples   = MegaLightsSamplesPerPixel();
         	const uint            neighbors = u_Counts.w;
-        	const MegaLightsPixel p         = MegaLightsLoadPixel(pixel);
+        	const MegaLightsPixel p         = MegaLightsLoadPixel(MegaLightsScreenPixel(pixel));
         	uint                  random    = MegaLightsSeed(pixel, 2u);
         	for (uint k = 0u; k < samples; ++k)
         	{
@@ -52,7 +53,7 @@ Shader "MegaLightsSpatialResampling"
         			const ivec2 other  = pixel + ivec2(round(radius * vec2(cos(angle), sin(angle))));
         			if (other == pixel || other.x < 0 || other.y < 0 || other.x >= size.x || other.y >= size.y)
         				continue;
-        			const MegaLightsPixel q = MegaLightsLoadPixel(other);
+        			const MegaLightsPixel q = MegaLightsLoadPixel(MegaLightsScreenPixel(other));
         			if (!q.Valid || dot(q.N, p.N) < kNormalThreshold ||
         			    abs(q.ViewDepth - p.ViewDepth) > kDepthThreshold * p.ViewDepth)
         				continue;
