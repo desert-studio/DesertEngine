@@ -1015,10 +1015,10 @@ namespace
                 const glm::vec2 world = base + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
                                                           ( static_cast<float>( z ) + 0.5f ) * voxel );
                 const size_t    at    = static_cast<size_t>( z ) * side + x;
-                map[at] =
-                     CloudProceduralColumnKept( bake, side, x, z, CloudProceduralLocalWeathers( params, world ), params.Coverage )
-                          ? 1.0f
-                          : 0.0f;
+                map[at]               = CloudProceduralColumnKept(
+                               bake, side, x, z, CloudProceduralLocalWeathers( params, world ), params.Coverage )
+                                             ? 1.0f
+                                             : 0.0f;
             }
         return map;
     }
@@ -1091,7 +1091,9 @@ TEST( CloudProceduralField, CoverageIsEmptyAtZeroAndTheWeathersZerosStayClearAtO
                     if ( std::max( std::max( covers.x, covers.y ), std::max( covers.z, covers.w ) ) > 0.0f )
                         continue;
                     ++zeros;
-                    keptInZeros += CloudProceduralColumnKept( baked.GetValue(), side, x, z, covers, params.Coverage ) ? 1u : 0u;
+                    keptInZeros +=
+                         CloudProceduralColumnKept( baked.GetValue(), side, x, z, covers, params.Coverage ) ? 1u
+                                                                                                            : 0u;
                 }
         }
         EXPECT_GT( zeros, size_t{ 0 } ) << "the shipped weather strength has no true zeros";

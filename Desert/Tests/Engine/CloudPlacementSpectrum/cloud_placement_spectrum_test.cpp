@@ -152,10 +152,10 @@ namespace
                 const glm::vec2 world = base + glm::vec2( ( static_cast<float>( x ) + 0.5f ) * voxel,
                                                           ( static_cast<float>( z ) + 0.5f ) * voxel );
                 const size_t    at    = static_cast<size_t>( z ) * side + x;
-                map[at] =
-                     CloudProceduralColumnKept( bake, side, x, z, CloudProceduralLocalWeathers( params, world ), params.Coverage )
-                          ? 1.0f
-                          : 0.0f;
+                map[at]               = CloudProceduralColumnKept(
+                               bake, side, x, z, CloudProceduralLocalWeathers( params, world ), params.Coverage )
+                                             ? 1.0f
+                                             : 0.0f;
             }
         return map;
     }

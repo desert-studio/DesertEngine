@@ -693,8 +693,8 @@ namespace Desert::Assets
 
         if ( a.RegionSizeKm != b.RegionSizeKm || a.LayerBottomKm != b.LayerBottomKm ||
              a.LayerThicknessKm != b.LayerThicknessKm || a.BlendRadiusKm != b.BlendRadiusKm ||
-             a.CoverageContrast != b.CoverageContrast || a.Seed != b.Seed ||
-             a.WindAxis != b.WindAxis || a.ResolvableChordKm != b.ResolvableChordKm )
+             a.CoverageContrast != b.CoverageContrast || a.Seed != b.Seed || a.WindAxis != b.WindAxis ||
+             a.ResolvableChordKm != b.ResolvableChordKm )
             return false;
 
         if ( a.PlacementDensity != b.PlacementDensity || a.PlacementScatter != b.PlacementScatter ||
@@ -2302,10 +2302,9 @@ namespace Desert::Assets
                     best   = voxels[at + slot];
                     winner = static_cast<int>( slot );
                 }
-            if ( winner >= 0 &&
-                 CloudProceduralCoverRemap(
-                      CloudProceduralCoverageRemap( static_cast<float>( best ) / 255.0f, coverage ),
-                      slotWeather[winner] ) > 0.0f )
+            if ( winner >= 0 && CloudProceduralCoverRemap(
+                                     CloudProceduralCoverageRemap( static_cast<float>( best ) / 255.0f, coverage ),
+                                     slotWeather[winner] ) > 0.0f )
                 return true;
         }
         return false;
@@ -2682,8 +2681,9 @@ namespace Desert::Assets
                                      // cluster's field times its prefilter) met with the fill by `max`; the march
                                      // applies CloudProceduralCoverageRemap with the live Coverage.
                                      const float cut = std::max(
-                                          body, CloudProceduralCoverageRemap(
-                                                     CloudFillFieldOf( params, slot, point, presence, base ), 1.0f ) );
+                                          body,
+                                          CloudProceduralCoverageRemap(
+                                               CloudFillFieldOf( params, slot, point, presence, base ), 1.0f ) );
                                      if ( cut <= 0.0f )
                                          continue;
 
