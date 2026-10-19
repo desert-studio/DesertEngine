@@ -1258,9 +1258,9 @@ namespace Desert::Graphic::System
             {
                 Desert::StaticMesh* const mesh   = meshKey.first;
                 const uint64_t            hidden = meshKey.second;
-                // Per-object state a shared batch entry can't carry: the shadow-receive opt-out, the
-                // contact-shadow cast opt-out (a batch pushes one PrimitiveFlags, the default) and
-                // INSTANCE OVERRIDES вЂ” a batch shares one material
+                // Per-object state a shared batch entry can't carry: hidden submeshes, the
+                // shadow-receive opt-out, the contact-shadow cast opt-out (a batch pushes one
+                // PrimitiveFlags, the default) and INSTANCE OVERRIDES — a batch shares one material
                 // entry, so an overridden instance in it would silently render with someone
                 // else's values. All of those take the per-object path.
                 std::vector<ObjDraw> batchable;
@@ -1560,7 +1560,7 @@ namespace Desert::Graphic::System
                     d.HiddenSubmeshMask = ism.HiddenSubmeshes;
                     d.LodLevel      = level;
                     // A view pass: the wind at the view's previous frame too (B.z), for the instances' velocity.
-                    d.Wind = PackViewInstanceWind( ism.Wind, m_PrevWorldTimeSeconds );
+                    d.Wind           = PackViewInstanceWind( ism.Wind );
                     d.PrimitiveFlags = PrimitiveFlagsOf( ism.CastContactShadow );
                     for ( std::size_t i = 0; i < visible.size(); ++i )
                         if ( levels[i] == level )
@@ -1630,6 +1630,10 @@ namespace Desert::Graphic::System
                 }
             }
         }
+
+        // The GPU-generated sections (the landscape grass), through the same pass's instanced cells.
+        if ( instancingOn )
+            BuildGpuInstancedDraws( list, instancedPipeline, instancedPass, frameState );
     }
 
     void MeshRenderer::BuildSkinnedDraws( MeshDrawList& list )

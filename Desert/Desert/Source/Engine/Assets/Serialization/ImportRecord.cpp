@@ -25,7 +25,7 @@ namespace Desert::Assets::Serialization
                  settings.Skeleton
                       ? std::optional<std::string>( Common::Content::AssetGuidToText( *settings.Skeleton ) )
                       : std::nullopt,
-                 settings.SpecularMap == Assets::FbxSpecularMap::Specular
+                 settings.SpecularMap == Assets::FbxSpecularMap::FromImage
                       ? std::nullopt
                       : std::optional<std::string>( Assets::FbxSpecularMapName( settings.SpecularMap ) ),
                  settings.FileUnit == Assets::MeshFileUnit::FromFile
@@ -59,7 +59,7 @@ namespace Desert::Assets::Serialization
             const auto specular = Assets::FbxSpecularMapFromName( *text.SpecularMap );
             if ( !specular )
                 return Common::MakeFormattedError<Result>(
-                     "import settings name Specular map meaning '{}'; this build knows Specular, "
+                     "import settings name Specular map meaning '{}'; this build knows FromImage, Specular, "
                      "OcclusionRoughnessMetallic and RoughnessMetallic",
                      *text.SpecularMap );
             out.SpecularMap = *specular;
@@ -339,6 +339,61 @@ namespace Desert::Assets::Serialization
         return Common::MakeSuccess( *kind );
     }
 
+    namespace
+    {
+        std::optional<ImportRecordData::Box> RecordBox( const std::optional<Common::Math::AABB>& bounds )
+        {
+            if ( !bounds )
+                return std::nullopt;
+            return ImportRecordData::Box{ { bounds->Min.x, bounds->Min.y, bounds->Min.z },
+                                          { bounds->Max.x, bounds->Max.y, bounds->Max.z } };
+        }
+
+        // What of an import @p data does not state yet (empty: it states all of it) - the one comparison
+        // EnsureImportRecord rewrites by and ReadCurrentImportRecord refuses by.
+        std::string ImportRecordDifference( const ImportRecordData& data, const Common::Content::ContentKind kind,
+                                            const std::optional<ImportRecordData::Box>& box,
+                                            const Assets::SourceImportSettings&         settings )
+        {
+            // No Settings key IS UE's defaults (ReadImportRecordSettings), so a default import matches it.
+            bool sameSettings = !data.Settings && settings == Assets::SourceImportSettings{};
+            if ( data.Settings )
+                if ( const auto stated = ImportSettingsFromText( *data.Settings ) )
+                    sameSettings = stated.GetValue() == settings;
+            if ( !sameSettings )
+                return "other import options";
+            // No box (a file with no mesh: a skeleton and its clips) leaves the stated box as it is.
+            if ( box && !( data.Bounds && data.Bounds->Min == box->Min && data.Bounds->Max == box->Max ) )
+                return "another box";
+            if ( !( data.Header && data.Header->Kind == Common::Content::KindName( kind ) ) )
+                return std::format( "another kind than {}", Common::Content::KindName( kind ) );
+            return {};
+        }
+    } // namespace
+
+    Common::ResultStr<Common::Content::AssetGuid>
+    ReadCurrentImportRecord( const std::filesystem::path& source, const Common::Content::ContentKind kind,
+                             const std::optional<Common::Math::AABB>& bounds,
+                             const Assets::SourceImportSettings&      settings )
+    {
+        using Common::Content::AssetGuid;
+        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
+        if ( auto guid = ReadImportRecordGuid( source ); !guid )
+            return guid;
+        const auto held = HeldRecordFor( record );
+        if ( !held )
+            return Common::MakeFormattedError<AssetGuid>( "'{}' was removed while it was read", record.string() );
+        if ( !held->Data )
+            return Common::MakeFormattedError<AssetGuid>( "{}", held->Error );
+        if ( const std::string differs =
+                  ImportRecordDifference( *held->Data, kind, RecordBox( bounds ), settings );
+             !differs.empty() )
+            return Common::MakeFormattedError<AssetGuid>( "'{}' states {} than this import of '{}'",
+                                                          record.generic_string(), differs,
+                                                          source.generic_string() );
+        return ReadImportRecordGuid( source );
+    }
+
     Common::ResultStr<Common::Content::AssetGuid>
     EnsureImportRecord( const std::filesystem::path& source, const Common::Content::ContentKind kind,
                         const std::optional<Common::Math::AABB>& bounds,
@@ -346,10 +401,7 @@ namespace Desert::Assets::Serialization
     {
         using Common::Content::AssetGuid;
         const std::filesystem::path          record = Common::Content::ImportRecordPathFor( source );
-        std::optional<ImportRecordData::Box> box;
-        if ( bounds )
-            box = ImportRecordData::Box{ { bounds->Min.x, bounds->Min.y, bounds->Min.z },
-                                         { bounds->Max.x, bounds->Max.y, bounds->Max.z } };
+        const std::optional<ImportRecordData::Box> box    = RecordBox( bounds );
         ImportRecordData            data;
         std::error_code             ec;
         if ( std::filesystem::is_regular_file( Common::Constants::Path::FullPath( record ), ec ) )
@@ -366,16 +418,7 @@ namespace Desert::Assets::Serialization
             if ( !stored )
                 return Common::MakeFormattedError<AssetGuid>( "{}", held->Error );
             data = *stored;
-            // No Settings key IS UE's defaults (ReadImportRecordSettings), so a default import matches it.
-            bool sameSettings = !data.Settings && settings == Assets::SourceImportSettings{};
-            if ( data.Settings )
-                if ( const auto stated = ImportSettingsFromText( *data.Settings ) )
-                    sameSettings = stated.GetValue() == settings;
-            // No box (a file with no mesh: a skeleton and its clips) leaves the stated box as it is.
-            const bool sameBox =
-                 !box || ( data.Bounds && data.Bounds->Min == box->Min && data.Bounds->Max == box->Max );
-            const bool sameKind = data.Header && data.Header->Kind == Common::Content::KindName( kind );
-            if ( sameBox && sameSettings && sameKind )
+            if ( ImportRecordDifference( data, kind, box, settings ).empty() )
                 return ReadImportRecordGuid( source );
         }
         else

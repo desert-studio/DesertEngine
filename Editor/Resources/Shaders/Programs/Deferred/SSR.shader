@@ -30,10 +30,10 @@ Shader "SSR"
     // TraceReflections: screen, then mesh SDFs, then the global field; LumenReflections.cpp's MaxRoughnessToTrace)
     // over the SAME tracer the GI's screen probes walk - no second tracer. A ray the screen does not answer (it left
     // the screen, went behind the depth buffer's first layer, met the sky or a texel last frame did not see - UE's
-    // vignette dither decides at the edge) continues from where the screen was certain: the mesh SDFs of the objects
-    // near this tile out to the near field's distance (Common/GITraceMeshSDF.glslh, the tile's own list in shared
-    // memory, nearest first, as ScreenProbeTrace.shader per probe), then the global field (Common/GITracer.glslh)
-    // to the trace distance - ONE such world ray per texel, drawn among the rays the screen left in proportion to
+    // vignette dither decides at the edge) continues from where the screen was certain through the GI ray contract
+    // (Common/GITracer.glslh: for the software tracer the mesh SDFs of the view's near-field froxel grid, UE
+    // LumenMeshSDFCulling, then the global field) to the trace distance - ONE such world ray per texel, drawn among
+    // the rays the screen left in proportion to
     // their weight, answering for all of them (UE: one traced ray per texel); a hit returns its surface cache
     // cards' lighting, or is lit in place where no card
     // holds it (GIHitRadiance). A ray that meets nothing is NOT answered: the captures, then the sky, answer it in
@@ -63,14 +63,6 @@ Shader "SSR"
         	if (gl_LocalInvocationIndex == 0u)
         	{
         		s_TileReflects = 0u;
-        #if defined( DESERT_REFLECTIONS_TRACED )
-        		s_MeshSDFCount = 0u;
-        		for (int a = 0; a < 3; ++a)
-        		{
-        			s_TileBoxMin[a] = 0xFFFFFFFFu;
-        			s_TileBoxMax[a] = 0u;
-        		}
-        #endif
         	}
         	barrier();
 
@@ -117,76 +109,10 @@ Shader "SSR"
         	ivec2 src       = SSRTraceSourcePixel(q, factor, frame, full);
         	const bool owns = q.x < traceSize.x && q.y < traceSize.y && ivec2(floor((vec2(src) + 0.5) / scale)) == tile;
 
-        	bool nearField = false;
-        #if defined( DESERT_REFLECTIONS_TRACED ) && defined( DESERT_GI_TRACER_SOFTWARE )
-        	// --- THE TILE'S MESH SDF OBJECTS (UE CullMeshSDFObjectsToGrid, per tile here as per probe in
-        	// ScreenProbeTrace.shader): the view-culled objects whose box lies within the near field's reach of the
-        	// world box of the tile's traced surfaces that send rays past the screen, nearest first. ---
-        	if (owns && tileReflects)
-        	{
-        		const vec4 gb = SSRSurfaceNormal(src);
-        		const vec3 P  = ReconstructWorldPosition((vec2(src) + 0.5) / vec2(full), SSRSurfaceDepth(src),
-        		                                         u_InvJitteredViewProjection);
-        		nearField = SSRPixelCanReflect(gb) && gb.a < kTracedMaxRoughness &&
-        		            distance(P, u_CameraPos.xyz) <= u_SSRParams2.w;
-        		if (nearField)
-        			for (int a = 0; a < 3; ++a)
-        			{
-        				atomicMin(s_TileBoxMin[a], OrderedFromFloat(P[a]));
-        				atomicMax(s_TileBoxMax[a], OrderedFromFloat(P[a]));
-        			}
-        	}
-        	barrier();
-        	const bool tileNear = s_TileBoxMin[0] <= s_TileBoxMax[0];
-        	if (tileNear)
-        	{
-        		const vec3  tileMin = vec3(FloatFromOrdered(s_TileBoxMin[0]), FloatFromOrdered(s_TileBoxMin[1]),
-        		                           FloatFromOrdered(s_TileBoxMin[2]));
-        		const vec3  tileMax = vec3(FloatFromOrdered(s_TileBoxMax[0]), FloatFromOrdered(s_TileBoxMax[1]),
-        		                           FloatFromOrdered(s_TileBoxMax[2]));
-        		const float reach   = u_SSRParams2.z + 2.0 * kMeshSDFBias;
-        		const uint  count   = GIMeshSDFCulledCount();
-        		for (uint i = gl_LocalInvocationIndex; i < count; i += 64u)
-        		{
-        			vec3       boxMin, boxMax;
-        			const uint object = GIMeshSDFCulledObject(i, boxMin, boxMax);
-        			const vec3 gap    = max(max(boxMin - tileMax, tileMin - boxMax), vec3(0.0));
-        			if (dot(gap, gap) > reach * reach)
-        				continue;
-        			const uint slot = atomicAdd(s_MeshSDFCount, 1u);
-        			if (slot < SSR_MESH_SDF_MAX_OBJECTS)
-        			{
-        				s_MeshSDFObjects[slot] = object;
-        				s_MeshSDFBoxMin[slot]  = vec4(boxMin, length(gap));
-        				s_MeshSDFBoxMax[slot]  = boxMax;
-        			}
-        		}
-        	}
-        	barrier();
-        	// Nearest first (a rank per slot): a ray's first hit then clips the objects behind it to nothing.
-        	{
-        		const uint kept = min(s_MeshSDFCount, SSR_MESH_SDF_MAX_OBJECTS);
-        		const uint self = gl_LocalInvocationIndex;
-        		if (self < kept)
-        		{
-        			const float own  = s_MeshSDFBoxMin[self].w;
-        			uint        rank = 0u;
-        			for (uint j = 0u; j < kept; ++j)
-        			{
-        				const float other = s_MeshSDFBoxMin[j].w;
-        				rank += (other < own || (other == own && j < self)) ? 1u : 0u;
-        			}
-        			s_MeshSDFOrder[rank] = self;
-        		}
-        	}
-        	barrier();
-        	nearField = nearField && s_MeshSDFCount > 0u;
-        #endif
-
         	if (!owns)
         		return;
         	vec4 ray   = vec4(0.0, 0.0, 0.0, -126.0);
-        	vec4 trace = tileReflects ? TraceFrom(src, full, nearField, ray) : vec4(0.0);
+        	vec4 trace = tileReflects ? TraceFrom(src, full, ray) : vec4(0.0);
         	imageStore(u_Trace, q, trace);
         	imageStore(u_TraceRay, q, ray);
         }
@@ -216,7 +142,7 @@ Shader "SSR"
             	const ivec2 src   = SSRTraceSourcePixel(q, int(u_SSRParams3.x + 0.5), frame, full);
             	const ivec2 tile  = min(ivec2(floor((vec2(src) + 0.5) / scale)), grid - 1);
             	vec4 ray   = vec4(0.0, 0.0, 0.0, -126.0);
-            	vec4 trace = imageLoad(u_TileMask, tile).r > 0.5 ? TraceFrom(src, full, false, ray) : vec4(0.0);
+            	vec4 trace = imageLoad(u_TileMask, tile).r > 0.5 ? TraceFrom(src, full, ray) : vec4(0.0);
             	imageStore(u_Trace, q, trace);
             	imageStore(u_TraceRay, q, ray);
             }

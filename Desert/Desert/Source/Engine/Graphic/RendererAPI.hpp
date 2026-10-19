@@ -6,6 +6,7 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RayTracingPipeline.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp>
@@ -165,7 +166,7 @@ namespace Desert::Graphic
         [[nodiscard]] virtual Common::BoolResultStr
         RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                             const glm::mat4& transform, const MaterialExecutor& material, RDG::BufferRef args,
-                            uint64_t offset, uint64_t hiddenSubmeshMask ) = 0;
+                            uint64_t offset, uint64_t hiddenSubmeshMask, MeshDrawArgumentsOrder order ) = 0;
 
         // Transition a storage image to GENERAL for compute writes in the current frame command buffer,
         // making prior graphics (color/shader) writes visible to compute. Pair with ComputeImageEndWrite.
@@ -218,6 +219,13 @@ namespace Desert::Graphic
         virtual Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context,
                                                              RDG::TextureRef source, RDG::TextureRef target,
                                                              uint32_t targetLayer ) = 0;
+        // Copy the tightly packed texels of the graph buffer @p source into mip 0, layer 0 of the colour graph
+        // texture @p target, inside the exec of the Copy node @p context that declared @p source CopySrc and
+        // @p target CopyDst (UE: a texture upload recorded on the graph's command list; no submit, no wait). The
+        // buffer must hold at least Width x Height texels of the target's format, else refused and named.
+        virtual Common::BoolResultStr CopyGraphBufferToTexture( const RDG::PassContext& context,
+                                                                RDG::BufferRef          source,
+                                                                RDG::TextureRef         target ) = 0;
 
         virtual void                         ResizeWindowEvent( uint32_t width, uint32_t height ) = 0;
         virtual void                         WaitDeviceIdle()                                     = 0;

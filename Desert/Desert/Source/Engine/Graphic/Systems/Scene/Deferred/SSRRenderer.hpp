@@ -117,9 +117,8 @@ namespace Desert::Graphic::System
         // What the traced permutation reads beside the screen's inputs (SSR.shader, bindings 10..41), all of this
         // frame's graph: GIHitRadiance's inputs (the GI frame record, the lights and the world light grid, the
         // radiance cache's read - a neutral one covering nothing when the GI does not run it -, the sky's cube,
-        // the G-buffer's albedo and emissive), the tracer (GlobalIllumination::TracerFrame), the surface cache's
-        // hits and, for the software tracer, the mesh SDF near field with its distances (UE
-        // r.Lumen.TraceMeshSDFs.TraceDistance, CardTraceEndDistanceFromCamera - the screen probes' own).
+        // the G-buffer's albedo and emissive), the tracer (GlobalIllumination::TracerFrame: for the software
+        // tracer the view's mesh SDF near field too) and the surface cache's hits.
         struct TracedReads
         {
             GlobalIllumination::TracerFrame Tracer;
@@ -128,7 +127,6 @@ namespace Desert::Graphic::System
             // Owned by the SceneRenderer for the frame (SceneRenderer::m_ReflectionHitGroups).
             const RayTracing::RayTracingHitGroupTable*                      HitGroups = nullptr;
             GlobalIllumination::SurfaceCacheFrame                           SurfaceCache;
-            std::optional<DistanceField::GlobalDistanceField::MeshSDFScene> MeshSDFs;
             GlobalIllumination::RadianceCacheFrame                          RadianceCache;
             RDG::BufferRef                                                  GIFrame;
             RDG::BufferRef                                                  PointLights;
@@ -138,8 +136,6 @@ namespace Desert::Graphic::System
             RDG::TextureRef                                                 EnvSpecular;
             RDG::TextureRef                                                 GBufferA;
             RDG::TextureRef                                                 GBufferEmissive;
-            float                                                           MeshSDFTraceDistance         = 0.0f;
-            float                                                           MeshSDFEndDistanceFromCamera = 0.0f;
         };
 
         // GRAPH BUILD, before DeclareTraceBindings of a traced frame: the traced permutation for @p pipeline's
@@ -412,11 +408,8 @@ namespace Desert::Graphic::System
             float MaxDistance  = 0.0f;
             float Intensity    = 1.0f;
             float Thickness    = 0.0f;
-            // A traced method: the traced permutation (EnsureTracedProgram), with the near field's distances (cm;
-            // software tracer only, 0 otherwise).
-            bool  Traced                       = false;
-            float MeshSDFTraceDistance         = 0.0f;
-            float MeshSDFEndDistanceFromCamera = 0.0f;
+            // A traced method: the traced permutation (EnsureTracedProgram).
+            bool Traced = false;
             // TraceTargets::DownsampleFactor of this frame's targets.
             uint32_t DownsampleFactor = 2;
         };
@@ -490,8 +483,7 @@ namespace Desert::Graphic::System
                               glm::vec4( static_cast<float>( settings.RaysPerPixel ),
                                          static_cast<float>( settings.Iterations ), settings.Intensity,
                                          settings.Thickness ),
-                              glm::vec4( settings.MaxDistance, sceneHistoryReadable ? 1.0f : 0.0f,
-                                         settings.MeshSDFTraceDistance, settings.MeshSDFEndDistanceFromCamera ),
+                              glm::vec4( settings.MaxDistance, sceneHistoryReadable ? 1.0f : 0.0f, 0.0f, 0.0f ),
                               glm::vec4( static_cast<float>( settings.DownsampleFactor ), 0.0f, 0.0f, 0.0f ) };
         }
 
@@ -535,17 +527,6 @@ namespace Desert::Graphic::System
             GlobalIllumination::DeclareTracerReads( block, traced.Tracer );
             if ( traced.Tracer.Pipeline.Hits == GlobalIllumination::HitLighting::SurfaceCache )
                 GlobalIllumination::DeclareSurfaceCacheReads( block, traced.SurfaceCache );
-            if ( traced.MeshSDFs )
-            {
-                const DistanceField::GlobalDistanceField::MeshSDFScene& mesh = *traced.MeshSDFs;
-                block.Texture( "u_DFBrickAtlas", mesh.BrickAtlas, kS, all )
-                     .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                     .Storage( "DFAssetData", mesh.AssetData, kR )
-                     .Storage( "DFIndirection", mesh.Indirection, kR )
-                     .Storage( "DFObjects", mesh.Objects, kR )
-                     .Storage( "GIMeshSDFObjectRowsUB", mesh.ObjectRows, kR )
-                     .Storage( "GIMeshSDFCulledUB", mesh.Culled, kR );
-            }
         }
 
         // Screen pixels per tile edge. The grid is ceil(size / kTileSize) and SSR.shader stretches the

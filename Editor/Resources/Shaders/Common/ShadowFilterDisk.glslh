@@ -10,10 +10,21 @@
 
 const float kGoldenAngle = 2.39996323;
 
-// Jimenez 2014, the noise UE's shadow filters turn their discs by.
+// Jimenez 2014, the noise UE's shadow filters turn their discs by: InterleavedGradientNoise(SvPosition,
+// View.StateFrameIndexMod8). The frame (the sun's: u_ContactShadowView.z, the view's dither frame 0..7, the one the
+// contact march offsets by) turns the disc every frame, so the temporal filter averages eight discs into the
+// penumbra. With the pixel alone the turn was the same every frame: a wide penumbra (a leaf's shadow metres under
+// it) kept a fixed stipple no history could resolve.
+float shadowInterleavedGradientNoise(vec2 pixel, float frame)
+{
+	pixel += frame * 5.588238;
+	return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
+}
+
+// The pixel alone (frame 0): the local lights' PCF, whose layout carries no view dither frame.
 float shadowInterleavedGradientNoise(vec2 pixel)
 {
-	return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
+	return shadowInterleavedGradientNoise(pixel, 0.0);
 }
 
 // Tap i of n on the unit disc, the disc turned by phi.

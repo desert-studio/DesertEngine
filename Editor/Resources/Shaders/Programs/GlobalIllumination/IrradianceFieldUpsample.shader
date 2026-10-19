@@ -30,6 +30,9 @@ Shader "IrradianceFieldUpsample"
         #define u_GIHalfSpecular sampler2D(u_GIHalfSpecular, u_PointClampSampler)
         layout(binding = 5, rgba16f) restrict writeonly uniform image2D u_GIDiffuseOut;
         layout(binding = 6, rgba16f) restrict writeonly uniform image2D u_GISpecularOut;
+        Uniform(7) texture2D u_GIHalfBackface;
+        #define u_GIHalfBackface sampler2D(u_GIHalfBackface, u_PointClampSampler)
+        layout(binding = 8, rgba16f) restrict writeonly uniform image2D u_GIBackfaceOut;
 
         // The relative distance difference at which a sample's weight has fallen to 1/e (another surface).
         #define IF_DISTANCE_TOLERANCE 0.02
@@ -45,6 +48,7 @@ Shader "IrradianceFieldUpsample"
             {
                 imageStore( u_GIDiffuseOut, pixel, vec4( 0.0 ) );
                 imageStore( u_GISpecularOut, pixel, vec4( 0.0 ) );
+                imageStore( u_GIBackfaceOut, pixel, vec4( 0.0 ) );
                 return;
             }
             const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
@@ -61,6 +65,7 @@ Shader "IrradianceFieldUpsample"
 
             vec3  diffuse  = vec3( 0.0 );
             vec3  specular = vec3( 0.0 );
+            vec3  backface = vec3( 0.0 );
             float total    = 0.0;
             float nearest  = 1e30;
             ivec2 nearestH = clamp( base, ivec2( 0 ), halfExtent - 1 );
@@ -84,20 +89,24 @@ Shader "IrradianceFieldUpsample"
                                        max( dot( n, sampleN ), 0.0 );
                 diffuse  += w * d.rgb;
                 specular += w * texelFetch( u_GIHalfSpecular, h, 0 ).rgb;
+                backface += w * texelFetch( u_GIHalfBackface, h, 0 ).rgb;
                 total    += w;
             }
             if ( total > 1e-4 )
             {
                 diffuse  /= total;
                 specular /= total;
+                backface /= total;
             }
             else
             {
                 diffuse  = texelFetch( u_GIHalfDiffuse, nearestH, 0 ).rgb;
                 specular = texelFetch( u_GIHalfSpecular, nearestH, 0 ).rgb;
+                backface = texelFetch( u_GIHalfBackface, nearestH, 0 ).rgb;
             }
             imageStore( u_GIDiffuseOut, pixel, vec4( diffuse, 1.0 ) );
             imageStore( u_GISpecularOut, pixel, vec4( specular, 1.0 ) );
+            imageStore( u_GIBackfaceOut, pixel, vec4( backface, 1.0 ) );
         }
     }
 }

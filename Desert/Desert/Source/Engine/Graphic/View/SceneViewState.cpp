@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string_view>
+#include <utility>
 
 namespace Desert::Graphic
 {
@@ -15,6 +16,23 @@ namespace Desert::Graphic
         {
             return a.Size == b.Size && a.Format == b.Format && a.Mips == b.Mips && a.Layers == b.Layers &&
                    a.Dim == b.Dim && a.Samples == b.Samples;
+        }
+
+        // Bytes of one texture of @p desc: every mip of every layer, every sample.
+        [[nodiscard]] uint64_t TextureBytes( const RDG::TextureDesc& desc )
+        {
+            uint64_t bytes  = 0;
+            uint32_t width  = desc.Size.Width;
+            uint32_t height = desc.Size.Height;
+            uint32_t depth  = desc.Size.Depth;
+            for ( uint32_t mip = 0; mip < desc.Mips; ++mip )
+            {
+                bytes += Core::Formats::CalculateImageSize( width, height, desc.Format ) * depth;
+                width  = std::max( 1u, width / 2 );
+                height = std::max( 1u, height / 2 );
+                depth  = desc.Dim == RDG::TextureDim::Tex3D ? std::max( 1u, depth / 2 ) : depth;
+            }
+            return bytes * desc.Layers * desc.Samples;
         }
 
         [[nodiscard]] bool IsFinite( const glm::mat4& m )
@@ -82,6 +100,199 @@ namespace Desert::Graphic
             return Common::MakeSuccess( true );
         }
     } // namespace
+
+    // ---- VolumetricCloudHistory -----------------------------------------------------------------------------
+
+    RDG::TextureDesc VolumetricCloudHistory::Desc( const ViewExtent halfExtent )
+    {
+        return RDG::TextureDesc{ .Size   = { .Width = halfExtent.Width, .Height = halfExtent.Height },
+                                 .Format = ViewTargetFormats::kCloudTrace };
+    }
+
+    VolumetricCloudHistory::Refs VolumetricCloudHistory::RegisterPrevious( RDG::Builder&    graph,
+                                                                           const ViewExtent halfExtent )
+    {
+        m_Created                                     = false;
+        m_WriterPass                                  = UINT32_MAX;
+        std::array<RDG::ExternalTexture, 2>& previous = m_Slots[m_PreviousSlot];
+        // Another extent is another view size: the pair describes pixels that no longer exist.
+        if ( !m_HasPrevious || !previous[0].Physical || !previous[1].Physical ||
+             m_PreviousExtent.Width != halfExtent.Width || m_PreviousExtent.Height != halfExtent.Height )
+            return {};
+        return { graph.RegisterExternal( previous[0], "Clouds.History.Previous" ),
+                 graph.RegisterExternal( previous[1], "Clouds.HistoryGuide.Previous" ) };
+    }
+
+    VolumetricCloudHistory::Refs VolumetricCloudHistory::CreateCurrent( RDG::Builder&    graph,
+                                                                        const ViewExtent halfExtent )
+    {
+        // The other slot: what it held is two frames old and nothing registers it any more. Emptied first, so a
+        // frame whose extraction does not happen leaves no stale image in it.
+        std::array<RDG::ExternalTexture, 2>& next = m_Slots[m_PreviousSlot ^ 1u];
+        next                                      = {};
+        const RDG::TextureDesc desc               = Desc( halfExtent );
+        const Refs             current{ graph.CreateTexture( desc, "Clouds.History" ),
+                            graph.CreateTexture( desc, "Clouds.HistoryGuide" ) };
+        graph.Extract( current.Scatter, next[0], RDG::Access::SampledCompute );
+        graph.Extract( current.Guide, next[1], RDG::Access::SampledCompute );
+        m_CurrentExtent = halfExtent;
+        m_Created       = true;
+        m_WriterPass    = UINT32_MAX;
+        return current;
+    }
+
+    void VolumetricCloudHistory::SetWriterPass( const uint32_t writerPass )
+    {
+        m_WriterPass = writerPass;
+    }
+
+    void VolumetricCloudHistory::EndFrame( const RDG::ExecuteReport& report )
+    {
+        const bool created = std::exchange( m_Created, false );
+        const bool lost    = m_WriterPass == UINT32_MAX ||
+                          std::ranges::find( report.FaultCulled, m_WriterPass ) != report.FaultCulled.end();
+        const uint32_t next = m_PreviousSlot ^ 1u;
+        if ( !created || lost || !m_Slots[next][0].Physical || !m_Slots[next][1].Physical )
+        {
+            // No pair of THIS frame: the next frame's previous matrices describe this frame, so nothing older may
+            // be reprojected through them. The memory goes with it (a view whose clouds are off holds none).
+            m_Slots       = {};
+            m_HasPrevious = false;
+            return;
+        }
+        m_PreviousSlot   = next;
+        m_PreviousExtent = m_CurrentExtent;
+        m_HasPrevious    = true;
+    }
+
+    void VolumetricCloudHistory::Reset()
+    {
+        m_Slots          = {};
+        m_PreviousExtent = {};
+        m_CurrentExtent  = {};
+        m_PreviousSlot   = 0;
+        m_HasPrevious    = false;
+        m_Created        = false;
+        m_WriterPass     = UINT32_MAX;
+    }
+
+    uint64_t VolumetricCloudHistory::HeldBytes() const
+    {
+        uint64_t bytes = 0;
+        for ( const std::array<RDG::ExternalTexture, 2>& slot : m_Slots )
+            for ( const RDG::ExternalTexture& side : slot )
+                if ( side.Physical )
+                    bytes += TextureBytes( side.Desc );
+        return bytes;
+    }
+
+    // ---- ScreenProbeGatherHistory ---------------------------------------------------------------------------
+
+    namespace
+    {
+        constexpr std::array<std::string_view, ScreenProbeGatherHistory::TextureCount> kScreenProbeHistoryNames{
+             "ScreenProbes.DiffuseIndirect", "ScreenProbes.RoughSpecularIndirect",
+             "ScreenProbes.BackfaceDiffuseIndirect", "ScreenProbes.HistoryGuide" };
+        constexpr std::array<std::string_view, ScreenProbeGatherHistory::TextureCount> kScreenProbePreviousNames{
+             "ScreenProbes.DiffuseIndirect.Previous", "ScreenProbes.RoughSpecularIndirect.Previous",
+             "ScreenProbes.BackfaceDiffuseIndirect.Previous", "ScreenProbes.HistoryGuide.Previous" };
+
+        using ScreenProbeHistorySet = std::array<RDG::ExternalTexture, ScreenProbeGatherHistory::TextureCount>;
+
+        [[nodiscard]] bool AnyMissing( const ScreenProbeHistorySet& set )
+        {
+            return std::ranges::any_of( set,
+                                        []( const RDG::ExternalTexture& texture ) { return !texture.Physical; } );
+        }
+    } // namespace
+
+    RDG::TextureDesc ScreenProbeGatherHistory::Desc( const Texture texture, const ViewExtent extent )
+    {
+        return RDG::TextureDesc{ .Size   = { .Width = extent.Width, .Height = extent.Height },
+                                 .Format = texture == Guide ? ViewTargetFormats::kGIFinalGatherGuide
+                                                            : ViewTargetFormats::kGIFinalGather };
+    }
+
+    ScreenProbeGatherHistory::Refs ScreenProbeGatherHistory::RegisterPrevious( RDG::Builder&    graph,
+                                                                               const ViewExtent extent )
+    {
+        m_Created                                                = false;
+        m_WriterPass                                             = UINT32_MAX;
+        std::array<RDG::ExternalTexture, TextureCount>& previous = m_Slots[m_PreviousSlot];
+        // Another extent is another view size: the set describes pixels that no longer exist.
+        if ( !m_HasPrevious || AnyMissing( previous ) || m_PreviousExtent.Width != extent.Width ||
+             m_PreviousExtent.Height != extent.Height )
+            return {};
+        Refs refs;
+        for ( uint32_t i = 0; i < TextureCount; ++i )
+            refs[i] = graph.RegisterExternal( previous[i], kScreenProbePreviousNames[i] );
+        return refs;
+    }
+
+    ScreenProbeGatherHistory::Refs ScreenProbeGatherHistory::CreateCurrent( RDG::Builder&    graph,
+                                                                            const ViewExtent extent )
+    {
+        // The other slot held the set of two frames ago, which nothing registers any more; emptied first so a
+        // frame whose extraction does not happen leaves no stale image in it.
+        std::array<RDG::ExternalTexture, TextureCount>& next = m_Slots[m_PreviousSlot ^ 1u];
+        next                                                 = {};
+        Refs current;
+        for ( uint32_t i = 0; i < TextureCount; ++i )
+        {
+            current[i] =
+                 graph.CreateTexture( Desc( static_cast<Texture>( i ), extent ), kScreenProbeHistoryNames[i] );
+            graph.Extract( current[i], next[i], RDG::Access::SampledCompute );
+        }
+        m_CurrentExtent = extent;
+        m_Created       = true;
+        m_WriterPass    = UINT32_MAX;
+        return current;
+    }
+
+    void ScreenProbeGatherHistory::SetWriterPass( const uint32_t writerPass )
+    {
+        m_WriterPass = writerPass;
+    }
+
+    void ScreenProbeGatherHistory::EndFrame( const RDG::ExecuteReport& report )
+    {
+        const bool created = std::exchange( m_Created, false );
+        const bool lost    = m_WriterPass == UINT32_MAX ||
+                          std::ranges::find( report.FaultCulled, m_WriterPass ) != report.FaultCulled.end();
+        const uint32_t next = m_PreviousSlot ^ 1u;
+        if ( !created || lost || AnyMissing( m_Slots[next] ) )
+        {
+            // No set of THIS frame: nothing older may be reprojected through the next frame's previous matrices.
+            // The memory goes with it (a view without the screen probe gather holds none).
+            m_Slots       = {};
+            m_HasPrevious = false;
+            return;
+        }
+        m_PreviousSlot   = next;
+        m_PreviousExtent = m_CurrentExtent;
+        m_HasPrevious    = true;
+    }
+
+    void ScreenProbeGatherHistory::Reset()
+    {
+        m_Slots          = {};
+        m_PreviousExtent = {};
+        m_CurrentExtent  = {};
+        m_PreviousSlot   = 0;
+        m_HasPrevious    = false;
+        m_Created        = false;
+        m_WriterPass     = UINT32_MAX;
+    }
+
+    uint64_t ScreenProbeGatherHistory::HeldBytes() const
+    {
+        uint64_t bytes = 0;
+        for ( const std::array<RDG::ExternalTexture, TextureCount>& slot : m_Slots )
+            for ( const RDG::ExternalTexture& texture : slot )
+                if ( texture.Physical )
+                    bytes += TextureBytes( texture.Desc );
+        return bytes;
+    }
 
     // ---- TemporalHistory ------------------------------------------------------------------------------------
 
@@ -324,6 +535,26 @@ namespace Desert::Graphic
         return Common::MakeSuccess( f );
     }
 
+    VolumetricCloudHistory& SceneViewState::Clouds()
+    {
+        return m_Clouds;
+    }
+
+    const VolumetricCloudHistory& SceneViewState::Clouds() const
+    {
+        return m_Clouds;
+    }
+
+    ScreenProbeGatherHistory& SceneViewState::ScreenProbeGather()
+    {
+        return m_ScreenProbeGather;
+    }
+
+    const ScreenProbeGatherHistory& SceneViewState::ScreenProbeGather() const
+    {
+        return m_ScreenProbeGather;
+    }
+
     TemporalHistory& SceneViewState::History()
     {
         return m_History;
@@ -344,12 +575,16 @@ namespace Desert::Graphic
                                          ? 0
                                          : ( m_Committed.JitterIndex + 1 ) % m_Committed.JitterSequenceLength;
         m_PendingFaultReset       = m_History.LostToFault( report );
+        m_Clouds.EndFrame( report );
+        m_ScreenProbeGather.EndFrame( report );
         m_History.Swap();
         m_Motion.EndFrame();
     }
 
     void SceneViewState::Reset()
     {
+        m_Clouds.Reset();
+        m_ScreenProbeGather.Reset();
         m_History.Release();
         m_UpscalerHistory.reset();
         m_Motion.Clear();

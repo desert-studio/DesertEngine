@@ -68,14 +68,11 @@ namespace Desert::Graphic::System
             m_ShadowInstancedMaterial[i].reset();
             m_ShadowSkinnedMaterial[i].reset();
         }
-        // The local lights' atlas is sized by the same budget (LocalShadowAtlasSize): it is made again, at the
-        // new size, by the first light that casts after this, and every light's tiles and cache go with it.
+        // The local lights' atlas is the scene's (Graphic/LocalShadowCache.hpp): it follows the viewports' new
+        // budget (LocalShadowAtlasSize) at the next frame boundary. This view's table goes.
         // The array is made again at the new size by the next frame (AcquireCascadeMaps); the device is idle.
         m_CascadeMaps      = RDG::ExternalTexture{};
         m_CascadeMapsBuilt = false;
-        m_LocalAtlasFB.reset();
-        m_LocalAtlas.Reset( 0 );
-        m_LocalLights.clear();
         m_LocalShadowRows.clear();
         m_LocalRedraws.clear();
         m_ShadowPipeline.reset();
@@ -351,6 +348,9 @@ namespace Desert::Graphic::System
                  IsVisibleInView( frustum, sd.Transform, Geometry::LocalBounds( sd.Mesh->GetSubmeshes() ) ) )
                 movable = true;
         }
+        for ( const auto& gpu : m_GpuInstancedQueue )
+            if ( gpu.CastShadows )
+                movable = true; // regenerated around the camera every frame
         return hash.Value;
     }
 
@@ -587,6 +587,7 @@ namespace Desert::Graphic::System
         switch ( path )
         {
             case MeshVertexPath::Instanced:
+            case MeshVertexPath::GrassBlade: // the same vertex layout: the blade strip is a mesh
                 shared = casters.Instanced;
                 break;
             case MeshVertexPath::Skinned:
@@ -1154,6 +1155,11 @@ namespace Desert::Graphic::System
         // (CollectVirtualShadowInvalidation).
         if ( maskedPending && IsVirtualShadowView( c ) )
             m_VsmCastersPending = true;
+
+        // The GPU-generated sections move with the camera (and sway): every frame, over the cache. Cascades only:
+        // their caster cells and light cameras are the cascades' (a virtual shadow map level draws none of them).
+        if ( drawMovable && c < kMaxCascades )
+            BuildGpuInstancedShadowDraws( c, list );
     }
     RDG::TextureRef MeshRenderer::AcquireCascadeMaps( RDG::Builder& graph )
     {

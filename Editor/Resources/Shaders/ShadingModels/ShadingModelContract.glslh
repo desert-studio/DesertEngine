@@ -29,7 +29,8 @@
 //   vec3  DesertEvaluateShadingModel( int index, DesertLight L, DesertSurface S, DesertPayload P );
 //   vec3  DesertEvaluateShadingModelSpecular( int index, DesertLight L, DesertSurface S, DesertPayload P );
 //   vec3  DesertEvaluateShadingModelAmbient( int index, DesertAmbient A, DesertSurface S, DesertPayload P );
-//   uvec2 DesertPackShadingWord( int index, float sampledTextureCount, DesertPayload P );
+//   uvec2 DesertPackShadingWord( int index, float sampledTextureCount, float specular, DesertPayload P );
+//   float DesertShadingWordSpecular( uvec2 shadingWord );
 //   int   DesertShadingModelIndex( uvec2 shadingWord );
 //   float DesertSampledTextureCount( uvec2 shadingWord );
 //   DesertPayload DesertUnpackPayload( uvec2 shadingWord );
@@ -79,9 +80,10 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 //   bits 26..31  free
 //   bits 32..39  payload 2, unorm8   (.y bits 0..7)
 //   bits 40..47  payload 3, unorm8   (.y bits 8..15)
-//   bits 48..55  SUN_SELF_SHADOW, unorm8 of (1 - SurfaceOutput.SunSelfShadow): the relief's own shadow from the main
+//   bits 48..55  Specular, unorm8 (UE's Specular pin, GBuffer Specular): the dielectric F0 = 0.08 x Specular
+//                (DesertSpecularF0); 0.5, UE's default, is the 4 % of a common dielectric
+//   bits 56..63  SUN_SELF_SHADOW, unorm8 of (1 - SurfaceOutput.SunSelfShadow): the relief's own shadow from the main
 //                directional light (parallax occlusion, Mesh/Surface/SurfaceParallax.glslh); 0, the clear value, lit
-//   bits 56..63  free
 // The target clears to 0: an untouched texel reads Unlit, no payload, receives sun shadows.
 // ShadingModelManifest.hpp (kShadingWordFields) is the C++ half of this table; the ShadingModelContract suite
 // holds the two equal and the fields disjoint.
@@ -96,7 +98,9 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 #define DESERT_SHADING_WORD_PAYLOAD_BITS       8
 #define DESERT_SHADING_WORD_NO_SUN_SHADOWS_BIT 24
 #define DESERT_SHADING_WORD_NO_CONTACT_SHADOW_BIT 25
-#define DESERT_SHADING_WORD_SUN_SELF_SHADOW_FIRST_BIT 48
+#define DESERT_SHADING_WORD_SPECULAR_FIRST_BIT 48
+#define DESERT_SHADING_WORD_SPECULAR_BITS      8
+#define DESERT_SHADING_WORD_SUN_SELF_SHADOW_FIRST_BIT 56
 #define DESERT_SHADING_WORD_SUN_SELF_SHADOW_BITS      8
 
 // The G-buffer writer marks the flag after DesertPackShadingWord, so the deferred composite applies the toggle
@@ -163,6 +167,7 @@ struct DesertSurface
     vec3  BaseColor; // linear
     float Metallic;
     float Roughness; // already clamped to >= 0.04 by the pass (the GGX NDF divides by it)
+    float Specular;  // UE's Specular pin: the dielectric reflectance, F0 = 0.08 x Specular (DesertSpecularF0)
 };
 
 // THE ONE PLACE a DesertSurface is made: both passes (Pass_Forward.glslh, DeferredLighting.shader) build it here
@@ -170,7 +175,7 @@ struct DesertSurface
 // interpolated or G-buffer-decoded normal is not unit length; a model quantizing N.L (Toon's bands) turns that
 // per-triangle shortfall into band edges that follow the polygons.
 DesertSurface DesertMakeSurface( vec3 worldPosition, vec3 normal, vec3 toEye, vec3 baseColor, float metallic,
-                                 float roughness )
+                                 float roughness, float specular )
 {
     DesertSurface S;
     S.WorldPosition = worldPosition;
@@ -179,7 +184,15 @@ DesertSurface DesertMakeSurface( vec3 worldPosition, vec3 normal, vec3 toEye, ve
     S.BaseColor     = baseColor;
     S.Metallic      = metallic;
     S.Roughness     = max( roughness, 0.04 ); // GGX NDF stays finite for mirror-smooth surfaces
+    S.Specular      = specular;
     return S;
+}
+
+// UE ComputeF0 (ShadingCommon.ush): the reflectance at normal incidence, the dielectric's 0.08 x Specular blended
+// into the base colour by Metallic. Every model's F0, so the material's Specular reaches every lobe it lights.
+vec3 DesertSpecularF0( DesertSurface S )
+{
+    return mix( vec3( 0.08 * S.Specular ), S.BaseColor, S.Metallic );
 }
 
 // One light source as it arrives at the surface (DirectLighting.glslh:36-47 is the same split: everything specific
@@ -190,6 +203,14 @@ struct DesertLight
     vec3  Radiance; // colour * intensity * distance falloff * cone — the source's own model, already applied
     float Shadow;   // 1 = unoccluded. The sun: cascades (unless ReceiveSunShadows < 0.5) times the cloud layer
                     // (DeferredLighting.shader:300, Pass_Forward.glslh:120-125); point and spot lights: 1.
+    // UE FShadowTerms::TransmissionShadow: the share of the light that reaches a subsurface receiver THROUGH what
+    // stands between it and the light — exp( -thickness * density ), the occluder's thickness read from the same
+    // shadow map with no receiver offset (Mesh/CascadedShadow.glslh TransmissionShadowFactor,
+    // Mesh/LocalLightShadow.glslh), times the contact shadow and the cloud layer as Shadow is. A model's
+    // transmitted light takes this, its surface light takes Shadow (UE TwoSidedBxDF via LightAccumulator_AddSplit):
+    // Shadow's normal offset moves a leaf's far side AWAY from the light, behind the leaf itself, so Shadow is 0
+    // exactly where the light shines through. 1 for a receiver that is not a subsurface model (no model reads it).
+    float TransmissionShadow;
 };
 
 // The environment at the surface, sampled once by the pass for the model's normal and roughness (the split-sum
@@ -201,6 +222,16 @@ struct DesertAmbient
     vec2  SpecularBRDF; // split-sum LUT .rg at (max(dot(S.N, S.V), 0), S.Roughness)
     vec3  Indirect;     // one-bounce INCIDENT light (the deferred GI gather); vec3( 0.0 ) in the forward passes
     float Occlusion;    // the material's AmbientOcclusion times SSAO where the pass has it (DeferredLighting.shader:250)
+    // 1 when Irradiance and Prefiltered are a TRACED final gather (the screen probes: UE's Lumen diffuse indirect
+    // and its rough reflections), 0 when they are the sky cubes (UE's sky light). A model whose ambient reads a
+    // direction of its own (TwoSidedFoliage's far hemisphere) may read the sky cube only in the second case: in the
+    // first the cube is the open sky the trace has already occluded, so a leaf deep in a canopy would take the
+    // whole sky through its back face.
+    float Traced;
+    // The diffuse irradiance arriving from behind the surface, -S.N (same units as Irradiance): the sky cube's at -N
+    // under the sky light, the traced gather's backface where Traced is 1 (UE BackfaceDiffuseIndirect). Read by a
+    // model that lets light through (TwoSidedFoliage).
+    vec3  BackIrradiance;
 };
 
 #endif

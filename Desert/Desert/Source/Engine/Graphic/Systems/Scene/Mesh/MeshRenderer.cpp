@@ -8,6 +8,7 @@
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <algorithm>
+#include <optional>
 
 namespace Desert::Graphic::System
 {
@@ -27,24 +28,29 @@ namespace Desert::Graphic::System
             {
                 if ( !prop.bIsOverridden )
                     continue;
-                const auto slot = Core::Formats::MaterialParamSlot( material->GetSchema(), name );
-                if ( !slot || *slot >= row.size() )
-                    continue;
-                glm::vec4& dst = row[*slot];
-                std::visit(
-                     [&dst]( const auto& v )
+                // The authored value as a vec4, then written as the bytes of the parameter's declared type
+                // (Core::Formats::MaterialRowSlotValue, via SetMaterialParam) — an Int/Bool slot is an int.
+                // A value that is not row bytes (a matrix, a texture) is skipped.
+                const std::optional<glm::vec4> authored = std::visit(
+                     []( const auto& v ) -> std::optional<glm::vec4>
                      {
                          using T = std::decay_t<decltype( v )>;
                          if constexpr ( std::is_same_v<T, float> )
-                             dst = glm::vec4( v, 0.0f, 0.0f, 0.0f );
+                             return glm::vec4( v, 0.0f, 0.0f, 0.0f );
+                         else if constexpr ( std::is_same_v<T, int> || std::is_same_v<T, bool> )
+                             return glm::vec4( static_cast<float>( v ), 0.0f, 0.0f, 0.0f );
                          else if constexpr ( std::is_same_v<T, glm::vec2> )
-                             dst = glm::vec4( v, 0.0f, 0.0f );
+                             return glm::vec4( v, 0.0f, 0.0f );
                          else if constexpr ( std::is_same_v<T, glm::vec3> )
-                             dst = glm::vec4( v, dst.w );
+                             return glm::vec4( v, 0.0f );
                          else if constexpr ( std::is_same_v<T, glm::vec4> )
-                             dst = v;
+                             return v;
+                         else
+                             return std::nullopt;
                      },
                      prop.Value );
+                if ( authored )
+                    Core::Formats::SetMaterialParam( material->GetSchema(), row, name, *authored );
             }
             return row;
         }
@@ -124,6 +130,7 @@ namespace Desert::Graphic::System
             switch ( path )
             {
                 case MeshVertexPath::Instanced:
+                case MeshVertexPath::GrassBlade:
                     return "InstanceTransforms";
                 case MeshVertexPath::Skinned:
                     return ShaderProtocols::SkinnedUB::Name;
@@ -190,6 +197,7 @@ namespace Desert::Graphic::System
         m_SkinnedQueue.clear();
         m_GenericQueue.clear();
         m_InstancedQueue.clear();
+        m_GpuInstancedQueue.clear();
     }
 
     uint32_t MeshRenderer::ComputeLOD( const glm::mat4& transform, const Mesh* mesh, int forcedLOD,
@@ -222,6 +230,12 @@ namespace Desert::Graphic::System
     {
         if ( data.Mesh && data.Material && data.Transforms && !data.Transforms->empty() )
             m_InstancedQueue.push_back( data );
+    }
+
+    void MeshRenderer::SubmitGpuInstanced( const GpuInstancedRenderData& data )
+    {
+        if ( data.Mesh != nullptr && data.Material && data.Instances && data.Refs != nullptr )
+            m_GpuInstancedQueue.push_back( data );
     }
 
     namespace MeshRendererDetail
@@ -313,6 +327,18 @@ namespace Desert::Graphic::System
                 }
                 perBlock( block, *layout );
             }
+            // A GPU-instanced draw's buffers: the graph places the compute-write -> vertex / indirect barrier from
+            // these (its material binds the transforms; the record reads the arguments). Each buffer once.
+            std::vector<RDG::BufferRef> read;
+            for ( const MeshDrawCommand& command : m_Commands )
+            {
+                if ( !command.IndirectArgs.IsValid() ||
+                     std::find( read.begin(), read.end(), command.IndirectArgs ) != read.end() )
+                    continue;
+                read.push_back( command.IndirectArgs );
+                declaration.Read( command.IndirectArgs, RDG::Access::IndirectArgs );
+                declaration.Read( command.IndirectInstances, RDG::Access::StorageRead );
+            }
         }
 
         void MeshDrawList::Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view ) const
@@ -349,12 +375,25 @@ namespace Desert::Graphic::System
                 {
                     draw.BindState();
                 }
+                // A GPU-instanced draw (GpuInstances.hpp): its own argument records, one per submesh of the mesh
+                // after the header, the instance counts its generator wrote.
+                if ( draw.IndirectArgs.IsValid() )
+                {
+                    static_assert( kGpuInstanceArgsRecordBytes == kMeshDrawArgumentsBytes );
+                    if ( auto drawn = Renderer::RenderMeshIndirect(
+                              *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
+                              draw.IndirectArgs, kGpuInstanceArgsHeaderBytes, draw.HiddenSubmeshMask,
+                              MeshDrawArgumentsOrder::Submesh );
+                         !drawn.IsSuccess() )
+                        return drawn;
+                    continue;
+                }
                 if ( m_IndirectArguments.IsValid() )
                 {
                     if ( auto drawn = Renderer::RenderMeshIndirect(
                               *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
                               m_IndirectArguments, uint64_t{ m_FirstRecords[i] } * kMeshDrawArgumentsBytes,
-                              draw.HiddenSubmeshMask );
+                              draw.HiddenSubmeshMask, MeshDrawArgumentsOrder::Drawn );
                          !drawn.IsSuccess() )
                         return drawn;
                     continue;

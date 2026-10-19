@@ -122,6 +122,9 @@ namespace Desert::Assets
         // distance to its surface, never a false interior behind a leaf card.
         std::vector<uint8_t> TriangleTwoSided;
     };
+    // UE FEmbreeScene::bMostlyTwoSided: at least a quarter of the input's triangles are two-sided (foliage
+    // cards) - the cards' rule (MeshCardBuild.cpp), which counts the same flags over the non-degenerate ones.
+    [[nodiscard]] bool MostlyTwoSided( const MeshDistanceFieldBuildInput& input );
     // @p submeshTwoSided: one flag per submesh, its material's resolved two-sidedness (ResolveMaterialTwoSided).
     [[nodiscard]] Common::ResultStr<MeshDistanceFieldBuildInput>
     MeshDistanceFieldInputOf( const std::vector<Vertex>& vertices, const std::vector<Index>& indices,
@@ -204,15 +207,30 @@ namespace Desert::Assets
     // WHERE A MESH'S FIELD LANDS WHEN ITS BUILD FINISHES (UE FDistanceFieldAsyncQueue: the mesh renders without
     // a field until the task completes, then the field is attached). Empty until then - and for good when the
     // build failed, which the queue logs naming the mesh. Read from any thread; written once, by the queue.
+    //
+    // The slot also says whether the mesh is MOSTLY TWO-SIDED (UE FDistanceFieldVolumeData::bMostlyTwoSided, set
+    // from FEmbreeScene): known from the build input before any field exists, so it is the slot's, not the
+    // cooked field's - a DDC entry holds the field alone and no cached field is rebuilt for it. The global
+    // distance field composites such a mesh as foliage: it marks no voxel covered, and a GI ray passes its
+    // surface stochastically (GlobalDistanceField.glslh).
     class MeshDistanceFieldSlot
     {
     public:
+        explicit MeshDistanceFieldSlot( bool mostlyTwoSided ) : m_MostlyTwoSided( mostlyTwoSided )
+        {
+        }
+
         [[nodiscard]] std::shared_ptr<const MeshDistanceFieldData> Get() const;
         void Publish( std::shared_ptr<const MeshDistanceFieldData> field );
+        [[nodiscard]] bool MostlyTwoSided() const
+        {
+            return m_MostlyTwoSided;
+        }
 
     private:
         mutable std::mutex                           m_Mutex;
         std::shared_ptr<const MeshDistanceFieldData> m_Field;
+        const bool                                   m_MostlyTwoSided;
     };
 
     // THE ASYNCHRONOUS QUEUE (UE FDistanceFieldAsyncQueue, DistanceFieldAtlas.cpp): a field is derived (DDC read

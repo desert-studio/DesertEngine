@@ -1,0 +1,109 @@
+#ifndef SCREEN_PROBE_TRACING_GLSLH
+#define SCREEN_PROBE_TRACING_GLSLH
+
+// THE SCREEN PROBE TRACE'S SHARED PIECES (UE LumenScreenProbeTracingCommon.ush): the passes of the trace
+// (ScreenProbeTraceScreen, ScreenProbeCompactTraces, ScreenProbeTrace's near and far field) each rebuild a texel's
+// ray from its probe, its texel and the frame, and hand one another the ray's state in the TRACE HIT buffer: one uint
+// per traced texel (probe * SP_RES² + texel), UE's EncodeProbeRayDistance - the distance the ray has been answered to
+// (a hit's, or how far the legs so far found nothing), bit 0 = a hit (its radiance is in ScreenProbes.Traced), bit
+// 1 = the hit is MOVING relative to the probe (UE IsTraceMoving: the filter's per-probe moving fraction drives the
+// temporal filter's fast update), bit 31 = the ray reached the radiance cache's coverage (only the far field's
+// cache and sky are left).
+//
+// Needs Common/ScreenProbes.glslh read (SCREEN_PROBES_DECLARED: screenProbeParams, screenProbeIndex, screenProbes).
+// The texel's ray (SPMakeTexelRay) is defined when Common/RadianceCache.glslh was included before, with
+// `radianceCache` declared (the compaction builds no ray and reads no cache).
+
+// How far a ray looks before it is a miss, cm (UE r.Lumen.MaxTraceDistance; the radiance cache's own).
+#define SP_TRACE_DISTANCE 20000.0
+
+#define SP_TRACE_HIT_BIT     0x00000001u
+#define SP_TRACE_MOVING_BIT  0x00000002u
+#define SP_TRACE_REACHED_BIT 0x80000000u
+
+// UE r.Lumen.ScreenProbeGather.Temporal.RelativeSpeedDifferenceToConsiderLightingMoving: the difference between the
+// probe's world speed and its hit's, per cm of the probe's scene depth, above which the ray's lighting is moving.
+#define SP_RELATIVE_SPEED_DIFFERENCE_TO_CONSIDER_LIGHTING_MOVING 0.005
+
+// UE EncodeProbeRayDistance (LumenScreenProbeCommon.ush): the same bits.
+uint SPEncodeTraceHit( float distance, bool hit, bool moving, bool reachedCache )
+{
+    return ( floatBitsToUint( max( distance, 0.0 ) ) & 0x7FFFFFFCu ) | ( hit ? SP_TRACE_HIT_BIT : 0u ) |
+           ( moving ? SP_TRACE_MOVING_BIT : 0u ) | ( reachedCache ? SP_TRACE_REACHED_BIT : 0u );
+}
+
+float SPTraceHitDistance( uint encoded )
+{
+    return uintBitsToFloat( encoded & 0x7FFFFFFCu );
+}
+
+bool SPTraceMoving( uint encoded )
+{
+    return ( encoded & SP_TRACE_MOVING_BIT ) != 0u;
+}
+
+// UE IsTraceMoving (LumenScreenProbeTracingCommon.ush:28, its VELOCITY_IS_ACCURATE 0 form): the ray's hit moved
+// differently from the probe - @p probeSpeed is the probe's world speed (cm per frame, ScreenProbePlace's
+// ScreenProbes.Speed), @p probeSceneDepth its view depth (cm), @p hitVelocity the hit's world motion this frame.
+bool SPIsTraceMoving( float probeSpeed, float probeSceneDepth, vec3 hitVelocity )
+{
+    return abs( probeSpeed - length( hitVelocity ) ) / max( probeSceneDepth, 100.0 ) >
+           SP_RELATIVE_SPEED_DIFFERENCE_TO_CONSIDER_LIGHTING_MOVING;
+}
+
+// Whether @p probe holds a probe this frame (the uniform ones, then as many adaptive ones as were placed).
+bool SPProbeTraced( uint probe )
+{
+    const uint uniformProbes = screenProbeParams.grid.z;
+    if ( probe >= uniformProbes && probe - uniformProbes >= min( screenProbeIndex[0], screenProbeParams.grid.w ) )
+        return false;
+    return screenProbes[probe].position.w > 0.0;
+}
+
+// Per texel and frame: a jitter inside the texel and a dither (PCG hash).
+vec3 SPTexelNoise( uint probe, uint texel, uint frame )
+{
+    uvec3 v = uvec3( probe, texel, frame ) * 1664525u + 1013904223u;
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    v ^= v >> 16u;
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    return vec3( v & 0xFFFFu ) / 65536.0;
+}
+
+#if defined( RADIANCE_CACHE_GLSLH )
+// One traced texel's ray (UE GetScreenProbeTexelRay), the same in every pass of the frame.
+struct SPTexelRay
+{
+    vec3                  position;  // the probe's, world cm (unbiased)
+    vec3                  normal;    // the probe's
+    vec3                  direction; // jittered inside the texel
+    vec3                  noise;     // xy = the jitter, z = the dither
+    ivec2                 texel;     // within the probe's SP_RES² block
+    float                 tMax;      // how far the legs trace before the radiance cache answers
+    RadianceCacheCoverage coverage;  // the cache at the probe (UE GetRadianceCacheCoverage at the unbiased probe)
+};
+
+SPTexelRay SPMakeTexelRay( uint probe, uint texel )
+{
+    const ScreenProbe state = screenProbes[probe];
+    SPTexelRay        ray;
+    ray.position  = state.position.xyz;
+    ray.normal    = state.normal.xyz;
+    ray.texel     = ivec2( texel % SP_RES, texel / SP_RES );
+    ray.noise     = SPTexelNoise( probe, texel, screenProbeParams.atlas.y );
+    const vec2 o  = ( vec2( ray.texel ) + ray.noise.xy ) / float( SP_RES ) * 2.0 - 1.0;
+    ray.direction = SPProbeFrame( ray.normal ) * SPHemiOctDecode( o );
+    ray.coverage  = RadianceCacheCoverageAt( radianceCache, ray.position, ray.noise.z );
+    // Past minTraceDistanceBeforeCache the cache's probes see what the ray would (UE TraceDistance =
+    // min(MaxTraceDistance, MinTraceDistanceBeforeInterpolation)).
+    ray.tMax = ray.coverage.valid ? min( ray.coverage.minTraceDistanceBeforeCache, SP_TRACE_DISTANCE )
+                                  : SP_TRACE_DISTANCE;
+    return ray;
+}
+#endif // RADIANCE_CACHE_GLSLH
+
+#endif // SCREEN_PROBE_TRACING_GLSLH

@@ -2,7 +2,7 @@
 
 // THE LEVEL EDITOR'S STATUS BAR (UE: SStatusBar).
 //
-// Bottom strip: the bottom drawer's chevron, the background cook, the console line (UE's "Enter Console
+// Bottom strip: the bottom drawer's chevron, the on-demand cooks running, the console line (UE's "Enter Console
 // Command"), scene state, selection, entity and triangle counts, documents against the view budget, the snap
 // step, then log alerts, unsaved marker, branch/version/config and FPS. A member of EditorLayer BY VALUE; its
 // collaborators arrive by reference, and the drawer's chevron — the dock layout's to own — as an action.
@@ -14,7 +14,7 @@
 
 namespace Desert::Editor
 {
-    class BackgroundCookQueue;
+    class AssetCompiling;
     class DocumentHost;
     class SceneFiles;
     class SceneWorkspace;
@@ -23,10 +23,9 @@ namespace Desert::Editor
     {
     public:
         StatusBar( SceneWorkspace& workspace, SceneFiles& sceneFiles, DocumentHost& documents,
-                   const std::unique_ptr<BackgroundCookQueue>& backgroundCook,
-                   std::function<void()>                       drawBottomDrawerToggle )
+                   const AssetCompiling& compiling, std::function<void()> drawBottomDrawerToggle )
              : m_Workspace( workspace ), m_SceneFiles( sceneFiles ), m_Documents( documents ),
-               m_BackgroundCook( backgroundCook ), m_DrawBottomDrawerToggle( std::move( drawBottomDrawerToggle ) )
+               m_Compiling( compiling ), m_DrawBottomDrawerToggle( std::move( drawBottomDrawerToggle ) )
         {
         }
 
@@ -39,8 +38,8 @@ namespace Desert::Editor
         SceneWorkspace& m_Workspace;
         SceneFiles&     m_SceneFiles;
         DocumentHost&   m_Documents;
-        // Created after the layer attaches, so held through its owner's slot; null while there is none.
-        const std::unique_ptr<BackgroundCookQueue>& m_BackgroundCook;
+        // The on-demand cooks a load's DDC miss started (AssetCompiling::RemainingAssets).
+        const AssetCompiling& m_Compiling;
         // The chevron that collapses / restores the bottom drawer (the dock layout owns the node it resizes).
         std::function<void()> m_DrawBottomDrawerToggle;
 

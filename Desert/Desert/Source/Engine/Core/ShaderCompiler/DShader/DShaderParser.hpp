@@ -110,6 +110,12 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceRayHitPass          = "Hit";
     inline constexpr std::string_view kSurfaceRayHitPassInclude   = "Mesh/Surface/Pass_RayHit.glslh";
     inline constexpr std::string_view kSurfaceRayHitRecordInclude = "Common/RayTracingHitRecord.glslh";
+    // THE GRASS BLADE USAGE (GRASS-BLADE; UE has no such vertex factory). A template that declares
+    // `Usage GrassBlades` gets the mesh passes once more on the blade path, `GrassBlade.<Pass>` for every pass of
+    // kSurfaceCellPasses its blend draws, after the mesh (and sprite) cells: the vertex stage is
+    // Vertex_GrassBlade.glslh (a procedural blade placed by the instance's matrix and shaped by the variety's
+    // GrassBladeShape), the pass headers are the meshes'.
+    inline constexpr std::string_view kSurfaceGrassBladePath = "GrassBlade";
     // THE TRANSLUCENT FRONT LAYER CELL (UE: EMeshPass::FrontLayerTranslucencyGBuffer, FrontLayerTranslucency.usf
     // MainPS). Every `BlendMode Translucent` template gets `Static.FrontLayer` after its Forward cells: the static
     // vertex path and Mesh/Surface/Pass_FrontLayer.glslh, which writes the surface's world normal + roughness and
@@ -204,6 +210,7 @@ namespace Desert::Core::Preprocess
         bool                     TwoSided = false;
         SurfaceBlendMode         Blend    = SurfaceBlendMode::Opaque;
         bool UsedWithParticleSprites      = false; // `Usage ParticleSprites`: + ParticleSprite.Forward
+        bool                     UsedWithGrassBlades = false;          // `Usage GrassBlades`: + GrassBlade.<Pass>
         // `ResponsiveAA` (UE bResponsiveAA): a Translucent / Additive template only — an opaque surface draws into
         // the G-buffer, which has no responsive slot, and writes the velocity TAA reprojects it with.
         bool ResponsiveAA = false;

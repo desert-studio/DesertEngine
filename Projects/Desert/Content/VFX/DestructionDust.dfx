@@ -52,7 +52,7 @@
                                 "Name": "Channel",
                                 "Type": "Int",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionBreak"
+                                "Binding": "DataChannel.BreakDust"
                             },
                             {
                                 "Name": "ParticlesPerEntry",
@@ -80,26 +80,26 @@
                                 "Name": "Position",
                                 "Type": "Vec3",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionBreak.Position"
+                                "Binding": "DataChannel.BreakDust.Position"
                             },
                             {
                                 "Name": "Direction",
                                 "Type": "Vec3",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionBreak.Velocity"
+                                "Binding": "DataChannel.BreakDust.Velocity"
                             },
                             {
                                 "Name": "Size",
                                 "Type": "Float",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionBreak.PieceCount"
+                                "Binding": "DataChannel.BreakDust.PieceCount"
                             }
                         ]
                     }
                 ],
                 "ParticleSpawn": [
                     {
-                        "Module": "engine:InitializeParticle",
+                        "Module": "engine:InitializeLifetime",
                         "Enabled": true,
                         "Inputs": [
                             {
@@ -120,7 +120,96 @@
                                         0.0
                                     ]
                                 }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:AddVelocityInCone",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Speed",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [
+                                        40,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "Max": [
+                                        160,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ]
+                                }
                             },
+                            {
+                                "Name": "Angle",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    70,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Falloff",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Axis",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [
+                                    0,
+                                    1,
+                                    0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeSpriteSize",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Size",
+                                "Type": "Vec2",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [
+                                        40,
+                                        40,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "Max": [
+                                        90,
+                                        90,
+                                        0.0,
+                                        0.0
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeColor",
+                        "Enabled": true,
+                        "Inputs": [
                             {
                                 "Name": "Color",
                                 "Type": "Vec4",
@@ -135,7 +224,75 @@
                         ]
                     }
                 ],
-                "ParticleUpdate": []
+                "ParticleUpdate": [
+                    {
+                        "Module": "engine:UpdateAge",
+                        "Enabled": true,
+                        "Inputs": []
+                    },
+                    {
+                        "Module": "engine:Gravity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Gravity",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [
+                                    0,
+                                    -30,
+                                    0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:Drag",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Drag",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    1.5,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "RotationalDrag",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:SolveForcesAndVelocity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpeedLimit",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    }
+                ]
             },
             "Renderers": [
                 {
@@ -165,7 +322,7 @@
                                 "Name": "Channel",
                                 "Type": "Int",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionCollision"
+                                "Binding": "DataChannel.ImpactDust"
                             },
                             {
                                 "Name": "ParticlesPerEntry",
@@ -193,19 +350,19 @@
                                 "Name": "Position",
                                 "Type": "Vec3",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionCollision.Position"
+                                "Binding": "DataChannel.ImpactDust.Position"
                             },
                             {
                                 "Name": "Direction",
                                 "Type": "Vec3",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionCollision.Normal"
+                                "Binding": "DataChannel.ImpactDust.Normal"
                             },
                             {
                                 "Name": "Filter",
                                 "Type": "Float",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionCollision.Impulse"
+                                "Binding": "DataChannel.ImpactDust.Impulse"
                             },
                             {
                                 "Name": "FilterOp",
@@ -234,7 +391,7 @@
                 ],
                 "ParticleSpawn": [
                     {
-                        "Module": "engine:InitializeParticle",
+                        "Module": "engine:InitializeLifetime",
                         "Enabled": true,
                         "Inputs": [
                             {
@@ -255,7 +412,96 @@
                                         0.0
                                     ]
                                 }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:AddVelocityInCone",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Speed",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [
+                                        150,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "Max": [
+                                        400,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ]
+                                }
                             },
+                            {
+                                "Name": "Angle",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    45,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Falloff",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Axis",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [
+                                    0,
+                                    1,
+                                    0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeSpriteSize",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Size",
+                                "Type": "Vec2",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [
+                                        4,
+                                        4,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "Max": [
+                                        10,
+                                        10,
+                                        0.0,
+                                        0.0
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeColor",
+                        "Enabled": true,
+                        "Inputs": [
                             {
                                 "Name": "Color",
                                 "Type": "Vec4",
@@ -270,7 +516,75 @@
                         ]
                     }
                 ],
-                "ParticleUpdate": []
+                "ParticleUpdate": [
+                    {
+                        "Module": "engine:UpdateAge",
+                        "Enabled": true,
+                        "Inputs": []
+                    },
+                    {
+                        "Module": "engine:Gravity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Gravity",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [
+                                    0,
+                                    -981,
+                                    0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:Drag",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Drag",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0.2,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "RotationalDrag",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:SolveForcesAndVelocity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpeedLimit",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    }
+                ]
             },
             "Renderers": [
                 {
@@ -300,7 +614,7 @@
                                 "Name": "Channel",
                                 "Type": "Int",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionRemoved"
+                                "Binding": "DataChannel.SettleDust"
                             },
                             {
                                 "Name": "ParticlesPerEntry",
@@ -328,14 +642,14 @@
                                 "Name": "Position",
                                 "Type": "Vec3",
                                 "Source": "Binding",
-                                "Binding": "DataChannel.DestructionRemoved.Position"
+                                "Binding": "DataChannel.SettleDust.Position"
                             }
                         ]
                     }
                 ],
                 "ParticleSpawn": [
                     {
-                        "Module": "engine:InitializeParticle",
+                        "Module": "engine:InitializeLifetime",
                         "Enabled": true,
                         "Inputs": [
                             {
@@ -356,7 +670,96 @@
                                         0.0
                                     ]
                                 }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:AddVelocityInCone",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Speed",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [
+                                        20,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "Max": [
+                                        80,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ]
+                                }
                             },
+                            {
+                                "Name": "Angle",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    80,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Falloff",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Axis",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [
+                                    0,
+                                    1,
+                                    0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeSpriteSize",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Size",
+                                "Type": "Vec2",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [
+                                        30,
+                                        30,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "Max": [
+                                        60,
+                                        60,
+                                        0.0,
+                                        0.0
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeColor",
+                        "Enabled": true,
+                        "Inputs": [
                             {
                                 "Name": "Color",
                                 "Type": "Vec4",
@@ -371,7 +774,75 @@
                         ]
                     }
                 ],
-                "ParticleUpdate": []
+                "ParticleUpdate": [
+                    {
+                        "Module": "engine:UpdateAge",
+                        "Enabled": true,
+                        "Inputs": []
+                    },
+                    {
+                        "Module": "engine:Gravity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Gravity",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [
+                                    0,
+                                    -20,
+                                    0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:Drag",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Drag",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    2.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "RotationalDrag",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:SolveForcesAndVelocity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpeedLimit",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    }
+                ]
             },
             "Renderers": [
                 {

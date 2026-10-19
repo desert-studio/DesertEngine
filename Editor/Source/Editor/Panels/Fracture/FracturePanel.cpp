@@ -145,6 +145,13 @@ namespace Desert::Editor
                 ImGui::InputDouble( "Brick Height (cm)", &level.Brick.Height );
                 ImGui::InputDouble( "Brick Depth (cm)", &level.Brick.Depth );
                 break;
+            case Destruction::FractureMethod::Radial:
+                ImGui::InputScalarN( "Center (cm)", ImGuiDataType_Double, &level.Radial.Center.x, 3 );
+                ImGui::InputDouble( "Radius (cm)", &level.Radial.Radius );
+                ImGui::InputInt( "Radial Steps", &level.Radial.RadialSteps );
+                ImGui::InputInt( "Angular Steps", &level.Radial.AngularSteps );
+                ImGui::InputDouble( "Variability (cm)", &level.Radial.Variability );
+                break;
         }
         ImGui::InputFloat( "Damage Threshold", &level.DamageThreshold );
     }

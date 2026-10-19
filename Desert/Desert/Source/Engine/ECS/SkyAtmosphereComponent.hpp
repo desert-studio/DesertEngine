@@ -9,14 +9,15 @@
 
 namespace Desert::ECS
 {
-    // Size of the equirectangular panorama the sky is baked into for image-based lighting. The bake is a
-    // WaitDeviceIdle operation and its cost is paid PER LIVE SceneRenderer (viewport, mesh preview,
-    // thumbnail renderer, extra scene views), which is why the size is authored and not a constant.
+    // The face of the cube the sky light is captured into: the sky and its clouds are rendered straight into the
+    // faces at this size (UE: the sky light's Cubemap Resolution, 128 by default), and the prefiltered specular
+    // cube is the same face. Its cost is a recapture's -- the cloud march runs once per face texel -- paid once
+    // per scene, whatever its views.
     enum class SkyEnvironmentResolution : uint8_t
     {
-        Low,    // 512x256
-        Medium, // 1024x512 - what the engine baked at unconditionally before this was authorable
-        High    // 2048x1024
+        Low,    // 64 face
+        Medium, // 128 face - UE's default
+        High    // 256 face
     };
 
     // Which preset the palette last came from. An ENUM rather than a string on purpose: a string can hold
@@ -124,8 +125,8 @@ namespace Desert::ECS
         float RebakeSunAngleThreshold = 5.0f;
 
         PROPERTY( DisplayName( "Environment Resolution" ), Category( "Environment Lighting" ), Advanced,
-                  Tooltip( "Size of the baked sky cubemap. High costs 32 MiB for the panorama alone, per "
-                           "live scene renderer." ) )
+                  Tooltip( "Face of the cube the sky light is captured into (64 / 128 / 256). The clouds are "
+                           "marched once per face texel, so High costs four times Medium on every recapture." ) )
         SkyEnvironmentResolution EnvironmentResolution = SkyEnvironmentResolution::Medium;
 
         PROPERTY( DisplayName( "Preset" ), Category( "Atmosphere" ), ReadOnly,

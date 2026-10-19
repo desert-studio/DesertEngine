@@ -56,20 +56,24 @@ vec3 RadianceCacheProbePosition( RadianceCacheParams cache, uvec3 coord, uint cl
     return cache.clipmapCornerAndCellSize[clipmap].xyz + ( vec3( coord ) + 0.5 ) * RadianceCacheCellSize( cache, clipmap );
 }
 
+// How far inside @p clipmap's fade band @p worldPosition lies: 0 at (or past) its outer probe centres, 1 a fade
+// size further in (UE GetRadianceProbeClipmap's edge fade).
+float RadianceCacheClipmapEdgeFade( RadianceCacheParams cache, vec3 worldPosition, uint clipmap )
+{
+    const float grid   = float( cache.shape.y );
+    const vec3  coord  = RadianceCacheCoordFloat( cache, worldPosition, clipmap );
+    const vec3  bottom = clamp( ( coord - 0.5 ) * cache.sampling.y, 0.0, 1.0 );
+    const vec3  top    = clamp( ( grid - 0.5 - coord ) * cache.sampling.y, 0.0, 1.0 );
+    return min( min( min( bottom.x, bottom.y ), bottom.z ), min( min( top.x, top.y ), top.z ) );
+}
+
 // UE GetRadianceProbeClipmap: the finest clipmap whose edge fade at @p worldPosition exceeds @p ditherRandom (0..1),
 // so neighbouring pixels pick the two clipmaps of a fade band in proportion and the seam dissolves.
 uint RadianceCacheClipmapAt( RadianceCacheParams cache, vec3 worldPosition, float ditherRandom )
 {
-    const float grid = float( cache.shape.y );
     for ( uint clipmap = 0u; clipmap < cache.shape.x; ++clipmap )
-    {
-        const vec3  coord    = RadianceCacheCoordFloat( cache, worldPosition, clipmap );
-        const vec3  bottom   = clamp( ( coord - 0.5 ) * cache.sampling.y, 0.0, 1.0 );
-        const vec3  top      = clamp( ( grid - 0.5 - coord ) * cache.sampling.y, 0.0, 1.0 );
-        const float edgeFade = min( min( min( bottom.x, bottom.y ), bottom.z ), min( min( top.x, top.y ), top.z ) );
-        if ( edgeFade > ditherRandom )
+        if ( RadianceCacheClipmapEdgeFade( cache, worldPosition, clipmap ) > ditherRandom )
             return clipmap;
-    }
     return cache.shape.x;
 }
 
@@ -177,6 +181,14 @@ ivec2 RadianceCacheProbeAtlasOrigin( RadianceCacheParams cache, uint probe, uint
 #if defined( RADIANCE_CACHE_INDIRECTION ) && !defined( RADIANCE_CACHE_READ_GLSLH )
 #define RADIANCE_CACHE_READ_GLSLH
 
+// The clipmap pick's dither (@p ditherRandom of the reads below), stable per pixel: interleaved gradient noise
+// (Jimenez 2014), the pattern UE's InterleavedGradientNoise uses for the same pick. One for every per-pixel reader
+// (the irradiance field gather, the forward passes), so a clipmap fade dithers alike on both paths.
+float RadianceCachePixelDither( vec2 pixel )
+{
+    return fract( 52.9829189 * fract( dot( pixel, vec2( 0.06711056, 0.00583715 ) ) ) );
+}
+
 vec3 RadianceCacheSampleProbeIrradiance( uint probe, vec3 direction )
 {
     const uint  res    = radianceCache.atlas.y;
@@ -269,6 +281,63 @@ vec4 RadianceCacheIrradianceAt( vec3 p, vec3 N, vec3 V, float ditherRandom )
 {
     vec3 unused;
     return RadianceCacheIrradianceAtImpl( p, N, V, N, ditherRandom, false, unused );
+}
+
+// THE SMOOTH READ (REFL-NORM-SMOOTH): the irradiance (/ pi) about @p N at @p p as a field that is continuous in
+// space - the pixel's side of the reflection captures' normalisation (Mesh/AmbientIBL.glslh), whose ratio must
+// carry only the lighting's low spatial frequency. UE's pixel side is as smooth: the lightmap's (or the volumetric
+// lightmap's, a plain trilinear field) irradiance, against the capture's own mean
+// (ReflectionCaptureDiffuse.shader).
+// What makes it smooth, against RadianceCacheIrradianceAtImpl (the pixel's own lighting): no DDGI visibility or
+// backface weight (both switch probes on and off along cell-shaped boundaries - the ProbeVolume patches once
+// divided into a capture), no bias toward a viewer, and the clipmap fade BLENDED instead of dithered - each
+// covering clipmap read trilinearly, the finest weighted by its edge fade, the remainder passed to the next.
+// .a = 1 where a traced probe answered, 0 where none did yet, -1 past the coarsest clipmap.
+vec4 RadianceCacheTrilinearIrradianceAt( vec3 p, vec3 N, uint clipmap )
+{
+    const vec3  coord  = RadianceCacheCoordFloat( radianceCache, p, clipmap ) - 0.5;
+    const ivec3 base   = ivec3( floor( coord ) );
+    const vec3  alpha  = coord - vec3( base );
+    const ivec3 corner = RadianceCacheCornerCell( radianceCache, clipmap );
+    const int   grid   = int( radianceCache.shape.y );
+    vec3  sum    = vec3( 0.0 );
+    float weight = 0.0;
+    for ( uint i = 0u; i < 8u; ++i )
+    {
+        const ivec3 offset = ivec3( i & 1u, ( i >> 1 ) & 1u, ( i >> 2 ) & 1u );
+        const ivec3 world  = corner + clamp( base + offset, ivec3( 0 ), ivec3( grid - 1 ) );
+        const uint  entry  = RADIANCE_CACHE_INDIRECTION[RadianceCacheIndirectionIndex( radianceCache, world, clipmap )];
+        if ( entry == RADIANCE_CACHE_INVALID_PROBE || ( entry & RADIANCE_CACHE_PROBE_UNTRACED ) != 0u )
+            continue;
+        const vec3  trilinear = mix( 1.0 - alpha, alpha, vec3( offset ) );
+        const float w         = max( trilinear.x * trilinear.y * trilinear.z, 1e-6 );
+        sum    += w * RadianceCacheSampleProbeIrradiance( entry, N );
+        weight += w;
+    }
+    return weight > 0.0 ? vec4( sum / weight, 1.0 ) : vec4( 0.0 );
+}
+
+vec4 RadianceCacheSmoothIrradianceAt( vec3 p, vec3 N )
+{
+    vec3  sum       = vec3( 0.0 );
+    float weight    = 0.0;
+    float remaining = 1.0;
+    for ( uint clipmap = 0u; clipmap < radianceCache.shape.x && remaining > 1e-3; ++clipmap )
+    {
+        const float fade = RadianceCacheClipmapEdgeFade( radianceCache, p, clipmap );
+        if ( fade <= 0.0 )
+            continue;
+        const float share = remaining * fade;
+        remaining *= 1.0 - fade;
+        const vec4 read = RadianceCacheTrilinearIrradianceAt( p, N, clipmap );
+        if ( read.a <= 0.0 )
+            continue;
+        sum    += share * read.rgb;
+        weight += share;
+    }
+    if ( weight > 0.0 )
+        return vec4( sum / weight, 1.0 );
+    return vec4( 0.0, 0.0, 0.0, remaining >= 1.0 ? -1.0 : 0.0 );
 }
 #endif // RADIANCE_CACHE_INDIRECTION
 

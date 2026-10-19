@@ -232,7 +232,8 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (paths per pixel per frame)" },
              { P::PathTracingMaxBounces, G::GlobalIllumination, "PathTracing.MaxBounces", 0, 64, CL::None,
                "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (bounces per path)" },
-             { P::PathTracingSamplesPerPixel, G::GlobalIllumination, "PathTracing.SamplesPerPixel", 1, 65536, CL::None,
+             { P::PathTracingSamplesPerPixel, G::GlobalIllumination, "PathTracing.SamplesPerPixel", 1, 65536,
+               CL::None,
                "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (paths per pixel until it stops)" },
              { P::ScreenProbeDownsample, G::GlobalIllumination, "GlobalIllumination.ScreenProbeDownsample", 8, 64,
                CL::None, std::nullopt },
@@ -243,6 +244,11 @@ namespace Common::Scalability
              { P::ReflectionsHitLighting, G::Reflections, "Reflections.HitLighting", 0, 1, CL::None,
                "SceneRenderer::ReflectionsTracer -> SSR.shader \"HitLighting\" ray generation "
                "(Renderer::TraceRays)" },
+             { P::ScreenProbeAdaptiveAllocation, G::GlobalIllumination,
+               "GlobalIllumination.AdaptiveProbeAllocationPercent", 0, 100, CL::None,
+               "screen probe adaptive budget (Graphic::GlobalIllumination::ScreenProbeGather)" },
+             { P::ScreenProbeShortRangeAO, G::GlobalIllumination, "GlobalIllumination.ShortRangeAO", 0, 1,
+               CL::None, "screen probe short-range AO (Graphic::GlobalIllumination::ScreenProbeGather)" },
              { P::ReflectionsTranslucentFrontLayer, G::Reflections, "Reflections.TranslucentFrontLayer", 0, 1,
                CL::None,
                "SceneRenderer::TranslucentFrontLayerReflections -> \"Translucency: Front Layer G-buffer\" + "

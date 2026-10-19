@@ -7,6 +7,8 @@
 //            cards: LightingFromSurfaceCache): the FinalLighting of the card texels at the hit
 //            (Common/SurfaceCacheSampling.glslh — the instance table and object grid of contract B3): direct light,
 //            the indirect of the radiosity slot (SurfaceCacheIndirectLighting.shader) and emissive — one fetch;
+//   back     a hit behind a surface the cards captured (SURFACE_CACHE_HIT_BACK_FACE: the back of one-sided
+//            geometry, inside its SDF's solid band; GI-BACKFACE-HIT): black, an occluder, as UE's surface-cache miss;
 //   in place where no card holds the hit (GI_NO_MESH_CARDS: no cards built, none resident — small and far meshes
 //            — or a coverage hole), or under DESERT_GI_HIT_LIGHTING_IN_PLACE (hardware only): a port of UE Lumen's
 //            hit lighting (LumenHardwareRayTracingCommon.ush CalculateRayTracedLighting):
@@ -84,9 +86,11 @@ vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
 {
 #if !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
     {
-        vec3 cardLighting;
-        if ( SurfaceCacheHitLighting( hit, GIRayBias( hit.position, hit.normal, rayDirection ).screenTolerance,
-                                      cardLighting ) )
+        vec3       cardLighting;
+        const uint cards = SurfaceCacheHitLighting( hit, GIHitSurfaceCacheBias( hit ), cardLighting );
+        // The back of one-sided geometry: an occluder that sends nothing back (UE: a surface-cache miss there has
+        // no weight and no radiance). Lighting it in place would light the room from an underside nobody modelled.
+        if ( cards != SURFACE_CACHE_HIT_UNCOVERED )
             return cardLighting;
     }
 #endif
@@ -116,16 +120,18 @@ vec3 GIHitRadianceLit( GIHit hit, vec3 rayDirection, GIHitSurface surface )
 {
     const vec3 N = hit.normal;
     const vec3 V = -rayDirection;
-    // Visibility rays leave the hit by the tracer's offset, so they do not re-enter the surface they start on.
-    const vec3 origin = hit.position + N * GIRayBias( hit.position, N, rayDirection ).normalOffset;
+    // Visibility rays leave the hit by the tracer's offsets, so they do not re-enter the surface they start on.
+    const GITraceBias bias   = GIRayBias( hit.position, N, rayDirection );
+    const vec3        origin = hit.position + N * bias.nearOffset;
 
     vec3 direct = vec3( 0.0 );
     if ( giFrame.sunTravel.w > 0.5 )
     {
         const vec3 L = -giFrame.sunTravel.xyz;
         if ( dot( N, L ) > 0.0 )
-            direct += GIHitLightResponse( surface, N, V, L,
-                                          giFrame.sunRadiance.rgb * GITraceVisibility( origin, L, 1.0e6 ) );
+            direct += GIHitLightResponse(
+                 surface, N, V, L,
+                 giFrame.sunRadiance.rgb * GITraceVisibility( origin, L, GIFarFieldTMin( bias, N, L ), 1.0e6 ) );
     }
     const LightGridWorldRange range = LightGridWorldLightsAt( lightGrid, hit.position );
     for ( uint k = 0u; k < range.count; ++k )
@@ -146,9 +152,10 @@ vec3 GIHitRadianceLit( GIHit hit, vec3 rayDirection, GIHitSurface surface )
         if ( dot( N, light.L ) <= 0.0 || max( light.Radiance.r, max( light.Radiance.g, light.Radiance.b ) ) <= 0.0 )
             continue;
         const float toLight = distance( lightPosition, origin );
+        const vec3 toward = normalize( lightPosition - origin );
         direct += GIHitLightResponse(
              surface, N, V, light.L,
-             light.Radiance * GITraceVisibility( origin, normalize( lightPosition - origin ), toLight ) );
+             light.Radiance * GITraceVisibility( origin, toward, GIFarFieldTMin( bias, N, toward ), toLight ) );
     }
 
     // The next bounce: last update's irradiance at the hit (already / pi), on the diffuse albedo only.

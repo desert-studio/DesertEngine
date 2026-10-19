@@ -108,6 +108,20 @@ namespace Desert::Core::Formats
         // by the next draw.
         bool EngineSet = false;
 
+        // A `Texture2DArray` property (IsTexture is also true): its GLSL declaration is a `sampler2DArray`,
+        // bound to a 2D array image (Image2DSpecification::ArrayLayers). The landscape material's layer maps
+        // are the shape: one array per map kind, assembled by the engine from the Element textures below.
+        bool IsArrayTexture = false;
+
+        // `Element(Group, k)`: this property is element k of the group `Group` — UE's per-input pins of a
+        // LandscapeLayerBlend node, stated once in the template instead of by a naming convention a renderer
+        // would have to repeat. A Texture2D element is a CPU-side input and never a sampler of its own: the
+        // engine copies it into layer k's slot of the Texture2DArray property named `Group` (TerrainRenderer's
+        // layer arrays). An asset-reference element (the input's LandscapeLayerInfo) groups the same way.
+        // ElementIndex is -1 when the property is no element.
+        std::string ElementOf;
+        int32_t     ElementIndex = -1;
+
         std::optional<float> Min;                                // present => slider/clamped
         std::optional<float> Max;
 

@@ -17,8 +17,8 @@
 namespace Desert::Editor
 {
     /// The Generate methods by FractureMethod value, as the panel's combo and the palette name them.
-    inline constexpr std::array<const char*, 4> kFractureMethodNames = { "Uniform Voronoi", "Clustered Voronoi",
-                                                                         "Planar", "Brick" };
+    inline constexpr std::array<const char*, 5> kFractureMethodNames = { "Uniform Voronoi", "Clustered Voronoi",
+                                                                         "Planar", "Brick", "Radial" };
 
     /// THE FRACTURE MODE'S LEVEL PREVIEW (DST-06): with a @p fracture (the mode open and a file read) the
     /// @p selected entity carries ECS::FracturePreviewComponent { fracture, view } and no other entity does; with

@@ -118,8 +118,9 @@ GITraceResult GITraceRay( GITraceInput ray )
     return result;
 }
 
-// THE hardware visibility walk is RT-SHADOWS' (alpha-tested, first hit ends it); GI adds nothing to it.
-float GITraceVisibility( vec3 origin, vec3 direction, float maxT )
+// THE hardware visibility walk is RT-SHADOWS' (alpha-tested, first hit ends it); GI adds nothing to it. The triangles
+// are one field with one precision, so there is no far field whose hits @p farTMin would hold back.
+float GITraceVisibility( vec3 origin, vec3 direction, float farTMin, float maxT )
 {
     return RayQueryVisibility( origin, direction, maxT, RAY_TRACING_MASK_SHADOW_CASTER );
 }
@@ -130,7 +131,9 @@ float GITraceVisibility( vec3 origin, vec3 direction, float maxT )
 GITraceBias GIRayBias( vec3 position, vec3 normal, vec3 direction )
 {
     GITraceBias bias;
-    bias.normalOffset    = kGIHardwareNormalBiasCm;
+    // One field: the near and far offsets are the same normal bias (GITraceRay reads no farTMin).
+    bias.nearOffset      = kGIHardwareNormalBiasCm;
+    bias.farOffset       = kGIHardwareNormalBiasCm;
     bias.screenTolerance = kGIHardwareNormalBiasCm + kGIHardwareRayBiasCm;
     return bias;
 }

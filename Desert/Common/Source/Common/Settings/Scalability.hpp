@@ -272,13 +272,17 @@ namespace Common::Scalability
         ReflectionsHitLighting,        // 0/1: HardwareTraced reflections run hit lighting - the ray
                                        // tracing pipeline with each hit surface's own material (UE
                                        // r.Lumen.Reflections.HardwareRayTracing.LightingMode = hit lighting)
+        ScreenProbeAdaptiveAllocation, // adaptive screen probes per uniform one, percent (UE
+                                       // r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction)
+        ScreenProbeShortRangeAO,       // 0/1: the screen probe gather's own contact AO + bent normal (UE
+                                       // r.Lumen.ScreenProbeGather.ShortRangeAO); 0 = SSAO occludes it
         ReflectionsTranslucentFrontLayer, // 0/1: the nearest translucent surface of a pixel writes its own
                                           // G-buffer and is reflected by the opaque surfaces' tracer and
                                           // denoiser; glass reads that reflection in place of the sky (UE
                                           // r.Lumen.TranslucencyReflections.FrontLayer.Enable)
-        // Parallax occlusion mapping (Mesh/Surface/SurfaceParallax.glslh), through ViewFrame::Parallax and the view
-        // block: march steps head-on and at grazing view, and the self-shadow steps toward the sun (0 = no relief
-        // self-shadow).
+        // Parallax occlusion mapping (Mesh/Surface/SurfaceParallax.glslh), through ViewFrame::Parallax and the
+        // view block: march steps head-on and at grazing view, and the self-shadow steps toward the sun (0 = no
+        // relief self-shadow).
         ShadingParallaxMinSteps,    // 1..64
         ShadingParallaxMaxSteps,    // 1..128
         ShadingParallaxShadowSteps, // 0..64

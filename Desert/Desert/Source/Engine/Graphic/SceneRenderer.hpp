@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 #include <Engine/Graphic/InstanceCullDistance.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
@@ -107,6 +108,7 @@ namespace Desert::Graphic
     class FrameTextures;
     struct FrameValues;
     class ReflectionCaptureRenderer;
+    class LocalShadowCache;
 
     /**
      * What one view holds and what the scene it draws shares, READ FROM THE RESOURCE LEDGER (RT-LEDGER-3): the
@@ -193,6 +195,17 @@ namespace Desert::Graphic
         [[nodiscard]] const ShadowQuality& GetShadowQuality() const
         {
             return m_ViewProfile.Shadows;
+        }
+        // The view is a reflection capture's face (ViewProfile::SceneCapture), not a level's viewport.
+        [[nodiscard]] bool IsSceneCapture() const
+        {
+            return m_ViewProfile.SceneCapture;
+        }
+        // The cached point/spot-light shadow depth of the scene BeginScene was handed (Core::Scene owns it, one
+        // for all its views); null outside a BeginScene/EndScene bracket.
+        [[nodiscard]] LocalShadowCache* GetFrameLocalShadows() const
+        {
+            return m_FrameLocalShadows;
         }
 
         // A SCENE HAS JUST BEEN (RE)INITIALISED ON THIS RENDERER. Called from Scene::Init(), which runs on
@@ -302,6 +315,10 @@ namespace Desert::Graphic
         void SubmitLandscapeTile( const std::shared_ptr<Image2D>& heightmap, const System::LandscapeTileDraw& tile,
                                   const MaterialOverrides& overrides, const System::LandscapeWeightDraw& weights );
 
+        // Submit one landscape root's grass for this frame (from LandscapeECSSystem via
+        // DrawLandscapeGrassCommand).
+        void SubmitLandscapeGrass( System::GrassFieldDraw draw );
+
         // Submit one water zone for this frame (from WaterZoneECSSystem via WaterZoneCommand): its quadtree is
         // walked from the main camera and its tiles drawn by the water renderer (WATER-W6).
         void SubmitWaterZone( System::WaterZoneDraw zone );
@@ -403,6 +420,10 @@ namespace Desert::Graphic
         // irradiance handle beside a zeroed prefiltered one and correctly reported a half-baked
         // environment. Found 2026-09-03 by the diagnostic that was supposed to catch a failed bake.
         std::optional<Environment> GetEnvironment();
+        // A reflection capture's face view (ViewProfile::SceneCapture) is lit by the scene's sky light and bakes
+        // none (SkyboxRenderer::BorrowEnvironment): @p environment is the reading view's, handed before each
+        // frame.
+        void BorrowEnvironment( std::optional<Environment> environment );
 
         // Procedural sky configuration (from the SkyAtmosphereComponent + the atmosphere sun, via the ECS).
         // sunDir is the direction TOWARD the sun, already normalized; bakeNow is the one-shot request from
@@ -443,10 +464,13 @@ namespace Desert::Graphic
         // False for a view with no cloud layer, which is every mesh preview and every asset thumbnail.
         bool IsCloudVolumeBaking() const;
 
-        // "The sky's light is not final yet": a procedural sky whose environment bake is still on the GPU, or
-        // that has none. The bake is submitted, never waited for (SkyboxRenderer::EnsureProceduralEnvironment),
-        // so a capture of this view waits on this instead of the main thread waiting on the GPU.
-        bool IsEnvironmentSettling() const;
+        // Whether this view has a sky light (SkyLightState): no sky at all, or a sky whose light is captured in
+        // the frame graph from the view's first frame. What tells a defined black ambient (no sky) from a fault.
+        [[nodiscard]] SkyLightState GetSkyLightState() const;
+
+        // Whether this view draws a cloud layer: a picture that reprojects a history and converges over frames (a
+        // reflection capture's face waits for it: ReflectionCaptureRenderer).
+        [[nodiscard]] bool DrawsVolumetricClouds() const;
 
         // How far that rebuild has got, 0..1. Meaningless unless IsCloudVolumeBaking(); see
         // System::VolumetricCloudRenderer::ModellingBakeProgress for why the wait is worth a number.
@@ -679,14 +703,12 @@ namespace Desert::Graphic
         };
         std::optional<SurfaceCacheFrameRecord> m_SurfaceCacheFrame;
         // The traced GI's records of this frame that the traced reflections read too: the GI frame record and the
-        // radiance cache's read (AddFrameTracedGI, when the GI traces) and the view-culled mesh SDFs
-        // (AddFrameMeshSDFReads, made once by whichever reader comes first). Reset by AddFrameTracedGI every
-        // frame.
+        // radiance cache's read (AddFrameTracedGI, when the GI traces). The mesh SDF near field is the tracer's
+        // own (TracerFrame::MeshDistanceFields, the view's froxel grid). Reset by AddFrameTracedGI every frame.
         struct TracedFrameShared
         {
-            RDG::BufferRef                                                  GIFrame;
-            std::optional<GlobalIllumination::RadianceCacheFrame>           RadianceCache;
-            std::optional<DistanceField::GlobalDistanceField::MeshSDFScene> MeshSDFs;
+            RDG::BufferRef                                        GIFrame;
+            std::optional<GlobalIllumination::RadianceCacheFrame> RadianceCache;
             RDG::BufferRef InstanceSurfaceCacheRows; // AddFrameInstanceSurfaceCacheRows
         };
         TracedFrameShared m_TracedFrameShared;
@@ -1016,6 +1038,9 @@ namespace Desert::Graphic
         // Whether this frame updates and reads the world radiance cache: the GI pipeline (m_GIPipeline) runs it —
         // either tracer — on the Deferred path (its reader is the deferred composite).
         [[nodiscard]] bool RadianceCacheRuns() const;
+        // The screen probe gather runs this frame with its short-range AO: its contact occlusion replaces SSAO,
+        // which is then not computed at all (UE: SSAO is off under Lumen, r.Lumen.DiffuseIndirect.SSAO 0).
+        [[nodiscard]] bool ScreenProbeAOReplacesSSAO() const;
         // Whether a node of this frame reads the global distance field: the GI tracer when it is the software walk
         // (GlobalIllumination::TracerReadsGlobalDistanceField), the debug view.
         [[nodiscard]] bool GlobalDistanceFieldRead() const;
@@ -1052,10 +1077,6 @@ namespace Desert::Graphic
         [[nodiscard]] RDG::BufferRef AddFrameGIRecord( RDG::Builder& graph, const ViewFrame& frame,
                                                        const glm::vec4& lightDir, const glm::vec4& lightColor,
                                                        glm::uvec2 extent );
-        // The mesh SDF near field's reads of this frame (UE LumenMeshSDFCulling over the view, the screen probes'
-        // distances), made by the first reader and kept in m_TracedFrameShared for the next.
-        [[nodiscard]] Common::ResultStr<DistanceField::GlobalDistanceField::MeshSDFScene>
-        AddFrameMeshSDFReads( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         // The traced permutation's reads of SSR (System::SSRRenderer::TracedReads) for this frame; nullopt
         // (logged): a read is missing and the frame reflects the screen alone.
         [[nodiscard]] std::optional<System::SSRRenderer::TracedReads>
@@ -1096,11 +1117,15 @@ namespace Desert::Graphic
                                            const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const FrameScreenTrace& screenTrace,
                                            const ViewFrame& frame );
-        void             AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
-                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
-                                            RDG::TextureRef sunShadowMask, const System::MegaLightsLighting& megaLights,
-                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                            const glm::vec4& lightColor, const ViewFrame& frame );
+        // The pending reflection capture's cube, written in this view's graph with its capture point measured by
+        // the view's diffuse estimator (ReflectionCaptureLighting): the world radiance cache when @p tracedGI and
+        // this frame's AddFrameTracedGI produced one, otherwise the sky's irradiance cube.
+        void AddFrameReflectionCaptureUpdate( RDG::Builder& graph, FrameTextures& textures, bool tracedGI );
+        void AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
+                                const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
+                                RDG::TextureRef sunShadowMask, const System::MegaLightsLighting& megaLights,
+                                System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
+                                const glm::vec4& lightColor, const ViewFrame& frame );
         // The scene snapshot (UE: CreateTexture from the scene colour's desc, copied by a raster node): published
         // as FrameTransients::SceneColorCopy and returned; invalid when no copy was made (no copy system, no scene
         // colour, its desc refused - logged). @p into: the imported image to copy into (the view's scene
@@ -1144,6 +1169,10 @@ namespace Desert::Graphic
         // (ShadowReallocation): a ray-traced sun keeps only the low-detail cascades, CascadedMaps the full ones.
         void RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality, bool sunRayTraced );
         void AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures );
+        // The sky light, at the head of the graph: the atmosphere nodes that depend on the sky alone (the cached
+        // LUT pair, the distant sky light), then this frame's slice of the sky capture, which marches them. Before
+        // ImportSceneViewTextures, so the environment it imports is the one this frame's capture completed.
+        void AddFrameSkyLight( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
@@ -1208,6 +1237,8 @@ namespace Desert::Graphic
         // The ray-tracing geometry of the scene BeginScene was handed (Core::Scene owns it, shared by its views):
         // read by this view's TLAS gather in OnUpdate, cleared by EndScene.
         RayTracing::RayTracingSceneCache* m_FrameRayTracingCache = nullptr;
+        // The scene's local-light shadow cache, the same bracket (GetFrameLocalShadows).
+        LocalShadowCache* m_FrameLocalShadows = nullptr;
 
     public:
         // --- UI glass (backdrop blur) -----------------------------------------------------------
@@ -1335,6 +1366,15 @@ namespace Desert::Graphic
         // global distance field's atlas holds and its finer mips stream within.
         uint32_t m_DistanceFieldPoolMiB = 256;
         int m_SSAOSamples = 16;
+        // Adaptive screen probes per uniform one, percent (Scalability GlobalIllumination.
+        // AdaptiveProbeAllocationPercent, UE r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction), refreshed
+        // each BeginScene and handed to the screen probe gather's layout.
+        uint32_t m_ScreenProbeAdaptivePercent = 50;
+        // The screen probe gather's short-range AO (Scalability GlobalIllumination.ShortRangeAO, UE
+        // r.Lumen.ScreenProbeGather.ShortRangeAO), refreshed each BeginScene. On, the gather occludes its own
+        // diffuse and rough specular and the composite applies no SSAO to it; off, SSAO does — one AO source
+        // either way.
+        bool m_ScreenProbeShortRangeAO = true;
         // Contact-shadow ray steps (Scalability: Shadows.ContactShadowSteps; 0 = the march is skipped for every
         // light) and the sun's contact shadow (ViewShadowSettings, from the elected sun), taken each BeginScene
         // and handed to the deferred composite (Common/ContactShadow.glslh).

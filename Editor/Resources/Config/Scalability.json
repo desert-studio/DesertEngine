@@ -394,6 +394,8 @@
                 "GlobalIllumination.ScreenProbeDownsample": 32,
                 "GlobalIllumination.ScreenProbeTracedTexels": 8,
                 "GlobalIllumination.IrradianceFieldProbesPerFrame": 66,
+                "GlobalIllumination.AdaptiveProbeAllocationPercent": 50,
+                "GlobalIllumination.ShortRangeAO": 0,
                 "PathTracing.PathsPerFrame": 1,
                 "PathTracing.MaxBounces": 4,
                 "PathTracing.SamplesPerPixel": 64
@@ -416,6 +418,8 @@
                 "GlobalIllumination.ScreenProbeDownsample": 32,
                 "GlobalIllumination.ScreenProbeTracedTexels": 8,
                 "GlobalIllumination.IrradianceFieldProbesPerFrame": 66,
+                "GlobalIllumination.AdaptiveProbeAllocationPercent": 50,
+                "GlobalIllumination.ShortRangeAO": 1,
                 "PathTracing.PathsPerFrame": 1,
                 "PathTracing.MaxBounces": 8,
                 "PathTracing.SamplesPerPixel": 256
@@ -438,6 +442,8 @@
                 "GlobalIllumination.ScreenProbeDownsample": 16,
                 "GlobalIllumination.ScreenProbeTracedTexels": 8,
                 "GlobalIllumination.IrradianceFieldProbesPerFrame": 66,
+                "GlobalIllumination.AdaptiveProbeAllocationPercent": 50,
+                "GlobalIllumination.ShortRangeAO": 1,
                 "PathTracing.PathsPerFrame": 1,
                 "PathTracing.MaxBounces": 16,
                 "PathTracing.SamplesPerPixel": 1024
@@ -460,6 +466,8 @@
                 "GlobalIllumination.ScreenProbeDownsample": 16,
                 "GlobalIllumination.ScreenProbeTracedTexels": 8,
                 "GlobalIllumination.IrradianceFieldProbesPerFrame": 100,
+                "GlobalIllumination.AdaptiveProbeAllocationPercent": 100,
+                "GlobalIllumination.ShortRangeAO": 1,
                 "PathTracing.PathsPerFrame": 2,
                 "PathTracing.MaxBounces": 32,
                 "PathTracing.SamplesPerPixel": 4096
@@ -482,6 +490,8 @@
                 "GlobalIllumination.ScreenProbeDownsample": 8,
                 "GlobalIllumination.ScreenProbeTracedTexels": 16,
                 "GlobalIllumination.IrradianceFieldProbesPerFrame": 233,
+                "GlobalIllumination.AdaptiveProbeAllocationPercent": 100,
+                "GlobalIllumination.ShortRangeAO": 1,
                 "PathTracing.PathsPerFrame": 4,
                 "PathTracing.MaxBounces": 32,
                 "PathTracing.SamplesPerPixel": 16384

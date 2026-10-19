@@ -1,0 +1,83 @@
+{
+    "Header": {
+        "Kind": "FoliageType",
+        "Guid": "0987b34baece1a37e6f3e932edfde3ee",
+        "Versions": {
+            "FOLT": 8
+        },
+        "Dependencies": [
+            "6fc7758ca71aaf424936be96d961d61e"
+        ]
+    },
+    "Kind": "Mesh",
+    "Prefab": {
+        "Guid": "",
+        "Path": ""
+    },
+    "Density": 100.0,
+    "ScaleX": {
+        "Min": 1.0,
+        "Max": 1.0
+    },
+    "ZOffset": {
+        "Min": -2.0,
+        "Max": 0.0
+    },
+    "AlignToNormal": false,
+    "RandomYaw": true,
+    "RandomPitchAngle": 6.0,
+    "GroundSlopeAngle": {
+        "Min": 0.0,
+        "Max": 40.0
+    },
+    "Height": {
+        "Min": -262144.0,
+        "Max": 262144.0
+    },
+    "LandscapeLayers": [],
+    "MinimumLayerWeight": 0.0,
+    "CullDistance": {
+        "Min": 0.0,
+        "Max": 0.0
+    },
+    "Wind": {
+        "Strength": 0.15,
+        "Speed": 0.4,
+        "Height": 600.0
+    },
+    "IncludeInHLOD": true,
+    "Mesh": {
+        "Guid": "6fc7758ca71aaf424936be96d961d61e",
+        "Path": "assets:Environments/FieldBarn/Meshes/island_tree_01/island_tree_01.stmesh"
+    },
+    "Procedural": {
+        "CollisionRadius": 150.0,
+        "ShadeRadius": 150.0,
+        "NumSteps": 2,
+        "InitialSeedDensity": 1.0,
+        "AverageSpreadDistance": 600.0,
+        "SpreadVariance": 300.0,
+        "SeedsPerStep": 2,
+        "DistributionSeed": 9184,
+        "MaxInitialSeedOffset": 0.0,
+        "CanGrowInShade": true,
+        "SpawnsInShade": false,
+        "MaxInitialAge": 0.0,
+        "MaxAge": 10.0,
+        "OverlapPriority": 2.0,
+        "ProceduralScale": {
+            "Min": 2.4,
+            "Max": 3.2
+        },
+        "ScaleCurve": [
+            {
+                "Time": 0.0,
+                "Value": 0.0
+            },
+            {
+                "Time": 1.0,
+                "Value": 1.0
+            }
+        ]
+    }
+}

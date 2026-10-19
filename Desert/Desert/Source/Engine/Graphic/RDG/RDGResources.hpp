@@ -5,12 +5,14 @@
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstddef>
 #include <functional>
 #include <span>
 #include <limits>
 #include <memory>
+#include <span>
 #include <vector>
 
 // Resource descriptions, handles and externally owned resources of the render graph. Device-free: a

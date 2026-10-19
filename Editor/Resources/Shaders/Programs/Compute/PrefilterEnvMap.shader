@@ -7,8 +7,6 @@ Shader "PrefilterEnvMap"
         const float TwoPI = 2 * PI;
         const float Epsilon = 0.00001;
 
-        const uint NumSamples = 1024;
-        const float InvNumSamples = 1.0 / float(NumSamples);
 
 
         // The source is a separate texture read through the bake's one shared state
@@ -19,15 +17,29 @@ Shader "PrefilterEnvMap"
         layout(set=0, binding=1, rgba32f) restrict writeonly uniform imageCube outputTexture;
 
         // The mip this dispatch writes and the cube's last mip index: its roughness is the engine's one ramp
-        // (Common/ReflectionCaptureMip.glslh), the inverse of the LOD AmbientIBL reads it at.
+        // (Common/ReflectionCaptureMip.glslh), the inverse of the LOD AmbientIBL reads it at. realTime picks the
+        // GGX sample count, as UE's FilterCubeMap does (ReflectionEnvironmentShaders.usf): the .hdr file's bake,
+        // run once and cached on disk, takes the reference count (1024); the sky's capture, recorded in the frame
+        // graph whenever the sky changes, takes the real-time count -- 32 below roughness 0.1, 64 above. The
+        // mip-filtered importance sampling below is what keeps so few samples smooth.
         PushConstant PushConstants
         {
         	uint mip;
         	uint maxMip;
+        	uint realTime;
         } pushConstants;
 
         #include <Common/ReflectionCaptureMip.glslh>
         #define PARAM_ROUGHNESS ComputeReflectionCaptureRoughnessFromMip(float(pushConstants.mip), float(pushConstants.maxMip))
+
+        uint FilterSampleCount()
+        {
+        	if (pushConstants.realTime == 0u)
+        		return 1024u;
+        	return PARAM_ROUGHNESS < 0.1 ? 32u : 64u;
+        }
+        #define NumSamples (FilterSampleCount())
+        #define InvNumSamples (1.0 / float(FilterSampleCount()))
 
         // Compute Van der Corput radical inverse
         // See: http://holger.dammertz.org/stuff/notes_HammersleyOnHemisphere.html

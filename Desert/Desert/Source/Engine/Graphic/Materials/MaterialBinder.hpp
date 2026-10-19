@@ -63,12 +63,14 @@ namespace Desert::Graphic::MaterialBinder
     {
         Core::Formats::MaterialParamRow row( layout.RowStride / Core::Formats::kMaterialParamSlotSize );
         for ( const auto& p : layout.Params )
-            row[p.Offset / Core::Formats::kMaterialParamSlotSize] = p.Default;
+            row[p.Offset / Core::Formats::kMaterialParamSlotSize] =
+                 Core::Formats::MaterialRowSlotValue( p.Type, p.Default );
         return row;
     }
 
-    // Write a parameter by name into its whole slot (the components past its width are the generated
-    // struct's padding). False when the cell's row has no such parameter; the row is then untouched.
+    // Write a parameter by name into its whole slot, as the bytes of its declared GLSL type
+    // (Core::Formats::MaterialRowSlotValue; the components past its width are the generated struct's
+    // padding). False when the cell's row has no such parameter; the row is then untouched.
     inline bool WriteRowParam( const Core::Formats::MaterialLayout& layout, Core::Formats::MaterialParamRow& row,
                                std::string_view name, const glm::vec4& value )
     {
@@ -79,7 +81,7 @@ namespace Desert::Graphic::MaterialBinder
         const uint32_t slot = p->Offset / Core::Formats::kMaterialParamSlotSize;
         if ( slot >= row.size() )
             return false;
-        row[slot] = value;
+        row[slot] = Core::Formats::MaterialRowSlotValue( p->Type, value );
         return true;
     }
 

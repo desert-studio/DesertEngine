@@ -448,7 +448,6 @@ namespace Desert::Editor
         // The environment cache's readbacks land here and go to a worker for the encode (AL1-3).
         Graphic::EnvironmentCacheWriter::Get().Pump();
         m_Startup.UpdateContentSettling();
-        m_AssetCompiling.DrainBackgroundCook();
 
         // Scene loads wait until the startup stages finished (a scene expects cooked/preloaded assets).
         // A load that ran starts the content settle before the refused-load fallback and New Scene.
@@ -637,6 +636,7 @@ namespace Desert::Editor
         frame.ContentSettling  = m_Startup.ContentSettling();
         frame.AssetsCompiling   = m_AssetCompiling.RemainingAssets() > 0;
         frame.TexturesStreaming = Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0;
+        frame.ReflectionCapturesFilling = m_Startup.ReflectionCapturesFilling();
         // The picture the writer reads back (ViewportCapture), at the size this frame renders at: the panels'
         // deferred resizes were applied just before this call.
         if ( m_Workspace.ActiveScene() )

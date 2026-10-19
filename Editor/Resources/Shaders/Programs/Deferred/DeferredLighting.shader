@@ -102,7 +102,8 @@ Shader "DeferredLighting"
             vec4 Gain;      // rgb = tint * intensity
         } skyLook;
 
-        // THE TRACED GI'S FINAL GATHER (u_Params.w == 2): per pixel, the irradiance (/ pi) and the specular
+        // THE TRACED GI'S FINAL GATHER (u_Params.w == 2, or 3 when it carries its own short-range AO): per pixel,
+        // the irradiance (/ pi) and the specular
         // radiance of the screen probes (Graphic/GlobalIllumination/ScreenProbeGather, SoftwareTraced) or of the
         // radiance cache read in place (IrradianceFieldGather, ProbeVolume), in place of the sky's two cubes —
         // the rays saw the sky only where it is visible. Black in the other GI modes (unread).
@@ -110,6 +111,11 @@ Shader "DeferredLighting"
         #define u_GIDiffuse sampler2D(u_GIDiffuse, u_PointClampSampler)
         Uniform(31) texture2D u_GISpecular;
         #define u_GISpecular sampler2D(u_GISpecular, u_PointClampSampler)
+        // ...and the irradiance (/ pi) from behind the surface, -N, that a two-sided leaf lets through (UE
+        // BackfaceDiffuseIndirect). Set 1 like the reflection captures below: the set-0 slots from 25 up are reserved,
+        // and set 1's 0..6 are the captures and the view's radiance cache (Mesh/Surface/ViewIndirect.glslh).
+        layout(set = 1, binding = 7) uniform texture2D u_GIBackface;
+        #define u_GIBackface sampler2D(u_GIBackface, u_PointClampSampler)
 
         Out(0) vec4 oColor;
 
@@ -125,16 +131,10 @@ Shader "DeferredLighting"
         // (Core::kGraphOwnedBindingFirst) - which no engine declaration may enter, graph or no graph in this
         // program. A second set is outside both reservations by construction (they are set-0 numbers), and the
         // pass binds by name: the backend resolves each name to its (set, binding) from the reflection.
-        // Raw layout() for the buffer: the DSL's ReadBuffer(n) sugar has no set form.
-        #define DESERT_REFLECTION_CAPTURES
-        #include <Common/ReflectionCaptureGpu.glslh>
-        layout(std430, set = 1, binding = 0) readonly buffer ReflectionCapturesUB
-        {
-            uvec4                u_ReflectionCaptureHeader; // x = capture count
-            ReflectionCaptureGpu u_ReflectionCaptures[];
-        };
-        layout(set = 1, binding = 1) uniform textureCubeArray u_ReflectionCaptureCubes;
-        #define u_ReflectionCaptureCubes samplerCubeArray(u_ReflectionCaptureCubes, u_LinearClampSampler)
+        // The declarations are the forward passes' (Mesh/Surface/ViewIndirect.glslh): the capture list and cubes
+        // (set 1, b0-b1) and the view's world radiance cache (b2-b6), whose smooth read is the captures'
+        // normalisation estimator wherever the view runs the cache (Mesh/AmbientIBL.glslh, REFL-NORM-SMOOTH).
+        #include <Mesh/Surface/ViewIndirect.glslh>
         // The screen-space reflection of this frame (SSRRenderer's resolved trace, full resolution): rgb = the traced
         // radiance, a = the share of the specular lobe the trace answered. When SSR is off it is System.Black (opaque)
         // and u_CameraPos.w = 0: nothing is read, the environment answers the whole lobe.
@@ -269,11 +269,16 @@ Shader "DeferredLighting"
         	vec4 u_ShadowFilter;      // x = PCSS blocker search taps, y = filter taps (sun PCSS + local lights PCF)
         };
 
+        // The light a subsurface receiver lets through takes its own occlusion (DesertLight::TransmissionShadow):
+        // with cascades, their thickness transmittance; with a screen mask (ray-traced or virtual shadow maps) the
+        // mask itself, as UE's ray-traced shadows feed the same mask to the subsurface transmission.
         #ifdef DESERT_SUN_SHADOW_SCREEN_MASK
         #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) texelFetch(u_ScreenShadowMask, ivec2(gl_FragCoord.xy), 0).r
+        #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, density) texelFetch(u_ScreenShadowMask, ivec2(gl_FragCoord.xy), 0).r
         #else
         #include <Mesh/CascadedShadow.glslh>
         #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) ShadowFactor(worldPos, N, L, cascade)
+        #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, density) TransmissionShadowFactor(worldPos, density)
         #endif
 
         // THE CONTACT SHADOWS (UE ContactShadowLength): a short screen-space ray toward each light through
@@ -281,6 +286,7 @@ Shader "DeferredLighting"
         // below applies it to the point and spot lights, the sun's is applied in main().
         #define CONTACT_SHADOW_DEPTH u_GBufferDepth
         #define CONTACT_SHADOW_VP    u_JitteredViewProjection
+        #define CONTACT_SHADOW_INV_VP u_InvJitteredViewProjection
         // The hit texel's NO_CONTACT_SHADOW bit (UE CastContactShadow( GBuffer )): which intensity occludes.
         #define CONTACT_SHADOW_SHADING_WORD u_GBufferShadingWord
         #include <Common/ContactShadow.glslh>
@@ -456,19 +462,29 @@ Shader "DeferredLighting"
         	// The receiver's subsurface opacity (UE IsSubsurfaceModel + CustomData.a; -1 = not subsurface): its
         	// contact shadows fade with the hit distance.
         	const float subsurfaceOpacity = DesertSubsurfaceOpacity(shadingModel, payload);
-        	float shadow   = DesertReceivesSunShadows(word)
-        	                     ? DESERT_SUN_SHADOW(worldPos, N, L, cascade) *
-        	                           ContactShadowFactor(worldPos, N, L, u_SunContactShadow, subsurfaceOpacity)
-        	                     : 1.0;
+        	const bool  receivesSun       = DesertReceivesSunShadows(word);
+        	const float sunContact =
+        	     receivesSun ? ContactShadowFactor(worldPos, N, L, u_SunContactShadow, subsurfaceOpacity) : 1.0;
+        	float shadow   = receivesSun ? DESERT_SUN_SHADOW(worldPos, N, L, cascade) * sunContact : 1.0;
         	// The relief's own shadow (parallax occlusion, the word's SUN_SELF_SHADOW field): geometry, always applied.
         	shadow        *= DesertSunSelfShadow(word);
-        	shadow        *= CloudShadowFactor(worldPos);
+        	// The light a subsurface receiver lets through takes its own occlusion (DesertLight::TransmissionShadow):
+        	// the cascades' thickness transmittance, not ShadowFactor, whose normal offset puts a leaf's far side
+        	// behind the leaf. 1 for every other model (none reads it).
+        	float transmissionShadow =
+        	     (receivesSun && subsurfaceOpacity >= 0.0)
+        	          ? DESERT_SUN_TRANSMISSION_SHADOW(worldPos, ContactShadowSubsurfaceDensity(subsurfaceOpacity)) * sunContact
+        	          : 1.0;
+        	const float cloudShadow = CloudShadowFactor(worldPos);
+        	shadow             *= cloudShadow;
+        	transmissionShadow *= cloudShadow;
         	vec3  radiance = u_LightColor.rgb * u_LightColor.a;
 
-        	const DesertSurface surface = DesertMakeSurface(worldPos, N, view, albedo, metallic, roughness);
+        	const DesertSurface surface =
+        	     DesertMakeSurface(worldPos, N, view, albedo, metallic, roughness, DesertShadingWordSpecular(word));
 
-        	vec3 result = DesertEvaluateShadingModel(shadingModel, DesertSunLight(u_LightDir.xyz, radiance, shadow),
-        	                                         surface, payload);
+        	vec3 result = DesertEvaluateShadingModel(
+        	     shadingModel, DesertSunLight(u_LightDir.xyz, radiance, shadow, transmissionShadow), surface, payload);
 
         	// Point and spot lights (the city payoff): full Cook-Torrance lit, each occluded by its atlas views when it
         	// casts shadows — the lights of this pixel's froxel only, in the order the full loop would sum them. An
@@ -519,16 +535,29 @@ Shader "DeferredLighting"
         	// for the rest: the traced GI's final gather (screen probes or the irradiance field), else the reflection
         	// environment (captures, then sky) (UE ReflectionEnvironmentPixelShader: SSR over the rest, then the
         	// split-sum Fresnel of both together).
-        	DesertAmbient sampled = DesertSampleAmbient(surface, indirect, ao);
-        	// The reflection environment along the lobe (the captures, then the sky): what a traced ray's miss sees.
+        	// GI modes 2 and 3: the traced final gather at this pixel (one texel each, the G-buffer's extent) is the estimator -
+        	// its diffuse irradiance and specular radiance replace both sky terms, so a closed room neither glows nor
+        	// mirrors the sky. The captures compose over its specular and are normalised by its diffuse (the radiance
+        	// cache measured their capture points: ReflectionCaptureRenderer AddCaptureUpdate).
+        	DesertAmbient sampled = giMode >= 2
+        	                             ? DesertSampleAmbient(surface, texelFetch(u_GIDiffuse, ivec2(gl_FragCoord.xy), 0).rgb,
+        	                                                   texelFetch(u_GISpecular, ivec2(gl_FragCoord.xy), 0).rgb,
+        	                                                   indirect, ao)
+        	                             : DesertSampleAmbient(surface, indirect, ao);
+        	// The reflection environment along the lobe: what a traced ray's miss sees (the captures, over the traced
+        	// gather's specular in GI modes 2 and 3, else over the sky).
         	const vec3 environment     = sampled.Prefiltered;
         	const int  reflectionInput = int(u_CameraPos.w + 0.5);
-        	if (giMode == 2)
+        	if (giMode >= 2)
         	{
-        		// The traced final gather at this pixel (one texel each, the G-buffer's extent): the diffuse irradiance
-        		// and the rough specular replace both sky terms, so a closed room neither glows nor mirrors the sky.
-        		sampled.Irradiance  = texelFetch(u_GIDiffuse, ivec2(gl_FragCoord.xy), 0).rgb;
-        		sampled.Prefiltered = texelFetch(u_GISpecular, ivec2(gl_FragCoord.xy), 0).rgb;
+        		// The traced gather replaced the sky terms; a two-sided leaf's far side is lit by its -N gather.
+        		sampled.Traced         = 1.0;
+        		sampled.BackIrradiance = texelFetch(u_GIBackface, ivec2(gl_FragCoord.xy), 0).rgb;
+        		// giMode 3: the gather carries its own short-range AO (bent normal, ScreenProbeShortRangeAO), so only
+        		// the material's occlusion is left to apply (UE r.Lumen.DiffuseIndirect.SSAO 0 — no SSAO on Lumen's
+        		// indirect). giMode 2 (the irradiance field, or the short-range AO off): SSAO occludes it, as before.
+        		if (giMode == 3)
+        			sampled.Occlusion = ge.a;
         	}
         	if (reflectionInput == REFLECTION_INPUT_TRACED)
         	{
@@ -538,7 +567,7 @@ Shader "DeferredLighting"
         		// rest. Without traced GI there is no rough specular: the traced reflection answers the whole lobe,
         		// its screen hits past the max roughness included, as ScreenSpace's do.
         		const vec3 traced = DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), environment);
-        		sampled.Prefiltered = giMode == 2 ? mix(sampled.Prefiltered, traced, TracedReflectionsAlpha(gb.a)) : traced;
+        		sampled.Prefiltered = giMode >= 2 ? mix(sampled.Prefiltered, traced, TracedReflectionsAlpha(gb.a)) : traced;
         	}
         	else if (reflectionInput == REFLECTION_INPUT_SCREEN)
         		// UE's SSR input: the screen's hits over the GI's specular (or the environment), by their coverage.

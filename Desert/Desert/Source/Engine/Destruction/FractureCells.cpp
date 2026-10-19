@@ -121,6 +121,31 @@ namespace Desert::Destruction
         return sites;
     }
 
+    std::vector<glm::dvec3> GenerateRadialSites( const RadialSettings& radial, const CellBounds& bounds,
+                                                 FractureRandom& random )
+    {
+        std::vector<glm::dvec3> sites;
+        const double            step = radial.Radius / static_cast<double>( radial.RadialSteps );
+        for ( int shell = 0; shell < radial.RadialSteps; ++shell )
+        {
+            const double length = step * ( static_cast<double>( shell ) + 0.5 );
+            int          placed = 0;
+            for ( int draw = 0; draw < 64 * radial.AngularSteps && placed < radial.AngularSteps; ++draw )
+            {
+                const glm::dvec3 direction = UnitDirection( random );
+                const glm::dvec3 jitter =
+                     UnitDirection( random ) * std::cbrt( random.Unit() ) * radial.Variability;
+                const glm::dvec3 site = radial.Center + direction * length + jitter;
+                if ( glm::any( glm::lessThan( site, bounds.Min ) ) ||
+                     glm::any( glm::greaterThan( site, bounds.Max ) ) )
+                    continue;
+                sites.push_back( site );
+                ++placed;
+            }
+        }
+        return sites;
+    }
+
     std::vector<ConvexCell> ComputeVoronoiCells( const std::vector<glm::dvec3>& sites, const CellBounds& bounds )
     {
         std::vector<ConvexCell> cells;

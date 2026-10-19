@@ -75,6 +75,10 @@ namespace Desert::Editor
                            "VFX Data Channel",
                            { 0.95f, 0.70f, 0.20f, 1.00f },
                            ICON_MDI_ACCESS_POINT },
+             FileTypeInfo{ FileType::LandscapeGrassType,
+                           "Landscape Grass Type",
+                           { 0.35f, 0.80f, 0.35f, 1.00f },
+                           ICON_MDI_GRASS },
         };
 
         constexpr bool RowsAreInEnumOrder()

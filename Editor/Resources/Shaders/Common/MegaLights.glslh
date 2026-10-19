@@ -215,7 +215,7 @@ MegaLightsPixel MegaLightsLoadPixel(ivec2 pixel)
 	const uvec2 word      = texelFetch(u_GBufferShadingWord, pixel, 0).rg;
 	p.Model               = DesertShadingModelIndex(word);
 	p.Payload             = DesertUnpackPayload(word);
-	p.Surface             = DesertMakeSurface(p.Position, p.N, V, ga.rgb, ga.a, roughness);
+	p.Surface             = DesertMakeSurface(p.Position, p.N, V, ga.rgb, ga.a, roughness, DesertShadingWordSpecular(word));
 	p.SubsurfaceOpacity   = DesertSubsurfaceOpacity(p.Model, p.Payload);
 	p.DiffuseReflectance  = MegaLightsDiffuseReflectance(ga.rgb, ga.a);
 	p.SpecularReflectance = MegaLightsSpecularReflectance(ga.rgb, ga.a, roughness, p.N, V);
@@ -321,6 +321,7 @@ MegaLightsReservoir MegaLightsEndMerge(MegaLightsMerge merge)
 // shading word (Common/ContactShadow.glslh).
 #define CONTACT_SHADOW_DEPTH        u_GBufferDepth
 #define CONTACT_SHADOW_VP           u_JitteredViewProjection
+#define CONTACT_SHADOW_INV_VP       u_InvJitteredViewProjection
 #define CONTACT_SHADOW_SHADING_WORD u_GBufferShadingWord
 // The representative pixel being traced (a compute pass has no gl_FragCoord): set by the pass before each test.
 vec2 g_MegaLightsTracedPixel = vec2(0.0);

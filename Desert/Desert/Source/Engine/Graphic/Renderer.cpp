@@ -226,15 +226,14 @@ namespace Desert::Graphic
                                           firstInstance, hiddenSubmeshMask, lodLevel );
     }
 
-    Common::BoolResultStr Renderer::RenderMeshIndirect( const RDG::PassBindings& bindings,
-                                                        const GraphicsPipeline& pipeline, const Mesh& mesh,
-                                                        const glm::mat4&        transform,
-                                                        const MaterialExecutor& material,
-                                                        const RDG::BufferRef args, const uint64_t offset,
-                                                        const uint64_t hiddenSubmeshMask )
+    Common::BoolResultStr
+    Renderer::RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                  const Mesh& mesh, const glm::mat4& transform, const MaterialExecutor& material,
+                                  const RDG::BufferRef args, const uint64_t offset,
+                                  const uint64_t hiddenSubmeshMask, const MeshDrawArgumentsOrder order )
     {
         return s_RendererAPI->RenderMeshIndirect( bindings, pipeline, mesh, transform, material, args, offset,
-                                                  hiddenSubmeshMask );
+                                                  hiddenSubmeshMask, order );
     }
 
     void Renderer::ComputeImageBeginWrite( Image* image )
@@ -268,6 +267,13 @@ namespace Desert::Graphic
                                                            const uint32_t          targetLayer )
     {
         return s_RendererAPI->CopyGraphDepthToLayer( context, source, target, targetLayer );
+    }
+
+    Common::BoolResultStr Renderer::CopyGraphBufferToTexture( const RDG::PassContext& context,
+                                                              const RDG::BufferRef    source,
+                                                              const RDG::TextureRef   target )
+    {
+        return s_RendererAPI->CopyGraphBufferToTexture( context, source, target );
     }
 
     void Renderer::SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height )

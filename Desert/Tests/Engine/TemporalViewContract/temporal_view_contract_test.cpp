@@ -406,7 +406,7 @@ TEST( TemporalViewContract, VelocityDefaultsToZeroMotionAndHistoryInvalidates )
 {
     EXPECT_EQ( kVelocityFaultDefault, RDG::FaultDefault::Black );
     EXPECT_EQ( kHistoryFaultPolicy, RDG::ExternalFaultPolicy::InvalidateHistory );
-    EXPECT_EQ( kVelocityFormat, Desert::Core::Formats::ImageFormat::RG16F );
+    EXPECT_EQ( kVelocityFormat, Desert::Core::Formats::ImageFormat::RGBA16F );
 }
 
 TEST( TemporalViewContract, HistoryLostToAFaultResetsTheNextFrame )

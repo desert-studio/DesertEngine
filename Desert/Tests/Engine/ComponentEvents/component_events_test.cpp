@@ -6,7 +6,7 @@
 //   2. Zero at zero: with nobody subscribed nothing is called; a listener on another entity or event is not
 //      called; a batch is delivered once (a paused frame does not repeat it).
 //   3. Unbinding and the dead: an unsubscribed listener is not called; an entity destroyed takes its listeners.
-//   4. Break: DestructibleData::OnBreak carries the node, the position and the velocity.
+//   4. Break: DestructibleData::OnBreak carries the node, the position, the velocity, the mass and the pieces.
 //   5. Refusals: an unknown type or event, an empty listener, a payload of another signature.
 //
 // Mutations this suite must turn red:
@@ -214,15 +214,19 @@ TEST( ComponentEvents, ABreakCarriesItsPiece )
                       .Subscribe( wall, "DestructibleData", "OnBreak", heard.Listener() )
                       .IsSuccess() );
     auto& queue = registry.ctx_or_set<ECS::DestructionEventQueue>();
-    queue.Breaks.push_back( { wall, 5, { 1.0f, 2.0f, 3.0f }, { 0.0f, -100.0f, 0.0f } } );
+    queue.Breaks.push_back( { wall, 5, { 1.0f, 2.0f, 3.0f }, { 0.0f, -100.0f, 0.0f }, 12.5f, 4 } );
     ++queue.Publication;
     EXPECT_EQ( ECS::DeliverComponentEvents( registry, cursor ), 1u );
     ASSERT_EQ( heard.Calls.size(), 1u );
-    ASSERT_EQ( heard.Calls[0].size(), 3u );
+    ASSERT_EQ( heard.Calls[0].size(), 5u );
     ASSERT_NE( heard.Calls[0][0].Get<std::int64_t>(), nullptr );
     EXPECT_EQ( *heard.Calls[0][0].Get<std::int64_t>(), 5 );
     EXPECT_EQ( Vec3( heard.Calls[0][1] ), glm::vec3( 1.0f, 2.0f, 3.0f ) );
     EXPECT_EQ( Vec3( heard.Calls[0][2] ), glm::vec3( 0.0f, -100.0f, 0.0f ) );
+    ASSERT_NE( heard.Calls[0][3].Get<float>(), nullptr );
+    EXPECT_EQ( *heard.Calls[0][3].Get<float>(), 12.5f );
+    ASSERT_NE( heard.Calls[0][4].Get<std::int64_t>(), nullptr );
+    EXPECT_EQ( *heard.Calls[0][4].Get<std::int64_t>(), 4 );
 }
 
 TEST( ComponentEvents, AWrongPayloadIsRefused )

@@ -27,11 +27,13 @@ namespace Desert::Core
         void VisitFields( Self& p, Fn&& fn )
         {
             auto& [name, displayName, category, tooltip, type, widget, isTexture, timing, assetKind, isCube,
-                   engineSet, lo, hi, defaultValue, defaultTexture, slotIntent, sampler] = p;
+                   engineSet, isArray, elementOf, elementIndex, lo, hi, defaultValue, defaultTexture, slotIntent,
+                   sampler] = p;
             fn( name ), fn( displayName ), fn( category ), fn( tooltip ), fn( type ), fn( widget ),
                  fn( isTexture );
-            fn( timing ), fn( assetKind ), fn( isCube ), fn( engineSet ), fn( lo ), fn( hi ), fn( defaultValue ),
-                 fn( defaultTexture ), fn( slotIntent ), fn( sampler );
+            fn( timing ), fn( assetKind ), fn( isCube ), fn( engineSet ), fn( isArray ), fn( elementOf ),
+                 fn( elementIndex ), fn( lo ), fn( hi ), fn( defaultValue ), fn( defaultTexture ),
+                 fn( slotIntent ), fn( sampler );
         }
 
         template <class Self, class Fn>
@@ -124,7 +126,8 @@ namespace Desert::Core
                     Raw<uint8_t>( v ? 1 : 0 );
                 else if constexpr ( std::is_enum_v<T> )
                     Raw<uint32_t>( static_cast<uint32_t>( v ) );
-                else if constexpr ( std::is_same_v<T, float> || std::is_same_v<T, uint32_t> )
+                else if constexpr ( std::is_same_v<T, float> || std::is_same_v<T, uint32_t> ||
+                                    std::is_same_v<T, int32_t> )
                     Raw<T>( v );
                 else if constexpr ( std::is_same_v<T, std::string> )
                 {
@@ -204,7 +207,8 @@ namespace Desert::Core
                     Raw( raw );
                     v = static_cast<T>( raw );
                 }
-                else if constexpr ( std::is_same_v<T, float> || std::is_same_v<T, uint32_t> )
+                else if constexpr ( std::is_same_v<T, float> || std::is_same_v<T, uint32_t> ||
+                                    std::is_same_v<T, int32_t> )
                     Raw( v );
                 else if constexpr ( std::is_same_v<T, std::string> )
                 {

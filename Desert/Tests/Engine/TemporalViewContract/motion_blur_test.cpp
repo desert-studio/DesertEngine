@@ -127,11 +127,11 @@ TEST( MotionBlur, CameraMotionIsInTheVelocityAndAStillCameraHasNone )
     const glm::mat4 prevView = glm::translate( view, glm::vec3( -20.0f, 0.0f, 0.0f ) ); // camera moved 20 cm
     const glm::vec4 point( 0.0f, 0.0f, -500.0f, 1.0f );                                 // still, 5 m ahead
 
-    const glm::vec2 still = VelocityNdc( projection * view * point, projection * view * point );
+    const glm::vec2 still = glm::vec2( VelocityNdc( projection * view * point, projection * view * point ) );
     EXPECT_EQ( still, glm::vec2( 0.0f ) );
     EXPECT_EQ( MotionBlurPixelVelocity( still, 1.0f, ViewExtent{ 128, 64 }, 6.4f ), glm::vec2( 0.0f ) );
 
-    const glm::vec2 moving = VelocityNdc( projection * view * point, projection * prevView * point );
+    const glm::vec2 moving = glm::vec2( VelocityNdc( projection * view * point, projection * prevView * point ) );
     EXPECT_GT( glm::length( moving ), 0.0f );
     const glm::vec2 pixels = MotionBlurPixelVelocity( moving, 1.0f, ViewExtent{ 128, 64 }, 1000.0f );
     EXPECT_FLOAT_EQ( pixels.x, moving.x * 0.5f * 128.0f );

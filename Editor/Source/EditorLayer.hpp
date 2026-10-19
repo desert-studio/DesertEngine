@@ -187,7 +187,7 @@ namespace Desert::Editor
         LevelToolbar m_Toolbar{ m_Workspace, m_SceneFiles, m_Play, m_Preferences, m_Profiler.Shown() };
         // The bottom strip (UE: SStatusBar); the bottom drawer's chevron stays with the dock layout and arrives
         // as an action. See Editor/LevelEditor/StatusBar.hpp.
-        StatusBar m_StatusBar{ m_Workspace, m_SceneFiles, m_Documents, m_AssetCompiling.CookQueue(),
+        StatusBar m_StatusBar{ m_Workspace, m_SceneFiles, m_Documents, m_AssetCompiling,
                                [this] { m_Dock.DrawBottomDrawerToggle(); } };
         // Headless capture: `--shot`, `--play`, `--camera`/`--look` (UE: the automation screenshot director). See
         // Editor/LevelEditor/ShotDirector.hpp.

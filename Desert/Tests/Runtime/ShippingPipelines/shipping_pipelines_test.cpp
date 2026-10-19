@@ -504,8 +504,6 @@ namespace
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp",
                "\"SSDReconstructReflections\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp",
-               "\"SSDReconstructDiffuse\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp",
                "\"SSDTemporalAccumulation\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp",
                "\"SSDHistoryConvolution\"", Verdict::Shipped, "" },

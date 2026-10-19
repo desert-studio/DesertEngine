@@ -55,8 +55,10 @@ namespace Desert::Assets::Serialization
         std::string LodPolicy;
         /// SourceImportSettings::Skeleton as its GUID's text; absent = none chosen.
         std::optional<std::string> Skeleton;
-        /// SourceImportSettings::SpecularMap by FbxSpecularMapName; absent = `Specular` (FBX's own meaning, UE's
-        /// default), so a record that never chose otherwise states nothing new.
+        /// SourceImportSettings::SpecularMap by FbxSpecularMapName; absent = `FromImage` (the map's texels
+        /// decide). A record written before FromImage existed stated nothing for the old default `Specular`, under
+        /// which no surface template read the map at all; it now reads as FromImage, so its next import brings the
+        /// map in. A record that chose `Specular` explicitly states it.
         std::optional<std::string> SpecularMap;
         /// SourceImportSettings::FileUnit by MeshFileUnitName; absent = `FromFile` (the file or its format
         /// states the unit), so a record that never chose one states nothing new.
@@ -236,4 +238,13 @@ namespace Desert::Assets::Serialization
     EnsureImportRecord( const std::filesystem::path& source, Common::Content::ContentKind kind,
                         const std::optional<Common::Math::AABB>& bounds,
                         const Assets::SourceImportSettings&      settings );
+
+    /// The GUID of @p source's record when it already states this import - @p kind, @p bounds (as
+    /// EnsureImportRecord takes them) and @p settings - else an error naming the record and what it states
+    /// otherwise (or that it is missing). Reads only: the cook, which writes nothing into Content, asks this where
+    /// an import calls EnsureImportRecord.
+    Common::ResultStr<Common::Content::AssetGuid>
+    ReadCurrentImportRecord( const std::filesystem::path& source, Common::Content::ContentKind kind,
+                             const std::optional<Common::Math::AABB>& bounds,
+                             const Assets::SourceImportSettings&      settings );
 } // namespace Desert::Assets::Serialization

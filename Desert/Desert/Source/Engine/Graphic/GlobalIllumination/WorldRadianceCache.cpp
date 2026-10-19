@@ -12,6 +12,8 @@
 
 #include <Common/Core/Math/Rounding.hpp>
 
+#include <algorithm>
+#include <cstring>
 #include <format>
 #include <span>
 
@@ -185,6 +187,17 @@ namespace Desert::Graphic::GlobalIllumination
              graph.CreateBuffer( RDG::BufferDesc{ sizeof( paramsPayload ) }, "RadianceCache.Params" );
         graph.QueueBufferUpload( params, std::as_bytes( std::span( &paramsPayload, 1 ) ) );
         const RDG::BufferRef frame = inputs.GIFrame;
+        // The extra readers' points (std430: a uvec4 header, then one vec4 per point; one zero vec4 when none, a
+        // storage block is never empty).
+        std::vector<glm::vec4> markPoints( 1u + std::max<size_t>( inputs.MarkPoints.size(), 1u ),
+                                           glm::vec4( 0.0f ) );
+        const auto             markCount = static_cast<uint32_t>( inputs.MarkPoints.size() );
+        std::memcpy( markPoints.data(), &markCount, sizeof( markCount ) );
+        for ( size_t i = 0; i < inputs.MarkPoints.size(); ++i )
+            markPoints[1u + i] = glm::vec4( inputs.MarkPoints[i], 1.0f );
+        const RDG::BufferRef markPointsBuffer = graph.CreateBuffer(
+             RDG::BufferDesc{ markPoints.size() * sizeof( glm::vec4 ) }, "RadianceCache.MarkPoints" );
+        graph.QueueBufferUpload( markPointsBuffer, std::as_bytes( std::span( markPoints ) ) );
         const RDG::BufferRef schedule =
              graph.CreateBuffer( RDG::BufferDesc{ ScheduleEntries( shape ) * 4ull }, "RadianceCache.Schedule" );
 
@@ -238,7 +251,9 @@ namespace Desert::Graphic::GlobalIllumination
                      if ( pass == Mark )
                          block.Texture( "u_GBufferDepth", inputs.GBufferDepth, kS, all )
                               .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                              .Texture( "u_GBufferB", inputs.GBufferB, kS, all );
+                              .Texture( "u_GBufferB", inputs.GBufferB, kS, all )
+                              .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                              .Storage( "RadianceCacheMarkPointsUB", markPointsBuffer, kR );
                      if ( pass == Allocate || pass == Trace )
                          block.Storage( "PointLightsUB", inputs.PointLights, kR )
                               .Storage( "SpotLightsUB", inputs.SpotLights, kR )

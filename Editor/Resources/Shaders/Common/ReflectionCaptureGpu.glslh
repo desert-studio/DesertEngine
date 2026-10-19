@@ -8,7 +8,8 @@ struct ReflectionCaptureGpu
 	vec4 PositionRadius;          // xyz = influence centre (entity position, world cm), w = sphere influence radius
 	vec4 CaptureOffsetBrightness; // xyz = capture point - centre (world cm), w = Brightness
 	vec4 BoxExtentTransition;     // xyz = box half extent (cm), w = box transition distance (cm)
-	uvec4 ShapeCube;              // x = 0 sphere / 1 box, y = cube index in u_ReflectionCaptureCubes
+	uvec4 ShapeCube;              // x = 0 sphere / 1 box, y = cube index in u_ReflectionCaptureCubes,
+	                              // z = the capture's presence (float bits, 0..1): its first cube fading in
 	mat4 WorldToBox;              // world -> box space, where the box is [-1, 1]^3 (box shape only)
 };
 

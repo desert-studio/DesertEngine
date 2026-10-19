@@ -1,6 +1,7 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
+#include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
@@ -28,6 +29,8 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <functional>
 #include <initializer_list>
 #include <map>
@@ -156,6 +159,21 @@ namespace Desert::Graphic
                 view.SkyTransmittanceLut = textures.Import( sky->GetTransmittanceLut(), "Sky.TransmittanceLut" );
                 view.SkyViewLut          = textures.Import( sky->GetSkyViewLut(), "Sky.SkyViewLut" );
             }
+        // THE NEUTRAL RADIANCE CACHE (FrameTransients::RadianceCache*): a zeroed params block (no clipmap, so
+        // every read answers "past the coarsest clipmap" and touches neither the indirection nor the probes, which
+        // it also stands for) and the black system texture for both atlases. AddFrameTracedGI replaces it with the
+        // frame's update where the view traces GI; the forward passes that declare the cache read it either way.
+        {
+            const std::array<std::byte, sizeof( RadianceCache::RadianceCacheParamsPayload )> zeros{};
+            const RDG::BufferRef                                                             none =
+                 graph.CreateBuffer( RDG::BufferDesc{ zeros.size() }, "RadianceCache.None" );
+            graph.QueueBufferUpload( none, std::span<const std::byte>( zeros ) );
+            view.RadianceCacheParams      = none;
+            view.RadianceCacheIndirection = none;
+            view.RadianceCacheProbes      = none;
+            view.RadianceCacheIrradiance  = textures.GraphRefs().System.Black;
+            view.RadianceCacheDepth       = textures.GraphRefs().System.Black;
+        }
     }
 
     void SceneRenderer::AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures )
@@ -297,7 +315,7 @@ namespace Desert::Graphic
         constexpr float kSSAORadius = Common::Units::Metres( 0.5f );   // literature: 0.5 m
         constexpr float kSSAOBias   = Common::Units::Metres( 0.025f ); // literature: 0.025 m
 
-        if ( !m_EnableSSAO )
+        if ( !m_EnableSSAO || ScreenProbeAOReplacesSSAO() )
             return;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* ssao = UNIQUE_GET_AS( System::SSAORenderer, m_RenderSystems["SSAOSystem"] );
@@ -387,6 +405,31 @@ namespace Desert::Graphic
                m_ViewProfile.GlobalIllumination;
     }
 
+    void SceneRenderer::AddFrameReflectionCaptureUpdate( RDG::Builder& graph, FrameTextures& textures,
+                                                         const bool tracedGI )
+    {
+        if ( !m_FrameReflectionCaptures )
+            return;
+        ReflectionCaptureLighting lighting;
+        if ( tracedGI )
+            lighting.RadianceCache = m_TracedFrameShared.RadianceCache;
+        lighting.EnvIrradiance               = SceneViewInputsOf( textures.GraphRefs() ).EnvIrradiance;
+        const std::optional<Environment> env = GetEnvironment();
+        lighting.Environment                 = EnvironmentIdentity( env );
+        if ( env.has_value() )
+        {
+            const SkyLookGPU look = ToGPU( env->Look );
+            lighting.SkyYawCosSin = look.YawCosSin;
+            lighting.SkyGain      = look.Gain;
+        }
+        m_FrameReflectionCaptures->AddCaptureUpdate( graph, textures, lighting );
+    }
+
+    bool SceneRenderer::ScreenProbeAOReplacesSSAO() const
+    {
+        return RadianceCacheRuns() && m_GIPipeline.ScreenProbes && m_ScreenProbeShortRangeAO;
+    }
+
     void SceneRenderer::AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
                                           const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
                                           const glm::vec4& lightColor, const FrameScreenTrace& screenTrace,
@@ -474,7 +517,10 @@ namespace Desert::Graphic
         inputs.WorldGridParams = t.Lights.WorldGridParams;
         inputs.WorldGridCells  = t.Lights.WorldGridCells;
         inputs.CameraPosition  = frame.CameraPosition;
-        inputs.Extent          = glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height );
+        // The captures' points are readers of this cache too: their stored diffuse is measured from it.
+        if ( m_FrameReflectionCaptures && ReadsReflectionCaptures() )
+            inputs.MarkPoints = m_FrameReflectionCaptures->CapturePoints();
+        inputs.Extent = glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height );
 
         inputs.GIFrame              = AddFrameGIRecord( graph, frame, lightDir, lightColor, inputs.Extent );
         m_TracedFrameShared.GIFrame = inputs.GIFrame;
@@ -488,6 +534,12 @@ namespace Desert::Graphic
             return;
         }
         m_TracedFrameShared.RadianceCache = cache.GetValue();
+        // Every lit pass after this one reads this frame's cache (the forward meshes and the glass).
+        textures.Transients.RadianceCacheParams      = cache.GetValue().Params;
+        textures.Transients.RadianceCacheIndirection = cache.GetValue().Indirection;
+        textures.Transients.RadianceCacheProbes      = cache.GetValue().Probes;
+        textures.Transients.RadianceCacheIrradiance  = cache.GetValue().Irradiance;
+        textures.Transients.RadianceCacheDepth       = cache.GetValue().Depth;
 
         // The cards' indirect light off this update (the radiosity slot): the frame's relit pages.
         if ( m_SurfaceCache && m_SurfaceCacheFrame )
@@ -520,6 +572,7 @@ namespace Desert::Graphic
             }
             t.GIDiffuse  = gathered.GetValue().Diffuse;
             t.GISpecular = gathered.GetValue().Specular;
+            t.GIBackface = gathered.GetValue().Backface;
             return;
         }
 
@@ -527,6 +580,7 @@ namespace Desert::Graphic
         gather.GBufferDepth       = inputs.GBufferDepth;
         gather.GBufferA           = inputs.GBufferA;
         gather.GBufferB           = inputs.GBufferB;
+        gather.GBufferShadingWord   = gbuffer[2];
         gather.GBufferEmissive    = inputs.GBufferEmissive;
         gather.EnvSpecular        = inputs.EnvSpecular;
         gather.Tracer             = inputs.Tracer;
@@ -538,6 +592,8 @@ namespace Desert::Graphic
         gather.GIFrame            = inputs.GIFrame;
         gather.RadianceCache      = cache.GetValue();
         gather.Extent             = inputs.Extent;
+        gather.AdaptiveProbePercent = m_ScreenProbeAdaptivePercent;
+        gather.ShortRangeAO         = m_ScreenProbeShortRangeAO;
         gather.PrevViewProjection = frame.PrevViewProjection;
         gather.PrevCameraPosition = frame.PrevCameraPosition;
         // The screen leg (UE ScreenProbeTraceScreenTextures): the view's HZB and scene colour history, or the
@@ -547,18 +603,18 @@ namespace Desert::Graphic
              screenTrace.SceneHistory.IsValid() ? screenTrace.SceneHistory : refs.System.Black;
         gather.SceneColorHistoryReadable =
              screenTrace.HZB.IsValid() && screenTrace.SceneHistory.IsValid() && screenTrace.SceneHistoryReadable;
-        // The mesh SDF leg (UE ScreenProbeTraceMeshSDFs over LumenMeshSDFCulling's list): the software tracer's.
-        if ( GlobalIllumination::TracerReadsGlobalDistanceField( m_GIPipeline ) )
-        {
-            const auto meshSDFs = AddFrameMeshSDFReads( graph, textures, frame );
-            if ( !meshSDFs )
-            {
-                LOG_ERROR( "[SceneRenderer] ScreenProbes: {}", meshSDFs.GetError() );
-                return;
-            }
-            gather.MeshSDFs = meshSDFs.GetValue();
-        }
-        const auto gathered = m_ScreenProbeGather->AddPasses( graph, import, gather );
+        // The temporal filter's reprojection and the view's own history (SceneViewState, never the gather's).
+        gather.Velocity         = t.Velocity;
+        gather.JitterNdc        = frame.JitterNdc;
+        gather.PrevJitterNdc    = frame.PrevJitterNdc;
+        gather.ViewHistoryValid = frame.HistoryValid();
+        gather.Black            = refs.System.Black;
+        // THE ONE DECISION POINT of the gather's denoiser: a temporal method that denoises the raw lighting
+        // signals itself (DLSS Ray Reconstruction) takes the integrate's output instead. No method of this
+        // renderer does, so the gather denoises.
+        gather.Denoise = true;
+        const auto gathered =
+             m_ScreenProbeGather->AddPasses( graph, import, gather, m_ViewState.ScreenProbeGather() );
         if ( !gathered )
         {
             LOG_ERROR( "[SceneRenderer] ScreenProbes: {}", gathered.GetError() );
@@ -566,6 +622,8 @@ namespace Desert::Graphic
         }
         t.GIDiffuse  = gathered.GetValue().Diffuse;
         t.GISpecular = gathered.GetValue().Specular;
+        t.GIBackface = gathered.GetValue().Backface;
+        t.GIOccluded = gathered.GetValue().ShortRangeAO;
     }
 
     bool SceneRenderer::WorldLightGridRead() const
@@ -662,6 +720,7 @@ namespace Desert::Graphic
         const bool traced      = refs.Transients.GIDiffuse.IsValid();
         inputs.GIDiffuse       = traced ? refs.Transients.GIDiffuse : refs.System.Black;
         inputs.GISpecular      = traced ? refs.Transients.GISpecular : refs.System.Black;
+        inputs.GIBackface      = traced ? refs.Transients.GIBackface : refs.System.Black;
         inputs.View            = SceneViewInputsOf( refs );
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.
@@ -692,6 +751,7 @@ namespace Desert::Graphic
         DeferredEnvironmentInput environment;
         {
             auto* imageService = Runtime::ResourceRegistry::GetImageService();
+            environment.Sky    = GetSkyLightState();
             if ( const auto& env = GetEnvironment(); env.has_value() )
             {
                 environment.Look = env->Look;
@@ -707,12 +767,15 @@ namespace Desert::Graphic
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
         // The composite's GI branch (DeferredLighting.shader u_Params.w): 0 none, 1 the screen-space gather inside
-        // this pass, 2 the traced final gather's diffuse and specular in place of the sky's.
-        // Spelled here, not cast from the enum, whose numbering is the method ladder's
-        // (Common/Settings/RenderMethods.hpp).
+        // this pass, 2 the traced final gather's diffuse and specular in place of the sky's (SSAO occludes it), 3
+        // the same gather occluded by its own short-range AO (the material AO alone left to apply). Spelled here,
+        // not cast from the enum, whose numbering is the method ladder's (Common/Settings/RenderMethods.hpp).
         using Common::Scalability::GIMethod;
         const GIMethod gi            = m_RenderMethods.GlobalIllumination.Effective;
-        const int             giMode        = gi == GIMethod::ScreenSpace ? 1 : traced ? 2 : 0;
+        const int             giMode        = gi == GIMethod::ScreenSpace            ? 1
+                                              : traced && refs.Transients.GIOccluded ? 3
+                                              : traced                               ? 2
+                                                                                     : 0;
         const DeferredGIInput compositeGI{ .Mode      = giMode,
                                            .Intensity = gi == GIMethod::ScreenSpace ? m_GIIntensity : 0.0f,
                                            .ScreenSpaceSamples = m_ScreenSpaceGISamples };
@@ -794,25 +857,35 @@ namespace Desert::Graphic
         // One object per volume of the mesh's field, each owning the whole field (an aliasing pointer: the
         // volume lives as long as the field it belongs to). A mesh whose field is still being derived (the
         // asynchronous queue) is not in it yet.
+        // Each object also carries where the view drew it last frame (UE: the instance's PrevLocalToWorld, which
+        // a near-field hit's velocity reads): a static draw's motion row (BuildObjectMotions ran before any pass);
+        // an instanced batch's instances have no motion record of their own and did not move.
         const auto place = [&objects, &rows]( const void*                                                 mesh,
                                               const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
-                                              const glm::mat4&                                            world )
+                                              const glm::mat4& world, const glm::mat4& prevWorld,
+                                              const bool mostlyTwoSided )
         {
             const auto     it  = rows.find( SurfaceCache::SurfaceCacheScene::PlacementKey( mesh, world ) );
             const uint32_t row = it != rows.end() ? it->second : DistanceField::kNoObjectGridRow;
             for ( const Assets::MeshDistanceFieldVolume& volume : field->Volumes )
-                objects.push_back(
-                     { std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ), world, row } );
+                objects.push_back( DistanceField::GlobalDistanceFieldObject{
+                     .Field          = std::shared_ptr<const Assets::MeshDistanceFieldVolume>( field, &volume ),
+                     .World          = world,
+                     .PrevWorld      = prevWorld,
+                     .Row            = row,
+                     .MostlyTwoSided = mostlyTwoSided } );
         };
+        const auto& motionRows = meshRenderer->GetObjectMotionRows().Rows;
         for ( const auto& draw : meshRenderer->GetStaticQueue() )
             if ( draw.Mesh != nullptr )
                 if ( const auto field = draw.Mesh->GetDistanceField() )
-                    place( draw.Mesh, field, draw.Transform );
+                    place( draw.Mesh, field, draw.Transform, motionRows[draw.MotionRow].PrevWorld,
+                           draw.Mesh->IsDistanceFieldMostlyTwoSided() );
         for ( const auto& ism : meshRenderer->GetInstancedQueue() )
             if ( ism.Mesh != nullptr && ism.Transforms )
                 if ( const auto field = ism.Mesh->GetDistanceField() )
                     for ( const glm::mat4& world : *ism.Transforms )
-                        place( ism.Mesh, field, world );
+                        place( ism.Mesh, field, world, world, ism.Mesh->IsDistanceFieldMostlyTwoSided() );
 
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };
@@ -826,9 +899,25 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", field.GetError() );
             return;
         }
-        textures.Transients.GlobalDistanceField       = field.GetValue().Clipmaps;
-        textures.Transients.GlobalDistanceFieldLevels = field.GetValue().Levels;
-        textures.Transients.GlobalDistanceFieldObjectGrid = field.GetValue().ObjectGrid;
+        DistanceField::GlobalDistanceField::FrameField fieldFrame = field.GetValue();
+        // The near field's froxel grid over this view (the GI tracer's first metres).
+        const DistanceField::GlobalDistanceField::NearFieldView nearView{
+             .ViewProjection    = frame.ViewProjection,
+             .InvViewProjection = frame.InvViewProjection,
+             .Projection        = frame.Projection,
+             .CameraPosition    = frame.CameraPosition,
+             .Forward           = -glm::normalize( glm::vec3( frame.InvView[2] ) ),
+             .Extent            = glm::uvec2( frame.Split.Render.Width, frame.Split.Render.Height ) };
+        if ( const auto culled = m_GlobalDistanceField->AddNearFieldCullPasses( graph, fieldFrame, nearView );
+             !culled )
+        {
+            LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", culled.GetError() );
+            return;
+        }
+        textures.Transients.GlobalDistanceField           = fieldFrame.Clipmaps;
+        textures.Transients.GlobalDistanceFieldLevels     = fieldFrame.Levels;
+        textures.Transients.MeshDistanceFields            = fieldFrame.MeshFields;
+        textures.Transients.GlobalDistanceFieldObjectGrid = fieldFrame.ObjectGrid;
     }
 
 #if DESERT_DEV_INSTRUMENTS
@@ -1185,28 +1274,6 @@ namespace Desert::Graphic
         return pathTracer->AddPasses( graph, sceneColor, frame, inputs, m_PathTracingSettings );
     }
 
-    Common::ResultStr<DistanceField::GlobalDistanceField::MeshSDFScene>
-    SceneRenderer::AddFrameMeshSDFReads( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
-    {
-        if ( m_TracedFrameShared.MeshSDFs )
-            return Common::MakeSuccess(
-                 DistanceField::GlobalDistanceField::MeshSDFScene( *m_TracedFrameShared.MeshSDFs ) );
-        if ( !m_GlobalDistanceField )
-            return Common::MakeError<DistanceField::GlobalDistanceField::MeshSDFScene>(
-                 "the mesh SDFs: the view has no global distance field" );
-        DistanceField::GlobalDistanceField::MeshSDFCull cull;
-        cull.View                  = Core::Frustum( frame.Projection, frame.View );
-        cull.Camera                = frame.CameraPosition;
-        cull.TraceDistance         = GlobalIllumination::ScreenProbeLayout::kMeshSDFTraceDistance;
-        cull.EndDistanceFromCamera = GlobalIllumination::ScreenProbeLayout::kMeshSDFEndDistanceFromCamera;
-        const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
-        { return textures.Import( image, name ); };
-        auto meshSDFs = m_GlobalDistanceField->AddMeshSDFReads( graph, import, cull );
-        if ( meshSDFs )
-            m_TracedFrameShared.MeshSDFs = meshSDFs.GetValue();
-        return meshSDFs;
-    }
-
     bool SceneRenderer::ReflectionsTraced() const
     {
         const Common::Scalability::ReflectionMethod method = m_RenderMethods.Reflections.Effective;
@@ -1379,16 +1446,6 @@ namespace Desert::Graphic
                  !missing.empty() )
                 return refuse( missing );
         }
-        if ( GlobalIllumination::TracerReadsGlobalDistanceField( tracer ) )
-        {
-            auto meshSDFs = AddFrameMeshSDFReads( graph, textures, frame );
-            if ( !meshSDFs )
-                return refuse( meshSDFs.GetError() );
-            reads.MeshSDFs             = meshSDFs.GetValue();
-            reads.MeshSDFTraceDistance = GlobalIllumination::ScreenProbeLayout::kMeshSDFTraceDistance;
-            reads.MeshSDFEndDistanceFromCamera =
-                 GlobalIllumination::ScreenProbeLayout::kMeshSDFEndDistanceFromCamera;
-        }
 
         const FrameGraphRefs refs = textures.GraphRefs();
         // The GI's record of this frame when it traced; otherwise this frame's own (the same payload).
@@ -1501,12 +1558,7 @@ namespace Desert::Graphic
         std::optional<System::SSRRenderer::TracedReads> traced;
         if ( ReflectionsTraced() )
             traced = MakeTracedReflectionReads( graph, textures, ssr, gbuffer, frame );
-        if ( traced )
-        {
-            settings.Traced                       = true;
-            settings.MeshSDFTraceDistance         = traced->MeshSDFTraceDistance;
-            settings.MeshSDFEndDistanceFromCamera = traced->MeshSDFEndDistanceFromCamera;
-        }
+        settings.Traced   = traced.has_value();
         const bool hitLit = traced && traced->HitGroups != nullptr;
         // The front layer's renderer starts its rays from the front layer's surface; every hit still reads the
         // opaque G-buffer, HZB and velocity above (Common/SSRTrace.glslh SSRSurfaceNormal).

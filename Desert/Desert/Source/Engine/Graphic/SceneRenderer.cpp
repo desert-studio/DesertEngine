@@ -1,4 +1,5 @@
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
@@ -321,6 +322,18 @@ namespace Desert::Graphic
                 else
                 {
                     meshSystem->AddShadowCaster( terrainSystem );
+                }
+
+                // The landscape grass (GRASS-GPU): generated per view before the cascades, drawn by the mesh
+                // renderer's instanced cells (GrassRenderer::AddFrame).
+                RegisterSystem<System::GrassRenderer>( "GrassSystem", this, m_TargetFramebuffer );
+                if ( const auto init =
+                          SP_CAST( System::GrassRenderer, m_RenderSystems["GrassSystem"] )->Initialize();
+                     !init )
+                {
+                    LOG_ERROR( "[SceneRenderer] the grass system did not initialise; landscape grass will not "
+                               "grow: {}",
+                               init.GetError() );
                 }
 
                 // The water surface (WATER-W6): drawn by its own deferred node (AddFrameWater), after the scene
@@ -802,6 +815,8 @@ namespace Desert::Graphic
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
 
         skyboxSystem->PrepareCamera( m_SceneInfo.ActiveCamera );
+        // The scene's one sky light: this view reads it, and captures it when it is the frame's first view.
+        skyboxSystem->SetSceneSkyLight( scene.GetSkyLight() );
 
         m_ScenePlaying = scene.IsPlaying(); // grid & other authoring aids hide while the game runs
         // The scene's extension passes, for AddExtensionPoint while OnUpdate builds this frame.
@@ -811,8 +826,8 @@ namespace Desert::Graphic
         // The scene's ray-tracing geometry (skin cache, BLAS variants), shared by this frame's views.
         m_FrameRayTracingCache = &scene.GetRayTracingCache();
         m_SceneLedgerInstance  = scene.GetLedgerInstance();
-        // The scene's procedural sky environment: baked once per scene, read by this view (SceneSkyEnvironment).
-        skyboxSystem->BindSceneSky( scene.GetSkyEnvironment() );
+        // The scene's local-light shadow cache, which this view's lights draw into and read (UpdateLocalShadows).
+        m_FrameLocalShadows = &scene.GetLocalShadows();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -911,6 +926,8 @@ namespace Desert::Graphic
         m_SSRRaysPerPixel      = quality.As<int>( Parameter::ReflectionRaysPerPixel );
         m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
+        m_ScreenProbeAdaptivePercent = quality.As<uint32_t>( Parameter::ScreenProbeAdaptiveAllocation );
+        m_ScreenProbeShortRangeAO    = quality.As<int>( Parameter::ScreenProbeShortRangeAO ) != 0;
         m_ContactShadowSteps                  = quality.As<int>( Parameter::ShadowContactSteps );
         m_ParallaxQuality = ParallaxQuality{ .MinSteps    = quality.As<int>( Parameter::ShadingParallaxMinSteps ),
                                              .MaxSteps    = quality.As<int>( Parameter::ShadingParallaxMaxSteps ),
@@ -966,7 +983,9 @@ namespace Desert::Graphic
 
         // GPU particles: snapshot the scene's emitters (CPU) here; the compute sim is dispatched in OnUpdate
         // before the render graph, and the billboard pass draws in AddFrameTranslucency.
-        UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
+        // A reflection capture's face view neither draws nor simulates them (AddFrameParticlesSimulate).
+        if ( !m_ViewProfile.SceneCapture )
+            UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
         // here: the material Time uniform and the eye adaptation step.
@@ -1163,8 +1182,8 @@ namespace Desert::Graphic
             colorIntensity.z *= transmittance.z;
         }
 
-        // Bake/rebake the procedural-sky IBL if the sun moved (throttled). Done here — before the render
-        // graph records its command buffer — so the heavy compute + device idle stays at a safe boundary.
+        // Decide whether the procedural sky's light is (re)captured this frame and allocate the capture, before
+        // the render graph is built: its passes are recorded by AddFrameSkyLight at the head of the graph.
         {
             DESERT_PROFILE_PASS( "Sky: EnsureProceduralEnv" );
             skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.RealTimestep.GetSeconds() );
@@ -1332,6 +1351,7 @@ namespace Desert::Graphic
             return;
         }
         FrameTextures textures( graph );
+        AddFrameSkyLight( graph, textures );
         ImportSceneViewTextures( graph, textures );
         // The reflection captures, before any lit node reads them (SceneViewInputs).
         if ( m_FrameReflectionCaptures )
@@ -1383,7 +1403,6 @@ namespace Desert::Graphic
             auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             const auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
-            meshes->SetPrevWorldTimeSeconds( GetViewFrame()->PrevTimeSeconds );
             // Every landscape tile is a GPU-scene primitive too (its TLAS custom index): world-space vertices, so
             // an identity World.
             m_ScratchTileMotions.clear();
@@ -1588,9 +1607,23 @@ namespace Desert::Graphic
             m_SunCascadesDrawnLastFrame = m_FrameSunCascades;
         }
 
-        AddFrameParticlesSimulate( graph );
+        // A face view draws no particles (UE: a capture's ShowFlags.Particles = 0, "usually dynamic, and can't be
+        // captured well"), and simulates none: the face views render first in a frame, and the first view to
+        // prepare the tick is the one that simulates it.
+        if ( !m_ViewProfile.SceneCapture )
+            AddFrameParticlesSimulate( graph );
 
         AddFrameCloudShadowMap( graph, textures );
+
+        // The landscape grass of this view, before every node that draws it (the cascades, the geometry). A face
+        // view grows none, as it simulates no particles.
+        if ( !m_ViewProfile.SceneCapture )
+        {
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
+            UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
+                 ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) );
+            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        }
 
         // The opaque raster of the systems, in this order: the cascade depths (the geometry's shadow lookups read
         // them), the scene target's sky and geometry, the outline mask.
@@ -1610,7 +1643,12 @@ namespace Desert::Graphic
         if ( GlobalDistanceFieldRead() )
             AddFrameGlobalDistanceField( graph, textures, frame );
         AddFrameBasePass( graph, textures );
-        AddFrameSilhouette( graph, textures );
+        // The selection outline's mask, which a face view's missing post chain would never read.
+        if ( !m_ViewProfile.SceneCapture )
+            AddFrameSilhouette( graph, textures );
+        // A forward view lights its pixels with the sky's cubes: its captures are measured with the same.
+        if ( m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer )
+            AddFrameReflectionCaptureUpdate( graph, textures, false );
 
         // Deferred: fill the G-buffer, then shade it (or show a debug channel) into the scene target before
         // the post chain.
@@ -1666,6 +1704,9 @@ namespace Desert::Graphic
                           ? AddFrameScreenTrace( graph, textures, frame )
                           : FrameScreenTrace{};
                 AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, screenTrace, frame );
+                // The pending capture's cube, measured by this view's GI (the radiance cache this frame's update
+                // just wrote) or, without traced GI, by the sky's irradiance - before the composite that reads it.
+                AddFrameReflectionCaptureUpdate( graph, textures, RadianceCacheRuns() );
 
                 // SSR before the lighting, which composes it over the reflection environment (UE: SSR, then the
                 // reflection environment pass).
@@ -1749,7 +1790,9 @@ namespace Desert::Graphic
         // temporal node then refuses itself by name if it needed the result.
         RDG::TextureRef opaqueLuma;
         // A multisampled scene target has no temporal resolve (AddFrameTemporal's refusal), so nothing to measure.
-        if ( frame.Method != TemporalMethod::None && m_TemporalUpscaler != nullptr && m_TargetFramebuffer &&
+        // A reflection capture's face view ends at the lit scene (below): no temporal resolve to measure for.
+        if ( !m_ViewProfile.SceneCapture && frame.Method != TemporalMethod::None &&
+             m_TemporalUpscaler != nullptr && m_TargetFramebuffer &&
              m_TargetFramebuffer->GetSpecification().Samples == 1 )
         {
             const Common::ResultStr<RDG::TextureRef> measured = m_TemporalUpscaler->AddOpaquePasses(
@@ -1786,72 +1829,93 @@ namespace Desert::Graphic
         // fragment shaders do not write slot 1: colour write mask 0, VulkanPipeline::CreateColorBlendState).
         AddFrameGraphColorResolves( graph, textures );
 
-        // THE TEMPORAL RESOLVE (TAA1-B 5c). Everything after it reads its output and the overlays draw into
-        // it - never into the history, never into the pre-resolve scene colour. Overlays (debug lines, grid,
-        // gizmos, UI) are UNJITTERED: their shaders read ViewFrame::ViewProjection or the camera's matrices, never
-        // JitteredViewProjection (Camera.hpp WHICH MATRIX). Without a temporal method the post input is the scene
-        // colour, as before.
-        const OverlayTargets overlay = AddFrameTemporal( graph, textures, frame, exposurePrevious, opaqueLuma );
-        const std::vector<RDG::TextureRef> postInput =
-             overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
+        // WHAT THIS GRAPH HANDS OVER at its end, to a reader outside it.
+        std::shared_ptr<Image2D> handed;
+        std::string_view         handedName;
+        RDG::Access              handedAccess = RDG::Access::SampledGraphics;
+        if ( m_ViewProfile.SceneCapture )
+        {
+            // A REFLECTION CAPTURE'S FACE VIEW ENDS AT THE LIT HDR SCENE (UE CaptureSceneIntoScratchCubemap: the
+            // capture's view family has PostProcessing, MotionBlur, LightShafts, on-screen debug and the editor's
+            // primitives off). The capture resamples the scene colour, so the temporal resolve, the overlays, the
+            // outline, eye adaptation, bloom, shafts, flare, tonemap and AA were a face view's work for nothing
+            // (~1.8 ms of a 3.9 ms Bistro face, REFL-CAPTURE-NORM-2). The capture's Assemble samples the colour in
+            // the next graph's compute.
+            handed       = GetSceneColorImage();
+            handedName   = "scene colour";
+            handedAccess = RDG::Access::SampledCompute;
+        }
+        else
+        {
+            // THE TEMPORAL RESOLVE (TAA1-B 5c). Everything after it reads its output and the overlays draw into
+            // it - never into the history, never into the pre-resolve scene colour. Overlays (debug lines, grid,
+            // gizmos, UI) are UNJITTERED: their shaders read ViewFrame::ViewProjection or the camera's matrices,
+            // never JitteredViewProjection (Camera.hpp WHICH MATRIX). Without a temporal method the post input is
+            // the scene colour, as before.
+            const OverlayTargets overlay =
+                 AddFrameTemporal( graph, textures, frame, exposurePrevious, opaqueLuma );
+            const std::vector<RDG::TextureRef> postInput =
+                 overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
 #if DESERT_DEV_INSTRUMENTS
-        AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
-        AddFrameLightGridWorldView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front(),
-                                    frame );
-        AddFrameGlobalDistanceFieldView( graph, textures, frame,
-                                         postInput.empty() ? RDG::TextureRef{} : postInput.front() );
-        AddFrameSurfaceCacheView( graph, textures, frame,
-                                  postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+            AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+            AddFrameLightGridWorldView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front(),
+                                        frame );
+            AddFrameGlobalDistanceFieldView( graph, textures, frame,
+                                             postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+            AddFrameSurfaceCacheView( graph, textures, frame,
+                                      postInput.empty() ? RDG::TextureRef{} : postInput.front() );
 #endif // DESERT_DEV_INSTRUMENTS
 
 #if DESERT_DEV_INSTRUMENTS
-        // The engine's debug lines (bounding boxes), the first overlay.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
-            AddSystemRaster( graph, textures, mesh->DebugLinesPass(), overlay );
+            // The engine's debug lines (bounding boxes), the first overlay.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+                AddSystemRaster( graph, textures, mesh->DebugLinesPass(), overlay );
 #endif // DESERT_DEV_INSTRUMENTS
        // The editor's authoring overlays (colliders, cubemap preview) over the engine's debug lines.
-        AddExtensionPoint( graph, textures, RDG::ExtensionPoint::Overlay, overlay );
+            AddExtensionPoint( graph, textures, RDG::ExtensionPoint::Overlay, overlay );
 
-        // The pyramid the UI samples. The UI pass that samples it declares that read itself (the editor's UI pass,
-        // through ExtensionPass::Declare), and the graph orders it after the blur.
-        if ( m_BackdropBlurNeeded )
-            AddFrameBackdropBlur( graph, textures, postInput );
+            // The pyramid the UI samples. The UI pass that samples it declares that read itself (the editor's UI
+            // pass, through ExtensionPass::Declare), and the graph orders it after the blur.
+            if ( m_BackdropBlurNeeded )
+                AddFrameBackdropBlur( graph, textures, postInput );
 
-        // The UI canvas, last before the post chain.
-        AddExtensionPoint( graph, textures, RDG::ExtensionPoint::UI, overlay );
+            // The UI canvas, last before the post chain.
+            AddExtensionPoint( graph, textures, RDG::ExtensionPoint::UI, overlay );
 
-        AddFrameJumpFlood( graph, textures );
-        AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
-        if ( m_BloomEnabled )
-        {
-            AddFrameBloom( graph, textures, postInput );
+            AddFrameJumpFlood( graph, textures );
+            AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
+            if ( m_BloomEnabled )
+            {
+                AddFrameBloom( graph, textures, postInput );
+            }
+            AddFrameLightShafts( graph, textures, postInput, values );
+            AddFrameLensFlare( graph, textures, postInput, values );
+            AddFrameTonemap( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+
+            if ( m_AAMode == Common::Scalability::AntiAliasingMethod::FXAA )
+            {
+                AddFrameFXAA( graph, textures );
+            }
+            else if ( m_AAMode == Common::Scalability::AntiAliasingMethod::SMAA )
+            {
+                AddFrameSMAA( graph, textures );
+            }
+            handed     = GetFinalImage();
+            handedName = "final image";
         }
-        AddFrameLightShafts( graph, textures, postInput, values );
-        AddFrameLensFlare( graph, textures, postInput, values );
-        AddFrameTonemap( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
-
-        if ( m_AAMode == Common::Scalability::AntiAliasingMethod::FXAA )
+        // The final image is sampled after the graph (editor viewport, runtime blit), a face view's scene colour
+        // by the capture that resamples it: the graph ends it there.
+        if ( const auto extracted = textures.ExtractImported( handed, handedName, handedAccess ); !extracted )
         {
-            AddFrameFXAA( graph, textures );
-        }
-        else if ( m_AAMode == Common::Scalability::AntiAliasingMethod::SMAA )
-        {
-            AddFrameSMAA( graph, textures );
-        }
-        // The final image is sampled after the graph (editor viewport, runtime blit): the graph ends it there.
-        if ( const auto extracted =
-                  textures.ExtractImported( GetFinalImage(), "final image", RDG::Access::SampledGraphics );
-             !extracted )
-        {
-            LOG_ERROR( "SceneRenderer: frame graph '{}' cannot hand over its final image: {}", graph.GetName(),
+            LOG_ERROR( "SceneRenderer: frame graph '{}' cannot hand over its {}: {}", graph.GetName(), handedName,
                        extracted.GetError() );
         }
         else
         {
-            // What the viewport / runtime blit shows: without its writer this frame has no picture (black).
-            graph.SetFaultPolicy( textures.Import( GetFinalImage(), "final image" ),
-                                  RDG::ExternalFaultPolicy::FrameFatal );
+            // What the viewport / runtime blit shows (or the capture reads): without its writer this frame has no
+            // picture (black).
+            graph.SetFaultPolicy( textures.Import( handed, handedName ), RDG::ExternalFaultPolicy::FrameFatal );
         }
 
         // Its faults are logged by the graph backend and its own failures by ExecuteGraph; a FrameFault leaves
@@ -1872,6 +1936,8 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->ClearQueue();
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )->ClearQueue();
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] )->ClearQueue();
 
         m_PointLight.PointLights.clear();
@@ -1881,6 +1947,7 @@ namespace Desert::Graphic
         m_FrameExtensions         = nullptr;
         m_FrameReflectionCaptures = nullptr;
         m_FrameRayTracingCache    = nullptr;
+        m_FrameLocalShadows       = nullptr;
 
         return BOOLSUCCESS;
     }
@@ -2444,6 +2511,12 @@ namespace Desert::Graphic
              ->Submit( { .Heightmap = heightmap, .Landscape = tile, .Weights = weights, .Overrides = overrides } );
     }
 
+    void SceneRenderer::SubmitLandscapeGrass( System::GrassFieldDraw draw )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )->Submit( std::move( draw ) );
+    }
+
     void SceneRenderer::SubmitWaterZone( System::WaterZoneDraw zone )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
@@ -2559,6 +2632,14 @@ namespace Desert::Graphic
              ->BuildEnvironmentBake();
     }
 
+    bool SceneRenderer::DrawsVolumetricClouds() const
+    {
+        const auto it = m_RenderSystems.find( "VolumetricCloudSystem" );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        return it != m_RenderSystems.end() &&
+               UNIQUE_GET_AS( System::VolumetricCloudRenderer, it->second )->IsPresent();
+    }
+
     bool SceneRenderer::IsCloudVolumeBaking() const
     {
         // `find` rather than `operator[]`, exactly as GetCloudShadowInput does it: this is a const observer
@@ -2571,14 +2652,14 @@ namespace Desert::Graphic
         return clouds && clouds->IsModellingVolumeBaking();
     }
 
-    bool SceneRenderer::IsEnvironmentSettling() const
+    SkyLightState SceneRenderer::GetSkyLightState() const
     {
         const auto it = m_RenderSystems.find( "SkyboxSystem" );
         if ( it == m_RenderSystems.end() )
-            return false;
+            return SkyLightState::NoSky;
 
         const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
-        return ( sky != nullptr ) && sky->IsEnvironmentSettling();
+        return sky ? sky->GetSkyLightState() : SkyLightState::NoSky;
     }
 
     float SceneRenderer::CloudVolumeBakeProgress() const
@@ -2594,6 +2675,13 @@ namespace Desert::Graphic
     std::optional<Environment> SceneRenderer::GetEnvironment()
     {
         return UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )->GetEnvironment();
+    }
+
+    void SceneRenderer::BorrowEnvironment( std::optional<Environment> environment )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
+             ->BorrowEnvironment( std::move( environment ) );
     }
 
     std::shared_ptr<Image2D> SceneRenderer::GetShadowCascadeCacheImage( uint32_t cascade )
@@ -2790,10 +2878,7 @@ namespace Desert::Graphic
 
     uint64_t SceneRenderer::GetEnvironmentIdentity()
     {
-        if ( const auto env = GetEnvironment(); env.has_value() && env->PreFilteredMap.IsValid() )
-            return ( static_cast<uint64_t>( env->PreFilteredMap.Value.Index ) << 32u ) |
-                   env->PreFilteredMap.Value.Generation;
-        return 0;
+        return EnvironmentIdentity( GetEnvironment() );
     }
 
     std::shared_ptr<Image2D> SceneRenderer::GetSceneColorImage() const
@@ -2912,7 +2997,7 @@ namespace Desert::Graphic
 
         const CloudShadowMapView& view = clouds->GetShadowMapView();
 
-        cloudShadow.HasMap     = clouds->GetShadowMapImage() != nullptr;
+        cloudShadow.HasMap     = clouds->GetShadowMap().IsValid();
         cloudShadow.WorldToMap = view.WorldToMap;
         cloudShadow.FarDepthKm = view.FarDepthKm;
         cloudShadow.Strength   = clouds->GetShadowStrength();

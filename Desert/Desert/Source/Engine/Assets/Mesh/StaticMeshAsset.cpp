@@ -208,28 +208,34 @@ namespace Desert::Assets
         // had is an error naming the mesh (the queue logs it), never a field guessed from a different input.
         // The job owns copies of what it reads: this asset may be reloaded or unloaded while it runs, and a
         // reload makes a new slot, so a late field lands in a slot nothing reads any more.
-        auto slot       = std::make_shared<MeshDistanceFieldSlot>();
-        m_DistanceField = slot;
-        auto cards      = std::make_shared<MeshCardsSlot>();
-        m_Cards         = cards;
-        auto input      = MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes, twoSided );
+        auto input = MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes, twoSided );
         if ( !input )
         {
             LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh is left out of every distance-field trace",
                        m_Metadata.Filepath.string(), input.GetError() );
             return;
         }
+        auto slot       = std::make_shared<MeshDistanceFieldSlot>( MostlyTwoSided( input.GetValue() ) );
+        m_DistanceField = slot;
+        auto cards      = std::make_shared<MeshCardsSlot>();
+        m_Cards         = cards;
         EnqueueMeshDistanceField(
              slot, m_Metadata.Filepath.string(),
              [path = m_Metadata.Filepath, key = m_RenderDataKey, sided = std::move( twoSided ),
               in = std::make_shared<MeshDistanceFieldBuildInput>( input.ExtractValue() ),
               cards]( bool& built, const MeshDistanceFieldCancel& cancel )
+                  -> Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>>
              {
                  // The cards first (UE FCardRepresentationAsyncQueue, here the same job): a DDC hit or a build
                  // from the same triangles. A failure leaves the mesh without cards - out of the surface cache,
                  // lit in place by a trace that hits it - and is logged naming the mesh, never guessed.
-                 if ( auto loaded = LoadMeshCards( path, key, sided, *in ); loaded.IsSuccess() )
+                 // A cancelled card build is the job's cancel (DfRun: not a failure, nothing logged; a flight
+                 // that followed another owner's cancelled leader is derived again).
+                 if ( auto loaded = LoadMeshCards( path, key, sided, *in, cancel ); loaded.IsSuccess() )
                      cards->Publish( loaded.ExtractValue() );
+                 else if ( loaded.GetError().find( kMeshCardsCancelled ) != std::string::npos )
+                     return Common::MakeError<std::shared_ptr<const MeshDistanceFieldData>>(
+                          std::string( kMeshDistanceFieldCancelled ) );
                  else
                      LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh has no surface-cache cards", path.string(),
                                 loaded.GetError() );

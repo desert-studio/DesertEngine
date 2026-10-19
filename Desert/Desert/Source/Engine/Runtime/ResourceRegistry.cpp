@@ -113,6 +113,12 @@ namespace Desert::Runtime
         return &uiThemeService;
     }
 
+    LandscapeGrassTypeService* ResourceRegistry::GetLandscapeGrassTypeService()
+    {
+        static LandscapeGrassTypeService landscapeGrassTypeService;
+        return &landscapeGrassTypeService;
+    }
+
     LandscapeLayerInfoService* ResourceRegistry::GetLandscapeLayerInfoService()
     {
         static LandscapeLayerInfoService landscapeLayerInfoService;
@@ -161,6 +167,7 @@ namespace Desert::Runtime
         GetUIThemeService()->BindAssetManager( assets );
         GetSkyboxService()->BindAssetManager( assets );
         GetLandscapeLayerInfoService()->BindAssetManager( assets );
+        GetLandscapeGrassTypeService()->BindAssetManager( assets );
         GetFoliageTypeService()->BindAssetManager( assets );
         GetFractureService()->BindAssetManager( assets );
         GetWaterWavesService()->BindAssetManager( assets );
@@ -187,6 +194,7 @@ namespace Desert::Runtime
         GetCloudLayoutService()->Clear();
         GetUIThemeService()->Clear();
         GetLandscapeLayerInfoService()->Clear();
+        GetLandscapeGrassTypeService()->Clear();
         GetFoliageTypeService()->Clear();
         GetFractureService()->Clear();
         GetWaterWavesService()->Clear();

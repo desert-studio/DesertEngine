@@ -135,12 +135,12 @@ TEST( GBufferLayout, EveryGBufferWriterDeclaresTheSlotsTypeAtTheSlotsLocation )
             const std::string name     = ( *it )[4];
             writers.insert( file );
             // The slot after the framebuffer's own colours is the graph-provided view velocity (TAA1:
-            // ViewTargetLayouts.hpp GBufferLayout, RG16F) — the one output a G-buffer writer may declare past
+            // ViewTargetLayouts.hpp GBufferLayout, RGBA16F) — the one output a G-buffer writer may declare past
             // them.
             if ( index == kColourSlots )
             {
                 EXPECT_EQ( name, "oVelocity" ) << file << " location " << index;
-                EXPECT_EQ( type, "vec2" ) << file << ": the velocity output is RG16F";
+                EXPECT_EQ( type, "vec4" ) << file << ": the velocity output is RGBA16F";
                 continue;
             }
             ASSERT_LT( index, kColourSlots )

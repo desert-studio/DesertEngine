@@ -18,6 +18,8 @@ namespace Desert::Graphic::GlobalIllumination
                     return "the global distance field's clipmap placement was not uploaded";
                 if ( !frame.GlobalDistanceFieldObjectGrid.IsValid() )
                     return "the global distance field's object grid was not brought up";
+                if ( !frame.MeshDistanceFields.IsValid() )
+                    return "the mesh distance fields and their near-field grid were not brought up";
                 return {};
             case Tracer::HardwareRayQuery:
                 // Never answered by the distance field instead: a hardware pipeline without its TLAS is a defect
@@ -44,9 +46,19 @@ namespace Desert::Graphic::GlobalIllumination
                     block.Texture( std::format( "u_GlobalDistanceField{}", level ),
                                    frame.GlobalDistanceField[level], sampled, RDG::SubresourceRange::All() )
                          .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
-                block.Storage( "GITracerSoftwareUB", frame.GlobalDistanceFieldLevels, RDG::Access::StorageRead );
-                // Fetched texel by texel through the includer's point-clamped shared state (GITracer.glslh).
-                block.Texture( "u_GlobalDistanceFieldObjectGrid", frame.GlobalDistanceFieldObjectGrid, sampled,
+                block.Storage( "GITracerSoftwareUB", frame.GlobalDistanceFieldLevels, RDG::Access::StorageRead )
+                     .Storage( "GITracerDFAssetsUB", frame.MeshDistanceFields.Assets, RDG::Access::StorageRead )
+                     .Storage( "GITracerDFIndirectionUB", frame.MeshDistanceFields.Indirection,
+                               RDG::Access::StorageRead )
+                     .Storage( "GITracerDFObjectsUB", frame.MeshDistanceFields.Objects, RDG::Access::StorageRead )
+                     .Storage( "GITracerMeshSDFGridCellsUB", frame.MeshDistanceFields.NearFieldGrid,
+                               RDG::Access::StorageRead )
+                     // The brick atlas reads through the clipmaps' shared repeat state (GITracer.glslh).
+                     .Texture( "u_DFBrickAtlas", frame.MeshDistanceFields.BrickAtlas, sampled,
+                               RDG::SubresourceRange::All() )
+                     .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
+                     // Fetched texel by texel through the includer's point-clamped shared state (GITracer.glslh).
+                     .Texture( "u_GlobalDistanceFieldObjectGrid", frame.GlobalDistanceFieldObjectGrid, sampled,
                                RDG::SubresourceRange::All() )
                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
                 return;

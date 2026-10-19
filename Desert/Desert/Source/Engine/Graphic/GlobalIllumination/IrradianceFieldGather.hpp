@@ -64,6 +64,7 @@ namespace Desert::Graphic::GlobalIllumination
     {
         RDG::TextureRef Diffuse;  // rgb = irradiance / pi — "u_GIDiffuse"
         RDG::TextureRef Specular; // rgb = the cosine lobe about the reflection direction — "u_GISpecular"
+        RDG::TextureRef Backface; // rgb = irradiance / pi from -N — "u_GIBackface"
     };
 
     class IrradianceFieldGather
@@ -97,8 +98,10 @@ namespace Desert::Graphic::GlobalIllumination
         mutable std::array<ShaderBindingLayoutCache, ProgramCount> m_Layouts;
         std::shared_ptr<Image2D>                                   m_HalfDiffuse; // .a = distance to the camera
         std::shared_ptr<Image2D>                                   m_HalfSpecular;
+        std::shared_ptr<Image2D>                                   m_HalfBackface;
         std::shared_ptr<Image2D>                                   m_Diffuse;
         std::shared_ptr<Image2D>                                   m_Specular;
+        std::shared_ptr<Image2D>                                   m_Backface;
         glm::uvec2                                                 m_Extent{ 0u };
     };
 } // namespace Desert::Graphic::GlobalIllumination

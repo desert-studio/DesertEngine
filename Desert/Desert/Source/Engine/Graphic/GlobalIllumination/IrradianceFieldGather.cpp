@@ -57,14 +57,16 @@ namespace Desert::Graphic::GlobalIllumination
 
     Common::BoolResultStr IrradianceFieldGather::EnsureImages( const glm::uvec2 extent )
     {
-        if ( m_Diffuse && m_Specular && extent == m_Extent )
+        if ( m_Diffuse && m_Specular && m_Backface && extent == m_Extent )
             return BOOLSUCCESS;
         const glm::uvec2 half = ( extent + 1u ) / 2u;
         m_HalfDiffuse         = CreateTarget( "IrradianceField.HalfDiffuse", half );
         m_HalfSpecular        = CreateTarget( "IrradianceField.HalfSpecular", half );
+        m_HalfBackface        = CreateTarget( "IrradianceField.HalfBackface", half );
         m_Diffuse             = CreateTarget( "IrradianceField.Diffuse", extent );
         m_Specular            = CreateTarget( "IrradianceField.Specular", extent );
-        if ( !m_HalfDiffuse || !m_HalfSpecular || !m_Diffuse || !m_Specular )
+        m_Backface            = CreateTarget( "IrradianceField.Backface", extent );
+        if ( !m_HalfDiffuse || !m_HalfSpecular || !m_HalfBackface || !m_Diffuse || !m_Specular || !m_Backface )
             return Common::MakeError<bool>( "irradiance field: an image could not be created" );
         m_Extent = extent;
         return BOOLSUCCESS;
@@ -85,8 +87,10 @@ namespace Desert::Graphic::GlobalIllumination
 
         const RDG::TextureRef halfDiffuse  = import( m_HalfDiffuse, "IrradianceField.HalfDiffuse" );
         const RDG::TextureRef halfSpecular = import( m_HalfSpecular, "IrradianceField.HalfSpecular" );
+        const RDG::TextureRef halfBackface = import( m_HalfBackface, "IrradianceField.HalfBackface" );
         const RDG::TextureRef diffuse      = import( m_Diffuse, "IrradianceField.Diffuse" );
         const RDG::TextureRef specular     = import( m_Specular, "IrradianceField.Specular" );
+        const RDG::TextureRef backface     = import( m_Backface, "IrradianceField.Backface" );
 
         constexpr RDG::Access kR   = RDG::Access::StorageRead;
         constexpr RDG::Access kW   = RDG::Access::StorageWrite;
@@ -113,7 +117,8 @@ namespace Desert::Graphic::GlobalIllumination
                           .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
                           .Texture( "u_RadianceCacheDepth", inputs.RadianceCache.Depth, kS, all )
                           .Storage( "u_GIHalfDiffuseOut", halfDiffuse, kW )
-                          .Storage( "u_GIHalfSpecularOut", halfSpecular, kW );
+                          .Storage( "u_GIHalfSpecularOut", halfSpecular, kW )
+                          .Storage( "u_GIHalfBackfaceOut", halfBackface, kW );
                  },
                  [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -137,7 +142,10 @@ namespace Desert::Graphic::GlobalIllumination
                           .Texture( "u_GIHalfDiffuse", halfDiffuse, kS, all )
                           .Texture( "u_GIHalfSpecular", halfSpecular, kS, all )
                           .Storage( "u_GIDiffuseOut", diffuse, kW )
-                          .Storage( "u_GISpecularOut", specular, kW );
+                          .Storage( "u_GISpecularOut", specular, kW )
+                          .Texture( "u_GIHalfBackface", halfBackface, kS, all )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                          .Storage( "u_GIBackfaceOut", backface, kW );
                  },
                  [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -146,6 +154,7 @@ namespace Desert::Graphic::GlobalIllumination
                  } );
         }
 
-        return Common::MakeSuccess( IrradianceFieldGatherFrame{ .Diffuse = diffuse, .Specular = specular } );
+        return Common::MakeSuccess(
+             IrradianceFieldGatherFrame{ .Diffuse = diffuse, .Specular = specular, .Backface = backface } );
     }
 } // namespace Desert::Graphic::GlobalIllumination

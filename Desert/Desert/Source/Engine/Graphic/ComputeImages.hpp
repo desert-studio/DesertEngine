@@ -18,10 +18,10 @@ namespace Desert::Graphic
     // Must match the conversion shaders' LocalSize(32, 32, 1) — a dispatch derived with a different
     // group size under-covers the output and the right/bottom edge is never written.
     inline constexpr uint32_t kComputeImagesWorkGroupSize = 32u;
-    // The cube bakes' (PanoramaToCubemap, DiffuseIrradiance, PrefilterEnvMap) set-0 map: the source as a separate
-    // texture at 0, the output storage image at 1, and the one shared state the source is read through at 2.
-    // That state is trilinear REPEAT and not the global texture filter: a bake is cached by its inputs, and a
-    // display setting must not change what it bakes. REPEAT wraps the panorama's longitude; a cube ignores it.
+    // The cube bakes' (PanoramaToCubemap, SkyCaptureIrradiance, PrefilterEnvMap) set-0 map: the source as a
+    // separate texture at 0, the output storage image at 1, and the one shared state the source is read through
+    // at 2. That state is trilinear REPEAT and not the global texture filter: a bake is cached by its inputs, and
+    // a display setting must not change what it bakes. REPEAT wraps the panorama's longitude; a cube ignores it.
     inline constexpr uint32_t kComputeImagesInputBinding   = 0u;
     inline constexpr uint32_t kComputeImagesOutputBinding  = 1u;
     inline constexpr uint32_t kComputeImagesSamplerBinding = 2u;
@@ -52,23 +52,6 @@ namespace Desert::Graphic
         virtual ~ComputeImages() = default;
 
         static std::shared_ptr<Image2D> ProccessForImage2D( const std::shared_ptr<Image>& image );
-        // Bakes the procedural atmosphere into an equirect HDR panorama (RGBA32F, Storage|Sample). No input
-        // image: the sky is generated in-shader from @p skyParams, which is the SAME buffer the screen sky
-        // pass reads, so the baked lighting and the visible sky cannot describe different skies.
-        // @p transmittanceLut / @p multiScatterLut feed the physical model's march; nullptr (the gradient
-        // model) binds the engine fallbacks so the shader's samplers are never undefined descriptors.
-        // @p clouds is this view's cloud layer, marched into the same panorama by the same field the
-        // screen pass marches — see Engine/Graphic/Clouds/CloudEnvironmentBake.hpp. Its Marched flag is
-        // the only gate: every descriptor the shader declares is written on every path, because an
-        // unbound one makes the set invalid and this backend answers an invalid set by skipping the whole
-        // dispatch — which here would lose the environment, not the clouds, with nothing in the log.
-        // RECORDS into @p batch and returns the panorama before the GPU has written it — the caller samples it
-        // only from commands recorded after this one in the same batch, or once the batch completes.
-        static std::shared_ptr<Image2D> BakeProceduralPanorama( GpuBatch& batch, uint32_t width, uint32_t height,
-                                                                ShaderResources::StorageBuffer* skyParams,
-                                                                Image2D*                        transmittanceLut,
-                                                                Image2D*                        multiScatterLut,
-                                                                const CloudBakeBinding&         clouds );
         // Single dispatch: samples spec.InputHandle (2D panorama OR source cubemap) -> a fresh output cube.
         // Both RECORD into @p batch and return the cube before the GPU has written it: the caller submits
         // the batch and must not sample the cube until it completes. The transient pipeline is retained
@@ -79,6 +62,11 @@ namespace Desert::Graphic
         // into a mipped output cube. Returns the prefiltered cube.
         static std::shared_ptr<ImageCube> ProccessForImageCubeMips( GpuBatch&                         batch,
                                                                     const ComputeImagesSpecification& spec );
+        // Diffuse irradiance: the exact cosine-weighted sum over one mip of spec.InputHandle (a radiance cube
+        // with its chain), @p sourceMip, into a one-mip cube of spec.FaceSize -- SkyCaptureIrradiance, the same
+        // program and source mip the procedural sky's capture records in the frame graph.
+        static std::shared_ptr<ImageCube>
+        IntegrateIrradianceCube( GpuBatch& batch, const ComputeImagesSpecification& spec, uint32_t sourceMip );
     };
 
 } // namespace Desert::Graphic

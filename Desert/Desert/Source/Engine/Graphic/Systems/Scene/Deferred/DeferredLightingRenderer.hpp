@@ -55,6 +55,7 @@ namespace Desert::Graphic::System
         // System.Black; bound by the MegaLights program only (DeferredShadowInput::MegaLightsLocalLights).
         RDG::TextureRef MegaLightsDiffuse;
         RDG::TextureRef MegaLightsSpecular;
+        RDG::TextureRef GIBackface; // irradiance from -N, the light through a two-sided leaf ("u_GIBackface")
         // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
         SceneViewInputs View;
     };
@@ -304,7 +305,8 @@ namespace Desert::Graphic::System
         // material whose route fill the setup validates is filled before the validation reads it, never in the
         // exec). lightDir.xyz = the direction the sun travels; lightColor.rgb/.a = colour/intensity; cameraPos.xyz
         // = camera world position; debugMode selects a raw channel (0 = lit); gi.Mode picks the indirect-light
-        // source (0 = off, 1 = screen-space, 2 = the traced final gather: GIDiffuse / GISpecular).
+        // source (0 = off, 1 = screen-space, 2 = the traced final gather under SSAO, 3 = the traced final gather
+        // occluded by its own short-range AO; 2 and 3 read GIDiffuse / GISpecular / GIBackface).
         void FillMaterial( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
                            const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
                            uint32_t spotCount, const DeferredShadowInput& shadow, const DeferredGIInput& gi,
@@ -353,7 +355,8 @@ namespace Desert::Graphic::System
                  .Texture( "u_SSR", inputs.SSR, kRead, kWhole )
                  // One texel per pixel, read through the point-clamped state like the depth.
                  .Texture( "u_GIDiffuse", inputs.GIDiffuse, kRead, kWhole )
-                 .Texture( "u_GISpecular", inputs.GISpecular, kRead, kWhole );
+                 .Texture( "u_GISpecular", inputs.GISpecular, kRead, kWhole )
+                 .Texture( "u_GIBackface", inputs.GIBackface, kRead, kWhole );
             // The light rows and their shadow views: the light-grid loop's. The MegaLights program reads
             // MegaLights' lighting instead.
             if ( m_Active == kMegaLightsProgram )
@@ -385,37 +388,68 @@ namespace Desert::Graphic::System
 
     private:
         // The DeferredLighting shader's layout, kept between frames (follows the shader object and its reload).
-        // §1.4: a resource that did not arrive is logged with its reason, never quietly replaced. There is
-        // no "no environment" mode here — the ambient IS the environment, so an incomplete set means the
-        // IBL bake failed or never ran, and every static opaque surface in the frame is about to be shaded
-        // by whatever the descriptor fallback happens to be. Say which of the three is missing; a bake that
-        // produced two cubes and no LUT is a different failure from one that produced nothing.
+        // §1.4: a resource that did not arrive is logged with its reason, never quietly replaced — and a
+        // resource that is absent BY DEFINITION is not a failure. The ambient IS the sky light, so the report
+        // is keyed on where the sky light is (SkyLightState), not on the bare presence of two cubes:
+        //  - NoSky: the scene has no sky, so there is no sky light (UE: no USkyLightComponent) and the black
+        //    cubes are the defined answer — said once, at info;
+        //  - Ready with a cube that did not resolve, or a missing BRDF LUT (a renderer-global built at
+        //    startup and never legitimately absent): a real fault, an ERROR.
         //
         // Edge-triggered, and per RENDERER instance rather than per process: a fullscreen pass runs every
         // frame in every open viewport, so an unconditional log is 60 lines a second times the number of
         // views, and a `static` one would let the second viewport's failure hide behind the first's.
+        enum class EnvironmentReport : uint8_t
+        {
+            Complete,
+            NoSky,
+            Broken,
+        };
+
+        [[nodiscard]] static EnvironmentReport ClassifyEnvironment( const DeferredEnvironmentInput& environment )
+        {
+            if ( !environment.BrdfLut )
+                return EnvironmentReport::Broken;
+            switch ( environment.Sky )
+            {
+                case SkyLightState::NoSky:
+                    return EnvironmentReport::NoSky;
+                case SkyLightState::Ready:
+                    return environment.IsComplete() ? EnvironmentReport::Complete : EnvironmentReport::Broken;
+            }
+            return EnvironmentReport::Broken;
+        }
+
         void ReportEnvironmentGap( const DeferredEnvironmentInput& environment )
         {
-            const bool complete = environment.IsComplete();
-            if ( complete == m_EnvironmentWasComplete )
+            const EnvironmentReport report = ClassifyEnvironment( environment );
+            if ( report == m_EnvironmentReport )
                 return;
-            m_EnvironmentWasComplete = complete;
+            m_EnvironmentReport = report;
 
-            // The other edge too: a physical sky's first bake waits one frame for the atmosphere LUTs this
-            // frame's graph writes (SkyboxRenderer), so every new view opens with the gap below; the line that
-            // says the ambient arrived is what tells that one-frame wait from a bake that never landed.
-            if ( complete )
-                LOG_INFO( "DeferredLighting: the baked environment arrived (irradiance, prefiltered, BRDF LUT "
-                          "present): the ambient is the sky's from this frame on." );
-            if ( !complete )
-                LOG_ERROR( "DeferredLighting: no baked environment to shade the ambient with — irradiance "
-                           "cube {}, prefiltered cube {}, BRDF LUT {}. Every missing one is bound to the "
-                           "engine's EMPTY environment (a black cube), so static opaque geometry gets no "
-                           "ambient at all — a deterministic wrong answer rather than the previous scene's "
-                           "sky, which is what it used to get (Г14).",
-                           environment.Irradiance ? "present" : "MISSING",
-                           environment.Prefiltered ? "present" : "MISSING",
-                           environment.BrdfLut ? "present" : "MISSING" );
+            switch ( report )
+            {
+                case EnvironmentReport::Complete:
+                    LOG_INFO( "DeferredLighting: the sky light arrived (irradiance, prefiltered, BRDF LUT "
+                              "present): the ambient is the sky's from this frame on." );
+                    break;
+                case EnvironmentReport::NoSky:
+                    LOG_INFO( "DeferredLighting: this scene has no sky (no procedural sky, no HDR skybox), so it "
+                              "has no sky light: the sky ambient is zero by definition and static geometry is lit "
+                              "by its lights, GI and reflection captures only." );
+                    break;
+                case EnvironmentReport::Broken:
+                    LOG_ERROR( "DeferredLighting: the sky light cannot shade the ambient — irradiance cube {}, "
+                               "prefiltered cube {}, BRDF LUT {} (sky light {}). Every missing one is bound to "
+                               "the engine's EMPTY environment (a black cube), so static opaque geometry gets no "
+                               "sky ambient — a deterministic wrong answer rather than the previous scene's sky, "
+                               "which is what it used to get (Г14).",
+                               environment.Irradiance ? "present" : "MISSING",
+                               environment.Prefiltered ? "present" : "MISSING",
+                               environment.BrdfLut ? "present" : "MISSING",
+                               environment.Sky == SkyLightState::Ready ? "ready" : "not ready" );
+                    break;
+            }
         }
 
         // One program per DeferredShadowInput::Sun arm (the index): the cascades, and the
@@ -458,6 +492,8 @@ namespace Desert::Graphic::System
 
         // Starts true so the first INCOMPLETE frame is the edge that logs; a renderer that never loses
         // its environment says nothing at all.
-        bool m_EnvironmentWasComplete = true;
+        // What was last said about the environment; Complete at birth, so a view whose sky light is there on
+        // its first frame says nothing.
+        EnvironmentReport m_EnvironmentReport = EnvironmentReport::Complete;
     };
 } // namespace Desert::Graphic::System

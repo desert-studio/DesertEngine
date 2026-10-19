@@ -27,7 +27,7 @@ layout( location = 0 ) out vec4 oColor;
 // The view's velocity (slot 1 of the scene target): the forward opaque pass writes the view's depth, so it writes
 // the same surface's motion into the one velocity texture the G-buffer pass cleared (Graphic::kVelocityFormat).
 #include <Common/ObjectMotion.glslh>
-layout( location = 1 ) out vec2 oVelocity;
+layout( location = 1 ) out vec4 oVelocity;
 // The view's thin-geometry coverage (slot 3 of the scene target, Common/ThinGeometryCoverage.glslh, included after
 // the generated dispatch below), as the G-buffer pass writes it: this pass writes the view's depth. Slot 2
 // (responsive AA) is translucency's, not written here.
@@ -93,6 +93,7 @@ layout( binding = 7 ) uniform ShadowUB
 #include <ShadingModels/ShadingModelContract.glslh>
 #define CONTACT_SHADOW_DEPTH        u_SceneDepth
 #define CONTACT_SHADOW_VP           cameraUB.JitteredViewProjection
+#define CONTACT_SHADOW_INV_VP       cameraUB.InvJitteredViewProjection
 #define CONTACT_SHADOW_SHADING_WORD u_SceneShadingWord
 #include <Common/ContactShadow.glslh>
 
@@ -122,6 +123,9 @@ layout( binding = 21 ) uniform CloudShadowUB
 };
 
 #include <Common/CloudShadowReceiver.glslh>
+
+// The reflection captures and the view's radiance cache, the deferred composite's two indirect sources.
+#include <Mesh/Surface/ViewIndirect.glslh>
 
 // The split-sum ambient, the SAME text the deferred lighting pass compiles; it also provides the two environment
 // lookups a shading model may call, so it precedes the generated dispatch.
@@ -173,7 +177,8 @@ void main()
     }
 
     const DesertSurface surface = DesertMakeSurface( i.WorldPosition, N, i.CameraPosition - i.WorldPosition,
-                                                     s.BaseColor, s.Metallic, s.Roughness );
+                                                     s.BaseColor, s.Metallic, s.Roughness,
+                                                     DesertQuantizePayloadFloat( s.Specular ) );
     // The payload a model reads, at the 8 bits an opaque surface's reaches it through the G-buffer.
     const DesertPayload payload = DesertQuantizePayload(
          DesertPayload( s.CustomData0, s.CustomData1, s.CustomData2, s.CustomData3 ) );
@@ -189,13 +194,26 @@ void main()
     int         cascade;
     const float sunVisibility = ShadowFactor( i.WorldPosition, N, sunDir, cascade );
 #endif
-    float shadow =
-         sunVisibility * ContactShadowFactor( i.WorldPosition, N, sunDir, u_SunContactShadow, subsurfaceOpacity );
-    if ( s.ReceiveSunShadows < 0.5 )
-        shadow = 1.0;
+    const bool  receivesSun = s.ReceiveSunShadows >= 0.5;
+    const float sunContact =
+         receivesSun ? ContactShadowFactor( i.WorldPosition, N, sunDir, u_SunContactShadow, subsurfaceOpacity ) : 1.0;
+    float shadow = receivesSun ? sunVisibility * sunContact : 1.0;
     // The relief's own shadow (SurfaceParallax.glslh) is the surface's geometry, not a receiver toggle: always applied.
     shadow *= s.SunSelfShadow;
-    shadow *= CloudShadowFactor( i.WorldPosition );
+    // The transmitted light's own occlusion (DesertLight::TransmissionShadow), as the deferred composite takes it:
+    // the cascades' thickness transmittance, or the screen mask itself (ray-traced / virtual shadow maps).
+#ifdef DESERT_SUN_SHADOW_SCREEN_MASK
+    const float sunTransmission = sunVisibility;
+#else
+    const float sunTransmission =
+         subsurfaceOpacity >= 0.0
+              ? TransmissionShadowFactor( i.WorldPosition, ContactShadowSubsurfaceDensity( subsurfaceOpacity ) )
+              : 1.0;
+#endif
+    float transmissionShadow = ( receivesSun && subsurfaceOpacity >= 0.0 ) ? sunTransmission * sunContact : 1.0;
+    const float cloudShadow = CloudShadowFactor( i.WorldPosition );
+    shadow *= cloudShadow;
+    transmissionShadow *= cloudShadow;
 
     vec3 light = vec3( 0.0 );
     for ( uint d = 0; d < lightsMetadata.DirectionLightCount; d++ )
@@ -203,7 +221,7 @@ void main()
                                              DesertSunLight( directionLights.directionLights.Direction.xyz,
                                                              directionLights.directionLights.ColorIntensity.rgb *
                                                                   directionLights.directionLights.ColorIntensity.a,
-                                                             shadow ),
+                                                             shadow, transmissionShadow ),
                                              surface, payload );
     // Point and spot lights under Shadows Stochastic: the MegaLights volume at this point (UE MegaLights'
     // translucency volume), shadowed by its traced samples - its dominant light through the shading model, the
@@ -236,16 +254,22 @@ void main()
         if ( index < lightsMetadata.PointLightCount )
         {
             DesertLight point = DesertPointLightAt( pointLights[index], i.WorldPosition );
-            point.Shadow *= ContactShadowFactor( i.WorldPosition, N, point.L, LightContactShadow( pointLights[index] ),
-                                                 subsurfaceOpacity );
+            const float pointContact =
+                 ContactShadowFactor( i.WorldPosition, N, point.L, LightContactShadow( pointLights[index] ),
+                                      subsurfaceOpacity );
+            point.Shadow *= pointContact;
+            point.TransmissionShadow *= pointContact; // no local shadow maps in this pass: only the contact
             light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX, point, surface, payload );
         }
         else
         {
             const uint spotIndex = index - lightsMetadata.PointLightCount;
             DesertLight spot     = DesertSpotLightAt( spotLights[spotIndex], i.WorldPosition );
-            spot.Shadow *= ContactShadowFactor( i.WorldPosition, N, spot.L, LightContactShadow( spotLights[spotIndex] ),
-                                                subsurfaceOpacity );
+            const float spotContact =
+                 ContactShadowFactor( i.WorldPosition, N, spot.L, LightContactShadow( spotLights[spotIndex] ),
+                                      subsurfaceOpacity );
+            spot.Shadow *= spotContact;
+            spot.TransmissionShadow *= spotContact; // no local shadow maps in this pass: only the contact
             light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX, spot, surface, payload );
         }
     }
@@ -282,11 +306,12 @@ void main()
         return;
     }
 
-    // Occlusion attenuates only the ambient; the forward path has no indirect-bounce gather, the one difference from
-    // the deferred composite's call, visible in the argument list: its Indirect is the MegaLights volume's
-    // isotropic local light (zero when the volume is off).
+    // Occlusion attenuates only the ambient. The estimator is the view's (the radiance cache where it traces GI,
+    // else the sky), and the reflection captures compose over its specular normalised by its diffuse - the
+    // deferred composite's ambient; the forward path has no screen-space bounce gather: its Indirect is the
+    // MegaLights volume's isotropic local light (zero when the volume is off).
     const vec3 ambient = DesertEvaluateShadingModelAmbient(
-         DESERT_SHADING_MODEL_INDEX, DesertSampleAmbient( surface, localIndirect, s.AmbientOcclusion ), surface,
-         payload );
+         DESERT_SHADING_MODEL_INDEX,
+         DesertSampleViewAmbient( surface, localIndirect, s.AmbientOcclusion, gl_FragCoord.xy ), surface, payload );
     oColor = vec4( light + ambient + s.Emissive, 1.0 );
 }

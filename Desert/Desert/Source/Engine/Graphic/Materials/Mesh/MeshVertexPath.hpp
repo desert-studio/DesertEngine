@@ -140,9 +140,14 @@ namespace Desert::Graphic
         // has its cell (ParticleSprite.Forward); it has no G-buffer, glass or shadow-depth cell: sprites are drawn
         // over the lit scene by ParticleRenderer and cast nothing.
         ParticleSprite = 3,
+        // A procedural grass blade per instance (GRASS-BLADE; Ghost of Tsushima's blade, a vertex factory UE does
+        // not have): the instance's matrix from InstanceTransforms (binding 17) places a blade strip whose
+        // vertices the stage bends, tapers, colours and sways from the variety's GrassBladeShape (binding 13).
+        // Only a template that declares `Usage GrassBlades` has its cells; it draws in the passes a mesh does.
+        GrassBlade = 4,
     };
 
-    inline constexpr uint32_t kMeshVertexPathCount = 4;
+    inline constexpr uint32_t kMeshVertexPathCount = 5;
 
     // What the fragment stage of the draw WRITES. Orthogonal to the path above: the same geometry can be
     // rasterized into the lit scene, into the deferred G-buffer, into the transparent composite or into a

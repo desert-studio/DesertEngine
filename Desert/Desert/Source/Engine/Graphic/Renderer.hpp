@@ -12,6 +12,7 @@
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 
 namespace Desert::ShaderResources
@@ -136,15 +137,18 @@ namespace Desert::Graphic
         RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                     const glm::mat4& transform, const MaterialExecutor& material, uint32_t instanceCount,
                     uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel );
-        // RenderMesh whose counts the GPU wrote (the virtual shadow map's culled casters, UE
-        // CullPerPageDrawCommands): the same walk, the k-th drawn submesh reading its record at @p offset + k *
-        // kMeshDrawArgumentsBytes of
-        // @p args (Graphic/MeshDrawArguments.hpp: AppendMeshDrawArguments made them, LOD included), which the pass
-        // declares Access::IndirectArgs. A record past the buffer is refused before it is drawn.
+        // RenderMesh whose counts the GPU wrote: the same walk, each drawn submesh one indirect draw of a
+        // kMeshDrawArgumentsBytes record of @p args (Graphic/MeshDrawArguments.hpp), which the pass declares
+        // Access::IndirectArgs. The record of the k-th drawn submesh si is at @p offset + k *
+        // kMeshDrawArgumentsBytes for MeshDrawArgumentsOrder::Drawn (the virtual shadow map's culled casters, UE
+        // CullPerPageDrawCommands: AppendMeshDrawArguments made them, LOD included) and at @p offset + si *
+        // kMeshDrawArgumentsBytes for
+        // ::Submesh (a GPU-instanced draw, GpuInstances.hpp: @p offset = kGpuInstanceArgsHeaderBytes). A record
+        // past the buffer is refused before it is drawn.
         [[nodiscard]] static Common::BoolResultStr
         RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                             const glm::mat4& transform, const MaterialExecutor& material, RDG::BufferRef args,
-                            uint64_t offset, uint64_t hiddenSubmeshMask );
+                            uint64_t offset, uint64_t hiddenSubmeshMask, MeshDrawArgumentsOrder order );
 
         // RDG-FAULT1 - what a pass's SETUP declares its binding blocks against (RenderPassDeclaration::Bindings,
         // RDG::PassBuilder::Bindings), so a block that does not match its shader faults the pass before anything
@@ -173,6 +177,9 @@ namespace Desert::Graphic
         static Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context,
                                                             RDG::TextureRef source, RDG::TextureRef target,
                                                             uint32_t targetLayer );
+        // RendererAPI::CopyGraphBufferToTexture: a graph buffer's packed texels into mip 0 of a graph texture.
+        static Common::BoolResultStr CopyGraphBufferToTexture( const RDG::PassContext& context,
+                                                               RDG::BufferRef source, RDG::TextureRef target );
 
         // Set the scissor rect (framebuffer px, top-left origin). Used by the 2D batcher for UI clipping.
         void SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height );

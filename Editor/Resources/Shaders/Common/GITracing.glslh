@@ -8,17 +8,30 @@
 // tracers fill.
 //
 // THE FUNCTIONS — declared here, each DEFINED by exactly one include of the consumer's permutation:
-//   GITraceRay         the walk. DESERT_GI_TRACER_SOFTWARE: the global SDF march (GLOBAL-SDF, GITraceDistanceField);
+//   GITraceRay         the walk. DESERT_GI_TRACER_SOFTWARE: the mesh SDFs near the origin, then the global SDF march
+//                      (GLOBAL-SDF, GITraceDistanceField);
 //                      DESERT_GI_TRACER_HARDWARE: rayQueryEXT over the scene TLAS (RT-SCENE, GI-HWRT).
-//   GITraceVisibility  visibility only, 1 when nothing lies within @p maxT of @p origin along @p direction — the
-//                      shadow ray of hit lighting (and of the cards' lighting where no shadow map covers them).
-//   GIRayBias          how far a secondary ray leaves a hit and how close the view's pixel surface must lie to
-//                      count as the hit: the TRACER's own numbers (UE: the SDF tracer's surface bias, the hardware
-//                      tracer's RayBias), so the shared hit lighting below knows no distance field.
+//   GITraceNearField / GITraceFarField  the walk's two legs, for a consumer that runs them as separate passes over
+//                      the rays still open (the screen probe gather, UE TraceMeshSDFs then TraceVoxels over compacted
+//                      traces): GITraceRay = the near field, then on a miss the far field from its farStart.
+//                      Software: the mesh SDFs of the origin's froxel / the global SDF. A tracer with one leg (the
+//                      ray query) answers the whole ray in the near field (farStart = tMax) and misses in the far.
+//   GITraceVisibility  visibility only, 1 when nothing lies within @p maxT of @p origin along @p direction (the far
+//                      field from @p farTMin on) — the shadow ray of hit lighting (and of the cards' lighting where
+//                      no shadow map covers them).
+//   GIRayBias          how far a secondary ray leaves a hit — TWO offsets: the near field's (nearOffset, the ray's
+//                      origin) and the far field's (farOffset, which the ray must have risen to before the far
+//                      field counts: GIFarFieldTMin -> GITraceInput.farTMin) — and how close the view's pixel
+//                      surface must lie to count as the hit: the TRACER's own numbers (UE: the mesh-SDF and the
+//                      global-SDF surface biases, the hardware tracer's RayBias for both), so the shared hit
+//                      lighting below knows no distance field.
 //   GIMoveOutOfGeometry  a point pushed out of nearby geometry (a radiance-cache probe before it traces).
 //   GIHitInstanceRows  the instance-table rows (contract B3) the hit may belong to, nearest first, GI_NO_INSTANCE
 //                      after the last: the hardware hit's own instance; for a distance-field hit, which has no
 //                      object identity, the object grid cell at the hit (UE GlobalDistanceFieldPageObjectGrid).
+//   GIHitSurfaceCacheBias  how far, in cm, the hit may lie from the surface the cards captured and still be read
+//                      from them (UE SampleLumenMeshCards' SurfaceCacheBias): the traced surface is the field's, not
+//                      the mesh's, so it is the field's precision - per hit kind, the TRACER's own number.
 //   GIHitRadiance      the radiance leaving a hit towards the ray's origin — ONE function for both tracers
 //                      (GIHitLighting.glslh; GI-SURFACE-CACHE): the surface cache's FinalLighting at the hit; a hit
 //                      with no cards (GI_NO_MESH_CARDS — this hit only, never the whole tracer), or any hit under
@@ -53,6 +66,7 @@ struct GITraceInput {
     float tMax;      // cm; past it the ray is a miss
     float coneAngle; // half angle, radians: the SDF march widens its step with it, the surface cache picks a mip
     uint  flags;     // GI_TRACE_* below
+    float farTMin;   // cm skipped before a FAR-field hit counts: GIFarFieldTMin of the ray leaving a surface, else 0
 };
 #define GI_TRACE_SHADOW_RAY 1u // any hit ends the walk (visibility only)
 
@@ -63,10 +77,16 @@ struct GIHit {
     vec3  normal;    // world, unit: the SDF gradient (software) or the triangle's shading normal (hardware)
     uint  meshCards; // MeshCards index of the hit instance (Common/SurfaceCache.glslh), or GI_NO_MESH_CARDS
     uint  instance;  // instance-table row (hardware: the TLAS instance custom index; software: the mesh SDF near
-                     // field's object, Common/GITraceMeshSDF.glslh; a global-field hit: GI_NO_INSTANCE)
+                     // field's object, Common/GITraceDistanceField.glslh; a global-field hit: GI_NO_INSTANCE)
     uint  primitive; // triangle within the instance (hardware only; software: 0)
     vec2  barycentrics; // of the triangle (hardware only; software: 0)
     bool  frontFace;
+    // How far, world cm, the hit point moved since last frame (UE FConeTraceResult.WorldVelocity /
+    // CalcPrevTranslatedWorldPositionFromGPUSceneInstanceIndex: the hit object's previous transform), valid when
+    // motionKnown: a hit that knows its object (the mesh SDF near field's). A global-field hit has no object
+    // identity and no motion (UE TraceVoxels writes no moving trace).
+    vec3  velocity;
+    bool  motionKnown;
 };
 
 struct GITraceResult {
@@ -76,17 +96,30 @@ struct GITraceResult {
 
 // The tracer's offsets (GIRayBias).
 struct GITraceBias {
-    float normalOffset;    // cm a secondary ray's origin leaves the hit along its normal
+    float nearOffset;      // cm a secondary ray's origin leaves the hit along its normal (the near field's precision)
+    float farOffset;       // cm off the hit along its normal before the far field counts a hit (its precision)
     float screenTolerance; // cm within which the view's pixel surface counts as the hit (it holds the material)
 };
 
 GITraceResult GITraceRay( GITraceInput ray );
-float         GITraceVisibility( vec3 origin, vec3 direction, float maxT );
+GITraceResult GITraceNearField( GITraceInput ray, out float farStart );
+GITraceResult GITraceFarField( GITraceInput ray );
+float         GITraceVisibility( vec3 origin, vec3 direction, float farTMin, float maxT );
 GITraceBias   GIRayBias( vec3 position, vec3 normal, vec3 direction );
 vec3          GIMoveOutOfGeometry( vec3 position, float clearance, float maxOffset );
 uvec4         GIHitInstanceRows( GIHit hit );
+float         GIHitSurfaceCacheBias( GIHit hit );
 vec3          GIHitRadiance( GIHit hit, vec3 rayDirection );
 vec3          GIMissRadiance( vec3 rayDirection );
+
+// How far along @p direction a ray that left a surface (normal @p normal) by @p bias.nearOffset goes before it is
+// @p bias.farOffset off the surface's plane: its GITraceInput.farTMin. A ray within a few degrees of the plane
+// reaches it late (no far-field hit before), never early (no self-hit in the coarse field).
+float GIFarFieldTMin( GITraceBias bias, vec3 normal, vec3 direction )
+{
+    const float rise = bias.farOffset - bias.nearOffset;
+    return rise > 0.0 ? rise / max( dot( normal, direction ), 1.0e-3 ) : 0.0;
+}
 
 // THE ONE ENTRY: the radiance arriving at @p ray.origin from @p ray.direction.
 vec3 GIRayRadiance( GITraceInput ray )
