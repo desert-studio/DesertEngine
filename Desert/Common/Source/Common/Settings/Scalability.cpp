@@ -168,6 +168,12 @@ namespace Common::Scalability
              { P::HitLightingAllowed, G::GlobalIllumination, "GlobalIllumination.HitLighting", 0, 1, CL::None,
                "SceneRenderer::BeginScene -> GlobalIllumination::PipelineFor (hardware-traced hits lit in "
                "place)" },
+             { P::PathTracingPathsPerFrame, G::GlobalIllumination, "PathTracing.PathsPerFrame", 1, 64, CL::None,
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (paths per pixel per frame)" },
+             { P::PathTracingMaxBounces, G::GlobalIllumination, "PathTracing.MaxBounces", 0, 64, CL::None,
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (bounces per path)" },
+             { P::PathTracingSamplesPerPixel, G::GlobalIllumination, "PathTracing.SamplesPerPixel", 1, 65536, CL::None,
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (paths per pixel until it stops)" },
              { P::ScreenProbeDownsample, G::GlobalIllumination, "GlobalIllumination.ScreenProbeDownsample", 8, 64,
                CL::None, std::nullopt },
              { P::ScreenProbeTracedTexels, G::GlobalIllumination, "GlobalIllumination.ScreenProbeTracedTexels", 4,

@@ -893,6 +893,17 @@ namespace Desert::Graphic
         m_GIPipeline    = GlobalIllumination::PipelineFor( m_RenderMethods.GlobalIllumination.Effective, quality,
                                                            Common::Scalability::QualityState::Catalog() );
         ReportRenderMethods( m_RenderMethods );
+        // A PATH-TRACED VIEW renders its own anti-aliasing: each path starts at a random point of its pixel and
+        // the accumulation averages them (UE RenderPathTracing bypasses TAA/TSR the same way). No temporal method,
+        // no FXAA/SMAA after it, no jitter; the view resolution is native (OnUpdate). The sample count stays the
+        // scene path's one: PathTraced needs the G-buffer, and the deferred path is never multisampled.
+        if ( PathTraced( m_RenderMethods ) )
+        {
+            m_RenderedAntiAliasing.Method      = Common::Scalability::AntiAliasingMethod::None;
+            m_RenderedAntiAliasing.PostProcess = Common::Scalability::AntiAliasingMethod::None;
+            m_RenderedAntiAliasing.Reason      = "the path tracer averages its own sub-pixel paths";
+            m_AAMode                           = Common::Scalability::AntiAliasingMethod::None;
+        }
         m_GIIntensity    = post.GIIntensity;
         m_SSRIntensity   = post.SSRIntensity;
         m_SSRMaxDistance = post.SSRMaxDistance;
@@ -923,7 +934,11 @@ namespace Desert::Graphic
              .DownsampleFactor = quality.As<uint32_t>( Parameter::ShadowMegaLightsDownsampleFactor ) };
         m_ReflectionDenoiserRadius            = quality.As<uint32_t>( Parameter::ReflectionDenoiserRadius );
         m_ScreenSpaceGISamples                = quality.As<int>( Parameter::ScreenSpaceGISamples );
-        m_SunSourceAngleDegrees               = shadows.SourceAngleDegrees;
+        m_PathTracingSettings                 = System::PathTracer::Settings{
+                             .SamplesPerPixel = quality.As<uint32_t>( Parameter::PathTracingSamplesPerPixel ),
+                             .PathsPerFrame   = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),
+                             .MaxBounces      = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ) };
+        m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
         m_SunContactShadowLengthInWorldSpace  = shadows.ContactShadowLengthInWorldSpace;
         m_SunContactShadowCastingIntensity    = shadows.ContactShadowCastingIntensity;
@@ -1185,9 +1200,19 @@ namespace Desert::Graphic
         // the method they select, clamped to a split the method's upscaler supports. Its refusal refuses the
         // frame by name; a clamp is said. The view's temporal upscaler is made for the resolved method here.
         using Common::Scalability::Parameter;
+        // A path-traced view traces every output pixel (UE: the path tracer renders at 100 %, no upscaler): its
+        // accumulation is the image, and an upscaler's history would only blur the converging estimate.
+        int                settingPercent  = m_Quality.As<int>( Parameter::RenderScalePercent );
+        std::optional<int> overridePercent = m_DebugView.ScreenPercentage;
+        auto               upscaler        = m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler );
+        if ( PathTraced( m_RenderMethods ) )
+        {
+            settingPercent  = 100;
+            overridePercent = std::nullopt;
+            upscaler        = Common::Scalability::Upscaler::None;
+        }
         const Common::ResultStr<ViewResolution> resolved = ResolveViewResolution(
-             m_ViewExtent, m_Quality.As<int>( Parameter::RenderScalePercent ), m_DebugView.ScreenPercentage,
-             m_RenderedAntiAliasing, m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler ),
+             m_ViewExtent, settingPercent, overridePercent, m_RenderedAntiAliasing, upscaler,
              [this]( const TemporalMethod method ) -> const ITemporalUpscaler*
              {
                  EnsureTemporalUpscaler( method );
@@ -1470,17 +1495,26 @@ namespace Desert::Graphic
                  m_RenderMethods,
                  !sunTraced || ( tlas && m_RayTracingScene.GetFrame().Built && EnsureRayTracedShadowResources() &&
                                  ( !LocalLightsAreStochastic() || EnsureMegaLightsResources() ) ) );
+            // THE FRAME'S PATH TRACER, decided here the same way: a path-traced view whose frame has no traceable
+            // scene (TLAS not built) or whose path tracer could not be brought up resolves to HardwareTraced GI
+            // and reflections for the whole frame (LowerPathTracingForFrame: the overlay row and one log line name
+            // it). Every reader below asks PathTraced( m_RenderMethods ).
+            LowerPathTracingForFrame( m_RenderMethods, !PathTraced( m_RenderMethods ) ||
+                                                            ( tlas && m_RayTracingScene.GetFrame().Built &&
+                                                              EnsurePathTracerResources() ) );
             ReportRenderMethods( m_RenderMethods );
             // The point and spot lights' shadow views, once the frame's Shadows method is final (and before the
             // maps are imported): tiles of the atlas allocated (and the atlas itself, on the first light that
             // casts), each light's ShadowView written into its payload, and the views whose cached depth is stale
             // marked for this frame's graph (MeshRenderer::LocalShadowPasses). Under Stochastic MegaLights traces
-            // the local lights: no map is drawn for any (UE: MegaLights lights render no shadow depths).
+            // the local lights: no map is drawn for any (UE: MegaLights lights render no shadow depths). A
+            // path-traced frame draws none either: its paths trace every light's visibility through the TLAS.
             {
                 DESERT_PROFILE_PASS( "Shadow: UpdateLocalShadows" );
                 UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
                      ->UpdateLocalShadows( m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights,
-                                           m_SpotLightShadows, !LocalLightsAreStochastic() );
+                                           m_SpotLightShadows,
+                                           !LocalLightsAreStochastic() && !PathTraced( m_RenderMethods ) );
             }
             // The cascade budget follows the FRAME's answer: a frame that fell back to CascadedMaps draws the full
             // ShadowQuality cascades, the low-detail Shadows.RayTracedTranslucency* ones only while the sun is
@@ -1491,9 +1525,11 @@ namespace Desert::Graphic
             // of this frame samples them (MeshRenderer::SunCascadeReadersQueued: blended draws whose program
             // declares u_ShadowCascades - the low-detail sun CSM, budgeted by the Shadows.RayTracedTranslucency*
             // rows). Not drawn -> the view binds the far-plane stand-in, never last drawn frame's maps; drawn
-            // after a gap -> every cascade's static cache is redrawn (it went stale while nothing drew it).
-            m_FrameSunCascades =
-                 meshes != nullptr && ( !SunShadowIsScreenMask() || meshes->SunCascadeReadersQueued() );
+            // after a gap -> every cascade's static cache is redrawn (it went stale while nothing drew it). A
+            // path-traced frame reads no cascade: its paths trace the sun's visibility through the TLAS, and the
+            // lit passes that sample the maps do not run.
+            m_FrameSunCascades = meshes != nullptr && !PathTraced( m_RenderMethods ) &&
+                                 ( !SunShadowIsScreenMask() || meshes->SunCascadeReadersQueued() );
             if ( !m_FrameSunCascades )
                 textures.Transients.ShadowCascades = AddFrameNoSunCascades( graph );
             else if ( !m_SunCascadesDrawnLastFrame )
@@ -1534,83 +1570,109 @@ namespace Desert::Graphic
             AddFrameForwardDepthNormal( graph, textures, meshRenderer );
             AddFrameDepthResolve( graph, textures );
 
-            const FrameSun  sun        = GetFrameSun();
-            const glm::vec4 lightDir   = sun.Direction;
-            const glm::vec4 lightColor = sun.ColorIntensity;
-            AddFrameSSAO( graph, textures, gbuffer, frame );
-            AddFrameSurfaceCache( graph, textures, frame );
-
-            // The screen traces - SSR's rays and the screen probes' (UE ScreenProbeTraceScreenTextures) - walk
-            // this frame's HZB and return LAST frame's lit scene at a hit: the view's scene colour history, which
-            // this frame's scene copy below refills.
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            // ScreenSpace, SoftwareTraced and HardwareTraced run the same pass (the traced two its traced
-            // permutation over their tracer, AddFrameSSR).
-            const Common::Scalability::ReflectionMethod reflections = m_RenderMethods.Reflections.Effective;
-            System::SSRRenderer* const                  ssr =
-                 ( reflections == Common::Scalability::ReflectionMethod::ScreenSpace ||
-                   reflections == Common::Scalability::ReflectionMethod::SoftwareTraced ||
-                   reflections == Common::Scalability::ReflectionMethod::HardwareTraced ) &&
-                           EnsureSSRResources()
-                                       ? UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] )
-                                       : nullptr;
-            const bool             probesTrace = RadianceCacheRuns() && m_GIPipeline.ScreenProbes;
-            const FrameScreenTrace screenTrace =
-                 ( ssr != nullptr || ( probesTrace && EnsureScreenTraceResources() ) )
-                      ? AddFrameScreenTrace( graph, textures, frame )
-                      : FrameScreenTrace{};
-            AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, screenTrace, frame );
-
-            // SSR before the lighting, which composes it over the reflection environment (UE: SSR, then the
-            // reflection environment pass).
-            const FrameSSR ssrFrame =
-                 ssr != nullptr ? AddFrameSSR( graph, textures, *ssr, gbuffer, screenTrace, frame ) : FrameSSR{};
-
-            // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
-            // with their neutral defaults), not as a second, separately resolved read list.
-            // "Shadows: Ray Traced Sun" in place of the cascades (SunShadowIsRayTraced): the composite's
-            // DESERT_SUN_SHADOW_SCREEN_MASK permutation reads this mask.
-            // "VSM: Project" likewise: the same mask, the same permutations.
-            const RDG::TextureRef sunShadowMask =
-                 SunShadowIsVirtual()
-                      ? AddFrameVirtualSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
-                 : SunShadowIsRayTraced()
-                      ? AddFrameRayTracedSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
-                      : RDG::TextureRef{};
-            // Shadows Stochastic: the local lights sampled, traced and denoised by MegaLights, which the
-            // composite's MegaLights program reads in place of its light-grid loop.
-            const System::MegaLightsLighting megaLights =
-                 LocalLightsAreStochastic() ? AddFrameMegaLights( graph, textures, gbuffer, frame )
-                                            : System::MegaLightsLighting{};
-            AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, sunShadowMask, megaLights,
-                               meshRenderer, lightDir, lightColor, frame );
-            AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask );
-
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
-            // With a screen trace on, the copy IS the view's scene colour history (what next frame's traces read):
-            // one copy serves this frame's refraction and next frame's SSR and screen probes.
-            std::function<void()> stampHistory;
-            if ( screenTrace.SceneHistory.IsValid() )
+            // THE PATH-TRACED FRAME (UE RenderPathTracing): the lit image is the path tracer's accumulation,
+            // written over the scene colour in place of the deferred lighting chain - no SSAO, surface cache,
+            // screen or traced GI, SSR, sun mask, composite, scene copy, water or glass (the paths integrate what
+            // those approximate). The G-buffer and depth above stay: the overlays, the editor's grid and the
+            // velocity read them.
+            if ( PathTraced( m_RenderMethods ) )
             {
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-                auto* history = UNIQUE_GET_AS( System::SceneColorHistoryRenderer,
-                                               m_RenderSystems["SceneColorHistorySystem"] );
-                stampHistory  = [history, index = frame.FrameIndex]() { history->Stamp( index ); };
+                if ( const Common::BoolResultStr traced = AddFramePathTracing( graph, textures, frame ); !traced )
+                {
+                    LOG_ERROR( "[SceneRenderer] {}: the path tracer refused the frame; the scene colour shows the "
+                               "unlit base pass: {}",
+                               m_ViewResources.GetName(), traced.GetError() );
+                }
             }
-            const RDG::TextureRef sceneCopy = AddFrameSceneCopy(
-                 graph, textures, sceneColor(), copy, screenTrace.SceneHistory, std::move( stampHistory ) );
+            else
+            {
+                const FrameSun  sun        = GetFrameSun();
+                const glm::vec4 lightDir   = sun.Direction;
+                const glm::vec4 lightColor = sun.ColorIntensity;
+                AddFrameSSAO( graph, textures, gbuffer, frame );
+                AddFrameSurfaceCache( graph, textures, frame );
 
-            // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
-            // the glass, which then refracts the water behind it.
-            AddFrameWater( graph, textures );
-            AddFrameGlass( graph, textures, sceneCopy, meshRenderer );
+                // The screen traces - SSR's rays and the screen probes' (UE ScreenProbeTraceScreenTextures) - walk
+                // this frame's HZB and return LAST frame's lit scene at a hit: the view's scene colour history,
+                // which this frame's scene copy below refills.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                // ScreenSpace, SoftwareTraced and HardwareTraced run the same pass (the traced two its traced
+                // permutation over their tracer, AddFrameSSR).
+                const Common::Scalability::ReflectionMethod reflections = m_RenderMethods.Reflections.Effective;
+                System::SSRRenderer* const                  ssr =
+                     ( reflections == Common::Scalability::ReflectionMethod::ScreenSpace ||
+                       reflections == Common::Scalability::ReflectionMethod::SoftwareTraced ||
+                       reflections == Common::Scalability::ReflectionMethod::HardwareTraced ) &&
+                               EnsureSSRResources()
+                                           ? UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] )
+                                           : nullptr;
+                const bool             probesTrace = RadianceCacheRuns() && m_GIPipeline.ScreenProbes;
+                const FrameScreenTrace screenTrace =
+                     ( ssr != nullptr || ( probesTrace && EnsureScreenTraceResources() ) )
+                          ? AddFrameScreenTrace( graph, textures, frame )
+                          : FrameScreenTrace{};
+                AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, screenTrace, frame );
+
+                // SSR before the lighting, which composes it over the reflection environment (UE: SSR, then the
+                // reflection environment pass).
+                const FrameSSR ssrFrame = ssr != nullptr
+                                               ? AddFrameSSR( graph, textures, *ssr, gbuffer, screenTrace, frame )
+                                               : FrameSSR{};
+
+                // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
+                // with their neutral defaults), not as a second, separately resolved read list.
+                // "Shadows: Ray Traced Sun" in place of the cascades (SunShadowIsRayTraced): the composite's
+                // DESERT_SUN_SHADOW_SCREEN_MASK permutation reads this mask.
+                // "VSM: Project" likewise: the same mask, the same permutations.
+                const RDG::TextureRef sunShadowMask =
+                     SunShadowIsVirtual()
+                          ? AddFrameVirtualSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
+                     : SunShadowIsRayTraced()
+                          ? AddFrameRayTracedSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
+                          : RDG::TextureRef{};
+                // Shadows Stochastic: the local lights sampled, traced and denoised by MegaLights, which the
+                // composite's MegaLights program reads in place of its light-grid loop.
+                const System::MegaLightsLighting megaLights =
+                     LocalLightsAreStochastic() ? AddFrameMegaLights( graph, textures, gbuffer, frame )
+                                                : System::MegaLightsLighting{};
+                AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, sunShadowMask, megaLights,
+                                   meshRenderer, lightDir, lightColor, frame );
+                AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask );
+
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
+                // With a screen trace on, the copy IS the view's scene colour history (what next frame's traces
+                // read): one copy serves this frame's refraction and next frame's SSR and screen probes.
+                std::function<void()> stampHistory;
+                if ( screenTrace.SceneHistory.IsValid() )
+                {
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact
+                    // type
+                    auto* history = UNIQUE_GET_AS( System::SceneColorHistoryRenderer,
+                                                   m_RenderSystems["SceneColorHistorySystem"] );
+                    stampHistory  = [history, index = frame.FrameIndex]() { history->Stamp( index ); };
+                }
+                const RDG::TextureRef sceneCopy = AddFrameSceneCopy(
+                     graph, textures, sceneColor(), copy, screenTrace.SceneHistory, std::move( stampHistory ) );
+
+                // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
+                // the glass, which then refracts the water behind it.
+                AddFrameWater( graph, textures );
+                AddFrameGlass( graph, textures, sceneCopy, meshRenderer );
+            }
         }
 
         AddFrameSceneDepthResolve( graph, textures );
         AddFrameSkyAtmosphereLuts( graph, textures );
-        AddFrameAtmosphericFog( graph, textures );
-        AddFrameVolumetricClouds( graph, textures, frame );
+        // The path tracer's paths carry no participating media (PathTracer.hpp: a task of its own), so a
+        // path-traced frame composites no height fog, cloud layer or particles over its accumulation; the
+        // editor's passes at the extension points still draw.
+        const bool pathTraced = PathTraced( m_RenderMethods );
+        if ( !pathTraced )
+        {
+            AddFrameAtmosphericFog( graph, textures );
+            AddFrameVolumetricClouds( graph, textures, frame );
+        }
 
         // The opaque scene is complete (lit, composited, the sky/fog/cloud nodes declared): passes from outside
         // the engine that belong under every translucent layer join here.
@@ -1619,7 +1681,10 @@ namespace Desert::Graphic
         // The translucency, the debug lines and the UI canvas run AFTER the deferred lighting composite so lit
         // geometry does not paint over them, and as LOAD nodes so a CLEAR never wipes the depth later overlays
         // test against (the particle top-down bug / grid-through-meshes).
-        AddFrameTranslucency( graph, textures );
+        if ( pathTraced )
+            AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterTranslucency, {} );
+        else
+            AddFrameTranslucency( graph, textures );
 
 #if DESERT_DEV_INSTRUMENTS
         if ( m_DebugView.DeferredDebug == DeferredDebugMode::Overdraw )
@@ -2026,6 +2091,30 @@ namespace Desert::Graphic
     {
         RefuseMethods( m_ProgramRefusals.Reflections, methods, "Reflections",
                        Common::Scalability::kReflectionMethodNames, program, error );
+    }
+
+    bool SceneRenderer::EnsurePathTracerResources()
+    {
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
+        if ( m_PathTracerReady )
+            return true;
+        if ( m_PathTracerFailed )
+            return false;
+
+        Renderer::GetInstance().WaitDeviceIdle();
+
+        RegisterSystem<System::PathTracer>( "PathTracerSystem", this, m_TargetFramebuffer );
+        const auto& pathTracer = SP_CAST( System::PathTracer, m_RenderSystems["PathTracerSystem"] );
+        if ( const Common::BoolResultStr initialized = pathTracer->Initialize(); !initialized )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: the path tracer could not be brought up; the view renders "
+                       "HardwareTraced GI and reflections instead: {}",
+                       m_ViewResources.GetName(), initialized.GetError() );
+            m_PathTracerFailed = true;
+            return false;
+        }
+        m_PathTracerReady = true;
+        return true;
     }
 
     bool SceneRenderer::EnsureScreenTraceResources()

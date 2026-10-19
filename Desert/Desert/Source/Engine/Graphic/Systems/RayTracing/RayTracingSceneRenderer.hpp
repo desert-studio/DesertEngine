@@ -64,6 +64,12 @@ namespace Desert::Graphic::RayTracing
         uint64_t InstanceBytes          = 0;
         uint64_t PrimitiveInstanceBytes = 0;
         uint64_t ScratchBytes           = 0;
+        // WHAT THE FRAME TRACES, as a value a reader can compare across frames: an FNV-1a hash of the TLAS rows
+        // (transforms, BLAS addresses, custom indices, SBT offsets, masks) and whether a BLAS was rebuilt in this
+        // graph (DynamicGeometry: skinned/deformed geometry changes under an unchanged row). The path tracer
+        // restarts its accumulation when either says the traced scene is not the previous frame's.
+        uint64_t InstanceHash    = 0;
+        bool     DynamicGeometry = false;
         // The GPU side of the frame's segment records (RayTracingGatherResult::SegmentRecords, one row each),
         // which the TLAS rows' SBT offsets index (a ray query's hit -> its vertex/index streams and alpha-test
         // material). Valid exactly when Built.
@@ -132,6 +138,10 @@ namespace Desert::Graphic::RayTracing
 
         const std::vector<std::byte> rows = EncodeInstanceRows( list.Instances );
         frame.InstanceBytes               = rows.size();
+        frame.InstanceHash                = 14695981039346656037ull; // FNV-1a 64 offset basis
+        for ( const std::byte b : rows )
+            frame.InstanceHash = ( frame.InstanceHash ^ static_cast<uint64_t>( b ) ) * 1099511628211ull;
+        frame.DynamicGeometry = !blasInputs.empty();
         frame.Instances = graph.CreateBuffer( RDG::BufferDesc{ frame.InstanceBytes }, kTlasInstancesName );
         graph.QueueBufferUpload( frame.Instances, rows );
         const std::vector<std::byte> ranges = EncodePrimitiveInstanceRows( list.Ranges );

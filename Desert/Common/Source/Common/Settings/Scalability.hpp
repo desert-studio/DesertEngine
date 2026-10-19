@@ -213,6 +213,11 @@ namespace Common::Scalability
                                                 // r.Lumen.ScreenProbeGather.RadianceCache.NumProbesToTraceBudget)
         HitLightingAllowed,                     // 0/1: a hardware-traced hit may be lit in place (UE
                                                 // r.Lumen.HardwareRayTracing.HitLighting.Allowed)
+        // The path tracer (GIMethod / ReflectionMethod PathTraced, System::PathTracer). UE r.PathTracing.*.
+        PathTracingPathsPerFrame,   // paths traced per pixel per frame, 1..64 (UE traces one)
+        PathTracingMaxBounces,      // bounces after the camera ray's hit, 0..64 (UE r.PathTracing.MaxBounces)
+        PathTracingSamplesPerPixel, // paths per pixel after which the view stops tracing, 1..65536 (UE
+                                    // r.PathTracing.SamplesPerPixel: the image is converged and kept)
         // GI SoftwareTraced / ProbeVolume costs still fixed in code that another task owns (ScreenProbeGather,
         // WorldRadianceCache: FOLIAGE-LOOK-7). Reserved with their per-level values; each gains its reader there.
         ScreenProbeDownsample,   // screen pixels per probe side (UE r.Lumen.ScreenProbeGather.DownsampleFactor;
