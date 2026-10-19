@@ -226,6 +226,10 @@ namespace Desert::Assets
             topologyInput          = std::make_shared<DisplacementTopologyBuildInput>(
                  DisplacementTopologyBuildInput{ m_Vertices, m_Indices, m_Submeshes } );
         }
+        else if ( m_ImportSettings.Displacement == MeshDisplacementMode::Baked )
+            LOG_ERROR( "StaticMeshAsset '{}': the import settings choose Baked displacement; its derived mesh "
+                       "(bucket DisplacedStaticMesh) is not produced by this build, so the mesh is drawn undisplaced",
+                       m_Metadata.Filepath.string() );
         auto input      = MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes, twoSided );
         if ( !input )
         {
