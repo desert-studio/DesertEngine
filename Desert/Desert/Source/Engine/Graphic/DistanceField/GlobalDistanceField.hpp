@@ -203,5 +203,6 @@ namespace Desert::Graphic::DistanceField
         std::vector<uint32_t>            m_NearFieldFeedbackStamp;
         uint32_t                         m_NearFieldStamp          = 0;
         bool                             m_NearFieldFeedbackLogged = false; // the first readback is logged once
+        uint32_t                         m_NearFieldRefusedRoom    = 0;     // the room of the last refusal logged
     };
 } // namespace Desert::Graphic::DistanceField

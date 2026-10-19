@@ -676,12 +676,14 @@ namespace Desert::Graphic::DistanceField
         }
         if ( needed <= room )
             return;
-        const uint64_t grown = uint64_t{ needed } + uint64_t{ needed } / 4u;
+        m_NearFieldListRoom = std::max( m_NearFieldListRoom, uint64_t{ needed } + uint64_t{ needed } / 4u );
+        // The other slots culled with the same room report the same refusal: one line per room.
+        if ( std::exchange( m_NearFieldRefusedRoom, room ) == room )
+            return;
         LOG_WARN(
              "[DistanceField] near-field object lists needed {} entries (longest {}), the grid had room for {}: "
              "that frame's near field was refused (global field only); room for {} from now on",
-             needed, longest, room, grown );
-        m_NearFieldListRoom = std::max( m_NearFieldListRoom, grown );
+             needed, longest, room, m_NearFieldListRoom );
     }
 
     void GlobalDistanceField::LogStreaming()
