@@ -704,9 +704,12 @@ namespace Desert::Migration
                  bytes.size() >= 16 &&
                  std::string_view( bytes ).starts_with( std::string_view(
                       Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) &&
-                 ( std::memcpy( &stated, bytes.data() + 12, 4 ), stated == 3u || stated == 4u ) )
+                 ( std::memcpy( &stated, bytes.data() + 12, 4 ), stated == 3u || stated == 4u || stated == 5u ) )
             {
-                const auto raised = Desert::Migration::MigrateMeshBinaryToV5( path.string(), bytes, skeletons );
+                // 3/4 are re-stated at the current version by the SkeletonGuid raise; 5 only gains the version.
+                const auto raised = stated == 5u
+                                         ? Desert::Migration::MigrateMeshBinaryV5ToV6( path.string(), bytes )
+                                         : Desert::Migration::MigrateMeshBinaryToV5( path.string(), bytes, skeletons );
                 if ( !raised )
                 {
                     err << "FAIL   " << raised.GetError() << "\n";

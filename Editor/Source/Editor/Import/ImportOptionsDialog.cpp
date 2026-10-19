@@ -500,28 +500,34 @@ namespace Desert::Editor::ImportOptions
         }
         UI::EndPropertyRow();
 
-        // CONTRACT-DISPLACE §9.7: the mode and the bake edge length live in the mesh's import settings.
+        // CONTRACT-DISPLACE §9.7: the mode and the bake edge length live in the mesh's import settings. A skeletal
+        // mesh offers None/Runtime only (§9.8: displaced over the skin cache each frame; a bake would be one pose)
+        // and no edge length (it has no baked surface: its collision is its physics asset).
+        const bool skeletal = kind == ImportContentKind::SkeletalMesh;
         UI::BeginPropertyRow( "Displacement",
-                              "Sections whose material assigns its Height move along the surface. Runtime: diced "
-                              "per frame by screen size. Baked: a dense mesh cooked at the edge length below, "
-                              "drawn with its own LODs. Collision uses the baked surface in both modes." );
+                              skeletal ? "Sections whose material assigns its Height move along the surface. "
+                                         "Runtime: diced per frame by screen size over the skinned pose."
+                                       : "Sections whose material assigns its Height move along the surface. "
+                                         "Runtime: diced per frame by screen size. Baked: a dense mesh cooked at "
+                                         "the edge length below, drawn with its own LODs. Collision uses the "
+                                         "baked surface in both modes." );
         static constexpr std::array<const char*, 3> kDisplacementLabels = { "None", "Runtime", "Baked" };
         static constexpr std::array<Assets::MeshDisplacementMode, 3> kDisplacementModes = {
              Assets::MeshDisplacementMode::None, Assets::MeshDisplacementMode::Runtime,
              Assets::MeshDisplacementMode::Baked };
-        int mode = 0;
+        const int modeCount = skeletal ? 2 : static_cast<int>( kDisplacementLabels.size() );
+        int       mode      = 0;
         for ( std::size_t i = 0; i < kDisplacementModes.size(); ++i )
             if ( kDisplacementModes[i] == settings.Mesh.Displacement )
                 mode = static_cast<int>( i );
-        if ( ImGui::Combo( "##Displacement", &mode, kDisplacementLabels.data(),
-                           static_cast<int>( kDisplacementLabels.size() ) ) )
+        if ( ImGui::Combo( "##Displacement", &mode, kDisplacementLabels.data(), modeCount ) )
         {
             settings.Mesh.Displacement = kDisplacementModes[static_cast<std::size_t>( mode )];
             changed                    = true;
         }
         UI::EndPropertyRow();
 
-        if ( settings.Mesh.Displacement != Assets::MeshDisplacementMode::None )
+        if ( !skeletal && settings.Mesh.Displacement != Assets::MeshDisplacementMode::None )
         {
             UI::BeginPropertyRow( "Bake Edge Length",
                                   "Centimetres per diced edge of the baked surface (Baked draw and collision). "

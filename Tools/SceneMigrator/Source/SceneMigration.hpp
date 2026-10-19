@@ -799,6 +799,12 @@ namespace Desert::Migration
     MigrateMeshBinaryToV5( std::string_view path, std::string_view bytes,
                            std::span<const Animation::SkeletonCandidate> skeletons );
 
+    // MeshBinary 5 -> 6 (DISPLACE-5): v6 gives the skinned mesh's displacement mode the header byte at 72 that v5
+    // wrote as zero, and zero is MeshDisplacementMode::None - so the raise is the version field alone. A v5 file
+    // whose byte 72 is not zero is refused by name (no writer produced one). The result is judged by the engine's
+    // DecodeMeshBinary and re-stated by EncodeMeshBinary. PURE.
+    Common::ResultStr<std::string> MigrateMeshBinaryV5ToV6( std::string_view path, std::string_view bytes );
+
     // MSAS SRCE 2 -> 3 (a `.stmesh` / `.skmesh` mesh source asset): the skin's bone signature (U64) becomes its
     // skeleton's GUID (Hi, Lo; same rule as above) and the header's dependencies gain it after the materials; a
     // static source changes its SRCE version only. Every other section and byte is kept. The result is judged

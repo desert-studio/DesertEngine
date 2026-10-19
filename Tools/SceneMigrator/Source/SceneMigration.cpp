@@ -3070,6 +3070,32 @@ namespace Desert::Migration
         return Common::MakeSuccess( Assets::Serialization::EncodeMeshBinary( decoded.GetValue() ) );
     }
 
+    Common::ResultStr<std::string> MigrateMeshBinaryV5ToV6( const std::string_view path, const std::string_view bytes )
+    {
+        namespace C = Common::Content;
+        if ( bytes.size() < sizeof( C::MeshBinaryFileHeader ) ||
+             std::memcmp( bytes.data(), C::kMeshBinaryMagic, 8 ) != 0 )
+            return Common::MakeFormattedError<std::string>( "'{}' is not a cooked mesh", path );
+        C::MeshBinaryFileHeader header{};
+        std::memcpy( &header, bytes.data(), sizeof( header ) );
+        if ( header.Version != 5u )
+            return Common::MakeFormattedError<std::string>( "'{}' is mesh version {}; this step raises 5", path,
+                                                            header.Version );
+        if ( header.DisplacementMode != 0 )
+            return Common::MakeFormattedError<std::string>(
+                 "'{}' is mesh version 5 with byte 72 = {}; v5 wrote zero there, so the file is not a v5 mesh",
+                 path, header.DisplacementMode );
+        static_assert( C::kMeshBinaryVersion == 6u, "a later MeshBinary version adds its own raise after this one" );
+        header.Version = C::kMeshBinaryVersion;
+        std::string raised( bytes );
+        std::memcpy( raised.data(), &header, sizeof( header ) );
+        auto decoded = Assets::Serialization::DecodeMeshBinary( raised, path );
+        if ( !decoded )
+            return Common::MakeFormattedError<std::string>( "'{}': the raised v{} does not read: {}", path,
+                                                            C::kMeshBinaryVersion, decoded.GetError() );
+        return Common::MakeSuccess( Assets::Serialization::EncodeMeshBinary( decoded.GetValue() ) );
+    }
+
     Common::ResultStr<std::string>
     MigrateMeshSourceToV3( const std::string_view path, const std::string_view bytes,
                            const std::span<const Animation::SkeletonCandidate> skeletons )

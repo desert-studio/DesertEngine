@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Assets
@@ -34,7 +35,7 @@ namespace Desert::Assets
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
-         3; // 3: vertex colour and UV1 streams; 2: sections named by slot
+         4; // 4: MeshBinary v6 container; 3: vertex colour and UV1 streams; 2: sections named by slot
 
     // The settings image the key hashes (UE SerializeForKey): fixed order, little-endian, one u32 per field.
     struct MeshBuildSettings
@@ -50,6 +51,11 @@ namespace Desert::Assets
 
     // The key of an asset as it stands: its SRCE hash and its IMPT settings with the current builder version.
     uint64_t MeshAssetDerivedDataKey( const MeshSourceAsset& asset );
+
+    // THE SKINNED MESH'S RENDER-DATA KEY (DISPLACE-5): a .skmesh is its own render data (no source envelope, no
+    // deriver), so its key is the hash of its MeshBinary bytes with the header's displacement-mode byte zeroed - the
+    // mode does not change the geometry that the displacement topology (keyed from this) is built from.
+    [[nodiscard]] uint64_t SkinnedMeshRenderDataKey( std::string_view meshBinaryBytes );
 
     // The MeshBinary container bytes of the asset's render data (EncodeMeshBinary's output).
     using MeshPlatformDataBuilder = std::function<Common::ResultStr<std::string>( const MeshSourceAsset& asset )>;

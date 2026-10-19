@@ -490,7 +490,16 @@ namespace Desert::Editor
             {
                 if ( settings.Mesh.LodPolicy == Assets::MeshLodPolicy::Generate )
                     BakeMeshLODs( resolved.Mesh.value() );
-                const auto serialized = SerializeMeshAsset( resolved.Mesh.value(), sourcePath );
+                // The skinned mesh's displacement mode lives in its own file (MeshBinary v6): the import
+                // record's setting is copied there; Baked has no meaning for a surface that deforms each frame.
+                resolved.Mesh->Displacement = settings.Mesh.Displacement;
+                const auto serialized =
+                     Assets::IsDisplacementModeAllowedForSkinned( settings.Mesh.Displacement )
+                          ? SerializeMeshAsset( resolved.Mesh.value(), sourcePath )
+                          : Common::MakeFormattedError<bool>(
+                                 "'{}': a skinned mesh cannot be Baked-displaced (its surface deforms each frame, a "
+                                 "bake is one pose); choose Runtime or None in its Import Settings",
+                                 sourcePath.string() );
                 if ( serialized )
                     writtenMeshes.push_back( mesh );
                 record( serialized );
