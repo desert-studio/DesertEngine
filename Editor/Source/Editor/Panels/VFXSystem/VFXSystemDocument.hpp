@@ -142,7 +142,11 @@ namespace Desert::Editor
         };
 
         void DrawToolbar();
-        void DrawPreview( const ImVec2& size );
+        // UE's Niagara System editor layout: the Preview viewport, the System Overview and the Selection details
+        // are windows of their own, docked into this document's DockSpace (rebuilt when the node is new).
+        void                      BuildLayout( unsigned int dockId ) const;
+        [[nodiscard]] std::string PanelTitle( const char* name ) const;
+        void                      DrawPreview( const ImVec2& size );
         void EnsurePreview();
         /// Queues adding an emitter from template @p index (DrawToolbar's popup and the palette's actions).
         void AddEmitterFromTemplate( std::size_t index );
@@ -152,8 +156,15 @@ namespace Desert::Editor
         void DrawDetails();
         void DrawSystemDetails();
         void DrawEmitterDetails( std::size_t emitter );
+        // UE's emitter Event Handler properties (VFXS 4): source emitter, event, spawn count, inherited velocity.
+        void DrawEventHandlers( std::size_t emitter );
         void DrawRendererDetails( std::size_t emitter, std::size_t renderer );
+        // UE's "Add Renderer": Sprite, Ribbon, or Mesh with the static mesh it draws (a Mesh row names one).
+        void DrawAddRenderer( std::size_t emitter );
         void DrawModuleDetails( std::size_t emitter, Stage stage, std::size_t module );
+        // The module catalog of @p stage as a menu by Category (UE's module picker): the entry chosen is handed to
+        // @p chosen. Only modules a row can be made of (VFXModuleInfo::Addable) and that run in the stage.
+        void DrawModuleMenu( Stage stage, const std::function<void( const VFX::VFXModuleInfo& )>& chosen );
         void DrawInput( std::size_t emitter, Stage stage, std::size_t module, std::size_t input );
 
         /// A continuous widget's edit: call after the widget; it snapshots on activation and commits on release.

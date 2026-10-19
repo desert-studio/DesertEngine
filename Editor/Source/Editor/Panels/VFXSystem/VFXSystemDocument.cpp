@@ -1,9 +1,11 @@
 #include "VFXSystemDocument.hpp"
 
 #include <Editor/Core/AssetOpen.hpp>
+#include <Editor/Core/AssetPickerRows.hpp>
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/Commands/VFXSystemEdit.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
+#include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/PreviewViewpoints.hpp>
 #include <Editor/Core/SubjectTitle.hpp>
 #include <Editor/Widgets/PreviewEnvironmentUI.hpp>
@@ -12,6 +14,7 @@
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/VFXModuleAsset.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/VFX/VFXStackCompiler.hpp>
@@ -23,12 +26,14 @@
 #include <Common/Core/Logger.hpp>
 
 #include <ImGui/imgui.h>
+#include <ImGui/imgui_internal.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <map>
 #include <system_error>
 
 namespace Desert::Editor
@@ -81,6 +86,79 @@ namespace Desert::Editor
                     return "Ribbon Renderer";
                 case S::VFXRendererKind::Mesh:
                     return "Mesh Renderer";
+            }
+            return "?";
+        }
+
+        const char* MeshFacingLabel( const S::VFXMeshFacing facing )
+        {
+            switch ( facing )
+            {
+                case S::VFXMeshFacing::Default:
+                    return "Default";
+                case S::VFXMeshFacing::Velocity:
+                    return "Velocity";
+                case S::VFXMeshFacing::CameraPosition:
+                    return "Camera Position";
+                case S::VFXMeshFacing::CameraPlane:
+                    return "Camera Plane";
+            }
+            return "?";
+        }
+
+        const char* RibbonFacingLabel( const S::VFXRibbonFacing facing )
+        {
+            return facing == S::VFXRibbonFacing::Screen ? "Screen" : "Custom";
+        }
+
+        // A registry row as the reference a `.dfx` states (ContentRegistry::ReferenceTo); none for a file whose
+        // header states no GUID - such a row cannot be referenced and the picker shows it disabled.
+        std::optional<Assets::AssetGuidRef> RefOfRow( const Assets::ContentRegistry::PickerRow& row )
+        {
+            if ( !row.Guid )
+                return std::nullopt;
+            return Assets::ContentRegistry::ReferenceTo( *row.Guid );
+        }
+
+        // The rows of @p rows as a filtered, scrolling list (StaticMeshComponent's mesh picker); the reference of
+        // the clicked one, if any. @p current is the slot's GUID text (highlighted).
+        std::optional<Assets::AssetGuidRef> PickAssetRow( const std::vector<Assets::ContentRegistry::PickerRow>& rows,
+                                                         const std::string& current, ImGuiTextFilter& filter )
+        {
+            filter.Draw( "##search", 200.0f );
+            ImGui::Separator();
+            std::optional<Assets::AssetGuidRef> picked;
+            constexpr float                     kPickerRows = 14.0f;
+            ImGui::BeginChild( "##rows", ImVec2( ImGui::GetFontSize() * 20.0f,
+                                                 ImGui::GetTextLineHeightWithSpacing() * kPickerRows ) );
+            for ( const auto& row : rows )
+            {
+                const std::string name = PickerDisplayName( row );
+                if ( !filter.PassFilter( name.c_str() ) )
+                    continue;
+                const auto ref = RefOfRow( row );
+                ImGui::BeginDisabled( !ref );
+                if ( ImGui::Selectable( name.c_str(), ref && ref->Guid == current ) )
+                    picked = ref;
+                ImGui::EndDisabled();
+                if ( !ref && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+                    ImGui::SetTooltip( "%s states no GUID in its header: a .dfx cannot reference it",
+                                       row.Key.c_str() );
+            }
+            ImGui::EndChild();
+            return picked;
+        }
+
+        const char* EventLabel( const S::VFXEventKind kind )
+        {
+            switch ( kind )
+            {
+                case S::VFXEventKind::Death:
+                    return "Death";
+                case S::VFXEventKind::Collision:
+                    return "Collision";
+                case S::VFXEventKind::Location:
+                    return "Location";
             }
             return "?";
         }
@@ -513,6 +591,29 @@ namespace Desert::Editor
                } );
     }
 
+    std::string VFXSystemDocument::PanelTitle( const char* name ) const
+    {
+        // "###" + the subject: two open systems must not share one "Selection" window.
+        return std::format( "{}###VFX{}{}", name, name, static_cast<uint64_t>( Subject().Owner ) );
+    }
+
+    void VFXSystemDocument::BuildLayout( const unsigned int dockId ) const
+    {
+        // Niagara's default: the preview viewport left, the System Overview centre, the Selection right. The
+        // shares are Niagara's at a 1200 px window, not measured from a screenshot.
+        ImGui::DockBuilderRemoveNode( dockId );
+        ImGui::DockBuilderAddNode( dockId, ImGuiDockNodeFlags_DockSpace );
+        ImGui::DockBuilderSetNodeSize( dockId, ImGui::GetContentRegionAvail() );
+        ImGuiID       center  = dockId;
+        const ImGuiID preview = ImGui::DockBuilderSplitNode( center, ImGuiDir_Left, 0.38f, nullptr, &center );
+        const ImGuiID details = ImGui::DockBuilderSplitNode( center, ImGuiDir_Right, 0.50f, nullptr, &center );
+        ImGui::DockBuilderDockWindow( PanelTitle( "Preview" ).c_str(), preview );
+        ImGui::DockBuilderDockWindow( PanelTitle( "System Overview" ).c_str(), center );
+        ImGui::DockBuilderDockWindow( PanelTitle( "Selection" ).c_str(), details );
+        ImGui::DockBuilderGetNode( preview )->LocalFlags |= ImGuiDockNodeFlags_HiddenTabBar;
+        ImGui::DockBuilderFinish( dockId );
+    }
+
     void VFXSystemDocument::DrawPreview( const ImVec2& size )
     {
         m_RenderSize = glm::uvec2( static_cast<uint32_t>( std::max( size.x, 1.0f ) ),
@@ -589,20 +690,23 @@ namespace Desert::Editor
 
         DrawToolbar();
 
-        // UE's Niagara System editor: the preview viewport over the system overview on the left, the selection's
-        // details on the right.
-        const ImVec2 avail         = ImGui::GetContentRegionAvail();
-        const float  overviewWidth = std::max( 300.0f, avail.x * 0.42f );
-        ImGui::BeginGroup();
-        DrawPreview( ImVec2( overviewWidth, std::max( 160.0f, avail.y * 0.45f ) ) );
-        if ( ImGui::BeginChild( "##overview", ImVec2( overviewWidth, 0.0f ), true ) )
-            DrawOverview();
-        ImGui::EndChild();
-        ImGui::EndGroup();
-        ImGui::SameLine();
-        if ( ImGui::BeginChild( "##details", ImVec2( 0.0f, 0.0f ), true ) )
-            DrawDetails();
-        ImGui::EndChild();
+        // UE's Niagara System editor: the Preview viewport, the System Overview and the Selection are dockable
+        // windows of this document (a nested Begin is legal), laid out once per new DockSpace node.
+        const ImGuiID        dockId = ImGui::GetID( "VFXSystemDock1" );
+        const ImGuiDockNode* node   = ImGui::DockBuilderGetNode( dockId );
+        if ( node == nullptr || node->IsLeafNode() )
+            BuildLayout( dockId );
+        ImGui::DockSpace( dockId, ImVec2( 0.0f, 0.0f ) );
+        const auto panel = [this]( const char* name, const ImGuiWindowFlags flags, auto&& draw )
+        {
+            if ( ImGui::Begin( PanelTitle( name ).c_str(), nullptr, flags ) )
+                draw();
+            ImGui::End();
+        };
+        panel( "Preview", ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse,
+               [this]() { DrawPreview( ImGui::GetContentRegionAvail() ); } );
+        panel( "System Overview", 0, [this]() { DrawOverview(); } );
+        panel( "Selection", 0, [this]() { DrawDetails(); } );
 
         // The frame's discrete edit lands after every widget is drawn: nothing holds a reference into m_Working.
         if ( m_Deferred )
@@ -694,6 +798,7 @@ namespace Desert::Editor
                 ImGui::Unindent();
                 ImGui::PopID();
             }
+            DrawAddRenderer( e );
             ImGui::TreePop();
         }
         ImGui::Separator();
@@ -772,24 +877,47 @@ namespace Desert::Editor
         ImGui::Unindent();
         if ( ImGui::BeginPopup( "##add" ) )
         {
-            for ( const VFX::VFXModuleInfo& info : m_Modules )
-            {
-                if ( !info.Addable || !info.AllowsStage( ModuleStageOf( stage ) ) )
-                    continue;
-                if ( !ImGui::Selectable( ModuleLabel( m_Modules, info.Module ).c_str() ) )
-                    continue;
-                m_DeferredSelection = Selection{ Selection::Kind::Module, e, stage, count };
-                Defer( std::format( "Add module {}", info.DisplayName ),
-                       [e, stage,
-                        use = VFX::DefaultModuleUse( info )]( S::VFXSystemData& d ) -> Common::BoolResultStr
-                       {
-                           StageModules( d.Emitters[e], stage ).push_back( use );
-                           return BOOLSUCCESS;
-                       } );
-            }
+            DrawModuleMenu( stage,
+                            [this, e, stage, count]( const VFX::VFXModuleInfo& info )
+                            {
+                                m_DeferredSelection = Selection{ Selection::Kind::Module, e, stage, count };
+                                Defer( std::format( "Add module {}", info.DisplayName ),
+                                       [e, stage, use = VFX::DefaultModuleUse( info )](
+                                            S::VFXSystemData& d ) -> Common::BoolResultStr
+                                       {
+                                           StageModules( d.Emitters[e], stage ).push_back( use );
+                                           return BOOLSUCCESS;
+                                       } );
+                            } );
             ImGui::EndPopup();
         }
         ImGui::PopID();
+    }
+
+    void VFXSystemDocument::DrawModuleMenu( const Stage                                             stage,
+                                            const std::function<void( const VFX::VFXModuleInfo& )>& chosen )
+    {
+        // By Category, then by name (std::map orders both); an empty Category is the catalog's "Other".
+        std::map<std::string, std::map<std::string, const VFX::VFXModuleInfo*>> byCategory;
+        for ( const VFX::VFXModuleInfo& info : m_Modules )
+            if ( info.Addable && info.AllowsStage( ModuleStageOf( stage ) ) )
+                byCategory[info.Category.empty() ? std::string( "Other" ) : info.Category]
+                          [ModuleLabel( m_Modules, info.Module )] = &info;
+        if ( byCategory.empty() )
+            ImGui::TextDisabled( "No module of the catalog runs in %s", StageLabel( stage ) );
+        for ( const auto& [category, modules] : byCategory )
+        {
+            if ( !ImGui::BeginMenu( category.c_str() ) )
+                continue;
+            for ( const auto& [label, info] : modules )
+            {
+                if ( ImGui::MenuItem( label.c_str() ) )
+                    chosen( *info );
+                if ( ImGui::IsItemHovered() )
+                    ImGui::SetTooltip( "%s", info->Module.Path.c_str() );
+            }
+            ImGui::EndMenu();
+        }
     }
 
     void VFXSystemDocument::DrawDetails()
@@ -890,7 +1018,12 @@ namespace Desert::Editor
             Defer( "Remove emitter",
                    [e]( S::VFXSystemData& d ) -> Common::BoolResultStr
                    {
+                       // The handlers spawning from its events go with it (their source no longer exists).
+                       const std::string gone = d.Emitters[e].Name;
                        d.Emitters.erase( d.Emitters.begin() + static_cast<std::ptrdiff_t>( e ) );
+                       for ( S::VFXEmitterData& other : d.Emitters )
+                           std::erase_if( other.EventHandlers, [&gone]( const S::VFXEventHandler& handler )
+                                          { return handler.SourceEmitter == gone; } );
                        return BOOLSUCCESS;
                    } );
         }
@@ -919,6 +1052,13 @@ namespace Desert::Editor
                 Defer( "Rename emitter",
                        [e, typed = std::string( buffer.data() )]( S::VFXSystemData& d ) -> Common::BoolResultStr
                        {
+                           // Handlers name their source by emitter name: they follow the rename (UE renames the
+                           // emitter's references with it), in the same undo step.
+                           const std::string old = d.Emitters[e].Name;
+                           for ( S::VFXEmitterData& other : d.Emitters )
+                               for ( S::VFXEventHandler& handler : other.EventHandlers )
+                                   if ( handler.SourceEmitter == old )
+                                       handler.SourceEmitter = typed;
                            d.Emitters[e].Name = typed;
                            return BOOLSUCCESS;
                        } );
@@ -993,6 +1133,97 @@ namespace Desert::Editor
             TrackGesture( "Set loop count" );
         }
         ImGui::EndTable();
+        DrawEventHandlers( e );
+    }
+
+    void VFXSystemDocument::DrawEventHandlers( const std::size_t e )
+    {
+        ImGui::Spacing();
+        ImGui::TextUnformatted( "Event Handlers" );
+        ImGui::Separator();
+        S::VFXEmitterData& emitter = m_Working.Emitters[e];
+        // A handler's source is ANOTHER emitter of this system (ValidateVFXSystemData): with none, nothing to add.
+        std::vector<std::string> sources;
+        for ( std::size_t k = 0; k < m_Working.Emitters.size(); ++k )
+            if ( k != e )
+                sources.push_back( m_Working.Emitters[k].Name );
+        for ( std::size_t h = 0; h < emitter.EventHandlers.size(); ++h )
+        {
+            S::VFXEventHandler& handler = emitter.EventHandlers[h];
+            ImGui::PushID( static_cast<int>( h ) );
+            const bool remove = ImGui::SmallButton( ICON_MDI_CLOSE );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Remove this event handler" );
+            ImGui::SameLine();
+            ImGui::Text( "Handler %zu", h );
+            if ( BeginProperties( "##handler" ) )
+            {
+                PropertyLabel( "Source emitter" );
+                ImGui::SetNextItemWidth( -1.0f );
+                if ( ImGui::BeginCombo( "##source", handler.SourceEmitter.c_str() ) )
+                {
+                    for ( const std::string& name : sources )
+                        if ( ImGui::Selectable( name.c_str(), name == handler.SourceEmitter ) &&
+                             name != handler.SourceEmitter )
+                            Defer( "Set event source",
+                                   [e, h, name]( S::VFXSystemData& d ) -> Common::BoolResultStr
+                                   {
+                                       d.Emitters[e].EventHandlers[h].SourceEmitter = name;
+                                       return BOOLSUCCESS;
+                                   } );
+                    ImGui::EndCombo();
+                }
+                PropertyLabel( "Event" );
+                ImGui::SetNextItemWidth( -1.0f );
+                if ( ImGui::BeginCombo( "##event", EventLabel( handler.Event ) ) )
+                {
+                    for ( const auto kind :
+                          { S::VFXEventKind::Death, S::VFXEventKind::Collision, S::VFXEventKind::Location } )
+                        if ( ImGui::Selectable( EventLabel( kind ), kind == handler.Event ) && kind != handler.Event )
+                            Defer( "Set event kind",
+                                   [e, h, kind]( S::VFXSystemData& d ) -> Common::BoolResultStr
+                                   {
+                                       d.Emitters[e].EventHandlers[h].Event = kind;
+                                       return BOOLSUCCESS;
+                                   } );
+                    ImGui::EndCombo();
+                }
+                PropertyLabel( "Spawn count", "particles" );
+                ImGui::SetNextItemWidth( -1.0f );
+                const uint32_t one = 1;
+                ImGui::DragScalar( "##spawn", ImGuiDataType_U32, &handler.SpawnCount, 0.1f, &one, nullptr, "%u",
+                                   ImGuiSliderFlags_AlwaysClamp );
+                TrackGesture( "Set event spawn count" );
+                PropertyLabel( "Inherit velocity", "x" );
+                ImGui::SetNextItemWidth( -1.0f );
+                ImGui::DragFloat( "##inherit", &handler.InheritVelocity, 0.01f, -10.0f, 10.0f, "%.2f" );
+                TrackGesture( "Set event inherited velocity" );
+                ImGui::EndTable();
+            }
+            ImGui::PopID();
+            if ( remove )
+                Defer( "Remove event handler",
+                       [e, h]( S::VFXSystemData& d ) -> Common::BoolResultStr
+                       {
+                           auto& handlers = d.Emitters[e].EventHandlers;
+                           handlers.erase( handlers.begin() + static_cast<std::ptrdiff_t>( h ) );
+                           return BOOLSUCCESS;
+                       } );
+        }
+        ImGui::BeginDisabled( sources.empty() );
+        if ( ImGui::SmallButton( ICON_MDI_PLUS " Add event handler" ) )
+            Defer( "Add event handler",
+                   [e, source = sources.empty() ? std::string() : sources.front()](
+                        S::VFXSystemData& d ) -> Common::BoolResultStr
+                   {
+                       S::VFXEventHandler handler;
+                       handler.SourceEmitter = source;
+                       d.Emitters[e].EventHandlers.push_back( std::move( handler ) );
+                       return BOOLSUCCESS;
+                   } );
+        ImGui::EndDisabled();
+        if ( sources.empty() && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+            ImGui::SetTooltip( "An event handler spawns from another emitter's events: add a second emitter" );
     }
 
     void VFXSystemDocument::DrawRendererDetails( const std::size_t e, const std::size_t r )
@@ -1005,6 +1236,110 @@ namespace Desert::Editor
         // The kind is the row's identity (its Mesh / Ribbon block follows it): shown, not chosen.
         PropertyLabel( "Kind" );
         ImGui::TextUnformatted( RendererLabel( renderer.Kind ) );
+        ImGui::SameLine();
+        if ( ImGui::SmallButton( ICON_MDI_CLOSE " Remove" ) )
+        {
+            m_DeferredSelection = Selection{ Selection::Kind::Emitter, e, Stage::EmitterUpdate, 0 };
+            Defer( "Remove renderer",
+                   [e, r]( S::VFXSystemData& d ) -> Common::BoolResultStr
+                   {
+                       auto& rows = d.Emitters[e].Renderers;
+                       rows.erase( rows.begin() + static_cast<std::ptrdiff_t>( r ) );
+                       return BOOLSUCCESS;
+                   } );
+        }
+
+        // THE MATERIAL (UE: the renderer's Material): a `.demat` whose template declares the kind's Usage;
+        // none = the kind's engine default template.
+        PropertyLabel( "Material" );
+        const bool noMaterial = !renderer.Material.has_value();
+        if ( Utils::ImGuiUtilities::AssetSlot( "##material",
+                                               noMaterial ? "Default (engine)" : renderer.Material->Path.c_str(),
+                                               noMaterial ) )
+            ImGui::OpenPopup( "##materials" );
+        if ( ImGui::BeginPopup( "##materials" ) )
+        {
+            if ( ImGui::Selectable( "Default (engine)", noMaterial ) && !noMaterial )
+                Defer( "Clear renderer material",
+                       [e, r]( S::VFXSystemData& d ) -> Common::BoolResultStr
+                       {
+                           d.Emitters[e].Renderers[r].Material.reset();
+                           return BOOLSUCCESS;
+                       } );
+            static ImGuiTextFilter materialFilter;
+            if ( const auto picked =
+                      PickAssetRow( Assets::ContentRegistry::Rows( Common::Content::ContentKind::Material ),
+                                    noMaterial ? std::string() : renderer.Material->Guid, materialFilter ) )
+                Defer( "Set renderer material",
+                       [e, r, ref = *picked]( S::VFXSystemData& d ) -> Common::BoolResultStr
+                       {
+                           d.Emitters[e].Renderers[r].Material = ref;
+                           return BOOLSUCCESS;
+                       } );
+            ImGui::EndPopup();
+        }
+
+        if ( renderer.Mesh )
+        {
+            // UE UNiagaraMeshRendererProperties: the static mesh every particle draws, and how it is turned.
+            PropertyLabel( "Mesh" );
+            if ( Utils::ImGuiUtilities::AssetSlot( "##mesh", renderer.Mesh->Mesh.Path.c_str() ) )
+                ImGui::OpenPopup( "##meshes" );
+            if ( ImGui::BeginPopup( "##meshes" ) )
+            {
+                static ImGuiTextFilter meshFilter;
+                if ( const auto picked = PickAssetRow( Assets::ContentRegistry::MeshRows( false ),
+                                                       renderer.Mesh->Mesh.Guid, meshFilter ) )
+                    Defer( "Set renderer mesh",
+                           [e, r, ref = *picked]( S::VFXSystemData& d ) -> Common::BoolResultStr
+                           {
+                               d.Emitters[e].Renderers[r].Mesh->Mesh = ref;
+                               return BOOLSUCCESS;
+                           } );
+                ImGui::EndPopup();
+            }
+            PropertyLabel( "Facing" );
+            ImGui::SetNextItemWidth( -1.0f );
+            if ( ImGui::BeginCombo( "##meshFacing", MeshFacingLabel( renderer.Mesh->Facing ) ) )
+            {
+                for ( const auto facing : { S::VFXMeshFacing::Default, S::VFXMeshFacing::Velocity,
+                                            S::VFXMeshFacing::CameraPosition, S::VFXMeshFacing::CameraPlane } )
+                    if ( ImGui::Selectable( MeshFacingLabel( facing ), facing == renderer.Mesh->Facing ) &&
+                         facing != renderer.Mesh->Facing )
+                        Defer( "Set mesh facing",
+                               [e, r, facing]( S::VFXSystemData& d ) -> Common::BoolResultStr
+                               {
+                                   d.Emitters[e].Renderers[r].Mesh->Facing = facing;
+                                   return BOOLSUCCESS;
+                               } );
+                ImGui::EndCombo();
+            }
+        }
+        if ( renderer.Ribbon )
+        {
+            // UE UNiagaraRibbonRendererProperties: the facing mode and the U tiling over the normalised age.
+            PropertyLabel( "Facing" );
+            ImGui::SetNextItemWidth( -1.0f );
+            if ( ImGui::BeginCombo( "##ribbonFacing", RibbonFacingLabel( renderer.Ribbon->Facing ) ) )
+            {
+                for ( const auto facing : { S::VFXRibbonFacing::Screen, S::VFXRibbonFacing::Custom } )
+                    if ( ImGui::Selectable( RibbonFacingLabel( facing ), facing == renderer.Ribbon->Facing ) &&
+                         facing != renderer.Ribbon->Facing )
+                        Defer( "Set ribbon facing",
+                               [e, r, facing]( S::VFXSystemData& d ) -> Common::BoolResultStr
+                               {
+                                   d.Emitters[e].Renderers[r].Ribbon->Facing = facing;
+                                   return BOOLSUCCESS;
+                               } );
+                ImGui::EndCombo();
+            }
+            PropertyLabel( "UV tiling" );
+            ImGui::SetNextItemWidth( -1.0f );
+            // > 0 (ValidateVFXSystemData): the drag clamps at a hundredth.
+            ImGui::DragFloat( "##uvTiling", &m_Working.Emitters[e].Renderers[r].Ribbon->UVTiling, 0.01f, 0.01f,
+                              1000.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp );
+            TrackGesture( "Set ribbon UV tiling" );
+        }
         PropertyLabel( "Enabled" );
         bool on = renderer.Enabled;
         if ( ImGui::Checkbox( "##enabled", &on ) )
@@ -1017,6 +1352,46 @@ namespace Desert::Editor
         ImGui::EndTable();
     }
 
+    void VFXSystemDocument::DrawAddRenderer( const std::size_t e )
+    {
+        ImGui::Indent();
+        if ( ImGui::SmallButton( ICON_MDI_PLUS " Add renderer" ) )
+            ImGui::OpenPopup( "##addRenderer" );
+        ImGui::Unindent();
+        if ( !ImGui::BeginPopup( "##addRenderer" ) )
+            return;
+        const std::size_t at  = m_Working.Emitters[e].Renderers.size();
+        const auto        add = [this, e, at]( const char* label, S::VFXRendererData row )
+        {
+            m_DeferredSelection = Selection{ Selection::Kind::Renderer, e, Stage::EmitterUpdate, at };
+            Defer( label,
+                   [e, row = std::move( row )]( S::VFXSystemData& d ) -> Common::BoolResultStr
+                   {
+                       d.Emitters[e].Renderers.push_back( row );
+                       return BOOLSUCCESS;
+                   } );
+        };
+        if ( ImGui::Selectable( "Sprite Renderer" ) )
+            add( "Add sprite renderer", S::VFXRendererData{ .Kind = S::VFXRendererKind::Sprite } );
+        if ( ImGui::Selectable( "Ribbon Renderer" ) )
+            add( "Add ribbon renderer", S::VFXRendererData{ .Kind   = S::VFXRendererKind::Ribbon,
+                                                            .Ribbon = S::VFXRibbonRendererData{} } );
+        // A Mesh row names its static mesh (ValidateVFXSystemData): it is added with the one picked here.
+        if ( ImGui::BeginMenu( "Mesh Renderer" ) )
+        {
+            static ImGuiTextFilter meshFilter;
+            if ( const auto picked = PickAssetRow( Assets::ContentRegistry::MeshRows( false ), {}, meshFilter ) )
+            {
+                add( "Add mesh renderer",
+                     S::VFXRendererData{ .Kind = S::VFXRendererKind::Mesh,
+                                         .Mesh = S::VFXMeshRendererData{ .Mesh = *picked } } );
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndMenu();
+        }
+        ImGui::EndPopup();
+    }
+
     void VFXSystemDocument::DrawModuleDetails( const std::size_t e, const Stage stage, const std::size_t m )
     {
         const S::VFXModuleUse& use = StageModules( m_Working.Emitters[e], stage )[m];
@@ -1024,6 +1399,38 @@ namespace Desert::Editor
         ImGui::SameLine();
         ImGui::TextDisabled( "%s - %s of %s", use.Module.Path.c_str(), StageLabel( stage ),
                              m_Working.Emitters[e].Name.c_str() );
+        // THE ROW'S .dfxmod (UE: a module node's script reference): another catalog module of the stage takes the
+        // row's place; an input it declares under the same name and type keeps the row's value, every other
+        // input starts at its declared Default.
+        if ( ImGui::SmallButton( ICON_MDI_SWAP_HORIZONTAL " Module..." ) )
+            ImGui::OpenPopup( "##swap" );
+        if ( ImGui::BeginPopup( "##swap" ) )
+        {
+            DrawModuleMenu(
+                 stage,
+                 [this, e, stage, m]( const VFX::VFXModuleInfo& info )
+                 {
+                     m_DeferredSelection = Selection{ Selection::Kind::Module, e, stage, m };
+                     Defer( std::format( "Set module {}", info.DisplayName ),
+                            [e, stage, m, next = VFX::DefaultModuleUse( info )](
+                                 S::VFXSystemData& d ) mutable -> Common::BoolResultStr
+                            {
+                                S::VFXModuleUse& row = StageModules( d.Emitters[e], stage )[m];
+                                for ( S::VFXModuleInput& in : next.Inputs )
+                                {
+                                    const auto kept = std::ranges::find_if(
+                                         row.Inputs, [&in]( const S::VFXModuleInput& old )
+                                         { return old.Name == in.Name && old.Type == in.Type; } );
+                                    if ( kept != row.Inputs.end() )
+                                        in = *kept;
+                                }
+                                next.Enabled = row.Enabled;
+                                row          = std::move( next );
+                                return BOOLSUCCESS;
+                            } );
+                 } );
+            ImGui::EndPopup();
+        }
         ImGui::Separator();
         if ( use.Inputs.empty() )
         {
