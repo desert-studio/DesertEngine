@@ -4166,7 +4166,7 @@ TEST( RenderGraphCompile, PostFXMaterialsAreFilledInTheSetupNeverInTheExec )
     // The jump-flood composite's uniforms (outline colour, width, smoothness) the same way.
     const std::string jfa = SqueezedSource( root, std::format( "{}JumpFloodOutlineRenderer.cpp", dir ).c_str() );
     EXPECT_NE( FunctionBody( jfa, "voidJumpFloodOutlineRenderer::FillFinalMaterial(" )
-                    .find( "m_MaterialComposite->SetParams(" ),
+                    .find( "m_MaterialFinal->SetParams(" ),
                std::string::npos )
          << "the composite's values are set by FillFinalMaterial";
     const std::string jfaNode =

@@ -1,12 +1,12 @@
-#include "MaterialJFAComposite.hpp"
+#include "MaterialJFAFinal.hpp"
 
 namespace Desert::Graphic
 {
-    MaterialJFAComposite::MaterialJFAComposite() : Material( "MaterialJFAComposite", "JFA_Final" )
+    MaterialJFAFinal::MaterialJFAFinal() : Material( "MaterialJFAFinal", "JFA_Final" )
     {
     }
 
-    void MaterialJFAComposite::SetParams( const glm::vec4& outlineColor, float outlineWidth, float smoothness )
+    void MaterialJFAFinal::SetParams( const glm::vec4& outlineColor, float outlineWidth, float smoothness )
     {
         SetOutlineColor( outlineColor );
         SetOutlineWidth( outlineWidth );

@@ -21,7 +21,7 @@ namespace Desert::Graphic
         UploadRegisteredProperties();
 
         // EVERY UB with dirty fields (not just the ones touched this frame) so each per-frame-in-flight
-        // copy receives the value — same reason as MaterialJFAComposite (TProperty::Set skips unchanged
+        // copy receives the value — same reason as MaterialJFAFinal (TProperty::Set skips unchanged
         // values, which would otherwise leave other frame copies uninitialized → flicker).
         FlushFieldFilledUniformBuffers();
     }
