@@ -35,6 +35,12 @@ namespace Desert::Graphic::RDG
         AccelStructBuildInput, // vertex/index/instance data consumed by an acceleration-structure build
         AccelStructBuildWrite, // the acceleration structure being built
         AccelStructRead,       // ray query from a fragment or compute shader
+        // An image a vendor SDK writes inside a compute pass with whatever commands it records itself: storage
+        // writes, but also clears and copies (NGX's DLSS evaluate clears its output with vkCmdClearColorImage on a
+        // reset). The image is created with TRANSFER usage and the barrier into the pass covers the transfer
+        // stage, which StorageWrite does neither of (UE gives every Vulkan image TRANSFER_SRC|DST for the same
+        // reason; here only the images such a pass declares carry it).
+        ExternalWrite,
         Count
     };
 
@@ -230,6 +236,13 @@ namespace Desert::Graphic::RDG
            { PipelineStage_FragmentShader | PipelineStage_ComputeShader, MemoryAccess_AccelStructRead,
              ImageLayout::Undefined },
            AccessTarget_Buffer },
+         { Access::ExternalWrite,
+           "ExternalWrite",
+           { PipelineStage_ComputeShader | PipelineStage_Copy,
+             MemoryAccess_ShaderStorageRead | MemoryAccess_ShaderStorageWrite | MemoryAccess_TransferRead |
+                  MemoryAccess_TransferWrite,
+             ImageLayout::General },
+           AccessTarget_Texture },
     } };
 
     namespace AccessTableDetail

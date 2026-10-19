@@ -9,7 +9,8 @@
 // The parser defines, in BOTH stages of a cell: DESERT_SURFACE_PASS_<Pass> (Forward | GBuffer | ShadowDepth |
 // VirtualShadowDepth),
 // DESERT_SHADING_MODEL_INDEX (the template's model, a SHADING_MODEL_INDEX_<NAME> of the generated
-// Generated/ShadingModels.glslh) and, for `BlendMode Masked`, DESERT_SURFACE_MASKED. The headers shape their declarations on these so each
+// Generated/ShadingModels.glslh), for `BlendMode Masked`, DESERT_SURFACE_MASKED and, in the `.Parallax` cells of
+// a template that declares `Height <Texture2D> ... Scale(<Float>)`, DESERT_SURFACE_PARALLAX (SurfaceParallax.glslh). The headers shape their declarations on these so each
 // cell declares exactly what the shader it replaces declared (SurfaceTemplate holds them equal by reflection).
 
 // The source-to-surface arithmetic a surface function is written in (UV transform, base colour, ORM, normal
@@ -168,6 +169,13 @@ struct SurfaceOutput
     float CustomData1;
     float CustomData2;
     float CustomData3;
+    // UE's Pixel Depth Offset pin: centimetres along the view ray the pass headers push the fragment's depth, shaded
+    // position and velocity (>= 0, away from the eye). Written by SurfaceParallaxOcclusion (SurfaceParallax.glslh) and
+    // applied only by a template's `.Parallax` cells; every other cell keeps its rasterised depth.
+    float PixelDepthOffset;
+    // The relief's own shadow from the main directional light (1 = lit), multiplied into the sun's shadow by the
+    // forward pass and, through the G-buffer shading word's SUN_SELF_SHADOW field, by the deferred composite.
+    float SunSelfShadow;
 };
 
 // What an author starts from, so a surface that sets only BaseColor still returns a defined value.
@@ -188,6 +196,8 @@ SurfaceOutput DefaultSurfaceOutput()
     s.CustomData1         = 0.0;
     s.CustomData2         = 0.0;
     s.CustomData3         = 0.0;
+    s.PixelDepthOffset    = 0.0;
+    s.SunSelfShadow       = 1.0;
     return s;
 }
 
@@ -199,7 +209,9 @@ SurfaceOutput DefaultSurfaceOutput()
 
 // Whether this cell's stages talk at all: a shadow-depth cell of an opaque template writes gl_FragCoord.z
 // and nothing else, exactly as Programs/Shadow/Shadow*.shader.
-#if !defined( DESERT_SURFACE_CASTER_PASS ) || defined( DESERT_SURFACE_MASKED )
+// A parallax cell's caster evaluates the surface too: its depth is the relief's (Pixel Depth Offset), not the flat
+// triangle's.
+#if !defined( DESERT_SURFACE_CASTER_PASS ) || defined( DESERT_SURFACE_MASKED ) || defined( DESERT_SURFACE_PARALLAX )
 #define DESERT_SURFACE_HAS_VARYINGS 1
 #endif
 
@@ -282,5 +294,8 @@ vec3 DesertSurfaceWorldNormal( SurfaceInput i, SurfaceOutput s )
 #else
 #define DESERT_SURFACE_CLIP( i )
 #endif
+
+// Parallax occlusion mapping and the Pixel Depth Offset (needs SurfaceInput / SurfaceOutput and the view block).
+#include <Mesh/Surface/SurfaceParallax.glslh>
 
 #endif

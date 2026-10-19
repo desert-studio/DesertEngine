@@ -2442,8 +2442,9 @@ TEST_F( ShaderCacheKeyShaderRoot, TheBrokenShaderFixtureStillDoesNotCompile )
 
 // ─── The window a shader graph's own resources live in is EMPTY in the shipped tree ──────────────
 //
-// О1-G. Core::kGraphOwnedBindingFirst reserves set-0 bindings from 31 (24 before TAA1, 27 before the scene depth
-// joined the scene-read range, 28 before the scene shading word and the light grid did) upward for what a SHADER
+// О1-G. Core::kGraphOwnedBindingFirst reserves set-0 bindings from 35 (24 before TAA1, 27 before the scene depth
+// joined the scene-read range, 28 before the scene shading word and the light grid did, 31 before the MegaLights
+// volume did) upward for what a SHADER
 // GRAPH declares — the textures a Surface graph's Properties block takes today, and whatever an authored cloud
 // medium declares tomorrow. A reservation is worth exactly what enforces it, and nothing enforced this one: the
 // claim lived in a comment listing the engine's slots by hand, and the check beside it was

@@ -71,5 +71,6 @@ void main()
     // surface hit from behind is shaded from that side, as UE's hit shaders do.
     payload.Normal = DesertSurfaceWorldNormal( i, s );
     payload.Flags  = gl_HitKindEXT == gl_HitKindFrontFacingTriangleEXT ? kDesertRayPayloadFrontFace : 0u;
+    DesertRayHitIdentify();
 }
 #endif

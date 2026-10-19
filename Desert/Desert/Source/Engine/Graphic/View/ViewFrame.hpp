@@ -58,16 +58,33 @@ namespace Desert::Graphic
     // ---- The temporal method of this frame -------------------------------------------------------------
     //
     // What resolves the frame's samples over time, derived from the two SCAL1 axes after
-    // ResolveAntiAliasingForPath. Vendor upscalers are not named here: they arrive as further ITemporalUpscaler
-    // implementations behind Common::Scalability::Upscaler, and SelectTemporalMethod refuses a value with no
-    // implementation (it is never offered by CapabilityCatalog until one exists, so reaching it means the catalog
-    // and the build disagree).
+    // ResolveAntiAliasingForPath. A vendor upscaler is one value here per ITemporalUpscaler implementation behind
+    // Common::Scalability::Upscaler, and SelectTemporalMethod refuses a value with no implementation (it is never
+    // offered by CapabilityCatalog until one exists, so reaching it means the catalog and the build disagree).
     enum class TemporalMethod : uint8_t
     {
         None, // FXAA / SMAA / MSAA / None at Native or Supersample, and None / FXAA / SMAA under Upscaler
               // Spatial below 100 %: no jitter, no history, no temporal pass
         TAA,  // AntiAliasingMethod::TAA at Native or Supersample: same-extent temporal resolve
         TAAU, // Upscaler::TAAU below 100 %: the temporal resolve writes OutputExtent
+        // The vendor upscalers. Each is one method for its native-AA mode at 100 % and its upscaler below it: one
+        // SDK feature resolves either split (the upscale ratio is an argument), and its history is internal to the
+        // SDK, carried per view as an ITemporalUpscalerHistory. Present only in a build that has the SDK
+        // (Graphic/API/UpscalerBuild.hpp).
+        // NVIDIA DLSS Super Resolution (Graphic::DLSSUpscaler, Streamline): AntiAliasingMethod::DLAA at 100 %,
+        // Upscaler::DLSS below it.
+        DLSS,
+        // AMD FSR 3.1 (Graphic::Fsr3Upscaler, FidelityFX SDK): AntiAliasingMethod::FSRNative at 100 % ("Native
+        // AA"), Upscaler::FSR below it.
+        FSR,
+        // The engine's temporal super resolution (Graphic::TemporalSuperResolution, UE TSR): Upscaler::TSR below
+        // 100 %. Vendor-neutral, pure compute; at 100 % the native method is TAA.
+        TSR,
+        // NVIDIA DLSS Ray Reconstruction (Graphic::DLSSUpscaler of Streamline::DlssFeature::RayReconstruction):
+        // Upscaler::DLSSRayReconstruction below 100 %, and at 100 % under AntiAliasingMethod::DLAA. The upscaler
+        // that also denoises: the view's noisy lighting signals reach it raw (ITemporalUpscaler::
+        // TakesRawLightingSignals).
+        DLSSRR,
     };
 
     // TAA QUALITY. Read by the TAA/TAAU resolve shader as the TAA_QUALITY shader variant (one pipeline per level):
@@ -87,10 +104,13 @@ namespace Desert::Graphic
     };
 
     // PURE. TAA iff the path's effective method is TAA and the split is Native/Supersample; TAAU iff the split is
-    // Upscale and the upscaler is TAAU; None for a non-temporal method at Native/Supersample, and for one under
-    // Upscaler::Spatial at Upscale (the spatial upscale is not temporal). An Upscale split with Upscaler::None,
-    // Spatial under a temporal method, or any vendor upscaler (FSR / DLSS / XeSS / MetalFX: no implementation in
-    // this build) is an error naming the value — SCAL1's Resolve never produces them, so it is a contract break,
+    // Upscale and the upscaler is TAAU; a vendor method (DLSS, FSR) iff the split is Upscale under its Upscaler or
+    // not Upscale under its native-AA method (DLAA, FSRNative), in a build with its SDK — at Supersample too: the
+    // implementation's Supports refuses that split and ResolveViewResolution clamps to 100 %, saying why; None for
+    // a non-temporal method at Native/Supersample, and for one under Upscaler::Spatial at Upscale (the spatial
+    // upscale is not temporal). An Upscale split with Upscaler::None, Spatial under a temporal method, a vendor
+    // method in a build without its SDK, or a vendor upscaler with no implementation (XeSS / MetalFX) is an error
+    // naming the value — SCAL1's Resolve never produces them, so it is a contract break,
     // not a fallback.
     [[nodiscard]] Common::ResultStr<TemporalMethod>
     SelectTemporalMethod( const Common::Scalability::PathAntiAliasing& path, const ResolutionSplit& split,
@@ -98,9 +118,12 @@ namespace Desert::Graphic
 
     // ---- Sub-pixel jitter (UE: Halton(2,3) sample offsets) ---------------------------------------------
     //
-    // PURE. Sequence length: 8 at Native/Supersample (UE r.TemporalAASamples), and at Upscale 8 x (output pixels /
-    // render pixels) rounded up, capped at 64 (UE: TAAU keeps the samples-per-OUTPUT-pixel constant). 0 for
-    // TemporalMethod::None — no jitter at all, so a non-temporal frame is bit-identical to the pre-TAA1 frame.
+    // PURE. THE ENGINE'S sequence (TAA / TAAU; ITemporalUpscaler::JitterSequenceLength's default — a vendor
+    // upscaler with its own sample pattern overrides it there, and SceneViewState asks the upscaler). Length: 8 at
+    // Native/Supersample (UE r.TemporalAASamples), and at Upscale 8 x (output pixels / render pixels) rounded up,
+    // capped at 64 (UE: TAAU keeps the samples-per-OUTPUT-pixel constant). 0 for TemporalMethod::None — no
+    // jitter at all, so a non-temporal frame is bit-identical to the pre-TAA1 frame. FSR is given the TAAU rule
+    // here only so the function stays total; its frames take Fsr3Upscaler's sequence.
     [[nodiscard]] uint32_t TemporalJitterSequenceLength( TemporalMethod method, const ResolutionSplit& split );
 
     // PURE. Halton(base 2, base 3) at 1-based index (index % length) + 1, minus 0.5: an offset in RENDER pixels in
@@ -143,6 +166,18 @@ namespace Desert::Graphic
     //     ViewProjection — unjittered, or the overlay shimmers by the jitter;
     //   * sky / clouds ray directions: InvViewProjection of the unjittered matrices plus JitterNdc applied to the
     //     pixel's NDC, so the sky jitters with the geometry it is resolved together with.
+    // The parallax occlusion march's step counts (Mesh/Surface/SurfaceParallax.glslh): the machine's, from the
+    // Scalability group Shading (Shading.ParallaxMinSteps / MaxSteps / ShadowSteps). MaxSteps at a grazing view,
+    // MinSteps head-on; ShadowSteps for the relief's self-shadow toward the sun.
+    struct ParallaxQuality
+    {
+        int32_t MinSteps    = 0;
+        int32_t MaxSteps    = 0;
+        int32_t ShadowSteps = 0;
+
+        bool operator==( const ParallaxQuality& ) const = default;
+    };
+
     struct ViewFrame
     {
         uint64_t FrameIndex = 0; // this view's frame count (SceneViewState), not the engine's
@@ -193,6 +228,14 @@ namespace Desert::Graphic
         // stage adds to its clip depth (Common/ShadowCasterBias.glslh). 0 for every other view.
         float ShadowSlopeBias  = 0.0f;
         float ShadowSlopeClamp = 0.0f;
+
+        // The machine's parallax steps (ViewInputs::Parallax). A light view carries its scene view's
+        // (Graphic::WriteLightCamera): the casters march the same relief the view does, or the shadow of a brick
+        // wall would be the shadow of a different wall.
+        ParallaxQuality Parallax;
+        // The main directional light TOWARD the sun, normalized; zero when the scene has none. The relief's
+        // self-shadow traces toward it in the G-buffer and forward passes.
+        glm::vec3 SunDirection{ 0.0f };
 
         // Time of this frame and of the view's previous frame, seconds. Readers: foliage/grass wind evaluated at
         // both times for the previous vertex position; particles integrate their previous position over Delta.

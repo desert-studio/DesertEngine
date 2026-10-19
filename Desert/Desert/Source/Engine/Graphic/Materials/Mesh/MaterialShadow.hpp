@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
+#include <Engine/Graphic/View/ViewFrame.hpp>
 
 #include <glm/glm.hpp>
 
@@ -15,8 +16,10 @@ namespace Desert::Graphic
     // caster materials and the per-cascade copies a Masked material casts through
     // (MaterialService::GetViewVariant). The clock is the frame's (UE's shadow view shares View.GameTime): a
     // Masked surface whose mask reads SurfaceInput.Time clips its shadow at the same instant it clips itself.
+    // @p parallax is the scene view's (ViewFrame::Parallax): a parallax caster marches the relief with the steps
+    // the view marches it with.
     void WriteLightCamera( Material& material, const glm::mat4& view, const glm::mat4& projection,
-                           double timeSeconds, const CascadeCasterBias& bias );
+                           double timeSeconds, const CascadeCasterBias& bias, const ParallaxQuality& parallax );
 
     // Depth-only material for the directional shadow pass. Feeds the LIGHT's view/projection into the
     // shared CameraUB (the per-mesh transform is pushed by Renderer::RenderMesh).
@@ -29,7 +32,7 @@ namespace Desert::Graphic
         explicit MaterialShadow( MeshPass pass );
 
         void SetLightMatrix( const glm::mat4& view, const glm::mat4& projection, double timeSeconds,
-                             const CascadeCasterBias& bias );
+                             const CascadeCasterBias& bias, const ParallaxQuality& parallax );
 
     protected:
         // Lets a path variant bind a different shader while reusing SetLightMatrix. The debug name is a

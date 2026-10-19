@@ -62,6 +62,10 @@ Shader "Terrain"
     {
         Out(0) vec4 o_Color;
         Out(1) vec2 oVelocity; // the view's velocity, slot 1 of the scene target (TerrainSurface.glslh)
+        // The view's thin-geometry coverage, slot 3 of the scene target: this pass writes the view's depth, and the
+        // ground is lit as DefaultLit (the G-buffer program packs that model).
+        Out(3) float oThinGeometryCoverage;
+        #include <Common/ThinGeometryCoverage.glslh>
 
         #include <Programs/Terrain/TerrainSurface.glslh>
 
@@ -115,6 +119,7 @@ Shader "Terrain"
 
             o_Color   = vec4( lit * u_Material.Tint.rgb, 1.0 );
             oVelocity = TerrainVelocity();
+            oThinGeometryCoverage = DesertThinGeometryCoverage( SHADING_MODEL_INDEX_DEFAULT_LIT );
         }
     }
 }

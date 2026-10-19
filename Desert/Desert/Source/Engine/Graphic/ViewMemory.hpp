@@ -48,6 +48,10 @@ namespace Desert::Graphic
         // The view IS a capture's face view: it draws the game scene only - no extension passes (the editor's
         // grid, gizmos and UI are not part of what a reflection shows).
         bool SceneCapture = false;
+        // Reflections.DownsampleFactor (Scalability) of the view's SSR trace: its pixels per side per traced texel
+        // (SSRRenderer::Prepare). SceneRenderer::BeginScene keeps it at the machine's Reflections level; 2 = the
+        // High column (half resolution).
+        uint32_t ReflectionDownsampleFactor = 2;
 
         bool operator==( const ViewProfile& ) const = default;
     };
@@ -379,8 +383,10 @@ namespace Desert::Graphic
         }
         if ( profile.ScreenSpaceReflections )
         {
-            add( { "SSR.Trace", "SSRRenderer.hpp", F::kSSRTrace, Div( width, 2 ), Div( height, 2 ) } );
-            add( { "SSR.TraceRay", "SSRRenderer.hpp", F::kSSRTraceRay, Div( width, 2 ), Div( height, 2 ) } );
+            const uint32_t factor = profile.ReflectionDownsampleFactor;
+            add( { "SSR.Trace", "SSRRenderer.hpp", F::kSSRTrace, Div( width, factor ), Div( height, factor ) } );
+            add( { "SSR.TraceRay", "SSRRenderer.hpp", F::kSSRTraceRay, Div( width, factor ),
+                   Div( height, factor ) } );
             // ScreenSpaceDenoiser::DenoiseReflections: reconstruction + output (transients), the
             // history pair (accumulation + sample count, two slots).
             add( { "SSD.Reflections.Signal+Output", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height,

@@ -44,7 +44,13 @@ namespace Common::Scalability
         HardwareTraced, // ray query: screen probes + radiance cache (GI-HWRT); the tracer record carries the
                         // frame's TLAS, segment records and instance -> surface-cache rows (MakeTracerFrame); RT
                         // device
-        PathTraced,     // reference / Cinematic (PATHTRACER); RT device                  — not implemented
+        // THE PATH TRACER (PATHTRACER; UE's Path Tracer, Renderer/Private/PathTracing): the view's whole lit image
+        // is a progressive Monte Carlo estimate over the same ray tracing pipeline and hit groups (next event
+        // estimation + MIS, the sky importance-sampled), accumulated per view. GI and reflections are ONE
+        // integrator there, so a frame path-traces only when both axes resolve to PathTraced
+        // (Graphic::ResolveRenderMethods couples them). Needs the ray tracing PIPELINE (NeedsRayTracingPipeline).
+        // The frame: SceneRenderer::AddFramePathTracing (System::PathTracer) in place of the lit passes.
+        PathTraced,
     };
 
     enum class ReflectionMethod : int
@@ -62,7 +68,7 @@ namespace Common::Scalability
         HardwareTraced, // SoftwareTraced's pipeline with the ray-query tracer: the screen trace continued into the
                         // view's TLAS (alpha-tested), a hit lit from the surface cache, a miss answered by the
                         // captures, then the sky (RT-REFL; UE Lumen reflections, hardware ray tracing); RT device
-        PathTraced,     // reference (PATHTRACER); RT device                              — not implemented
+        PathTraced,     // the path tracer, GIMethod::PathTraced's other half (one integrator); RT pipeline device
     };
 
     enum class ShadowMethod : int
@@ -94,13 +100,14 @@ namespace Common::Scalability
     [[nodiscard]] constexpr bool IsImplemented( GIMethod method )
     {
         return method == GIMethod::Off || method == GIMethod::ScreenSpace || method == GIMethod::ProbeVolume ||
-               method == GIMethod::SoftwareTraced || method == GIMethod::HardwareTraced;
+               method == GIMethod::SoftwareTraced || method == GIMethod::HardwareTraced ||
+               method == GIMethod::PathTraced;
     }
     [[nodiscard]] constexpr bool IsImplemented( ReflectionMethod method )
     {
         return method == ReflectionMethod::Off || method == ReflectionMethod::Captures ||
                method == ReflectionMethod::ScreenSpace || method == ReflectionMethod::SoftwareTraced ||
-               method == ReflectionMethod::HardwareTraced;
+               method == ReflectionMethod::HardwareTraced || method == ReflectionMethod::PathTraced;
     }
     // VirtualMaps: the page management, "VSM: Raster" (every caster - static, instanced, skinned, masked and the
     // terrain - drawn into each clipmap level's dirty pages through an attachment-less pass), the invalidation by
@@ -163,6 +170,21 @@ namespace Common::Scalability
         return method == ShadowMethod::VirtualMaps;
     }
 
+    // ---- ... and the ray tracing PIPELINE (CapabilityCatalog RayTracingPipeline: ray generation, hit groups, SBT;
+    // never on MoltenVK): the path tracer's paths shade every hit with its surface's own hit group. ---------------
+    [[nodiscard]] constexpr bool NeedsRayTracingPipeline( GIMethod method )
+    {
+        return method == GIMethod::PathTraced;
+    }
+    [[nodiscard]] constexpr bool NeedsRayTracingPipeline( ReflectionMethod method )
+    {
+        return method == ReflectionMethod::PathTraced;
+    }
+    [[nodiscard]] constexpr bool NeedsRayTracingPipeline( ShadowMethod /*method*/ )
+    {
+        return false;
+    }
+
     // ---- What a method needs from the render path: the G-buffer (Core::RenderPath::Deferred). ------------------
     // These methods work per screen pixel from the G-buffer's depth and normal (screen-space GI/reflections, the
     // irradiance field gather, the traced methods' ray origins, the sun's screen shadow mask), so the forward path
@@ -186,6 +208,27 @@ namespace Common::Scalability
     {
         return method == ShadowMethod::VirtualMaps || method == ShadowMethod::HardwareTraced ||
                method == ShadowMethod::Stochastic;
+    }
+
+    // ---- Which methods hand the frame a NOISY signal (stochastic rays or taps) that a denoiser cleans: the
+    // screen-space denoiser (Graphic::System::ScreenSpaceDenoiser), or the temporal upscaler that takes the
+    // signals raw (DLSS Ray Reconstruction, Graphic::ITemporalUpscaler::TakesRawLightingSignals). A method of this
+    // list that is not implemented yet is listed by what it will be, so its renderer lands into the same rule.
+    [[nodiscard]] constexpr bool IsDenoisedSignal( ReflectionMethod method )
+    {
+        return method == ReflectionMethod::ScreenSpace || method == ReflectionMethod::SoftwareTraced ||
+               method == ReflectionMethod::HardwareTraced || method == ReflectionMethod::PathTraced;
+    }
+    [[nodiscard]] constexpr bool IsDenoisedSignal( GIMethod method )
+    {
+        // The traced methods' screen probes and radiance cache rays; ProbeVolume reads the cache, already
+        // filtered, per pixel.
+        return method == GIMethod::SoftwareTraced || method == GIMethod::HardwareTraced ||
+               method == GIMethod::PathTraced;
+    }
+    [[nodiscard]] constexpr bool IsDenoisedSignal( ShadowMethod method )
+    {
+        return method == ShadowMethod::HardwareTraced || method == ShadowMethod::Stochastic;
     }
 
     // ---- The refusal every setter of a VIEW'S method applies (scene loader, Details, scripts) ----------------

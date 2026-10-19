@@ -15,6 +15,12 @@ Shader "StandardSurface"
     Role StandardSurface
     Default Surface
 
+    // THE SURFACE HEIGHT (Core::Formats::SurfaceHeight, shared with mesh displacement): assigning `Height` draws this
+    // template's `.Parallax` cells - parallax occlusion with Pixel Depth Offset and the sun self-shadow
+    // (Mesh/Surface/SurfaceParallax.glslh); a material that leaves it empty pays nothing. Same UV transform as the
+    // other maps, so the relief lines up with the albedo it belongs to.
+    Height Height Channel(R) Transform(UVTiling, UVOffset, UVRotation) Scale(HeightScale) Center(HeightCenter)
+
     // THE IMPORT CONTRACT (MAT1 adapters): the importer carries a source material as the source's own
     // dictionary and never names a template; this block says which source keys feed which Property here
     // (a texture row may name the source channels it takes, glTF packing roughness in G and metal in B).
@@ -75,6 +81,10 @@ Shader "StandardSurface"
         // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
         // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
+        // The relief of `Height`: centimetres between height 0 and height 1, and the height that stays on the mesh
+        // surface (1 = the surface is the top, the relief is carved below it - what parallax can show).
+        Float       HeightScale ("Height Scale (cm)", Range(0,50), Category("Height")) = 2
+        Float       HeightCenter ("Height Center", Range(0,1), Category("Height")) = 1
         Texture2D   u_AlbedoTexture ("Albedo Map", Category("Textures"), Intent(Colour))
         // The ONE slot whose empty state is not white. A normal map is unpacked with `2*t - 1`, so a
         // white texel decodes to a normalised (1,1,1) — a normal tilted 54 degrees off the surface —
@@ -87,6 +97,8 @@ Shader "StandardSurface"
         // Packed glTF-style: R = occlusion, G = roughness, B = metallic, each multiplying its factor; white when empty.
         Texture2D   u_ORMTexture ("ORM Map", Category("Textures"), Intent(Data))
         Texture2D   u_EmissiveTexture ("Emissive Map", Category("Textures"), Intent(Colour))
+        // White (the top of the relief) when empty; assigning it selects the parallax cells.
+        Texture2D   Height ("Height Map", Category("Height"), Intent(Data))
     }
 
     // The surface maps: the template declares its own samplers (the cells add no material textures).
@@ -95,12 +107,16 @@ Shader "StandardSurface"
 
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
-            SurfaceOutput s = DefaultSurfaceOutput();
             vec2 tiling = u_Material.UVTiling;
             if ( tiling.x <= 0.0 ) tiling.x = 1.0;
             if ( tiling.y <= 0.0 ) tiling.y = 1.0;
-            const vec2 uv = SurfaceTransformUV( SurfaceSelectUV( i.UV0, i.UV0, 0 ), u_Material.UVOffset, tiling,
-                                            u_Material.UVRotation );
+            SurfaceOutput s = DefaultSurfaceOutput();
+            // Parallax first: every later fetch reads the relief point the view ray hits (the base cells return
+            // the UV unchanged).
+            const vec2 uv = SurfaceParallaxOcclusion(
+                 i, SurfaceTransformUV( SurfaceSelectUV( i.UV0, i.UV0, 0 ), u_Material.UVOffset, tiling,
+                                        u_Material.UVRotation ),
+                 s );
             s.BaseColor = SurfaceBaseColor( u_Material.AlbedoColor.rgb,
                                         SurfaceSampleMaterial( u_Material.u_AlbedoTexture, uv ).rgb, vec3( 1.0 ) );
             const ivec2 normalSize = BindlessTextureSize( u_Material.u_NormalTexture, 0 );
@@ -117,7 +133,8 @@ Shader "StandardSurface"
             s.ReceiveSunShadows = u_Material.ReceiveSunShadows;
             s.SampledTextureCount = float( int( BindlessTextureSize( u_Material.u_AlbedoTexture, 0 ).x > 1 ) + int( normalSize.x > 1 ) +
                                            int( BindlessTextureSize( u_Material.u_ORMTexture, 0 ).x > 1 ) +
-                                           int( BindlessTextureSize( u_Material.u_EmissiveTexture, 0 ).x > 1 ) );
+                                           int( BindlessTextureSize( u_Material.u_EmissiveTexture, 0 ).x > 1 ) +
+                                           int( BindlessTextureSize( u_Material.Height, 0 ).x > 1 ) );
             return s;
         }
     }

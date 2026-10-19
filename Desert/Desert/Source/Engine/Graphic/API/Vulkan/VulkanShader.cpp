@@ -252,7 +252,19 @@ namespace Desert::Graphic::API::Vulkan
         //
         // It reflects into the caller's data, not straight into the shader's: a compile that fails
         // halfway must not leave this object holding half a shader.
-        const auto diagnostics = ShaderReflection::ReflectStage( spirv, stage, into );
+        auto diagnostics = ShaderReflection::ReflectStage( spirv, stage, into );
+        // Shared memory above the device's maxComputeSharedMemorySize is not an error the driver must report
+        // (Vulkan guarantees only 16 KiB); the program is refused here, by name and with both numbers, so its
+        // owner refuses itself instead of dispatching something undefined.
+        if ( stage == Core::Formats::ShaderStage::Compute )
+        {
+            const uint64_t shared  = ShaderReflection::ReflectWorkgroupMemoryBytes( spirv );
+            const uint32_t allowed = EngineContext::GetInstance().GetCapabilities().MaxComputeSharedMemorySize;
+            if ( shared > allowed )
+                diagnostics.push_back( std::format( "declares {} bytes of shared memory (std430); the device's "
+                                                    "maxComputeSharedMemorySize is {}",
+                                                    shared, allowed ) );
+        }
         if ( diagnostics.empty() )
         {
             return BOOLSUCCESS;

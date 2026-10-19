@@ -203,6 +203,14 @@ namespace Desert::Editor::ShaderGraph
             { "TileUV", "Tile UV", RGBA( 150, 130, 60, 255 ),
               { { "UV", ValueType::Vec2 }, { "Scale", ValueType::Float } },
               { { "UV", ValueType::Vec2 } }, false, false, false, /*mesh tiling*/ SURFACE },
+            // UE's ParallaxOcclusionMapping function with its Pixel Depth Offset wired: the mesh UV moved to the
+            // relief point the view ray hits (Mesh/Surface/SurfaceParallax.glslh). The node gives the template its
+            // surface height - the `Height` line and the material inputs Height (Texture2D) / HeightScale (cm) /
+            // HeightCenter, the names every template uses (Core::Formats::SurfaceHeight) - so it takes no pin: the
+            // height map is read at the mesh UV0 the line states, and every sample fed from its output lands on
+            // the relief. A material that leaves Height empty draws the template's base cells and pays nothing.
+            { "ParallaxOcclusion", "Parallax Occlusion", RGBA( 150, 130, 60, 255 ), {},
+              { { "UV", ValueType::Vec2 } }, false, false, false, SURFACE },
             { "Multiply", "Multiply", RGBA( 90, 90, 120, 255 ),
               { { "A", ValueType::Color }, { "B", ValueType::Color } },
               { { "Out", ValueType::Color } }, false, false, false, NOT_VOLUME },
@@ -764,6 +772,10 @@ namespace Desert::Editor::ShaderGraph
                     decl = std::format( "vec4 {} = texture( u_SceneTexture, v_UV );", var );
                 else if ( node.Kind == "UV" )
                     decl = std::format( "vec2 {} = v_UV;", var );
+                else if ( node.Kind == "ParallaxOcclusion" )
+                    // `s` is declared before the node body (the surface emitter): the march writes the depth
+                    // offset and the sun self-shadow into it.
+                    decl = std::format( "vec2 {} = SurfaceParallaxOcclusion( i, v_UV, s );", var );
                 else if ( node.Kind == "TileUV" )
                 {
                     const std::string uv     = EmitInput( node, 0, "v_UV" );
@@ -1418,7 +1430,21 @@ namespace Desert::Editor::ShaderGraph
         // generated code samples it through the bindless table as u_Material.<name>. No texture is a descriptor
         // of the material set, so a graph with many textures adds nothing to the stage's sampler count
         // (MoltenVK: 16 per stage) and cannot land on an engine binding.
-        if ( !textures.empty() || !colorParams.empty() || !floatParams.empty() )
+        // A Parallax Occlusion node gives the surface template its height (Core::Formats::SurfaceHeight): the
+        // shared material inputs, which no graph parameter may also claim.
+        const bool usesParallax = domain == Domain::Surface &&
+                                  std::any_of( doc.Nodes.begin(), doc.Nodes.end(),
+                                               []( const Node& n ) { return n.Kind == "ParallaxOcclusion"; } );
+        if ( usesParallax )
+            for ( const auto* list : { &textures, &colorParams, &floatParams } )
+                for ( const Node* n : *list )
+                    if ( n->ParamName == "Height" || n->ParamName == "HeightScale" || n->ParamName == "HeightCenter" )
+                        return Common::MakeError<std::string>( std::format(
+                             "parameter '{}' is the surface height's, which the Parallax Occlusion node declares; "
+                             "rename the parameter",
+                             n->ParamName ) );
+
+        if ( !textures.empty() || !colorParams.empty() || !floatParams.empty() || usesParallax )
         {
             out << "    Properties";
             // The row block sits beside the engine's per-pass blocks: after the scene texture of a post
@@ -1435,6 +1461,10 @@ namespace Desert::Editor::ShaderGraph
                                     Compiler::Lit( n->Value[0] ) );
             for ( const auto* n : textures )
                 out << std::format( "        Texture2D {} (\"{}\")\n", n->ParamName, n->ParamName );
+            if ( usesParallax )
+                out << "        Float     HeightScale (\"Height Scale (cm)\", Range(0,50)) = 2\n"
+                       "        Float     HeightCenter (\"Height Center\", Range(0,1)) = 1\n"
+                       "        Texture2D Height (\"Height Map\", Intent(Data))\n";
             out << "    }\n\n";
         }
 
@@ -1482,13 +1512,17 @@ namespace Desert::Editor::ShaderGraph
         if ( doc.UsedWithParticleSprites )
             out << "    Usage ParticleSprites\n\n";
 
+        if ( usesParallax )
+            out << "    Height Height Channel(R) Scale(HeightScale) Center(HeightCenter)\n\n";
+
         out << "    Surface\n    {\n";
         out << "        SurfaceOutput EvaluateSurface( SurfaceInput i )\n        {\n";
         // The graph's nodes read the mesh UV under the name every node emitter uses.
         out << "            const vec2 v_UV = i.UV0;\n";
+        // Before the nodes: a Parallax Occlusion node writes its depth offset and self-shadow into it.
+        out << "            SurfaceOutput s = DefaultSurfaceOutput();\n";
         out << compiler.body.str();
         out << std::format( "            const vec4 albedo = {};\n", albedo );
-        out << "            SurfaceOutput s = DefaultSurfaceOutput();\n";
         if ( doc.Lit )
         {
             out << "            s.BaseColor = albedo.rgb;\n";
