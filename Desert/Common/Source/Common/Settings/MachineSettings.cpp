@@ -108,7 +108,8 @@ namespace Common::Settings
             std::vector<Rejection> Rejections;
         };
 
-        constexpr std::string_view kOverrideForm = R"(an override is {"Key": "<Group.Parameter>", "Value": <integer>})";
+        constexpr std::string_view kOverrideForm =
+             R"(an override is {"Key": "<Group.Parameter>", "Value": <integer>})";
 
         // One element of Quality.Overrides: kept, kept with an error (a key this build has no parameter for), or
         // dropped with the reason (a field that is not Key/Value, a Value that is not an integer, no Key, a Value
@@ -118,33 +119,35 @@ namespace Common::Settings
             const std::string text = Json::Write( entry.Raw() );
             auto              read = entry.As<Scalability::ParameterOverride>();
             if ( !read )
-                return Rejection{ std::format( "override {} is ignored: {} ({})", text, read.GetError(), kOverrideForm ) };
+                return Rejection{
+                     std::format( "override {} is ignored: {} ({})", text, read.GetError(), kOverrideForm ) };
 
             const Scalability::ParameterOverride& value = read.GetValue();
             if ( value.Key.empty() )
-                return Rejection{
-                     std::format( "{}: override {} is ignored: it has no Key ({})", entry.Where().ToString(), text,
-                                  kOverrideForm ) };
+                return Rejection{ std::format( "{}: override {} is ignored: it has no Key ({})",
+                                               entry.Where().ToString(), text, kOverrideForm ) };
 
             const auto specs = Scalability::ParameterSpecs();
-            const auto spec  = std::find_if( specs.begin(), specs.end(),
-                                             [&]( const Scalability::ParameterSpec& s ) { return s.Key == value.Key; } );
+            const auto spec  = std::find_if( specs.begin(), specs.end(), [&]( const Scalability::ParameterSpec& s )
+                                             { return s.Key == value.Key; } );
             if ( spec == specs.end() )
-                return Rejection{ std::format( "{}: override {} names no parameter of this build; it is not applied "
-                                               "and stays in the file for the build that wrote it",
-                                               entry.Where().ToString(), text ),
-                                  false };
+                return Rejection{
+                     std::format( "{}: override {} names no parameter of this build; it is not applied "
+                                  "and stays in the file for the build that wrote it",
+                                  entry.Where().ToString(), text ),
+                     false };
 
             if ( value.Value < spec->Min || value.Value > spec->Max )
-                return Rejection{ std::format( "{}: override {} is ignored: {} is outside {}'s range [{}, {}]; the {} "
-                                               "level's value stands",
-                                               entry.Where().ToString(), text, value.Value, spec->Key, spec->Min,
-                                               spec->Max, Scalability::GroupKey( spec->Owner ) ) };
+                return Rejection{
+                     std::format( "{}: override {} is ignored: {} is outside {}'s range [{}, {}]; the {} "
+                                  "level's value stands",
+                                  entry.Where().ToString(), text, value.Value, spec->Key, spec->Min, spec->Max,
+                                  Scalability::GroupKey( spec->Owner ) ) };
             return std::nullopt;
         }
 
-        // The Quality member with every dropped override taken out of its Overrides array. A Quality that is not an
-        // object, or Overrides that is not an array, comes back as written: the member check refuses it whole.
+        // The Quality member with every dropped override taken out of its Overrides array. A Quality that is not
+        // an object, or Overrides that is not an array, comes back as written: the member check refuses it whole.
         Json::Value ScreenOverrides( const Json::Node& quality, std::vector<Rejection>& rejections )
         {
             const std::optional<Json::Node> overrides = quality.Find( "Overrides" );
@@ -162,7 +165,7 @@ namespace Common::Settings
                          rejections.push_back( std::move( *rejection ) );
                  } );
 
-            const Json::Value  screened( std::move( kept ) );
+            const Json::Value   screened( std::move( kept ) );
             Json::ObjectBuilder rebuilt;
             quality.ForEachMember( [&]( std::string_view name, const Json::Node& member )
                                    { rebuilt.Set( name, name == "Overrides" ? screened : member.Raw() ); } );
@@ -181,8 +184,8 @@ namespace Common::Settings
                      std::format( "the document is {}, not an object", Json::Detail::DescribeFound( document ) ) );
 
             // Every top-level member is read ALONE against the struct (a key the struct does not declare lands in
-            // UnknownKeys, as on the whole-file read); a member that does not read is refused by name and keeps its
-            // in-struct default, the others stand.
+            // UnknownKeys, as on the whole-file read); a member that does not read is refused by name and keeps
+            // its in-struct default, the others stand.
             ScreenedFile        screened;
             Json::ObjectBuilder kept;
             root.ForEachMember(
@@ -193,8 +196,8 @@ namespace Common::Settings
                      const Json::Value alone( Json::ObjectBuilder().Set( name, value ).Build() );
                      if ( auto read = Json::Root( alone ).As<MachineSettings>(); !read )
                      {
-                         screened.Rejections.push_back(
-                              { std::format( "{} is ignored and keeps its default: {}", name, read.GetError() ) } );
+                         screened.Rejections.push_back( { std::format( "{} is ignored and keeps its default: {}",
+                                                                       name, read.GetError() ) } );
                          return;
                      }
                      kept.Set( name, value );
@@ -253,8 +256,8 @@ namespace Common::Settings
             // The entries Load() refused (and logged one by one) are not part of the canonical text, so a save
             // that changes a setting writes the file without them; one that changes nothing leaves the file alone.
             if ( const std::size_t dropped = CountDropped( parsed.GetValue().Rejections ); dropped > 0 )
-                LOG_WARN( "[Machine] {} holds {} entr{} refused at load; a write now leaves {} out.", s_File.string(),
-                          dropped, dropped == 1 ? "y" : "ies", dropped == 1 ? "it" : "them" );
+                LOG_WARN( "[Machine] {} holds {} entr{} refused at load; a write now leaves {} out.",
+                          s_File.string(), dropped, dropped == 1 ? "y" : "ies", dropped == 1 ? "it" : "them" );
 
             MachineSettings fromDisk = std::move( parsed.ExtractValue().Settings );
 
@@ -311,7 +314,8 @@ namespace Common::Settings
         // A file written by a build with fewer fields keeps loading — Json::Read gives every field the file does
         // not state its in-struct default; keys of a build with MORE fields land in UnknownKeys.
         // An entry that does not read is refused BY ENTRY (ScreenFile), each one an ERROR naming the file, the
-        // entry's path and the reason; only a file with no locatable entries (a syntax error) falls to the defaults.
+        // entry's path and the reason; only a file with no locatable entries (a syntax error) falls to the
+        // defaults.
         auto parsed = ScreenFile( raw.GetValue() );
         if ( !parsed )
         {
