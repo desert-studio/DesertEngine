@@ -6,6 +6,7 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <algorithm>
 #include <optional>
 #include <vector>
 
@@ -45,6 +46,10 @@ namespace Desert::Graphic::System
                 }
                 materials[s] = record.GetValue();
             }
+            // No section moves (no material assigns its Height): nothing to tessellate.
+            if ( std::none_of( materials.begin(), materials.end(),
+                               []( const std::optional<DisplacementMaterialRecord>& m ) { return m.has_value(); } ) )
+                continue;
             cache.Request( data.Entity, data.MotionPart, *data.Mesh, data.Transform, materials, view,
                            viewHeightPixels, frame );
         }
@@ -52,6 +57,11 @@ namespace Desert::Graphic::System
             LOG_ERROR( "{}", displaced.GetError() );
         for ( StaticMeshRenderData& data : m_StaticQueue )
             if ( const std::shared_ptr<StaticMesh> twin = cache.Find( data.Entity, data.MotionPart ) )
+            {
                 data.Mesh = twin.get(); // the cache holds the twin past this frame's draws (EndFrame of the next)
+                // No double relief: the displaced slots draw base cells (MaterialSlotBinding::Displaced).
+                if ( data.MaterialSlots && data.MaterialSlots->Displaced )
+                    data.MaterialSlots = data.MaterialSlots->Displaced;
+            }
     }
 } // namespace Desert::Graphic::System

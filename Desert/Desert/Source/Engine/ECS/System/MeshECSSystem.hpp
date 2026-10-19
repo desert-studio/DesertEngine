@@ -186,6 +186,28 @@ namespace Desert::ECS
                              binding->Slots.reserve( binding->Owned.size() );
                              for ( const auto& inst : binding->Owned )
                                  binding->Slots.push_back( inst.get() );
+                             // A displaced mesh (Runtime or Baked, its import settings) draws its displaced
+                             // geometry with the displaced siblings of the same slots: base cells, so the
+                             // relief is not marched a second time over the triangles that carry it.
+                             if ( targetMesh->IsDisplaced() && !mesh.MaterialSlots.empty() )
+                             {
+                                 auto displaced = std::make_shared<Graphic::MaterialSlotBinding>();
+                                 for ( const auto& assetHandle : mesh.MaterialSlots )
+                                 {
+                                     auto inst = Runtime::ResourceRegistry::GetMaterialService()
+                                                      ->CreateRuntimeInstance(
+                                                           assetHandle, Graphic::MeshVertexPath::Static, true );
+                                     displaced->Owned.push_back(
+                                          inst ? std::move( inst )
+                                               : DefaultInstance( Graphic::MeshVertexPath::Static ) );
+                                 }
+                                 if ( displaced->Owned[0] )
+                                     for ( const auto& p : mesh.ScriptSlotParams )
+                                         displaced->Owned[0]->SetParamFromVec4( p.Name, p.Value );
+                                 for ( const auto& inst : displaced->Owned )
+                                     displaced->Slots.push_back( inst.get() );
+                                 binding->Displaced = std::move( displaced );
+                             }
                              mesh.RuntimeSlots = std::move( binding );
 
                              // The script's slot-0 overrides land on EVERY slot-0 instance built (UE: the

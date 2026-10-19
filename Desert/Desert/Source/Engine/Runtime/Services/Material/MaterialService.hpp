@@ -42,8 +42,12 @@ namespace Desert::Runtime
     // the material is built over ShaderService::AcquireVariant of the cell, so its descriptor sets are allocated
     // from THAT program's reflection. Empty = the cell as registered.
     std::shared_ptr<Graphic::DataDrivenMaterial>
+    // @p displaced: the material draws over DISPLACED geometry (a displacement twin or a baked displaced mesh,
+    // CONTRACT-DISPLACE §1a): it takes the template's base cell even when it assigns its height map, because the
+    // relief is already in the triangles - the `.Parallax` march over it would draw the relief twice.
     CreateSurfaceMaterial( const Assets::MaterialAsset* asset, Graphic::MeshVertexPath path,
-                           Graphic::MeshPass pass, const Core::ShaderVariant& permutation = {} );
+                           Graphic::MeshPass pass, const Core::ShaderVariant& permutation = {},
+                           bool displaced = false );
 
     // (Re)apply a surface asset's parameters and textures onto a live runtime material built from it —
     // CreateSurfaceMaterial's own body, and what the editor and hot reload call on an edit.
@@ -121,9 +125,12 @@ namespace Desert::Runtime
         // The defaults are (Static, Forward) because most callers ask "does this asset resolve to a
         // material at all?" and any cell answers that; the mesh renderers pass the cell they are about to
         // draw with.
+        // @p displaced: the sibling drawn over displaced geometry (CreateSurfaceMaterial); its own variant slot,
+        // and GetVariant keeps it, so every pass of a displaced draw stays on the base cells.
         Graphic::Material*  Get( const Assets::AssetHandle& handle,
-                                 Graphic::MeshVertexPath    path = Graphic::MeshVertexPath::Static,
-                                 Graphic::MeshPass          pass = Graphic::MeshPass::Forward ) const;
+                                 Graphic::MeshVertexPath    path      = Graphic::MeshVertexPath::Static,
+                                 Graphic::MeshPass          pass      = Graphic::MeshPass::Forward,
+                                 bool                       displaced = false ) const;
         Graphic::Material*  GetByExternalHandle( const Common::UUID& handle ) const;
         Assets::AssetHandle GetAssetHandleByExternal( const Common::UUID& uuid ) const;
         void                Clear();
@@ -203,7 +210,8 @@ namespace Desert::Runtime
         // one, and the renderer dropped it.
         Graphic::MaterialInstancePtr
         CreateRuntimeInstance( const Assets::AssetHandle& handle,
-                               Graphic::MeshVertexPath    path = Graphic::MeshVertexPath::Static ) const;
+                               Graphic::MeshVertexPath    path      = Graphic::MeshVertexPath::Static,
+                               bool                       displaced = false ) const;
 
         // The same resolution as CreateRuntimeInstance, but delivered as NAMED VALUES instead of a runtime
         // instance — for a renderer that owns one material of its own and applies a material's parameters
@@ -352,13 +360,17 @@ namespace Desert::Runtime
         // axes are closed sets the renderer enumerates — a map would let a cell exist that no draw can ask
         // for. Most cells stay empty for most assets: a scene with no skinned geometry and no deferred path
         // builds exactly one material per `.demat`, because nothing ever asks for the others.
+        // x2: every (path x pass) cell once as authored and once for displaced geometry.
         static constexpr size_t kVariantCount =
-             static_cast<size_t>( Graphic::kMeshVertexPathCount ) * Graphic::kMeshPassCount;
+             static_cast<size_t>( Graphic::kMeshVertexPathCount ) * Graphic::kMeshPassCount * 2;
         using PathVariants                    = std::array<std::shared_ptr<Graphic::Material>, kVariantCount>;
 
-        static constexpr size_t VariantSlot( Graphic::MeshVertexPath path, Graphic::MeshPass pass )
+        static constexpr size_t VariantSlot( Graphic::MeshVertexPath path, Graphic::MeshPass pass,
+                                             bool displaced = false )
         {
-            return static_cast<size_t>( path ) * Graphic::kMeshPassCount + static_cast<size_t>( pass );
+            return ( displaced ? static_cast<size_t>( Graphic::kMeshVertexPathCount ) * Graphic::kMeshPassCount
+                               : 0u ) +
+                   static_cast<size_t>( path ) * Graphic::kMeshPassCount + static_cast<size_t>( pass );
         }
 
         mutable uint32_t                                              m_InvalidationVersion = 0;
@@ -414,6 +426,9 @@ namespace Desert::Runtime
         // material that is on its way to the graveyard, and the pass would draw with descriptors the next
         // CollectGarbage destroys. That is why Invalidate erases here and not in CollectGarbage.
         mutable std::unordered_map<const Graphic::Material*, Assets::AssetHandle> m_BuiltToAsset;
+        // The built materials of the displaced slots (VariantSlot(.., true)): GetVariant answers their siblings
+        // from the displaced slots too. Erased with m_BuiltToAsset.
+        mutable std::unordered_set<const Graphic::Material*> m_DisplacedBuilt;
 
         // Invalidated materials awaiting safe destruction (see Invalidate/CollectGarbage).
         Assets::FrameRetireQueue<std::shared_ptr<Graphic::Material>> m_Graveyard;
