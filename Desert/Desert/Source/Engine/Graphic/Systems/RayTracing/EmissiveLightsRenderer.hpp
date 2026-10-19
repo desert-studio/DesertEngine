@@ -16,6 +16,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -31,7 +32,8 @@
 //     the TLAS order changed);
 //   * DYNAMIC: the deformed primitives' segments, expanded EVERY frame from the skin cache's positions of that
 //     frame into transient buffers (the Build pass reads the streams, so the graph orders it after the skin
-//     pass that wrote them).
+//     pass that wrote them). A frame with no deformed emitter binds the view's kept EMPTY part instead (one
+//     zero row per buffer, root power 0, uploaded once): nothing is uploaded or dispatched for it.
 // Per part "EmissiveLights: Build" expands the segments into world triangles and leaf powers, one
 // "EmissiveLights: Reduce" per tree level sums them. Every consumer (the path tracer now, MegaLights next) reads
 // the same EmissiveLightsFrame and picks a part by the two roots.
@@ -142,14 +144,19 @@ namespace Desert::Graphic::RayTracing
                                     : std::as_bytes( std::span<const EmissiveSegmentGpu>( rows ) );
             };
 
-            // ---- Dynamic: every frame, from this frame's skinned positions. ----
-            const auto dynamicSegments = rowsOf( list.DynamicSegments );
-            frame.Dynamic.Segments =
-                 graph.CreateBuffer( RDG::BufferDesc{ dynamicSegments.size() }, kEmissiveDynamicSegmentsName );
-            CreateTriangles( graph, frame.Dynamic, kEmissiveDynamicTrianglesName, kEmissiveDynamicPowerName );
-            graph.QueueBufferUpload( frame.Dynamic.Segments, dynamicSegments );
-            AddTree( graph, frame.Dynamic, static_cast<uint32_t>( list.DynamicSegments.size() ),
-                     list.DynamicPositions, kEmissiveBuildDynamicPassName, kEmissiveReduceDynamicPassName );
+            // ---- Dynamic: every frame, from this frame's skinned positions; none: the kept empty part. ----
+            if ( list.DynamicTriangleCount == 0 )
+                RegisterEmptyDynamic( graph, frame.Dynamic );
+            else
+            {
+                const auto dynamicSegments = rowsOf( list.DynamicSegments );
+                frame.Dynamic.Segments =
+                     graph.CreateBuffer( RDG::BufferDesc{ dynamicSegments.size() }, kEmissiveDynamicSegmentsName );
+                CreateTriangles( graph, frame.Dynamic, kEmissiveDynamicTrianglesName, kEmissiveDynamicPowerName );
+                graph.QueueBufferUpload( frame.Dynamic.Segments, dynamicSegments );
+                AddTree( graph, frame.Dynamic, static_cast<uint32_t>( list.DynamicSegments.size() ),
+                         list.DynamicPositions, kEmissiveBuildDynamicPassName, kEmissiveReduceDynamicPassName );
+            }
 
             // ---- Static: kept while its hash holds. ----
             if ( m_Kept.Hash == list.StaticHash && m_Kept.Segments.Physical && m_Kept.Lookup.Physical &&
@@ -199,6 +206,42 @@ namespace Desert::Graphic::RayTracing
             RDG::ExternalBuffer Power;
             uint64_t            Hash = 0;
         };
+
+        // The empty dynamic part every consumer binds when no deformed emitter is in the list: never written, so
+        // made once (zeros, a root power of 0 that no sample picks) and registered in each graph after that.
+        struct EmptyPart
+        {
+            RDG::ExternalBuffer Segments;
+            RDG::ExternalBuffer Triangles;
+            RDG::ExternalBuffer Power;
+        };
+
+        void RegisterEmptyDynamic( RDG::Builder& graph, EmissiveLightsPart& part )
+        {
+            if ( m_EmptyDynamic.Segments.Physical && m_EmptyDynamic.Triangles.Physical &&
+                 m_EmptyDynamic.Power.Physical )
+            {
+                part.Segments  = graph.RegisterExternal( m_EmptyDynamic.Segments, kEmissiveDynamicSegmentsName );
+                part.Triangles = graph.RegisterExternal( m_EmptyDynamic.Triangles, kEmissiveDynamicTrianglesName );
+                part.Power     = graph.RegisterExternal( m_EmptyDynamic.Power, kEmissiveDynamicPowerName );
+                return;
+            }
+            const EmissiveSegmentGpu                            segment{};
+            const std::array<std::byte, kEmissiveTriangleBytes> triangle{};
+            const float                                         rootPower = 0.0f;
+            part.Segments =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( EmissiveSegmentGpu ) }, kEmissiveDynamicSegmentsName );
+            CreateTriangles( graph, part, kEmissiveDynamicTrianglesName, kEmissiveDynamicPowerName );
+            graph.QueueBufferUpload( part.Segments,
+                                     std::as_bytes( std::span<const EmissiveSegmentGpu>( &segment, 1 ) ) );
+            graph.QueueBufferUpload( part.Triangles, std::span<const std::byte>( triangle ) );
+            graph.QueueBufferUpload( part.Power, std::as_bytes( std::span<const float>( &rootPower, 1 ) ) );
+            // The Physical buffers arrive on Execute: a graph that fails leaves them empty and the next frame
+            // makes them again.
+            graph.Extract( part.Segments, m_EmptyDynamic.Segments, RDG::Access::StorageRead );
+            graph.Extract( part.Triangles, m_EmptyDynamic.Triangles, RDG::Access::StorageRead );
+            graph.Extract( part.Power, m_EmptyDynamic.Power, RDG::Access::StorageRead );
+        }
 
         static uint32_t Groups( const uint32_t threads )
         {
@@ -290,6 +333,7 @@ namespace Desert::Graphic::RayTracing
         mutable ShaderBindingLayoutCache m_BuildLayout;
         mutable ShaderBindingLayoutCache m_ReduceLayout;
         Kept                             m_Kept;
+        EmptyPart                        m_EmptyDynamic;
         // Static parts a rebuild replaced, kept until no frame in flight can still read them.
         Assets::FrameRetireQueue<Kept> m_Retiring;
     };
