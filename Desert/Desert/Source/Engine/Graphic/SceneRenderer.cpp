@@ -2009,11 +2009,14 @@ namespace Desert::Graphic
             return false;
 
         // Same gate as GI: the trace target and the denoiser's history are sampled float targets
-        // (ViewTargetFormats::kSSRTrace / kDenoiserSignal).
+        // (ViewTargetFormats::kSSRTrace / kDenoiserSignal). A device without them refuses the methods that trace
+        // the screen by name, like a program that did not build: the next BeginScene resolves Reflections below
+        // them (MethodLimit::Program) instead of rendering a method whose pass never runs.
         if ( !HasFloatRenderTargetSupport() )
         {
-            LOG_WARN( "[SceneRenderer] SSR needs blendable float render targets, which this device does not "
-                      "report — reflections stay off." );
+            RefuseProgramMethods( kScreenTraceReflectionMethods, "SSR",
+                                  "the device does not report the float scene colour format as a sampled, "
+                                  "blendable colour attachment" );
             m_SSRResourcesFailed = true;
             return false;
         }

@@ -139,6 +139,20 @@ namespace Desert::Graphic
             }
             m_SurfaceCache = std::move( cache );
         }
+        // The cards' direct lighting for this frame's tracer (its shadow rays), asked before anything is
+        // recorded. The hardware permutation serves HardwareTraced GI alone: refused, GI walks down to the
+        // software tracer and the cards are relit by it. The software permutation lights the cards for every
+        // other reader - the software-traced GI methods and, whenever GI is not hardware traced, the traced
+        // reflections' hits (SurfaceCacheTracer) - so it refuses those too.
+        const GlobalIllumination::Pipeline cardTracer = SurfaceCacheTracer();
+        if ( const auto program = m_SurfaceCache->EnsureLightingProgram( cardTracer ); !program )
+        {
+            RefuseProgramMethods( GlobalIllumination::TraceProgramGIMethods( cardTracer, false ),
+                                  "SurfaceCacheDirectLighting", program.GetError() );
+            if ( cardTracer.Tracer != GlobalIllumination::Tracer::HardwareRayQuery )
+                RefuseProgramMethods( kTracedReflectionMethods, "SurfaceCacheDirectLighting", program.GetError() );
+            return;
+        }
         // The machine's budget (Scalability GlobalIllumination group), every frame: a quality change re-cuts it.
         if ( const auto configured =
                   m_SurfaceCache->Configure( SurfaceCache::MakeSurfaceCacheBudget( m_Quality ) );

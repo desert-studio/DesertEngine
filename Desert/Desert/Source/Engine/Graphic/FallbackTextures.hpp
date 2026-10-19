@@ -12,6 +12,10 @@ namespace Desert::Graphic
         GetFallbackTexture2D( Core::Formats::ImageFormat format ) const = 0;
         virtual const std::shared_ptr<ImageCube>&
         GetFallbackTextureCube( Core::Formats::ImageFormat format ) const = 0;
+        // The black cube viewed as a cube ARRAY of one cube (UE GBlackCubeArrayTexture): what a samplerCubeArray
+        // is handed where its producer cannot run. A cube in an array binding is a view-type mismatch.
+        virtual const std::shared_ptr<ImageCube>&
+        GetFallbackTextureCubeArray( Core::Formats::ImageFormat format ) const = 0;
         virtual const std::shared_ptr<Image2D>&
         GetFallbackStorageImage2D( Core::Formats::ImageFormat format ) const = 0;
         // Volumes. A `sampler3D` / `image3D` binding that nobody wrote is an UNDEFINED descriptor, and the

@@ -473,12 +473,18 @@ namespace Desert::Graphic
             graph.QueueBufferUpload( buffer, list );
             textures.Transients.ReflectionCaptures = buffer;
         };
+        // Nothing to read: the engine's black cube array (UE GBlackCubeArrayTexture) and the empty list, so the
+        // lighting that binds them still draws and reads no capture. No compute pass is needed to make it.
+        const auto publishNone = [&]()
+        {
+            textures.Transients.ReflectionCaptureCubes = textures.System.BlackCubeArray;
+            publishList( PackReflectionCaptures( {}, {} ) );
+        };
         if ( !EnsurePipelines() )
         {
-            // No cube can be assembled on this device (logged once by MakeCompute): the empty list alone, so the
-            // lighting that binds it still draws and reads no capture. The views refuse the Reflections methods
-            // that read captures by FailedProgram()'s name (SceneRenderer::BeginScene).
-            publishList( PackReflectionCaptures( {}, {} ) );
+            // No cube can be assembled on this device (logged once by MakeCompute). The views refuse the
+            // Reflections methods that read captures by FailedProgram()'s name (SceneRenderer::BeginScene).
+            publishNone();
             return;
         }
 
@@ -486,14 +492,11 @@ namespace Desert::Graphic
         if ( m_Retired.size() > kRetiredKept )
             m_Retired.erase( m_Retired.begin(), m_Retired.end() - kRetiredKept );
 
-        // The views that read no captures, and every view while the face size is refused: one black cube at the
-        // smallest legal face (a 1x1 cube is all the lighting can read from it).
+        // The views that read no captures, and every view while the face size is refused.
         const bool capturing = readsCaptures && std::has_single_bit( m_FaceSize );
         if ( !capturing )
         {
-            textures.Transients.ReflectionCaptureCubes =
-                 AcquireArray( graph, textures, m_Black, 1u, 1u, "ReflectionCaptures.Black" ).first;
-            publishList( PackReflectionCaptures( {}, {} ) );
+            publishNone();
             return;
         }
 

@@ -150,8 +150,8 @@ namespace Desert::Graphic
         RDG::TextureRef                                       EnvSpecular; // prefiltered cube, or System.BlackCube
         RDG::TextureRef                                       BrdfLut;     // split-sum LUT, or System.Black
         RDG::TextureRef                                       CloudShadowMap; // CloudShadowMapOrWhite
-        // The reflection captures: their cube array (System.BlackCube is a cube, not an array - the view always
-        // publishes its own, a one-cube black array when it has no captures) and their list.
+        // The reflection captures: their cube array (System.BlackCubeArray when the view reads none or their
+        // programs did not build; System.BlackCube is a cube, not an array) and their list.
         RDG::TextureRef ReflectionCaptureCubes;
         RDG::BufferRef  ReflectionCaptures;
         // The point/spot shadow atlas, or System.White (depth 1 everywhere = "no occluder"; no light then names a
