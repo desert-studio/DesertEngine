@@ -1361,16 +1361,16 @@ namespace Desert::Graphic
             const auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
             std::span<const System::TerrainDrawData>       queue     = terrain->GetQueue();
             const std::span<const System::TerrainInstance> instances = terrain->GetFrameInstances();
+            const std::span<const glm::vec4>               tints     = terrain->GetFrameTints();
             const std::span<const uint32_t>                rows      = meshes->GetOtherMotionRows();
             // Parallel by construction (PrepareFrame packs one row per queued tile, BuildObjectMotions one motion
             // row per tile record); a mismatch is a broken invariant, said and not traced, never truncated.
             std::vector<RayTracing::LandscapeRayTracingTile> tiles;
-            if ( instances.size() != queue.size() || rows.size() != queue.size() )
+            if ( instances.size() != queue.size() || tints.size() != queue.size() || rows.size() != queue.size() )
             {
-                LOG_ERROR(
-                     "[SceneRenderer] {}: {} landscape tiles queued but {} terrain rows and {} GPU-scene rows; "
-                     "the landscape is not in this frame's TLAS",
-                     m_ViewResources.GetName(), queue.size(), instances.size(), rows.size() );
+                LOG_ERROR( "[SceneRenderer] {}: {} landscape tiles queued but {} terrain rows, {} tints and {} "
+                           "GPU-scene rows; the landscape is not in this frame's TLAS",
+                           m_ViewResources.GetName(), queue.size(), instances.size(), tints.size(), rows.size() );
                 queue = {};
             }
             tiles.reserve( queue.size() );
@@ -1384,7 +1384,8 @@ namespace Desert::Graphic
                                    .Weightmap      = draw.Weights.Weightmap,
                                    .WeightRevision = draw.Weights.Revision,
                                    .Instance       = instances[i],
-                                   .Weights        = draw.Weights } );
+                                   .Weights        = draw.Weights,
+                                   .Tint           = tints[i] } );
             }
             const Common::BoolResultStr landscape =
                  m_LandscapeRayTracing.AddPasses( graph, textures, required, tiles );
@@ -1398,14 +1399,15 @@ namespace Desert::Graphic
             const RayTracing::LandscapeRayTracingFrame& landscapeFrame = m_LandscapeRayTracing.GetFrame();
             RayTracing::RayTracingExternalPrimitives    external;
             if ( landscape.IsSuccess() )
-                external = { .Primitives     = landscapeFrame.Primitives,
-                             .Builds         = landscapeFrame.Builds,
-                             .Resident       = landscapeFrame.Resident,
-                             .Built          = landscapeFrame.Built,
-                             .Refit          = landscapeFrame.Refit,
-                             .VertexBytes    = landscapeFrame.VertexBytes,
-                             .BlasBytes      = landscapeFrame.BlasBytes,
-                             .SegmentRecords = landscapeFrame.SegmentRecords };
+                external = { .Primitives       = landscapeFrame.Primitives,
+                             .Builds           = landscapeFrame.Builds,
+                             .Resident         = landscapeFrame.Resident,
+                             .Built            = landscapeFrame.Built,
+                             .Refit            = landscapeFrame.Refit,
+                             .VertexBytes      = landscapeFrame.VertexBytes,
+                             .BlasBytes        = landscapeFrame.BlasBytes,
+                             .SegmentRecords   = landscapeFrame.SegmentRecords,
+                             .LandscapeOpacity = landscapeFrame.Opacity };
 
             Common::BoolResultStr tlas = BOOLSUCCESS;
             if ( m_FrameRayTracingCache == nullptr )

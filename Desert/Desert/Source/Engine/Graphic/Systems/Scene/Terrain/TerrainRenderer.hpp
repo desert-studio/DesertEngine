@@ -107,11 +107,18 @@ namespace Desert::Graphic::System
         {
             return m_FrameInstances;
         }
+        // ...and the material's Tint each tile drew with (its row after the defaults and the tile's overrides):
+        // the landscape's ray tracing hit group shades a hit with the raster's own tint.
+        [[nodiscard]] std::span<const glm::vec4> GetFrameTints() const
+        {
+            return m_FrameTints;
+        }
 
         void ClearQueue()
         {
             m_Queue.clear();
             m_FrameInstances.clear();
+            m_FrameTints.clear();
             m_FrameGroups.clear();
             m_FrameDraws.clear();
         }
@@ -165,6 +172,7 @@ namespace Desert::Graphic::System
 
         std::vector<TerrainDrawData> m_Queue;
         std::vector<TerrainInstance> m_FrameInstances; // parallel to m_Queue after PrepareFrame
+        std::vector<glm::vec4>       m_FrameTints;     // parallel to m_Queue after PrepareFrame
         std::vector<FrameGroup>      m_FrameGroups;
         std::vector<FrameDraw>       m_FrameDraws;
     };

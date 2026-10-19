@@ -37,6 +37,13 @@ namespace Desert::Graphic::RayTracing
         RayTracingHitRecordData Data;
     };
 
+    // A template whose hit group is missing this frame, and how many segments fell back from it.
+    struct RayTracingHitGroupFallback
+    {
+        std::string Template;
+        uint32_t    Segments = 0;
+    };
+
     struct RayTracingHitGroupTable
     {
         // Hit group i = the `RayTracing.Hit` cell of Templates[i]. Templates[0] is the default surface, always.
@@ -47,9 +54,10 @@ namespace Desert::Graphic::RayTracing
         uint32_t SegmentsOnDefaultSurface = 0;
         // Segments whose template has no compiled hit group (its `RayTracing.Hit` cell was refused or failed to
         // compile): shaded by the default surface's group and row (UE: the fallback material of a mesh command
-        // whose material has no ray tracing shaders), never a refused frame. TemplatesWithoutHitGroup names them.
-        uint32_t                 SegmentsOnFallbackHitGroup = 0;
-        std::vector<std::string> TemplatesWithoutHitGroup;
+        // whose material has no ray tracing shaders), never a refused frame. TemplatesWithoutHitGroup names them,
+        // each with its own count.
+        uint32_t                                SegmentsOnFallbackHitGroup = 0;
+        std::vector<RayTracingHitGroupFallback> TemplatesWithoutHitGroup;
     };
 
 } // namespace Desert::Graphic::RayTracing

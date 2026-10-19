@@ -2,6 +2,7 @@
 
 #include <Common/Core/Core.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
+#include <Engine/Graphic/BindlessTextureTable.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -10,6 +11,7 @@
 #include <Engine/Graphic/SceneRendererFrame.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
+#include <bit>
 #include <cstddef>
 #include <cstring>
 #include <format>
@@ -56,6 +58,32 @@ namespace Desert::Graphic::RayTracing
             layout.Segments.push_back( segment );
         }
         return layout;
+    }
+
+    Core::Formats::MaterialParamRow LandscapeRayHitRow( const LandscapeRayTracingMaterial& material )
+    {
+        Core::Formats::MaterialParamRow row( kLandscapeRayHitRowSlots );
+        std::memcpy( row.data(), &material.Instance, sizeof( System::TerrainInstance ) );
+        constexpr std::size_t kTintSlot = sizeof( System::TerrainInstance ) / sizeof( glm::vec4 );
+        row[kTintSlot]                  = material.Tint;
+        // Slot 0 is the bindless table's missing texture: a tile without a weightmap reads none (the hit group
+        // tests the slot before it samples).
+        const uint32_t weightmap =
+             material.Weights.Weightmap != nullptr ? material.Weights.Weightmap->GetBindlessSlot().Index : 0u;
+        const uint32_t sampler = BindlessSamplerFor( kLandscapeWeightmapRaySampler ).Index;
+        row[kTintSlot + 1u]    = glm::vec4( std::bit_cast<float>( weightmap ), std::bit_cast<float>( sampler ),
+                                            0.0f, 0.0f );
+        return row;
+    }
+
+    std::optional<RayTracingMaterialRecord> LandscapeVisibilityOpacity( const LandscapeRayTracingMaterial& material )
+    {
+        if ( material.Weights.Weightmap == nullptr || material.Weights.VisibilityLayer < 0 )
+            return std::nullopt;
+        const auto pages = static_cast<uint32_t>( material.Instance.Params2.z + 0.5f );
+        return LandscapeVisibilityRecord( material.Weights.Weightmap->GetBindlessSlot().Index,
+                                          BindlessSamplerFor( kLandscapeWeightmapRaySampler ).Index,
+                                          static_cast<uint32_t>( material.Weights.VisibilityLayer ), pages );
     }
 
     LandscapeRayTracing::LandscapeRayTracing()  = default;
@@ -173,10 +201,13 @@ namespace Desert::Graphic::RayTracing
             else
                 m_Frame.Resident.push_back( storage );
             // The tile's own run: its geometry records carry the tile's own vertex and index buffers.
+            // Both segments name the tile's Materials / Opacity entry, pushed below at this index.
             const auto firstSegmentRecord = static_cast<uint32_t>( m_Frame.SegmentRecords.size() );
+            const auto landscapeTile      = static_cast<uint32_t>( m_Frame.Materials.size() );
             for ( uint32_t geometry = 0; geometry < kLandscapeRayTracingSegments; ++geometry )
-                m_Frame.SegmentRecords.push_back(
-                     { .SubmeshIndex = geometry, .Opaque = IsLandscapeSegmentOpaque( geometry ) } );
+                m_Frame.SegmentRecords.push_back( { .SubmeshIndex  = geometry,
+                                                    .Opaque        = IsLandscapeSegmentOpaque( geometry ),
+                                                    .LandscapeTile = landscapeTile } );
             m_Frame.Primitives.push_back(
                  { .Geometry           = static_cast<const RayTracingGeometryResource*>( state.Target.get() ),
                    .World              = glm::mat4( 1.0f ), // the vertices are written in world space
@@ -185,7 +216,11 @@ namespace Desert::Graphic::RayTracing
                    .FirstSegmentRecord = firstSegmentRecord,
                    .SegmentRecordCount = kLandscapeRayTracingSegments,
                    .Kind               = RayTracingPrimitiveKind::Landscape } );
-            m_Frame.Materials.push_back( { .GpuSceneRow = tile.GpuSceneRow, .Weights = tile.Weights } );
+            m_Frame.Materials.push_back( { .GpuSceneRow = tile.GpuSceneRow,
+                                           .Instance    = tile.Instance,
+                                           .Weights     = tile.Weights,
+                                           .Tint        = tile.Tint } );
+            m_Frame.Opacity.push_back( LandscapeVisibilityOpacity( m_Frame.Materials.back() ) );
             m_Frame.VertexBytes += state.Target->GetBuildInputBytes();
             m_Frame.BlasBytes += state.Target->GetMemoryBytes();
         }

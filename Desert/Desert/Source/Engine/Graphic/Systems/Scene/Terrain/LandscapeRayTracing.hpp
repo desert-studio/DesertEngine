@@ -1,14 +1,19 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Core/Formats/MaterialParamRow.hpp>
+#include <Engine/Core/Formats/SamplerState.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingDynamicGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneMetadata.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string_view>
 #include <unordered_map>
@@ -92,15 +97,44 @@ namespace Desert::Graphic::RayTracing
         System::TerrainInstance Instance;
         // Layers and the visibility layer, recorded for ray-traced shading and the alpha test (RT-SHADOWS, GI).
         System::LandscapeWeightDraw Weights;
-        bool                        CastShadows = true;
+        // The terrain material's Tint the raster drew the tile with (TerrainRenderer::GetFrameTints).
+        glm::vec4 Tint{ 1.0f };
+        bool      CastShadows = true;
     };
 
-    // Ray-traced shading's view of a tile: its row and what its surface is made of.
+    // Ray-traced shading's view of a tile: its row and what its surface is made of - what the landscape's hit
+    // group (kLandscapeRayHitTemplate) reads at a hit, the raster's own inputs.
     struct LandscapeRayTracingMaterial
     {
         uint32_t                    GpuSceneRow = 0;
-        System::LandscapeWeightDraw Weights;
+        System::TerrainInstance     Instance; // the raster's row: layers, ground, visibility layer, pages
+        System::LandscapeWeightDraw Weights;  // Weights.Weightmap null: no painted layer, no hole
+        glm::vec4                   Tint{ 1.0f };
     };
+
+    // THE LANDSCAPE'S HIT GROUP (UE: the landscape material's ray tracing hit shaders): the `RayTracing.Hit` pass
+    // of Programs/Terrain/TerrainRayHit.shader, the template name every landscape segment's hit record names in
+    // the frame's hit group table. Its closest hit shades with Common/LandscapeSurface.glslh, the raster's
+    // statement of the ground; its any hit drops the hole hits of the masked segment.
+    inline constexpr std::string_view kLandscapeRayHitTemplate = "TerrainRayHit";
+
+    // The sampler the ray tracing paths read a tile's weightmap through (the hit group and the inline alpha
+    // test): linear, clamped, as the raster's filter (a tile's samples never reach the neighbouring page).
+    inline constexpr Core::Formats::SamplerState kLandscapeWeightmapRaySampler{
+         .WrapU = Core::Formats::SamplerWrap::Clamp, .WrapV = Core::Formats::SamplerWrap::Clamp,
+         .Filter = Core::Formats::SamplerFilter::Linear };
+
+    // The hit group's row for one tile, as Programs/Terrain/TerrainRayHit.glslh LandscapeRayHitRow declares it:
+    // the 17 slots of TerrainInstance, the Tint, then (weightmap bindless slot, its sampler slot, 0, 0) as bits.
+    inline constexpr std::size_t kLandscapeRayHitRowSlots =
+         ( sizeof( System::TerrainInstance ) / sizeof( glm::vec4 ) ) + 2u;
+    [[nodiscard]] Core::Formats::MaterialParamRow LandscapeRayHitRow( const LandscapeRayTracingMaterial& material );
+
+    // The inline alpha test of the tile's masked segment (RayTracingSceneMetadata.hpp LandscapeVisibilityRecord):
+    // empty when the tile has no weightmap or no visibility layer, which leaves its masked segment without a
+    // triangle.
+    [[nodiscard]] std::optional<RayTracingMaterialRecord>
+    LandscapeVisibilityOpacity( const LandscapeRayTracingMaterial& material );
 
     // This frame's landscape for the view's TLAS. Refs are valid only for the graph they were declared in.
     struct LandscapeRayTracingFrame
@@ -111,8 +145,11 @@ namespace Desert::Graphic::RayTracing
         // The storage of the tiles' BLASes built in an earlier frame and unchanged: the TLAS pass reads them.
         std::vector<RDG::BufferRef>              Resident;
         std::vector<LandscapeRayTracingMaterial> Materials; // by tile, in Primitives order
+        // The alpha test of each tile's masked segment, by tile (LandscapeVisibilityOpacity of Materials[i]):
+        // RayTracingExternalPrimitives::LandscapeOpacity.
+        std::vector<std::optional<RayTracingMaterialRecord>> Opacity;
         // One segment-record run per tile, in Primitives order (RayTracingSegmentRecord, no material: the tile's
-        // surface is its Materials row); each primitive's FirstSegmentRecord indexes this list. Not shared: the
+        // surface is Materials[LandscapeTile]); each primitive's FirstSegmentRecord indexes this list. Not shared: the
         // GPU record of a segment carries its tile's own vertex and index buffers (RayTracingSceneMetadata.hpp).
         std::vector<RayTracingSegmentRecord> SegmentRecords;
         uint32_t                             Built       = 0;

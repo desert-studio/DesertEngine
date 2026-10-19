@@ -48,7 +48,10 @@ namespace Desert::Graphic::RayTracing
         uint32_t OpacityTexture = 0; // BindlessTextureSlot of the opacity source
         uint32_t OpacitySampler = 0; // BindlessSamplerSlot
         float    OpacityCutoff  = 0.5f;
-        uint32_t Flags          = 0; // bit0 two-sided; bits1-2 channel (0 = A, 1..3 = R/G/B)
+        // bit0 two-sided; bits1-2 channel (0 = A, 1..3 = R/G/B). bit3 = a LANDSCAPE VISIBILITY source
+        // (kMaterialFlagLandscapeVisibility): the texture is a tile's stacked weightmap, the UV the tile-local
+        // sample coordinate, bits4-6 the visibility layer, bit7 = two pages; the test is the raster's hole test.
+        uint32_t Flags = 0;
 
         bool operator==( const RayTracingMaterialRecord& ) const = default;
     };
@@ -58,6 +61,30 @@ namespace Desert::Graphic::RayTracing
     inline constexpr uint32_t kMaterialChannelShift = 1u;
     inline constexpr uint32_t kMaterialChannelAlpha = 0u;
     inline constexpr uint32_t kMaterialChannelRed   = 1u;
+
+    // A landscape tile's holes as the alpha test of its masked segment (UE: the landscape material's any-hit
+    // shader on its Visibility Mask, inline): Common/RayQueryVisibility.glslh reads the visibility layer's weight
+    // from page layer / 4, channel layer % 4 of the stacked weightmap (Common/LandscapeWeights.glslh
+    // LandscapeWeightmapPageUV) and blocks unless LandscapeIsHole - the raster's own threshold, so OpacityCutoff
+    // is unused.
+    inline constexpr uint32_t kMaterialFlagLandscapeVisibility = 1u << 3;
+    inline constexpr uint32_t kMaterialLandscapeLayerShift     = 4u;
+    inline constexpr uint32_t kMaterialFlagLandscapeTwoPages   = 1u << 7;
+
+    // @p visibilityLayer: the tile's visibility layer (0..7, LandscapeWeightDraw::VisibilityLayer); @p pages: the
+    // weightmap's page count (1 or 2). The ground is two-sided: a hole is open from below as from above.
+    [[nodiscard]] constexpr RayTracingMaterialRecord LandscapeVisibilityRecord( const uint32_t weightmapSlot,
+                                                                                const uint32_t samplerSlot,
+                                                                                const uint32_t visibilityLayer,
+                                                                                const uint32_t pages )
+    {
+        return { .OpacityTexture = weightmapSlot,
+                 .OpacitySampler = samplerSlot,
+                 .OpacityCutoff  = 0.0f,
+                 .Flags          = kMaterialFlagTwoSided | kMaterialFlagLandscapeVisibility |
+                          ( ( visibilityLayer & 7u ) << kMaterialLandscapeLayerShift ) |
+                          ( pages > 1u ? kMaterialFlagLandscapeTwoPages : 0u ) };
+    }
 
     struct RayTracingMetadata
     {

@@ -9,6 +9,7 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/RenderPass.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Common/Core/Profiler.hpp>
@@ -223,6 +224,7 @@ namespace Desert::Graphic::System
         m_FrameGroups.clear();
         m_FrameDraws.clear();
         m_FrameInstances.clear();
+        m_FrameTints.clear();
         if ( m_Queue.empty() )
             return;
 
@@ -251,6 +253,7 @@ namespace Desert::Graphic::System
         std::unordered_map<std::string, size_t> groupIndex;
         m_FrameDraws.reserve( m_Queue.size() );
         m_FrameInstances.reserve( m_Queue.size() );
+        m_FrameTints.reserve( m_Queue.size() );
 
         // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
         std::unordered_map<TileKey, float, TileKeyHash> tileLods;
@@ -329,6 +332,15 @@ namespace Desert::Graphic::System
                                     surface->GetParamRow().end() );
             group.Instances.push_back( instance );
             m_FrameInstances.push_back( instance );
+            // Terrain.shader and TerrainGBuffer.shader declare Tint (the ShaderCacheKey suite holds the two
+            // Properties blocks equal); a cell without it is a broken shader, said, and its hits draw untinted.
+            const std::optional<glm::vec4> tint =
+                 MaterialBinder::ReadRowParam( surface->GetMaterialLayout(), surface->GetParamRow(), "Tint" );
+            if ( !tint )
+                LOG_ERROR( "[TerrainRenderer] '{}' has no Tint parameter: the landscape's ray tracing hits shade "
+                           "untinted",
+                           surface->GetShaderName() );
+            m_FrameTints.push_back( tint.value_or( glm::vec4( 1.0f ) ) );
         }
 
         // ── Upload every group's buffers + the shared frame data, still before any draw ─────────────────

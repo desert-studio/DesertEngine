@@ -21,6 +21,7 @@
 #extension GL_EXT_buffer_reference_uvec2 : require
 
 #include <Common/BindlessTextures.glslh>
+#include <Common/LandscapeWeights.glslh>
 
 #if !defined( RAY_QUERY_VISIBILITY_TLAS_BINDING ) || !defined( RAY_QUERY_VISIBILITY_GEOMETRY_BINDING ) || \
      !defined( RAY_QUERY_VISIBILITY_MATERIALS_BINDING )
@@ -52,10 +53,14 @@ struct RayTracingMaterialRecord
     uint  OpacityTexture; // BindlessTextureSlot
     uint  OpacitySampler; // BindlessSamplerSlot
     float OpacityCutoff;
-    uint  Flags; // bit0 two-sided; bits1-2 channel (0 = A, 1..3 = R/G/B)
+    uint  Flags; // bit0 two-sided; bits1-2 channel (0 = A, 1..3 = R/G/B); bit3 landscape visibility (below)
 };
 
 const uint kRayTracingNoRecord = 0xFFFFFFFFu;
+// RayTracingSceneMetadata.hpp kMaterialFlagLandscapeVisibility / kMaterialFlagLandscapeTwoPages; the layer is
+// bits 4-6 (kMaterialLandscapeLayerShift).
+const uint kRayTracingMaterialLandscapeVisibility = 1u << 3u;
+const uint kRayTracingMaterialLandscapeTwoPages   = 1u << 7u;
 
 layout( set = 0, binding = RAY_QUERY_VISIBILITY_TLAS_BINDING ) uniform accelerationStructureEXT u_SceneTLAS;
 layout( std430, set = 0, binding = RAY_QUERY_VISIBILITY_GEOMETRY_BINDING ) readonly buffer RayTracingGeometryRecords
@@ -112,6 +117,19 @@ bool RayQueryCandidateBlocks( rayQueryEXT query )
         return false; // a one-sided masked surface blocks from the face it rasterises
     const vec2 uv = RayQueryHitUv( record, uint( rayQueryGetIntersectionPrimitiveIndexEXT( query, false ) ),
                                    rayQueryGetIntersectionBarycentricsEXT( query, false ) );
+    if ( ( material.Flags & kRayTracingMaterialLandscapeVisibility ) != 0u )
+    {
+        // A landscape tile's holes (RayTracingSceneMetadata.hpp LandscapeVisibilityRecord): the UV is the
+        // tile-local sample coordinate (LandscapeRayTracingVertices.shader), the visibility layer's weight is read
+        // from its page of the stacked weightmap, and the test is the raster's discard (LandscapeIsHole).
+        const BindlessTexture map   = BindlessTexture( material.OpacityTexture, material.OpacitySampler, 0u, 0u );
+        const uint            layer = ( material.Flags >> 4u ) & 7u;
+        const float           pages = ( material.Flags & kRayTracingMaterialLandscapeTwoPages ) != 0u ? 2.0 : 1.0;
+        const vec4            page  = SampleBindlessLod(
+             map, LandscapeWeightmapPageUV( uv, float( layer / 4u ), vec2( BindlessTextureSize( map, 0 ) ), pages ),
+             0.0 );
+        return !LandscapeIsHole( page[int( layer % 4u )] );
+    }
     const vec4  texel   = SampleBindless( material.OpacityTexture, material.OpacitySampler, uv, 0.0 );
     const uint  channel = ( material.Flags >> 1u ) & 3u;
     const float opacity = channel == 0u ? texel.a : texel[int( channel ) - 1];

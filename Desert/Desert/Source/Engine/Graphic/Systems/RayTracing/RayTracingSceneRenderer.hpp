@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -229,6 +230,9 @@ namespace Desert::Graphic::RayTracing
         uint64_t VertexBytes = 0; // vertex + index buffers the builds read
         uint64_t BlasBytes   = 0; // BLAS storage of every primitive
         std::span<const RayTracingSegmentRecord> SegmentRecords;
+        // The alpha test of each landscape tile's masked segment, by RayTracingSegmentRecord::LandscapeTile
+        // (LandscapeVisibilityRecord); empty for a tile with no weightmap, whose masked segment holds no triangle.
+        std::span<const std::optional<RayTracingMaterialRecord>> LandscapeOpacity;
     };
 
     class RayTracingSceneRenderer
