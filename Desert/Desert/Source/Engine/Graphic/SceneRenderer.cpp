@@ -1402,6 +1402,7 @@ namespace Desert::Graphic
                 m_FrameRayTracingCache->BeginViewFrame( frameNumber );
                 skinCache = &m_FrameRayTracingCache->GetSkinCache();
                 skinCache->SetEnabled( meshes->IsSkinCacheEnabled() );
+                skinCache->SetDisplacement( &m_FrameRayTracingCache->GetDisplacement() );
                 // Mesh displacement (DisplacementCache.hpp): this view's level requests, the frame's one
                 // displacement (first view), and the twins every pass of this view draws.
                 System::DisplacementCache& displacement = m_FrameRayTracingCache->GetDisplacement();
