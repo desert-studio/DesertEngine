@@ -6,10 +6,15 @@
 //             (CalculateUpsampleInterpolationWeights). Where no probe's plane holds the pixel the uniform four
 //             answer by position and normal alone, so a pixel never reads nothing while a probe is near;
 //   diffuse   the probes' irradiance SH at the pixel's normal (already / pi);
-//   specular  the probes' filtered radiance in the reflection direction (bilinear in the hemi-octahedron): the
-//             rough reflections of UE (ScreenProbeGather integrates the specular of surfaces above
-//             r.Lumen.Reflections.MaxRoughnessToTrace from the same probes); smoother surfaces read it too until
-//             a reflection tracer exists, so no surface reads the sky cube in a closed room;
+//   specular  UE's ROUGH SPECULAR (ScreenProbeIntegrateCS "Rough-Specular"): the GGX lobe of the pixel's roughness
+//             (clamped to 0.2, the narrowest lobe probes this coarse resolve) integrated from the same probes -
+//             kRoughSpecularSamples visible-normal samples (Common/MonteCarlo.glslh), each the probes' filtered
+//             radiance along its direction - lerped to the diffuse (UE: DiffuseLighting / PI, ours is already
+//             / pi) above r.Lumen.ScreenProbeGather.MaxRoughnessToEvaluateRoughSpecular. The composite
+//             (DeferredLighting.shader) takes it where the traced reflections stop (UE
+//             MixSpecularAndRoughReflections, Common/SSRGate.glslh TracedReflectionsAlpha), and under every
+//             smoother lobe the traced reflection does not cover (ScreenSpace, Off), so no surface reads the sky
+//             cube in a closed room;
 //   temporal  blended with the pixel's reprojected history while the history's distance to the camera matches
 //             the pixel's (UE r.Lumen.ScreenProbeGather.Temporal, ~10 frames).
 // Output: diffuse.rgb + .a = the pixel's distance to the camera (the next frame's history test), specular.rgb.
@@ -22,6 +27,7 @@ Shader "ScreenProbeIntegrate"
         #include <Common/GIFrame.glslh>
         #include <Common/ScreenProbes.glslh>
         #include <Common/ReconstructPosition.glslh>
+        #include <Common/MonteCarlo.glslh>
 
         ReadBuffer(0) ScreenProbeParamsUB
         {
@@ -68,6 +74,17 @@ Shader "ScreenProbeIntegrate"
         // The relative change of the distance to the camera above which the history is another surface.
         #define SP_HISTORY_DISTANCE_TOLERANCE 0.05
 
+        // UE r.Lumen.ScreenProbeGather.MaxRoughnessToEvaluateRoughSpecular (0.8) and RoughReflectionsDiffuseLerp's
+        // fade (0.2, LumenScreenProbeTileClassication.ush): above, the rough specular is the diffuse.
+        #define SP_MAX_ROUGHNESS_TO_EVALUATE_ROUGH_SPECULAR 0.8
+        #define SP_ROUGH_SPECULAR_FADE 0.2
+        // UE: the lobe a probe this coarse can resolve (Material.Roughness = max(Roughness, 0.2)).
+        #define SP_MIN_ROUGH_SPECULAR_ROUGHNESS 0.2
+        // UE NumSpecularSamples.
+        #define SP_ROUGH_SPECULAR_SAMPLES 4u
+        // The probes a pixel interpolates: four per level.
+        #define SP_PIXEL_PROBES ( 4u * SP_LEVELS )
+
         vec3 ProbeIrradiance( uint probe, vec3 n )
         {
             vec3 e = vec3( 0.0 );
@@ -103,11 +120,14 @@ Shader "ScreenProbeIntegrate"
             const vec3  n        = normalize( gb.xyz );
             const float distance = max( length( p - giFrame.camera.xyz ), 1e-3 );
             const vec3  v        = ( giFrame.camera.xyz - p ) / distance;
-            const vec3  r        = reflect( -v, n );
 
-            vec3  diffuse  = vec3( 0.0 );
-            vec3  specular = vec3( 0.0 );
-            float total    = 0.0;
+            // The probes this pixel interpolates and their weights: the diffuse reads them once, every rough
+            // specular sample again (UE InterpolateFromScreenProbes per BxDF sample).
+            uint  probeIds[SP_PIXEL_PROBES];
+            float probeWeights[SP_PIXEL_PROBES];
+            uint  probeCount = 0u;
+            vec3  diffuse    = vec3( 0.0 );
+            float total      = 0.0;
             for ( uint level = 0u; level < SP_LEVELS; ++level )
             {
                 uvec4 ids;
@@ -116,9 +136,11 @@ Shader "ScreenProbeIntegrate"
                 for ( int i = 0; i < 4; ++i )
                     if ( weights[i] > 1e-4 )
                     {
-                        diffuse  += weights[i] * ProbeIrradiance( ids[i], n );
-                        specular += weights[i] * ProbeRadiance( ids[i], r );
-                        total    += weights[i];
+                        probeIds[probeCount]     = ids[i];
+                        probeWeights[probeCount] = weights[i];
+                        ++probeCount;
+                        diffuse += weights[i] * ProbeIrradiance( ids[i], n );
+                        total   += weights[i];
                     }
             }
             if ( total <= 1e-4 )
@@ -135,15 +157,55 @@ Shader "ScreenProbeIntegrate"
                         continue;
                     const vec2  bilinear = mix( 1.0 - f, f, vec2( o ) );
                     const float w = bilinear.x * bilinear.y * ( max( dot( n, screenProbes[id].normal.xyz ), 0.0 ) + 0.05 );
-                    diffuse  += w * ProbeIrradiance( id, n );
-                    specular += w * ProbeRadiance( id, r );
-                    total    += w;
+                    probeIds[probeCount]     = id;
+                    probeWeights[probeCount] = w;
+                    ++probeCount;
+                    diffuse += w * ProbeIrradiance( id, n );
+                    total   += w;
                 }
             }
             if ( total > 1e-6 )
+                diffuse /= total;
+
+            // ---- Rough specular (UE ScreenProbeIntegrateCS): the diffuse above the max roughness, the GGX lobe
+            // integrated from the probes below it, lerped across the fade.
+            const float roughness   = gb.a;
+            const float diffuseLerp = clamp( ( roughness - SP_MAX_ROUGHNESS_TO_EVALUATE_ROUGH_SPECULAR +
+                                               SP_ROUGH_SPECULAR_FADE ) / SP_ROUGH_SPECULAR_FADE, 0.0, 1.0 );
+            vec3 specular = diffuse;
+            if ( diffuseLerp < 1.0 && total > 1e-6 )
             {
-                diffuse  /= total;
-                specular /= total;
+                const float alpha = max( roughness, SP_MIN_ROUGH_SPECULAR_ROUGHNESS ) *
+                                    max( roughness, SP_MIN_ROUGH_SPECULAR_ROUGHNESS );
+                vec3 T, B;
+                Basis( n, T, B );
+                const vec3 ve       = vec3( dot( v, T ), dot( v, B ), dot( v, n ) );
+                const vec2 rotation = vec2( hash12( vec2( pixel ) ), hash12( vec2( pixel ) + 17.17 ) );
+                const uint frame    = screenProbeParams.atlas.y;
+                // The ratio estimator over the lobe (sum w L / sum w, w = Smith G1 of the sample, Fresnel
+                // excluded): the split sum's BRDF LUT multiplies the result in the composite, as it multiplies
+                // the captures' prefiltered radiance - UE divides by the sample count instead, which applies the
+                // shadowing a second time under its EnvBRDF. Each sample is weighted down by its brightness
+                // (UE TonemapLighting) so one bright probe texel does not flicker through the temporal filter.
+                vec3  lobe       = vec3( 0.0 );
+                float lobeWeight = 0.0;
+                for ( uint s = 0u; s < SP_ROUGH_SPECULAR_SAMPLES; ++s )
+                {
+                    const vec3 h  = SampleGGXVNDF( ve, alpha, RayRandom( rotation, frame * SP_ROUGH_SPECULAR_SAMPLES + s ) );
+                    const vec3 lt = reflect( -ve, h );
+                    if ( lt.z <= 0.0 )
+                        continue; // under the surface: a lobe sample that reflects nothing
+                    const vec3 l = normalize( lt.x * T + lt.y * B + lt.z * n );
+                    vec3 radiance = vec3( 0.0 );
+                    for ( uint i = 0u; i < probeCount; ++i )
+                        radiance += probeWeights[i] * ProbeRadiance( probeIds[i], l );
+                    radiance /= total;
+                    const float w = SmithG1( lt.z, alpha ) / ( 1.0 + dot( radiance, vec3( 0.2126, 0.7152, 0.0722 ) ) );
+                    lobe       += w * radiance;
+                    lobeWeight += w;
+                }
+                if ( lobeWeight > 0.0 )
+                    specular = mix( lobe / lobeWeight, diffuse, diffuseLerp );
             }
 
             // ---- Temporal: the pixel's surface in last frame's view.

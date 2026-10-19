@@ -569,8 +569,14 @@ namespace Desert::Graphic
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const ViewFrame& frame )
     {
-        // w: whether u_SSR holds this frame's traced reflection (DeferredLighting.shader DeferredUB).
-        const glm::vec4 cameraPos( frame.CameraPosition, ssr.IsValid() ? 1.0f : 0.0f );
+        // w: what u_SSR holds (DeferredLighting.shader REFLECTION_INPUT_*): 0 nothing, 1 the screen trace, 2 the
+        // traced reflection, which the composite fades into the traced GI's rough specular past
+        // MaxRoughnessToTrace (UE MixSpecularAndRoughReflections).
+        constexpr float kReflectionInputNone = 0.0f, kReflectionInputScreen = 1.0f, kReflectionInputTraced = 2.0f;
+        const float     reflectionInput = !ssr.IsValid()      ? kReflectionInputNone
+                                          : ReflectionsTraced() ? kReflectionInputTraced
+                                                                : kReflectionInputScreen;
+        const glm::vec4 cameraPos( frame.CameraPosition, reflectionInput );
         // LOAD/STORE on every scene-target attachment. The depth is declared written because the passes after
         // this one that are not graph nodes yet (forward meshes, glass, fog, clouds, overlays) begin their own
         // render passes on it in the depth-attachment layout, and DepthResolve left it a transfer destination.
