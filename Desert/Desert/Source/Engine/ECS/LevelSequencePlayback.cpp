@@ -47,12 +47,28 @@ namespace Desert::ECS
         return std::format( "{}{}.{}", kLevelSequenceMaterialPropertyPrefix, parameter.Slot, parameter.Name );
     }
 
+    std::optional<std::string> ParseLevelSequenceVFXUserProperty( std::string_view property )
+    {
+        if ( !property.starts_with( kLevelSequenceVFXUserPropertyPrefix ) )
+            return std::nullopt;
+        property.remove_prefix( kLevelSequenceVFXUserPropertyPrefix.size() );
+        if ( property.empty() )
+            return std::nullopt;
+        return std::string( property );
+    }
+
+    std::string LevelSequenceVFXUserProperty( const std::string_view name )
+    {
+        return std::format( "{}{}", kLevelSequenceVFXUserPropertyPrefix, name );
+    }
+
     LevelSequenceEntityHost::LevelSequenceEntityHost( entt::registry&               registry,
                                                       const LevelSequenceComponent& component,
                                                       LevelSequenceClipSource       clips,
-                                                      LevelSequenceMaterialSlots    materials )
+                                                      LevelSequenceMaterialSlots    materials,
+                                                      LevelSequenceVFXUserParams    vfx )
          : m_Registry( registry ), m_Component( component ), m_Clips( std::move( clips ) ),
-           m_Materials( std::move( materials ) )
+           m_Materials( std::move( materials ) ), m_VFX( std::move( vfx ) )
     {
     }
 
@@ -124,6 +140,31 @@ namespace Desert::ECS
             if ( !m_Materials.Set( m_Registry, entity, *parameter, written ) )
                 m_Refusals.push_back( std::format( "track '{}': its entity has no own material in slot {}",
                                                    property, parameter->Slot ) );
+            return;
+        }
+
+        if ( const auto name = ParseLevelSequenceVFXUserProperty( property ) )
+        {
+            if ( !m_VFX )
+            {
+                m_Refusals.push_back(
+                     std::format( "track '{}': this player has no access to VFX parameters", property ) );
+                return;
+            }
+            std::optional<glm::vec4> written;
+            if ( const float* scalar = std::get_if<float>( &value ) )
+                written = glm::vec4( *scalar, 0.0F, 0.0F, 0.0F );
+            else if ( const glm::vec3* vector = std::get_if<glm::vec3>( &value ) )
+                written = glm::vec4( *vector, 1.0F );
+            else if ( const bool* on = std::get_if<bool>( &value ) )
+                written = glm::vec4( *on ? 1.0F : 0.0F, 0.0F, 0.0F, 0.0F );
+            if ( !written )
+            {
+                refuse();
+                return;
+            }
+            if ( const auto set = m_VFX.Set( m_Registry, entity, *name, *written ); !set )
+                m_Refusals.push_back( std::format( "track '{}': {}", property, set.GetError() ) );
             return;
         }
 
@@ -414,10 +455,11 @@ namespace Desert::ECS
                                          LevelSequencePlayback& playback, const T::TimeStep& step,
                                          const LevelSequenceClipSource&        clips,
                                          const LevelSequenceMaterialSlots&     materials,
-                                         const LevelSequenceSubsequenceSource& subsequences )
+                                         const LevelSequenceSubsequenceSource& subsequences,
+                                         const LevelSequenceVFXUserParams&     vfx )
     {
         playback.Evaluator.Evaluate( step, playback.Frame );
-        LevelSequenceEntityHost host( registry, component, clips, materials );
+        LevelSequenceEntityHost host( registry, component, clips, materials, vfx );
         LevelSequenceStep       out;
         out.Report = playback.Evaluator.Apply( playback.Frame, host );
         std::vector<Common::Content::AssetGuid> path;
@@ -441,11 +483,12 @@ namespace Desert::ECS
                                             LevelSequencePlayback& playback, const double seconds,
                                             const LevelSequenceClipSource&        clips,
                                             const LevelSequenceMaterialSlots&     materials,
-                                            const LevelSequenceSubsequenceSource& subsequences )
+                                            const LevelSequenceSubsequenceSource& subsequences,
+                                            const LevelSequenceVFXUserParams&     vfx )
     {
         ApplyLevelSequencePlaySettings( playback.Player, component );
         const T::TimeStep step = playback.Player.Advance( seconds );
-        return StepLevelSequence( registry, component, playback, step, clips, materials, subsequences );
+        return StepLevelSequence( registry, component, playback, step, clips, materials, subsequences, vfx );
     }
     std::vector<std::string> TakeNewLevelSequenceErrors( LevelSequenceActorState& state,
                                                          const LevelSequenceStep& step )

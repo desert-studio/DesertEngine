@@ -173,7 +173,10 @@ TEST( VFXEmitterSpawn, AUserBindingReadsTheParameterDefault )
     in.Source = S::VFXInputSource::Binding;
     in.Value.reset();
     in.Binding = "User.Density";
-    EXPECT_DOUBLE_EQ( Plan( system ).Rate, 42.0 );
+    // The row is kept, not baked: no constant rate, and the step reads the default when given no overrides.
+    const auto plan = Plan( system );
+    EXPECT_DOUBLE_EQ( plan.Rate, 0.0 );
+    EXPECT_DOUBLE_EQ( plan.RateFor( {} ), 42.0 );
 }
 
 TEST( VFXEmitterSpawn, RefusalsNameWhatIsWrong )

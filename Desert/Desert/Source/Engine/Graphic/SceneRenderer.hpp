@@ -1136,7 +1136,9 @@ namespace Desert::Graphic
                               const std::vector<RDG::TextureRef>& gbuffer, const FrameScreenTrace& screenTrace,
                               const ViewFrame& frame ,
                               const FrontLayerSurface* frontLayer = nullptr );
-        void AddFrameParticlesSimulate( RDG::Builder& graph );
+        // Before the opaque passes (they draw the opaque particle rows from this frame's simulation); hands the
+        // particles the single-sample scene depth engine:Collision reads - the previous frame's resolve.
+        void AddFrameParticlesSimulate( RDG::Builder& graph, FrameTextures& textures );
         // MESH-PB1: imports this frame's scene/view inputs (CSM cascades, the environment's cubes, the BRDF LUT)
         // into FrameTransients before any node is added; what is absent stays invalid (SceneViewInputsOf).
         void ImportSceneViewTextures( RDG::Builder& graph, FrameTextures& textures );

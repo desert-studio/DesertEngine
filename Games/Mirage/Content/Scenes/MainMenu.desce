@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "4d6972616765b5d1a0c31f0e2b7a9e11",
         "Versions": {
-            "SCNE": 64,
+            "SCNE": 65,
             "UNIT": 1
         },
         "Dependencies": ["12c000f03c2926c56c6dbbd7e2620fb4"]
@@ -499,7 +499,8 @@
             "Scale": [1.0, 1.0, 1.0],
             "VFX": {
                 "System": "VFX/MainMenu_5569072854537872191.dfx",
-                "AutoActivate": true
+                "AutoActivate": true,
+                "UserParams": []
             }
         },
         {
@@ -511,7 +512,8 @@
             "Scale": [1.0, 1.0, 1.0],
             "VFX": {
                 "System": "VFX/MainMenu_5569072854537872191.dfx",
-                "AutoActivate": true
+                "AutoActivate": true,
+                "UserParams": []
             }
         },
         {
@@ -523,7 +525,8 @@
             "Scale": [1.0, 1.0, 1.0],
             "VFX": {
                 "System": "VFX/MainMenu_5569072854537872191.dfx",
-                "AutoActivate": true
+                "AutoActivate": true,
+                "UserParams": []
             }
         },
         {

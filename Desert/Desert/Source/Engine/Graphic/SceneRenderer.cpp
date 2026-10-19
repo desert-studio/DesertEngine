@@ -1606,7 +1606,11 @@ namespace Desert::Graphic
             m_SunCascadesDrawnLastFrame = m_FrameSunCascades;
         }
 
-        AddFrameParticlesSimulate( graph );
+        // The GPU particle simulation runs BEFORE the opaque passes: the opaque / masked rows are drawn into the
+        // G-buffer, the forward base pass and the shadow views from this frame's simulation. engine:Collision
+        // therefore reads the previous frame's single-sample scene depth (ParticleRenderer's CollisionView carries
+        // the matrices it was drawn with).
+        AddFrameParticlesSimulate( graph, textures );
 
         AddFrameCloudShadowMap( graph, textures );
 

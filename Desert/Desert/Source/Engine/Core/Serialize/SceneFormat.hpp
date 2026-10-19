@@ -100,8 +100,9 @@ namespace Desert::Core
     // longitude, time zone, daylight saving (Tools/SceneMigrator, MigrateSunCalendarV57ToV58). v59..v63 are
     // Windows' steps. v64 (GI-METHOD-RENUMBER): GlobalIlluminationMethod is stated on today's ladder, which lost
     // ReflectiveShadowMaps (3) - every method above it is one number lower (Tools/SceneMigrator,
-    // MigrateGIMethodLadderV63ToV64).
-    inline constexpr int kSceneVersion = 64;
+    // MigrateGIMethodLadderV63ToV64). v65 (VFX-PARAMS): a VFX block states UserParams, the placement's overrides of
+    // its system's User.* parameters - [] when it has none (Tools/SceneMigrator, MigrateVFXUserParamsV64ToV65).
+    inline constexpr int kSceneVersion = 65;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

@@ -128,6 +128,39 @@ namespace Desert::Assets::Serialization
                  what, b );
         }
 
+        /// An emitter's Event Handlers: each names an emitter of the same system, spawns at least one particle per
+        /// event, inherits a finite velocity scale; a Collision handler's source must collide (an enabled
+        /// engine:Collision in its ParticleUpdate), or the handler could never fire - a dead setting, refused.
+        Common::BoolResultStr CheckEventHandlers( const VFXEmitterData& e, const VFXSystemData& system,
+                                                  const std::string& at )
+        {
+            for ( std::size_t h = 0; h < e.EventHandlers.size(); ++h )
+            {
+                const VFXEventHandler& handler = e.EventHandlers[h];
+                const auto             source  = std::find_if( system.Emitters.begin(), system.Emitters.end(),
+                                                               [&handler]( const VFXEmitterData& other )
+                                                               { return other.Name == handler.SourceEmitter; } );
+                if ( source == system.Emitters.end() )
+                    return Common::MakeFormattedError<bool>( "{} event handler {}: SourceEmitter '{}' names no "
+                                                             "emitter of the system",
+                                                             at, h, handler.SourceEmitter );
+                if ( handler.SpawnCount == 0 )
+                    return Common::MakeFormattedError<bool>( "{} event handler {}: SpawnCount 0 spawns nothing",
+                                                             at, h );
+                if ( !std::isfinite( handler.InheritVelocity ) )
+                    return Common::MakeFormattedError<bool>(
+                         "{} event handler {}: InheritVelocity {} is not finite", at, h, handler.InheritVelocity );
+                if ( handler.Event == VFXEventKind::Collision &&
+                     std::none_of( source->Stack.ParticleUpdate.begin(), source->Stack.ParticleUpdate.end(),
+                                   []( const VFXModuleUse& use )
+                                   { return use.Enabled && use.Module == kVFXCollisionModule; } ) )
+                    return Common::MakeFormattedError<bool>( "{} event handler {}: a Collision handler of '{}', "
+                                                             "whose ParticleUpdate has no enabled {}",
+                                                             at, h, handler.SourceEmitter, kVFXCollisionModule );
+            }
+            return BOOLSUCCESS;
+        }
+
         Common::BoolResultStr CheckGroup( const std::vector<VFXModuleUse>& group, const VFXSystemData& system,
                                           const std::string& where )
         {
@@ -307,6 +340,8 @@ namespace Desert::Assets::Serialization
                  !ok )
                 return ok;
             if ( auto ok = CheckRenderers( e ); !ok )
+                return ok;
+            if ( auto ok = CheckEventHandlers( e, data, at ); !ok )
                 return ok;
         }
         return BOOLSUCCESS;

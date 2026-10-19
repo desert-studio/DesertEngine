@@ -1269,6 +1269,21 @@ namespace Desert::ECS
      * VFXStackCompiler -> the ParticleSimulate host program), born by the emitter's spawn plan
      * (CompileSpawnPlan), at the entity's transform. Empty System = the entity plays nothing.
      */
+    // One overridden User.* parameter of a placed VFX system (keyed by the row's name, without "User."). vec4
+    // holds any parameter type, canonical for the row's type (VFX/VFXUserParams.hpp CanonicalUserValue).
+    struct VFXUserParamOverride
+    {
+        REFLECT()
+
+        PROPERTY( DisplayName( "Name" ) )
+        std::string Name;
+
+        PROPERTY( DisplayName( "Value" ) )
+        glm::vec4 Value = glm::vec4( 0.0f );
+
+        [[nodiscard]] bool operator==( const VFXUserParamOverride& ) const = default;
+    };
+
     struct VFXComponentData
     {
         REFLECT()
@@ -1280,6 +1295,14 @@ namespace Desert::ECS
         // UE bAutoActivate: false = the system is placed but bears no particles until it is activated.
         PROPERTY( DisplayName( "Auto Activate" ), Category( "VFX" ) )
         bool AutoActivate = true;
+
+        // UE UNiagaraComponent::OverrideParameters: this placement's values of the system's User.* rows, by
+        // row name. The one store Details, VFX.setParam and a Sequencer VFX parameter track write through
+        // (VFX/VFXUserParams.hpp SetUserParamOverride); a row without an override reads its Default.
+        // Hidden: Details draws these as one typed row per system parameter (MakeVFXEntry), not as a raw list.
+        PROPERTY( DisplayName( "User Parameters" ), Category( "VFX" ), Hidden,
+                  Tooltip( "This entity's values of the effect's User parameters" ) )
+        std::vector<VFXUserParamOverride> UserParams;
     };
 
     struct VFXComponent

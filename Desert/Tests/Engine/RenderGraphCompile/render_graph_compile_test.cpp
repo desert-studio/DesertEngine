@@ -2343,12 +2343,6 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // node, so every lit node after them reads this frame's cube array.
          "temporal[m_FrameReflectionCaptures]",
          "ClearMainFramebuffer",
-         // VFX-07b: the scene's particle pool - compact 0, then per fixed step Dispatch Args, Spawn+Update, the
-         // next compact.
-         "Particles: Compact 0",
-         "Particles: Dispatch Args {}",
-         "Particles: Spawn+Update {}",
-         "Particles: Compact {}",
          "compute[clouds->DeclareShadowMapNodes()]",
          // ARCH1b-4: the opaque raster of the systems by explicit calls, in the order the phase walk drew it:
          // the shadow cascades (each clearing its cascade, 0 first), then ONE clearing sequence on the scene
@@ -2384,6 +2378,12 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Deferred: Water",
          "Deferred: Glass",
          "Scene: DepthResolve",
+         // VFX-07b: the scene's particle pool - compact 0, then per fixed step Dispatch Args, Spawn+Update, the
+         // next compact. VFX-PARAMS: post-opaque, after this frame's scene depth (engine:Collision reads it).
+         "Particles: Compact 0",
+         "Particles: Dispatch Args {}",
+         "Particles: Spawn+Update {}",
+         "Particles: Compact {}",
          "compute[sky->DeclareAtmosphereLutNodes()]",
          "compute[fog->DeclareFrameNodes(graph,textures.Transients)]",
          "compute[clouds->DeclareFrameNodes(graph,frame)]",
@@ -3385,9 +3385,10 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
     const size_t begin = frame.find( "voidSceneRenderer::AddFrameParticlesSimulate(" );
     ASSERT_NE( begin, std::string::npos );
     const std::string body = frame.substr( begin, frame.find( "voidSceneRenderer::", begin + 1 ) - begin );
-    EXPECT_NE( body.find( "particles->ImportFrameBuffers(graph);if(particles->ClaimsSimulation())"
-                          "AddParticleSimulationSteps(graph,*particles);" ),
-               std::string::npos )
+    EXPECT_NE(
+         body.find( "particles->ImportFrameBuffers(graph,depthRef,hasDepth);if(particles->ClaimsSimulation())"
+                    "AddParticleSimulationSteps(graph,*particles);" ),
+         std::string::npos )
          << "a view that did not claim the tick adds simulation nodes, or the draw view does not import the pool";
     EXPECT_NE( body.find( "constuint32_tsteps=particles->SimulationStepCount();"
                           "graph.AddPass(\"Particles:Compact0\",RDG::PassFlags::Compute," ),
@@ -3422,7 +3423,8 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
                                ".Storage(\"DispatchArgs\",ve.ArgsRef,RDG::Access::StorageWrite)" ),
                std::string::npos )
          << "Dispatch Args does not declare the indirect arguments it writes";
-    EXPECT_NE( particles.find( ".Storage(\"PoolSlots\",m_Pool.SlotsRef,RDG::Access::StorageWrite)"
+    EXPECT_NE( particles.find( "pass.Bindings(layout,Renderer::GetPipelineRouteFill(program))"
+                               ".Storage(\"PoolSlots\",m_Pool.SlotsRef,RDG::Access::StorageWrite)"
                                ".Storage(\"StepTable\",ve.StepsRef,RDG::Access::StorageRead)"
                                ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageRead)"
                                ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
@@ -3432,6 +3434,8 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
                                ".Storage(\"AttributeInts\",ve.IntsRef,RDG::Access::StorageWrite)"
                                ".Storage(\"StackParams\",ve.ParamsRef,RDG::Access::StorageRead)"
                                ".Storage(\"StackCurves\",ve.CurvesRef,RDG::Access::StorageRead)"
+                               ".Storage(\"EventTable\",ve.EventTableRef,RDG::Access::StorageRead)"
+                               ".Storage(\"Events\",ve.EventsRef,RDG::Access::StorageWrite)"
                                ".PushConstantBytes(static_cast<uint32_t>(sizeof(ParticleSimPush)));"
                                "pass.Read(ve.ArgsRef,RDG::Access::IndirectArgs);" ),
                std::string::npos );

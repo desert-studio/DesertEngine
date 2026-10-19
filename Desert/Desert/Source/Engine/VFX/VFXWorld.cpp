@@ -2,6 +2,7 @@
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/VFX/VFXRandom.hpp>
+#include <Engine/VFX/VFXUserParams.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Common/Core/Logger.hpp>
 
@@ -35,7 +36,8 @@ namespace Desert::VFX
     }
 
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, const std::uint32_t stepCount,
-                           const double stepSeconds, const VFXDataChannels& channels, const glm::vec3& emitterCm )
+                           const double stepSeconds, const VFXDataChannels& channels, const glm::vec3& emitterCm,
+                           std::span<const glm::vec4> user )
     {
         instance.Steps.clear();
         instance.ChannelSpawns.clear();
@@ -60,7 +62,7 @@ namespace Desert::VFX
         instance.Steps.reserve( stepCount );
         for ( std::uint32_t s = 0; s < stepCount; ++s )
         {
-            EmitterStep step{ instance.NextId, instance.Spawn.Step( plan, stepSeconds ) };
+            EmitterStep step{ instance.NextId, instance.Spawn.Step( plan, stepSeconds, user ) };
             if ( s == 0 )
             {
                 step.ChannelFirst = 0;
@@ -132,6 +134,19 @@ namespace Desert::VFX
                  }
                  system.Seen = true;
 
+                 // The placed system's User.* values for this tick: what Details, VFX.setParam and a Sequencer
+                 // VFX parameter track wrote into the component, over the system's defaults.
+                 VFXResolvedUserParams user = ResolveUserParams( *data, vfx.Data.UserParams );
+                 if ( user.Unknown != system.UnknownUser )
+                 {
+                     for ( const std::string& name : user.Unknown )
+                         LOG_ERROR( "[VFX] entity {} overrides user parameter '{}', which the system does not "
+                                    "declare (renamed or removed there); the override is not applied",
+                                    uuid, name );
+                     system.UnknownUser = std::move( user.Unknown );
+                 }
+                 system.User = std::move( user.Values );
+
                  // The editor's Restart: this system alone starts over.
                  if ( vfx.RequestRestart )
                  {
@@ -154,7 +169,7 @@ namespace Desert::VFX
                          continue;
                      }
                      PlanEmitterSteps( emitter, system.Plans[k], m_Plan.StepCount, stepSeconds, m_Channels,
-                                       emitterCm );
+                                       emitterCm, system.User );
                  }
              } );
 

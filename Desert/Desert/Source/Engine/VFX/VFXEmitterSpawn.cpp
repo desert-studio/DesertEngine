@@ -5,6 +5,8 @@
 #include <cmath>
 #include <format>
 #include <limits>
+#include <optional>
+#include <span>
 #include <string>
 
 namespace Desert::VFX
@@ -36,55 +38,64 @@ namespace Desert::VFX
             S::VFXValueType Type;
         };
 
-        // The scalar an EmitterUpdate input carries: its Value, or the default of the User.* row it is bound to.
-        Common::ResultStr<float> ReadScalar( const S::VFXSystemData& system, const S::VFXModuleInput& in,
-                                             const std::string& where )
+        // The scalar an EmitterUpdate input carries: its Value, or the User.* row it is bound to - kept as the
+        // row's index and read per instance at each step (the placement may override it), its default beside it.
+        struct SpawnScalar
+        {
+            float                        Constant = 0.0f;
+            std::optional<std::uint32_t> User;
+        };
+
+        Common::ResultStr<SpawnScalar> ReadScalar( const S::VFXSystemData& system, const S::VFXModuleInput& in,
+                                                   const std::string& where )
         {
             switch ( in.Source )
             {
                 case S::VFXInputSource::Value:
                     if ( !in.Value )
-                        return Common::MakeFormattedError<float>( "{}: Source Value without a Value", where );
-                    return Common::MakeSuccess( in.Value->x );
+                        return Common::MakeFormattedError<SpawnScalar>( "{}: Source Value without a Value",
+                                                                        where );
+                    return Common::MakeSuccess( SpawnScalar{ in.Value->x, std::nullopt } );
                 case S::VFXInputSource::Binding:
                     if ( in.Binding && in.Binding->starts_with( S::kVFXUserPrefix ) )
                     {
                         const std::string_view name =
                              std::string_view( *in.Binding ).substr( S::kVFXUserPrefix.size() );
-                        for ( const S::VFXUserParam& u : system.UserParams )
-                            if ( u.Name == name )
+                        for ( std::size_t r = 0; r < system.UserParams.size(); ++r )
+                            if ( const S::VFXUserParam& u = system.UserParams[r]; u.Name == name )
                             {
                                 if ( u.Type != in.Type )
-                                    return Common::MakeFormattedError<float>( "{}: bound to {} of another type",
-                                                                              where, *in.Binding );
-                                return Common::MakeSuccess( u.Default.x );
+                                    return Common::MakeFormattedError<SpawnScalar>(
+                                         "{}: bound to {} of another type", where, *in.Binding );
+                                return Common::MakeSuccess(
+                                     SpawnScalar{ u.Default.x, static_cast<std::uint32_t>( r ) } );
                             }
-                        return Common::MakeFormattedError<float>( "{}: {} names no UserParams row", where,
-                                                                  *in.Binding );
+                        return Common::MakeFormattedError<SpawnScalar>( "{}: {} names no UserParams row", where,
+                                                                        *in.Binding );
                     }
-                    return Common::MakeFormattedError<float>(
+                    return Common::MakeFormattedError<SpawnScalar>(
                          "{}: a Particles.* binding has no particle to read — EmitterUpdate runs once per "
                          "emitter on the CPU",
                          where );
                 case S::VFXInputSource::Curve:
-                    return Common::MakeFormattedError<float>(
+                    return Common::MakeFormattedError<SpawnScalar>(
                          "{}: a curve over emitter time is not read on the CPU side yet (the LUT atlas is "
                          "per-particle age, VFX-05)",
                          where );
                 case S::VFXInputSource::Random:
-                    return Common::MakeFormattedError<float>(
+                    return Common::MakeFormattedError<SpawnScalar>(
                          "{}: a random range is not read on the CPU side yet (no per-loop random stream)", where );
             }
-            return Common::MakeFormattedError<float>( "{}: unknown source", where );
+            return Common::MakeFormattedError<SpawnScalar>( "{}: unknown source", where );
         }
 
         // The module's inputs, in @p declared order, each exactly once with its declared type.
-        Common::ResultStr<std::vector<float>> ReadInputs( const S::VFXSystemData&      system,
-                                                          const S::VFXModuleUse&       use,
-                                                          const std::vector<CpuInput>& declared,
-                                                          const std::string&           where )
+        Common::ResultStr<std::vector<SpawnScalar>> ReadInputs( const S::VFXSystemData&      system,
+                                                                const S::VFXModuleUse&       use,
+                                                                const std::vector<CpuInput>& declared,
+                                                                const std::string&           where )
         {
-            using Result = std::vector<float>;
+            using Result = std::vector<SpawnScalar>;
             for ( const S::VFXModuleInput& in : use.Inputs )
                 if ( std::none_of( declared.begin(), declared.end(),
                                    [&]( const CpuInput& d ) { return in.Name == d.Name; } ) )
@@ -258,10 +269,14 @@ namespace Desert::VFX
                 auto in = ReadInputs( system, use, { { "SpawnRate", S::VFXValueType::Float } }, where );
                 if ( !in.IsSuccess() )
                     return Common::MakeError<Result>( in.GetError() );
-                if ( in.GetValue()[0] < 0.0f )
+                const SpawnScalar rate = in.GetValue()[0];
+                if ( rate.User )
+                    plan.UserRates.push_back( *rate.User );
+                else if ( rate.Constant < 0.0f )
                     return Common::MakeFormattedError<Result>( "{}: SpawnRate {} is negative", where,
-                                                               in.GetValue()[0] );
-                plan.Rate += in.GetValue()[0];
+                                                               rate.Constant );
+                else
+                    plan.Rate += rate.Constant;
             }
             else if ( UsesModule( use, kVFXSpawnBurstModule ) )
             {
@@ -270,15 +285,23 @@ namespace Desert::VFX
                      { { "SpawnCount", S::VFXValueType::Int }, { "SpawnTime", S::VFXValueType::Float } }, where );
                 if ( !in.IsSuccess() )
                     return Common::MakeError<Result>( in.GetError() );
-                const float count = in.GetValue()[0];
-                const float time  = in.GetValue()[1];
-                if ( count < 0.0f )
-                    return Common::MakeFormattedError<Result>( "{}: SpawnCount {} is negative", where, count );
-                if ( time < 0.0f || time >= plan.Lifecycle.LoopDuration )
+                // A constant is checked here; a User-bound value is the placement's and is checked where it is
+                // read (Step: a negative count is none, a time outside the loop never fires).
+                const SpawnScalar count = in.GetValue()[0];
+                const SpawnScalar time  = in.GetValue()[1];
+                if ( !count.User && count.Constant < 0.0f )
+                    return Common::MakeFormattedError<Result>( "{}: SpawnCount {} is negative", where,
+                                                               count.Constant );
+                if ( !time.User && ( time.Constant < 0.0f || time.Constant >= plan.Lifecycle.LoopDuration ) )
                     return Common::MakeFormattedError<Result>(
-                         "{}: SpawnTime {} lies outside the loop [0, {}) — it would never fire", where, time,
-                         plan.Lifecycle.LoopDuration );
-                plan.Bursts.push_back( { time, static_cast<std::uint32_t>( count ) } );
+                         "{}: SpawnTime {} lies outside the loop [0, {}) — it would never fire", where,
+                         time.Constant, plan.Lifecycle.LoopDuration );
+                VFXSpawnBurst burst;
+                burst.Time      = time.User ? 0.0f : time.Constant;
+                burst.Count     = count.User ? 0u : static_cast<std::uint32_t>( count.Constant );
+                burst.TimeUser  = time.User;
+                burst.CountUser = count.User;
+                plan.Bursts.push_back( burst );
             }
             else if ( UsesModule( use, kVFXSpawnFromChannelModule ) )
             {
@@ -294,10 +317,31 @@ namespace Desert::VFX
                      "{}: EmitterUpdate runs on the CPU and the engine has C++ for {}, {} and {} only", where,
                      kVFXSpawnRateModule.Name, kVFXSpawnBurstModule.Name, kVFXSpawnFromChannelModule.Name );
         }
+        for ( const S::VFXUserParam& u : system.UserParams )
+            plan.UserDefaults.push_back( u.Default );
         return Common::MakeSuccess( std::move( plan ) );
     }
 
-    std::uint32_t SpawnState::Step( const VFXSpawnPlan& plan, double stepSeconds )
+    namespace
+    {
+        // User row @p row this step: the instance's resolved value, or the system default for a step given none.
+        float UserScalar( const VFXSpawnPlan& plan, std::span<const glm::vec4> user, const std::uint32_t row )
+        {
+            const std::span<const glm::vec4> values =
+                 user.empty() ? std::span<const glm::vec4>( plan.UserDefaults ) : user;
+            return row < values.size() ? values[row].x : 0.0f;
+        }
+    } // namespace
+
+    double VFXSpawnPlan::RateFor( std::span<const glm::vec4> user ) const
+    {
+        double rate = Rate;
+        for ( const std::uint32_t row : UserRates )
+            rate += std::max( 0.0, static_cast<double>( UserScalar( *this, user, row ) ) );
+        return rate;
+    }
+
+    std::uint32_t SpawnState::Step( const VFXSpawnPlan& plan, double stepSeconds, std::span<const glm::vec4> user )
     {
         const double t0 = Age;
         const double t1 = Age + stepSeconds;
@@ -316,16 +360,23 @@ namespace Desert::VFX
         if ( !( hi > lo ) )
             return 0;
 
-        std::uint32_t born = RateCarry.Step( plan.Rate, hi - lo );
+        std::uint32_t born = RateCarry.Step( plan.RateFor( user ), hi - lo );
 
         // A burst fires in the step whose window [lo, hi) holds k * LoopDuration + Time, for every loop k. The
         // windows of consecutive steps share their bounds exactly, so each firing lands in exactly one step.
         for ( double k = std::floor( lo / loop ); k * loop < hi; k += 1.0 )
             for ( const VFXSpawnBurst& burst : plan.Bursts )
             {
-                const double at = k * loop + burst.Time;
+                const double time = burst.TimeUser ? UserScalar( plan, user, *burst.TimeUser ) : burst.Time;
+                if ( time < 0.0 || time >= loop )
+                    continue; // a User-bound time outside the loop never fires (a constant one is refused above)
+                const std::uint32_t count =
+                     burst.CountUser ? static_cast<std::uint32_t>( std::max(
+                                            0.0f, std::round( UserScalar( plan, user, *burst.CountUser ) ) ) )
+                                     : burst.Count;
+                const double at = k * loop + time;
                 if ( at >= lo && at < hi )
-                    born += burst.Count;
+                    born += count;
             }
         return born;
     }

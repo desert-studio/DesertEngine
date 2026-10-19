@@ -42,7 +42,9 @@
 #include <cstring>
 #include <filesystem>
 #include <functional>
+#include <format>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -393,6 +395,64 @@ namespace Desert::Editor
         // The default value of THIS field, if the owning type provided a default instance.
         const void* defFieldPtr =
              defaultObject ? static_cast<const std::byte*>( defaultObject ) + field.Offset : nullptr;
+
+        // A std::vector of a reflected struct (UE's TArray<FStruct> row): one collapsible node per element with
+        // the element's own fields, a remove button per element and an add button that appends a
+        // default-constructed one. The elements have no type default to compare against, so no reset mark.
+        if ( field.IsContainer && field.ElementType == FieldType::Struct )
+        {
+            ImGui::PushID( field.Name.c_str() );
+            if ( field.ElementStructType == nullptr || field.ContainerElement == nullptr )
+            {
+                ImGui::TextDisabled(
+                     "%s", std::format( "{}: (unresolved struct {})", label, field.ElementTypeName ).c_str() );
+                ImGui::PopID();
+                return false;
+            }
+            const std::size_t count = field.ContainerSize( p );
+            const std::string node  = std::format( "{} [{}]", label, count );
+            if ( ImGui::TreeNodeEx( node.c_str(), ImGuiTreeNodeFlags_DefaultOpen ) )
+            {
+                ImGui::BeginDisabled( field.Meta.ReadOnly );
+                std::optional<std::size_t> erase;
+                for ( std::size_t i = 0; i < count; ++i )
+                {
+                    ImGui::PushID( static_cast<int>( i ) );
+                    const bool open =
+                         ImGui::TreeNodeEx( std::format( "{}", i ).c_str(),
+                                            ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap );
+                    ImGui::SameLine();
+                    if ( ImGui::SmallButton( ICON_MDI_DELETE ) )
+                        erase = i;
+                    if ( open )
+                    {
+                        void* element = field.ContainerElement( p, i );
+                        for ( const auto& sub : field.ElementStructType->Fields )
+                        {
+                            if ( DrawField( element, sub, assetMgr, uiHelper, nullptr, false,
+                                            field.ElementStructType ) )
+                                changed = true;
+                        }
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
+                }
+                if ( erase )
+                {
+                    field.ContainerErase( p, *erase );
+                    changed = true;
+                }
+                if ( ImGui::SmallButton( ICON_MDI_PLUS ) )
+                {
+                    field.ContainerResize( p, count + 1 );
+                    changed = true;
+                }
+                ImGui::EndDisabled();
+                ImGui::TreePop();
+            }
+            ImGui::PopID();
+            return changed && !field.Meta.ReadOnly;
+        }
 
         // Nested reflected struct: draw its fields recursively under a collapsible node.
         if ( field.Type == FieldType::Struct )

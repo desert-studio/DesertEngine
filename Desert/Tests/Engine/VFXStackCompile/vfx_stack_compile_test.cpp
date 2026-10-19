@@ -198,13 +198,17 @@ namespace
              "float VFX_CurveLUT( uint index ) {{ return C[index]; }}\n"
              "VFXChannelSpawn VFX_ChannelSpawn( uint row ) {{ return VFXChannelSpawn( vec4( 0.0 ), vec4( 0.0 ), "
              "vec4( 1.0 ), vec4( 0.0, 1.0, 0.0, 0.0 ) ); }}\n"
+             "VFXEventSpawn VFX_EventSpawn( uint row ) {{ return VFXEventSpawn( vec4( 0.0, 0.0, 0.0, 1.0 ), "
+             "vec4( 0.0 ), vec4( 0.0 ) ); }}\n"
+             "bool VFX_SceneDepthCollide( in VFXSim sim, vec3 position, float radius, float thickness, out vec3 "
+             "contact, out vec3 normal ) {{ contact = position; normal = vec3( 0.0, 0.0, 1.0 ); return false; }}\n"
              "void main()\n{{\n"
              "    const uint id = gl_GlobalInvocationID.x;\n"
              "    if ( id >= pc.Count ) return;\n"
              "    VFXSim sim;\n"
              "    sim.DeltaTime = pc.Dt; sim.EmitterAge = 0.0; sim.Seed = pc.Seed; sim.ParticleId = id;\n"
              "    sim.Step = 0u; sim.Spawned = id == 0u; sim.Kill = false;\n"
-             "    sim.Channel = 0u;\n"
+             "    sim.Channel = 0u; sim.Event = 0u; sim.Collided = false; sim.CollisionNormal = vec3( 0.0 );\n"
              "    VFX_SimulateParticle( id, sim );\n}}\n",
              parsed.GetValue().Meta.ParticleSource );
 

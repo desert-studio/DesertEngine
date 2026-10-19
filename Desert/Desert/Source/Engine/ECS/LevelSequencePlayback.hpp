@@ -4,6 +4,8 @@
 #include <Engine/Animation/Timeline/Player.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <entt/entt.hpp>
 #include <glm/glm.hpp>
 
@@ -74,6 +76,34 @@ namespace Desert::ECS
     /// The Property of the Material Parameter track for @p parameter — the inverse of the parse above.
     [[nodiscard]] std::string LevelSequenceMaterialProperty( const LevelSequenceMaterialParameter& parameter );
 
+    /// The Property prefix of a VFX Parameter track: "VFX.User.<Parameter>" — one User.* row of the system the
+    /// bound entity's VFX component plays (UE: a Niagara Parameter track on the component's User parameters).
+    inline constexpr std::string_view kLevelSequenceVFXUserPropertyPrefix = "VFX.User.";
+
+    /// "VFX.User.<Parameter>" → the parameter name; nullopt for any other property or an empty name.
+    [[nodiscard]] std::optional<std::string> ParseLevelSequenceVFXUserProperty( std::string_view property );
+    /// The Property of the VFX Parameter track for User row @p name — the inverse of the parse above.
+    [[nodiscard]] std::string LevelSequenceVFXUserProperty( std::string_view name );
+
+    /**
+     * @brief Where the host writes a VFX placement's User parameter (VFX/VFXUserParams.hpp SetComponentUserParam,
+     * the one validating writer Details and script use too). Injected for the same reason as the material slots:
+     * this header stays free of the effects module; `LevelSequenceVFXUserParamWriter()`
+     * (System/LevelSequenceSystem.hpp) is the one implementation the ECS system and the editor preview pass.
+     * `Set` refuses by message (no VFX component, no such row, a value that is not finite) and writes nothing.
+     */
+    struct LevelSequenceVFXUserParams
+    {
+        std::function<Common::BoolResultStr( entt::registry& registry, entt::entity entity, std::string_view name,
+                                             const glm::vec4& value )>
+             Set;
+
+        [[nodiscard]] explicit operator bool() const
+        {
+            return static_cast<bool>( Set );
+        }
+    };
+
     /**
      * @brief Where the host reaches an entity's per-slot material parameter overrides (UE: the dynamic material
      * instance MovieSceneComponentMaterialTrack creates on the component — the ACTOR's instance, never the
@@ -121,6 +151,9 @@ namespace Desert::ECS
      *   "Material.<slot>.<Parameter>"  float → the slot's scalar override (vec4(x, 0, 0, 0), unpacked by the
      *                 parameter's own type); vec3 → the slot's vector override as (rgb, the override's own alpha,
      *                 1 when none) — through the injected `LevelSequenceMaterialSlots`; no source, no such slot,
+     *   "VFX.User.<Parameter>"  float → (x, 0, 0, 0), vec3 → (xyz, 1), bool → (1 or 0, 0, 0, 0), canonicalised by
+     *                 the row's own type — through the injected `LevelSequenceVFXUserParams`; no writer, or what
+     *                 the writer refuses, is refused by name. Writes the placement's override (UserParams);
      *                 or a value of another kind is refused by name
      * Any other property, or a value of the wrong kind, is REFUSED by name into `Refusals()` — never skipped
      * in silence.
@@ -145,7 +178,8 @@ namespace Desert::ECS
     {
     public:
         LevelSequenceEntityHost( entt::registry& registry, const LevelSequenceComponent& component,
-                                 LevelSequenceClipSource clips = {}, LevelSequenceMaterialSlots materials = {} );
+                                 LevelSequenceClipSource clips = {}, LevelSequenceMaterialSlots materials = {},
+                                 LevelSequenceVFXUserParams vfx = {} );
 
         [[nodiscard]] std::optional<Animation::Timeline::ResolvedBinding>
              Resolve( const Animation::Timeline::Binding& binding ) override;
@@ -186,6 +220,7 @@ namespace Desert::ECS
         const LevelSequenceComponent& m_Component;
         LevelSequenceClipSource       m_Clips;
         LevelSequenceMaterialSlots    m_Materials;
+        LevelSequenceVFXUserParams    m_VFX;
         std::optional<entt::entity>   m_CameraCut;
         std::vector<std::string>      m_Refusals;
         std::vector<std::string>      m_Fired;
@@ -232,7 +267,8 @@ namespace Desert::ECS
     StepLevelSequence( entt::registry& registry, const LevelSequenceComponent& component,
                        LevelSequencePlayback& playback, const Animation::Timeline::TimeStep& step,
                        const LevelSequenceClipSource& clips = {}, const LevelSequenceMaterialSlots& materials = {},
-                       const LevelSequenceSubsequenceSource& subsequences = {} );
+                       const LevelSequenceSubsequenceSource& subsequences = {},
+                       const LevelSequenceVFXUserParams&     vfx          = {} );
 
     /// The component's Playback Settings (Loop, PlayRate) onto @p player. Called before every advance, so an
     /// edit made while the sequence plays (Details, a script) is the next step's setting.
@@ -244,12 +280,13 @@ namespace Desert::ECS
      * in the packaged runtime: the play settings, the transport advanced by @p seconds of game time (× the
      * component's PlayRate, wrapped or clamped by its Loop), then that step evaluated and applied.
      */
-    [[nodiscard]] LevelSequenceStep
-    AdvanceLevelSequence( entt::registry& registry, const LevelSequenceComponent& component,
-                          LevelSequencePlayback& playback, double seconds,
-                          const LevelSequenceClipSource&        clips        = {},
-                          const LevelSequenceMaterialSlots&     materials    = {},
-                          const LevelSequenceSubsequenceSource& subsequences = {} );
+    [[nodiscard]] LevelSequenceStep AdvanceLevelSequence( entt::registry&               registry,
+                                                          const LevelSequenceComponent& component,
+                                                          LevelSequencePlayback& playback, double seconds,
+                                                          const LevelSequenceClipSource&        clips        = {},
+                                                          const LevelSequenceMaterialSlots&     materials    = {},
+                                                          const LevelSequenceSubsequenceSource& subsequences = {},
+                                                          const LevelSequenceVFXUserParams&     vfx = {} );
 
     /**
      * @brief What an actor remembers between steps for the Scene half: which errors it already reported

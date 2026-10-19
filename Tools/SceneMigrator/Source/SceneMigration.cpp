@@ -1857,6 +1857,22 @@ namespace Desert::Migration
         return stated;
     }
 
+    std::size_t MigrateVFXUserParamsV64ToV65( std::vector<Assets::EntityData>& entities )
+    {
+        std::size_t stated = 0;
+        for ( auto& entity : entities )
+            EditBlock( entity.Components, "VFX",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           if ( block.get( "UserParams" ).has_value() )
+                               return false;
+                           block["UserParams"] = rfl::Generic( rfl::Generic::Array{} );
+                           ++stated;
+                           return true;
+                       } );
+        return stated;
+    }
+
     std::size_t MigrateShadowBiasCentimetresV48ToV49( std::vector<Assets::EntityData>& entities )
     {
         std::size_t restated = 0;
@@ -3464,6 +3480,59 @@ namespace Desert::Migration
         };
     } // namespace
 
+    Common::ResultStr<std::string> MigrateVFXSystemEventHandlers( const std::string& text )
+    {
+        using Result        = std::string;
+        constexpr auto from = static_cast<int64_t>( kVFXSystemVersionEventHandlers - 1 );
+        auto           read = rfl::json::read<rfl::Generic::Object>( text );
+        if ( !read )
+            return Common::MakeFormattedError<Result>( "the file does not read as a JSON object: {}",
+                                                       read.error().what() );
+        rfl::Generic::Object root     = read.value();
+        const auto           versions = root.get( "Header" )
+                                   .value_or( rfl::Generic() )
+                                   .to_object()
+                                   .value_or( rfl::Generic::Object() )
+                                   .get( "Versions" )
+                                   .value_or( rfl::Generic() )
+                                   .to_object()
+                                   .value_or( rfl::Generic::Object() );
+        const auto stated = versions.get( "VFXS" ).value_or( rfl::Generic() ).to_int();
+        if ( !stated || stated.value() != from )
+            return Common::MakeFormattedError<Result>(
+                 "the header states VFXS {}, and this step raises VFXS {} only",
+                 stated ? std::to_string( stated.value() ) : std::string( "nothing" ), from );
+
+        auto emitters = root.get( "Emitters" ).value_or( rfl::Generic() ).to_array();
+        if ( !emitters )
+            return Common::MakeFormattedError<Result>( "the file states no Emitters array" );
+        rfl::Generic::Array raised = emitters.value();
+        for ( std::size_t k = 0; k < raised.size(); ++k )
+        {
+            auto emitter = raised[k].to_object();
+            if ( !emitter )
+                return Common::MakeFormattedError<Result>( "emitter {} is not an object", k );
+            rfl::Generic::Object fields = emitter.value();
+            if ( fields.get( "EventHandlers" ) )
+                return Common::MakeFormattedError<Result>(
+                     "emitter {} already states EventHandlers under VFXS {}: a hand edit ahead of its version; "
+                     "remove it or raise the header by hand",
+                     k, from );
+            fields["EventHandlers"] = rfl::Generic( rfl::Generic::Array{} );
+            raised[k]               = rfl::Generic( std::move( fields ) );
+        }
+        root["Emitters"] = rfl::Generic( std::move( raised ) );
+
+        // The engine's own reader and writer from here: the result is what the editor would save (WriteVFXSystem
+        // stamps the header at the engine's VFXS and keeps the GUID), and it must be a valid system.
+        auto data = Common::Json::Read<Assets::Serialization::VFXSystemData>( rfl::json::write( root ) );
+        if ( !data )
+            return Common::MakeFormattedError<Result>( "the raised system does not read: {}", data.GetError() );
+        if ( auto valid = Assets::Serialization::ValidateVFXSystemData( data.GetValue() ); !valid )
+            return Common::MakeFormattedError<Result>( "the raised system is not valid: {}", valid.GetError() );
+        return Common::MakeSuccess( Assets::Serialization::WriteVFXSystem( data.GetValue() ) );
+    }
+
     Common::ResultStr<std::string> MigrateCloudTypeV5ToV6( const std::string& text )
     {
         const auto v5 = Common::Json::Read<CloudTypeDataV5>( text );
@@ -3950,6 +4019,14 @@ namespace Desert::Migration
                     report.Refused = RefusedWhole( name, report.GIMethodLadder.Refused );
                     return;
                 }
+        return stated;
+    }
+
+            // A VFX placement states its User parameter overrides (VFX-PARAMS).
+            if ( statedSceneVersion < kSceneVersionVFXUserParams )
+            {
+                report.VFXUserParamsRaised = true;
+                report.VFXUserParamsStated = MigrateVFXUserParamsV64ToV65( entities );
             }
 
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.

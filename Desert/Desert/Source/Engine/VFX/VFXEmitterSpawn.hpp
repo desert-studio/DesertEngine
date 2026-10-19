@@ -32,9 +32,12 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <glm/glm.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace Desert::VFX
@@ -59,6 +62,12 @@ namespace Desert::VFX
          { 0xc3e1a7d94b2f4e6aull, 0x8d05f1b97a6e2c48ull },
          "SpawnFromChannel",
          "engine:Engine/VFX/Modules/SpawnFromChannel.dfxmod" };
+    // VFX-PARAMS: the particle half of an Event Handler. The stack compiler appends it as the last spawn module of
+    // every emitter that states EventHandlers; a stack never names it.
+    inline constexpr VFXEngineCpuModule kVFXSpawnFromEventModule{
+         { 0x0f58cf1ce255404dull, 0x8a2e694ae1f8a429ull },
+         "SpawnFromEvent",
+         "engine:Engine/VFX/Modules/SpawnFromEvent.dfxmod" };
 
     /// The stack row reference to @p module ({Guid, Path}).
     [[nodiscard]] Assets::AssetGuidRef ModuleRef( const VFXEngineCpuModule& module );
@@ -73,8 +82,12 @@ namespace Desert::VFX
     /// UE FNiagaraStatelessSpawnInfo, Type Burst.
     struct VFXSpawnBurst
     {
-        float         Time  = 0.0f; ///< seconds into each loop
-        std::uint32_t Count = 0;
+        float         Time  = 0.0f; ///< seconds into each loop (the constant; TimeUser replaces it when bound)
+        std::uint32_t Count = 0;    ///< the constant; CountUser replaces it when bound
+        /// User rows (VFXSystemData::UserParams index) read per instance at each step: a resolved time outside
+        /// [0, LoopDuration) never fires, a resolved count is max(0, round(v)).
+        std::optional<std::uint32_t> TimeUser;
+        std::optional<std::uint32_t> CountUser;
 
         [[nodiscard]] bool operator==( const VFXSpawnBurst& ) const = default;
     };
@@ -83,7 +96,15 @@ namespace Desert::VFX
     struct VFXSpawnPlan
     {
         Assets::Serialization::VFXEmitterLifecycle Lifecycle;
-        double                                     Rate = 0.0; ///< the sum of every SpawnRate module, per second
+        double Rate = 0.0; ///< the sum of every SpawnRate module whose rate is a constant, per second
+        /// User rows of the User-bound SpawnRate modules (UE reads a User-bound SpawnRate from the component's
+        /// override parameters, so the row is kept, not its default baked in), summed per step.
+        std::vector<std::uint32_t> UserRates;
+        std::vector<glm::vec4>     UserDefaults; ///< the system's User defaults, for a step given no values
+
+        /// The total rate per second for these resolved User values (UserDefaults when empty); a User-bound
+        /// rate below zero counts as zero (UE SpawnRate clamps).
+        [[nodiscard]] double                       RateFor( std::span<const glm::vec4> user ) const;
         std::vector<VFXSpawnBurst>                 Bursts;
         /// engine:SpawnFromChannel, at most one per emitter: its spawns join the first fixed step of each tick.
         std::optional<VFXChannelSpawnModule> Channel;
@@ -105,6 +126,9 @@ namespace Desert::VFX
         SpawnAccumulator RateCarry;
 
         /// The births of the next fixed step of @p stepSeconds: the step covers [Age, Age + stepSeconds).
-        [[nodiscard]] std::uint32_t Step( const VFXSpawnPlan& plan, double stepSeconds );
+        /// Births in the next @p stepSeconds. @p user = the instance's resolved User values this tick
+        /// (VFXUserParams.hpp ResolveUserParams), one per UserParams row; empty reads the system defaults.
+        [[nodiscard]] std::uint32_t Step( const VFXSpawnPlan& plan, double stepSeconds,
+                                          std::span<const glm::vec4> user = {} );
     };
 } // namespace Desert::VFX

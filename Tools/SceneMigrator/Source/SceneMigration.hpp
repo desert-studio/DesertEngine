@@ -342,7 +342,14 @@ namespace Desert::Migration
     //       (MigrateGIMethodLadderV63ToV64). v59..v63 are Windows' steps. Scenes and prefabs alike.
     inline constexpr int kSceneVersionGIMethodLadder = 64;
 
-    static_assert( kSceneVersionGIMethodLadder == kSceneVersion,
+    //  65 - A VFX PLACEMENT OVERRIDES ITS SYSTEM'S USER PARAMETERS (VFX-PARAMS; UE UNiagaraComponent override
+    //       parameters). VFXComponentData.UserParams is a new reflected key: every record VFX block that states
+    //       none gains `"UserParams": []` (MigrateVFXUserParamsV64ToV65), so the corpus is the saver's canonical
+    //       text. A prefab override's delta is not touched (an absent key there is "not overridden"). Scenes and
+    //       prefabs alike.
+    inline constexpr int kSceneVersionVFXUserParams = 65;
+
+    static_assert( kSceneVersionVFXUserParams == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -672,6 +679,10 @@ namespace Desert::Migration
     // kSceneVersionGIMethodLadder states, in the record and in every prefab override. PURE.
     GIMethodLadderReport MigrateGIMethodLadderV63ToV64( std::vector<Assets::EntityData>& entities );
 
+    // States `"UserParams": []` on every record VFX block that states no UserParams, under the rule
+    // kSceneVersionVFXUserParams states. Returns the blocks it wrote. PURE.
+    std::size_t MigrateVFXUserParamsV64ToV65( std::vector<Assets::EntityData>& entities );
+
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
     bool MigrateHLODLayersV49ToV50( SceneSerialized& scene );
@@ -851,6 +862,18 @@ namespace Desert::Migration
     // an error naming what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateCloudTypeV5ToV6( const std::string& text );
 
+    // VFXS 4 (VFX-PARAMS): every emitter of a `.dfx` states its EventHandlers (UE emitter Event Handlers). The
+    // number is the lead's: 2 and 3 are sibling branches' layouts, whose steps run before this one.
+    inline constexpr uint32_t kVFXSystemVersionEventHandlers = 4;
+    static_assert( kVFXSystemVersionEventHandlers == Assets::kVFXSystemSchemaVersion,
+                   "a later VFXS layout adds its own step after this one" );
+
+    // The VFXS 4 text of a `.dfx` stating VFXS 3: each emitter states `"EventHandlers": []` (a file of the layout
+    // before spawned from no event), every other value and the header's GUID kept, the result a valid VFXS 4
+    // system. A file stating another version, or an emitter that already states EventHandlers (a hand edit ahead
+    // of its version), is an error naming what it states, never overwritten. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateVFXSystemEventHandlers( const std::string& text );
+
     // The v7 text of a v6 `.decloudtype`: every v6 value kept, `Shape.BodyDiameterKm` written as the default
     // type's (FIELD-GRAIN: the exponential body-size law's D0), the header's GUID kept. A file that does not
     // state CLTY 6 is an error naming what it states. PURE - no filesystem access.
@@ -964,6 +987,9 @@ namespace Desert::Migration
         bool                 GIMethodLadderRaised = false; // below kSceneVersionGIMethodLadder
         GIMethodLadderReport GIMethodLadder;
 
+        bool        VFXUserParamsRaised = false; // below kSceneVersionVFXUserParams
+        std::size_t VFXUserParamsStated = 0;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -978,7 +1004,7 @@ namespace Desert::Migration
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
                    RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
-                   SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised;
+                   SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || VFXUserParamsRaised;
         }
     };
 

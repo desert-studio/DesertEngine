@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <span>
 #include <vector>
 
 namespace Desert::VFX
@@ -69,11 +70,17 @@ namespace Desert::VFX
         std::vector<VFXSpawnPlan>                                   Plans;
         std::vector<bool>                                           Runs; // enabled and its plan compiled
         std::vector<EmitterInstance>                                Emitters;
-        bool                                                        Seen = false;
+        // VFX-PARAMS: this tick's User.* values (VFXUserParams.hpp ResolveUserParams of the component's
+        // overrides), one per UserParams row; the spawn plans and the GPU parameter buffer read these. The
+        // overrides naming no row were reported once by name; a changed list is reported again.
+        std::vector<glm::vec4>   User;
+        std::vector<std::string> UnknownUser;
+        bool                     Seen = false;
     };
 
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, std::uint32_t stepCount,
-                           double stepSeconds, const VFXDataChannels& channels, const glm::vec3& emitterCm );
+                           double stepSeconds, const VFXDataChannels& channels, const glm::vec3& emitterCm,
+                           std::span<const glm::vec4> user = {} ); // the instance's resolved User values
 
     // THE EFFECTS WORLD OF ONE SCENE (plan 02 §3.3-1): owns the effects clock and the per-instance
     // administration, and is ticked once per scene update — not once per view. Simulation is a function

@@ -36,7 +36,17 @@ namespace Desert::Reflection
         {
             for ( auto& field : type.Fields )
             {
-                if ( field.Type == FieldType::Struct && field.StructType == nullptr )
+                // A vector of a reflected struct names its element the same way.
+                if ( field.IsContainer && field.ElementType == FieldType::Struct &&
+                     field.ElementStructType == nullptr )
+                {
+                    field.ElementStructType = Find( field.ElementTypeName );
+                    const auto pos          = field.ElementTypeName.rfind( "::" );
+                    if ( field.ElementStructType == nullptr && pos != std::string::npos )
+                        field.ElementStructType = Find( field.ElementTypeName.substr( pos + 2 ) );
+                    continue;
+                }
+                if ( field.Type == FieldType::Struct && field.StructType == nullptr && !field.IsContainer )
                 {
                     field.StructType = Find( field.TypeName );
                     if ( field.StructType == nullptr )

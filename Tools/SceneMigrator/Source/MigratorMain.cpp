@@ -532,6 +532,10 @@ namespace
             out << " scene v" << Desert::Migration::kSceneVersionSunCalendar << "->v"
                 << Desert::Migration::kSceneVersionGIMethodLadder << " (" << report.GIMethodLadder.Restated
                 << " GI method(s) re-stated on today's ladder)";
+        if ( report.VFXUserParamsRaised )
+            out << std::format( " scene v{}->v{} ({} VFX block(s) state UserParams)",
+                                Desert::Migration::kSceneVersionGIMethodLadder,
+                                Desert::Migration::kSceneVersionVFXUserParams, report.VFXUserParamsStated );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never
@@ -1417,6 +1421,7 @@ namespace Desert::Migration
 
         int foliageRaised    = 0;
         int cloudTypesRaised = 0;
+        int vfxSystemsRaised = 0;
         int animGraphsRaised = 0;
 
         // ANIM-SKELREF: what the TargetSkeleton step matches a graph, rig or retarget against - every rig's bones,
@@ -1658,6 +1663,41 @@ namespace Desert::Migration
                     continue;
                 }
             }
+            // VFXS 3 -> 4 (VFX-PARAMS): every emitter states its EventHandlers.
+            if ( path.extension() == Desert::Assets::Serialization::kVFXSystemExtension )
+            {
+                const auto stated = ReadStatedVersion( path, text, "VFXS" );
+                if ( stated && stated.GetValue() == Desert::Migration::kVFXSystemVersionEventHandlers - 1u )
+                {
+                    const auto raised = Desert::Migration::MigrateVFXSystemEventHandlers( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — VFXS " << stated.GetValue() << " -> "
+                            << Desert::Migration::kVFXSystemVersionEventHandlers << ": " << raised.GetError()
+                            << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " VFXS " << stated.GetValue()
+                        << " -> " << Desert::Migration::kVFXSystemVersionEventHandlers << " (EventHandlers)\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    ++vfxSystemsRaised;
+                    continue;
+                }
+                if ( !stated || stated.GetValue() != Desert::Assets::kVFXSystemSchemaVersion )
+                {
+                    err << "FAIL   " << path.string() << " — states VFXS "
+                        << ( stated ? std::to_string( stated.GetValue() ) : stated.GetError() )
+                        << ", and this tool reads VFXS " << Desert::Migration::kVFXSystemVersionEventHandlers - 1u
+                        << " (raised) and " << Desert::Assets::kVFXSystemSchemaVersion << " only\n";
+                    ++failed;
+                    continue;
+                }
+            }
             if ( const TextHeaderGate* row = TextHeaderGateFor( path );
                  row != nullptr && !PassesTextHeaderGate( *row, path, text, err ) )
             {
@@ -1740,7 +1780,8 @@ namespace Desert::Migration
             << texts.size() << " other text asset(s), " << relaid
             << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
             << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << cloudTypesRaised
-            << ( check ? " cloud type(s) would be raised, " : " cloud type(s) raised, " ) << animGraphsRaised
+            << ( check ? " cloud type(s) would be raised, " : " cloud type(s) raised, " ) << vfxSystemsRaised
+            << ( check ? " VFX system(s) would be raised, " : " VFX system(s) raised, " ) << animGraphsRaised
             << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " ) << meshesRaised
             << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
             << " landscape tile(s), " << texturesRaised
@@ -1752,9 +1793,10 @@ namespace Desert::Migration
         failedOut = failed;
         if ( failed > 0 )
             return 1;
-        return ( check && ( changed > 0 || materialsRaised > 0 || prefabsChanged > 0 || relaid > 0 ||
-                            foliageRaised > 0 || cloudTypesRaised > 0 || animGraphsRaised > 0 ||
-                            meshesRaised > 0 || recordsStated > 0 || materialsRenamed > 0 || texturesRaised > 0 ) )
+        return ( check &&
+                 ( changed > 0 || materialsRaised > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ||
+                   cloudTypesRaised > 0 || vfxSystemsRaised > 0 || animGraphsRaised > 0 || meshesRaised > 0 ||
+                   recordsStated > 0 || materialsRenamed > 0 || texturesRaised > 0 ) )
                     ? 1
                     : 0;
     }

@@ -63,9 +63,10 @@ namespace Desert::Assets
     inline constexpr uint32_t kLandscapeLayerInfoSchemaTag     = Common::Content::FourCC( "LLYI" );
     inline constexpr uint32_t kLandscapeLayerInfoSchemaVersion = 3;
     // A .dfx: the VFX system file layout, stated in the header from its first version (VFX-02). v3
-    // (VFX-MODULE-ASSET): stack rows name `.dfxmod` modules by {Guid, Path}; the header states their GUIDs.
+    // (VFX-MODULE-ASSET): stack rows name `.dfxmod` modules by {Guid, Path}; the header states their GUIDs. v4
+    // (VFX-PARAMS): every emitter states its EventHandlers (Serialization/VFXSystem.hpp).
     inline constexpr uint32_t kVFXSystemSchemaTag     = Common::Content::FourCC( "VFXS" );
-    inline constexpr uint32_t kVFXSystemSchemaVersion = 3;
+    inline constexpr uint32_t kVFXSystemSchemaVersion = 4;
     // A .deinputaction / .deinputcontext: UE's UInputAction / UInputMappingContext, stated in the header from
     // their first version (GP1a; Serialization/InputAssets.hpp).
     inline constexpr uint32_t kInputActionSchemaTag             = Common::Content::FourCC( "INAC" );

@@ -153,7 +153,11 @@ namespace Desert::Graphic::System
         // RegisterExternal); an emitter whose buffers cannot be imported is logged and sits the frame out, and
         // with no pool no emitter is declared. With no declared emitter the particle nodes declare nothing and the
         // graph culls them. Call once per frame graph, after PrepareFrame, in every view.
-        void ImportFrameBuffers( RDG::Builder& graph );
+        // VFX-PARAMS: the simulating view also imports each emitter's event table and its system's event buffer
+        // (once per system), and writes its CollisionView - the camera @p sceneDepth was drawn with; @p
+        // hasSceneDepth false = @p sceneDepth is the fallback image and nothing collides (CollisionView.Camera.w =
+        // 0).
+        void ImportFrameBuffers( RDG::Builder& graph, RDG::TextureRef sceneDepth, bool hasSceneDepth );
 
         // Compact @p compact (0..SimulationStepCount()): one ParticleCompact dispatch per declared emitter that
         // runs it, rebuilding its free list, the alive half (compact & 1) and its Counters slot (compact & 1) -
@@ -259,6 +263,10 @@ namespace Desert::Graphic::System
             RDG::BufferRef              StepsRef;
             RDG::BufferRef              CountersRef; // read by the sprite / ribbon draws as IndirectArgs
             RDG::BufferRef              ArgsRef;     // written by Dispatch Args, read as IndirectArgs
+            // VFX-PARAMS: the emitter's event table and its system's event buffer (m_Events' ref).
+            RDG::ExternalBuffer         EventTableImport;
+            RDG::BufferRef              EventTableRef;
+            RDG::BufferRef              EventsRef;
             bool                        Declared = false;
             // Its bounds are in this view's frustum (PrepareFrame): its rows are drawn by the view's own passes.
             // The light views cull it by their own frusta (shadows) and the simulation runs either way.
@@ -405,5 +413,17 @@ namespace Desert::Graphic::System
         std::vector<ViewEmitter>                                                 m_ViewEmitters;
         std::vector<ViewDraw>                                                    m_ViewDraws;
         ViewPool                                                                 m_Pool;
+        // VFX-PARAMS: each placed system's event buffer imported ONCE (its emitters share it), by entity id; and
+        // the simulation's collision inputs - the view's CollisionView block and this frame's scene depth.
+        struct ViewEvents
+        {
+            RDG::ExternalBuffer Import;
+            RDG::BufferRef      Ref;
+        };
+        std::unordered_map<uint32_t, ViewEvents>        m_Events;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_CollisionView;
+        RDG::ExternalBuffer                             m_CollisionViewImport;
+        RDG::BufferRef                                  m_CollisionViewRef;
+        RDG::TextureRef                                 m_SceneDepthRef;
     };
 } // namespace Desert::Graphic::System

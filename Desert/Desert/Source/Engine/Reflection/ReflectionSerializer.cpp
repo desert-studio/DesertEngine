@@ -111,6 +111,19 @@ namespace Desert::Reflection
                 out[field.Name] = Common::Json::Value( std::move( array ) );
                 return;
             }
+            // A vector of a reflected struct: each element is that struct's own object.
+            if ( field.IsContainer && field.ElementType == FieldType::Struct )
+            {
+                if ( field.ElementStructType == nullptr || field.SerializeStructContainer == nullptr )
+                {
+                    LOG_ERROR( "Reflection: {} is a vector of '{}', which is not a registered reflected struct; "
+                               "the field is not written",
+                               field.Name, field.ElementTypeName );
+                    return;
+                }
+                out[field.Name] = field.SerializeStructContainer( p, *field.ElementStructType, resolver );
+                return;
+            }
             // Containers route through the codegen-emitted typed lambda (the switch can't iterate vectors).
             if ( field.IsContainer && field.SerializeContainer )
             {
@@ -203,8 +216,8 @@ namespace Desert::Reflection
             }
             const FieldInfo& field = top.Type->Fields[top.Next++];
             const void*      p     = top.Base + field.Offset;
-            // A container goes through its typed lambda (WriteField) whatever its element type.
-            if ( field.Type == FieldType::Struct && !( field.IsContainer && field.SerializeContainer ) )
+            // A container goes through WriteField whatever its element type.
+            if ( field.Type == FieldType::Struct && !field.IsContainer )
             {
                 if ( field.StructType != nullptr )
                     stack.push_back( { field.StructType, static_cast<const std::byte*>( p ), &field, 0, {} } );
@@ -279,6 +292,17 @@ namespace Desert::Reflection
                      } );
                 if ( issues.size() == before )
                     field.AssignHandles( p, read );
+                return;
+            }
+            if ( field.IsContainer && field.ElementType == FieldType::Struct )
+            {
+                if ( field.ElementStructType == nullptr || field.DeserializeStructContainer == nullptr )
+                {
+                    g.Report( issues, std::format( "a vector of '{}' (not a registered reflected struct)",
+                                                   field.ElementTypeName ) );
+                    return;
+                }
+                field.DeserializeStructContainer( p, *field.ElementStructType, g, issues, resolver );
                 return;
             }
             if ( field.IsContainer && field.DeserializeContainer )
@@ -446,8 +470,8 @@ namespace Desert::Reflection
                 continue; // missing key — keep the field's current value
 
             void* p = top.Base + field.Offset;
-            // A container goes through its typed lambda (ReadField) whatever its element type.
-            if ( field.Type == FieldType::Struct && !( field.IsContainer && field.DeserializeContainer ) )
+            // A container goes through ReadField whatever its element type.
+            if ( field.Type == FieldType::Struct && !field.IsContainer )
             {
                 if ( field.StructType != nullptr && found->ExpectKind( Kind::Object, issues ) )
                     stack.push_back( { field.StructType, static_cast<std::byte*>( p ), *found, 0 } );

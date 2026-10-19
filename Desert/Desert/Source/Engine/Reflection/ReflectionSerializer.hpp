@@ -126,4 +126,33 @@ namespace Desert::Reflection
         if ( issues.size() == before )
             *static_cast<Vector*>( field ) = std::move( read );
     }
+    // THE CODEGEN'S HALVES OF A std::vector OF A REFLECTED STRUCT (FieldInfo::SerializeStructContainer /
+    // DeserializeStructContainer): each element is the struct's own object, written and read by the same walk as
+    // any reflected object, under the same resolver (an asset handle inside an element keeps its reference form).
+    template <typename Vector>
+    [[nodiscard]] Common::Json::Value WriteStructContainer( const void* field, const TypeInfo& element,
+                                                            const AssetResolver* resolver )
+    {
+        Common::Json::Value::Array array;
+        for ( const auto& one : *static_cast<const Vector*>( field ) )
+            array.emplace_back( SerializeReflected( element, &one, resolver ) );
+        return { std::move( array ) };
+    }
+
+    // Read back under the wrong-type rule, and the vector is ONE field (ReadContainer's rule): each element
+    // starts from a default-constructed struct (a missing key keeps that default), and any Issue inside any
+    // element leaves the WHOLE vector as it was.
+    template <typename Vector>
+    void ReadStructContainer( void* field, const TypeInfo& element, const Common::Json::Node& src,
+                              Common::Json::Issues& issues, const AssetResolver* resolver )
+    {
+        if ( !src.ExpectKind( Common::Json::Kind::Array, issues ) )
+            return;
+        Vector            read;
+        const std::size_t before = issues.size();
+        src.ForEachElement( [&]( std::size_t, const Common::Json::Node& node )
+                            { DeserializeReflected( element, &read.emplace_back(), node, issues, resolver ); } );
+        if ( issues.size() == before )
+            *static_cast<Vector*>( field ) = std::move( read );
+    }
 } // namespace Desert::Reflection

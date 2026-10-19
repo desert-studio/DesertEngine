@@ -29,6 +29,24 @@ namespace Desert::Reflection
         static_cast<Vector*>( field )->resize( count );
     }
 
+    /// Drops the element at `index`; later elements move down. Past the end, nothing.
+    template <typename Vector>
+    void ContainerErase( void* field, std::size_t index )
+    {
+        auto& vector = *static_cast<Vector*>( field );
+        if ( index < vector.size() )
+            vector.erase( vector.begin() + static_cast<std::ptrdiff_t>( index ) );
+    }
+
+    /// The address of the element at `index` of a vector of a reflected struct, for a reader that walks the
+    /// element's own fields (FieldInfo::ContainerElement); past the end, null.
+    template <typename Vector>
+    [[nodiscard]] void* ContainerElement( void* field, std::size_t index )
+    {
+        auto& vector = *static_cast<Vector*>( field );
+        return index < vector.size() ? static_cast<void*>( &vector[index] ) : nullptr;
+    }
+
     /// The element at `index` as a Value of the element's kind; past the end, an empty (Unknown) Value.
     template <typename Vector, typename Stored = typename Vector::value_type>
     [[nodiscard]] Value ContainerGet( const void* field, std::size_t index )

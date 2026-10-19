@@ -3,6 +3,8 @@
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/WorldContext.hpp>
+#include <Engine/ECS/Components.hpp>
+#include <Engine/VFX/VFXUserParams.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 
 #include <glm/glm.hpp>
@@ -132,5 +134,28 @@ namespace Desert::VFX
                 }
             }
         return ok;
+    }
+
+    bool VFXLibrary::SetParam( ECS::Entity entity, const std::string& name, const glm::vec4& value )
+    {
+        if ( !entity || !entity.HasComponent<ECS::VFXComponent>() )
+        {
+            LOG_WARN( "[VFX] setParam('{}'): the entity has no VFX component", name );
+            return false;
+        }
+        const auto set = SetComponentUserParam( entity.GetComponent<ECS::VFXComponent>().Data, name, value );
+        if ( !set )
+            LOG_WARN( "[VFX] setParam: {}", set.GetError() );
+        return set.IsSuccess();
+    }
+
+    bool VFXLibrary::ClearParam( ECS::Entity entity, const std::string& name )
+    {
+        if ( !entity || !entity.HasComponent<ECS::VFXComponent>() )
+        {
+            LOG_WARN( "[VFX] clearParam('{}'): the entity has no VFX component", name );
+            return false;
+        }
+        return ClearUserParamOverride( entity.GetComponent<ECS::VFXComponent>().Data.UserParams, name );
     }
 } // namespace Desert::VFX
