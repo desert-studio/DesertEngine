@@ -279,7 +279,7 @@ TEST( MaterialImportAdapter, TheAmbientOcclusionStrengthIsAppliedOnceInEverySurf
                std::string::npos )
          << "SurfaceResolveORM no longer lerps the occlusion texel by its strength (glTF occlusionStrength)";
 
-    for ( const char* file : { "Surface/StandardSurface.shader", "Toon/Toon.shader" } )
+    for ( const char* file : { "Surface/StandardSurface.shader", "Toon/Toon.shader", "Toon/ToonMasked.shader" } )
     {
         const std::string text = RepoFile( std::format( "Editor/Resources/Shaders/Programs/{}", file ) );
         ASSERT_FALSE( text.empty() ) << file;

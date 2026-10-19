@@ -525,9 +525,14 @@ namespace Desert::Graphic
                 // RenderPath == Deferred. Non-fatal if it fails to init (deferred path is simply unavailable).
                 RegisterSystem<System::DeferredLightingRenderer>( "DeferredLightingSystem", this,
                                                                   m_TargetFramebuffer );
-                if ( !SP_CAST( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] )
-                           ->Initialize() )
-                    LOG_WARN( "[SceneRenderer] Deferred lighting system unavailable." );
+                // A program only some Shadows methods need failing refuses those methods by name
+                // (DeferredLightingRenderer::Refusals, read by every ResolveRenderMethods), not the whole path.
+                const auto& deferred =
+                     SP_CAST( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] );
+                if ( const auto deferredInit = deferred->Initialize(); !deferredInit )
+                    LOG_WARN( "[SceneRenderer] Deferred lighting system unavailable: {}",
+                              deferredInit.GetError() );
+                m_ProgramRefusals = deferred->Refusals();
                 return "DeferredLighting";
             }
             case 20:
@@ -872,12 +877,14 @@ namespace Desert::Graphic
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
-        // device x render path, each lowered axis logged once. m_RenderPath (set above, a debug view may force
-        // forward) is what the frame graph branches on, so a method that needs the G-buffer is lowered exactly
-        // when the deferred block will not run - under forward, ray-traced sun shadows resolve to CascadedMaps and
-        // the cascades are drawn for the forward meshes that read them (UE's forward renderer does the same).
-        m_RenderMethods = ResolveRenderMethods( post, quality, Common::Scalability::QualityState::Catalog(),
-                                                m_RenderPath == Core::RenderPath::Deferred && m_GBuffer );
+        // device x render path x the programs the view's renderers built, each lowered axis logged once.
+        // m_RenderPath (set above, a debug view may force forward) is what the frame graph branches on, so a
+        // method that needs the G-buffer is lowered exactly when the deferred block will not run - under forward,
+        // ray-traced sun shadows resolve to CascadedMaps and the cascades are drawn for the forward meshes that
+        // read them (UE's forward renderer does the same).
+        m_RenderMethods =
+             ResolveRenderMethods( post, quality, Common::Scalability::QualityState::Catalog(),
+                                   m_RenderPath == Core::RenderPath::Deferred && m_GBuffer, m_ProgramRefusals );
         m_GIPipeline    = GlobalIllumination::PipelineFor( m_RenderMethods.GlobalIllumination.Effective, quality,
                                                            Common::Scalability::QualityState::Catalog() );
         ReportRenderMethods( m_RenderMethods );

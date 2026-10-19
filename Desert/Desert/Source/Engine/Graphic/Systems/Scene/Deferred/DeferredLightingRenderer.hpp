@@ -15,10 +15,14 @@
 #include <Engine/Graphic/ShaderProtocols/LightPayloadBytes.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
 #include <Engine/Graphic/LightGrid.hpp>
+#include <Engine/Graphic/RenderMethods.hpp>
 
 #include <glm/glm.hpp>
 
+#include <Common/Core/Logger.hpp>
+
 #include <array>
+#include <format>
 #include <map>
 #include <utility>
 #include <span>
@@ -84,16 +88,11 @@ namespace Desert::Graphic::System
             m_Programs[kScreenMaskSunProgram].Shader = shaders->AcquireVariant(
                  "DeferredLighting",
                  Core::ShaderVariant{ .Defines = { std::string( kSunShadowScreenMaskDefine ) } } );
-            if ( !m_Programs[kScreenMaskSunProgram].Shader )
-                return Common::MakeError( "DeferredLighting (DESERT_SUN_SHADOW_SCREEN_MASK) did not compile" );
             // Shadows Stochastic: the ray-traced sun's mask, and the local lights from MegaLights in place of the
             // light-grid loop and its shadow maps.
             m_Programs[kMegaLightsProgram].Shader = shaders->AcquireVariant(
                  "DeferredLighting", Core::ShaderVariant{ .Defines = { std::string( kSunShadowScreenMaskDefine ),
                                                                        std::string( kMegaLightsDefine ) } } );
-            if ( !m_Programs[kMegaLightsProgram].Shader )
-                return Common::MakeError(
-                     "DeferredLighting (DESERT_SUN_SHADOW_SCREEN_MASK + DESERT_MEGALIGHTS) did not compile" );
 
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target )
@@ -106,18 +105,45 @@ namespace Desert::Graphic::System
             // preserved — the shader discards non-geometry texels so that scene shows through.
             spec.DepthTestEnabled  = false;
             spec.DepthWriteEnabled = false;
+            m_Refusals             = {};
             for ( std::size_t index = 0; index < m_Programs.size(); ++index )
             {
                 CompositeProgram& program = m_Programs[index];
                 // Each permutation names its own pipeline, so a device-lost report says which sun arm drew.
                 const std::string programName{ kProgramDebugNames[index] };
-                spec.DebugName      = programName;
-                spec.Shader         = program.Shader;
-                const auto pipeline = Graphic::GraphicsPipeline::Create( spec );
-                if ( !pipeline )
-                    return Common::MakeError( pipeline.GetError() );
-                program.Pipeline = pipeline.GetValue();
-                program.Material = std::make_unique<MaterialDeferredLighting>( program.Shader );
+                Common::BoolResultStr built = BOOLSUCCESS;
+                if ( !program.Shader )
+                    built =
+                         Common::MakeError( std::format( "the '{}' permutation did not compile", programName ) );
+                else
+                {
+                    spec.DebugName      = programName;
+                    spec.Shader         = program.Shader;
+                    const auto pipeline = Graphic::GraphicsPipeline::Create( spec );
+                    if ( pipeline )
+                        program.Pipeline = pipeline.GetValue();
+                    else
+                        built = Common::MakeError( pipeline.GetError() );
+                }
+                if ( built )
+                {
+                    program.Material = std::make_unique<MaterialDeferredLighting>( program.Shader );
+                    continue;
+                }
+                // The cascades' program draws CascadedMaps, the ladder's front: without it there is no deferred
+                // composite at all. Any other program serves only the Shadows methods it is named for: those are
+                // refused by name (ResolveRenderMethods walks on down the ladder), the composite keeps the rest.
+                const std::span<const Common::Scalability::ShadowMethod> methods = kProgramShadowMethods[index];
+                if ( methods.empty() )
+                    return Common::MakeError( std::format( "Deferred lighting: {}", built.GetError() ) );
+                program = CompositeProgram{};
+                for ( const Common::Scalability::ShadowMethod method : methods )
+                {
+                    m_Refusals.Shadows.push_back( { .Refused = method, .Program = kProgramDebugNames[index] } );
+                    LOG_ERROR( "[DeferredLighting] Shadows {} refused on this device: {}",
+                               Common::Scalability::kShadowMethodNames[static_cast<std::size_t>( method )],
+                               built.GetError() );
+                }
             }
 
             m_GridShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "LightGridBuild" );
@@ -133,6 +159,13 @@ namespace Desert::Graphic::System
             if ( !m_WorldViewShader )
                 return Common::MakeError( "LightGridWorldView shader not found" );
             return BOOLSUCCESS;
+        }
+
+        // The Shadows methods this renderer could not build a program for on this device (Initialize), which
+        // SceneRenderer hands to ResolveRenderMethods so the view renders the next method down instead.
+        [[nodiscard]] const ProgramRefusals& Refusals() const
+        {
+            return m_Refusals;
         }
 
         // The "Light Grid (World)" view mode's pipeline for a target of @p format at @p samples (the view's post
@@ -400,7 +433,16 @@ namespace Desert::Graphic::System
         static constexpr std::size_t kMegaLightsProgram    = 2; // DeferredShadowInput::MegaLightsLocalLights
         static constexpr std::array<std::string_view, 3> kProgramDebugNames = {
              "DeferredLighting", "DeferredLighting RayTracedSun", "DeferredLighting MegaLights" };
+        // The Shadows methods each program alone serves; empty = every method needs it (the cascades' program).
+        // HardwareTraced and VirtualMaps read the screen mask; Stochastic draws its own MegaLights program.
+        static constexpr std::array<Common::Scalability::ShadowMethod, 2> kScreenMaskSunMethods = {
+             Common::Scalability::ShadowMethod::VirtualMaps, Common::Scalability::ShadowMethod::HardwareTraced };
+        static constexpr std::array<Common::Scalability::ShadowMethod, 1> kMegaLightsMethods = {
+             Common::Scalability::ShadowMethod::Stochastic };
+        static constexpr std::array<std::span<const Common::Scalability::ShadowMethod>, 3> kProgramShadowMethods =
+             { std::span<const Common::Scalability::ShadowMethod>{}, kScreenMaskSunMethods, kMegaLightsMethods };
         std::array<CompositeProgram, 3> m_Programs;
+        ProgramRefusals                 m_Refusals;
         std::size_t                     m_Active = kCascadeProgram; // FillMaterial's arm, this frame
 
         // "LightGrid": the froxel light lists the composite reads.
