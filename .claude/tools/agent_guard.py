@@ -395,6 +395,16 @@ def self_check():
         cases["tests before the feature works"] = None
         if '"deny"' not in out.stdout:
             failed.append("tests before the feature works")
+        if weather_gate_pending():  # the rule bites only until the gate branches are on dev
+            with open(fat, "w", encoding="utf-8") as f:
+                f.write("## Сделать\n1. Покрытие облаков от погоды.\n## Чем доказать\nкадр\n")
+            out = subprocess.run([sys.executable, __file__], input=json.dumps({
+                "tool_name": "Agent", "hook_event_name": "PreToolUse",
+                "tool_input": {"subagent_type": "general-purpose", "description": "WTH-CLOUDS", "prompt": f"brief {fat}"}}),
+                capture_output=True, text=True)
+            cases["weather agent before WTH-STATE+OCCL on dev"] = None
+            if "WTH-CLOUDS" not in out.stdout:
+                failed.append("weather agent before WTH-STATE+OCCL on dev")
     finally:
         try:
             os.remove(fat)
@@ -442,6 +452,24 @@ def lead_running_agents():
     return [code for ts, code in state.values() if now - ts < 6 * 3600]
 
 
+WEATHER_CODE = re.compile(r"\b(WTH-[A-Z0-9]+)")
+WEATHER_GATE = {"WTH-STATE", "WTH-OCCL"}
+
+
+def weather_gate_pending():
+    """Gate branches still off dev. A branch gone from origin was landed and deleted by MERGE-ALL."""
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    pending = []
+    for code in sorted(WEATHER_GATE):
+        ref = f"refs/remotes/origin/task/{code}"
+        if subprocess.run(["git", "-C", repo, "rev-parse", "-q", "--verify", ref], capture_output=True).returncode != 0:
+            continue
+        if subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor", ref, "refs/remotes/origin/dev"],
+                          capture_output=True).returncode != 0:
+            pending.append(code)
+    return pending
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -482,6 +510,17 @@ def main():
         denial = brief_size_denial(str((data.get("tool_input") or {}).get("prompt") or ""))
         if denial:
             deny(denial, data, "lead")
+    # Owner 10-19 («2 и 3 ок»): no further weather agent until WTH-STATE and WTH-OCCL are on dev — weather tasks cost
+    # ~1 M each (Editor build + frames) and stacked on branches nobody had landed.
+    if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "Agent" and \
+            ((data.get("tool_input") or {}).get("subagent_type") or "general-purpose").lower() != "explore":
+        tin = data.get("tool_input") or {}
+        codes = sorted(set(WEATHER_CODE.findall(f"{tin.get('description') or ''} {tin.get('prompt') or ''}")) - WEATHER_GATE)
+        pending = weather_gate_pending() if codes else []
+        if pending:
+            deny(f"[agent_guard] Тимлид: погодных агентов ({', '.join(codes)}) не запускать, пока {', '.join(pending)} не в "
+                 f"origin/dev — выбор владельца 10-19 «2 и 3 ок». Сначала влей их (land_dev.sh), `git fetch --prune`, потом запускай.",
+                 data, "lead")
     if not agent or agent_type == "explore":
         sys.exit(0)  # the lead's own session, or a discovery agent: unrestricted
 
