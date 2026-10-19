@@ -141,7 +141,8 @@ namespace Desert::Graphic::RayTracing
         if ( !m_Target )
             m_Target = CreateRayTracingSceneTarget();
         const Common::ResultStr<RayTracingSceneFrame> frame =
-             AddRayTracingScenePass( graph, required, m_Instances, *m_Target, m_DynamicBlas );
+             AddRayTracingScenePass( graph, required, m_Instances, *m_Target, m_DynamicBlas,
+                                     !m_DynamicBuilds.empty() );
         if ( !frame )
             return Common::MakeError( frame.GetError() );
         m_Frame = frame.GetValue();

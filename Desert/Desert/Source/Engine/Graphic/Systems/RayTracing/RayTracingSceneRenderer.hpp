@@ -123,9 +123,11 @@ namespace Desert::Graphic::RayTracing
     // nothing and answers Built = false otherwise. Errors: the target could not be prepared (the frame then has
     // no TLAS, and a reader must not be declared). @p blasInputs: the BLASes this graph builds before the TLAS
     // (RayTracingScene.DynamicGeometry); the TLAS build reads them, which orders it after their builds.
+    // @p blasBuiltInThisGraph: some of them were (re)built in this graph (RayTracingSceneFrame::DynamicGeometry).
     [[nodiscard]] inline Common::ResultStr<RayTracingSceneFrame>
     AddRayTracingScenePass( RDG::Builder& graph, bool required, const RayTracingInstanceList& list,
-                            RayTracingSceneTarget& target, std::span<const RDG::BufferRef> blasInputs = {} )
+                            RayTracingSceneTarget& target, std::span<const RDG::BufferRef> blasInputs = {},
+                            const bool blasBuiltInThisGraph = false )
     {
         RayTracingSceneFrame frame;
         if ( !required )
@@ -141,7 +143,9 @@ namespace Desert::Graphic::RayTracing
         frame.InstanceHash                = 14695981039346656037ull; // FNV-1a 64 offset basis
         for ( const std::byte b : rows )
             frame.InstanceHash = ( frame.InstanceHash ^ static_cast<uint64_t>( b ) ) * 1099511628211ull;
-        frame.DynamicGeometry = !blasInputs.empty();
+        // A BLAS BUILT in this graph, not one merely read: resident dynamic BLASes (landscape tiles, procedural meshes
+        // built in an earlier frame) are blasInputs every frame without anything having changed.
+        frame.DynamicGeometry = blasBuiltInThisGraph;
         frame.Instances = graph.CreateBuffer( RDG::BufferDesc{ frame.InstanceBytes }, kTlasInstancesName );
         graph.QueueBufferUpload( frame.Instances, rows );
         const std::vector<std::byte> ranges = EncodePrimitiveInstanceRows( list.Ranges );
