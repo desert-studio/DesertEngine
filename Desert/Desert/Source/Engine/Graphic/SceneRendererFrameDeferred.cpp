@@ -513,6 +513,7 @@ namespace Desert::Graphic
         gather.GBufferDepth       = inputs.GBufferDepth;
         gather.GBufferA           = inputs.GBufferA;
         gather.GBufferB           = inputs.GBufferB;
+        gather.GBufferShadingWord = gbuffer[2];
         gather.GBufferEmissive    = inputs.GBufferEmissive;
         gather.EnvSpecular        = inputs.EnvSpecular;
         gather.Tracer             = inputs.Tracer;

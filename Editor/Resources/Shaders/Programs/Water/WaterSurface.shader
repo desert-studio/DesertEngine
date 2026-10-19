@@ -81,7 +81,7 @@ Shader "WaterSurface"
     {
         In(0) vec3 v_WorldPos;
         Out(0) vec4 o_Color;
-        Out(1) vec2 oVelocity; // the view's velocity, slot 1 of the scene target
+        Out(1) vec4 oVelocity; // the view's velocity, slot 1 of the scene target
 
         #include <Programs/Water/WaterSurfaceData.glslh>
         #include <Common/ObjectMotion.glslh>

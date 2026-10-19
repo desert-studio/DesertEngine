@@ -366,7 +366,7 @@ namespace Desert::Core::Formats
             case ImageFormat::BC6H_UFLOAT:
                 return 3; // radiance; the format has no alpha at all
             case ImageFormat::BC5_UNORM: // X and Y of a tangent normal; Z is reconstructed by the shader
-            case ImageFormat::RG16F:     // velocity: NDC x and y
+            case ImageFormat::RG16F:
             case ImageFormat::RG32_UINT: // the shading word's two halves
                 return 2;
             case ImageFormat::R11G11B10F:

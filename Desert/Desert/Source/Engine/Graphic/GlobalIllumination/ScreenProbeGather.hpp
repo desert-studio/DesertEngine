@@ -83,17 +83,18 @@ namespace Desert::Graphic
 
 namespace Desert::Graphic::GlobalIllumination
 {
-    // std430 — must match `struct ScreenProbeParams` in Common/ScreenProbes.glslh. 128 bytes.
+    // std430 — must match `struct ScreenProbeParams` in Common/ScreenProbes.glslh. 192 bytes.
     struct ScreenProbeParamsPayload
     {
         glm::mat4  PrevViewProjection{ 1.0f };
+        glm::mat4  PrevInvViewProjection{ 1.0f }; // the temporal filter's previous world position of a pixel
         glm::vec4  PrevCamera{ 0.0f };
         glm::vec4  Jitter{ 0.0f }; // xy = this frame's jitter in NDC, zw = last frame's
         glm::uvec4 Grid{ 0u };  // xy = level-0 grid, z = uniform probes, w = adaptive probe budget
         glm::uvec4 Atlas{ 0u }; // x = probes per atlas row, y = frame index, z = kScreenProbe* flags below,
                                 // w = the frame's probe jitter in pixels (x | y << 16, ScreenProbeJitter)
     };
-    static_assert( sizeof( ScreenProbeParamsPayload ) == 128 );
+    static_assert( sizeof( ScreenProbeParamsPayload ) == 192 );
     // ScreenProbeParamsPayload::Atlas.z — must match SP_FLAG_* in Common/ScreenProbes.glslh.
     inline constexpr uint32_t kScreenProbeHistoryValid = 1u; // the temporal history is the view's previous frame
     inline constexpr uint32_t kScreenProbeShortRangeAO = 2u; // the ShortRangeAO pass ran: the integrate reads it
@@ -169,6 +170,7 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::TextureRef    GBufferDepth;
         RDG::TextureRef    GBufferA; // albedo
         RDG::TextureRef    GBufferB; // normal
+        RDG::TextureRef    GBufferShadingWord; // the temporal filter's foliage test (DesertHasBackfaceDiffuse)
         RDG::TextureRef    GBufferEmissive;
         RDG::TextureRef    EnvSpecular;  // the sky's radiance cube (or the system black cube)
         TracerFrame        Tracer;       // the active tracer and its reads (GITracing.hpp)

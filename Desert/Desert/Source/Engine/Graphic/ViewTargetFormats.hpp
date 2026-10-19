@@ -33,10 +33,11 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr ImageFormat kGBufferShadingWord = ImageFormat::RG32_UINT;
     inline constexpr ImageFormat kGBufferEmissive = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kGBufferDepth    = ImageFormat::DEPTH32F;
-    // Screen motion of the surface each pixel shows: current minus previous UNJITTERED NDC.xy (TAA1, see
-    // View/SceneViewState.hpp "Velocity" — kVelocityFormat there is this constant). A colour attachment of the
-    // G-buffer AND of the scene target, because both hold passes that write the view's depth.
-    inline constexpr ImageFormat kVelocity        = ImageFormat::RG16F;
+    // Screen motion of the surface each pixel shows: current minus previous UNJITTERED NDC.xyz, w = 0 (TAA1, see
+    // View/SceneViewState.hpp "Velocity" — kVelocityFormat there is this constant; z = the device depth's change,
+    // UE's VELOCITY_ENCODE_DEPTH, which the screen probe gather's history test reprojects by). A colour attachment
+    // of the G-buffer AND of the scene target, because both hold passes that write the view's depth.
+    inline constexpr ImageFormat kVelocity        = ImageFormat::RGBA16F;
     // Responsive AA (UE: the stencil bit STENCIL_TEMPORAL_RESPONSIVE_AA_MASK a `bResponsiveAA` material writes): how
     // much of each pixel a responsive translucent surface or particle covers, 0..1, blended like the colour it
     // composites. The temporal resolve raises the current frame's weight to UE's 1/4 by it, so a surface that

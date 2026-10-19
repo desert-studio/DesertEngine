@@ -42,6 +42,8 @@ Shader "ScreenProbeDisocclusion"
         {
             float screenProbeDisocclusion[]; // per probe: the disoccluded share of its tile, [0, 1]
         };
+        Uniform(10) usampler2D GBufferShadingWord; // the foliage flag (DesertHasBackfaceDiffuse)
+        #include <Generated/ShadingModels.glslh>
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
         #define SCREEN_PROBE_HISTORY_DECLARED
@@ -86,11 +88,12 @@ Shader "ScreenProbeDisocclusion"
                 const vec4 gb = texelFetch( u_GBufferB, pixel, 0 );
                 if ( dot( gb.xyz, gb.xyz ) <= 0.001 )
                     continue;
-                const vec2 uv = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
-                const vec3 p  = ReconstructWorldPosition( uv, texelFetch( u_GBufferDepth, pixel, 0 ).r,
-                                                          giFrame.invViewProjection );
+                const vec2  uv    = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
+                const float depth = texelFetch( u_GBufferDepth, pixel, 0 ).r;
+                const vec3  p     = ReconstructWorldPosition( uv, depth, giFrame.invViewProjection );
                 // The threshold's dither at its middle: the share, not one frame's coin flips, decides.
-                const SPHistoryTaps taps = SPHistoryReproject( pixel, p, normalize( gb.xyz ), 0.5 );
+                const SPHistoryTaps taps =
+                     SPHistoryReproject( pixel, depth, p, normalize( gb.xyz ), SPPixelIsFoliage( pixel ), 0.5 );
                 ++surface;
                 if ( SPHistoryFrames( taps ) < SP_DISOCCLUSION_MAX_FRAMES )
                     ++disoccluded;

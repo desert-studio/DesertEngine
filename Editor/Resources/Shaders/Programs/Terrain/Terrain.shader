@@ -146,7 +146,7 @@ Shader "Terrain"
     Fragment
     {
         Out(0) vec4 o_Color;
-        Out(1) vec2 oVelocity; // the view's velocity, slot 1 of the scene target (TerrainSurface.glslh)
+        Out(1) vec4 oVelocity; // the view's velocity, slot 1 of the scene target (TerrainSurface.glslh)
 
         #include <Programs/Terrain/TerrainSurface.glslh>
 

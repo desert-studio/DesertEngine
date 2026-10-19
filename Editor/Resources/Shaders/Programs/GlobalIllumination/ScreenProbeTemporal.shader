@@ -2,9 +2,10 @@
 // Ported from UE 5.8 Shaders/Private/Lumen/LumenScreenProbeGatherTemporal.usf ScreenProbeTemporalReprojectionCS
 // (the history weights, NumFramesAccumulated and the 1 / (1 + frames) blend of the diffuse, rough specular and
 // backface diffuse), adapted: the history taps are tested here (Common/ScreenProbeTemporal.glslh, UE's
-// classification pass); no fast-update mode (UE's LightIsMoving needs the traces' moving fraction, which the
-// gather does not produce: REMAINDER-GI-DENOISE); the short-range AO is not accumulated separately (it is already
-// in the integrated diffuse and specular).
+// classification pass: depth reprojected by the velocity's depth, the foliage threshold and material test); no
+// fast-update mode (UE's LightIsMoving is the traces' moving fraction, set by the trace passes from the hit's
+// velocity, which they do not produce: REMAINDER-GI-DENOISE); the short-range AO is not accumulated separately
+// (it is already in the integrated diffuse and specular).
 // THE SCREEN PROBE GATHER, TEMPORAL FILTER: one thread per G-buffer pixel. The integrated lighting of this frame
 // blended with the pixel's reprojected history, by how many frames the history holds: a pixel the history does
 // not hold (disoccluded, off-screen last frame, a cut) restarts at this frame's value and converges in a few
@@ -30,7 +31,7 @@ Shader "ScreenProbeTemporal"
         };
         Uniform(2) sampler2D u_GBufferDepth;
         Uniform(3) sampler2D u_GBufferB;
-        Uniform(4) sampler2D Velocity;                 // NDC current - previous (View/Velocity.hpp)
+        Uniform(4) sampler2D Velocity;                 // NDC.xyz current - previous (View/Velocity.hpp)
         Uniform(5) sampler2D DiffuseIndirect;          // this frame's integrate
         Uniform(6) sampler2D RoughSpecularIndirect;
         Uniform(7) sampler2D BackfaceDiffuseIndirect;
@@ -42,7 +43,9 @@ Shader "ScreenProbeTemporal"
         layout(binding = 13, rgba16f) restrict writeonly uniform image2D NewHistoryRoughSpecularIndirect;
         layout(binding = 14, rgba16f) restrict writeonly uniform image2D NewHistoryBackfaceDiffuseIndirect;
         layout(binding = 15, rgba16f) restrict writeonly uniform image2D NewHistoryGuide;
+        Uniform(16) usampler2D GBufferShadingWord;     // the foliage flag (DesertHasBackfaceDiffuse)
 
+        #include <Generated/ShadingModels.glslh>
         #define SCREEN_PROBE_HISTORY_DECLARED
         #include <Common/ScreenProbeTemporal.glslh>
 
@@ -71,17 +74,18 @@ Shader "ScreenProbeTemporal"
                 return;
             }
             const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
-            const vec3  p        = ReconstructWorldPosition( uv, texelFetch( u_GBufferDepth, pixel, 0 ).r,
-                                                             giFrame.invViewProjection );
+            const float depth    = texelFetch( u_GBufferDepth, pixel, 0 ).r;
+            const vec3  p        = ReconstructWorldPosition( uv, depth, giFrame.invViewProjection );
             const vec3  n        = normalize( gb.xyz );
             const float distance = max( length( p - giFrame.camera.xyz ), 1e-3 );
+            const bool  foliage  = SPPixelIsFoliage( pixel );
 
             vec3 diffuse  = texelFetch( DiffuseIndirect, pixel, 0 ).rgb;
             vec3 specular = texelFetch( RoughSpecularIndirect, pixel, 0 ).rgb;
             vec3 backface = texelFetch( BackfaceDiffuseIndirect, pixel, 0 ).rgb;
 
-            const SPHistoryTaps taps =
-                 SPHistoryReproject( pixel, p, n, TemporalNoise( uvec2( pixel ), screenProbeParams.atlas.y ) );
+            const float         noise = TemporalNoise( uvec2( pixel ), screenProbeParams.atlas.y );
+            const SPHistoryTaps taps  = SPHistoryReproject( pixel, depth, p, n, foliage, noise );
             float frames = 0.0;
             if ( SPHistoryAnyValid( taps ) )
             {
@@ -94,7 +98,7 @@ Shader "ScreenProbeTemporal"
             imageStore( NewHistoryDiffuseIndirect, pixel, vec4( diffuse, distance ) );
             imageStore( NewHistoryRoughSpecularIndirect, pixel, vec4( specular, 1.0 ) );
             imageStore( NewHistoryBackfaceDiffuseIndirect, pixel, vec4( backface, 1.0 ) );
-            imageStore( NewHistoryGuide, pixel, vec4( n, frames ) );
+            imageStore( NewHistoryGuide, pixel, vec4( n, SPPackGuideW( frames, foliage ) ) );
         }
     }
 }

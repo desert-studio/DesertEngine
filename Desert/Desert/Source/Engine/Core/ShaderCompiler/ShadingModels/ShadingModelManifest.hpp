@@ -148,7 +148,8 @@ namespace Desert::Core::ShadingModels
         // line (after SubsurfaceOpacity) names the body's `vec3 <fn>( DesertPayload P )` that decodes the model's
         // subsurface colour from its payload - the light the surface lets through to its far side. The surface
         // cache keeps it per card texel and lights the card's back side with it (DesertSubsurfaceColor;
-        // Programs/SurfaceCache). Empty = the model lets nothing through.
+        // Programs/SurfaceCache). Empty = the model lets nothing through. Set = the model has UE's backface
+        // diffuse (DesertHasBackfaceDiffuse: the screen probe gather's temporal filter treats it as foliage).
         std::string              SubsurfaceColorFunction;
         std::string              Body;    // the GLSL after the Inputs block
         std::filesystem::path    SourcePath;

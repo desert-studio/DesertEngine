@@ -17,7 +17,7 @@ layout( location = 3 ) out vec4 oGBufferEmissive; // Emissive.rgb (HDR; the defe
 // The view's velocity (Graphic::kVelocityFormat, slot 4 of the G-buffer target): this pass writes the view's depth,
 // so it writes the same surface's motion.
 #include <Common/ObjectMotion.glslh>
-layout( location = 4 ) out vec2 oVelocity;
+layout( location = 4 ) out vec4 oVelocity;
 
 void main()
 {

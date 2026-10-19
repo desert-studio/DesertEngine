@@ -361,6 +361,18 @@ namespace Desert::Core::ShadingModels
                                 ShadingModelIndexDefine( e.Manifest.Name ), e.Manifest.SubsurfaceColorFunction );
         out += "    return vec3( 0.0 );\n}\n";
 
+        // UE HasBackfaceDiffuse (the foliage flag Lumen's history packs, StochasticLightingCommon.ush): a model
+        // that lets light through to its far side, from the same SubsurfaceColor lines. The screen probe gather's
+        // temporal filter keeps such pixels' history by its own distance threshold and never mixes them with
+        // pixels of the other kind (Common/ScreenProbeTemporal.glslh).
+        out += "\n// The model lights its far side (UE bHasBackfaceDiffuse: two-sided foliage).\n"
+               "bool DesertHasBackfaceDiffuse( int index )\n{\n";
+        for ( const ShadingModelEntry& e : m_Entries )
+            if ( !e.Manifest.SubsurfaceColorFunction.empty() )
+                std::format_to( emit, "    if ( index == {} )\n        return true;\n",
+                                ShadingModelIndexDefine( e.Manifest.Name ) );
+        out += "    return false;\n}\n";
+
         // The shading word (ShadingModelContract.glslh): a uvec2, packed and unpacked with integer operations, its
         // bits numbered across the pair (0..31 = .x, 32..63 = .y). The NO_SUN_SHADOWS bit is not one of these
         // fields and is left to the pass.

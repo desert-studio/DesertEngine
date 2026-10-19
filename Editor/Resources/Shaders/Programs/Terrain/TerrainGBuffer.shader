@@ -118,7 +118,7 @@ Shader "TerrainGBuffer"
         Out(1) vec4 oGBufferB;        // Normal.rgb, Roughness.a
         Out(2) uvec2 oGBufferShadingWord; // shading word (DefaultLit, no maps, no payload); no world position
         Out(3) vec4 oGBufferEmissive; // Emissive.rgb
-        Out(4) vec2 oVelocity;        // the view's velocity, slot 4 of the G-buffer target (TerrainSurface.glslh)
+        Out(4) vec4 oVelocity;        // the view's velocity, slot 4 of the G-buffer target (TerrainSurface.glslh)
 
         #include <Programs/Terrain/TerrainSurface.glslh>
         #include <Generated/ShadingModels.glslh>

@@ -189,9 +189,10 @@ namespace Desert::Graphic
     //
     // A GBuffer-class transient of every view, RenderExtent, written by EVERY pass that rasterises scene depth
     // (the depth and the velocity of a pixel must come from the same surface, or TAA reprojects a wall with a
-    // character's motion). Value: current unjittered NDC.xy minus previous unjittered NDC.xy of the surface point
-    // (ViewFrame rule: velocity never carries the jitter). Pixels no geometry covered (sky, clouds, far plane)
-    // keep the clear value 0 and the TAA pass derives their motion from depth and the two view matrices.
+    // character's motion). Value: current unjittered NDC.xyz minus previous unjittered NDC.xyz of the surface
+    // point (ViewFrame rule: velocity never carries the jitter; z = the device depth's change, VelocityNdc).
+    // Pixels no geometry covered (sky, clouds, far plane) keep the clear value 0 and the TAA pass derives their
+    // motion from depth and the two view matrices.
     inline constexpr Core::Formats::ImageFormat kVelocityFormat = ViewTargetFormats::kVelocity;
 
     // RDG-FAULT1 fit. Velocity lost to a fault (every geometry pass that wrote it removed) is read as Black = zero
@@ -275,7 +276,8 @@ namespace Desert::Graphic
             DiffuseIndirect = 0,     // rgb = irradiance / pi, a = the pixel's distance to the camera (cm)
             RoughSpecularIndirect,   // rgb = radiance, a = 1
             BackfaceDiffuseIndirect, // rgb = irradiance / pi from -N, a = 1
-            Guide,                   // xyz = world normal, w = frames accumulated (UE NumFramesAccumulated)
+            Guide,                   // xyz = world normal, w = frames accumulated (UE NumFramesAccumulated) plus
+                                     // the foliage flag (UE bHasBackfaceDiffuse; SPPackGuideW, ScreenProbeTemporal)
             TextureCount
         };
         using Refs = std::array<RDG::TextureRef, TextureCount>;

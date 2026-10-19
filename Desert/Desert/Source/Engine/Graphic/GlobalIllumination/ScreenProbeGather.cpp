@@ -179,10 +179,11 @@ namespace Desert::Graphic::GlobalIllumination
             return Common::MakeError<ScreenProbeGatherFrame>(
                  "screen probes: the screen trace's HZB or scene colour history is missing (bind the system black "
                  "texture when the view has none)" );
-        if ( !inputs.Velocity.IsValid() || !inputs.Black.IsValid() )
+        if ( !inputs.Velocity.IsValid() || !inputs.GBufferShadingWord.IsValid() || !inputs.Black.IsValid() )
             return Common::MakeError<ScreenProbeGatherFrame>(
-                 "screen probes: the view's velocity or the system black texture is missing (the temporal filter "
-                 "reprojects by the velocity and binds black for a history the view does not hold)" );
+                 "screen probes: the view's velocity, the G-buffer's shading word or the system black texture is "
+                 "missing (the temporal filter reprojects by the velocity, tells foliage by the shading word and "
+                 "binds black for a history the view does not hold)" );
         const ScreenProbeLayout layout = MakeScreenProbeLayout( inputs.Extent, inputs.AdaptiveProbePercent );
         if ( const auto images = EnsureImages( inputs.Extent, layout ); !images )
             return Common::MakeError<ScreenProbeGatherFrame>( images.GetError() );
@@ -212,6 +213,9 @@ namespace Desert::Graphic::GlobalIllumination
         { return historyReadable ? previous[texture] : inputs.Black; };
 
         ScreenProbeParamsPayload params;
+        // The temporal filter's previous world position of a pixel (its NDC.xyz minus the velocity).
+        params.PrevInvViewProjection = glm::inverse( inputs.PrevViewProjection );
+
         params.PrevViewProjection = inputs.PrevViewProjection;
         params.PrevCamera         = glm::vec4( inputs.PrevCameraPosition, 0.0f );
         params.Jitter             = glm::vec4( inputs.JitterNdc, inputs.PrevJitterNdc );
@@ -452,6 +456,8 @@ namespace Desert::Graphic::GlobalIllumination
                               .Storage( "ScreenProbesUB", probes, kR )
                               .Storage( "GIFrameUB", inputs.GIFrame, kR )
                               .Sampled( "Velocity", inputs.Velocity, kS, all, RDG::SamplerDesc::PointClamp() )
+                              .Sampled( "GBufferShadingWord", inputs.GBufferShadingWord, kS, all,
+                                        RDG::SamplerDesc::PointClamp() )
                               .Sampled( "DiffuseIndirectHistory", historyOrBlack( History::DiffuseIndirect ), kS,
                                         all, RDG::SamplerDesc::PointClamp() )
                               .Sampled( "HistoryGuide", historyOrBlack( History::Guide ), kS, all,
@@ -586,6 +592,8 @@ namespace Desert::Graphic::GlobalIllumination
                      block.Storage( "ScreenProbeParamsUB", paramsBuffer, kR )
                           .Storage( "GIFrameUB", inputs.GIFrame, kR )
                           .Sampled( "Velocity", inputs.Velocity, kS, all, RDG::SamplerDesc::PointClamp() )
+                          .Sampled( "GBufferShadingWord", inputs.GBufferShadingWord, kS, all,
+                                    RDG::SamplerDesc::PointClamp() )
                           .Sampled( "DiffuseIndirect", diffuse, kS, all, RDG::SamplerDesc::PointClamp() )
                           .Sampled( "RoughSpecularIndirect", specular, kS, all, RDG::SamplerDesc::PointClamp() )
                           .Sampled( "BackfaceDiffuseIndirect", backface, kS, all, RDG::SamplerDesc::PointClamp() )
