@@ -40,7 +40,11 @@ namespace Desert::Graphic
 
             std::array<RDG::ExternalTexture, 2>     pair;
             std::array<std::shared_ptr<Image2D>, 2> sides;
-            for ( uint32_t side = 0; side < 2; ++side )
+            // A persistent history has one side (side 0); side 1 keeps its desc and no image.
+            const uint32_t sideCount = history.Lifetime == HistoryLifetime::Persistent ? 1u : 2u;
+            if ( sideCount == 1u )
+                pair[1] = RDG::ExternalTexture( desc, RDG::Access::None );
+            for ( uint32_t side = 0; side < sideCount; ++side )
             {
                 const Core::Formats::Image2DSpecification spec = {
                      .Tag        = std::string( history.Name ) + ( side == 0 ? "[0]" : "[1]" ),

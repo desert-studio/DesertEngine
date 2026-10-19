@@ -37,6 +37,14 @@ namespace Desert::Graphic
                     return "TAA";
                 case TemporalMethod::TAAU:
                     return "TAAU";
+                case TemporalMethod::DLSS:
+                    return "DLSS";
+                case TemporalMethod::FSR:
+                    return "FSR";
+                case TemporalMethod::TSR:
+                    return "TSR";
+                case TemporalMethod::DLSSRR:
+                    return "DLSSRR";
             }
             return "<unknown TemporalMethod>";
         }
@@ -49,8 +57,16 @@ namespace Desert::Graphic
             seen.reserve( descs.size() * 2 );
             for ( std::size_t i = 0; i < descs.size(); ++i )
             {
+                const bool persistent = descs[i].Lifetime == HistoryLifetime::Persistent;
+                if ( persistent && descs[i].PreviousName != nullptr && descs[i].PreviousName[0] != '\0' )
+                    return Common::MakeFormattedError<bool>(
+                         "SceneViewState::BeginFrame: upscaler '{}' declares the persistent history {} ('{}') with a "
+                         "PreviousName '{}' (a persistent history has one side)",
+                         upscalerName, i, descs[i].Name, descs[i].PreviousName );
                 for ( const char* side : { descs[i].Name, descs[i].PreviousName } )
                 {
+                    if ( persistent && side == descs[i].PreviousName )
+                        continue;
                     const std::string_view name = side != nullptr ? std::string_view( side ) : std::string_view();
                     if ( name.empty() )
                         return Common::MakeFormattedError<bool>(
@@ -263,7 +279,8 @@ namespace Desert::Graphic
 
     bool HistoryTextureDesc::operator==( const HistoryTextureDesc& other ) const
     {
-        return SameTextureDesc( Desc, other.Desc ) && std::string_view( Name ) == std::string_view( other.Name ) &&
+        return SameTextureDesc( Desc, other.Desc ) && Lifetime == other.Lifetime &&
+               std::string_view( Name ) == std::string_view( other.Name ) &&
                std::string_view( PreviousName ) == std::string_view( other.PreviousName );
     }
 
@@ -291,8 +308,17 @@ namespace Desert::Graphic
         for ( std::size_t i = 0; i < m_Pairs.size(); ++i )
         {
             HistoryRefs history;
-            history.Previous = graph.RegisterExternal( m_Pairs[i][m_CurrentSlot ^ 1u], m_Descs[i].PreviousName );
-            history.Current  = graph.RegisterExternal( m_Pairs[i][m_CurrentSlot], m_Descs[i].Name );
+            if ( m_Descs[i].Lifetime == HistoryLifetime::Persistent )
+            {
+                // One side, never swapped: side 0 is the texture.
+                history.Current  = graph.RegisterExternal( m_Pairs[i][0], m_Descs[i].Name );
+                history.Previous = history.Current;
+            }
+            else
+            {
+                history.Previous = graph.RegisterExternal( m_Pairs[i][m_CurrentSlot ^ 1u], m_Descs[i].PreviousName );
+                history.Current  = graph.RegisterExternal( m_Pairs[i][m_CurrentSlot], m_Descs[i].Name );
+            }
             graph.SetFaultPolicy( history.Current, kHistoryFaultPolicy );
             m_RegisteredCurrent.push_back( history.Current.Index );
             refs.push_back( history );
@@ -377,8 +403,15 @@ namespace Desert::Graphic
                      split.GetValue().RenderScalePercent );
         }
 
+        if ( upscaler != nullptr && inputs.Scalability == nullptr )
+            return Common::MakeFormattedError<ViewFrame>(
+                 "SceneViewState::BeginFrame: upscaler '{}' needs ViewInputs::Scalability (the renderer's "
+                 "resolved "
+                 "quality its history shape is read from), and none was given",
+                 upscaler->DebugName() );
         const std::vector<HistoryTextureDesc> descs =
-             upscaler != nullptr ? upscaler->HistoryDescs( split.GetValue() ) : std::vector<HistoryTextureDesc>{};
+             upscaler != nullptr ? upscaler->HistoryDescs( split.GetValue(), *inputs.Scalability )
+                                 : std::vector<HistoryTextureDesc>{};
         if ( upscaler != nullptr )
         {
             const Common::BoolResultStr named = CheckHistoryNames( descs, upscaler->DebugName() );
@@ -435,9 +468,13 @@ namespace Desert::Graphic
         f.NearPlane      = inputs.NearPlane;
         f.FarPlane       = inputs.FarPlane;
 
-        f.JitterSequenceLength = TemporalJitterSequenceLength( f.Method, f.Split );
+        // The method's own sample pattern (ITemporalUpscaler::JitterSequenceLength / JitterPixels; the engine's
+        // Halton sequence unless a vendor SDK prescribes another). No upscaler = method None = no jitter.
+        f.JitterSequenceLength = upscaler != nullptr ? upscaler->JitterSequenceLength( f.Split ) : 0;
         f.JitterIndex  = ( isReset || f.JitterSequenceLength == 0 ) ? 0 : m_JitterIndex % f.JitterSequenceLength;
-        f.JitterPixels = TemporalJitterPixels( f.JitterIndex, f.JitterSequenceLength );
+        f.JitterPixels         = f.JitterSequenceLength == 0
+                                      ? glm::vec2( 0.0f )
+                                      : upscaler->JitterPixels( f.JitterIndex, f.JitterSequenceLength );
         f.JitterNdc    = JitterPixelsToNdc( f.JitterPixels, f.Split.Render );
 
         // Method None: no jitter at all, so the jittered matrices are bit-identical to the unjittered ones.
@@ -461,16 +498,17 @@ namespace Desert::Graphic
         f.PrevTimeSeconds = isReset ? inputs.TimeSeconds : m_Committed.TimeSeconds;
         f.DeltaSeconds    = static_cast<float>( f.TimeSeconds - f.PrevTimeSeconds );
 
-        // Only a TEMPORAL upscale reconstructs output-pixel detail from the jittered samples; the spatial
-        // upscale has one sample per render pixel, and a negative bias there only aliases (UE applies the
-        // screen-percentage mip bias under temporal upsampling only).
-        f.MaterialMipBias = 0.0f;
-        if ( f.Split.Mode == Common::Scalability::ScaleMode::Upscale && f.Method != TemporalMethod::None &&
-             f.Split.Render.Width != 0 && f.Split.Output.Width != 0 )
-            f.MaterialMipBias = std::log2( static_cast<float>( f.Split.Render.Width ) /
-                                           static_cast<float>( f.Split.Output.Width ) );
+        // Only a TEMPORAL method reconstructs output-pixel detail from the jittered samples; the spatial
+        // upscale has one sample per render pixel, and a negative bias there only aliases. The rule is the
+        // method's (ITemporalUpscaler::MaterialMipBias): UE's screen-percentage bias, or the vendor SDK's own.
+        f.MaterialMipBias = upscaler != nullptr ? upscaler->MaterialMipBias( f.Split ) : 0.0f;
+        // A method without one keeps no vendor state (UE drops the third-party history with the method).
+        if ( upscaler == nullptr )
+            m_UpscalerHistory.reset();
 
         f.HistoryReset = reset;
+        f.Parallax     = inputs.Parallax;
+        f.SunDirection = inputs.SunDirection;
 
         m_Pending               = f;
         m_PendingCameraIdentity = inputs.CameraIdentity;
@@ -529,6 +567,7 @@ namespace Desert::Graphic
         m_Clouds.Reset();
         m_ScreenProbeGather.Reset();
         m_History.Release();
+        m_UpscalerHistory.reset();
         m_Motion.Clear();
         m_HasCommitted            = false;
         m_Pending                 = ViewFrame{};

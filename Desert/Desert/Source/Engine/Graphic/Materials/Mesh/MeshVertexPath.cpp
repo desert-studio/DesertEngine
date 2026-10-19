@@ -51,6 +51,18 @@ namespace Desert::Graphic
         return std::format( "{}/{}", templateName, cell );
     }
 
+    std::optional<std::string> FrontLayerShaderFor( std::string_view templateName )
+    {
+        // A material names its template, or (a generic override) one of the template's cells: the template is the
+        // name before the cell.
+        templateName = templateName.substr( 0, templateName.find( '/' ) );
+        if ( templateName.empty() )
+            return std::nullopt;
+        return std::format( "{}/{}", templateName,
+                            Core::Preprocess::SurfaceCellName( Core::Preprocess::kSurfaceFrontLayerPath,
+                                                               Core::Preprocess::kSurfaceFrontLayerPass ) );
+    }
+
     std::optional<std::string> TemplateCellShader( std::string_view templateName, MeshVertexPath path,
                                                    MeshPass                                       pass,
                                                    const std::function<bool( std::string_view )>& isRegistered )
@@ -72,22 +84,40 @@ namespace Desert::Graphic
         return cell;
     }
 
-    ShadowCasterCell ShadowCasterCellFor( Core::Formats::SurfaceBlendMode blend )
+    ShadowCasterCell ShadowCasterCellFor( Core::Formats::SurfaceBlendMode blend, const bool parallax )
     {
-        return blend == Core::Formats::SurfaceBlendMode::Masked ? ShadowCasterCell::Own : ShadowCasterCell::Shared;
+        return blend == Core::Formats::SurfaceBlendMode::Masked || parallax ? ShadowCasterCell::Own
+                                                                            : ShadowCasterCell::Shared;
     }
 
     std::optional<std::string> ShadowCasterShaderFor( std::string_view                materialTemplate,
                                                       std::string_view                defaultTemplate,
-                                                      Core::Formats::SurfaceBlendMode blend, MeshVertexPath path )
+                                                      Core::Formats::SurfaceBlendMode blend, const bool parallax,
+                                                      MeshVertexPath path )
     {
         const std::string_view owner =
-             ShadowCasterCellFor( blend ) == ShadowCasterCell::Own ? materialTemplate : defaultTemplate;
-        return MeshShaderFor( owner, path, MeshPass::ShadowDepth );
+             ShadowCasterCellFor( blend, parallax ) == ShadowCasterCell::Own ? materialTemplate : defaultTemplate;
+        auto cell = MeshShaderFor( owner, path, MeshPass::ShadowDepth );
+        if ( cell && parallax )
+            return ParallaxCellOf( *cell );
+        return cell;
+    }
+
+    std::string ParallaxCellOf( const std::string_view cellShader )
+    {
+        return std::format( "{}{}", cellShader, Core::Preprocess::kSurfaceParallaxCellSuffix );
+    }
+
+    bool IsParallaxCell( const std::string_view shaderName )
+    {
+        return shaderName.ends_with( Core::Preprocess::kSurfaceParallaxCellSuffix );
     }
 
     std::optional<MeshVertexPath> MeshCellPath( std::string_view shaderName )
     {
+        // A `.Parallax` permutation is drawn on its base cell's path.
+        if ( IsParallaxCell( shaderName ) )
+            shaderName.remove_suffix( Core::Preprocess::kSurfaceParallaxCellSuffix.size() );
         for ( uint32_t p = 0; p < kMeshVertexPathCount; ++p )
             for ( uint32_t s = 0; s < kMeshPassCount; ++s )
             {

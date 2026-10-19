@@ -82,9 +82,13 @@ Shader "WaterSurface"
         In(0) vec3 v_WorldPos;
         Out(0) vec4 o_Color;
         Out(1) vec4 oVelocity; // the view's velocity, slot 1 of the scene target
+        // The view's thin-geometry coverage, slot 3 of the scene target: this pass writes the view's depth. Water is
+        // a lit surface that is not foliage (UE: SingleLayerWater counts as a regular surface).
+        Out(3) float oThinGeometryCoverage;
 
         #include <Programs/Water/WaterSurfaceData.glslh>
         #include <Common/ObjectMotion.glslh>
+        #include <Common/ThinGeometryCoverage.glslh>
 
         void main()
         {
@@ -107,6 +111,7 @@ Shader "WaterSurface"
             o_Color   = vec4( mix( body, skyCol, fres ) + glint, 1.0 );
             vec4 world = vec4( v_WorldPos, 1.0 );
             oVelocity  = DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world );
+            oThinGeometryCoverage = kThinGeometryCoverageSurface;
         }
     }
 }

@@ -15,10 +15,24 @@ namespace Desert::Graphic
     {
         using namespace Common::Scalability;
 
-        [[nodiscard]] bool OffersRayQuery( const CapabilityCatalog& catalog )
+        // What the device runs that a method may need: inline ray query (a pipeline device offers it too), the
+        // ray tracing pipeline, fragment-stage stores and atomics, and the largest framebuffer / viewport side.
+        struct DeviceOffers
         {
-            return std::any_of( catalog.RayTracingModes.begin(), catalog.RayTracingModes.end(),
-                                []( RayTracingMode m ) { return m != RayTracingMode::None; } );
+            bool     RayQuery       = false;
+            bool     Pipeline       = false;
+            bool     FragmentStores = false;
+            uint32_t RenderArea     = 0;
+        };
+
+        [[nodiscard]] DeviceOffers OffersOf( const CapabilityCatalog& catalog )
+        {
+            return { .RayQuery = std::any_of( catalog.RayTracingModes.begin(), catalog.RayTracingModes.end(),
+                                              []( RayTracingMode m ) { return m != RayTracingMode::None; } ),
+                     .Pipeline = CapabilityCatalog::Offers( catalog.RayTracingModes,
+                                                            RayTracingMode::RayTracingPipeline ),
+                     .FragmentStores = catalog.FragmentStores,
+                     .RenderArea     = catalog.MaxRenderArea };
         }
 
         // The program a view's renderer could not build for @p method, empty when every one it needs built.
@@ -32,29 +46,24 @@ namespace Desert::Graphic
             return it == refusals.end() ? std::string_view{} : it->Program;
         }
 
-        // The one rule, per axis: min( request, ceiling ), then down the ladder (the enum's order) past every
-        // method the device cannot run, the render path cannot feed, this build does not implement or a renderer
-        // could not build a program for. The ladder's front (Off / CascadedMaps) is implemented, needs nothing and
-        // is never refused (its programs failing is the renderer's initialisation error), so the walk always ends.
+        // Down the ladder from r.Effective past every method the device cannot run, the render path cannot feed,
+        // this build does not implement or a renderer could not build a program for; the first limit met is
+        // kept. The front (Off / CascadedMaps) is implemented, needs nothing and is never refused (its programs
+        // failing is the renderer's initialisation error), so the walk always ends.
         template <typename Method>
-        ResolvedMethod<Method> ResolveAxis( Method requested, Method ceiling, bool rayQuery, bool fragmentStores,
-                                            uint32_t renderArea, bool gBuffer,
-                                            std::span<const MethodRefusal<Method>> refusals )
+        void WalkDown( ResolvedMethod<Method>& r, const DeviceOffers device, const bool gBuffer,
+                       std::span<const MethodRefusal<Method>> refusals )
         {
-            ResolvedMethod<Method> r{ .Requested = requested, .Ceiling = ceiling, .Effective = requested };
-            if ( ceiling < requested )
-            {
-                r.Effective = ceiling;
-                r.Limit     = MethodLimit::Scalability;
-            }
             for ( ;; )
             {
                 MethodLimit blocked = MethodLimit::None;
-                if ( NeedsRayQuery( r.Effective ) && !rayQuery )
+                if ( NeedsRayQuery( r.Effective ) && !device.RayQuery )
                     blocked = MethodLimit::Device;
-                else if ( NeedsFragmentStores( r.Effective ) && !fragmentStores )
+                else if ( NeedsRayTracingPipeline( r.Effective ) && !device.Pipeline )
+                    blocked = MethodLimit::DevicePipeline;
+                else if ( NeedsFragmentStores( r.Effective ) && !device.FragmentStores )
                     blocked = MethodLimit::FragmentStores;
-                else if ( NeedsRenderArea( r.Effective ) > renderArea )
+                else if ( NeedsRenderArea( r.Effective ) > device.RenderArea )
                     blocked = MethodLimit::RenderArea;
                 else if ( NeedsGBuffer( r.Effective ) && !gBuffer )
                     blocked = MethodLimit::RenderPath;
@@ -68,12 +77,40 @@ namespace Desert::Graphic
                         r.Program = program;
                 }
                 if ( blocked == MethodLimit::None )
-                    break;
+                    return;
                 if ( r.Limit == MethodLimit::None )
                     r.Limit = blocked;
                 r.Effective = static_cast<Method>( static_cast<int>( r.Effective ) - 1 );
             }
+        }
+
+        // The one rule, per axis: min( request, ceiling ), then down the ladder (the enum's order): WalkDown.
+        template <typename Method>
+        ResolvedMethod<Method> ResolveAxis( Method requested, Method ceiling, const DeviceOffers device,
+                                            const bool gBuffer, std::span<const MethodRefusal<Method>> refusals )
+        {
+            ResolvedMethod<Method> r{ .Requested = requested, .Ceiling = ceiling, .Effective = requested };
+            if ( ceiling < requested )
+            {
+                r.Effective = ceiling;
+                r.Limit     = MethodLimit::Scalability;
+            }
+            WalkDown( r, device, gBuffer, refusals );
             return r;
+        }
+
+        // The path tracer is ONE integrator for GI and reflections: an axis that resolved to PathTraced while the
+        // other did not is lowered one step and walked on, naming the pair as its limit.
+        template <typename Method>
+        void LowerUnpairedPathTraced( ResolvedMethod<Method>& r, const DeviceOffers device, const bool gBuffer,
+                                      std::span<const MethodRefusal<Method>> refusals )
+        {
+            if ( r.Effective != Method::PathTraced )
+                return;
+            r.Effective = static_cast<Method>( static_cast<int>( Method::PathTraced ) - 1 );
+            if ( r.Limit == MethodLimit::None )
+                r.Limit = MethodLimit::PathTracerPair;
+            WalkDown( r, device, gBuffer, refusals );
         }
 
         std::string_view LimitText( MethodLimit limit, std::string_view scalabilityKey, std::string& scratch,
@@ -88,6 +125,11 @@ namespace Desert::Graphic
                     return scratch;
                 case MethodLimit::Device:
                     return "the device offers no ray query";
+                case MethodLimit::DevicePipeline:
+                    return "the device offers no ray tracing pipeline";
+                case MethodLimit::PathTracerPair:
+                    return "the path tracer integrates GI and reflections together; the other axis is not "
+                           "PathTraced";
                 case MethodLimit::RenderPath:
                     return "the forward render path has no G-buffer";
                 case MethodLimit::NotImplemented:
@@ -128,19 +170,24 @@ namespace Desert::Graphic
                                         const CapabilityCatalog& catalog, bool gBuffer,
                                         const ProgramRefusals& refusals )
     {
-        const bool    rayQuery = OffersRayQuery( catalog );
-        RenderMethods out;
-        out.GlobalIllumination = ResolveAxis(
-             post.GlobalIlluminationMethod, quality.As<GIMethod>( Parameter::GlobalIlluminationMethod ), rayQuery,
-             catalog.FragmentStores, catalog.MaxRenderArea, gBuffer,
-             std::span<const MethodRefusal<GIMethod>>( refusals.GlobalIllumination ) );
+        const DeviceOffers device = OffersOf( catalog );
+        RenderMethods      out;
+        out.GlobalIllumination =
+             ResolveAxis( post.GlobalIlluminationMethod, quality.As<GIMethod>( Parameter::GlobalIlluminationMethod ),
+                          device, gBuffer, std::span<const MethodRefusal<GIMethod>>( refusals.GlobalIllumination ) );
         out.Reflections =
-             ResolveAxis( post.ReflectionsMethod, quality.As<ReflectionMethod>( Parameter::ReflectionsMethod ),
-                          rayQuery, catalog.FragmentStores, catalog.MaxRenderArea, gBuffer,
-                          std::span<const MethodRefusal<ReflectionMethod>>( refusals.Reflections ) );
-        out.Shadows = ResolveAxis( post.ShadowsMethod, quality.As<ShadowMethod>( Parameter::ShadowsMethod ), rayQuery,
-                                   catalog.FragmentStores, catalog.MaxRenderArea, gBuffer,
-                                   std::span<const MethodRefusal<ShadowMethod>>( refusals.Shadows ) );
+             ResolveAxis( post.ReflectionsMethod, quality.As<ReflectionMethod>( Parameter::ReflectionsMethod ), device,
+                          gBuffer, std::span<const MethodRefusal<ReflectionMethod>>( refusals.Reflections ) );
+        if ( ( out.GlobalIllumination.Effective == GIMethod::PathTraced ) !=
+             ( out.Reflections.Effective == ReflectionMethod::PathTraced ) )
+        {
+            LowerUnpairedPathTraced( out.GlobalIllumination, device, gBuffer,
+                                     std::span<const MethodRefusal<GIMethod>>( refusals.GlobalIllumination ) );
+            LowerUnpairedPathTraced( out.Reflections, device, gBuffer,
+                                     std::span<const MethodRefusal<ReflectionMethod>>( refusals.Reflections ) );
+        }
+        out.Shadows = ResolveAxis( post.ShadowsMethod, quality.As<ShadowMethod>( Parameter::ShadowsMethod ), device,
+                                   gBuffer, std::span<const MethodRefusal<ShadowMethod>>( refusals.Shadows ) );
         out.ContactShadows       = post.ContactShadows && kContactShadowsImplemented;
         out.DistanceFieldShadows = post.DistanceFieldShadows && kDistanceFieldShadowsImplemented;
         return out;
@@ -153,6 +200,24 @@ namespace Desert::Graphic
         methods.Shadows.Effective = ShadowMethod::CascadedMaps;
         if ( methods.Shadows.Limit == MethodLimit::None )
             methods.Shadows.Limit = MethodLimit::FrameScene;
+    }
+
+    bool PathTraced( const RenderMethods& methods )
+    {
+        return methods.GlobalIllumination.Effective == GIMethod::PathTraced &&
+               methods.Reflections.Effective == ReflectionMethod::PathTraced;
+    }
+
+    void LowerPathTracingForFrame( RenderMethods& methods, const bool rayTracedSceneReady )
+    {
+        if ( rayTracedSceneReady || !PathTraced( methods ) )
+            return;
+        methods.GlobalIllumination.Effective = GIMethod::HardwareTraced;
+        methods.Reflections.Effective        = ReflectionMethod::HardwareTraced;
+        if ( methods.GlobalIllumination.Limit == MethodLimit::None )
+            methods.GlobalIllumination.Limit = MethodLimit::FrameScene;
+        if ( methods.Reflections.Limit == MethodLimit::None )
+            methods.Reflections.Limit = MethodLimit::FrameScene;
     }
 
     std::vector<std::string> FormatRenderMethods( const RenderMethods& methods )

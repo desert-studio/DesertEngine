@@ -61,6 +61,7 @@ namespace Common::Scalability
         ViewDistance,    // sg.ViewDistanceQuality — LOD distance scale, foliage/HLOD distances
         AntiAliasing,    // sg.AntiAliasingQuality — axis 1
         ResolutionScale, // sg.ResolutionQuality — axis 2
+        Shading,         // sg.ShadingQuality — material shader cost: parallax occlusion steps
         Count
     };
     inline constexpr std::size_t kGroupCount = static_cast<std::size_t>( Group::Count );
@@ -174,12 +175,52 @@ namespace Common::Scalability
         ShadowMegaLightsMaxHistory,
         ShadowMegaLightsDenoiserRadius,
         ShadowMegaLightsDownsampleFactor,
+        // The MegaLights translucency volume (System::MegaLightsVolumeRenderer; UE MegaLights' volume, sampled by
+        // the forward and translucent surfaces): its froxel edge in render pixels (UE r.MegaLights.Volume's grid
+        // cell, the fog grid's 16 px times DownsampleFactor), its depth slices over the light grid's near..far
+        // (logarithmic), and the traced light samples per froxel per frame (UE NumSamplesPerVoxel).
+        // 8..64, 16..128, 1..4.
+        ShadowMegaLightsVolumeTilePixels,
+        ShadowMegaLightsVolumeSlices,
+        ShadowMegaLightsVolumeSamples,
         // GI ScreenSpace: the one-bounce gather's samples per pixel (DeferredLighting.shader GatherIndirectGI,
         // u_ScreenSpaceGI.x). 4..64
         ScreenSpaceGISamples,
         // Reflections ScreenSpace: the Reflections denoiser's reconstruction kernel, taps per side from the centre
         // (UE r.Reflections.Denoiser.ReconstructionSamples). 1..3
         ReflectionDenoiserRadius,
+        // Reflections ScreenSpace/traced: the trace's pixels per side per traced texel (UE
+        // r.Lumen.Reflections.DownsampleFactor). 1 = every pixel traced each frame; 2 = one pixel of each 2x2
+        // block, rotating per frame, the denoiser's reconstruction and history filling the other three. 1..2
+        ReflectionDownsampleFactor,
+        // The DLSS preset of each DLSS mode (DLSSUpscaler: the mode its split selects reads its row). Values:
+        // DlssPreset (CapabilityCatalog.hpp). Read only while DLSS runs.
+        DlssPresetDLAA,
+        DlssPresetUltraQuality,
+        DlssPresetQuality,
+        DlssPresetBalanced,
+        DlssPresetPerformance,
+        DlssPresetUltraPerformance,
+        // The Ray Reconstruction preset of each DLSS mode (DLSSUpscaler under Upscaler::DLSSRayReconstruction: the
+        // mode its split selects reads its row). Values: DlssRRPreset (CapabilityCatalog.hpp). Read only while
+        // Ray Reconstruction runs.
+        DlssRRPresetDLAA,
+        DlssRRPresetUltraQuality,
+        DlssRRPresetQuality,
+        DlssRRPresetBalanced,
+        DlssRRPresetPerformance,
+        DlssRRPresetUltraPerformance,
+        // The engine's own temporal upscaler below 100 % when no vendor one is asked for, and the fallback of a
+        // vendor upscaler the device does not offer. Values: EngineTemporalUpscaler (TAAU / TSR).
+        TemporalUpscaler,
+        // TSR (Graphic::TemporalSuperResolution), UE's sg.AntiAliasingQuality rows of r.TSR.*. Read only while
+        // TSR runs.
+        TsrHistoryScreenPercentage,    // r.TSR.History.ScreenPercentage: history extent, % of output. 100..200
+        TsrHistoryUpdateQuality,       // r.TSR.History.UpdateQuality: UpdateHistory shader variant. 0..3
+        TsrShadingRejectionFlickering, // r.TSR.ShadingRejection.Flickering: flicker-tolerant rejection. 0/1
+        TsrRejectionAntiAliasing,      // r.TSR.RejectionAntiAliasingQuality: spatial AA of rejected pixels. 0..2
+        TsrReprojectionField,          // r.TSR.ReprojectionField: depth-anti-aliased reprojection + jacobian. 0/1
+        TsrResurrection,               // r.TSR.Resurrection: resurrect disoccluded history from a kept frame. 0/1
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
         TextureStreamingPoolMiB, // Textures: resident texture budget
@@ -213,6 +254,11 @@ namespace Common::Scalability
                                                 // r.Lumen.ScreenProbeGather.RadianceCache.NumProbesToTraceBudget)
         HitLightingAllowed,                     // 0/1: a hardware-traced hit may be lit in place (UE
                                                 // r.Lumen.HardwareRayTracing.HitLighting.Allowed)
+        // The path tracer (GIMethod / ReflectionMethod PathTraced, System::PathTracer). UE r.PathTracing.*.
+        PathTracingPathsPerFrame,   // paths traced per pixel per frame, 1..64 (UE traces one)
+        PathTracingMaxBounces,      // bounces after the camera ray's hit, 0..64 (UE r.PathTracing.MaxBounces)
+        PathTracingSamplesPerPixel, // paths per pixel after which the view stops tracing, 1..65536 (UE
+                                    // r.PathTracing.SamplesPerPixel: the image is converged and kept)
         // GI SoftwareTraced / ProbeVolume costs still fixed in code that another task owns (ScreenProbeGather,
         // WorldRadianceCache: FOLIAGE-LOOK-7). Reserved with their per-level values; each gains its reader there.
         ScreenProbeDownsample,   // screen pixels per probe side (UE r.Lumen.ScreenProbeGather.DownsampleFactor;
@@ -230,6 +276,16 @@ namespace Common::Scalability
                                                 // r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction)
         ScreenProbeShortRangeAO,                // 0/1: the screen probe gather's own contact AO + bent normal (UE
                                                 // r.Lumen.ScreenProbeGather.ShortRangeAO); 0 = SSAO occludes it
+        ReflectionsTranslucentFrontLayer, // 0/1: the nearest translucent surface of a pixel writes its own
+                                          // G-buffer and is reflected by the opaque surfaces' tracer and
+                                          // denoiser; glass reads that reflection in place of the sky (UE
+                                          // r.Lumen.TranslucencyReflections.FrontLayer.Enable)
+        // Parallax occlusion mapping (Mesh/Surface/SurfaceParallax.glslh), through ViewFrame::Parallax and the view
+        // block: march steps head-on and at grazing view, and the self-shadow steps toward the sun (0 = no relief
+        // self-shadow).
+        ShadingParallaxMinSteps,    // 1..64
+        ShadingParallaxMaxSteps,    // 1..128
+        ShadingParallaxShadowSteps, // 0..64
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
@@ -394,9 +450,11 @@ namespace Common::Scalability
     //   3. A value outside its spec range is clamped ("outside the parameter's range").
     //   4. A value its catalog list does not offer walks DOWN the list to the nearest offered value below it;
     //      if none, the list's front ("not offered by this device"). MSAACounts/AnisotropyLevels: largest offered
-    //      <= requested. Upscalers: DLSS/XeSS/MetalFX/FSR -> TAAU. AA methods: DLAA/FSRNative -> TAA.
+    //      <= requested. Upscalers: DLSS/XeSS/MetalFX/FSR -> TAAU; DLSSRayReconstruction -> DLSS where offered,
+    //      else TAAU. AA methods: DLAA/FSRNative -> TAA.
     //   5. Axis coupling: RenderScale < 100 and Upscaler None -> TAAU ("an upscaler is required below 100 %");
-    //      RenderScale >= 100 and Upscaler != None -> None ("upscaler unused at native/supersampled scale");
+    //      RenderScale >= 100 and Upscaler != None -> None ("upscaler unused at native/supersampled scale"),
+    //      except Ray Reconstruction under DLAA at exactly 100 % (IsNativeRayReconstruction);
     //      RenderScale < 100 -> AntiAliasingMethod effective = TAA unless it is DLAA/FSRNative matching the
     //      upscaler, which become that upscaler's temporal pass ("the upscaler anti-aliases below 100 %");
     //      AntiAliasingMethod MSAA with RenderScale != 100 -> FXAA ("MSAA renders at native scale only").
@@ -411,12 +469,27 @@ namespace Common::Scalability
     [[nodiscard]] bool IsTemporalAntiAliasing( AntiAliasingMethod method );
 
     // THE coupling rule of Resolve step 5, the one place the upscaler follows from (AA method, render scale):
-    // below 100 % a temporal method upscales temporally (@p vendorOverride kept; None and Spatial -> TAAU), and a
+    // below 100 % a temporal method upscales temporally (@p vendorOverride kept; None and Spatial -> the engine's
+    // own temporal upscaler @p engineTemporal: TAAU or TSR), and a
     // method without history (None / FXAA / SMAA / MSAA) is upscaled by Spatial whatever the override; at or
     // above 100 % nothing upscales (None). Total: every (method, percent) has an upscaler. Shared by Resolve (the
     // game setting) and the renderer's per-view resolution (an editor viewport's Screen Percentage), so the two
     // cannot disagree.
-    [[nodiscard]] Upscaler UpscalerForScale( AntiAliasingMethod method, int percent, Upscaler vendorOverride );
+    // Ray Reconstruction is a DLSS network with the denoiser in it, so at 100 % it is DLAA's: the one case an
+    // upscaler value stays at native scale is Upscaler::DLSSRayReconstruction under AntiAliasingMethod::DLAA at
+    // exactly 100 % (UE: r.NGX.DLSS.DenoiserMode on top of DLAA). Above 100 % it never runs (DLSS takes no
+    // supersampled input). Read by Resolve step 5, UpscalerForScale and Graphic::SelectTemporalMethod.
+    [[nodiscard]] constexpr bool IsNativeRayReconstruction( const AntiAliasingMethod method, const int percent,
+                                                            const Upscaler upscaler )
+    {
+        return percent == 100 && method == AntiAliasingMethod::DLAA && upscaler == Upscaler::DLSSRayReconstruction;
+    }
+
+    [[nodiscard]] Upscaler UpscalerForScale( AntiAliasingMethod method, int percent, Upscaler vendorOverride,
+                                             EngineTemporalUpscaler engineTemporal );
+
+    // The Upscaler value of an EngineTemporalUpscaler (TAAU -> Upscaler::TAAU, TSR -> Upscaler::TSR).
+    [[nodiscard]] Upscaler UpscalerOf( EngineTemporalUpscaler engineTemporal );
 
     // Per-path AA: what the scene framebuffer and the post pass run on a path that can / cannot multisample.
     struct PathAntiAliasing

@@ -1074,11 +1074,11 @@ TEST( ShadowCaster, MaskedCastsThroughItsOwnTemplateCellOpaqueThroughTheSharedOn
     using Desert::Core::Formats::SurfaceBlendMode;
     constexpr std::string_view kDefault = "StandardSurface";
     constexpr std::string_view kFoliage = "FoliageSurface";
-    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Masked ),
+    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Masked, false ),
                Desert::Graphic::ShadowCasterCell::Own );
-    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Opaque ),
+    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Opaque, false ),
                Desert::Graphic::ShadowCasterCell::Shared );
-    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Translucent ),
+    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Translucent, false ),
                Desert::Graphic::ShadowCasterCell::Shared );
     for ( const auto path : kAllPaths )
     {
@@ -1086,7 +1086,7 @@ TEST( ShadowCaster, MaskedCastsThroughItsOwnTemplateCellOpaqueThroughTheSharedOn
         ASSERT_TRUE( shared.has_value() ) << MeshVertexPathName( path );
 
         const auto masked =
-             Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, SurfaceBlendMode::Masked, path );
+             Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, SurfaceBlendMode::Masked, false, path );
         ASSERT_TRUE( masked.has_value() ) << MeshVertexPathName( path );
         EXPECT_NE( masked, shared ) << "a masked caster on " << MeshVertexPathName( path )
                                     << " draws through the shared program and casts its whole quad";
@@ -1094,7 +1094,7 @@ TEST( ShadowCaster, MaskedCastsThroughItsOwnTemplateCellOpaqueThroughTheSharedOn
 
         for ( const auto blend : { SurfaceBlendMode::Opaque, SurfaceBlendMode::Translucent } )
         {
-            const auto caster = Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, blend, path );
+            const auto caster = Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, blend, false, path );
             ASSERT_TRUE( caster.has_value() );
             EXPECT_EQ( caster, shared ) << "a non-masked caster on " << MeshVertexPathName( path )
                                         << " must share the one position-only program and batch by mesh";

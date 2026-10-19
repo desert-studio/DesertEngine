@@ -710,7 +710,7 @@ namespace Desert::Graphic::System
     }
 
     void MeshRenderer::DeclareGlassBindings( RDG::PassBuilder& pass, const RDG::TextureRef sceneCopy,
-                                             const SceneViewInputs& view )
+                                             const SceneViewInputs& view, const GlassFrontLayer& frontLayer )
     {
         m_GlassDraws.Clear();
         if ( m_StaticQueue.empty() )
@@ -833,13 +833,107 @@ namespace Desert::Graphic::System
         // naming one to it fails the node ("is not a resource of shader").
         m_GlassDraws.Declare(
              pass, view,
-             [sceneCopy]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& layout )
+             [sceneCopy, frontLayer]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& layout )
              {
                  if ( SceneViewDetail::LayoutSamples( layout, "u_SceneColor" ) )
                      block.Texture( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics,
                                     RDG::SubresourceRange::All() )
                           .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
+                 // The front layer's reflection where this fragment is the front layer
+                 // (Pass_Forward_Translucent.glslh), fetched by texel through the state its declaration names.
+                 if ( SceneViewDetail::LayoutSamples( layout, "u_FrontLayerReflection" ) )
+                     block.Texture( "u_FrontLayerReflection", frontLayer.Reflection, RDG::Access::SampledGraphics,
+                                    RDG::SubresourceRange::All() )
+                          .Texture( "u_FrontLayerDepth", frontLayer.Depth, RDG::Access::SampledGraphics,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
              } );
+    }
+
+    bool MeshRenderer::BuildFrontLayerDraws()
+    {
+        m_FrontLayerDraws.Clear();
+        auto* const camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        if ( m_StaticQueue.empty() || camera == nullptr )
+            return false;
+
+        // Every visible object of a `BlendMode Translucent` template (UE
+        // CanMaterialRenderInFrontLayerTranslucencyGBufferPass: a translucent material, not an additive one - light
+        // added over the scene reflects nothing), each through its template's front layer cell with its own row.
+        const Core::Frustum frustum = camera->GetFrustum();
+        struct Draw
+        {
+            const StaticMeshRenderData* Object;
+            TranslucentDraw*            State;
+            uint32_t                    Row;
+        };
+        std::vector<Draw>                                            draws;
+        std::unordered_map<TranslucentDraw*, std::vector<glm::vec4>> rows;
+        for ( const auto& data : m_StaticQueue )
+        {
+            if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
+                continue;
+            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
+                continue;
+            const auto [surfaceInst, mat] = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
+            if ( surfaceInst == nullptr || mat == nullptr ||
+                 mat->GetSchema().Blend != Core::Formats::SurfaceBlendMode::Translucent )
+                continue;
+            const std::optional<std::string> cell  = FrontLayerShaderFor( mat->GetShaderName() );
+            TranslucentDraw* const           state = cell ? FrontLayerDrawFor( *cell ) : nullptr;
+            if ( state == nullptr )
+                continue; // refused once, by name, inside FrontLayerDrawFor
+            // A cell still in the driver has no stand-in here: the default surface is opaque and has no front layer
+            // cell, so until the cell is ready the object keeps the sky's reflection (said once by
+            // ChoosePipelineDraw).
+            if ( ChoosePipelineDraw( state->Pipeline.get(), state->Pipeline->GetSpecification().DebugName,
+                                     nullptr ) != MaterialPipelineTracker::CellDraw::Own )
+                continue;
+            draws.push_back( { &data, state, AppendRow( rows[state], EffectiveRow( mat, surfaceInst ) ) } );
+        }
+        if ( draws.empty() )
+            return false;
+
+        // Per front layer cell, once per frame and before its block is declared: its rows and the scene snapshot
+        // (the objects' motion rows its vertex stage and velocity read).
+        const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
+        for ( auto& [state, cellRows] : rows )
+        {
+            if ( auto* sb = state->Material->Get<StorageBufferProperty>( "Materials" ) )
+                sb->SetRawData( cellRows.data(), static_cast<uint32_t>( cellRows.size() * sizeof( glm::vec4 ) ) );
+            frameState.ApplyTo( state->Instance.get() );
+        }
+        for ( const Draw& draw : draws )
+        {
+            const auto*         obj      = draw.Object;
+            DataDrivenMaterial* material = draw.State->Material.get();
+            MaterialInstance*   instance = draw.State->Instance.get();
+            m_FrontLayerDraws.Add( { .Pipeline          = draw.State->Pipeline.get(),
+                                     .Mesh              = obj->Mesh,
+                                     .Transform         = glm::mat4( 1.0f ),
+                                     .Material          = material->GetMaterialExecutor(),
+                                     .HiddenSubmeshMask = obj->HiddenSubmeshes,
+                                     .LodLevel = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
+                                     .BindState = [material, instance, motionRow = obj->MotionRow, row = draw.Row]
+                                     {
+                                         material->SetPushMatrix( glm::mat4( 1.0f ) );
+                                         material->SetPrimitiveIndex( motionRow );
+                                         material->SetMaterialIndex( row );
+                                         material->Bind( instance );
+                                     } } );
+        }
+        return true;
+    }
+
+    void MeshRenderer::DeclareFrontLayerDraws( RDG::PassBuilder& pass )
+    {
+        m_FrontLayerDraws.Declare( pass, std::nullopt );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderFrontLayerManual( const RDG::PassContext& context ) const
+    {
+        // The graph opened the render pass on the front layer's targets (cleared: no surface, far depth).
+        return m_FrontLayerDraws.Record( context );
     }
 
     Common::BoolResultStr MeshRenderer::RenderGlassManual( const RDG::PassContext& context ) const
@@ -1800,6 +1894,52 @@ namespace Desert::Graphic::System
         if ( !pipeline )
         {
             LOG_ERROR( "[MeshRenderer] translucent cell '{}' will not draw: {}", cellShader, pipeline.GetError() );
+            return nullptr;
+        }
+        draw->Pipeline = pipeline.GetValue();
+        slot           = std::move( draw );
+        return slot.get();
+    }
+
+    MeshRenderer::TranslucentDraw* MeshRenderer::FrontLayerDrawFor( const std::string& cellShader )
+    {
+        if ( const auto found = m_FrontLayer.find( cellShader ); found != m_FrontLayer.end() )
+            return found->second.get(); // null = refused before (said once, below)
+        auto& slot = m_FrontLayer[cellShader];
+
+        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellShader );
+        if ( !shader )
+        {
+            LOG_ERROR( "[MeshRenderer] front layer cell '{}' is not registered: its translucent objects are not in "
+                       "the front layer and reflect the sky alone",
+                       cellShader );
+            return nullptr;
+        }
+        auto draw      = std::make_unique<TranslucentDraw>();
+        draw->Material = std::make_shared<DataDrivenMaterial>( cellShader );
+        draw->Instance = draw->Material->CreateInstance();
+        if ( !draw->Instance )
+        {
+            LOG_ERROR( "[MeshRenderer] front layer cell '{}' will not draw: its material has no instance",
+                       cellShader );
+            return nullptr;
+        }
+
+        // UE's FrontLayerTranslucencyGBuffer pass state: opaque, depth-tested and depth-written, so the nearest
+        // translucent surface of each pixel stays; back faces culled, as the glass that reads it draws them.
+        GraphicsPipelineSpecification spec;
+        spec.DebugName         = cellShader;
+        spec.Layout            = MeshVertexLayout( MeshVertexPath::Static );
+        spec.Shader            = shader;
+        spec.TargetLayout      = FrontLayerTargetLayout();
+        spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
+        spec.DepthWriteEnabled = true;
+        spec.BlendEnable       = false;
+        spec.CullMode          = CullMode::Back;
+        const auto pipeline    = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        if ( !pipeline )
+        {
+            LOG_ERROR( "[MeshRenderer] front layer cell '{}' will not draw: {}", cellShader, pipeline.GetError() );
             return nullptr;
         }
         draw->Pipeline = pipeline.GetValue();

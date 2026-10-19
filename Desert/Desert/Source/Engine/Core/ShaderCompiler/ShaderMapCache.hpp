@@ -46,8 +46,9 @@ namespace Desert::Core
     // one layout. 6: ShaderProgramMeta::ParticleSource (VFX-06) on top of 5.
     // 7: ShaderParam::SlotIntent (IMP-DDS-BLOCKS). 8: ShaderProgramMeta::OpacityMask (MAT-MASKED).
     // 9: shared samplers numbered (MAT-BINDLESS-5) on top of 8. 12: ShaderParam::IsArrayTexture / ElementOf /
-    // ElementIndex (LANDSCAPE-MAT-2) on top of 11.
-    inline constexpr uint32_t kShaderMapFormatVersion = 12;
+    // ElementIndex (LANDSCAPE-MAT-2) on top of 11; ShaderProgramMeta::Height (POM, SurfaceHeight) on top of 11.
+    // 13: both 12s together.
+    inline constexpr uint32_t kShaderMapFormatVersion = 13;
 
     // The key hashes the shader's TEXT, not the code that turns text into a map, so a change to the parser,
     // the preprocessor or the metadata types would keep serving maps the old code produced. This is the

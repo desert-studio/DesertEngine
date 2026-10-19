@@ -60,10 +60,19 @@ namespace Desert::Core
         void VisitFields( Self& m, Fn&& fn )
         {
             auto& [params, state, domain, passNames, rayTracingPassNames, defaultPassName, mediumSource,
-                   particleSource, layoutBindings, blend, opacityMask] = m;
+                   particleSource, layoutBindings, blend, opacityMask, height] = m;
             fn( params ), fn( state ), fn( domain ), fn( passNames ), fn( rayTracingPassNames ),
                  fn( defaultPassName ), fn( mediumSource ), fn( particleSource ), fn( layoutBindings ),
-                 fn( blend ), fn( opacityMask );
+                 fn( blend ), fn( opacityMask ), fn( height );
+        }
+
+        template <class Self, class Fn>
+            requires std::is_same_v<std::remove_const_t<Self>, Formats::SurfaceHeight>
+        void VisitFields( Self& m, Fn&& fn )
+        {
+            auto& [texture, channelParam, channel, uvSet, tiling, offset, rotation, scale, center] = m;
+            fn( texture ), fn( channelParam ), fn( channel ), fn( uvSet ), fn( tiling ), fn( offset ),
+                 fn( rotation ), fn( scale ), fn( center );
         }
 
         template <class Self, class Fn>

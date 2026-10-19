@@ -266,7 +266,7 @@ Shader "DeferredLighting"
         	vec4 u_ContactShadowView; // x = contact shadow ray steps (0 = off), y = tan(fovY / 2), z = dither frame 0..7
         	vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5),
         	                          // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
-        	vec4 u_ShadowFilter;      // x = PCSS blocker search taps, y = PCSS filter taps (Mesh/CascadedShadow.glslh)
+        	vec4 u_ShadowFilter;      // x = PCSS blocker search taps, y = filter taps (sun PCSS + local lights PCF)
         };
 
         // The light a subsurface receiver lets through takes its own occlusion (DesertLight::TransmissionShadow):
@@ -466,6 +466,8 @@ Shader "DeferredLighting"
         	const float sunContact =
         	     receivesSun ? ContactShadowFactor(worldPos, N, L, u_SunContactShadow, subsurfaceOpacity) : 1.0;
         	float shadow   = receivesSun ? DESERT_SUN_SHADOW(worldPos, N, L, cascade) * sunContact : 1.0;
+        	// The relief's own shadow (parallax occlusion, the word's SUN_SELF_SHADOW field): geometry, always applied.
+        	shadow        *= DesertSunSelfShadow(word);
         	// The light a subsurface receiver lets through takes its own occlusion (DesertLight::TransmissionShadow):
         	// the cascades' thickness transmittance, not ShadowFactor, whose normal offset puts a leaf's far side
         	// behind the leaf. 1 for every other model (none reads it).

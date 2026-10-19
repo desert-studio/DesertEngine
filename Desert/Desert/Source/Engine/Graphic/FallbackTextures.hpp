@@ -25,6 +25,10 @@ namespace Desert::Graphic
         GetFallbackTexture3D( Core::Formats::ImageFormat format ) const = 0;
         virtual const std::shared_ptr<Image3D>&
         GetFallbackStorageImage3D( Core::Formats::ImageFormat format ) const = 0;
+        // The ZERO volume (UE GSystemTextures.VolumetricBlackDummy): 1x1x1 RGBA8, all four channels 0 - what a
+        // volume of light reads where its producer did not run this frame (RDG System.Black3D). The 3D fallbacks
+        // above are white ("no attenuation"), which in a volume of light would be light from nowhere.
+        virtual const std::shared_ptr<Image3D>& GetBlackTexture3D() const = 0;
 
     public:
         FallbackTextures( const FallbackTextures& )            = delete;

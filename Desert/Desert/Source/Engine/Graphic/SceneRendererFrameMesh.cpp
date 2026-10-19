@@ -284,20 +284,21 @@ namespace Desert::Graphic
         // After the temporal resolve the scene target is the RENDER-extent pre-resolve scene: the overlay
         // draws into the OUTPUT-extent overlay set instead - every attachment replaced, so the render pass has
         // one extent (colour 0 the resolved colour, the velocity slot the overlay velocity, the depth the one
-        // PopulateSceneDepth filled, the responsive-AA slot the overlay mask - never read; one sample, so no
-        // resolves).
+        // PopulateSceneDepth filled, the responsive-AA and thin-geometry-coverage slots overlay textures - never
+        // read; one sample, so no resolves).
         if ( overlay.IsValid() && target == m_TargetFramebuffer )
         {
-            if ( targets->Colors.size() != kSceneTargetResponsiveAASlot + 1 )
+            if ( targets->Colors.size() != kSceneTargetThinGeometryCoverageSlot + 1 )
             {
                 LOG_ERROR( "[SceneRenderer] pass '{}' refused: the scene target has {} colours, the overlay set "
-                           "replaces exactly colour 0, the velocity slot and the responsive-AA slot",
+                           "replaces exactly colour 0, the velocity, responsive-AA and thin-geometry-coverage slots",
                            pass.Name, targets->Colors.size() );
                 return;
             }
             targets->Colors[0]                            = overlay.Color;
             targets->Colors[kSceneTargetVelocitySlot]     = overlay.Velocity;
             targets->Colors[kSceneTargetResponsiveAASlot] = overlay.ResponsiveAA;
+            targets->Colors[kSceneTargetThinGeometryCoverageSlot] = overlay.ThinGeometryCoverage;
             targets->Depth                            = overlay.Depth;
             targets->Resolves                         = {};
         }
@@ -405,7 +406,7 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
-                                       System::MeshRenderer* meshRenderer )
+                                       System::MeshRenderer* meshRenderer, const FrameFrontLayer& frontLayer )
     {
         if ( !sceneCopy.IsValid() || meshRenderer == nullptr )
             return;
@@ -415,12 +416,17 @@ namespace Desert::Graphic
         // The glass samples the scene copy for its refraction and the scene/view inputs its shader has slots for:
         // its binding block, declared here (the block entries are the node's reads), resolved in the body.
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        // No front layer this frame: the graph's black texture for both, which the glass reads as "the sky alone".
+        const RDG::TextureRef                              black = textures.GraphRefs().System.Black;
+        const System::MeshRenderer::GlassFrontLayer glassFront{
+             .Reflection = frontLayer.Reflection.IsValid() ? frontLayer.Reflection : black,
+             .Depth      = frontLayer.Depth.IsValid() ? frontLayer.Depth : black };
         AddRaster(
              graph, "Deferred: Glass", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderGlassManual( context ); },
-             [meshRenderer, sceneCopy, view]( RDG::PassBuilder& pass )
-             { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view ); } );
+             [meshRenderer, sceneCopy, view, glassFront]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view, glassFront ); } );
     }
 
     void SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures )

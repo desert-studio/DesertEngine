@@ -23,7 +23,8 @@
 // Emission is NOT the model's: the pass adds SurfaceOutput.Emissive after both calls, for every model. So Unlit is
 // the model whose functions all return vec3( 0.0 ) — the texel is its emission, with no special case anywhere.
 //
-// Who includes what. The registry (ShadingModelRegistry) generates ShadingModels.generated.glslh, which includes
+// Who includes what. The registry (ShadingModelRegistry) generates the VIRTUAL Generated/ShadingModels.glslh (no file:
+// the includer answers it with GenerateGlsl()'s text, ShadingModelManifest.hpp kGeneratedInclude), which includes
 // this file, then every model body, then the dispatch:
 //   vec3  DesertEvaluateShadingModel( int index, DesertLight L, DesertSurface S, DesertPayload P );
 //   vec3  DesertEvaluateShadingModelSpecular( int index, DesertLight L, DesertSurface S, DesertPayload P );
@@ -81,7 +82,8 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 //   bits 40..47  payload 3, unorm8   (.y bits 8..15)
 //   bits 48..55  Specular, unorm8 (UE's Specular pin, GBuffer Specular): the dielectric F0 = 0.08 x Specular
 //                (DesertSpecularF0); 0.5, UE's default, is the 4 % of a common dielectric
-//   bits 56..63  free
+//   bits 56..63  SUN_SELF_SHADOW, unorm8 of (1 - SurfaceOutput.SunSelfShadow): the relief's own shadow from the main
+//                directional light (parallax occlusion, Mesh/Surface/SurfaceParallax.glslh); 0, the clear value, lit
 // The target clears to 0: an untouched texel reads Unlit, no payload, receives sun shadows.
 // ShadingModelManifest.hpp (kShadingWordFields) is the C++ half of this table; the ShadingModelContract suite
 // holds the two equal and the fields disjoint.
@@ -98,6 +100,8 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 #define DESERT_SHADING_WORD_NO_CONTACT_SHADOW_BIT 25
 #define DESERT_SHADING_WORD_SPECULAR_FIRST_BIT 48
 #define DESERT_SHADING_WORD_SPECULAR_BITS      8
+#define DESERT_SHADING_WORD_SUN_SELF_SHADOW_FIRST_BIT 56
+#define DESERT_SHADING_WORD_SUN_SELF_SHADOW_BITS      8
 
 // The G-buffer writer marks the flag after DesertPackShadingWord, so the deferred composite applies the toggle
 // exactly as the forward pass does, and a writer that forgets the mark gets the default, receives.
@@ -105,6 +109,20 @@ uvec2 DesertMarkSunShadowReceive( uvec2 shadingWord, float receiveSunShadows )
 {
     const uint noReceive = receiveSunShadows < 0.5 ? 1u : 0u;
     return uvec2( shadingWord.x | ( noReceive << uint( DESERT_SHADING_WORD_NO_SUN_SHADOWS_BIT ) ), shadingWord.y );
+}
+
+// The relief's self-shadow, stored inverted so a cleared texel and a writer that forgets the mark read "lit".
+uvec2 DesertMarkSunSelfShadow( uvec2 shadingWord, float sunSelfShadow )
+{
+    const uint occlusion = uint( round( clamp( 1.0 - sunSelfShadow, 0.0, 1.0 ) * 255.0 ) );
+    return uvec2( shadingWord.x,
+                  shadingWord.y | ( occlusion << uint( DESERT_SHADING_WORD_SUN_SELF_SHADOW_FIRST_BIT - 32 ) ) );
+}
+
+float DesertSunSelfShadow( uvec2 shadingWord )
+{
+    const uint occlusion = ( shadingWord.y >> uint( DESERT_SHADING_WORD_SUN_SELF_SHADOW_FIRST_BIT - 32 ) ) & 0xFFu;
+    return 1.0 - float( occlusion ) / 255.0;
 }
 
 bool DesertReceivesSunShadows( uvec2 shadingWord )

@@ -115,7 +115,7 @@ namespace Desert::Core::ShadingModels
 
     inline constexpr std::uint8_t kShadingWordBits = 64;
 
-    inline constexpr std::array<ShadingWordField, 9> kShadingWordFields{ {
+    inline constexpr std::array<ShadingWordField, 10> kShadingWordFields{ {
          { "INDEX", 0, 4 },              // shading-model index, 0..15
          { "TEXTURES", 4, 4 },           // sampled-texture count (Material Complexity), clamped to 15
          { "PAYLOAD0", 8, 8 },           // CustomData0, unorm8
@@ -126,7 +126,9 @@ namespace Desert::Core::ShadingModels
                                          // the push PrimitiveFlags); 0, the clear value, casts
          { "PAYLOAD2", 32, 8 },          // CustomData2, unorm8 (.y)
          { "PAYLOAD3", 40, 8 },          // CustomData3, unorm8 (.y)
-         { "SPECULAR", 48, 8 }           // UE's Specular pin, unorm8 (.y): F0 = 0.08 x Specular
+         { "SPECULAR", 48, 8 },          // UE's Specular pin, unorm8 (.y): F0 = 0.08 x Specular
+         { "SUN_SELF_SHADOW", 56, 8 }    // 1 - SurfaceOutput.SunSelfShadow, unorm8 (.y): the parallax relief's own
+                                         // sun shadow; 0, the clear value, lit
     } };
 
     // The value the shading-word target clears to: Unlit, no payload, receives sun shadows.

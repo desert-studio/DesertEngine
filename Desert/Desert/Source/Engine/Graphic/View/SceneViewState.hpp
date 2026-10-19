@@ -91,8 +91,15 @@ namespace Desert::Graphic
         Common::Scalability::PathAntiAliasing AntiAliasing; // ResolveAntiAliasingForPath( resolved, path )
         Common::Scalability::Upscaler         Upscaler = Common::Scalability::Upscaler::None;
         TemporalAAQuality                     Quality  = TemporalAAQuality::Medium;
+        // The renderer's resolved quality (SceneRenderer m_Quality), outliving BeginFrame. Required whenever the
+        // frame has a temporal upscaler: ITemporalUpscaler::HistoryDescs reads its own rows from it (TSR: the
+        // history screen percentage). BeginFrame refuses a temporal frame without it, naming the upscaler.
+        const Common::Scalability::ResolvedQuality* Scalability = nullptr;
 
         double TimeSeconds = 0.0; // the view's clock (scene time; paused scene -> unchanged -> DeltaSeconds 0)
+
+        ParallaxQuality Parallax;                   // ResolvedQuality Shading.Parallax*Steps
+        glm::vec3       SunDirection{ 0.0f };       // toward the scene's directional light; zero = none
     };
 
     // ---- Previous per-object data -------------------------------------------------------------------------
@@ -329,14 +336,27 @@ namespace Desert::Graphic
     // the read side is never written in the frame that reads it. Their shape is declared by the ITemporalUpscaler
     // (HistoryDescs): TAA/TAAU declare one RGBA16F colour history at OutputExtent; an upscaler that keeps its own
     // history internally declares none and receives only ViewFrame::HistoryReset.
+    // Pair: read Previous, write Current, swapped at EndFrame (every temporal colour history). Persistent: ONE
+    // texture kept across frames and never swapped, registered once per frame under Name with Previous == Current
+    // (the same ref): contents an upscaler records only on some frames and reads on later ones (UE TSR's
+    // persistent resurrection frames, r.TSR.Resurrection). Its contents are defined iff the upscaler recorded
+    // them since the last history reset; the upscaler tracks that in its ITemporalUpscalerHistory.
+    enum class HistoryLifetime : uint8_t
+    {
+        Pair,
+        Persistent,
+    };
+
     struct HistoryTextureDesc
     {
         RDG::TextureDesc Desc;
+        HistoryLifetime  Lifetime = HistoryLifetime::Pair;
         // Graph names of the two sides as registered each frame, e.g. "TAA.History" (written this frame) and
         // "TAA.History.Previous" (read this frame). Both static strings (the graph keeps a view while building),
         // non-empty and different from each other and from every other history's names —
         // SceneViewState::BeginFrame refuses an upscaler whose descs break that, naming it: two externals under
         // one name make every graph dump, fault report and capture ambiguous about which side a pass touched.
+        // A Persistent history has one side: Name only, PreviousName empty (BeginFrame refuses anything else).
         const char* Name         = "";
         const char* PreviousName = "";
 
@@ -398,6 +418,7 @@ namespace Desert::Graphic
     };
 
     class ITemporalUpscaler;
+    class ITemporalUpscalerHistory;
 
     // ---- THE VIEW STATE ------------------------------------------------------------------------------------
     class SceneViewState
@@ -425,6 +446,17 @@ namespace Desert::Graphic
         [[nodiscard]] TemporalHistory& History();
         [[nodiscard]] MotionHistory&   Motion();
 
+        // The vendor upscaler state the last frame returned (TemporalUpscalerOutputs::NewHistory), handed back as
+        // TemporalUpscalerInputs::PrevHistory. Dropped by Reset and by a BeginFrame whose method is None.
+        [[nodiscard]] const std::shared_ptr<ITemporalUpscalerHistory>& UpscalerHistory() const
+        {
+            return m_UpscalerHistory;
+        }
+        void SetUpscalerHistory( std::shared_ptr<ITemporalUpscalerHistory> history )
+        {
+            m_UpscalerHistory = std::move( history );
+        }
+
         // After Builder::Execute succeeded. Commits the frame BeginFrame returned as the previous one, advances
         // the jitter index modulo its length, swaps the history pairs, ends the motion frame. If @p report lists a
         // Current history as lost, the next BeginFrame resets with PassFault (logged once per view by the
@@ -450,5 +482,6 @@ namespace Desert::Graphic
         uint32_t        m_JitterIndex             = 0;
         TemporalHistory m_History;
         MotionHistory   m_Motion;
+        std::shared_ptr<ITemporalUpscalerHistory> m_UpscalerHistory;
     };
 } // namespace Desert::Graphic

@@ -119,9 +119,11 @@ Shader "TerrainGBuffer"
         Out(2) uvec2 oGBufferShadingWord; // shading word (DefaultLit, no maps, no payload); no world position
         Out(3) vec4 oGBufferEmissive; // Emissive.rgb
         Out(4) vec4 oVelocity;        // the view's velocity, slot 4 of the G-buffer target (TerrainSurface.glslh)
+        Out(5) float oThinGeometryCoverage; // slot 5 of the G-buffer target (Common/ThinGeometryCoverage.glslh)
 
         #include <Programs/Terrain/TerrainSurface.glslh>
         #include <Generated/ShadingModels.glslh>
+        #include <Common/ThinGeometryCoverage.glslh>
 
         void main()
         {
@@ -133,6 +135,7 @@ Shader "TerrainGBuffer"
             oGBufferShadingWord = DesertPackShadingWord( SHADING_MODEL_INDEX_DEFAULT_LIT, 0.0, 0.5, DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
             oGBufferEmissive = vec4( 0.0, 0.0, 0.0, s.AO ); // no emission; material AO from the layers' ARM maps
             oVelocity        = TerrainVelocity();
+            oThinGeometryCoverage = DesertThinGeometryCoverage( SHADING_MODEL_INDEX_DEFAULT_LIT );
         }
     }
 }

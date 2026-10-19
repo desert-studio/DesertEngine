@@ -1,0 +1,56 @@
+#ifndef DESERT_EMISSIVE_LIGHTS_GLSLH
+#define DESERT_EMISSIVE_LIGHTS_GLSLH
+
+// THE SCENE'S EMISSIVE TRIANGLES AS LIGHTS, GPU side (C++: Graphic/Systems/RayTracing/EmissiveLights.hpp, the list;
+// EmissiveLightsRenderer.hpp, its passes). One list for every consumer (the path tracer's next event estimation,
+// MegaLights next), in TWO parts under one root: STATIC (kept across frames, rebuilt when its hash moves) and
+// DYNAMIC (the skinned primitives' segments, expanded every frame from the skin cache's positions). Per part:
+//   *SegmentsUB   one row per TLAS instance's emissive segment (transform, vertex/index streams, triangle range in
+//                 its part, the material's radiance estimate)
+//   *TrianglesUB  one row per triangle: world corner, edges, area, power, segment row
+//   *PowerUB      the power tree: level 0 = one leaf per triangle (padded to a power of two with zeros), level k =
+//                 the SUMS of level k - 1's pairs; the last level's one node is the part's total.
+// and one EmissiveLookupUB: a hit (TLAS instance, geometry index) -> its segment row in either part
+// (EmissiveLightsTriangleOfHit).
+// A triangle is picked in proportion to its power: a part by the two roots, then down that part's tree (NVIDIA
+// RTXDI: the local-light PDF mip chain it builds and samples on the GPU); its pdf is leaf / (both roots). The
+// triangle index is one space: the static triangles first, the dynamic ones after them.
+//
+// This header holds the rows; the sampling functions are Common/EmissiveLightsSampling.glslh, which a consumer
+// includes after declaring the seven buffers under these member names (emissiveSegments, emissiveTriangles,
+// emissivePower, emissiveDynamicSegments, emissiveDynamicTriangles, emissiveDynamicPower, emissiveLookup).
+
+struct EmissiveSegment
+{
+    vec4  ObjectToWorld[3]; // row-major 3x4
+    vec4  Radiance;         // rgb: the material's emitted radiance estimate; w: its luminance
+    uvec2 VertexAddress;    // (lo, hi): the positions the BLAS was built from
+    uvec2 IndexAddress;
+    uint  VertexStride;
+    uint  PositionOffset;
+    uint  FirstVertex;
+    uint  FirstIndex; // in indices
+    uint  FirstTriangle; // in its part
+    uint  TriangleCount;
+    uint  Instance;      // the TLAS instance
+    uint  GeometryIndex; // the segment's geometry index in that instance's BLAS
+};
+
+struct EmissiveTriangle
+{
+    vec4 P0Area;       // xyz: world corner 0 (cm); w: world area (cm^2)
+    vec4 Edge1Power;   // xyz: corner 1 - corner 0; w: power (luminance of the radiance estimate x area)
+    vec4 Edge2Segment; // xyz: corner 2 - corner 0; w: the segment row in its part (uintBitsToFloat)
+};
+
+const uint kEmissiveNone = 0xFFFFFFFFu;
+// A lookup slot with this bit names a DYNAMIC segment row (its low 31 bits); RayTracing::kEmissiveDynamicSegmentBit.
+const uint kEmissiveDynamicSegmentBit = 0x80000000u;
+
+// Where level @p level of a power tree starts: the levels above 0 follow level 0 end to end (N, N/2, ..., 1).
+uint EmissivePowerLevelOffset(uint leaves, uint level)
+{
+    return 2u * (leaves - (leaves >> level));
+}
+
+#endif

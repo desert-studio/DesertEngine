@@ -44,6 +44,11 @@ namespace Desert::Graphic::API::Vulkan
              { C::FillModeNonSolid, "fillModeNonSolid", N::Optional, V10, {} },
              { C::SamplerAnisotropy, "samplerAnisotropy", N::Optional, V10, {} },
              { C::TextureCompressionBC, "textureCompressionBC", N::Optional, V10, {} },
+             // A storage image declared without a format and written (OpTypeImage Unknown + OpImageWrite): the FSR
+             // upscaler's output binding, whose format is the application's (FidelityFX
+             // ffx_fsr3upscaler_callbacks_glsl.h rw_upscaled_output). Without it FSR is refused by name
+             // (FsrDeviceSupport); nothing else reads it.
+             { C::StorageImageWriteWithoutFormat, "shaderStorageImageWriteWithoutFormat", N::Optional, V10, {} },
              // Not a capability the engine uses but a spec rule: an implementation that advertises it
              // (MoltenVK) must have it enabled. "Optional" gives exactly that: enabled iff present.
              { C::PortabilitySubset, "portability_subset", N::Optional, 0, "VK_KHR_portability_subset" },

@@ -44,6 +44,11 @@ namespace Desert::Graphic::ViewTargetFormats
     // writes no velocity of its own leaves no trail. A colour attachment of the scene target only: nothing on the
     // G-buffer is translucent. Our depth has no stencil, hence a target of its own.
     inline constexpr ImageFormat kResponsiveAA    = ImageFormat::R8_UNORM;
+    // Thin-geometry coverage (UE TSRMeasureCoverage.usf, there measured from the G-buffer's shading model): what
+    // material each pixel's depth belongs to, 0 unlit / nothing, 0.5 a regular surface, 1 two-sided foliage
+    // (Shaders Common/ThinGeometryCoverage.glslh). TSR's thin-geometry detection reads it. A colour attachment of
+    // the G-buffer AND of the scene target, written by the passes that write the view's depth, as the velocity.
+    inline constexpr ImageFormat kThinGeometryCoverage = ImageFormat::R8_UNORM;
     inline constexpr ImageFormat kSSAO            = ImageFormat::RGBA8F;
 
     // Post stack. A target written by a compute shader as a storage image (bloom, light shafts, lens flare,
@@ -64,6 +69,13 @@ namespace Desert::Graphic::ViewTargetFormats
 
     // VolumetricCloudRenderer::EnsureTraceTargets.
     inline constexpr ImageFormat kCloudTrace = ImageFormat::RGBA16F;
+
+    // The path tracer (System::PathTracer). The accumulation sums up to PathTracing.MaxSamples paths per pixel
+    // (rgb) and counts them (a): a half float stops adding 1 at 2048, so it is 32-bit. The sky's equal-area
+    // radiance square (rgb) with each texel's sampling weight (a), read texel by texel
+    // (Common/PathTracingSky.glslh).
+    inline constexpr ImageFormat kPathTracingAccumulation = ImageFormat::RGBA32F;
+    inline constexpr ImageFormat kPathTracingSkyRadiance  = ImageFormat::RGBA32F;
 
     // Screen-space reflections.
     inline constexpr ImageFormat kSSRTrace  = ImageFormat::RGBA16F;
