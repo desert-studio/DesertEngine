@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -42,6 +43,28 @@ namespace Desert::Assets
     BuildDisplacementTopologyBytes( const DisplacementTopologyBuildInput& input );
 
     // DDC hit, or build (single flight per key) and Put. @p input is called only on a miss.
+    // Where a mesh's topology lands (the MeshDistanceFieldSlot pattern): empty until the loader's worker job
+    // publishes it, empty for good when it could not be had (logged naming the mesh). The mesh draws its base
+    // until then.
+    class DisplacementTopologySlot
+    {
+    public:
+        [[nodiscard]] std::shared_ptr<const Geometry::DisplacementTopology> Get() const
+        {
+            const std::lock_guard<std::mutex> lock( m_Mutex );
+            return m_Topology;
+        }
+        void Publish( std::shared_ptr<const Geometry::DisplacementTopology> topology )
+        {
+            const std::lock_guard<std::mutex> lock( m_Mutex );
+            m_Topology = std::move( topology );
+        }
+
+    private:
+        mutable std::mutex                                    m_Mutex;
+        std::shared_ptr<const Geometry::DisplacementTopology> m_Topology;
+    };
+
     [[nodiscard]] Common::ResultStr<std::shared_ptr<const Geometry::DisplacementTopology>>
     LoadDisplacementTopology( const std::filesystem::path& asset, uint64_t renderDataKey,
                               const std::function<Common::ResultStr<DisplacementTopologyBuildInput>()>& input );

@@ -82,7 +82,8 @@ namespace Desert::Assets
         if ( !builder )
         {
             if ( auto hit = Common::DDC::Get( kMeshDeriver, key ); hit.has_value() )
-                return Common::MakeSuccess( MeshPlatformDataBytes{ std::move( *hit ), key } );
+                return Common::MakeSuccess(
+                     MeshPlatformDataBytes{ std::move( *hit ), key, source.GetValue().Import.Settings } );
             return Common::MakeFormattedError<MeshPlatformDataBytes>(
                  "mesh asset '{}' has no render data under DDC key {:016x} ({}), and this build cannot derive "
                  "it: the package was cooked without it",
@@ -95,7 +96,8 @@ namespace Desert::Assets
         if ( !derived.IsSuccess() )
             return Common::MakeFormattedError<MeshPlatformDataBytes>( "mesh asset '{}': render data: {}",
                                                                       asset.string(), derived.GetError() );
-        return Common::MakeSuccess( MeshPlatformDataBytes{ derived.ExtractValue(), key } );
+        return Common::MakeSuccess(
+             MeshPlatformDataBytes{ derived.ExtractValue(), key, source.GetValue().Import.Settings } );
     }
 
     Common::ResultStr<uint64_t> HashMeshSourceFile( const std::filesystem::path& file )

@@ -3,6 +3,7 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/MeshCardRepresentation.hpp>
+#include <Engine/Assets/MeshDisplacementTopology.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
@@ -136,7 +137,8 @@ namespace Desert::Assets
         m_VertexStreams = PackMeshVertexStreams( data.Colors, data.UV1, m_Vertices.size() );
 
         // The distance field is keyed on this render data; ResolveDependencies derives it once the materials load.
-        m_RenderDataKey = raw.GetValue().Key;
+        m_RenderDataKey  = raw.GetValue().Key;
+        m_ImportSettings = raw.GetValue().Settings;
         m_DistanceField.reset();
         m_Cards.reset();
         m_DependenciesResolved = false;
@@ -179,6 +181,7 @@ namespace Desert::Assets
     {
         m_DistanceField.reset();
         m_Cards.reset();
+        m_DisplacementTopology.reset();
         // An unread shell has no render data yet; AssetBase::EnsureLoaded runs this again after the read.
         if ( !m_IsReadyForUse )
             return;
@@ -212,6 +215,17 @@ namespace Desert::Assets
         m_DistanceField = slot;
         auto cards      = std::make_shared<MeshCardsSlot>();
         m_Cards         = cards;
+        // THE DISPLACEMENT TOPOLOGY (Runtime mode, CONTRACT-DISPLACE §9.1), cooked from this render data into its
+        // own bucket and loaded by the same job; the scene's DisplacementCache dices the mesh once it lands.
+        std::shared_ptr<DisplacementTopologySlot> topologySlot;
+        std::shared_ptr<DisplacementTopologyBuildInput> topologyInput;
+        if ( m_ImportSettings.Displacement == MeshDisplacementMode::Runtime )
+        {
+            topologySlot           = std::make_shared<DisplacementTopologySlot>();
+            m_DisplacementTopology = topologySlot;
+            topologyInput          = std::make_shared<DisplacementTopologyBuildInput>(
+                 DisplacementTopologyBuildInput{ m_Vertices, m_Indices, m_Submeshes } );
+        }
         auto input      = MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes, twoSided );
         if ( !input )
         {
@@ -223,8 +237,19 @@ namespace Desert::Assets
              slot, m_Metadata.Filepath.string(),
              [path = m_Metadata.Filepath, key = m_RenderDataKey, sided = std::move( twoSided ),
               in = std::make_shared<MeshDistanceFieldBuildInput>( input.ExtractValue() ),
-              cards]( bool& built, const MeshDistanceFieldCancel& cancel )
+              cards, topologySlot, topologyInput]( bool& built, const MeshDistanceFieldCancel& cancel )
              {
+                 if ( topologySlot )
+                 {
+                     auto topology = LoadDisplacementTopology(
+                          path, key, [&topologyInput]() -> Common::ResultStr<DisplacementTopologyBuildInput>
+                          { return Common::MakeSuccess( *topologyInput ); } );
+                     if ( topology.IsSuccess() )
+                         topologySlot->Publish( topology.ExtractValue() );
+                     else
+                         LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh is drawn undisplaced", path.string(),
+                                    topology.GetError() );
+                 }
                  // The cards first (UE FCardRepresentationAsyncQueue, here the same job): a DDC hit or a build
                  // from the same triangles. A failure leaves the mesh without cards - out of the surface cache,
                  // lit in place by a trace that hits it - and is logged naming the mesh, never guessed.

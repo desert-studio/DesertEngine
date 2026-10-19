@@ -10,6 +10,7 @@
 
 #include <Common/Core/ResultWithCodes.hpp>
 #include <Engine/Assets/MeshCardRepresentation.hpp>
+#include <Engine/Assets/MeshDisplacementTopology.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 
 #include <memory>
@@ -91,13 +92,20 @@ namespace Desert
         // cook from the render data and attached by the loader when a section's material declares a Height and the
         // asset's displacement mode is Runtime; null otherwise. DisplacementCache tessellates from it - the CPU
         // vertex data is not kept by the mesh, so the topology is the displaced path's only source.
-        [[nodiscard]] const std::shared_ptr<const Geometry::DisplacementTopology>& GetDisplacementTopology() const
+        // The topology arrives on a worker (Assets::DisplacementTopologySlot); null until it lands.
+        [[nodiscard]] std::shared_ptr<const Geometry::DisplacementTopology> GetDisplacementTopology() const
         {
-            return m_DisplacementTopology;
+            return m_DisplacementTopology ? m_DisplacementTopology->Get() : nullptr;
         }
-        void SetDisplacementTopology( std::shared_ptr<const Geometry::DisplacementTopology> topology )
+        void SetDisplacementTopology( std::shared_ptr<const Assets::DisplacementTopologySlot> slot )
         {
-            m_DisplacementTopology = std::move( topology );
+            m_DisplacementTopology = std::move( slot );
+        }
+        // The mesh is displaced (its import settings chose a displacement mode): its draws over displaced geometry
+        // take the displaced material slots (MaterialSlotBinding::Displaced), even before the geometry lands.
+        [[nodiscard]] bool IsDisplaced() const
+        {
+            return m_DisplacementTopology != nullptr;
         }
 
         [[nodiscard]] virtual Common::BoolResultWithCodes<MeshError> Invalidate() = 0;
@@ -185,6 +193,6 @@ namespace Desert
         std::vector<Submesh>                    m_Submeshes;
         std::shared_ptr<const Assets::MeshDistanceFieldSlot> m_DistanceField;
         std::shared_ptr<const Assets::MeshCardsSlot>         m_Cards;
-        std::shared_ptr<const Geometry::DisplacementTopology> m_DisplacementTopology;
+        std::shared_ptr<const Assets::DisplacementTopologySlot> m_DisplacementTopology;
     };
 } // namespace Desert

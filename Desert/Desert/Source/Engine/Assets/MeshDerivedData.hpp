@@ -65,6 +65,9 @@ namespace Desert::Assets
     {
         std::string Bytes;
         uint64_t    Key = 0;
+        // The asset's import settings (IMPT): what the loader reads beside the render data - the displacement
+        // mode is not in the render-data key, so it comes from the asset itself.
+        MeshImportSettings Settings;
     };
     Common::ResultStr<MeshPlatformDataBytes> LoadMeshPlatformDataKeyed( const std::filesystem::path& asset );
 

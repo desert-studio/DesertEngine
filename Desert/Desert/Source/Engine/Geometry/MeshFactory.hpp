@@ -61,6 +61,7 @@ namespace Desert::Graphic
             }
             staticMesh->SetDistanceField( asset->GetDistanceField() );
             staticMesh->SetCards( asset->GetCards() );
+            staticMesh->SetDisplacementTopology( asset->GetDisplacementTopology() );
 
             return staticMesh;
         }

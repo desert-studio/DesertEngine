@@ -48,6 +48,7 @@ namespace Desert::Assets
     inline constexpr DDCBucketRow kDDCBucketRegister[] = {
         { "StaticMesh",       DDCBucketReach::Shipped,    "Assets/MeshDerivedData.hpp kMeshDeriver - StaticMeshAsset loads mesh render data from this at runtime (PK3: this row was missing, so a package shipped no mesh render data at all)" },
         { "MeshDistanceField", DDCBucketReach::Shipped,   "Assets/MeshDistanceField.hpp kMeshDistanceFieldDeriver - StaticMeshAsset loads the mesh's signed distance field with its render data; the GPU scene's distance-field atlas and global distance field read it" },
+        { "DisplacementTopology", DDCBucketReach::Shipped, "Assets/MeshDisplacementTopology.hpp kDisplacementTopologyDeriver - StaticMeshAsset loads a Runtime-displaced mesh's cooked clusters and welded topology with its render data; the scene's DisplacementCache tessellates from it" },
         { "ImportedMeshSource", DDCBucketReach::Shipped,  "Assets/MeshDerivedData.hpp kMeshSourceDeriver - the MeshSourceAsset envelope an FBX import derives (AF4h: no longer beside its source); a packaged game resolves a static mesh's source data through the DDC, raw .fbx is not shipped" },
         { "Texture",          DDCBucketReach::Shipped,    "Assets/TextureSourceAsset.hpp kTextureDeriver - texture streaming reads this at runtime" },
         { "CloudModelling",   DDCBucketReach::Shipped,    "Assets/CloudProceduralVolume.hpp kCloudModellingDeriver - VolumetricCloudRenderer reads this at runtime" },
