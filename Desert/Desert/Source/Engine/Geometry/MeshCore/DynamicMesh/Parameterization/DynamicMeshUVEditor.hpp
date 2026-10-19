@@ -4,6 +4,11 @@
 // (the spectral branch of SetTriangleUVsFromConformal; the natural-conformal branch has no caller here);
 // FExpMapOptions is not ported (its defaults, zero normal-smoothing rounds, are what every UE caller here passes).
 // SetToPerVertexUVs and ScaleUVAreaTo3DArea (with DetermineAreaFromUVs inlined) serve the bevel's MVC patch.
+// The projections (SetTriangleUVsFromPlanarProjection :282-330, SetTriangleUVsFromBoxProjection :1159-1304,
+// SetTriangleUVsFromCylinderProjection :1322-1459), SplitBowtiesOnUVElements (:1306-1320), AutoOrientUVArea
+// (:1562-1669) and QuickPack (:1671-1684, with FDynamicMeshUVPacker::StandardPack of MeshUVPacking.cpp:62-120)
+// serve the Modeling palette's UVs tools; the box projection's MinIslandTriCount region merging (FMeshRegionGraph)
+// is not ported, every triangle keeps its own box face.
 #pragma once
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
@@ -63,6 +68,45 @@ namespace Desert::Geometry
          */
         bool ScaleUVAreaTo3DArea( const std::vector<int32_t>& Triangles, bool bRecenterAtOrigin,
                                   float ScaleFactor = 1.0f );
+
+        /**
+         * Planar projection: each vertex's PointTransform(position), in ProjectionFrame's X/Y plane, divided by
+         * Dimensions. One new island (the triangles' UVs are reset first).
+         */
+        void
+        SetTriangleUVsFromPlanarProjection( const std::vector<int32_t>&                           Triangles,
+                                            const std::function<glm::dvec3( const glm::dvec3& )>& PointTransform,
+                                            const Frame3d& ProjectionFrame, const glm::dvec2& Dimensions,
+                                            UVEditResult* Result = nullptr );
+
+        /**
+         * Box projection: each triangle onto the face of the box (BoxFrame, BoxDimensions) its normal points at
+         * most; one island per face run, bowties split.
+         */
+        void SetTriangleUVsFromBoxProjection( const std::vector<int32_t>&                           Triangles,
+                                              const std::function<glm::dvec3( const glm::dvec3& )>& PointTransform,
+                                              const Frame3d& BoxFrame, const glm::dvec3& BoxDimensions,
+                                              UVEditResult* Result = nullptr );
+
+        /**
+         * Cylinder projection around BoxFrame's Z: triangles whose normal is within CylinderSplitAngle degrees of
+         * +/-Z get the caps' planar projection, the others the unrolled side (split at the frame's -X).
+         */
+        void
+        SetTriangleUVsFromCylinderProjection( const std::vector<int32_t>&                           Triangles,
+                                              const std::function<glm::dvec3( const glm::dvec3& )>& PointTransform,
+                                              const Frame3d& BoxFrame, const glm::dvec3& BoxDimensions,
+                                              float CylinderSplitAngle, UVEditResult* Result = nullptr );
+
+        /** Splits the overlay bowties at the parent vertices of UVElementIDs; new elements are appended to it. */
+        void SplitBowtiesOnUVElements( std::vector<int32_t>& UVElementIDs, bool bAddNewElementsToInputArray );
+
+        /** Rotates the Triangles' UVs so their bounding box is the smallest one (rotating calipers on the hull).
+         */
+        bool AutoOrientUVArea( const std::vector<int32_t>& Triangles );
+
+        /** Packs every UV island of the overlay into the unit square (bowties split first). */
+        bool QuickPack( int32_t TargetTextureResolution = 512, float GutterSize = 1.0f );
 
     private:
         DynamicMesh3*         m_Mesh;

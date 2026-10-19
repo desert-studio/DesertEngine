@@ -1997,6 +1997,8 @@ namespace Desert::Editor
                      static_cast<uint32_t>( m_ViewportData.Size.x ),
                      static_cast<uint32_t>( m_ViewportData.Size.y ) );
                 const glm::mat4 viewProj = camera->GetProjectionMatrix() * camera->GetViewMatrix();
+                // Before CubeGrid: while a UV tool is active its Accept / Cancel requests are the UV tool's.
+                m_UVTool.Update( *m_Scene );
                 m_CubeGridTool.Update( *m_Scene, Core::ModelingState::Get().CubeGridAimCentre ? centreRay : ray,
                                        viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                        m_ViewportData.IsHovered );
@@ -2504,6 +2506,11 @@ namespace Desert::Editor
                 return m_ElementSelectTool.Cursor();
             case T::CreateShape:
                 return m_CreateShapeTool.Cursor();
+            case T::AutoUV:
+            case T::UVProject:
+            case T::UVUnwrap:
+            case T::UVLayout:
+                return Tools::ToolCursor::None; // the UV tools take no click
         }
         return Tools::ToolCursor::None;
     }

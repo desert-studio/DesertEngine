@@ -5,6 +5,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Editor/Core/Selection/MeshBooleanTool.hpp>
+#include <Engine/Geometry/DynamicMeshUVOperations.hpp>
 #include <Engine/Geometry/DynamicMeshXformOperations.hpp>
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
@@ -28,6 +29,11 @@ namespace Desert::Editor::Core
             PolyEdit,
             ElementSelect, // mesh element selection (MeshElementSelection)
             CreateShape,   // place a parametric shape (CreateShapeTool, UE's Add Primitive tools)
+            // UE's UVs palette (UVTool): each previews on the selected mesh and commits on Accept.
+            AutoUV,
+            UVProject,
+            UVUnwrap,
+            UVLayout,
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
@@ -283,6 +289,15 @@ namespace Desert::Editor::Core
         Geometry::SplitMethod     XformSplit = Geometry::SplitMethod::ConnectedComponents;
         Geometry::PatternSettings XformPattern;
         bool                      XformPatternSeparate = false;
+
+        // UVs palette (UVTool, Geometry/DynamicMeshUVOperations.hpp): one settings block per tool; the tool
+        // previews the selected mesh with them and recomputes whenever they change.
+        Geometry::AutoUVSettings    UVAuto;
+        Geometry::UVProjectSettings UVProject;
+        Geometry::UVUnwrapSettings  UVUnwrap;
+        Geometry::UVLayoutSettings  UVLayout;
+        // What the active UV tool's preview did (its report), or why there is none - the panel shows it.
+        std::string UVStatus;
 
         // Create tool: the shape a click places (the palette places it at the viewport centre directly,
         // ViewportPanel::PlaceShapeInActiveViewport, so its refusal reaches the command's result).

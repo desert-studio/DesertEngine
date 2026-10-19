@@ -40,7 +40,7 @@ namespace Desert::Editor::Core
     };
 
     // clang-format off
-    inline constexpr std::array<ModelingStateRow, 70> kModelingStateRows = { {
+    inline constexpr std::array<ModelingStateRow, 86> kModelingStateRows = { {
          { "CubeGrid.GridFrameOrigin",  "Grid Frame Origin",  "CubeGrid", 3, false, -1.0e6f, 1.0e6f,
            []( ModelingState& s ) { return &s.GridOrigin.x; }, nullptr },
          { "CubeGrid.GridFrameOrientation", "Grid Frame Orientation", "CubeGrid", 3, false, -180.0f, 180.0f,
@@ -184,6 +184,38 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.XformPattern.SpacingB; }, nullptr },
          { "Pattern.SweepDegrees",      "Sweep",              "Pattern", 1, false, -360.0f, 360.0f,
            []( ModelingState& s ) { return &s.XformPattern.SweepDegrees; }, nullptr },
+         { "AutoUV.MaxNormalDeviation", "Max Normal Deviation", "AutoUV", 1, false, 1.0f, 180.0f,
+           []( ModelingState& s ) { return &s.UVAuto.MaxNormalDeviationDeg; }, nullptr },
+         { "AutoUV.PackingResolution",  "Packing Resolution", "AutoUV", 1, true, 16.0f, 4096.0f, nullptr,
+           []( ModelingState& s ) { return &s.UVAuto.PackingResolution; } },
+         { "UVProject.Dimensions",      "Dimensions",         "UV Project", 3, false, 0.001f, 1.0e6f,
+           []( ModelingState& s ) { return &s.UVProject.Dimensions.x; }, nullptr },
+         { "UVProject.CenterOffset",    "Center Offset",      "UV Project", 3, false, -1.0e6f, 1.0e6f,
+           []( ModelingState& s ) { return &s.UVProject.CenterOffset.x; }, nullptr },
+         { "UVProject.Rotation",        "Rotation",           "UV Project", 3, false, -360.0f, 360.0f,
+           []( ModelingState& s ) { return &s.UVProject.RotationDeg.x; }, nullptr },
+         { "UVProject.CylinderSplitAngle", "Cylinder Split Angle", "UV Project", 1, false, 0.0f, 90.0f,
+           []( ModelingState& s ) { return &s.UVProject.CylinderSplitAngle; }, nullptr },
+         { "UVProject.UVRotation",      "UV Rotation",        "UV Project", 1, false, -360.0f, 360.0f,
+           []( ModelingState& s ) { return &s.UVProject.UVRotationDeg; }, nullptr },
+         { "UVProject.UVScaleU",        "UV Scale U",         "UV Project", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVProject.UVScale.x; }, nullptr },
+         { "UVProject.UVScaleV",        "UV Scale V",         "UV Project", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVProject.UVScale.y; }, nullptr },
+         { "UVProject.UVTranslateU",    "UV Translate U",     "UV Project", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVProject.UVTranslate.x; }, nullptr },
+         { "UVProject.UVTranslateV",    "UV Translate V",     "UV Project", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVProject.UVTranslate.y; }, nullptr },
+         { "UVUnwrap.PackingResolution", "Packing Resolution", "UV Unwrap", 1, true, 16.0f, 4096.0f, nullptr,
+           []( ModelingState& s ) { return &s.UVUnwrap.PackingResolution; } },
+         { "UVLayout.TextureResolution", "Texture Resolution", "UV Layout", 1, true, 16.0f, 4096.0f, nullptr,
+           []( ModelingState& s ) { return &s.UVLayout.TextureResolution; } },
+         { "UVLayout.Scale",            "Scale",              "UV Layout", 1, false, 0.001f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVLayout.Scale; }, nullptr },
+         { "UVLayout.TranslateU",       "Translate U",        "UV Layout", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVLayout.Translation.x; }, nullptr },
+         { "UVLayout.TranslateV",       "Translate V",        "UV Layout", 1, false, -1000.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.UVLayout.Translation.y; }, nullptr },
     } };
     // clang-format on
 
