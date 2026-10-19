@@ -140,6 +140,11 @@ Shader "DeferredLighting"
         // and u_CameraPos.w = 0: nothing is read, the environment answers the whole lobe.
         layout(set = 0, binding = 24) uniform texture2D u_SSR;
         #define u_SSR sampler2D(u_SSR, u_LinearClampSampler)
+        // u_CameraPos.w: what u_SSR holds (SceneRenderer::AddFrameComposite).
+        #define REFLECTION_INPUT_NONE   0
+        #define REFLECTION_INPUT_SCREEN 1 // ReflectionMethod::ScreenSpace (UE bLumenReflectionInputIsSSR)
+        #define REFLECTION_INPUT_TRACED 2 // SoftwareTraced / HardwareTraced (UE Lumen reflections)
+        #include <Common/SSRGate.glslh>
         #include <Mesh/AmbientIBL.glslh>
         #include <Mesh/LightSources.glslh>
         // THE lighting of this pass: the texel's shading model through the dispatch the registry generates. The
@@ -158,7 +163,7 @@ Shader "DeferredLighting"
         	vec4 u_LightDir;   // xyz = direction the light travels (away from the sun); w unused
         	vec4 u_LightColor; // rgb = colour, a = intensity
         	vec4 u_Params;     // x = debug mode (0..9), y = GI intensity (0 = off), z = SSAO enabled, w = GI mode
-        	vec4 u_CameraPos;  // xyz = camera world position (for the view vector); w = 1 when u_SSR holds a trace
+        	vec4 u_CameraPos;  // xyz = camera world position (for the view vector); w = REFLECTION_INPUT_* of u_SSR
         	mat4 u_InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
         	mat4 u_JitteredViewProjection;    // the matrix itself: the contact shadows march the depth in its space
         	vec4 u_ScreenSpaceGI;  // x = the screen-space gather's samples per pixel (Scalability
@@ -513,14 +518,28 @@ Shader "DeferredLighting"
         	// environment (captures, then sky) (UE ReflectionEnvironmentPixelShader: SSR over the rest, then the
         	// split-sum Fresnel of both together).
         	DesertAmbient sampled = DesertSampleAmbient(surface, indirect, ao);
+        	// The reflection environment along the lobe (the captures, then the sky): what a traced ray's miss sees.
+        	const vec3 environment     = sampled.Prefiltered;
+        	const int  reflectionInput = int(u_CameraPos.w + 0.5);
         	if (giMode == 2)
         	{
         		// The traced final gather at this pixel (one texel each, the G-buffer's extent): the diffuse irradiance
-        		// and the specular radiance replace both sky terms, so a closed room neither glows nor mirrors the sky.
+        		// and the rough specular replace both sky terms, so a closed room neither glows nor mirrors the sky.
         		sampled.Irradiance  = texelFetch(u_GIDiffuse, ivec2(gl_FragCoord.xy), 0).rgb;
         		sampled.Prefiltered = texelFetch(u_GISpecular, ivec2(gl_FragCoord.xy), 0).rgb;
         	}
-        	if (u_CameraPos.w > 0.5)
+        	if (reflectionInput == REFLECTION_INPUT_TRACED)
+        	{
+        		// UE MixSpecularAndRoughReflections (DiffuseIndirectComposite.usf) for Lumen reflections: the traced
+        		// reflection - its hits, its misses answered by the captures, then the sky (better than UE's sky
+        		// alone indoors) - answers TracedReflectionsAlpha of the lobe, the traced GI's rough specular the
+        		// rest. Without traced GI there is no rough specular: the traced reflection answers the whole lobe,
+        		// its screen hits past the max roughness included, as ScreenSpace's do.
+        		const vec3 traced = DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), environment);
+        		sampled.Prefiltered = giMode == 2 ? mix(sampled.Prefiltered, traced, TracedReflectionsAlpha(gb.a)) : traced;
+        	}
+        	else if (reflectionInput == REFLECTION_INPUT_SCREEN)
+        		// UE's SSR input: the screen's hits over the GI's specular (or the environment), by their coverage.
         		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), sampled.Prefiltered);
         	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, sampled, surface, payload);
 

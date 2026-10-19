@@ -20,3 +20,18 @@ bool SSRPixelCanReflect(vec4 gbufferNormal)
 {
 	return dot(gbufferNormal.rgb, gbufferNormal.rgb) > 0.001 && SSRRoughnessFade(gbufferNormal.a) >= 0.01;
 }
+
+// UE r.Lumen.Reflections.MaxRoughnessToTrace (0.4) and its fade (r.Lumen.Reflections.RoughnessFadeLength, 0.1):
+// a texel this rough or less sends its rays past the screen (ReflectionMethod SoftwareTraced / HardwareTraced);
+// rougher, the screen alone. ONE statement for the trace (its world share) and the composite (DeferredLighting:
+// how much of the lobe the traced reflection answers before the traced GI's rough specular takes over).
+const float kTracedMaxRoughness  = 0.4;
+const float kTracedRoughnessFade = 0.1;
+
+// UE LumenCombineReflectionsAlpha (LumenReflectionsCombine.ush): 1 = the lobe is the traced reflection's alone,
+// 0 = the rough specular approximation's (the screen probe gather's, Programs/GlobalIllumination/
+// ScreenProbeIntegrate.shader), linear across the fade.
+float TracedReflectionsAlpha(float roughness)
+{
+	return clamp((kTracedMaxRoughness - roughness) / kTracedRoughnessFade, 0.0, 1.0);
+}

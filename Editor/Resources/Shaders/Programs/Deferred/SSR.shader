@@ -38,8 +38,11 @@ Shader "SSR"
     // holds it (GIHitRadiance). A ray that meets nothing is NOT answered: the captures, then the sky, answer it in
     // the composite, as they answer a ScreenSpace miss (UE: the sky light of a Lumen miss; here the captures sit in
     // between). Past kTracedMaxRoughness (UE r.Lumen.Reflections.MaxRoughnessToTrace, faded over
-    // kTracedRoughnessFade) a ray only walks the screen, as ScreenSpace does; past kSSRMaxRoughness the captures
-    // alone answer. The pass and the denoiser are the ScreenSpace method's.
+    // kTracedRoughnessFade, Common/SSRGate.glslh TracedReflectionsAlpha) a ray only walks the screen, as
+    // ScreenSpace does; past kSSRMaxRoughness nothing is traced. Under the traced GI the composite hands that
+    // rough part of the lobe to the screen probe gather's rough specular by the same fade (UE
+    // MixSpecularAndRoughReflections), so a rough surface reflects the GI's radiance, not the captures; without
+    // traced GI the captures answer it. The pass and the denoiser are the ScreenSpace method's.
     // HardwareTraced is the same permutation under the ray-query tracer (DESERT_GI_TRACER_HARDWARE; UE
     // LumenReflectionHardwareRayTracing.usf): the world leg is one ray query over the view's TLAS (masked segments
     // alpha-tested, Common/RayQueryVisibility.glslh), no mesh SDF near field; the hit is its instance's surface
