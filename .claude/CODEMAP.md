@@ -23,7 +23,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Assets` — 122 files, 27,971 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetGuidRef, AssetKey, AssetManager, AssetMetadata, AssetRef, AssetRefSite, AssetRootPin, … (+123)
 - `Assets/Mesh` — 14 files, 2,385 lines: AnimationAsset, MeshAsset, ReloadTwinTag, SkeletonAsset, SkeletonReferrers, SkinnedMeshAsset, StaticMeshAsset, SurfaceMaterialAsset
 - `Assets/Prefab` — 9 files, 1,470 lines: AnimationComponentSer, EntityData, InstanceRootTransform, InstancedStaticMeshComponentSer, MaterialComponentSer, MaterialParamSer, MaterialTextureSer, PrefabAsset, PrefabBoundsSer, PrefabData, PrefabDiffReport, PrefabOverrideData, … (+6)
-- `Assets/Serialization` — 40 files, 10,430 lines: AnimationAssetData, Box, ControlDriveData, ControlElementData, ControlLimitData, ControlRigData, ControlSpaceData, CookedPanorama, Document, FoliageFloatInterval, FoliageProcedural, FoliageScaleCurveKey, … (+71)
+- `Assets/Serialization` — 40 files, 10,446 lines: AnimationAssetData, Box, ControlDriveData, ControlElementData, ControlLimitData, ControlRigData, ControlSpaceData, CookedPanorama, Document, FoliageFloatInterval, FoliageProcedural, FoliageScaleCurveKey, … (+71)
 - `Assets/Shader` — 2 files, 325 lines: ShaderAsset
 - `Assets/Skybox` — 2 files, 123 lines: SkyboxAsset
 - `Audio` — 4 files, 442 lines: AudioEngine, AudioMix
@@ -39,7 +39,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/Traits` — 1 files, 17 lines
 - `Destruction` — 16 files, 3,478 lines: BodyRef, BodyState, BoxFalloff, BrickSettings, CellBounds, ConvexCell, CutPlane, DestructibleDesc, DestructionEvent, DestructionSettings, DestructionWorld, FieldCommand, … (+25)
 - `ECS` — 42 files, 8,319 lines: AlwaysLoadedComponent, AnchorFieldComponent, AnchorFieldData, AnimationComponent, AppliedLayerLink, AtmosphereSunPick, AudioSourceComponent, AudioSourceData, Bound, CameraComponent, CameraData, CharacterControllerComponent, … (+165)
-- `ECS/System` — 49 files, 9,091 lines: Actor, AnimationECSSystem, ArmSolve, AtmosphereSunSelection, AttachPoint, AttachmentSystem, AudioECSSystem, ColliderMesh, ComponentEventCursor, ComponentEventSystem, DecomposedTransform, DestructibleLifetime, … (+39)
+- `ECS/System` — 49 files, 9,095 lines: Actor, AnimationECSSystem, ArmSolve, AtmosphereSunSelection, AttachPoint, AttachmentSystem, AudioECSSystem, ColliderMesh, ComponentEventCursor, ComponentEventSystem, DecomposedTransform, DestructibleLifetime, … (+39)
 - `GameplayDebugger` — 5 files, 566 lines: CategorySlot, GameplayDebugger, GameplayDebuggerCategoryBasic, GameplayDebuggerCategoryData, GameplayDebuggerShape, IGameplayDebuggerCategory
 - `Generated` — 31 files, 2,222 lines
 - `Geometry` — 60 files, 11,834 lines: AutoUVSettings, BakeOptions, BoneBounds, BooleanOutcome, Cell, CutPlane, DynamicMesh, ElementHit, ElementSelection, FaceVert, GridFrame, GroupAssigner, … (+63)
@@ -91,7 +91,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Graphic/Systems/Scene/Debug` — 2 files, 390 lines: DebugDrawRenderer
 - `Graphic/Systems/Scene/Deferred` — 12 files, 2,531 lines: CompositeProgram, CopyRenderer, DeferredCompositeInputs, DeferredCompositeLights, DeferredLightingRenderer, DenoiserSceneTextures, DepthExpandRenderer, DiffuseIndirectDenoiserInputs, DirectSpecularDenoiserInputs, FrontLayerInputs, GraphColorResolveRenderer, HZBRenderer, … (+19)
 - `Graphic/Systems/Scene/Fog` — 2 files, 390 lines: HeightFogRenderer
-- `Graphic/Systems/Scene/Grass` — 2 files, 588 lines: Desert, FieldGpu, GrassBladeDraw, GrassFieldData, GrassFieldDraw, GrassPlacement, GrassRenderer, GrassSectionDraw, GrassVarietyDraw, VarietyGpu
+- `Graphic/Systems/Scene/Grass` — 2 files, 599 lines: Desert, FieldGpu, GrassBladeDraw, GrassFieldData, GrassFieldDraw, GrassPlacement, GrassRenderer, GrassSectionDraw, GrassVarietyDraw, VarietyGpu
 - `Graphic/Systems/Scene/Mesh` — 14 files, 8,375 lines: Block, CardCaptureSection, CardCaptureSource, CascadeCacheCopy, CascadeCacheState, CasterPipelines, Desert, GenericDraw, GenericMeshRenderData, GlassFrontLayer, GpuInstancedRenderData, Graphic, … (+26)
 - `Graphic/Systems/Scene/Particles` — 9 files, 2,019 lines: EmitterMaterial, ParticleArgsPush, ParticleChannelSpawnGpu, ParticleCompactPush, ParticleDrawLayoutGpu, ParticleDrawSlotGpu, ParticleEmitterGpu, ParticleFrameEmitter, ParticlePoolBuffers, ParticlePoolLists, ParticlePoolRange, ParticlePoolRanges, … (+15)
 - `Graphic/Systems/Scene/PathTracing` — 1 files, 507 lines: AccumulationTarget, FrameInputs, PathTracer, SceneHasher, Settings, SkyPush, SkyTargets, TracePush
@@ -259,7 +259,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Programs/Fog` — 2 files, 238 lines
 - `Programs/GlobalIllumination` — 18 files, 2,439 lines
 - `Programs/Graph` — 4 files, 146 lines
-- `Programs/Grass` — 2 files, 267 lines
+- `Programs/Grass` — 2 files, 313 lines
 - `Programs/JFA` — 3 files, 203 lines
 - `Programs/LensFlare` — 2 files, 257 lines
 - `Programs/LightShafts` — 2 files, 115 lines
