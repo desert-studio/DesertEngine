@@ -54,7 +54,9 @@ namespace Desert::Core
         Common::UUID Record;            // the entity whose record states this one (itself, unless it is inside a
                                         // prefab instance or a foliage field: then the instance's / field's root)
         Common::UUID  Parent;           // null for a root
-        std::uint32_t SiblingIndex = 0; // what the record's siblingIndex states (records only)
+        // What the record's siblingIndex states (records only); none for a root of an external-entities scene,
+        // whose root order is not persisted (UE: OFPA actors keep no order).
+        std::optional<std::uint32_t> SiblingIndex;
     };
 
     // What a save of a partitioned world has to do.
@@ -123,7 +125,7 @@ namespace Desert::Core
         struct SavedRecord
         {
             std::uint64_t Parent       = 0;
-            std::uint32_t SiblingIndex = 0;
+            std::optional<std::uint32_t> SiblingIndex;
         };
 
         [[nodiscard]] Revision CurrentOf( std::uint64_t id ) const;

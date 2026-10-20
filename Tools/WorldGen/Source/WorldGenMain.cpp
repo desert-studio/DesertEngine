@@ -604,6 +604,11 @@ namespace Desert::WorldGen
                 grid.LoadingRange    = static_cast<float>( loadingRange.value_or( 76800 ) );
                 scene.WorldPartition = Core::WorldPartitionSerialized{ { grid } };
                 Core::Rules::StateInstancingHLODLayer( *scene.WorldPartition );
+                // An external-entities scene persists no root order (SceneSerializer's SiblingIndexOf, v68):
+                // its roots state no siblingIndex, children keep theirs.
+                for ( auto& record : scene.Entities )
+                    if ( !record.parent )
+                        record.siblingIndex.reset();
             }
 
             // The Settings block, written the way the ENGINE'S SAVER writes it - every field this build

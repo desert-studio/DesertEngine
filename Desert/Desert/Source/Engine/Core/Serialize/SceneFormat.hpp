@@ -105,8 +105,10 @@ namespace Desert::Core
     // Partition grid states its Name (what a RuntimeGrid block names) and Priority (Tools/SceneMigrator,
     // MigrateGridNamesV65ToV66). v67 (WP22c): the HLOD layer is stated per GRID (UE
     // FRuntimePartitionDesc::HLODSetups), not once for the world - the world's DefaultHLODLayer moved onto
-    // every grid (Tools/SceneMigrator, MigrateGridHLODLayerV66ToV67).
-    inline constexpr int kSceneVersion = 67;
+    // every grid (Tools/SceneMigrator, MigrateGridHLODLayerV66ToV67). v68 (WP17): a ROOT record of an
+    // external-entities scene states no siblingIndex - a streamed world persists no root order, as UE's OFPA
+    // (Tools/SceneMigrator, MigrateRootSiblingIndexV67ToV68).
+    inline constexpr int kSceneVersion = 68;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

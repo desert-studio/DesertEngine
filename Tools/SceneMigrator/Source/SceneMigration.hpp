@@ -382,7 +382,14 @@ namespace Desert::Migration
     //       (its cells had no HLOD and still have none) (MigrateGridHLODLayerV66ToV67). Scenes only.
     inline constexpr int kSceneVersionGridHLODLayer = 67;
 
-    static_assert( kSceneVersionGridHLODLayer == kSceneVersion,
+    //  68 - AN EXTERNAL-ENTITIES SCENE PERSISTS NO ROOT ORDER (WP17). Its roots are the cells streamed in,
+    //       appended in load order, so the running root count v67 wrote said 0 with the cells away and 28 with
+    //       Load All - an untouched entity differed from its own file depending on what was loaded. UE keeps no
+    //       order for OFPA top-level actors either. A ROOT record of a scene with a WorldPartition block states
+    //       no siblingIndex; children keep theirs (MigrateRootSiblingIndexV67ToV68). Scenes only.
+    inline constexpr int kSceneVersionRootSiblingIndex = 68;
+
+    static_assert( kSceneVersionRootSiblingIndex == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -734,6 +741,10 @@ namespace Desert::Migration
     // (kSceneVersionGridHLODLayer); how many grids were given the layer.
     std::size_t MigrateGridHLODLayerV66ToV67( SceneSerialized& scene );
 
+    // Drops siblingIndex from every root record of a partitioned (external-entities) scene
+    // (kSceneVersionRootSiblingIndex); how many records lost it.
+    std::size_t MigrateRootSiblingIndexV67ToV68( SceneSerialized& scene );
+
     // What MigrateSceneDependenciesV51ToV52 did to one scene.
     struct SceneDependenciesReport
     {
@@ -994,6 +1005,8 @@ namespace Desert::Migration
         std::size_t GridsNamed      = 0;     // grids given a name
         bool        GridHLODLayerRaised = false; // below kSceneVersionGridHLODLayer
         std::size_t GridsGivenHLODLayer = 0;     // grids given the world's former DefaultHLODLayer
+        bool        RootSiblingIndexRaised = false; // below kSceneVersionRootSiblingIndex
+        std::size_t RootSiblingIndexDropped = 0;    // root records that lost their siblingIndex
 
         bool                    SceneDependenciesRaised = false; // below kSceneVersionSceneDependencies
         SceneDependenciesReport SceneDependencies;
