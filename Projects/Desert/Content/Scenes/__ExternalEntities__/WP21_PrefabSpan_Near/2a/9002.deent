@@ -2,7 +2,7 @@
     "id": 9002,
     "siblingIndex": 3,
     "Tag": "ShotCamera",
-    "Translation": [2500.0, 600.0, 2500.0],
+    "Translation": [2750.0, 2500.0, 6500.0],
     "Rotation": [-0.30000001192092896, 0.0, 0.0],
     "Scale": [1.0, 1.0, 1.0],
     "Camera": {

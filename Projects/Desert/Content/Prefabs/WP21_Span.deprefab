@@ -25,7 +25,7 @@
         {
             "id": 9102,
             "Tag": "SpanB",
-            "Translation": [1500.0, 0.0, 0.0],
+            "Translation": [150.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "StaticMesh": {
@@ -38,7 +38,7 @@
         {
             "id": 9103,
             "Tag": "SpanC",
-            "Translation": [3000.0, 0.0, 0.0],
+            "Translation": [300.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "StaticMesh": {
@@ -51,7 +51,7 @@
         {
             "id": 9104,
             "Tag": "SpanD",
-            "Translation": [4500.0, 0.0, 0.0],
+            "Translation": [450.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "StaticMesh": {

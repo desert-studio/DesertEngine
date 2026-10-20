@@ -35,7 +35,7 @@
             {
                 "Name": "Main",
                 "CellSize": 1000.0,
-                "LoadingRange": 3000.0,
+                "LoadingRange": 8000.0,
                 "Priority": 0
             }
         ],
