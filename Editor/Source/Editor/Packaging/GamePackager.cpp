@@ -3,6 +3,7 @@
 #include "PackageTarget.hpp"
 #include "PackagedContentTrees.hpp"
 
+#include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
@@ -216,8 +217,11 @@ namespace Desert::Editor
                 }
                 if ( !scene.GetValue().Scene.WorldPartition.has_value() )
                     continue;
-                auto cooked = ::Desert::Core::WorldCells::CookWorld(
-                     scene.GetValue().Scene, std::span( &Assets::ContentRegistry::Get(), 1 ) );
+                // The same mesh and landscape HLOD builders editor Play uses (WP-FAR-7, WP-FAR-6).
+                const auto registries = std::span( &Assets::ContentRegistry::Get(), 1 );
+                auto       cooked     = ::Desert::Core::WorldCells::CookWorld(
+                     scene.GetValue().Scene, registries, ::Desert::Core::MakeHLODMeshBuilder( registries ),
+                     ::Desert::Core::MakeLandscapeHLODBuilder() );
                 if ( !cooked )
                 {
                     error = "cooking the world '" + key + "': " + cooked.GetError();

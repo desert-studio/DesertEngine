@@ -396,16 +396,18 @@ namespace Desert::Core::WorldCells
 
     Common::ResultStr<CookedWorld> CookWorld( const SceneSerialized&                        scene,
                                               std::span<const Common::Utils::AssetRegistry> registries,
-                                              const Rules::HLODMeshBuilder&                 meshBuilder )
+                                              const Rules::HLODMeshBuilder&                 meshBuilder,
+                                              const Rules::LandscapeHLODBuilder&            landscape )
     {
         const std::vector<Rules::EntityDescriptor> descriptors = Rules::DescribeEntities( scene.Entities );
-        return CookWorld( scene, descriptors, registries, meshBuilder );
+        return CookWorld( scene, descriptors, registries, meshBuilder, landscape );
     }
 
     Common::ResultStr<CookedWorld> CookWorld( const SceneSerialized&                        scene,
                                               std::span<const Rules::EntityDescriptor>      descriptors,
                                               std::span<const Common::Utils::AssetRegistry> registries,
-                                              const Rules::HLODMeshBuilder&                 meshBuilder )
+                                              const Rules::HLODMeshBuilder&                 meshBuilder,
+                                              const Rules::LandscapeHLODBuilder&            landscape )
     {
         using Result = CookedWorld;
         if ( !scene.WorldPartition.has_value() )
@@ -560,7 +562,7 @@ namespace Desert::Core::WorldCells
         for ( std::size_t unit = plan.AlwaysLoaded.size(); hlodLayer != nullptr && unit < unitCount; ++unit )
         {
             auto builtCell = Rules::BuildCellHLOD( *hlodLayer, records, world, members[unit], customShader, issues,
-                                                   foliageInHLOD, meshBuilder );
+                                                   foliageInHLOD, meshBuilder, landscape );
             if ( !builtCell )
                 return Common::MakeError<Result>( "'" + scene.SceneName + "', " + index.Units[unit].Name + ": " +
                                                   builtCell.GetError() );

@@ -194,11 +194,12 @@ namespace Desert::Core::WorldCells
     // WorldPartition block, a record without an id, two records with one id, a containment reference that
     // crosses units.
     //
-    // @p meshBuilder builds a MeshMerge / MeshSimplify layer's mesh (Rules::HLODMeshBuilder); empty is a stated
-    // condition - a world whose cells use such a layer is then refused by the layer's name.
+    // @p meshBuilder builds a MeshMerge / MeshSimplify layer's mesh (Rules::HLODMeshBuilder); @p landscape builds
+    // each landscape tile's HLOD mesh (Rules::LandscapeHLODBuilder; empty keeps tiles named holes); empty is a
+    // stated condition - a world whose cells use such a layer is then refused by the layer's name.
     [[nodiscard]] Common::ResultStr<CookedWorld>
     CookWorld( const SceneSerialized& scene, std::span<const Common::Utils::AssetRegistry> registries,
-               const Rules::HLODMeshBuilder& meshBuilder = {} );
+               const Rules::HLODMeshBuilder& meshBuilder = {}, const Rules::LandscapeHLODBuilder& landscape = {} );
 
     // The same cook, PLANNED FROM DESCRIPTORS (WP18): `descriptors` (the world's descriptor index,
     // EntityDescriptorIndex.hpp) are what the cells are decided with; the records only fill the cell files.
@@ -206,7 +207,7 @@ namespace Desert::Core::WorldCells
     [[nodiscard]] Common::ResultStr<CookedWorld>
     CookWorld( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                std::span<const Common::Utils::AssetRegistry> registries,
-               const Rules::HLODMeshBuilder&                 meshBuilder = {} );
+               const Rules::HLODMeshBuilder& meshBuilder = {}, const Rules::LandscapeHLODBuilder& landscape = {} );
 
     // The bounds source a cook plans with: the first registry that knows the mesh answers.
     [[nodiscard]] Rules::AssetBoundsSource BoundsFrom( std::span<const Common::Utils::AssetRegistry> registries );
