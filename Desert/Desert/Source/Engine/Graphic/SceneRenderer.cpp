@@ -1496,6 +1496,17 @@ namespace Desert::Graphic
 
         AddFrameClearMainFramebuffer( graph, textures );
 
+        // The landscape grass of this view, before every node that draws it (the cascades, the geometry) and
+        // before the view's TLAS, whose GPU-written grass rows read its transforms and drawn counts
+        // (RayTracingGpuInstanceSource). A face view grows none, as it simulates no particles.
+        if ( !m_ViewProfile.SceneCapture )
+        {
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
+            UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
+                 ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) );
+            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        }
+
         // The view's TLAS, before any pass that traces rays is declared (RayTracingSceneRenderer.hpp). A frame
         // whose TLAS could not be declared still draws; its ray readers see GetFrame().Built == false.
         {
@@ -1665,16 +1676,6 @@ namespace Desert::Graphic
             AddFrameParticlesSimulate( graph );
 
         AddFrameCloudShadowMap( graph, textures );
-
-        // The landscape grass of this view, before every node that draws it (the cascades, the geometry). A face
-        // view grows none, as it simulates no particles.
-        if ( !m_ViewProfile.SceneCapture )
-        {
-            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
-            UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
-                 ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) );
-            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
-        }
 
         // The opaque raster of the systems, in this order: the cascade depths (the geometry's shadow lookups read
         // them), the scene target's sky and geometry, the outline mask.

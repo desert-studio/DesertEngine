@@ -308,6 +308,9 @@ namespace Desert::Graphic::System
             // GrassBlade only: the variety's shape, Vertex_GrassBlade.glslh's GrassBladeShape.
             std::shared_ptr<ShaderResources::StorageBuffer> BladeShape;
             const GpuInstanceRefs*                          Refs = nullptr; // the producer's, this frame
+            // The instances Instances holds room for (GpuInstances.hpp header word 1): the TLAS rows reserved for
+            // the producer (RayTracingGpuInstanceSource::Rows).
+            uint32_t Capacity = 0;
             // Stable per section across frames: the view-variant key (several cascades: Key * kMaxCascades + c).
             uint32_t Key = 0;
         };
@@ -369,6 +372,8 @@ namespace Desert::Graphic::System
         // An ISM section group: its slot instance and that instance's parent surface.
         [[nodiscard]] static SectionShading ShadingOf( const InstancedMeshRenderData& data );
         [[nodiscard]] static SectionShading ShadingOf( const SkinnedSection& section );
+        // A GPU-instanced section: its slot instance and that instance's parent surface, as an ISM's.
+        [[nodiscard]] static SectionShading ShadingOf( const GpuInstancedRenderData& data );
 
         using RenderSystem::RenderSystem;
 
@@ -468,6 +473,11 @@ namespace Desert::Graphic::System
         [[nodiscard]] std::span<const InstancedMeshRenderData> GetInstancedQueue() const
         {
             return m_InstancedQueue;
+        }
+        // This frame's GPU-instanced sections (the landscape grass): their TLAS rows are written on the GPU.
+        [[nodiscard]] std::span<const GpuInstancedRenderData> GetGpuInstancedQueue() const
+        {
+            return m_GpuInstancedQueue;
         }
         // Every queued field's per-instance GPU-scene rows, end to end (InstancedMeshRenderData::FirstMotionRow).
         [[nodiscard]] std::span<const uint32_t> GetInstancedMotionRows() const

@@ -517,6 +517,7 @@ namespace Desert::Graphic::System
                            .Instances       = gpu->Instances,
                            .BladeShape      = gpu->Shape,
                            .Refs            = &gpu->Refs,
+                           .Capacity        = gpu->Capacity,
                            .Key             = gpu->Index * 64u + s } );
             }
         }

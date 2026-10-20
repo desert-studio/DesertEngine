@@ -417,6 +417,14 @@ namespace Desert::Graphic::System
         return { instance, surface, IsMaskedSurface( surface ) };
     }
 
+    MeshRenderer::SectionShading MeshRenderer::ShadingOf( const GpuInstancedRenderData& data )
+    {
+        MaterialInstance* instance = data.Material.get();
+        auto*             surface =
+             instance != nullptr ? dynamic_cast<DataDrivenMaterial*>( instance->GetParentMaterial() ) : nullptr;
+        return { instance, surface, IsMaskedSurface( surface ) };
+    }
+
     MeshRenderer::SectionShading MeshRenderer::ShadingOf( const SkinnedSection& section )
     {
         return { section.Instance, section.Material, IsMaskedSurface( section.Material ) };
