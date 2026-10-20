@@ -220,7 +220,8 @@ namespace Desert::Editor
                 // The same mesh and landscape HLOD builders editor Play uses (WP-FAR-7, WP-FAR-6).
                 const auto registries = std::span( &Assets::ContentRegistry::Get(), 1 );
                 auto       cooked     = ::Desert::Core::WorldCells::CookWorld(
-                     scene.GetValue().Scene, registries, ::Desert::Core::MakeHLODMeshBuilder( registries ),
+                     scene.GetValue().Scene, registries, ::Desert::Core::WorldCells::PrefabFileReader(),
+                     ::Desert::Core::MakeHLODMeshBuilder( registries ),
                      ::Desert::Core::MakeLandscapeHLODBuilder() );
                 if ( !cooked )
                 {

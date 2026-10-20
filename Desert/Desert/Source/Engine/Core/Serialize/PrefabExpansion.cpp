@@ -1,5 +1,6 @@
 #include <Engine/Core/Serialize/PrefabExpansion.hpp>
 
+#include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include <Engine/Assets/Prefab/PrefabOverrides.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
@@ -8,6 +9,8 @@
 
 #include <cstdint>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <map>
 #include <string>
 #include <unordered_set>
@@ -288,5 +291,19 @@ namespace Desert::Core::WorldCells
             }
         }
         return Common::MakeSuccess( std::move( expanded ) );
+    }
+
+    PrefabReader PrefabFileReader()
+    {
+        return []( std::string_view stated ) -> Common::ResultStr<Assets::PrefabData>
+        {
+            const std::filesystem::path file = Assets::ResolvePrefabPath( stated );
+            std::ifstream               in( file, std::ios::binary );
+            if ( !in )
+                return Common::MakeError<Assets::PrefabData>(
+                     std::format( "prefab '{}' ({}) does not open", stated, file.string() ) );
+            const std::string text{ std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() };
+            return Assets::ParseLoadablePrefab( stated, text );
+        };
     }
 } // namespace Desert::Core::WorldCells

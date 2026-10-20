@@ -56,4 +56,9 @@ namespace Desert::Core::WorldCells
     // override that misses, an expanded id that is null or collides with another record's.
     [[nodiscard]] Common::ResultStr<ExpandedScene> ExpandPrefabInstances( const SceneSerialized& scene,
                                                                           const PrefabReader&    reader );
+
+    // The reader a cook gives: the stated path resolved under the assets root (Assets::ResolvePrefabPath), the
+    // file read whole and parsed as the loader parses it (Assets::ParseLoadablePrefab). Refused by path: a file
+    // that does not open, a prefab that does not parse.
+    [[nodiscard]] PrefabReader PrefabFileReader();
 } // namespace Desert::Core::WorldCells

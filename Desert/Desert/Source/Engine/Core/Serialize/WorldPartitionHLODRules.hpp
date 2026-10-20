@@ -38,6 +38,7 @@
 //   HiddenSubmeshes — see above.
 //   SkinnedMesh     — a skinned mesh; UE batches only INSTANCED skinned meshes, and there are none here.
 //   PrefabInstance  — the instance's body is in the .deprefab, not in this file (see UnplacedPrefabInstances).
+//                     Reached by editor Play's in-memory plan only: a cook expands every instance first (WP21).
 //   Unreadable      — a mesh block of the wrong shape; the Issue says where, as it does for the loader.
 //   CustomShaderMaterial — every material the batch would bind draws with its own (DSL) shader. The ISM draw
 //                     path is the batched lit one and skips such a component whole (MeshECSSystem, "Instanced

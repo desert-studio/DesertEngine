@@ -156,7 +156,7 @@ namespace
     Cells::CookedWorld Cook( const SceneSerialized&                        scene,
                              std::span<const Common::Utils::AssetRegistry> registries = {} )
     {
-        auto cooked = Cells::CookWorld( scene, registries );
+        auto cooked = Cells::CookWorld( scene, registries, Cells::PrefabReader{} );
         EXPECT_TRUE( cooked.IsSuccess() ) << ( cooked.IsSuccess() ? "" : cooked.GetError() );
         return cooked.IsSuccess() ? cooked.ExtractValue() : Cells::CookedWorld{};
     }
@@ -572,19 +572,19 @@ TEST( WorldCells, ARecordWithoutAnIdOrWithAnotherRecordsIdIsRefused )
 {
     SceneSerialized nameless = World();
     nameless.Entities[3].id.reset();
-    auto refused = Cells::CookWorld( nameless, {} );
+    auto refused = Cells::CookWorld( nameless, {}, Cells::PrefabReader{} );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "'Shooter'" ), std::string::npos ) << refused.GetError();
 
     SceneSerialized twins = World();
     twins.Entities[4].id  = Common::UUID( kShooterId );
-    auto second           = Cells::CookWorld( twins, {} );
+    auto second           = Cells::CookWorld( twins, {}, Cells::PrefabReader{} );
     ASSERT_FALSE( second.IsSuccess() );
     EXPECT_NE( second.GetError().find( "'Target'" ), std::string::npos ) << second.GetError();
 
     SceneSerialized flat = World();
     flat.WorldPartition.reset();
-    EXPECT_FALSE( Cells::CookWorld( flat, {} ).IsSuccess() );
+    EXPECT_FALSE( Cells::CookWorld( flat, {}, Cells::PrefabReader{} ).IsSuccess() );
 }
 
 // ── 6. The tool ────────────────────────────────────────────────────────────────────────────────────
