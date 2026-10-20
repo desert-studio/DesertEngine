@@ -25,7 +25,8 @@ Shader "BloomDownsample"
         {
             vec2  u_SrcTexelSize; // 1 / size(source mip)
             int   u_FirstPass;    // 1 => scene -> mip0 (Karis average + threshold)
-            float u_Threshold;    // bright-pass cutoff (first pass only), raw luminance unless u_AutoExposure
+            float u_Threshold;    // bright-pass cutoff (first pass only), raw luminance unless u_AutoExposure,
+                                  // x ViewFrame::PreExposure (BloomRenderer: the scene is stored pre-exposed)
             float u_ExposureKey;  // auto-exposure key — the composite's u_ExposureKey
             int   u_AutoExposure; // 1 => u_Threshold is after exposure: divide by key / adapted luminance
         };

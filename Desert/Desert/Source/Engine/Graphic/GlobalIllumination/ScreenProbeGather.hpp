@@ -188,6 +188,9 @@ namespace Desert::Graphic::GlobalIllumination
         bool     ShortRangeAO = true; // Scalability GlobalIllumination.ShortRangeAO: the ShortRangeAO pass runs
         glm::mat4          PrevViewProjection{ 1.0f }; // unjittered
         glm::vec3          PrevCameraPosition{ 0.0f };
+        // ViewFrame::PrevPreExposure: the scale the scene colour history (the screen trace's hit radiance) is
+        // stored at; the trace divides by it so its output stays absolute.
+        float              PrevPreExposure = 1.0f;
         // The temporal filter's reprojection: the view's velocity (FrameTransients::Velocity), this frame's and
         // last frame's jitter (ViewFrame::JitterNdc / PrevJitterNdc), and whether the view's previous frame is a
         // previous frame of this one (ViewFrame::HistoryValid: false after a cut, a teleport, a resize).

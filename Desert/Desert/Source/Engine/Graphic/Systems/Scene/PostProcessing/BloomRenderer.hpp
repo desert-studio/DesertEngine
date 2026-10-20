@@ -47,6 +47,12 @@ namespace Desert::Graphic::System
         {
             m_Threshold = threshold;
         }
+        // The scale the scene colour is stored at (ViewFrame::PreExposure): the bright pass compares the STORED
+        // scene, so the threshold (raw radiance, or exposed units under auto-exposure) is multiplied by it.
+        void SetPreExposure( float preExposure )
+        {
+            m_PreExposure = preExposure;
+        }
         // Auto-exposure on: the threshold is the authored one (exposed units) and the shader divides it by
         // this frame's exposure, key / adapted luminance — the composite's own formula.
         void SetAutoExposure( bool enabled, float key )
@@ -72,6 +78,7 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache  m_UpsampleLayout;
 
         float    m_Threshold = 1.0f;
+        float    m_PreExposure  = 1.0f;
         bool     m_AutoExposure = false;
         float    m_ExposureKey  = 0.18f;
         uint32_t m_MaxMips   = 6; // until the first SetMaxMips: the High table value

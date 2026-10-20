@@ -307,7 +307,16 @@ namespace Desert::Graphic
         // The intensity is derived HERE, from the same two numbers that decide whether the nodes exist; a frame
         // without flare nodes has the tonemap read System.Black at intensity 0.
         const SunScreen& sun = values->Sun;
-        flare->SetParams( m_LensFlare );
+        // The bright pass thresholds the STORED scene colour, which is radiance x ViewFrame::PreExposure: the
+        // authored threshold (normalised to the exposure in OnUpdate) and the energy cap are scaled into that
+        // same space here.
+        System::LensFlareRenderer::Params params = m_LensFlare;
+        if ( const ViewFrame* view = GetViewFrame() )
+        {
+            params.Threshold *= view->PreExposure;
+            params.MaxBrightness *= view->PreExposure;
+        }
+        flare->SetParams( params );
         const float intensity = m_LensFlare.Enabled ? LensFlareStrength( sun.Fade, m_LensFlare.Intensity ) : 0.0f;
         tonemap->SetLensFlare( intensity, m_LensFlareTint );
         if ( !flare->Prepare( sun.Fade ) )
