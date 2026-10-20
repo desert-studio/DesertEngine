@@ -147,7 +147,13 @@ namespace Desert::Graphic::System
             std::shared_ptr<ShaderResources::StorageBuffer> Shape; // Kind Blade: GrassBladeShapeGpu
             uint32_t                                        Buckets     = 1;
             std::vector<uint32_t> BucketCapacities; // what Args' bucket table was written with
-            RDG::ExternalBuffer                             InstancesImport, ArgsImport, ParamsImport;
+            // GPU-count feedback (GrassFinalize): per frame in flight, each bucket's unclamped count and a written
+            // mark, read back FramesInFlight frames later; LowFrames counts, per bucket, the frames in a row its
+            // capacity has been at least two steps above what the counts ask for (the shrink's hysteresis).
+            std::shared_ptr<ShaderResources::StorageBuffer> Feedback;
+            std::vector<uint32_t>                           LowFrames;
+            RDG::ExternalBuffer InstancesImport, ArgsImport, ParamsImport, FeedbackImport;
+            RDG::BufferRef      FeedbackRef;
             GpuInstanceRefs                                 Refs;
             RDG::BufferRef                                  ParamsRef;
             RDG::BufferRef                                  FieldRef;

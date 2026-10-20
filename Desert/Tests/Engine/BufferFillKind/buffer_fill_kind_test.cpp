@@ -200,6 +200,10 @@ namespace
         {
             return m_Block.GetSize();
         }
+        Common::BoolResultStr ReadBack( void*, uint32_t, uint32_t ) override
+        {
+            return Common::MakeError<bool>( "a stub has no device copy" );
+        }
         [[nodiscard]] const void* GetData() const override
         {
             return m_Block.GetContents();
@@ -478,6 +482,10 @@ TEST( StorageBufferFields, HasNoneAndTheReferenceOutlivesTheCall )
         uint32_t GetSize() const override
         {
             return 0;
+        }
+        Common::BoolResultStr ReadBack( void*, uint32_t, uint32_t ) override
+        {
+            return Common::MakeError<bool>( "a stub has no device copy" );
         }
         const void* GetData() const override
         {

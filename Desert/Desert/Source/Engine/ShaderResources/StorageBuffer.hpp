@@ -53,6 +53,15 @@ namespace Desert::ShaderResources
         static std::shared_ptr<StorageBuffer> Create( const std::string_view debugName, uint32_t size,
                                                       uint32_t binding, bool persistent = false );
 
+        // READS WHAT THE GPU LEFT in this frame in flight's copy for the active view (GPU-count feedback: a
+        // compute pass writes a count, a later frame sizes buffers from it). Per-frame buffers only: the copy
+        // for the current frame index was last used FramesInFlight frames ago and the frames-in-flight fence has
+        // finished that use, so its bytes are that frame's GPU writes - call it before this frame writes or binds
+        // the copy. A persistent buffer is refused: its one device buffer may be written by a frame still in
+        // flight, and a host read racing a device write has no defined value. GetData is the CPU image, not this.
+        NO_DISCARD virtual Common::BoolResultStr ReadBack( void* destination, uint32_t size,
+                                                           uint32_t offset = 0 ) = 0;
+
     private:
         Graphic::ResourceOwnership m_Accounting;
     };
