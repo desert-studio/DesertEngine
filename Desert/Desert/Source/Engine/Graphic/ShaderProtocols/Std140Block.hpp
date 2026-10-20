@@ -87,6 +87,66 @@ namespace Desert::Graphic::ShaderProtocols
         return Std140AlignUp( offset, 16 ) == structSize;
     }
 
+    /// STD430 STRUCT (an element of a storage buffer's array, std430 §7.6.2.2 rule 9 without rule 4's round-up to
+    /// a vec4): its members sit at the same offsets std140 gives scalars and vectors, its base alignment is its
+    /// largest member's, and its ARRAY STRIDE is its end rounded up to that alignment. True when every field sits
+    /// at that offset and @p structSize — the C++ sizeof, i.e. the stride a std::vector of it uploads — is that
+    /// stride, so a list of these copied end to end is exactly the shader's `T items[]`.
+    [[nodiscard]] constexpr bool Std430StructLayoutMatches( const std::span<const Std140Field> fields,
+                                                            const std::size_t                  structSize )
+    {
+        std::size_t offset   = 0;
+        std::size_t maxAlign = 1;
+        for ( const Std140Field& field : fields )
+        {
+            offset = Std140AlignUp( offset, field.Align );
+            if ( field.Offset != offset )
+                return false;
+            offset += field.Size;
+            maxAlign = field.Align > maxAlign ? field.Align : maxAlign;
+        }
+        return Std140AlignUp( offset, maxAlign ) == structSize;
+    }
+
+    /// `#ifndef guard` ... `#endif` around @p body, with the banner naming the C++ header it is generated from.
+    [[nodiscard]] inline std::string
+    GenerateGuardedGlsl( const std::string_view guard, const std::string_view source, const std::string_view body )
+    {
+        return std::format( "#ifndef {0}\n#define {0}\n\n"
+                            "// GENERATED from {1} by the shader includer; there is no file on disk.\n"
+                            "{2}\n#endif\n",
+                            guard, source, body );
+    }
+
+    /// The members of a struct or block, one per line, from a field list.
+    [[nodiscard]] inline std::string GenerateGlslMembers( const std::span<const Std140Field> fields )
+    {
+        std::string glsl;
+        for ( const Std140Field& field : fields )
+            glsl += std::format( "    {} {};\n", field.Glsl, field.Name );
+        return glsl;
+    }
+
+    /// `struct Name { members };` from a field list.
+    [[nodiscard]] inline std::string GenerateGlslStruct( const std::string_view             structName,
+                                                         const std::span<const Std140Field> fields )
+    {
+        return std::format( "struct {} {{\n{}}};\n", structName, GenerateGlslMembers( fields ) );
+    }
+
+    /// One interface block in the Desert layout sugar: @p sugar is `Uniform` (std140 uniform block) or
+    /// `ReadBuffer` (std430 storage buffer), @p binding its slot, @p members the member lines, @p instanceName
+    /// empty for an anonymous block.
+    [[nodiscard]] inline std::string GenerateGlslBlock( const std::string_view sugar, const unsigned binding,
+                                                        const std::string_view blockName,
+                                                        const std::string_view members,
+                                                        const std::string_view instanceName )
+    {
+        return instanceName.empty()
+                    ? std::format( "{}({}) {} {{\n{}}};\n", sugar, binding, blockName, members )
+                    : std::format( "{}({}) {} {{\n{}}} {};\n", sugar, binding, blockName, members, instanceName );
+    }
+
     /// The GLSL of a uniform block, generated from its field list. @p binding is the Desert layout sugar's slot
     /// (`Uniform(N)`), @p guard the include guard, @p source the C++ header named in the banner.
     [[nodiscard]] inline std::string
@@ -94,13 +154,8 @@ namespace Desert::Graphic::ShaderProtocols
                               const std::string_view blockName, const std::string_view instanceName,
                               const std::span<const Std140Field> fields )
     {
-        std::string glsl = std::format( "#ifndef {0}\n#define {0}\n\n"
-                                        "// GENERATED from {1} by the shader includer; there is no file on disk.\n"
-                                        "Uniform({2}) {3} {{\n",
-                                        guard, source, binding, blockName );
-        for ( const Std140Field& field : fields )
-            glsl += std::format( "    {} {};\n", field.Glsl, field.Name );
-        glsl += std::format( "}} {};\n\n#endif\n", instanceName );
-        return glsl;
+        return GenerateGuardedGlsl(
+             guard, source,
+             GenerateGlslBlock( "Uniform", binding, blockName, GenerateGlslMembers( fields ), instanceName ) );
     }
 } // namespace Desert::Graphic::ShaderProtocols

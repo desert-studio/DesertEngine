@@ -36,17 +36,9 @@ layout( location = 1 ) out vec4 oVelocity;
 // (responsive AA) is translucency's, not written here.
 layout( location = 3 ) out float oThinGeometryCoverage;
 
-struct DirectionLight
-{
-    vec4 Direction;      // xyz = normalized direction
-    vec4 ColorIntensity; // rgb = color, a = intensity
-};
-
-layout( binding = 3 ) uniform DirectionLightsUB
-{
-    DirectionLight directionLights;
-}
-directionLights;
+// The scene directional light (struct DirectionLight + DirectionLightsUB, binding 3): GENERATED from
+// Engine/Graphic/ShaderProtocols/DirectionLight.hpp by the shader includer.
+#include <Common/DirectionLightsUB.glslh>
 
 // Shared sampler states (UE's shared samplers): every scene/view input below is a separate texture read through one
 // of these, bound by the pass with the inputs (Graphic::BindSceneViewInputs). One combined sampler per input cost a
