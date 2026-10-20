@@ -237,6 +237,11 @@ namespace Desert::Graphic::System
             LOG_ERROR( "PostFX: AutoExposure: the adapted luminance was not read back: {}", read.GetError() );
             return 0.0f;
         }
+        // Per frame, so trace: z = the measured luminance before clamp/adaptation (-1 = empty histogram), w =
+        // samples.
+        LOG_TRACE(
+             "[PreExposure] read-back: adapted {} (written {}), measured {}, histogram samples {}, clamp [{}, {}]",
+             value[0], value[1], value[2], value[3], m_MinLuma, m_MaxLuma );
         // y == 1: the Average pass wrote this copy; otherwise it is the buffer's first frames.
         return value[1] == 1.0f && value[0] > 0.0f && value[0] < 3.0e38f ? value[0] : 0.0f;
     }

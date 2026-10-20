@@ -22,7 +22,8 @@ Shader "AEAverage"
         layout(binding = 2, rgba32f) writeonly uniform image2D u_OutLum; // 1x1 new adapted luminance
         // The same value for the CPU (UE FViewInfo::UpdatePreExposure's eye-adaptation readback): a per-frame
         // host-readable copy, read FramesInFlight frames later (AutoExposureRenderer::ReadBackAdaptedLuminance).
-        // y = 1 marks a written value.
+        // y = 1 marks a written value; z = this frame's measured luminance before the clamp and the adaptation
+        // (-1 = empty histogram), w = the histogram's sample count — the read-back's trace says WHY x is what it is.
         Buffer(4) Readback
         {
             vec4 u_Readback;
@@ -47,6 +48,7 @@ Shader "AEAverage"
                 total += u_Bins[i];
 
             float avgLum;
+            float measured = -1.0;
             if ( total == 0u )
             {
                 avgLum = u_MinLuma;
@@ -75,7 +77,8 @@ Shader "AEAverage"
                 }
 
                 float avgLogLum = ( wSum > 0.0 ) ? ( wLogSum / wSum ) : u_MinLogLum;
-                avgLum          = clamp( exp2( avgLogLum ), u_MinLuma, u_MaxLuma );
+                measured        = exp2( avgLogLum );
+                avgLum          = clamp( measured, u_MinLuma, u_MaxLuma );
             }
 
             float prev = texture( u_PrevLum, vec2( 0.5 ) ).r;
@@ -84,7 +87,7 @@ Shader "AEAverage"
 
             float adapted = mix( prev, avgLum, 1.0 - exp( -u_Dt * u_AdaptSpeed ) );
             imageStore( u_OutLum, ivec2( 0 ), vec4( adapted, 0.0, 0.0, 1.0 ) );
-            u_Readback = vec4( adapted, 1.0, 0.0, 0.0 );
+            u_Readback = vec4( adapted, 1.0, measured, float( total ) );
         }
     }
 }

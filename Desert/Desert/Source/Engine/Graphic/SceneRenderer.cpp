@@ -1062,8 +1062,8 @@ namespace Desert::Graphic
             {
                 const float lum = ae->ReadBackAdaptedLuminance();
                 m_LastExposure  = lum > 0.0f ? post.AutoExposureKey / std::max( lum, 1e-4f ) : 0.0f;
-                LOG_INFO( "[PreExposure] {}: read-back adapted luminance {} -> exposure {}",
-                          m_ViewResources.GetName(), lum, m_LastExposure );
+                LOG_TRACE( "[PreExposure] {}: read-back adapted luminance {} -> exposure {}",
+                           m_ViewResources.GetName(), lum, m_LastExposure );
             }
         }
         // The physical sky's on-screen ceiling follows the LOWEST exposure this view can use — the manual scale,
