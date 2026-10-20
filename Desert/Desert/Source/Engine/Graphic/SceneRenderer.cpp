@@ -1387,6 +1387,9 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* bloom = UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] ) )
             bloom->SetPreExposure( frame.PreExposure );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* shafts = UNIQUE_GET_AS( System::LightShaftRenderer, m_RenderSystems["LightShaftSystem"] ) )
+            shafts->SetPreExposure( frame.PreExposure );
         // THE RENDER SET AT THE FRAME'S SPLIT (ViewTargetSet::Render): a scale change resizes the scene's targets
         // here, before any node reads them; the output set stays at m_ViewExtent (Resize).
         ResizeRenderTargets( frame.Split.Render );

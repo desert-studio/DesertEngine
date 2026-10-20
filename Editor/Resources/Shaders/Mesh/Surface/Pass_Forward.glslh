@@ -181,6 +181,7 @@ void main()
     if ( u_DebugParams.x > 0.5 )
     {
         oColor = vec4( N * 0.5 + 0.5, 1.0 );
+        oColor.rgb *= cameraUB.PreExposure; // stored pre-exposed like the lit colour below
         return;
     }
 
@@ -296,6 +297,7 @@ void main()
             dbg += vec3( 1.0, 0.85, 0.35 ) *
                    ( directionLights.directionLights.ColorIntensity.a * max( dot( N, sunDir ), 0.0 ) * shadow );
         oColor = vec4( vec3( 1.0 ) - exp( -dbg * 6.0 ), 1.0 );
+        oColor.rgb *= cameraUB.PreExposure; // stored pre-exposed like the lit colour below
         return;
     }
 
@@ -305,12 +307,14 @@ void main()
     if ( u_ShadowParams.z > 1.5 )
     {
         oColor = vec4( cascadeDebugColor( cascade ) * ( shadow * 0.7 + 0.3 ), 1.0 );
+        oColor.rgb *= cameraUB.PreExposure; // stored pre-exposed like the lit colour below
         return;
     }
 #endif
     if ( u_ShadowParams.z > 0.5 )
     {
         oColor = vec4( vec3( shadow ), 1.0 );
+        oColor.rgb *= cameraUB.PreExposure; // stored pre-exposed like the lit colour below
         return;
     }
 
