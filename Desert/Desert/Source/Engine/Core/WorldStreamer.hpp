@@ -254,6 +254,8 @@ namespace Desert::Core
         // Per HLOD (the switch's index): the ids of its entities, which is how SetHLODVisible finds them.
         std::vector<std::vector<Common::UUID>> m_HLODIds;
         std::optional<Rules::HLODRuntime>      m_HLODs;
+        // False through BeginHLODs' first Sync (which sets every HLOD); after it each switch is logged.
+        bool m_HLODSwitchesSaid = false;
 
         // The one settings value both beginnings hand the executor, kept so the panel reads the same margin.
         Rules::ResidencySettings              m_Settings;
