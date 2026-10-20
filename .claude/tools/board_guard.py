@@ -200,6 +200,14 @@ def main():
 
     if event == "PreToolUse" and tool in ("Agent", "SendMessage"):
         if tool == "Agent" and (tin.get("subagent_type") or "").lower() == "explore":
+            # Rule 000e.6 (owner 10-20): the owner-named check runs in a haiku Explore agent, not in the lead — the
+            # query schema (~20k) would sit in every later lead request. Its prompt naming «Владелец назвал» clears
+            # the codes it names.
+            prompt = str(tin.get("prompt") or "")
+            if "Владелец назвал" in prompt and s["unblock"]:
+                for code in [c for c in s["unblock"] if re.search(r"(?<![A-Z0-9-])" + re.escape(c) + r"(?![A-Z0-9])", prompt)]:
+                    del s["unblock"][code]
+                save(s)
             sys.exit(0)
         late = unaccepted(s)
         if late:
