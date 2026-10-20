@@ -572,13 +572,6 @@ namespace Desert::Core
                           scene.SceneName, partition.UnplacedLandscapeTiles.size() );
             }
 
-            if ( partition.UnusedGrids > 0 )
-            {
-                LOG_WARN( "[WorldPartition] '{0}': the world states {1} grid(s) beyond the first. Every "
-                          "composite is partitioned on grid 0 until a record can choose its grid.",
-                          scene.SceneName, partition.UnusedGrids );
-            }
-
             LOG_INFO( "[WorldPartition] '{0}': {1}.", scene.SceneName,
                       Rules::SummarisePartition( partition, *scene.WorldPartition ) );
             if ( partition.MaxLevelComposite != Rules::kNoRecord && partition.MaxLevel > 0 )

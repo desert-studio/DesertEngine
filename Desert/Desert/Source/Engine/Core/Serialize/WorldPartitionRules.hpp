@@ -378,12 +378,14 @@ namespace Desert::Core::Rules
         std::size_t        Because = kNoRecord; // the member that made it Author/Component
         int                Level   = 0;
         CellCoord          Cell;
+        std::size_t        Grid    = 0; // index into WorldPartitionSerialized::Grids (UE: the actor's RuntimeGrid)
     };
 
     // ONE CELL OF ONE LEVEL THAT HOLDS SOMETHING. `Square` is the cell's own square at its level: a cell
     // never grows, so everything it holds lies inside it — the suite asserts exactly that over the corpus.
     struct PlannedCell
     {
+        std::size_t              Grid  = 0; // index into WorldPartitionSerialized::Grids
         int                      Level = 0;
         CellCoord                Cell;
         CellBounds               Square;
@@ -424,7 +426,7 @@ namespace Desert::Core::Rules
         // the footprint furthest from the origin. At least 1 when there is a grid; 0 when there is none.
         int LevelCount = 0;
 
-        // Every cell that holds at least one composite, ordered by level, then X, then Z, so the plan
+        // Every cell that holds at least one composite, ordered by grid, level, then X, then Z, so the plan
         // does not depend on a hash map's iteration order. A cell nothing is assigned to is not listed.
         std::vector<PlannedCell> Cells;
 
@@ -437,9 +439,9 @@ namespace Desert::Core::Rules
         int         MaxLevel          = 0;
         std::size_t MaxLevelComposite = kNoRecord;
 
-        // A world may state more grids than the planner uses. Every composite goes to `Grids[0]` until
-        // WP22 lets a record choose its grid; how many were stated and not used is said, not dropped.
-        std::size_t UnusedGrids = 0;
+        // How many levels each grid has for THIS world, index = grid: every grid has its own ladder (UE: one
+        // FSpatialHashStreamingGrid per runtime grid). LevelCount above is the highest of them.
+        std::vector<int> GridLevelCount;
     };
 
     // ── WHICH COMPONENTS MAKE THEIR ENTITY ALWAYS-LOADED ──────────────────────────────────────────
@@ -505,6 +507,8 @@ namespace Desert::Core::Rules
          { "WaterZone", ComponentLoading::Global },
          // The author's override, and the only authored input to partitioning besides the grid.
          { "AlwaysLoaded", ComponentLoading::Global },
+         // The grid a composite streams on (WP22): it chooses the cell size, never whether the entity is placed.
+         { "RuntimeGrid", ComponentLoading::Spatial },
          // Play chooses among ALL starts (a tag must name exactly one) before the streamer begins, so a
          // start in an unloaded cell would silently change which one wins, or make a tag unresolvable.
          { "PlayerStart", ComponentLoading::Global },
@@ -611,6 +615,7 @@ namespace Desert::Core::Rules
     // The author's marker, by its key on disk. Named once: the register row above and the reason
     // Author are both about it.
     inline constexpr std::string_view kAlwaysLoadedComponent = "AlwaysLoaded";
+    inline constexpr std::string_view kRuntimeGridComponent  = "RuntimeGrid";
 
     // THE RECORD KINDS WHOSE CONTENTS ARE NOT A POINT AT THEIR OWN POSITION, by their names on disk. One
     // constant per name, so a suite can pin them: see "A COMPOSITE'S FOOTPRINT" at the top of this file.
@@ -1145,6 +1150,8 @@ namespace Desert::Core::Rules
         std::vector<DescriptorReference>       References;
         std::optional<DescriptorLandscapeTile> LandscapeTile;
         std::optional<DescriptorLandscapeRoot> LandscapeRoot;
+        // The RuntimeGrid block's grid name (WP22); absent = the world's first grid.
+        std::optional<std::string> RuntimeGrid;
 
         // Every value read here and found of the wrong type, with its path: the planner reports them as its own.
         Common::Json::Issues Issues;
@@ -1211,6 +1218,13 @@ namespace Desert::Core::Rules
             out.References.push_back( DescriptorReference{ std::string( row.ComponentKey ),
                                                            std::string( row.Field ),
                                                            static_cast<std::uint64_t>( target ), row.Kind } );
+        }
+
+        if ( const auto grid = Detail::BlockOf( record, kRuntimeGridComponent, issues ); grid.has_value() )
+        {
+            std::string name;
+            grid->ReadInto( "Grid", name, issues );
+            out.RuntimeGrid = std::move( name );
         }
 
         if ( const auto tile = Detail::BlockOf( record, kLandscapeTileComponent, issues ); tile.has_value() )
@@ -1594,14 +1608,32 @@ namespace Desert::Core::Rules
             }
         }
 
-        // ── 4. The grid, and how many levels it has for this world ────────────────────────────────
-        //
-        // NO USABLE GRID IS NOT REPAIRED INTO A PLAUSIBLE ONE. A partitioned world with no `Grids` entry,
-        // or with a cell size that is not positive, has nothing to stream by: every composite is
-        // always-loaded and says NoGrid, which is what "this world has no grid" looks like from outside.
-        plan.UnusedGrids     = settings.Grids.size() > 1 ? settings.Grids.size() - 1 : 0;
-        const float cellSize = settings.Grids.empty() ? 0.0f : settings.Grids.front().CellSize;
-        if ( !( cellSize > 0.0f ) )
+        // ── 4a. The grids (WP22, UE FSpatialHashRuntimeGrid): every one named, once, with a real cell ────
+        // A grid with no name, a name two grids state, or a cell size that is not positive makes the grids
+        // unusable AS A WHOLE: which grid a record's name reaches would otherwise be a guess.
+        bool gridsUsable = !settings.Grids.empty();
+        for ( std::size_t gridIndex = 0; gridIndex < settings.Grids.size(); ++gridIndex )
+        {
+            const WorldPartitionGridSerialized& grid = settings.Grids[gridIndex];
+            if ( !( grid.CellSize > 0.0f ) || !std::isfinite( grid.CellSize ) )
+            {
+                plan.Issues.push_back( { std::format( "WorldPartition.Grids[{}].CellSize", gridIndex ),
+                                         "a positive cell size", std::format( "{}", grid.CellSize ) } );
+                gridsUsable = false;
+            }
+            const bool named = !grid.Name.empty();
+            const bool twice = named && std::any_of( settings.Grids.begin(), settings.Grids.begin() + gridIndex,
+                                                     [&]( const WorldPartitionGridSerialized& other )
+                                                     { return other.Name == grid.Name; } );
+            if ( !named || twice )
+            {
+                plan.Issues.push_back( { std::format( "WorldPartition.Grids[{}].Name", gridIndex ),
+                                         "a name no other grid of the world states", grid.Name } );
+                gridsUsable = false;
+            }
+        }
+        plan.GridLevelCount.assign( settings.Grids.size(), 0 );
+        if ( !gridsUsable )
         {
             for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
             {
@@ -1612,28 +1644,58 @@ namespace Desert::Core::Rules
             return plan;
         }
 
-        // The top level is the first whose cell reaches the furthest footprint edge from the origin, so
-        // at the top every footprint that does not straddle an axis is inside one of the four cells
-        // around the origin. Only composites still to be placed count: the sun at 10 km does not widen
-        // the grid. The cap keeps a corrupt coordinate (1e30) from asking for a level past what an
-        // int32 cell index can express at level 0; a footprint beyond it is simply NoFit.
-        constexpr int kMaxLevels = 31;
-        double        furthest   = 0.0;
+        // ── 4b. The grid each composite streams on: its anchor's RuntimeGrid (UE AActor::RuntimeGrid) ───
+        // Absent = the first grid. A name the world does not state is NOT read as the first grid (UE does
+        // that silently): it is an Issue with the record's path, and the composite has no grid - NoGrid.
+        for ( PlannedComposite& held : plan.Composites )
+        {
+            const std::optional<std::string>& wanted = records[held.Anchor].RuntimeGrid;
+            if ( !wanted.has_value() )
+                continue;
+            const auto found = std::find_if( settings.Grids.begin(), settings.Grids.end(),
+                                             [&]( const WorldPartitionGridSerialized& grid )
+                                             { return grid.Name == *wanted; } );
+            if ( found == settings.Grids.end() )
+            {
+                plan.Issues.push_back( { std::format( "Entities[{}].{}.Grid", held.Anchor, kRuntimeGridComponent ),
+                                         "the name of one of the world's grids", *wanted } );
+                if ( held.Reason == AlwaysLoadedReason::None )
+                    held.Reason = AlwaysLoadedReason::NoGrid;
+                continue;
+            }
+            held.Grid = static_cast<std::size_t>( found - settings.Grids.begin() );
+        }
+
+        // ── 4c. How many levels each grid has for this world ──────────────────────────────────────
+        //
+        // A grid's top level is the first whose cell reaches the furthest footprint edge from the origin
+        // among the composites ON THAT GRID, so at the top every footprint that does not straddle an axis
+        // is inside one of the four cells around the origin. Only composites still to be placed count: the
+        // sun at 10 km does not widen any grid. The cap keeps a corrupt coordinate (1e30) from asking for a
+        // level past what an int32 cell index can express at level 0; a footprint beyond it is NoFit.
+        constexpr int       kMaxLevels = 31;
+        std::vector<double> furthest( settings.Grids.size(), 0.0 );
         for ( const PlannedComposite& group : plan.Composites )
         {
             if ( group.Reason != AlwaysLoadedReason::None || !group.Footprint.has_value() )
                 continue;
-            const CellBounds& box = *group.Footprint;
-            furthest              = std::max( { furthest, std::fabs( static_cast<double>( box.MinX ) ),
-                                                std::fabs( static_cast<double>( box.MaxX ) ),
-                                                std::fabs( static_cast<double>( box.MinZ ) ),
-                                                std::fabs( static_cast<double>( box.MaxZ ) ) } );
+            const CellBounds& box  = *group.Footprint;
+            furthest[group.Grid]   = std::max( { furthest[group.Grid], std::fabs( static_cast<double>( box.MinX ) ),
+                                                 std::fabs( static_cast<double>( box.MaxX ) ),
+                                                 std::fabs( static_cast<double>( box.MinZ ) ),
+                                                 std::fabs( static_cast<double>( box.MaxZ ) ) } );
         }
-        plan.LevelCount = 1;
-        while ( plan.LevelCount < kMaxLevels && LevelCellSize( cellSize, plan.LevelCount - 1 ) < furthest )
-            ++plan.LevelCount;
+        for ( std::size_t gridIndex = 0; gridIndex < settings.Grids.size(); ++gridIndex )
+        {
+            const float cellSize = settings.Grids[gridIndex].CellSize;
+            int         levels   = 1;
+            while ( levels < kMaxLevels && LevelCellSize( cellSize, levels - 1 ) < furthest[gridIndex] )
+                ++levels;
+            plan.GridLevelCount[gridIndex] = levels;
+            plan.LevelCount                = std::max( plan.LevelCount, levels );
+        }
 
-        // ── 5. Placement: the lowest level with ONE cell holding the whole footprint ──────────────
+        // ── 5. Placement: the lowest level of ITS grid with ONE cell holding the whole footprint ──────
         for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
         {
             PlannedComposite& held = plan.Composites[group];
@@ -1648,9 +1710,10 @@ namespace Desert::Core::Rules
             if ( !held.Footprint.has_value() )
                 continue;
             const CellBounds footprint = *held.Footprint;
+            const float      cellSize  = settings.Grids[held.Grid].CellSize;
 
             bool placed = false;
-            for ( int level = 0; level < plan.LevelCount; ++level )
+            for ( int level = 0; level < plan.GridLevelCount[held.Grid]; ++level )
             {
                 const auto cell = SingleCellHolding( footprint, LevelCellSize( cellSize, level ) );
                 if ( cell.has_value() )
@@ -1675,21 +1738,22 @@ namespace Desert::Core::Rules
             }
         }
 
-        // ── 6. The cells, ordered by level, X, Z ──────────────────────────────────────────────────
-        std::map<std::tuple<int, std::int32_t, std::int32_t>, std::vector<std::size_t>> cells;
+        // ── 6. The cells, ordered by grid, level, X, Z ────────────────────────────────────────────
+        std::map<std::tuple<std::size_t, int, std::int32_t, std::int32_t>, std::vector<std::size_t>> cells;
         for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
         {
             const PlannedComposite& held = plan.Composites[group];
             if ( held.Reason == AlwaysLoadedReason::None && held.Footprint.has_value() )
-                cells[std::make_tuple( held.Level, held.Cell.X, held.Cell.Z )].push_back( group );
+                cells[std::make_tuple( held.Grid, held.Level, held.Cell.X, held.Cell.Z )].push_back( group );
         }
         for ( auto& [key, composites] : cells )
         {
             PlannedCell cell;
-            cell.Level      = std::get<0>( key );
-            cell.Cell.X     = std::get<1>( key );
-            cell.Cell.Z     = std::get<2>( key );
-            cell.Square     = GridSquareOf( cell.Cell, LevelCellSize( cellSize, cell.Level ) );
+            cell.Grid       = std::get<0>( key );
+            cell.Level      = std::get<1>( key );
+            cell.Cell.X     = std::get<2>( key );
+            cell.Cell.Z     = std::get<3>( key );
+            cell.Square     = GridSquareOf( cell.Cell, LevelCellSize( settings.Grids[cell.Grid].CellSize, cell.Level ) );
             cell.Composites = std::move( composites );
             plan.Cells.push_back( std::move( cell ) );
         }
@@ -1748,9 +1812,9 @@ namespace Desert::Core::Rules
                 ", no grid " + std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::NoGrid )] ) +
                 "); highest promotion: level " + std::to_string( plan.MaxLevel ) + "; " +
                 std::to_string( plan.PointOnlyRecords ) + " record(s) placed by position alone";
-        if ( !settings.Grids.empty() )
-            line += "; grid 0: cell " + units( settings.Grids.front().CellSize ) + ", loading range " +
-                    units( settings.Grids.front().LoadingRange ) + " world units";
+        for ( const WorldPartitionGridSerialized& grid : settings.Grids )
+            std::format_to( std::back_inserter( line ), "; grid '{}': cell {}, loading range {} world units",
+                            grid.Name, units( grid.CellSize ), units( grid.LoadingRange ) );
         return line;
     }
 

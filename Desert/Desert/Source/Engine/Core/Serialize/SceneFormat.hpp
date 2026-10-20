@@ -141,6 +141,12 @@ namespace Desert::Core
     // kSceneVersion, and an older build refuses the file by name (SceneIsAtCurrentVersion).
     struct WorldPartitionGridSerialized
     {
+        // UE FSpatialHashRuntimeGrid::GridName. What a record names in its RuntimeGrid block to stream on this
+        // grid (UE AActor::RuntimeGrid); a record that names none streams on the FIRST grid, UE's main grid.
+        // Required, non-empty and unique within the world (Rules::PlanWorldPartition refuses the grids
+        // otherwise): a name is the only way a record reaches a grid, so two grids of one name would be a guess.
+        std::string Name;
+
         // Edge length of one level-0 cell in WORLD UNITS, and a world unit is a CENTIMETRE
         // (Common/Core/Units.hpp). Level L cells are CellSize * 2^L. The default is UE's own main grid,
         // 128 m, in our units; it is the number a world gets when switched on, nothing depends on it.
@@ -154,6 +160,10 @@ namespace Desert::Core
         // grid default, 256 m. Read by the streaming query (WP4); the partition itself does not depend
         // on it, which is why a cell's contents never change when it is edited.
         float LoadingRange = 25600.0f;
+
+        // UE FSpatialHashRuntimeGrid::Priority: among the cells one source wants at one source priority,
+        // this grid's load first when higher. It never changes WHICH cells are wanted (QueryStreamingCells).
+        int Priority = 0;
 
         // Compared, not just written: the editor's World Partition panel keeps the plan it painted and
         // the partition that plan was made from, and a plan is remade when the two stop matching. Without

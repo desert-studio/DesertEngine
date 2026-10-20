@@ -89,6 +89,7 @@ namespace Desert::Core::WorldCells
     {
         std::string                      Name; // Rules::DescribeResidencyUnit
         std::string                      File;
+        std::optional<std::size_t>       Grid; // index into WorldPartition.Grids (WP22)
         std::optional<int>               Level;
         std::optional<std::int32_t>      X;
         std::optional<std::int32_t>      Z;
@@ -160,7 +161,7 @@ namespace Desert::Core::WorldCells
         std::vector<IndexReference> References;
         std::vector<IndexHLOD>      HLODs; // cell order; a cell that draws nothing has none
     };
-    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 4 )
+    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 5 )
 
     // What a cell file's payload holds: which units, in order, then their records concatenated.
     struct CellPayload

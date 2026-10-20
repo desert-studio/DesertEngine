@@ -145,6 +145,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PlayerStartComponent, Data, 
 // (::Desert::Core::WorldStreamer).
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::StreamingSourceComponent, Data, "StreamingSourceData",
                                      "Streaming Source" )
+// UE's Actor > World Partition > Runtime Grid: which grid of a partitioned world the entity streams on (WP22).
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RuntimeGridComponent, Data, "RuntimeGridData", "Runtime Grid" )
 // Two-Bone IK is the reflected one-liner and deliberately so: it is four values an artist types, and every
 // piece of behaviour behind them belongs to the Animator's control list rather than to this page. The entry
 // next door — AnimationComponent — is a custom one because it owns an Animator and a graph; that is the line
