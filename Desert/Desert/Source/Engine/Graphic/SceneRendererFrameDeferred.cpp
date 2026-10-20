@@ -703,7 +703,8 @@ namespace Desert::Graphic
             }
             else if ( !ssr.IsValid() )
             {
-                LOG_ERROR( "[SceneRenderer] Reflections view: the traced reflections were not produced this frame" );
+                LOG_ERROR(
+                     "[SceneRenderer] Reflections view: the traced reflections were not produced this frame" );
             }
         }
         // LOAD/STORE on every scene-target attachment. The depth is declared written because the passes after
