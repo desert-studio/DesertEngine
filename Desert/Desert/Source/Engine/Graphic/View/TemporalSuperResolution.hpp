@@ -150,6 +150,7 @@ namespace Desert::Graphic
         bool      Recorded = false;
         uint64_t  Frame    = 0;             // the frame count since the history reset it was recorded on
         glm::mat4 ViewProjection{ 1.0f };   // that frame's unjittered ViewProjection
+        float     PreExposure = 1.0f;       // that frame's ViewFrame::PreExposure (UE SceneColorPreExposures)
     };
 
     // What TSR keeps per view between frames (SceneViewState::UpscalerHistory): the frame count since the
@@ -211,6 +212,12 @@ namespace Desert::Graphic
         float ResurrectionEnabled                         = 0.0f; // a persistent frame is resurrectable
         float ThinGeometryDetection                       = 0.0f; // TsrQuality::ThinGeometryDetection
         float ThinGeometryFrameIndex                      = 0.0f; // TsrHistory::AccumulatedFrames mod 64
+        float PreExposure                                 = 1.0f; // ViewFrame::PreExposure
+        // PreExposure / PrevPreExposure (UE HistoryPreExposureCorrection): the colour history's correction.
+        float HistoryPreExposureCorrection = 1.0f;
+        // PreExposure / the resurrected frame's (UE ResurrectionPreExposureCorrection); 1 without resurrection.
+        float ResurrectionPreExposureCorrection = 1.0f;
+        float PreExposurePad                    = 0.0f;
     };
     static_assert( offsetof( TsrParams, PrevInvProjection ) == 128 );
     static_assert( offsetof( TsrParams, RenderSize ) == 192 );
@@ -222,7 +229,8 @@ namespace Desert::Graphic
     static_assert( offsetof( TsrParams, InvProjection ) == 272 );
     static_assert( offsetof( TsrParams, ClipToResurrectionClip ) == 400 );
     static_assert( offsetof( TsrParams, ReprojectionFieldAntiAliasVelocityThreshold ) == 464 );
-    static_assert( sizeof( TsrParams ) == 480 );
+    static_assert( offsetof( TsrParams, PreExposure ) == 480 );
+    static_assert( sizeof( TsrParams ) == 496 );
 
     // The parameters of this frame's chain (pure). @p resurrection: the persistent frame resurrected from this
     // frame, null for none.

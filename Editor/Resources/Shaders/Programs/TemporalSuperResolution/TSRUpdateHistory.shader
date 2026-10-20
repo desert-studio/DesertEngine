@@ -204,7 +204,9 @@ Shader "TSRUpdateHistory"
             {
                 const vec4 history = resurrected ? SampleHistory(u_ResurrectionHistory, prevUv)
                                                  : SampleHistory(u_PrevHistory, prevUv);
-                prevColor    = history.rgb;
+                // Stored pre-exposed by its own frame: brought to this frame's pre-exposure (UE
+                // HistoryPreExposureCorrection / ResurrectionPreExposureCorrection).
+                prevColor    = history.rgb * (resurrected ? u_ResurrectionPreExposureCorrection : u_HistoryPreExposureCorrection);
                 prevValidity = history.a;
             }
 

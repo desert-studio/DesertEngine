@@ -380,7 +380,10 @@ namespace Desert::Graphic
         {
             params.ClipToResurrectionClip = resurrection->ViewProjection * frame.InvViewProjection;
             params.ResurrectionEnabled    = 1.0f;
+            params.ResurrectionPreExposureCorrection = frame.PreExposure / resurrection->PreExposure;
         }
+        params.PreExposure                  = frame.PreExposure;
+        params.HistoryPreExposureCorrection = frame.PreExposure / frame.PrevPreExposure;
 
         // A perspective projection has w = -z (P[3][3] == 0), an orthographic one w = 1 (P[3][3] == 1).
         const float pixelsHigh       = std::max( params.RenderSize.y, 1.0f );
@@ -812,7 +815,8 @@ namespace Desert::Graphic
                     inputs.History[kPersistentGuideIndex + recordSlot].Current, 1, render );
             records->Frames[recordSlot] = TsrPersistentFrame{ .Recorded       = true,
                                                               .Frame          = records->AccumulatedFrames,
-                                                              .ViewProjection = frame.ViewProjection };
+                                                              .ViewProjection = frame.ViewProjection,
+                                                              .PreExposure    = frame.PreExposure };
             records->NextSlot           = ( recordSlot + 1 ) % kTsrPersistentFrameCount;
         }
 

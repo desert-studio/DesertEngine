@@ -905,14 +905,16 @@ namespace Desert::Graphic::Streamline
         const std::scoped_lock lock( m_Mutex );
         uint64_t               bytes = 0;
         // At creation the camera is not known yet; Evaluate hands Ray Reconstruction this frame's.
-        if ( const auto set = SetOptionsLocked( viewport, input, glm::mat4( 1.0f ), glm::mat4( 1.0f ), &bytes ); !set )
+        if ( const auto set =
+                  SetOptionsLocked( viewport, input, glm::mat4( 1.0f ), glm::mat4( 1.0f ), 1.0f, &bytes );
+             !set )
             return Common::MakeError<uint64_t>( set.GetError() );
         return Common::MakeSuccess( bytes );
     }
 
     Common::BoolResultStr Runtime::SetOptionsLocked( const uint32_t viewport, const DlssOptions& input,
                                                      const glm::mat4& worldToView, const glm::mat4& viewToWorld,
-                                                     uint64_t* const heldBytes )
+                                                     const float preExposure, uint64_t* const heldBytes )
     {
         const std::string_view name  = DlssFeatureName( input.Feature );
         const FeatureState&    state = StateOf( input.Feature );
@@ -937,6 +939,7 @@ namespace Desert::Graphic::Streamline
             options.normalRoughnessMode = sl::DLSSDNormalRoughnessMode::ePacked;
             options.worldToCameraView   = ToSl( worldToView );
             options.cameraViewToWorld   = ToSl( viewToWorld );
+            options.preExposure         = preExposure;
             SetPreset( options, input.Mode, ToSl( input.RRPreset ) );
             if ( const sl::Result result = m_Library->RRSetOptions( handle, options ); result != sl::Result::eOk )
                 return Common::MakeFormattedError(
@@ -961,6 +964,7 @@ namespace Desert::Graphic::Streamline
         // The engine hands its own exposure (the tagged kBufferTypeExposure image, UpscalerExposure: the same
         // multiplier FSR and the engine's TAA use), as UE hands DLSS its eye-adaptation exposure.
         options.useAutoExposure = sl::Boolean::eFalse;
+        options.preExposure     = preExposure;
         SetPreset( options, input.Mode, ToSl( input.Preset ) );
         if ( const sl::Result result = m_Library->SetOptions( handle, options ); result != sl::Result::eOk )
             return Common::MakeFormattedError(
@@ -1065,11 +1069,12 @@ namespace Desert::Graphic::Streamline
              result != sl::Result::eOk )
             return refuseEvaluation(
                  std::format( "slSetConstants(viewport {}): {}", input.Viewport, ResultName( result ) ) );
-        if ( rr )
-            if ( const auto set = SetOptionsLocked( input.Viewport, input.Options, input.WorldToView,
-                                                    input.ViewToWorld, nullptr );
-                 !set )
-                return refuseEvaluation( set.GetError() );
+        // Every evaluation re-options the feature: Ray Reconstruction's camera and both features' pre-exposure
+        // are per frame (Streamline recreates the NGX feature only on a mode, size or preset change).
+        if ( const auto set = SetOptionsLocked( input.Viewport, input.Options, input.WorldToView,
+                                                input.ViewToWorld, input.PreExposure, nullptr );
+             !set )
+            return refuseEvaluation( set.GetError() );
 
         // Tagged locally, for this evaluation only: the images are graph resources valid for this pass, so nothing
         // is copied and nothing outlives the call.
