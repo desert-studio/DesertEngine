@@ -1050,7 +1050,7 @@ namespace Desert::Migration
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
                    RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
-                   GridNamesRaised || GridHLODLayerRaised;
+                   GridNamesRaised || GridHLODLayerRaised || RootSiblingIndexRaised;
         }
     };
 
