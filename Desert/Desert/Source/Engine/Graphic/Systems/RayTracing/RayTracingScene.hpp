@@ -43,6 +43,8 @@ namespace Desert::Graphic::RayTracing
     inline constexpr uint8_t kMaskShadowCaster = 1u
                                                  << 1; // primitives with CastShadows (RT-SHADOWS traces this bit)
 
+    struct RayTracingProgramHit; // RayTracingProgramHit.hpp
+
     // VkAccelerationStructureInstanceKHR::instanceCustomIndex is 24 bits.
     inline constexpr uint32_t kMaxGpuSceneRow = ( 1u << 24 ) - 1u;
     // VkAccelerationStructureInstanceKHR::instanceShaderBindingTableRecordOffset is 24 bits too.
@@ -78,6 +80,9 @@ namespace Desert::Graphic::RayTracing
         // the ground is at a hit (the TerrainRayHit hit group) and where its holes are (the alpha test).
         // kNoLandscapeTile for every mesh segment.
         uint32_t LandscapeTile = kNoLandscapeTile;
+        // A generic record's own hit group (RayTracingProgramHit.hpp: 3D text's TextRayHit): what the segment's
+        // hit runs and its alpha test, the record's for the frame. Null for every other segment.
+        const RayTracingProgramHit* ProgramHit = nullptr;
 
         bool operator==( const RayTracingSegmentRecord& ) const = default;
     };

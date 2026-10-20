@@ -23,6 +23,8 @@ namespace Desert::Graphic::RayTracing
             const MaterialInstance* Instance = nullptr;
             const Material*         Surface  = nullptr;
             bool                    Masked   = false;
+            // A generic record's own hit group (null: Surface's); Masked when it carries an alpha test.
+            const RayTracingProgramHit* ProgramHit = nullptr;
         };
 
         // One GPU-scene row of the static / generic queues before its BLAS is resolved.
@@ -104,6 +106,7 @@ namespace Desert::Graphic::RayTracing
                 {
                     record.Instance        = owner->Instance;
                     record.SurfaceMaterial = owner->Surface;
+                    record.ProgramHit      = owner->ProgramHit;
                 }
             }
             primitive.SegmentRecordCount =
@@ -163,12 +166,20 @@ namespace Desert::Graphic::RayTracing
                  SourceOf( ~data.HiddenSubmeshes, MeshRenderer::ShadingOf( data ) ), data.CastShadows,
                  RayTracingPrimitiveKind::Static );
         // A generic record's material is its own program (a per-slot data-driven material, or a shader override
-        // with no slot material): the raster clips nothing there, so its segments are opaque.
+        // with no slot material): opaque, unless the record carries its own hit group with an alpha test (3D
+        // text's glyph coverage, RayTracingProgramHit) - then its segments are non-opaque and their hits run that
+        // test.
         for ( const MeshRenderer::GenericMeshRenderData& data : inputs.Generic )
             if ( data.VisibleInRayTracing )
+            {
+                const bool program = !data.RayHit.Template.empty();
                 add( data.Mesh, data.Transform, data.MotionRow,
-                     { .Visible = data.VisibleSubmeshMask, .Surface = data.SlotMaterial }, data.CastShadows,
-                     RayTracingPrimitiveKind::Generic );
+                     { .Visible    = data.VisibleSubmeshMask,
+                       .Surface    = data.SlotMaterial,
+                       .Masked     = program && data.RayHit.Opacity.has_value(),
+                       .ProgramHit = program ? &data.RayHit : nullptr },
+                     data.CastShadows, RayTracingPrimitiveKind::Generic );
+            }
 
         for ( const RowRecord& record : rows )
         {

@@ -6,6 +6,7 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingProgramHit.hpp>
 
 #include <glm/mat4x4.hpp>
 
@@ -41,16 +42,21 @@ namespace Desert::Graphic::Render
 
         // Off by default for the reason CastShadows is (UE bVisibleInRayTracing): mesh producers opt in.
         bool VisibleInRayTracing = false;
+        // The draw's own hit group (RayTracingProgramHit.hpp), for a program that is no surface template: the text
+        // system's glyph quads (TextRayTracing.hpp TextRayHit). Empty: the default surface shades a hit.
+        Graphic::RayTracing::RayTracingProgramHit RayHit;
 
         DrawGenericMeshCommand( uint32_t entity, Desert::Mesh* mesh, const glm::mat4& transform,
                                 std::string shaderName, Graphic::MaterialOverrides overrides, bool outlined,
                                 Graphic::Image2D* directTexture = nullptr, std::string directTextureSampler = {},
                                 bool castShadows = false, float maxDrawDistance = 0.0f,
-                                bool visibleInRayTracing = false )
+                                bool                                      visibleInRayTracing = false,
+                                Graphic::RayTracing::RayTracingProgramHit rayHit              = {} )
              : Entity( entity ), Mesh( mesh ), Transform( transform ), ShaderName( std::move( shaderName ) ),
                Overrides( std::move( overrides ) ), Outlined( outlined ), DirectTexture( directTexture ),
                DirectTextureSampler( std::move( directTextureSampler ) ), CastShadows( castShadows ),
-               MaxDrawDistance( maxDrawDistance ), VisibleInRayTracing( visibleInRayTracing )
+               MaxDrawDistance( maxDrawDistance ), VisibleInRayTracing( visibleInRayTracing ),
+               RayHit( std::move( rayHit ) )
         {
         }
 
@@ -59,7 +65,7 @@ namespace Desert::Graphic::Render
             if ( !renderer.IsWithinMaxDrawDistance( Mesh, Transform, MaxDrawDistance ) )
                 return;
             renderer.SubmitGenericMesh( Entity, Mesh, Transform, ShaderName, Overrides, Outlined, DirectTexture,
-                                        DirectTextureSampler, CastShadows, VisibleInRayTracing );
+                                        DirectTextureSampler, CastShadows, VisibleInRayTracing, RayHit );
         }
     };
 } // namespace Desert::Graphic::Render
