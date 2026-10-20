@@ -489,8 +489,8 @@ namespace Desert::Graphic::System
                                          static_cast<float>( settings.Iterations ), settings.Intensity,
                                          settings.Thickness ),
                               glm::vec4( settings.MaxDistance, sceneHistoryReadable ? 1.0f : 0.0f, 0.0f, 0.0f ),
-                              glm::vec4( static_cast<float>( settings.DownsampleFactor ), settings.InvPrevPreExposure,
-                                         0.0f, 0.0f ) };
+                              glm::vec4( static_cast<float>( settings.DownsampleFactor ),
+                                         settings.InvPrevPreExposure, 0.0f, 0.0f ) };
         }
 
         // The front layer permutation's reads (Common/SSRTrace.glslh DESERT_REFLECTIONS_FRONT_LAYER): a

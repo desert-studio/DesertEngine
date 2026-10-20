@@ -217,7 +217,8 @@ namespace Desert::Graphic::GlobalIllumination
 
         params.PrevViewProjection = inputs.PrevViewProjection;
         // w = 1 / PrevPreExposure: ScreenProbeTraceScreen undoes the scene colour history's pre-exposure.
-        params.PrevCamera = glm::vec4( inputs.PrevCameraPosition, 1.0f / std::max( inputs.PrevPreExposure, 1e-30f ) );
+        params.PrevCamera =
+             glm::vec4( inputs.PrevCameraPosition, 1.0f / std::max( inputs.PrevPreExposure, 1e-30f ) );
         params.Jitter             = glm::vec4( inputs.JitterNdc, inputs.PrevJitterNdc );
         params.Grid               = glm::uvec4( layout.Grid, layout.UniformProbes, layout.AdaptiveProbes );
         const glm::uvec2 jitter   = ScreenProbeJitter( ++m_FrameIndex );
