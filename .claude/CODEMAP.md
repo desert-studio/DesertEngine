@@ -238,7 +238,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `.` — 8 files, 2,743 lines: ContentMountResult, CrashTestRequest, MovieRenderRequest, RuntimeLayer, RuntimeShot
 
 ## Shaders — `Editor/Resources/Shaders`
-- `Common` — 96 files, 14,089 lines
+- `Common` — 96 files, 14,100 lines
 - `Editor` — 1 files, 147 lines
 - `Generated` — 2 files, 81 lines
 - `Mesh` — 13 files, 1,367 lines
