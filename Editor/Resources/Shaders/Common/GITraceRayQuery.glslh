@@ -40,6 +40,17 @@ uvec4 GIHitInstanceRows( GIHit hit )
     return uvec4( hit.instance, GI_NO_INSTANCE, GI_NO_INSTANCE, GI_NO_INSTANCE );
 }
 
+// The surface-cache bias of a hardware hit: UE r.Lumen.HardwareRayTracing.SurfaceCacheSampling.DepthBias (10 cm,
+// CalculateSurfaceCacheLighting's near-field SurfaceCacheDepthBias). The traced triangles are the mesh's own, so the
+// hit stands off the captured surface only by the ray-tracing geometry's mismatch with the raster, not by a field's
+// voxel. UE's far-field hit reads 1000 cm (the HLOD proxies of its far-field scene); one TLAS here, every hit is the
+// near field's (GITraceNearField).
+const float kGIHardwareSurfaceCacheBiasCm = 10.0;
+float GIHitSurfaceCacheBias( GIHit hit )
+{
+    return kGIHardwareSurfaceCacheBiasCm;
+}
+
 // Three consecutive floats of the segment's vertex @p vertex at @p byteOffset (RayQueryVisibility.glslh's fetch).
 vec3 GIHardwareVertexVec3( RayTracingGeometryRecord record, uint vertex, uint byteOffset )
 {
