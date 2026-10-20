@@ -14,8 +14,9 @@
 //   GITraceNearField / GITraceFarField  the walk's two legs, for a consumer that runs them as separate passes over
 //                      the rays still open (the screen probe gather, UE TraceMeshSDFs then TraceVoxels over compacted
 //                      traces): GITraceRay = the near field, then on a miss the far field from its farStart.
-//                      Software: the mesh SDFs of the origin's froxel / the global SDF. A tracer with one leg (the
-//                      ray query) answers the whole ray in the near field (farStart = tMax) and misses in the far.
+//                      Software: the mesh SDFs of the origin's froxel / the global SDF. Hardware (one TLAS, one
+//                      precision): the near field walks the whole ray (farStart = its hit, or tMax), the far field
+//                      walks the same TLAS from its ray.tMin (the near field's farStart) - empty after a near miss.
 //   GITraceVisibility  visibility only, 1 when nothing lies within @p maxT of @p origin along @p direction (the far
 //                      field from @p farTMin on) — the shadow ray of hit lighting (and of the cards' lighting where
 //                      no shadow map covers them).

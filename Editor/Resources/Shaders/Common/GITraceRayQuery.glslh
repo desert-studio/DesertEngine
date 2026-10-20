@@ -1,7 +1,7 @@
 #ifndef GI_TRACE_RAY_QUERY_GLSLH
 #define GI_TRACE_RAY_QUERY_GLSLH
 
-// THE HARDWARE GI TRACER (DESERT_GI_TRACER_HARDWARE): GITraceRay, GITraceVisibility, GIRayBias and
+// THE HARDWARE GI TRACER (DESERT_GI_TRACER_HARDWARE): GITraceRay, GITraceNearField, GITraceFarField, GITraceVisibility, GIRayBias and
 // GIMoveOutOfGeometry of the GI ray contract (Common/GITracing.glslh) as inline rayQueryEXT over the view's TLAS.
 // Follows UE 5.8 Lumen/LumenHardwareRayTracingCommon.ush (the inline TraceLumenHardwareRay path, hit read from the
 // surface cache) and LumenScreenProbeHardwareRayTracing.usf (the ray's TMin and normal bias), adapted: GLSL ray
@@ -83,16 +83,22 @@ vec3 GIHardwareObjectNormal( uint recordIndex, uint primitive, vec2 barycentrics
             rayQueryConfirmIntersectionEXT( query );                                                                   \
     }
 
-GITraceResult GITraceRay( GITraceInput ray )
+// The one walk of both legs: the TLAS along @p ray from @p tMin to @p tMax, the closest hit (any hit for a shadow
+// ray). A segment the walk cannot open (tMin >= tMax) is a miss without a query.
+GITraceResult GIHardwareTrace( GITraceInput ray, float tMin, float tMax )
 {
+    GITraceResult result;
+    result.hit = false;
+    if ( tMin >= tMax )
+        return result;
+
     const bool shadowRay = ( ray.flags & GI_TRACE_SHADOW_RAY ) != 0u;
     const uint flags     = shadowRay ? gl_RayFlagsTerminateOnFirstHitEXT : gl_RayFlagsNoneEXT;
     const uint cullMask  = shadowRay ? RAY_TRACING_MASK_SHADOW_CASTER : RAY_TRACING_MASK_OPAQUE;
 
     rayQueryEXT query;
-    GI_HARDWARE_WALK( query, flags, cullMask, ray.origin, ray.tMin, ray.direction, ray.tMax )
+    GI_HARDWARE_WALK( query, flags, cullMask, ray.origin, tMin, ray.direction, tMax )
 
-    GITraceResult result;
     result.hit = rayQueryGetIntersectionTypeEXT( query, true ) == gl_RayQueryCommittedIntersectionTriangleEXT;
     if ( !result.hit )
         return result;
@@ -115,7 +121,41 @@ GITraceResult GITraceRay( GITraceInput ray )
     result.surface.primitive    = primitive;
     result.surface.barycentrics = barycentrics;
     result.surface.frontFace    = rayQueryGetIntersectionFrontFaceEXT( query, true );
+    // No previous transform reaches the ray query (the TLAS instance carries none): the hit is not known to move.
+    result.surface.velocity     = vec3( 0.0 );
+    result.surface.motionKnown  = false;
     return result;
+}
+
+// THE NEAR FIELD (UE LumenHardwareRayTracing's near-field TraceLumenHardwareRay over the scene's near-field
+// instances): the scene TLAS from ray.tMin to ray.tMax. The TLAS holds every instance the ray can hit, at full
+// precision, so the near field answers the whole ray: @p farStart is the hit's distance, or ray.tMax on a miss (the
+// contract's one-TLAS case, Common/GITracing.glslh) - nothing is left for the far field to find.
+GITraceResult GITraceNearField( GITraceInput ray, out float farStart )
+{
+    const GITraceResult result = GIHardwareTrace( ray, ray.tMin, ray.tMax );
+    farStart                   = result.hit ? result.surface.distance : max( ray.tMin, ray.tMax );
+    return result;
+}
+
+// THE FAR FIELD (UE's far-field TraceLumenHardwareRay from the near field's end): the same TLAS from ray.tMin (the
+// near field's farStart) to ray.tMax. The triangles are one field with one precision, so ray.farTMin holds nothing
+// back (GIRayBias: farOffset == nearOffset, GIFarFieldTMin == 0).
+GITraceResult GITraceFarField( GITraceInput ray )
+{
+    return GIHardwareTrace( ray, max( ray.tMin, ray.farTMin ), ray.tMax );
+}
+
+// The whole walk: the near field, then the far field from where it ended (the contract's GITraceRay, as the
+// software tracer's).
+GITraceResult GITraceRay( GITraceInput ray )
+{
+    float               farStart;
+    const GITraceResult near = GITraceNearField( ray, farStart );
+    if ( near.hit )
+        return near;
+    ray.tMin = farStart;
+    return GITraceFarField( ray );
 }
 
 // THE hardware visibility walk is RT-SHADOWS' (alpha-tested, first hit ends it); GI adds nothing to it. The triangles
