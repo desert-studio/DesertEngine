@@ -445,7 +445,8 @@ namespace Desert::Core::WorldCells
         const Rules::WorldPartitionPlan plan =
              Rules::PlanWorldPartition( descriptors, *scene.WorldPartition, BoundsFrom( registries ) );
         // What the planner refused is named by the one plan report Play and editor regions use too. Values of
-        // the wrong type the reference walk and the HLOD build below find are the cook's own, named once at the end.
+        // the wrong type the reference walk and the HLOD build below find are the cook's own, named once at the
+        // end.
         Rules::ReportPlanIssues( plan, scene.SceneName );
         Common::Json::Issues issues;
         const std::size_t unitCount = Rules::ResidencyUnitCount( plan );
