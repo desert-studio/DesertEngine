@@ -40,8 +40,8 @@ namespace Desert::Graphic::ShaderProtocols
         glm::vec3 SunDirection{ 0.0f };               // offset 448, toward the sun; zero = no directional light
         float     ParallaxMaxSteps    = 0.0f;         // offset 460
         float     ParallaxShadowSteps = 0.0f;         // offset 464
-        float     Pad0                = 0.0f;         // offset 468 (CameraPad0 in the block)
-        float     Pad1                = 0.0f;         // offset 472
+        float     PreExposure         = 1.0f;         // offset 468, ViewFrame::PreExposure
+        float     PrevPreExposure     = 1.0f;         // offset 472, ViewFrame::PrevPreExposure
         float     Pad2                = 0.0f;         // offset 476; block size 480
     };
 
@@ -69,6 +69,8 @@ namespace Desert::Graphic::ShaderProtocols
         ub.ParallaxMaxSteps          = static_cast<float>( frame.Parallax.MaxSteps );
         ub.ParallaxShadowSteps       = static_cast<float>( frame.Parallax.ShadowSteps );
         ub.SunDirection              = frame.SunDirection;
+        ub.PreExposure               = frame.PreExposure;
+        ub.PrevPreExposure           = frame.PrevPreExposure;
         return ub;
     }
 } // namespace Desert::Graphic::ShaderProtocols

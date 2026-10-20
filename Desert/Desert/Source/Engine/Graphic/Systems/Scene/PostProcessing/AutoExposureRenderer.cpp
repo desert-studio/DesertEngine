@@ -49,6 +49,7 @@ namespace Desert::Graphic::System
         {
             float MinLogLum;
             float InvLogLumRange;
+            float InvPreExposure; // 1 / ViewFrame::PreExposure: the histogram meters radiance, not stored values
         };
 
         struct AveragePush
@@ -163,7 +164,7 @@ namespace Desert::Graphic::System
     {
         if ( !m_HistogramPipeline )
             return Common::MakeError( "PostFX: AutoExposureHistogram: the histogram pipeline is not initialised" );
-        const HistogramPush hp{ kWindow.MinLogLum, 1.0f / kWindow.Range() };
+        const HistogramPush hp{ kWindow.MinLogLum, 1.0f / kWindow.Range(), 1.0f / m_PreExposure };
         RDG::PassBindings   bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &hp, sizeof( hp ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_HistogramPipeline, GroupCount( width ),

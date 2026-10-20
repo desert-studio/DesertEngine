@@ -17,6 +17,7 @@ namespace Desert::Graphic
         SetTonemapOperator( static_cast<float>( static_cast<int>( params.Operator ) ) );
         SetLightShaftTintIntensity( glm::vec4( params.LightShaftTint, params.LightShaftIntensity ) );
         SetLensFlareTintIntensity( glm::vec4( params.LensFlareTint, params.LensFlareIntensity ) );
+        SetInvPreExposure( 1.0f / params.PreExposure );
 
         UploadRegisteredProperties();
 

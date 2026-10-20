@@ -30,8 +30,8 @@ Uniform(0) CameraUB {
     vec3  SunDirection;
     float ParallaxMaxSteps;
     float ParallaxShadowSteps;
-    float CameraPad0;
-    float CameraPad1;
+    float PreExposure;     // ViewFrame::PreExposure: every HDR scene-colour write is multiplied by it (UE View.PreExposure)
+    float PrevPreExposure; // the previous frame's; a history stored last frame is rescaled by PreExposure / PrevPreExposure
     float CameraPad2;
 } cameraUB;
 

@@ -1356,6 +1356,14 @@ namespace Desert::Graphic
         }
         m_CameraCutPending     = false;
         const ViewFrame& frame = begun.GetValue();
+        // The scale this frame's scene colour is stored at: the readers that undo it (ViewFrame::PreExposure).
+        // A view without the post chain (a capture face) has neither system.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] ) )
+            tonemap->SetPreExposure( frame.PreExposure );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] ) )
+            autoExp->SetPreExposure( frame.PreExposure );
         // THE RENDER SET AT THE FRAME'S SPLIT (ViewTargetSet::Render): a scale change resizes the scene's targets
         // here, before any node reads them; the output set stays at m_ViewExtent (Resize).
         ResizeRenderTargets( frame.Split.Render );

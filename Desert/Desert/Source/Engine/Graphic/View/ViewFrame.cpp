@@ -272,6 +272,8 @@ namespace Desert::Graphic
 
         f.TimeSeconds     = timeSeconds;
         f.PrevTimeSeconds = timeSeconds;
+        f.PreExposure     = ScenePreExposure();
+        f.PrevPreExposure = f.PreExposure;
         f.HistoryReset    = HistoryResetReason::FirstFrame;
         return f;
     }

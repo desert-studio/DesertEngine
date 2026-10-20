@@ -96,6 +96,11 @@ namespace Desert::Graphic::System
             m_DeltaSeconds = seconds;
         }
 
+        // This frame's ViewFrame::PreExposure (> 0): the scene colour the histogram reads is stored multiplied by it.
+        void SetPreExposure( float preExposure )
+        {
+            m_PreExposure = preExposure;
+        }
         void SetParams( float adaptSpeed, float minLuma, float maxLuma )
         {
             m_AdaptSpeed = adaptSpeed;
@@ -128,6 +133,7 @@ namespace Desert::Graphic::System
         bool  m_SnapNextAdaptation = false;
         float m_AdaptSpeed         = 1.5f;
         float m_DeltaSeconds       = 0.0f;
+        float m_PreExposure        = 1.0f;
         float m_MinLuma    = 0.02f;
         float m_MaxLuma    = 8.0f;
     };
