@@ -1943,6 +1943,14 @@ namespace Desert::ECS
                   Tooltip( "How wide the slice is; 360 is the whole circle." ) )
         float SectorAngle = 360.0f;
 
+        // A VIEW AS A SOURCE: a camera that streams what it looks at (a narrow lens reaching far) states the
+        // range and priority; the angle follows the lens as gameplay changes the camera's Field of View.
+        PROPERTY( DisplayName( "Angle From Camera" ), Category( "Streaming Source" ), EditCondition( "IsSector" ),
+                  Tooltip( "On = the slice is as wide as this entity's Camera sees across: its Field of View "
+                           "widened by the viewport's width over height, following every change of it. Sector "
+                           "Angle is not used. The entity must have a Camera." ) )
+        bool SectorAngleFromCamera = false;
+
         PROPERTY( DisplayName( "Shape Offset" ), Category( "Streaming Source" ), Length,
                   Tooltip( "Where the shape's centre sits from the entity, in its own axes (cm): X right, Z "
                            "backward. Height is ignored." ) )
