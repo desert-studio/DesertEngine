@@ -42,6 +42,12 @@ namespace Desert::Graphic::RayTracing
     inline constexpr uint8_t kMaskOpaque       = 1u << 0; // every traced primitive (reflections, GI, path tracer)
     inline constexpr uint8_t kMaskShadowCaster = 1u
                                                  << 1; // primitives with CastShadows (RT-SHADOWS traces this bit)
+    // Primitives drawn only by BlendMode Translucent / Additive sections (UE RAY_TRACING_MASK_TRANSLUCENT): such a
+    // primitive carries THIS bit alone, so the opaque and shadow-caster rays (reflections, GI, RT shadows, the
+    // path tracer's opaque light-ray leg) pass it, as the raster's opaque passes and shadow maps do; the path
+    // tracer's material rays (cull mask 0xFF) meet it and its light rays walk it for transmittance
+    // (PathTracer.shader PathTracingTransmittance).
+    inline constexpr uint8_t kMaskTranslucent = 1u << 2;
 
     // VkAccelerationStructureInstanceKHR::instanceCustomIndex is 24 bits.
     inline constexpr uint32_t kMaxGpuSceneRow = ( 1u << 24 ) - 1u;
@@ -109,6 +115,8 @@ namespace Desert::Graphic::RayTracing
         glm::mat4   World       = glm::mat4( 1.0f ); // centimetres, like every world transform
         uint32_t    GpuSceneRow = 0;                 // the primitive's ObjectMotions row (MotionRow)
         bool        CastShadows = true;
+        // Every section the primitive draws is BlendMode Translucent / Additive: kMaskTranslucent alone.
+        bool Translucent = false;
         // Hidden: bit i = submesh i hidden, Geometry already leaves it out. NonOpaque: submesh i's section
         // material is Masked, Geometry's segment is not opaque. Both are the BLAS key (RayTracingSubmeshMasks).
         RayTracingSubmeshMasks Submeshes;
@@ -358,7 +366,9 @@ namespace Desert::Graphic::RayTracing
             instance.CustomIndex                 = row;
             instance.FirstSegmentRecord          = primitive.FirstSegmentRecord;
             instance.Mask =
-                 static_cast<uint8_t>( kMaskOpaque | ( primitive.CastShadows ? kMaskShadowCaster : 0u ) );
+                 primitive.Translucent
+                      ? kMaskTranslucent
+                      : static_cast<uint8_t>( kMaskOpaque | ( primitive.CastShadows ? kMaskShadowCaster : 0u ) );
             ++list.InstancesByKind[static_cast<std::size_t>( primitive.Kind )];
         }
         return list;

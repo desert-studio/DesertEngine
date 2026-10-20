@@ -59,9 +59,14 @@ namespace Desert::Graphic::System
     // lights, and emission met by a material ray is weighed against it (PathTracer.shader). The list's hash is in
     // the scene hash, so a changed emitter restarts the sum.
     //
+    // GLASS (UE PathTracingGlass.ush, smooth): a BlendMode Translucent surface is a dielectric interface - Fresnel
+    // reflection or refraction by its IOR, thin at IOR 1, Beer absorption by its tint inside a solid - and light
+    // rays are attenuated by it instead of blocked (PathTracer.shader; its primitives carry
+    // RayTracing::kMaskTranslucent alone, so only these rays meet them).
+    //
     // Not here (each is UE's and a task of its own): a denoiser (UE's is a plugin over albedo/normal guides),
-    // transmission, participating media, a Sobol sequence, pixel filters other than a
-    // box.
+    // rough glass (the raster's glass pass reads no roughness), participating media, a Sobol sequence, pixel
+    // filters other than a box.
     class PathTracer final : public RenderSystem
     {
     public:
