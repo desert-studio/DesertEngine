@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "e41a616c94aeb7649f941eed2ea52b71",
         "Versions": {
-            "SCNE": 65,
+            "SCNE": 66,
             "UNIT": 1
         },
         "Dependencies": ["2731f4b41a1ce80f8f52cea1bb617496", "b33524f57b8f411039fb457c1c34be51"]
@@ -117,7 +117,9 @@
                 "ShadowStrength": 1.0,
                 "MaxSteps": 256,
                 "StopTransmittance": 0.004999999888241291,
-                "VolumeResolution": 256
+                "VolumeResolution": 256,
+                "WindOffset": [0.0, 0.0, 0.0],
+                "Drift": true
             }
         },
         {
@@ -300,6 +302,7 @@
             "Path": ""
         },
         "RespawnDelay": 3.0,
+        "WorldParameters": "",
         "SplashSprite": {
             "Guid": "",
             "Path": ""

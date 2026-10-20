@@ -76,7 +76,7 @@ namespace Desert::Core::WorldCells
     // index/cell payload shapes below. A reader refuses any other number by name, older included; a cooked
     // world is re-derivable, so the answer to an old one is a re-cook.
     inline constexpr std::uint32_t kWorldFormatTag     = Common::Content::FourCC( "WPCW" );
-    inline constexpr std::uint32_t kWorldFormatVersion = 4; // 4: WorldPartition states HLOD layers (WP-FAR-7)
+    inline constexpr std::uint32_t kWorldFormatVersion = 5; // 4: HLOD layers (WP-FAR-7); 5: a cell row states its grid (WP22)
 
     inline constexpr std::string_view kIndexFileName        = "World.dwindex";
     inline constexpr std::string_view kCellExtension        = ".dwcell";
@@ -89,6 +89,7 @@ namespace Desert::Core::WorldCells
     {
         std::string                      Name; // Rules::DescribeResidencyUnit
         std::string                      File;
+        std::optional<std::size_t>       Grid; // index into WorldPartition.Grids (WP22)
         std::optional<int>               Level;
         std::optional<std::int32_t>      X;
         std::optional<std::int32_t>      Z;
@@ -160,7 +161,7 @@ namespace Desert::Core::WorldCells
         std::vector<IndexReference> References;
         std::vector<IndexHLOD>      HLODs; // cell order; a cell that draws nothing has none
     };
-    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 4 )
+    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 5 )
 
     // What a cell file's payload holds: which units, in order, then their records concatenated.
     struct CellPayload
@@ -169,7 +170,7 @@ namespace Desert::Core::WorldCells
         std::vector<std::string>        Units;
         std::vector<Assets::EntityData> Records;
     };
-    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 4 )
+    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 5 )
     // Both payloads are stamped with the world format version by the envelope; the marks state the same number.
     static_assert( Common::Json::FormatOf<WorldIndex>.Version == kWorldFormatVersion &&
                    Common::Json::FormatOf<CellPayload>.Version == kWorldFormatVersion );

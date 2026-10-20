@@ -1973,6 +1973,26 @@ namespace Desert::ECS
         StreamingSourceData Data;
     };
 
+    // WHICH RUNTIME GRID OF A PARTITIONED WORLD THIS ENTITY STREAMS ON - UE's AActor::RuntimeGrid (WP22). Absent
+    // = the world's first grid, UE's main grid, so there is no present-and-empty second spelling of "main": an
+    // empty or unknown name is refused by the planner with the entity's path (Rules::PlanWorldPartition). A
+    // composite streams on its anchor's grid; the grid sets the cell size and the loading range it uses.
+    struct RuntimeGridData
+    {
+        REFLECT()
+
+        PROPERTY( DisplayName( "Runtime Grid" ), Category( "World Partition" ),
+                  Tooltip( "The name of the World Partition grid this entity streams on; the grid's cell size "
+                           "and loading range apply to it." ) )
+        std::string Grid;
+    };
+
+    struct RuntimeGridComponent
+    {
+        COMPONENT( Key( "RuntimeGrid" ), Block( Data ), Run( ActorsAndUI ) )
+        RuntimeGridData Data;
+    };
+
     // Attaches a Lua script to an entity. The ScriptSystem loads the file and calls its OnStart()/OnUpdate(dt);
     // the script drives behavior through the bound API (self:move/jump/addYaw..., Input.*). See ScriptEngine.
     // A behavior unit, like a UE ActorComponent: one .lua file + its exposed properties + lifecycle flag.

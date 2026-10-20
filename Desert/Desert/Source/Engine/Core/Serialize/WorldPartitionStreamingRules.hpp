@@ -237,6 +237,7 @@ namespace Desert::Core::Rules
         std::size_t Source   = kNoRecord; // that source; the lowest index when two are equally near
         int         Priority = 0;         // the highest Priority among the sources that want the cell
         double      SortKey  = 0.0;       // Distance weighted by that shape's heading (THE ORDER); the lowest wins
+        int         GridPriority = 0;     // the cell's grid's Priority (UE FSpatialHashRuntimeGrid::Priority)
     };
 
     struct StreamingWish
@@ -418,9 +419,9 @@ namespace Desert::Core::Rules
         return cosine * 0.5 + 0.5;
     }
 
-    // THE QUERY. @p settings is the world's partition block; the plan places every composite on
-    // `Grids[0]` until WP22 lets a record choose its grid (WorldPartitionPlan::UnusedGrids), so that is
-    // the grid whose CellSize and LoadingRange are read here.
+    // THE QUERY. @p settings is the world's partition block. Every grid is queried with ITS OWN cell size and
+    // loading range (UE ForEachStreamingCellsSources walks each runtime grid with the grid's range), so a cell of
+    // a small-range grid is wanted only within that range while a main-grid cell beside it is wanted further out.
     //
     // Refused, by name and number, rather than answered with an empty set: a source whose position or
     // scale is not a finite number or whose scale is negative (a NaN camera would otherwise unload the
@@ -489,84 +490,108 @@ namespace Desert::Core::Rules
 
         if ( settings.Grids.empty() )
         {
-            return Common::MakeError<StreamingWish>( "QueryStreamingCells: the plan has " +
-                                                     std::to_string( plan.Cells.size() ) +
-                                                     " cell(s) but the partition settings state no grid" );
+            return Common::MakeError<StreamingWish>( std::format(
+                 "QueryStreamingCells: the plan has {} cell(s) but the partition settings state no grid",
+                 plan.Cells.size() ) );
         }
-        const WorldPartitionGridSerialized& grid = settings.Grids.front();
-        if ( !( grid.CellSize > 0.0f ) || !std::isfinite( grid.CellSize ) || !( grid.LoadingRange >= 0.0f ) ||
-             !std::isfinite( grid.LoadingRange ) )
+        for ( std::size_t gridIndex = 0; gridIndex < settings.Grids.size(); ++gridIndex )
         {
-            return Common::MakeError<StreamingWish>( "QueryStreamingCells: grid 0 has CellSize " +
-                                                     std::to_string( grid.CellSize ) + " and LoadingRange " +
-                                                     std::to_string( grid.LoadingRange ) +
-                                                     "; a cell must be wider than zero and a range non-negative" );
+            const WorldPartitionGridSerialized& grid = settings.Grids[gridIndex];
+            if ( !( grid.CellSize > 0.0f ) || !std::isfinite( grid.CellSize ) || !( grid.LoadingRange >= 0.0f ) ||
+                 !std::isfinite( grid.LoadingRange ) )
+            {
+                return Common::MakeError<StreamingWish>( std::format(
+                     "QueryStreamingCells: grid {} '{}' has CellSize {} and LoadingRange {}; a cell must be wider "
+                     "than zero and a range non-negative",
+                     gridIndex, grid.Name, grid.CellSize, grid.LoadingRange ) );
+            }
         }
-
-        // Where each level's cells begin in the sorted plan; levelBegin[L + 1] is where they end. Found by
-        // binary search too — a pass over the cells here would be the very walk this query avoids.
-        const int                lastLevel = plan.Cells.back().Level;
-        std::vector<std::size_t> levelBegin( static_cast<std::size_t>( lastLevel ) + 2, plan.Cells.size() );
-        for ( int level = 0; level <= lastLevel; ++level )
+        if ( plan.Cells.back().Grid >= settings.Grids.size() )
         {
-            const auto first =
-                 std::lower_bound( plan.Cells.begin(), plan.Cells.end(), level,
-                                   []( const PlannedCell& cell, int key ) { return cell.Level < key; } );
-            levelBegin[static_cast<std::size_t>( level )] = static_cast<std::size_t>( first - plan.Cells.begin() );
+            return Common::MakeError<StreamingWish>(
+                 std::format( "QueryStreamingCells: the plan has a cell of grid {} but the settings state {} grid(s)",
+                              plan.Cells.back().Grid, settings.Grids.size() ) );
         }
 
         std::vector<WantedCell> hits;
-        for ( std::size_t sourceIndex = 0; sourceIndex < sources.size(); ++sourceIndex )
+        for ( std::size_t gridIndex = 0; gridIndex < settings.Grids.size(); ++gridIndex )
         {
-            const int priority = sources[sourceIndex].Priority;
-            for ( const SourceSector& sector : SourceSectors( sources[sourceIndex], grid ) )
+            const WorldPartitionGridSerialized& grid = settings.Grids[gridIndex];
+            // This grid's cells: the plan is ordered by grid first, so they are one run, found by binary search.
+            const auto gridFirst = std::lower_bound( plan.Cells.begin(), plan.Cells.end(), gridIndex,
+                                                     []( const PlannedCell& cell, std::size_t key )
+                                                     { return cell.Grid < key; } );
+            const auto gridLast  = std::upper_bound( gridFirst, plan.Cells.end(), gridIndex,
+                                                     []( std::size_t key, const PlannedCell& cell )
+                                                     { return key < cell.Grid; } );
+            if ( gridFirst == gridLast )
+                continue;
+
+            // Where each level's cells begin in this grid's run; levelBegin[L + 1] is where they end.
+            const int                lastLevel = ( gridLast - 1 )->Level;
+            std::vector<std::size_t> levelBegin( static_cast<std::size_t>( lastLevel ) + 2,
+                                                 static_cast<std::size_t>( gridLast - plan.Cells.begin() ) );
+            for ( int level = 0; level <= lastLevel; ++level )
             {
-                const double x      = sector.Centre.x;
-                const double z      = sector.Centre.y;
-                const double radius = sector.Radius;
+                const auto first =
+                     std::lower_bound( gridFirst, gridLast, level,
+                                       []( const PlannedCell& cell, int key ) { return cell.Level < key; } );
+                levelBegin[static_cast<std::size_t>( level )] = static_cast<std::size_t>( first - plan.Cells.begin() );
+            }
 
-                for ( int level = 0; level <= lastLevel; ++level )
+            for ( std::size_t sourceIndex = 0; sourceIndex < sources.size(); ++sourceIndex )
+            {
+                const int priority = sources[sourceIndex].Priority;
+                for ( const SourceSector& sector : SourceSectors( sources[sourceIndex], grid ) )
                 {
-                    const auto begin = plan.Cells.begin() + static_cast<std::ptrdiff_t>(
-                                                                 levelBegin[static_cast<std::size_t>( level )] );
-                    const auto end = plan.Cells.begin() + static_cast<std::ptrdiff_t>(
-                                                               levelBegin[static_cast<std::size_t>( level ) + 1] );
-                    const double size = LevelCellSize( grid.CellSize, level );
+                    const double x      = sector.Centre.x;
+                    const double z      = sector.Centre.y;
+                    const double radius = sector.Radius;
 
-                    const auto consider = [&]( std::size_t cellIndex )
+                    for ( int level = 0; level <= lastLevel; ++level )
                     {
-                        ++wish.CellsExamined;
-                        const CellCoord& coord    = plan.Cells[cellIndex].Cell;
-                        const double     distance = DistanceToCellInSector( sector, coord, size );
-                        if ( distance <= radius )
+                        const auto begin = plan.Cells.begin() + static_cast<std::ptrdiff_t>(
+                                                                     levelBegin[static_cast<std::size_t>( level )] );
+                        const auto end = plan.Cells.begin() + static_cast<std::ptrdiff_t>(
+                                                                   levelBegin[static_cast<std::size_t>( level ) + 1] );
+                        const double size = LevelCellSize( grid.CellSize, level );
+
+                        const auto consider = [&]( std::size_t cellIndex )
                         {
-                            hits.push_back( WantedCell{ cellIndex, distance, sourceIndex, priority,
-                                                        distance * HeadingWeight( sector, coord, size ) } );
+                            ++wish.CellsExamined;
+                            const CellCoord& coord    = plan.Cells[cellIndex].Cell;
+                            const double     distance = DistanceToCellInSector( sector, coord, size );
+                            if ( distance <= radius )
+                            {
+                                hits.push_back( WantedCell{ cellIndex, distance, sourceIndex, priority,
+                                                            distance * HeadingWeight( sector, coord, size ),
+                                                        grid.Priority } );
+                            }
+                        };
+
+                        const Detail::AxisSpan alongX = Detail::CellsAlong( x, radius, size );
+                        const Detail::AxisSpan alongZ = Detail::CellsAlong( z, radius, size );
+                        const double           enumerated =
+                             ( alongX.Last - alongX.First + 1.0 ) * ( alongZ.Last - alongZ.First + 1.0 );
+                        if ( enumerated > static_cast<double>( end - begin ) )
+                        {
+                            for ( auto cell = begin; cell != end; ++cell )
+                                consider( static_cast<std::size_t>( cell - plan.Cells.begin() ) );
+                            continue;
                         }
-                    };
 
-                    const Detail::AxisSpan alongX = Detail::CellsAlong( x, radius, size );
-                    const Detail::AxisSpan alongZ = Detail::CellsAlong( z, radius, size );
-                    const double           enumerated =
-                         ( alongX.Last - alongX.First + 1.0 ) * ( alongZ.Last - alongZ.First + 1.0 );
-                    if ( enumerated > static_cast<double>( end - begin ) )
-                    {
-                        for ( auto cell = begin; cell != end; ++cell )
-                            consider( static_cast<std::size_t>( cell - plan.Cells.begin() ) );
-                        continue;
-                    }
-
-                    for ( double cellX = alongX.First; cellX <= alongX.Last; cellX += 1.0 )
-                    {
-                        for ( double cellZ = alongZ.First; cellZ <= alongZ.Last; cellZ += 1.0 )
+                        for ( double cellX = alongX.First; cellX <= alongX.Last; cellX += 1.0 )
                         {
-                            const CellCoord coord{ static_cast<std::int32_t>( cellX ),
-                                                   static_cast<std::int32_t>( cellZ ) };
-                            const auto      found = std::lower_bound(
-                                 begin, end, coord, [level]( const PlannedCell& cell, const CellCoord& key )
-                                 { return Detail::CellBefore( cell, level, key ); } );
-                            if ( found != end && found->Cell == coord )
-                                consider( static_cast<std::size_t>( found - plan.Cells.begin() ) );
+                            for ( double cellZ = alongZ.First; cellZ <= alongZ.Last; cellZ += 1.0 )
+                            {
+                                const CellCoord coord{ static_cast<std::int32_t>( cellX ),
+                                                       static_cast<std::int32_t>( cellZ ) };
+                                const auto      found = std::lower_bound(
+                                     begin, end, coord, [level]( const PlannedCell& cell, const CellCoord& key )
+                                     { return Detail::CellBefore( cell, level, key ); } );
+                                if ( found != end && found->Cell == coord )
+                                    consider( static_cast<std::size_t>( found - plan.Cells.begin() ) );
+                            }
                         }
                     }
                 }
@@ -582,6 +607,8 @@ namespace Desert::Core::Rules
                            return a.Cell < b.Cell;
                        if ( a.Priority != b.Priority )
                            return a.Priority > b.Priority;
+                       if ( a.GridPriority != b.GridPriority )
+                           return a.GridPriority > b.GridPriority;
                        if ( a.SortKey != b.SortKey )
                            return a.SortKey < b.SortKey;
                        if ( a.Distance != b.Distance )
@@ -596,6 +623,8 @@ namespace Desert::Core::Rules
                    {
                        if ( a.Priority != b.Priority )
                            return a.Priority > b.Priority;
+                       if ( a.GridPriority != b.GridPriority )
+                           return a.GridPriority > b.GridPriority;
                        if ( a.SortKey != b.SortKey )
                            return a.SortKey < b.SortKey;
                        if ( a.Distance != b.Distance )

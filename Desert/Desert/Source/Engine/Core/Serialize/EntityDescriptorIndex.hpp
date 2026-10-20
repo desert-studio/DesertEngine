@@ -48,7 +48,7 @@ namespace Desert::Core::DescriptorIndex
     {
         std::vector<DescriptorRow> Entities; // the header's list order
     };
-    DESERT_JSON_STRUCT( DescriptorIndexFile, "EntityDescriptorIndex", 1 )
+    DESERT_JSON_STRUCT( DescriptorIndexFile, "EntityDescriptorIndex", 2 )
 
     // Where the index of the scene at `scenePath` lives.
     [[nodiscard]] std::filesystem::path PathOf( const std::filesystem::path& scenePath );

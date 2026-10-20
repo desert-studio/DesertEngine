@@ -351,7 +351,14 @@ namespace Desert::Migration
     //       (MigrateDisplayTransferV64ToV65). Scenes and prefabs alike.
     inline constexpr int kSceneVersionDisplayTransfer = 65;
 
-    static_assert( kSceneVersionDisplayTransfer == kSceneVersion,
+    //  66 - A WORLD PARTITION GRID HAS A NAME (WP22). An entity chooses its grid by name (RuntimeGrid block, UE
+    //       AActor::RuntimeGrid), so every grid states one, unique in the world, and a Priority (default 0). Every
+    //       v65 world partitioned everything on its first grid, so that grid becomes "Main" (what an entity with
+    //       no RuntimeGrid streams on, as before) and every further grid "Grid<index>" - no record names those, so
+    //       none of them gains a member (MigrateGridNamesV65ToV66). Scenes only: a prefab has no WorldPartition.
+    inline constexpr int kSceneVersionGridNames = 66;
+
+    static_assert( kSceneVersionGridNames == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -696,6 +703,9 @@ namespace Desert::Migration
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
     bool MigrateHLODLayersV49ToV50( SceneSerialized& scene );
 
+    // Names every unnamed grid of a partitioned world (kSceneVersionGridNames); how many it named.
+    std::size_t MigrateGridNamesV65ToV66( SceneSerialized& scene );
+
     // What MigrateSceneDependenciesV51ToV52 did to one scene.
     struct SceneDependenciesReport
     {
@@ -952,6 +962,8 @@ namespace Desert::Migration
 
         bool HLODLayersRaised = false; // below kSceneVersionHLODLayers
         bool HLODLayerStated  = false; // a partitioned world was given the Instancing layer
+        bool        GridNamesRaised = false; // below kSceneVersionGridNames
+        std::size_t GridsNamed      = 0;     // grids given a name
 
         bool                    SceneDependenciesRaised = false; // below kSceneVersionSceneDependencies
         SceneDependenciesReport SceneDependencies;
@@ -994,7 +1006,8 @@ namespace Desert::Migration
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
                    RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
-                   SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised;
+                   SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
+                   GridNamesRaised;
         }
     };
 

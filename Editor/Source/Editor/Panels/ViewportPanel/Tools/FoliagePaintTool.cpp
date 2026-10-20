@@ -890,7 +890,7 @@ namespace Desert::Editor::Tools
     namespace
     {
         // FO-6: the grid foliage is filed by - the world's first grid, the one the planner places every
-        // composite by (WorldPartitionPlan::UnusedGrids) - or none for a world that is not partitioned, whose
+        // composite by (an instance host names no RuntimeGrid, so it streams on the first grid) - or none for a world that is not partitioned, whose
         // foliage stays one field per type (UE: one IFA per level).
         std::optional<double> FoliageCellSize( ::Desert::Core::Scene& scene )
         {

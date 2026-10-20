@@ -68,6 +68,7 @@
 // (at most `MaxRetryDelaySeconds`) has passed since the failure. Not every frame: a missing file would
 // otherwise be re-read sixty times a second.
 
+#include <format>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
@@ -179,8 +180,7 @@ namespace Desert::Core::Rules
         if ( unit < plan.AlwaysLoaded.size() )
             return "A" + std::to_string( unit );
         const PlannedCell& cell = plan.Cells.at( unit - plan.AlwaysLoaded.size() );
-        return "L" + std::to_string( cell.Level ) + "(" + std::to_string( cell.Cell.X ) + "," +
-               std::to_string( cell.Cell.Z ) + ")";
+        return std::format( "G{}L{}({},{})", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z );
     }
 
     // Records a unit brings into the world: the members of every composite it holds.

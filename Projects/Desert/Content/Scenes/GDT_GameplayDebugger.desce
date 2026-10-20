@@ -3,26 +3,12 @@
         "Kind": "Scene",
         "Guid": "f306731451a84b07b4fa933f012debe4",
         "Versions": {
-            "SCNE": 64,
+            "SCNE": 66,
             "UNIT": 1
         },
         "Dependencies": [
-            "02a74d5bec4236c300fc86c6c13a97a8",
-            "1a86d3093e55483bbdd7804f23589465",
-            "1d329766c5c4c2d83fcfdafc37df272b",
-            "1ff7bf41d54b6c595b934944215d82aa",
-            "582f0def2b00efe8f1018b02af8340dd",
-            "6336872c8642f7daeea018f4449c1529",
-            "731f4f827c7b881bed18f470df8653e8",
-            "88204c80060d80e7ebf5173d38f05fae",
-            "a849328dedac15852ea59eb6cc7e4176",
-            "b15fb21e65ca9e9e574fd69d1aa31877",
-            "b272c29047a884c02a065b782ae62ea5",
-            "b33524f57b8f411039fb457c1c34be51",
-            "d27106039e9adb87a41069d7ce898854",
-            "d85d458cca28da444ac2939074e0b757",
-            "e71ff67b2d1649e6d2787be69933b7d5",
-            "f19593762f19be4d47cadcb269c4e878",
+            "02a74d5bec4236c300fc86c6c13a97a8", "1a86d3093e55483bbdd7804f23589465", "1d329766c5c4c2d83fcfdafc37df272b", "1ff7bf41d54b6c595b934944215d82aa", "582f0def2b00efe8f1018b02af8340dd", "6336872c8642f7daeea018f4449c1529", "731f4f827c7b881bed18f470df8653e8", "88204c80060d80e7ebf5173d38f05fae",
+            "a849328dedac15852ea59eb6cc7e4176", "b15fb21e65ca9e9e574fd69d1aa31877", "b272c29047a884c02a065b782ae62ea5", "b33524f57b8f411039fb457c1c34be51", "d27106039e9adb87a41069d7ce898854", "d85d458cca28da444ac2939074e0b757", "e71ff67b2d1649e6d2787be69933b7d5", "f19593762f19be4d47cadcb269c4e878",
             "f6f923426f71eb4a270b1db46ebceeff"
         ]
     },
@@ -32,30 +18,13 @@
             "id": 33723348285336249,
             "siblingIndex": 22,
             "Tag": "Text",
-            "Translation": [
-                -220.0,
-                340.0,
-                -300.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [-220.0, 340.0, -300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "Text": {
                 "Text": "Desert Engine",
                 "Font": "engine:Fonts/Roboto-Regular.ttf",
-                "Color": [
-                    0.550000011920929,
-                    0.8500000238418579,
-                    1.0,
-                    1.0
-                ],
+                "Color": [0.550000011920929, 0.8500000238418579, 1.0, 1.0],
                 "Size": 80.0,
                 "EmissiveIntensity": 2.5,
                 "Billboard": false
@@ -65,28 +34,12 @@
             "id": 106508827693059193,
             "siblingIndex": 8,
             "Tag": "Metal_40",
-            "Translation": [
-                -70.00000762939453,
-                60.000003814697266,
-                -460.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.550000011920929,
-                0.550000011920929,
-                0.550000011920929
-            ],
+            "Translation": [-70.00000762939453, 60.000003814697266, -460.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/M_Metal_R40.demat"
-                ],
-                "MaterialGuids": [
-                    "6336872c8642f7daeea018f4449c1529"
-                ],
+                "MaterialPaths": ["Materials/M_Metal_R40.demat"],
+                "MaterialGuids": ["6336872c8642f7daeea018f4449c1529"],
                 "Primitive": "Sphere"
             }
         },
@@ -94,58 +47,22 @@
             "id": 154921903075818553,
             "siblingIndex": 1,
             "Tag": "Sky",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                100.0,
-                100.0,
-                100.0
-            ],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
             "SkyAtmosphere": {
                 "Enabled": true,
                 "SkyBrightness": 1.0,
                 "HorizonFalloff": 0.8500000238418579,
-                "ZenithColor": [
-                    0.07999999821186066,
-                    0.25999999046325684,
-                    0.699999988079071
-                ],
-                "HorizonColor": [
-                    0.5,
-                    0.6600000262260437,
-                    0.9200000166893005
-                ],
-                "GroundColor": [
-                    0.1599999964237213,
-                    0.1899999976158142,
-                    0.23999999463558197
-                ],
-                "NightColor": [
-                    0.009999999776482582,
-                    0.019999999552965164,
-                    0.05000000074505806
-                ],
+                "ZenithColor": [0.07999999821186066, 0.25999999046325684, 0.699999988079071],
+                "HorizonColor": [0.5, 0.6600000262260437, 0.9200000166893005],
+                "GroundColor": [0.1599999964237213, 0.1899999976158142, 0.23999999463558197],
+                "NightColor": [0.009999999776482582, 0.019999999552965164, 0.05000000074505806],
                 "SunIntensity": 22.0,
-                "SunColor": [
-                    1.0,
-                    0.9599999785423279,
-                    0.8799999952316284
-                ],
+                "SunColor": [1.0, 0.9599999785423279, 0.8799999952316284],
                 "SunAngularDiameter": 2.2918310165405273,
                 "SunGlow": 1.0,
-                "SunsetColor": [
-                    1.0,
-                    0.41999998688697815,
-                    0.18000000715255737
-                ],
+                "SunsetColor": [1.0, 0.41999998688697815, 0.18000000715255737],
                 "SunsetIntensity": 1.0,
                 "StarIntensity": 1.0,
                 "AutoRebakeEnvironment": true,
@@ -156,51 +73,23 @@
                 "Model": 0,
                 "AtmosphereHeight": 60.0,
                 "MultiScatteringFactor": 1.0,
-                "GroundAlbedo": [
-                    0.4019779860973358,
-                    0.4019779860973358,
-                    0.4019779860973358
-                ],
+                "GroundAlbedo": [0.4019779860973358, 0.4019779860973358, 0.4019779860973358],
                 "RayleighScatteringScale": 0.03310000151395798,
-                "RayleighScattering": [
-                    0.17528699338436127,
-                    0.4096069931983948,
-                    1.0
-                ],
+                "RayleighScattering": [0.17528699338436127, 0.4096069931983948, 1.0],
                 "RayleighExponentialDistribution": 8.0,
                 "MieScatteringScale": 0.003996000159531832,
-                "MieScattering": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "MieScattering": [1.0, 1.0, 1.0],
                 "MieAbsorptionScale": 0.0004440000047907233,
-                "MieAbsorption": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "MieAbsorption": [1.0, 1.0, 1.0],
                 "MieAnisotropy": 0.800000011920929,
                 "MieExponentialDistribution": 1.2000000476837158,
                 "OtherAbsorptionScale": 0.0018810000037774444,
-                "OtherAbsorption": [
-                    0.3455609977245331,
-                    1.0,
-                    0.04518900066614151
-                ],
+                "OtherAbsorption": [0.3455609977245331, 1.0, 0.04518900066614151],
                 "AbsorptionTipAltitude": 25.0,
                 "AbsorptionTipValue": 1.0,
                 "AbsorptionTentWidth": 15.0,
-                "SkyLuminanceFactor": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
-                "SkyAndAerialPerspectiveLuminanceFactor": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "SkyLuminanceFactor": [1.0, 1.0, 1.0],
+                "SkyAndAerialPerspectiveLuminanceFactor": [1.0, 1.0, 1.0],
                 "AerialPerspectiveViewDistanceScale": 1.0,
                 "AerialPerspectiveStartDepth": 0.10000000149011612,
                 "AerialPerspectiveDistance": 96.0
@@ -212,11 +101,7 @@
                 },
                 "Intensity": 1.0,
                 "Rotation": 0.0,
-                "Tint": [
-                    1.0,
-                    1.0,
-                    1.0
-                ]
+                "Tint": [1.0, 1.0, 1.0]
             },
             "TimeOfDay": {
                 "DriveSunFromTimeOfDay": false,
@@ -236,28 +121,12 @@
             "id": 1491879459053545275,
             "siblingIndex": 12,
             "Tag": "Metal_80",
-            "Translation": [
-                209.99998474121094,
-                60.000003814697266,
-                -460.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.550000011920929,
-                0.550000011920929,
-                0.550000011920929
-            ],
+            "Translation": [209.99998474121094, 60.000003814697266, -460.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/M_Metal_R80.demat"
-                ],
-                "MaterialGuids": [
-                    "e71ff67b2d1649e6d2787be69933b7d5"
-                ],
+                "MaterialPaths": ["Materials/M_Metal_R80.demat"],
+                "MaterialGuids": ["e71ff67b2d1649e6d2787be69933b7d5"],
                 "Primitive": "Sphere"
             }
         },
@@ -265,28 +134,12 @@
             "id": 5483427749687644682,
             "siblingIndex": 13,
             "Tag": "Dielectric_100",
-            "Translation": [
-                350.0,
-                60.000003814697266,
-                -300.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.550000011920929,
-                0.550000011920929,
-                0.550000011920929
-            ],
+            "Translation": [350.0, 60.000003814697266, -300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/M_Dielectric_R100.demat"
-                ],
-                "MaterialGuids": [
-                    "b15fb21e65ca9e9e574fd69d1aa31877"
-                ],
+                "MaterialPaths": ["Materials/M_Dielectric_R100.demat"],
+                "MaterialGuids": ["b15fb21e65ca9e9e574fd69d1aa31877"],
                 "Primitive": "Sphere"
             }
         },
@@ -294,28 +147,12 @@
             "id": 6018453462564557835,
             "siblingIndex": 17,
             "Tag": "Cube",
-            "Translation": [
-                0.0,
-                50.0,
-                150.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 50.0, 150.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/Starter_Prop.demat"
-                ],
-                "MaterialGuids": [
-                    "f6f923426f71eb4a270b1db46ebceeff"
-                ],
+                "MaterialPaths": ["Materials/Starter_Prop.demat"],
+                "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
                 "Primitive": "Cube"
             }
         },
@@ -323,28 +160,12 @@
             "id": 6863632612571319455,
             "siblingIndex": 7,
             "Tag": "Dielectric_40",
-            "Translation": [
-                -70.00000762939453,
-                60.000003814697266,
-                -300.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.550000011920929,
-                0.550000011920929,
-                0.550000011920929
-            ],
+            "Translation": [-70.00000762939453, 60.000003814697266, -300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/M_Dielectric_R40.demat"
-                ],
-                "MaterialGuids": [
-                    "1ff7bf41d54b6c595b934944215d82aa"
-                ],
+                "MaterialPaths": ["Materials/M_Dielectric_R40.demat"],
+                "MaterialGuids": ["1ff7bf41d54b6c595b934944215d82aa"],
                 "Primitive": "Sphere"
             }
         },
@@ -352,28 +173,12 @@
             "id": 7437228965709132698,
             "siblingIndex": 16,
             "Tag": "EmissiveCube",
-            "Translation": [
-                250.0,
-                50.0,
-                50.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [250.0, 50.0, 50.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/Starter_Emissive.demat"
-                ],
-                "MaterialGuids": [
-                    "b272c29047a884c02a065b782ae62ea5"
-                ],
+                "MaterialPaths": ["Materials/Starter_Emissive.demat"],
+                "MaterialGuids": ["b272c29047a884c02a065b782ae62ea5"],
                 "Primitive": "Cube"
             }
         },
@@ -381,28 +186,12 @@
             "id": 8531153197229334075,
             "siblingIndex": 14,
             "Tag": "Metal_100",
-            "Translation": [
-                350.0,
-                60.000003814697266,
-                -460.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.550000011920929,
-                0.550000011920929,
-                0.550000011920929
-            ],
+            "Translation": [350.0, 60.000003814697266, -460.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/M_Metal_R100.demat"
-                ],
-                "MaterialGuids": [
-                    "88204c80060d80e7ebf5173d38f05fae"
-                ],
+                "MaterialPaths": ["Materials/M_Metal_R100.demat"],
+                "MaterialGuids": ["88204c80060d80e7ebf5173d38f05fae"],
                 "Primitive": "Sphere"
             }
         },
@@ -410,28 +199,12 @@
             "id": 9104866094392921503,
             "siblingIndex": 19,
             "Tag": "Capsule",
-            "Translation": [
-                -120.00000762939453,
-                75.0,
-                260.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.6000000238418579,
-                1.5,
-                0.6000000238418579
-            ],
+            "Translation": [-120.00000762939453, 75.0, 260.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.6000000238418579, 1.5, 0.6000000238418579],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/Starter_Prop.demat"
-                ],
-                "MaterialGuids": [
-                    "f6f923426f71eb4a270b1db46ebceeff"
-                ],
+                "MaterialPaths": ["Materials/Starter_Prop.demat"],
+                "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
                 "Primitive": "Capsule"
             }
         },
@@ -439,21 +212,9 @@
             "id": 9200314146209653172,
             "siblingIndex": 25,
             "Tag": "PlayerStart",
-            "Translation": [
-                0.0,
-                92.0,
-                650.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 92.0, 650.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "PlayerStart": {
                 "Tag": ""
             }
@@ -462,36 +223,16 @@
             "id": 9810771712317175157,
             "siblingIndex": 2,
             "Tag": "Ground",
-            "Translation": [
-                0.0,
-                -10.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                24.0,
-                0.20000000298023224,
-                24.0
-            ],
+            "Translation": [0.0, -10.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [24.0, 0.20000000298023224, 24.0],
             "Collider": {
                 "Shape": 0,
-                "HalfExtents": [
-                    1200.0,
-                    10.0,
-                    1200.0
-                ],
+                "HalfExtents": [1200.0, 10.0, 1200.0],
                 "Radius": 50.0,
                 "HalfHeight": 50.0,
                 "Axis": 1,
-                "Center": [
-                    0.0,
-                    0.0,
-                    0.0
-                ]
+                "Center": [0.0, 0.0, 0.0]
             },
             "RigidBody": {
                 "Type": 0,
@@ -501,12 +242,8 @@
                 "CollisionProfile": "BlockAll"
             },
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/Starter_Ground.demat"
-                ],
-                "MaterialGuids": [
-                    "b33524f57b8f411039fb457c1c34be51"
-                ],
+                "MaterialPaths": ["Materials/Starter_Ground.demat"],
+                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
                 "Primitive": "Cube"
             }
         },
@@ -514,28 +251,12 @@
             "id": 11546430137497581983,
             "siblingIndex": 6,
             "Tag": "Metal_20",
-            "Translation": [
-                -209.99998474121094,
-                60.000003814697266,
-                -460.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.550000011920929,
-                0.550000011920929,
-                0.550000011920929
-            ],
+            "Translation": [-209.99998474121094, 60.000003814697266, -460.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/M_Metal_R20.demat"
-                ],
-                "MaterialGuids": [
-                    "1d329766c5c4c2d83fcfdafc37df272b"
-                ],
+                "MaterialPaths": ["Materials/M_Metal_R20.demat"],
+                "MaterialGuids": ["1d329766c5c4c2d83fcfdafc37df272b"],
                 "Primitive": "Sphere"
             }
         },
@@ -543,28 +264,12 @@
             "id": 11837713268414801561,
             "siblingIndex": 15,
             "Tag": "GlassSphere",
-            "Translation": [
-                -250.0,
-                100.0,
-                50.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.2000000476837158,
-                1.2000000476837158,
-                1.2000000476837158
-            ],
+            "Translation": [-250.0, 100.0, 50.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/Starter_Glass.demat"
-                ],
-                "MaterialGuids": [
-                    "02a74d5bec4236c300fc86c6c13a97a8"
-                ],
+                "MaterialPaths": ["Materials/Starter_Glass.demat"],
+                "MaterialGuids": ["02a74d5bec4236c300fc86c6c13a97a8"],
                 "Primitive": "Sphere"
             }
         },
@@ -572,28 +277,12 @@
             "id": 13096690350549148578,
             "siblingIndex": 4,
             "Tag": "Metal_0",
-            "Translation": [
-                -350.0,
-                60.000003814697266,
-                -460.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.550000011920929,
-                0.550000011920929,
-                0.550000011920929
-            ],
+            "Translation": [-350.0, 60.000003814697266, -460.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/M_Metal_R0.demat"
-                ],
-                "MaterialGuids": [
-                    "582f0def2b00efe8f1018b02af8340dd"
-                ],
+                "MaterialPaths": ["Materials/M_Metal_R0.demat"],
+                "MaterialGuids": ["582f0def2b00efe8f1018b02af8340dd"],
                 "Primitive": "Sphere"
             }
         },
@@ -601,45 +290,21 @@
             "id": 13376537502658031226,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [
-                -35.08782958984375,
-                -90.2258529663086,
-                -25.06273651123047
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                100.0,
-                100.0,
-                100.0
-            ],
+            "Translation": [-35.08782958984375, -90.2258529663086, -25.06273651123047],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
             "DirectionLight": {
-                "Color": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "Color": [1.0, 1.0, 1.0],
                 "Intensity": 1.0,
                 "AtmosphereSunLight": true,
                 "AtmosphereSunLightIndex": 0,
                 "AffectedByAtmosphereTransmittance": true,
-                "AtmosphereSunDiskColorScale": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "AtmosphereSunDiskColorScale": [1.0, 1.0, 1.0],
                 "LightShaftBloom": false,
                 "BloomScale": 0.20000000298023224,
                 "BloomThreshold": 0.0,
                 "BloomMaxBrightness": 100.0,
-                "BloomTint": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "BloomTint": [1.0, 1.0, 1.0],
                 "CastShadows": true,
                 "SourceAngle": 0.5357000231742859,
                 "ShadowBias": 1.0,
@@ -656,28 +321,12 @@
             "id": 13630584090071503227,
             "siblingIndex": 18,
             "Tag": "Cylinder",
-            "Translation": [
-                120.00000762939453,
-                75.0,
-                260.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.6000000238418579,
-                1.5,
-                0.6000000238418579
-            ],
+            "Translation": [120.00000762939453, 75.0, 260.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.6000000238418579, 1.5, 0.6000000238418579],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/Starter_Prop.demat"
-                ],
-                "MaterialGuids": [
-                    "f6f923426f71eb4a270b1db46ebceeff"
-                ],
+                "MaterialPaths": ["Materials/Starter_Prop.demat"],
+                "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
                 "Primitive": "Cylinder"
             }
         },
@@ -685,21 +334,9 @@
             "id": 14608853643611000312,
             "siblingIndex": 23,
             "Tag": "Camera",
-            "Translation": [
-                0.0,
-                250.0,
-                700.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                100.0,
-                100.0,
-                100.0
-            ],
+            "Translation": [0.0, 250.0, 700.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
             "Camera": {
                 "AutoActivateForPlayer": true,
                 "FOV": 45.0,
@@ -711,28 +348,12 @@
             "id": 15335935744772968575,
             "siblingIndex": 10,
             "Tag": "Metal_60",
-            "Translation": [
-                69.99999237060547,
-                60.000003814697266,
-                -460.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.550000011920929,
-                0.550000011920929,
-                0.550000011920929
-            ],
+            "Translation": [69.99999237060547, 60.000003814697266, -460.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/M_Metal_R60.demat"
-                ],
-                "MaterialGuids": [
-                    "d85d458cca28da444ac2939074e0b757"
-                ],
+                "MaterialPaths": ["Materials/M_Metal_R60.demat"],
+                "MaterialGuids": ["d85d458cca28da444ac2939074e0b757"],
                 "Primitive": "Sphere"
             }
         },
@@ -740,28 +361,12 @@
             "id": 15512415100034838407,
             "siblingIndex": 9,
             "Tag": "Dielectric_60",
-            "Translation": [
-                69.99999237060547,
-                60.000003814697266,
-                -300.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.550000011920929,
-                0.550000011920929,
-                0.550000011920929
-            ],
+            "Translation": [69.99999237060547, 60.000003814697266, -300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/M_Dielectric_R60.demat"
-                ],
-                "MaterialGuids": [
-                    "d27106039e9adb87a41069d7ce898854"
-                ],
+                "MaterialPaths": ["Materials/M_Dielectric_R60.demat"],
+                "MaterialGuids": ["d27106039e9adb87a41069d7ce898854"],
                 "Primitive": "Sphere"
             }
         },
@@ -769,28 +374,12 @@
             "id": 16441529439787477735,
             "siblingIndex": 3,
             "Tag": "Dielectric_0",
-            "Translation": [
-                -350.0,
-                60.000003814697266,
-                -300.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.550000011920929,
-                0.550000011920929,
-                0.550000011920929
-            ],
+            "Translation": [-350.0, 60.000003814697266, -300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/M_Dielectric_R0.demat"
-                ],
-                "MaterialGuids": [
-                    "f19593762f19be4d47cadcb269c4e878"
-                ],
+                "MaterialPaths": ["Materials/M_Dielectric_R0.demat"],
+                "MaterialGuids": ["f19593762f19be4d47cadcb269c4e878"],
                 "Primitive": "Sphere"
             }
         },
@@ -798,28 +387,12 @@
             "id": 17370361960076191234,
             "siblingIndex": 5,
             "Tag": "Dielectric_20",
-            "Translation": [
-                -209.99998474121094,
-                60.000003814697266,
-                -300.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.550000011920929,
-                0.550000011920929,
-                0.550000011920929
-            ],
+            "Translation": [-209.99998474121094, 60.000003814697266, -300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/M_Dielectric_R20.demat"
-                ],
-                "MaterialGuids": [
-                    "731f4f827c7b881bed18f470df8653e8"
-                ],
+                "MaterialPaths": ["Materials/M_Dielectric_R20.demat"],
+                "MaterialGuids": ["731f4f827c7b881bed18f470df8653e8"],
                 "Primitive": "Sphere"
             }
         },
@@ -827,28 +400,12 @@
             "id": 17465385798281589086,
             "siblingIndex": 11,
             "Tag": "Dielectric_80",
-            "Translation": [
-                209.99998474121094,
-                60.000003814697266,
-                -300.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.550000011920929,
-                0.550000011920929,
-                0.550000011920929
-            ],
+            "Translation": [209.99998474121094, 60.000003814697266, -300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "Materials/M_Dielectric_R80.demat"
-                ],
-                "MaterialGuids": [
-                    "a849328dedac15852ea59eb6cc7e4176"
-                ],
+                "MaterialPaths": ["Materials/M_Dielectric_R80.demat"],
+                "MaterialGuids": ["a849328dedac15852ea59eb6cc7e4176"],
                 "Primitive": "Sphere"
             }
         },
@@ -856,31 +413,16 @@
             "id": 17693095525329290091,
             "siblingIndex": 21,
             "Tag": "FillCool",
-            "Translation": [
-                -400.0,
-                250.0,
-                -100.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                100.0,
-                100.0,
-                100.0
-            ],
+            "Translation": [-400.0, 250.0, -100.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
             "PointLight": {
-                "Color": [
-                    0.4000000059604645,
-                    0.6000000238418579,
-                    1.0
-                ],
+                "Color": [0.4000000059604645, 0.6000000238418579, 1.0],
                 "Intensity": 4.0,
                 "IntensityUnits": 0,
                 "Radius": 1200.0,
                 "MinRadius": 0.0,
+                "SourceRadius": 0.0,
                 "Falloff": 1,
                 "ShowRadius": false,
                 "CastShadows": true,
@@ -897,31 +439,16 @@
             "id": 17729774111420330691,
             "siblingIndex": 20,
             "Tag": "FillWarm",
-            "Translation": [
-                400.0,
-                300.0,
-                300.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                100.0,
-                100.0,
-                100.0
-            ],
+            "Translation": [400.0, 300.0, 300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
             "PointLight": {
-                "Color": [
-                    1.0,
-                    0.8500000238418579,
-                    0.6000000238418579
-                ],
+                "Color": [1.0, 0.8500000238418579, 0.6000000238418579],
                 "Intensity": 5.0,
                 "IntensityUnits": 0,
                 "Radius": 1200.0,
                 "MinRadius": 0.0,
+                "SourceRadius": 0.0,
                 "Falloff": 1,
                 "ShowRadius": false,
                 "CastShadows": true,
@@ -938,28 +465,12 @@
             "id": 17921165617746467452,
             "siblingIndex": 24,
             "Tag": "PostProcessVolume",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "PostProcessVolume": {
                 "Unbound": true,
-                "Extent": [
-                    500.0,
-                    500.0,
-                    500.0
-                ],
+                "Extent": [500.0, 500.0, 500.0],
                 "BlendRadius": 100.0,
                 "Priority": 0.0,
                 "BlendWeight": 1.0,
@@ -975,7 +486,6 @@
                     "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "ManualExposureEV100": 0.5260688662528992,
-                    "Gamma": 2.200000047683716,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
                     "AutoExposureKey": 0.18000000715255737,
@@ -995,26 +505,14 @@
                     "MotionBlurTargetFPS": 30.0,
                     "EnableLensFlare": false,
                     "LensFlareIntensity": 0.3499999940395355,
-                    "LensFlareTint": [
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
+                    "LensFlareTint": [1.0, 1.0, 1.0],
                     "LensFlareThreshold": 4.0,
                     "LensFlareGhostCount": 4,
                     "LensFlareGhostSpacing": 0.3499999940395355,
                     "LensFlareGhostSizeNear": 1.0,
                     "LensFlareGhostSizeFar": 3.0,
-                    "LensFlareGhostTintInner": [
-                        1.0,
-                        0.8600000143051147,
-                        0.6200000047683716
-                    ],
-                    "LensFlareGhostTintOuter": [
-                        0.44999998807907104,
-                        0.6800000071525574,
-                        1.0
-                    ],
+                    "LensFlareGhostTintInner": [1.0, 0.8600000143051147, 0.6200000047683716],
+                    "LensFlareGhostTintOuter": [0.44999998807907104, 0.6800000071525574, 1.0],
                     "LensFlareHaloIntensity": 0.25,
                     "LensFlareHaloRadius": 0.18000000715255737,
                     "LensFlareStreakIntensity": 8.0,
@@ -1028,21 +526,9 @@
             "id": 7300100200300400501,
             "siblingIndex": 26,
             "Tag": "GameplayDebuggerDemo",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "Script": {
                 "Scripts": [
                     {
@@ -1065,6 +551,7 @@
             "Path": ""
         },
         "RespawnDelay": 3.0,
+        "WorldParameters": "",
         "SplashSprite": {
             "Guid": "",
             "Path": ""

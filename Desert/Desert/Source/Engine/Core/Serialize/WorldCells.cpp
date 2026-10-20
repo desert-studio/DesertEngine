@@ -125,12 +125,11 @@ namespace Desert::Core::WorldCells
             return "Unknown";
         }
 
-        // A cell's file is named by its level and coordinate alone, so it does not move when the world gains
-        // or loses another cell.
+        // A cell's file is named by its grid, level and coordinate alone, so it does not move when the world
+        // gains or loses another cell, and two grids' cells never share a file (WP22).
         std::string CellFileName( const Rules::PlannedCell& cell )
         {
-            return "L" + std::to_string( cell.Level ) + "_" + std::to_string( cell.Cell.X ) + "_" +
-                   std::to_string( cell.Cell.Z ) + std::string( kCellExtension );
+            return std::format( "G{}_L{}_{}_{}{}", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z, kCellExtension );
         }
 
         // WHAT A UNIT NEEDS FROM THE CONTENT: every value in its records that the registry recognises as an
@@ -478,6 +477,7 @@ namespace Desert::Core::WorldCells
             {
                 const Rules::PlannedCell& cell = plan.Cells.at( unit - plan.AlwaysLoaded.size() );
                 row.File                       = CellFileName( cell );
+                row.Grid                       = cell.Grid;
                 row.Level                      = cell.Level;
                 row.X                          = cell.Cell.X;
                 row.Z                          = cell.Cell.Z;
@@ -896,11 +896,15 @@ namespace Desert::Core::WorldCells
             }
             else
             {
-                if ( !from.Level.has_value() || !from.X.has_value() || !from.Z.has_value() ||
-                     !from.Square.has_value() )
+                if ( !from.Grid.has_value() || !from.Level.has_value() || !from.X.has_value() ||
+                     !from.Z.has_value() || !from.Square.has_value() )
                     return Common::MakeError<Result>( name +
-                                                      " is a cell without its level, coordinate or square" );
+                                                      " is a cell without its grid, level, coordinate or square" );
+                if ( *from.Grid >= index.WorldPartition.Grids.size() )
+                    return Common::MakeError<Result>( std::format( "{} is a cell of grid {}, but the world states {} grid(s)",
+                                                                   name, *from.Grid, index.WorldPartition.Grids.size() ) );
                 Rules::PlannedCell cell;
+                cell.Grid   = *from.Grid;
                 cell.Level  = *from.Level;
                 cell.Cell   = Rules::CellCoord{ *from.X, *from.Z };
                 cell.Square = *from.Square;
@@ -908,11 +912,12 @@ namespace Desert::Core::WorldCells
                 if ( !world.Plan.Cells.empty() )
                 {
                     const Rules::PlannedCell& last = world.Plan.Cells.back();
-                    if ( std::make_tuple( last.Level, last.Cell.X, last.Cell.Z ) >=
-                         std::make_tuple( cell.Level, cell.Cell.X, cell.Cell.Z ) )
-                        return Common::MakeError<Result>( name + " is out of (level, X, Z) order after '" +
+                    if ( std::make_tuple( last.Grid, last.Level, last.Cell.X, last.Cell.Z ) >=
+                         std::make_tuple( cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z ) )
+                        return Common::MakeError<Result>( name + " is out of (grid, level, X, Z) order after '" +
                                                           index.Units[unit - 1].Name + "'" );
                 }
+                composite.Grid      = cell.Grid;
                 composite.Level     = cell.Level;
                 composite.Cell      = cell.Cell;
                 composite.Footprint = cell.Square;

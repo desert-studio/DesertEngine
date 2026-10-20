@@ -4299,6 +4299,22 @@ namespace Desert::Migration
         return true;
     }
 
+    std::size_t MigrateGridNamesV65ToV66( SceneSerialized& scene )
+    {
+        if ( !scene.WorldPartition.has_value() )
+            return 0;
+        std::size_t named = 0;
+        auto&       grids = scene.WorldPartition->Grids;
+        for ( std::size_t index = 0; index < grids.size(); ++index )
+        {
+            if ( !grids[index].Name.empty() )
+                continue;
+            grids[index].Name = index == 0 ? std::string( "Main" ) : std::format( "Grid{}", index );
+            ++named;
+        }
+        return named;
+    }
+
     SceneDependenciesReport MigrateSceneDependenciesV51ToV52( SceneSerialized&             scene,
                                                               const std::filesystem::path& assetsRoot )
     {
@@ -4431,6 +4447,11 @@ namespace Desert::Migration
         {
             report.HLODLayersRaised = true;
             report.HLODLayerStated  = MigrateHLODLayersV49ToV50( scene );
+        }
+        if ( statedSceneVersion < kSceneVersionGridNames )
+        {
+            report.GridNamesRaised = true;
+            report.GridsNamed      = MigrateGridNamesV65ToV66( scene );
         }
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently

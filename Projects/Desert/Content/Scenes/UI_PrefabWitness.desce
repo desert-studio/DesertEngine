@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "449124a6534e5b6bfed671446ad8fa4c",
         "Versions": {
-            "SCNE": 65,
+            "SCNE": 66,
             "UNIT": 1
         },
         "Dependencies": ["37d52634d940d6c1be0f623515668528"]
@@ -153,6 +153,7 @@
             "Path": ""
         },
         "RespawnDelay": 3.0,
+        "WorldParameters": "",
         "SplashSprite": {
             "Guid": "",
             "Path": ""
