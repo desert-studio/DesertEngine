@@ -212,6 +212,9 @@ namespace Desert::Editor
         // view the control channel's camera commands address. Refuses when no viewport is live.
         static Common::BoolResultStr DropMeshIntoActiveViewport( const std::string&       path,
                                                                  const ActorDrop::Target& target );
+        // The palette's door to DropPrefabAsset (below), into the ACTIVE viewport, as DropMeshIntoActiveViewport.
+        static Common::BoolResultStr DropPrefabIntoActiveViewport( const std::string&              path,
+                                                                   const std::optional<glm::vec3>& surface );
 
         bool OnMouseButtonPressed( Common::MouseButtonPressedEvent& e );
         bool OnMouseButtonReleased( Common::MouseButtonReleasedEvent& e );
@@ -238,6 +241,13 @@ namespace Desert::Editor
         // the target names (ActorDrop::PlacedOrigin, UE's FActorPositioning). Refuses when this view has no scene
         // or no asset manager — nothing to drop into.
         Common::BoolResultStr DropMeshAsset( const std::string& path, const ActorDrop::Target& target );
+
+        // THE ONE BODY OF A PREFAB DROP (UE: dragging a Level Instance / Packed Level Actor into the level), for
+        // the mouse (a PrefabFile payload) and `Assets / Drop into the viewport: <file>.deprefab` alike. A world
+        // prefab's root lands at @p surface (or keeps the prefab's own root transform when nothing was met); a UI
+        // prefab goes into the canvas being authored. The placed root is selected and recorded for undo; its
+        // Translation/Rotation/Scale are the instance's placement, which a save always writes (PFX1).
+        Common::BoolResultStr DropPrefabAsset( const std::string& path, const std::optional<glm::vec3>& surface );
 
         // Aim THIS viewport's camera. Refuses with a reason when the view has no editor camera — a
         // closed view, or Play mode, where the camera is the scene's and not the user's to orbit.

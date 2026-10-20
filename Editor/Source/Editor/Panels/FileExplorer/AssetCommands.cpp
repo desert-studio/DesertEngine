@@ -191,20 +191,46 @@ namespace Desert::Editor
     void AssetCommands::AppendImportCommands( std::vector<PaletteCommand>& commands )
     {
         const std::vector<std::filesystem::path>& assetFiles = m_Files->Files();
-        // THE MESH DROP WITHOUT A MOUSE: one entry per model source, running the viewport's own drop body at
-        // the surface the active view's centre looks at. The control channel had "Place a cube" and nothing
-        // that exercised MeshDnD — AL1-5b could not check a dropped mesh for in-frame reads.
+        // THE MESH (AND PREFAB) DROP WITHOUT A MOUSE: one entry per model source or prefab, running the viewport's
+        // own drop body at the surface the active view's centre looks at. The control channel had "Place a cube"
+        // and nothing that exercised MeshDnD — AL1-5b could not check a dropped mesh for in-frame reads.
         for ( const std::filesystem::path& file : assetFiles )
         {
             std::string ext = file.extension().string();
             std::transform( ext.begin(), ext.end(), ext.begin(),
                             []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
-            if ( ext != ".fbx" && ext != ".obj" && ext != ".gltf" && ext != ".glb" && ext != ".blend" )
+            const bool isPrefab = ext == Common::Constants::Extensions::PREFAB_EXTENSION;
+            if ( !isPrefab && ext != ".fbx" && ext != ".obj" && ext != ".gltf" && ext != ".glb" &&
+                 ext != ".blend" )
                 continue;
             const std::string path = file.generic_string();
             const std::string label =
                  std::format( "Drop into the viewport: {}",
                               file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string() );
+            // A PREFAB DROPS THROUGH THE VIEWPORT'S OWN PREFAB DROP (the mouse's PrefabFile payload body): its
+            // root lands on the surface the view centre meets, and that placement is the instance's root
+            // transform.
+            if ( isPrefab )
+            {
+                // NOLINTBEGIN(bugprone-exception-escape)
+                commands.push_back(
+                     { "Assets", label, [this, path]
+                       {
+                           ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
+                           if ( camera == nullptr || !MainScene() )
+                               return PaletteCommandOutcome( false, "no viewport camera or no scene" );
+                           const Common::Math::Ray    ray( camera->GetPosition(), camera->GetDirection() );
+                           ::Desert::Core::RaycastHit hit;
+                           const bool                 met     = MainScene()->Raycast( ray, hit );
+                           const auto                 dropped = ViewportPanel::DropPrefabIntoActiveViewport(
+                                path, met ? std::optional<glm::vec3>( hit.Point ) : std::nullopt );
+                           if ( !dropped )
+                               return Common::MakeError<bool>( dropped.GetError() );
+                           return PaletteCommandDone();
+                       } } );
+                // NOLINTEND(bugprone-exception-escape)
+                continue;
+            }
             // The same clang-tidy 18 finding as the folder entries below: the closure's implicit copy of
             // `path`, which std::function needs.
             // NOLINTBEGIN(bugprone-exception-escape)
