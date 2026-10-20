@@ -600,7 +600,8 @@ TEST( WorldCells, TheToolCooksADirectoryVerifiesItFromDiskAndRemovesWhatAnEarlie
     const fs::path source  = root / "CookMe.desce";
     const fs::path project = root / "CookMe.deproj";
     // The cook opens the project it is given (--project, required): one of its own, beside the world.
-    std::ofstream( project ) << R"({"Name":"CookMe","AssetsRoot":"Content","DefaultScene":"Content/CookMe.desce"})";
+    std::ofstream( project )
+         << R"({"Name":"CookMe","AssetsRoot":"Content","DefaultScene":"Content/CookMe.desce"})";
     // A partitioned world on disk is its header plus one file per entity (WP16), written by the engine's writer.
     {
         const auto document = Common::Json::TextDocument::Parse( rfl::json::write( World() ) );
@@ -617,10 +618,10 @@ TEST( WorldCells, TheToolCooksADirectoryVerifiesItFromDiskAndRemovesWhatAnEarlie
 
     std::ostringstream out;
     std::ostringstream err;
-    const int          code = Desert::WorldCook::RunWorldCook(
-         { source.string(), "--project", project.string(), "--out", ( root / "cooked" ).string(), "--no-registry",
-           "--verify" },
-         out, err );
+    const int          code =
+         Desert::WorldCook::RunWorldCook( { source.string(), "--project", project.string(), "--out",
+                                            ( root / "cooked" ).string(), "--no-registry", "--verify" },
+                                          out, err );
     EXPECT_EQ( code, 0 ) << err.str();
     EXPECT_NE( out.str().find( "equal to the source" ), std::string::npos ) << out.str();
     EXPECT_NE( out.str().find( "stale removed: 1" ), std::string::npos ) << out.str();
@@ -632,8 +633,8 @@ TEST( WorldCells, TheToolCooksADirectoryVerifiesItFromDiskAndRemovesWhatAnEarlie
     std::ostringstream quiet;
     std::ostringstream said;
     EXPECT_EQ( Desert::WorldCook::RunWorldCook(
-                    { source.string(), "--project", project.string(), "--out", ( root / "cooked" ).string() }, quiet,
-                    said ),
+                    { source.string(), "--project", project.string(), "--out", ( root / "cooked" ).string() },
+                    quiet, said ),
                2 );
     EXPECT_NE( said.str().find( "--no-registry" ), std::string::npos ) << said.str();
 

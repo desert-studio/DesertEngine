@@ -24,7 +24,8 @@ namespace Desert::WorldCook
 
         std::string Usage()
         {
-            return "usage: WorldCook <source.desce> --project <file.deproj> --out <directory> (--registry <file.dreg>... | --no-registry) "
+            return "usage: WorldCook <source.desce> --project <file.deproj> --out <directory> (--registry "
+                   "<file.dreg>... | --no-registry) "
                    "[--verify]";
         }
 
@@ -75,9 +76,11 @@ namespace Desert::WorldCook
             }
             // A path on the command line names a file where the command was given, never a content path: made
             // absolute here, so the content resolver (Constants::Path::FullPath) never reads it as one.
-            options.Source  = options.Source.empty() ? options.Source : fs::absolute( options.Source ).lexically_normal();
-            options.Project = options.Project.empty() ? options.Project : fs::absolute( options.Project ).lexically_normal();
-            options.Out     = options.Out.empty() ? options.Out : fs::absolute( options.Out ).lexically_normal();
+            options.Source =
+                 options.Source.empty() ? options.Source : fs::absolute( options.Source ).lexically_normal();
+            options.Project =
+                 options.Project.empty() ? options.Project : fs::absolute( options.Project ).lexically_normal();
+            options.Out = options.Out.empty() ? options.Out : fs::absolute( options.Out ).lexically_normal();
             for ( fs::path& registry : options.Registries )
                 registry = fs::absolute( registry ).lexically_normal();
             if ( options.Source.empty() || options.Out.empty() )
