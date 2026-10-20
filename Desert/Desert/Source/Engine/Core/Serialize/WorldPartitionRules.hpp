@@ -616,6 +616,7 @@ namespace Desert::Core::Rules
     // Author are both about it.
     inline constexpr std::string_view kAlwaysLoadedComponent = "AlwaysLoaded";
     inline constexpr std::string_view kRuntimeGridComponent  = "RuntimeGrid";
+    inline constexpr std::string_view kStreamingSourceComponent = "StreamingSource";
 
     // THE RECORD KINDS WHOSE CONTENTS ARE NOT A POINT AT THEIR OWN POSITION, by their names on disk. One
     // constant per name, so a suite can pin them: see "A COMPOSITE'S FOOTPRINT" at the top of this file.
@@ -1152,6 +1153,10 @@ namespace Desert::Core::Rules
         std::optional<DescriptorLandscapeRoot> LandscapeRoot;
         // The RuntimeGrid block's grid name (WP22); absent = the world's first grid.
         std::optional<std::string> RuntimeGrid;
+        // The StreamingSource block's Target Grids (UE FWorldPartitionStreamingSource::TargetGrids); empty = every
+        // grid. Read here so the plan names a grid the world does not have
+        // (Entities[i].StreamingSource.TargetGrids).
+        std::vector<std::string> TargetGrids;
 
         // Every value read here and found of the wrong type, with its path: the planner reports them as its own.
         Common::Json::Issues Issues;
@@ -1226,6 +1231,8 @@ namespace Desert::Core::Rules
             grid->ReadInto( "Grid", name, issues );
             out.RuntimeGrid = std::move( name );
         }
+        if ( const auto source = Detail::BlockOf( record, kStreamingSourceComponent, issues ); source.has_value() )
+            source->ReadInto( "TargetGrids", out.TargetGrids, issues );
 
         if ( const auto tile = Detail::BlockOf( record, kLandscapeTileComponent, issues ); tile.has_value() )
         {
@@ -1665,6 +1672,17 @@ namespace Desert::Core::Rules
             }
             held.Grid = static_cast<std::size_t>( found - settings.Grids.begin() );
         }
+
+        // A Streaming Source's Target Grids name the world does not state streams nothing (Rules::TargetsGrid):
+        // an Issue with the record's path, as a RuntimeGrid name is - never matched to a grid by a guess.
+        for ( std::size_t record = 0; record < records.size(); ++record )
+            for ( const std::string& name : records[record].TargetGrids )
+                if ( std::none_of( settings.Grids.begin(), settings.Grids.end(),
+                                   [&]( const WorldPartitionGridSerialized& grid )
+                                   { return grid.Name == name; } ) )
+                    plan.Issues.push_back(
+                         { std::format( "Entities[{}].{}.TargetGrids", record, kStreamingSourceComponent ),
+                           "the name of one of the world's grids", name } );
 
         // ── 4c. How many levels each grid has for this world ──────────────────────────────────────
         //

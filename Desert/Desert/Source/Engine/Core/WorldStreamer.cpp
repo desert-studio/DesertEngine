@@ -375,20 +375,6 @@ namespace Desert::Core
                            m_Scene->GetRegistry()
                                 .get<ECS::StreamingSourceComponent>( static_cast<entt::entity>( entity ) )
                                 .Data.SectorAngle );
-        // A Target Grids name no grid of this world carries targets nothing (Rules::TargetsGrid); it is named once
-        // per entity and name, never matched to a grid by a guess.
-        for ( std::size_t index = 0; index < entities.size(); ++index )
-            for ( const std::string& name : gathered[index].TargetGrids )
-            {
-                const bool known = std::any_of( m_Partition.Grids.begin(), m_Partition.Grids.end(),
-                                                [&name]( const WorldPartitionGridSerialized& grid )
-                                                { return grid.Name == name; } );
-                if ( !known && m_SaidUnknownGrid.insert( std::format( "{}:{}", entities[index], name ) ).second )
-                    LOG_ERROR( "[WorldPartition] '{0}': entity {1}'s Streaming Source targets grid '{2}', which "
-                               "this world does not have; that name streams nothing. The world's grids are named "
-                               "in its World Partition settings.",
-                               m_SceneName, entities[index], name );
-            }
         StampVelocities( gathered, entities, nowSeconds );
         UseSources( std::move( gathered ) );
         const std::span<const Rules::StreamingSource> sources = m_LastSources;

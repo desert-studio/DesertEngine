@@ -1967,10 +1967,12 @@ namespace Desert::ECS
         bool UseVelocityForSorting = false;
 
         // UE's FWorldPartitionStreamingSource::TargetGrids: a camera streaming only the near grid's small props,
-        // a cinematic only the main grid. A name the world has no grid of streams nothing and is named in the
-        // log (WorldStreamer::Tick).
+        // a cinematic only the main grid. A name the world has no grid of streams nothing and is an Issue of the
+        // world's plan (Rules::PlanWorldPartition, Entities[i].StreamingSource.TargetGrids). Details draws it as
+        // a pick of the world's grid names (ComponentEditorRegistrations.cpp, MakeStreamingSourceEntry).
         PROPERTY( DisplayName( "Target Grids" ), Category( "Streaming Source" ),
-                  Tooltip( "The World Partition grids this source streams, by name; empty = every grid." ) )
+                  Tooltip( "The World Partition grids this source streams, by name; empty = every grid." ),
+                  Hidden )
         std::vector<std::string> TargetGrids;
     };
 
