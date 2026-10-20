@@ -76,7 +76,7 @@ namespace Desert::Core::WorldCells
     // index/cell payload shapes below. A reader refuses any other number by name, older included; a cooked
     // world is re-derivable, so the answer to an old one is a re-cook.
     inline constexpr std::uint32_t kWorldFormatTag     = Common::Content::FourCC( "WPCW" );
-    inline constexpr std::uint32_t kWorldFormatVersion = 5; // 4: WorldPartition states HLOD layers (WP-FAR-7)
+    inline constexpr std::uint32_t kWorldFormatVersion = 5; // 4: HLOD layers (WP-FAR-7); 5: a cell row states its grid (WP22)
 
     inline constexpr std::string_view kIndexFileName        = "World.dwindex";
     inline constexpr std::string_view kCellExtension        = ".dwcell";

@@ -101,8 +101,10 @@ namespace Desert::Core
     // Windows' steps. v64 (GI-METHOD-RENUMBER): GlobalIlluminationMethod is stated on today's ladder, which lost
     // ReflectiveShadowMaps (3) - every method above it is one number lower (Tools/SceneMigrator,
     // MigrateGIMethodLadderV63ToV64). v65 (RENDER-LOOK round 05): the display transfer is the sRGB OETF and
-    // PostProcessSettings lost Gamma (Tools/SceneMigrator, MigrateDisplayTransferV64ToV65).
-    inline constexpr int kSceneVersion = 65;
+    // PostProcessSettings lost Gamma (Tools/SceneMigrator, MigrateDisplayTransferV64ToV65). v66 (WP22): a World
+    // Partition grid states its Name (what a RuntimeGrid block names) and Priority (Tools/SceneMigrator,
+    // MigrateGridNamesV65ToV66).
+    inline constexpr int kSceneVersion = 66;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

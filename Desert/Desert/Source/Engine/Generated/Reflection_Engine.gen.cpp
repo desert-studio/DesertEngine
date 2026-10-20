@@ -393,6 +393,14 @@ void RegisterReflection_Engine()
             .Register();
     }
     {
+        using T = ::Desert::ECS::RuntimeGridData;
+        TypeBuilder( "RuntimeGridData", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Grid", .Type = FieldType::String, .Offset = offsetof( T, Grid ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Grid )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Runtime Grid", .Category = "World Partition", .Tooltip = "The name of the World Partition grid this entity streams on; the grid's cell size and loading range apply to it.", } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
         using T = ::Desert::ECS::ProjectileData;
         TypeBuilder( "ProjectileData", sizeof( T ) )
             .ScriptName( "" )

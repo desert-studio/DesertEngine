@@ -54,6 +54,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<::Desert::ECS::ReflectionCaptureComponent, decltype( ::Desert::ECS::ReflectionCaptureComponent::Data )>{ "ReflectionCapture", "ReflectionCaptureData", &::Desert::ECS::ReflectionCaptureComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::RetargetComponent, decltype( ::Desert::ECS::RetargetComponent::Data )>{ "Retarget", "RetargetData", &::Desert::ECS::RetargetComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::RigidBodyComponent, decltype( ::Desert::ECS::RigidBodyComponent::Data )>{ "RigidBody", "RigidBodyData", &::Desert::ECS::RigidBodyComponent::Data, R::ActorsAndUI } );
+        visit( ReflectedMemberBlock<::Desert::ECS::RuntimeGridComponent, decltype( ::Desert::ECS::RuntimeGridComponent::Data )>{ "RuntimeGrid", "RuntimeGridData", &::Desert::ECS::RuntimeGridComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::SkyAtmosphereComponent, decltype( ::Desert::ECS::SkyAtmosphereComponent::Data )>{ "SkyAtmosphere", "SkyAtmosphereData", &::Desert::ECS::SkyAtmosphereComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedWholeBlock<::Desert::ECS::SkyboxComponent>{ "Skybox", "SkyboxComponent", R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::SpotLightComponent, decltype( ::Desert::ECS::SpotLightComponent::Data )>{ "SpotLight", "SpotLightData", &::Desert::ECS::SpotLightComponent::Data, R::ActorsAndUI } );
