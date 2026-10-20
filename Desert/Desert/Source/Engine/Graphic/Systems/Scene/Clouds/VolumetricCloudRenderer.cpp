@@ -1698,6 +1698,10 @@ namespace Desert::Graphic::System
              !m_ResolveParamsBuffer )
             return nodes;
 
+        // The scale the scene colour is stored at this frame: the composite multiplies the cloud radiance by it.
+        if ( m_CompositeMaterial )
+            m_CompositeMaterial->SetExposure( glm::vec4( frame.PreExposure, 0.0f, 0.0f, 0.0f ) );
+
         if ( !m_Present || !m_Data.Enabled )
             return nodes;
 
