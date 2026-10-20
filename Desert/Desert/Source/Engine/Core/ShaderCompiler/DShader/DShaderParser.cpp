@@ -2865,11 +2865,13 @@ namespace Desert::Core::Preprocess
             // THE RAY TRACING HIT CELL (UE: the material's ray tracing hit group, FRayTracingMeshCommand's
             // closest-hit / any-hit shaders), after the mesh cells: the same surface function between the shared
             // types and Mesh/Surface/Pass_RayHit.glslh. Closest hit evaluates the surface into the ray's payload;
-            // a Masked template adds the any-hit stage, its OpacityMask test. Opaque and Masked templates only: a
-            // translucent surface is not a ray tracing occluder (UE skips it in the ray tracing scene too). A
-            // template that binds a texture outside its row has nothing to put in a shader record: no cell, and
-            // the reason is kept for the pipeline that asks for it.
-            if ( !Formats::IsTranslucentBlend( result.Surface.Blend ) )
+            // a Masked template adds the any-hit stage, its OpacityMask test. A Translucent template's closest hit
+            // also writes the payload's transmission and IOR (Pass_RayHit.glslh under DESERT_SURFACE_TRANSLUCENT):
+            // its primitives carry the translucent instance mask alone (RayTracingScene.hpp kMaskTranslucent), so
+            // only the path tracer's rays meet them (UE: the path tracer's translucent hit shaders). Additive has
+            // no transmission to give and no cell. A template that binds a texture outside its row has nothing to
+            // put in a shader record: no cell, and the reason is kept for the pipeline that asks for it.
+            if ( result.Surface.Blend != SurfaceBlendMode::Additive )
             {
                 if ( !result.Layout.Textures.empty() )
                     result.Surface.RayHitRefusal = std::format(

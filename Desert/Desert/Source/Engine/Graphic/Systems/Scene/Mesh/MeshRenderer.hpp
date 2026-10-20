@@ -371,8 +371,12 @@ namespace Desert::Graphic::System
             MaterialInstance*            Instance = nullptr;
             Graphic::DataDrivenMaterial* Surface  = nullptr; // null: the slot holds no mesh-cell surface
             bool                         Masked   = false;
+            // The surface's template is BlendMode Translucent / Additive (the translucency pass draws it): a ray
+            // tracing primitive drawn only by such sections takes the translucent instance mask alone.
+            bool Translucent = false;
         };
         [[nodiscard]] static bool IsMaskedSurface( const Graphic::DataDrivenMaterial* material );
+        [[nodiscard]] static bool IsTranslucentSurface( const Graphic::DataDrivenMaterial* material );
         // A static entry's section: SectionSurface of its SectionSlot.
         [[nodiscard]] static SectionShading ShadingOf( const StaticMeshRenderData& data );
         // An ISM section group: its slot instance and that instance's parent surface.
