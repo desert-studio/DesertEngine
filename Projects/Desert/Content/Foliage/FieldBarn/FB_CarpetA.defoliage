@@ -5,11 +5,7 @@
         "Versions": {
             "FOLT": 8
         },
-        "Dependencies": [
-            "d3bd81114a742dcc6b7a3037c7dd83d7",
-            "0e67a9bfdff1b3cd7ed50e27dadc465e",
-            "c39ddb7d5965f1c080b50b71c51a6db6"
-        ]
+        "Dependencies": ["d3bd81114a742dcc6b7a3037c7dd83d7", "0e67a9bfdff1b3cd7ed50e27dadc465e", "c39ddb7d5965f1c080b50b71c51a6db6"]
     },
     "Kind": "Mesh",
     "Prefab": {

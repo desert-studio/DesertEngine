@@ -5,13 +5,7 @@
         "Versions": {
             "MATL": 5
         },
-        "Dependencies": [
-            "acb8d06bbe1a49dc95c2f5ebdddb4c33",
-            "3a095ba775b2514f436cd1a3d2f90da6",
-            "715ef520776d1a58717372b34860c936",
-            "2cd226114244fe3cfe184f3317d19f11",
-            "dda51576c72a4ff915792081011485bc"
-        ]
+        "Dependencies": ["acb8d06bbe1a49dc95c2f5ebdddb4c33", "3a095ba775b2514f436cd1a3d2f90da6", "715ef520776d1a58717372b34860c936", "2cd226114244fe3cfe184f3317d19f11", "dda51576c72a4ff915792081011485bc"]
     },
     "Shader": {
         "Guid": "acb8d06bbe1a49dc95c2f5ebdddb4c33",
@@ -20,75 +14,35 @@
     "Params": [
         {
             "Name": "AlbedoColor",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ]
+            "Value": [1.0, 1.0, 1.0, 1.0]
         },
         {
             "Name": "MetallicFactor",
-            "Value": [
-                0.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [0.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "RoughnessFactor",
-            "Value": [
-                1.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [1.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "NormalScale",
-            "Value": [
-                1.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [1.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "EmissiveColor",
-            "Value": [
-                0.0,
-                0.0,
-                0.0,
-                1.0
-            ]
+            "Value": [0.0, 0.0, 0.0, 1.0]
         },
         {
             "Name": "OpacityMaskClipValue",
-            "Value": [
-                0.2,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [0.2, 0.0, 0.0, 0.0]
         },
         {
             "Name": "OpacityChannel",
-            "Value": [
-                0.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [0.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "SubsurfaceColor",
-            "Value": [
-                0.45,
-                0.55,
-                0.15,
-                1.0
-            ]
+            "Value": [0.45, 0.55, 0.15, 1.0]
         }
     ],
     "Textures": [
