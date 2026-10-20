@@ -147,6 +147,10 @@ namespace Desert::Graphic
         // the three nodes below. Nothing reads it the next frame.
         const RDG::BufferRef histogram =
              graph.CreateBuffer( System::AutoExposureRenderer::GetHistogramDesc(), "AutoExposure.Histogram" );
+        // The adapted luminance for the CPU (ScenePreExposure's source), read FramesInFlight frames later.
+        const RDG::BufferRef readback = autoExp->ImportReadback( graph );
+        if ( !readback.IsValid() )
+            return;
         // Prepare refused a frame without a scene image, so the dispatch size is this frame's scene size.
         const RDG::TextureRef scene      = sceneColor.front();
         // The dispatch covers the texture the nodes read (the temporal output at the output extent, or the scene
@@ -174,7 +178,7 @@ namespace Desert::Graphic
              { return autoExp->RecordHistogram( context, width, height ); } );
         graph.AddPass(
              "PostFX: AutoExposureAverage", RDG::PassFlags::Compute, [&]( RDG::PassBuilder& pass )
-             { autoExp->DeclareAverageBindings( pass, histogram, previous, adapted ); },
+             { autoExp->DeclareAverageBindings( pass, histogram, previous, adapted, readback ); },
              [autoExp]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return autoExp->RecordAverage( context ); } );
     }

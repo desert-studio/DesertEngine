@@ -180,16 +180,22 @@ namespace Desert::Graphic
 
     // The pre-exposure of this frame's scene colour (ViewFrame::PreExposure) — THE one switch.
     //
-    // HELD AT 1.0 (PRE-EXPOSURE, 10-20): the value must be the exposure the view tonemapped with FramesInFlight
-    // frames ago (UE: FViewInfo::UpdatePreExposure from the eye-adaptation readback), and pre-exposure is only
-    // correct once EVERY scene-colour writer multiplies by it and every reader/history divides or rescales.
-    // Converted so far: the readers that undo it (AEHistogram.shader, SceneComposite.shader) and the camera
-    // block (CameraUB.glslh PreExposure / PrevPreExposure). Not yet: the exposure readback (RDG has no
-    // external-buffer import) and the writers/histories — the list is DesertEngine-scratch/PRE-EXPOSURE/
-    // REMAINDER.md. Returning anything else before that list is empty mixes two scales in one image.
-    [[nodiscard]] inline float ScenePreExposure()
+    // THE SOURCE (UE FViewInfo::UpdatePreExposure): @p lastExposure is the exposure the view tonemaps with, as
+    // the CPU last knew it — manual metering: ManualExposureScale (known this frame); auto: key / adapted
+    // luminance read back from the GPU FramesInFlight frames ago (AutoExposureRenderer::GetReadBackLuminance).
+    // <= 0 (or not finite) = no exposure known yet (first frames, a view without the post chain, a capture
+    // view whose output is stored absolute) -> 1.0. SceneRenderer fills ViewInputs::LastExposure.
+    //
+    // HELD AT 1.0 (PRE-EXPOSURE, 10-20) by kScenePreExposureEnabled: writers, readers, thresholds and histories
+    // are converted (DesertEngine-scratch/PRE-EXPOSURE/REMAINDER.md items 1-4); the flip waits for the
+    // verify-list and the item-5 proof. Returning anything else before that mixes two scales in one image.
+    inline constexpr bool kScenePreExposureEnabled = false;
+
+    [[nodiscard]] inline float ScenePreExposure( float lastExposure )
     {
-        return 1.0f;
+        if ( !kScenePreExposureEnabled || !( lastExposure > 0.0f ) || !( lastExposure < 3.0e38f ) )
+            return 1.0f;
+        return lastExposure;
     }
 
     struct ViewFrame

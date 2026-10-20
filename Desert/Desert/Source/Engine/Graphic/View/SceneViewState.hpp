@@ -97,6 +97,10 @@ namespace Desert::Graphic
         const Common::Scalability::ResolvedQuality* Scalability = nullptr;
 
         double TimeSeconds = 0.0; // the view's clock (scene time; paused scene -> unchanged -> DeltaSeconds 0)
+        // The exposure this view last tonemapped with, as the CPU knows it (ScenePreExposure's source): manual ->
+        // ManualExposureScale, auto -> key / the adapted luminance read back FramesInFlight frames ago; 0 = none
+        // known (first frames, capture views: stored absolute).
+        float LastExposure = 0.0f;
 
         ParallaxQuality Parallax;                   // ResolvedQuality Shading.Parallax*Steps
         glm::vec3       SunDirection{ 0.0f };       // toward the scene's directional light; zero = none

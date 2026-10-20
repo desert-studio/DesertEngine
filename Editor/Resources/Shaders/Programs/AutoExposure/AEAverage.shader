@@ -20,6 +20,13 @@ Shader "AEAverage"
         Uniform(1) texture2D u_PrevLum;             // 1x1 previous adapted luminance
         #define u_PrevLum sampler2D(u_PrevLum, u_PointClampSampler)
         layout(binding = 2, rgba32f) writeonly uniform image2D u_OutLum; // 1x1 new adapted luminance
+        // The same value for the CPU (UE FViewInfo::UpdatePreExposure's eye-adaptation readback): a per-frame
+        // host-readable copy, read FramesInFlight frames later (AutoExposureRenderer::ReadBackAdaptedLuminance).
+        // y = 1 marks a written value.
+        Buffer(4) Readback
+        {
+            vec4 u_Readback;
+        };
 
         PushConstant PushConstants
         {
@@ -77,6 +84,7 @@ Shader "AEAverage"
 
             float adapted = mix( prev, avgLum, 1.0 - exp( -u_Dt * u_AdaptSpeed ) );
             imageStore( u_OutLum, ivec2( 0 ), vec4( adapted, 0.0, 0.0, 1.0 ) );
+            u_Readback = vec4( adapted, 1.0, 0.0, 0.0 );
         }
     }
 }

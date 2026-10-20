@@ -94,6 +94,7 @@ namespace Desert::Graphic::System
         };
         m_LumImage[0] = makeLum( "AEAdaptedLum0" );
         m_LumImage[1] = makeLum( "AEAdaptedLum1" );
+        m_Readback    = ShaderResources::StorageBuffer::Create( "AEReadback", 4 * sizeof( float ), 4 );
 
         const auto shaderService = Runtime::ResourceRegistry::GetShaderService();
         const auto make          = [&]( const std::string& name ) -> std::shared_ptr<ComputePipeline>
@@ -116,7 +117,7 @@ namespace Desert::Graphic::System
         m_HistogramPipeline = make( "AEHistogram" );
         m_AveragePipeline   = make( "AEAverage" );
 
-        return m_LumImage[0] && m_LumImage[1] && m_ClearPipeline && m_HistogramPipeline && m_AveragePipeline;
+        return m_LumImage[0] && m_LumImage[1] && m_Readback && m_ClearPipeline && m_HistogramPipeline && m_AveragePipeline;
     }
 
     bool AutoExposureRenderer::Prepare()
@@ -172,7 +173,8 @@ namespace Desert::Graphic::System
     }
 
     void AutoExposureRenderer::DeclareAverageBindings( RDG::PassBuilder& pass, RDG::BufferRef histogram,
-                                                       RDG::TextureRef previous, RDG::TextureRef adapted ) const
+                                                       RDG::TextureRef previous, RDG::TextureRef adapted,
+                                                       RDG::BufferRef readback ) const
     {
         if ( !m_AveragePipeline )
             return;
@@ -183,6 +185,7 @@ namespace Desert::Graphic::System
              .Texture( "u_PrevLum", previous, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
              .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
              .Storage( "u_OutLum", adapted, RDG::Access::StorageWrite, 0 )
+             .Storage( "Readback", readback, RDG::Access::StorageWrite )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( AveragePush ) ) );
     }
 
@@ -208,5 +211,31 @@ namespace Desert::Graphic::System
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &ap, sizeof( ap ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_AveragePipeline, 1, 1, 1 );
+    }
+
+    RDG::BufferRef AutoExposureRenderer::ImportReadback( RDG::Builder& graph )
+    {
+        if ( const Common::BoolResultStr imported = Renderer::ImportBuffer( m_Readback, m_ReadbackImport );
+             !imported )
+        {
+            LOG_ERROR( "PostFX: AutoExposure: the readback buffer is not in the frame graph: {}", imported.GetError() );
+            return {};
+        }
+        return graph.RegisterExternal( m_ReadbackImport, "AutoExposure.Readback" );
+    }
+
+    float AutoExposureRenderer::ReadBackAdaptedLuminance()
+    {
+        if ( !m_Readback )
+            return 0.0f;
+        std::array<float, 4> value{};
+        if ( const Common::BoolResultStr read = m_Readback->ReadBack( value.data(), sizeof( value ) );
+             !read.IsSuccess() )
+        {
+            LOG_ERROR( "PostFX: AutoExposure: the adapted luminance was not read back: {}", read.GetError() );
+            return 0.0f;
+        }
+        // y == 1: the Average pass wrote this copy; otherwise it is the buffer's first frames.
+        return value[1] == 1.0f && value[0] > 0.0f && value[0] < 3.0e38f ? value[0] : 0.0f;
     }
 } // namespace Desert::Graphic::System

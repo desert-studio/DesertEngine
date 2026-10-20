@@ -6,6 +6,7 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <array>
 #include <memory>
@@ -54,8 +55,15 @@ namespace Desert::Graphic::System
         // 3) Percentile-clipped average + temporal adaptation: reads @p histogram, samples @p previous (the
         //    imported GetPreviousLuminanceImage(), PointClamp at its one texel), writes @p adapted (the imported
         //    GetAdaptedLuminanceImage()).
+        //    Also writes the adapted luminance into @p readback (ImportReadback) for the CPU.
         void DeclareAverageBindings( RDG::PassBuilder& pass, RDG::BufferRef histogram, RDG::TextureRef previous,
-                                     RDG::TextureRef adapted ) const;
+                                     RDG::TextureRef adapted, RDG::BufferRef readback ) const;
+        // The per-frame host-readable copy of the adapted luminance, imported into this frame's graph (invalid
+        // ref + LOG_ERROR when the import fails).
+        [[nodiscard]] RDG::BufferRef ImportReadback( RDG::Builder& graph );
+        // The adapted luminance the Average pass wrote FramesInFlight frames ago into this frame's copy (UE
+        // FViewInfo::UpdatePreExposure). Call before this frame's graph binds the copy. 0 = nothing written yet.
+        [[nodiscard]] float ReadBackAdaptedLuminance();
         [[nodiscard]] Common::BoolResultStr RecordAverage( const RDG::PassContext& context );
 
         [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorImage() const
@@ -120,6 +128,9 @@ namespace Desert::Graphic::System
 
         // History (read by the next frame's Average and by the tonemap): stays external, imported every frame.
         std::array<std::shared_ptr<Image2D>, 2> m_LumImage; // ping-pong 1x1
+        // Per-frame-in-flight (not persistent): each frame's copy is read back FramesInFlight frames later.
+        std::shared_ptr<ShaderResources::StorageBuffer> m_Readback;
+        RDG::ExternalBuffer                             m_ReadbackImport;
 
         std::shared_ptr<ComputePipeline> m_ClearPipeline;
         std::shared_ptr<ComputePipeline> m_HistogramPipeline;

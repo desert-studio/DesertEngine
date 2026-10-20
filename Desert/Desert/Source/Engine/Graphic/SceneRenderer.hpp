@@ -748,6 +748,8 @@ namespace Desert::Graphic
         // Set by ResetTemporalHistory (the one cut entry point: ShotDirector, headless capture); consumed by the
         // next BeginFrame that succeeds as ViewInputs::CameraCut.
         bool m_CameraCutPending = false;
+        // ScenePreExposure's source this frame (ViewInputs::LastExposure); 0 = none known.
+        float m_LastExposure = 0.0f;
         // Scene::GetGeneration() of the scene BeginScene was handed (a reload at the same address is a new
         // generation, so a new identity: SceneViewState resets the history).
         uint64_t m_SceneGeneration = 0;
