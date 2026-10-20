@@ -1,49 +1,89 @@
 #pragma once
 
+#include <Engine/Graphic/ShaderProtocols/Std140Block.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 
 #include <glm/glm.hpp>
 
+#include <array>
+#include <cstddef>
 #include <string>
+#include <string_view>
+
+// THE MEMBERS OF THE CAMERA BLOCK, listed ONCE. They expand into ShaderProtocols::Camera's members and into
+// kCameraFields, from which the includer GENERATES Common/CameraUB.glslh (there is no such file on disk). The order
+// is the std140 order: mat4 at 64-byte steps, vec2s together, each vec3 completed by a float, the explicit tail pad;
+// the static_assert below makes any other order a build error.
+//
+// It is THE view block (UE's FViewUniformShaderParameters): one per view per frame, the shader view of the per-frame
+// ViewFrame (TAA1 step 3). WHICH MATRIX (ViewFrame.hpp): raster geometry -> JitteredViewProjection; world position
+// from depth -> InvJitteredViewProjection; reprojection -> PrevViewProjection vs ViewProjection (both unjittered);
+// Projection / View stay the camera's own, unjittered.
+//
+// FIELD( C++ type, member, initialiser ) — the GLSL type is the C++ type's Std140Type.
+#define DESERT_CAMERA_UB_FIELDS( FIELD )                                                                            \
+    FIELD( glm::mat4, Projection, { 1.0f } )                /* offset   0 */                                        \
+    FIELD( glm::mat4, View, { 1.0f } )                      /* offset  64 */                                        \
+    FIELD( glm::mat4, JitteredViewProjection, { 1.0f } )    /* offset 128 */                                        \
+    FIELD( glm::mat4, ViewProjection, { 1.0f } )            /* offset 192 */                                        \
+    FIELD( glm::mat4, PrevViewProjection, { 1.0f } )        /* offset 256 */                                        \
+    FIELD( glm::mat4, InvJitteredViewProjection, { 1.0f } ) /* offset 320 */                                        \
+    FIELD( glm::vec2, JitterNdc, { 0.0f } )                 /* offset 384 */                                        \
+    FIELD( glm::vec2, PrevJitterNdc, { 0.0f } )             /* offset 392 */                                        \
+    FIELD( glm::vec3, CameraPos, { 0.0f } )                 /* offset 400, world cm */                              \
+    FIELD( float, Time, { 0.0f } )                          /* offset 412, seconds (ViewFrame::TimeSeconds) */      \
+    FIELD( glm::vec3, PrevCameraPos, { 0.0f } )             /* offset 416 */                                        \
+    FIELD( float, PrevTime, { 0.0f } )                      /* offset 428 */                                        \
+    FIELD( float, MaterialMipBias, { 0.0f } )               /* offset 432 */                                        \
+    /* light views only: the caster's slope depth bias per unit tan (Common/ShadowCasterBias.glslh) */              \
+    FIELD( float, ShadowSlopeBias, { 0.0f } )  /* offset 436 */                                                     \
+    FIELD( float, ShadowSlopeClamp, { 0.0f } ) /* offset 440, light views only: where the slope term stops */       \
+    /* Parallax occlusion (Mesh/Surface/SurfaceParallax.glslh): the machine's step counts (Scalability group */     \
+    /* Shading) and the main directional light's direction TOWARD the sun (zero when the scene has none) for the */ \
+    /* relief's self-shadow. Every view carries the steps (a light view marches the relief for its depth too). */   \
+    FIELD( float, ParallaxMinSteps, { 0.0f } )    /* offset 444 (ViewFrame::Parallax) */                            \
+    FIELD( glm::vec3, SunDirection, { 0.0f } )    /* offset 448 */                                                  \
+    FIELD( float, ParallaxMaxSteps, { 0.0f } )    /* offset 460 */                                                  \
+    FIELD( float, ParallaxShadowSteps, { 0.0f } ) /* offset 464 */                                                  \
+    /* every HDR scene-colour write is multiplied by PreExposure (UE View.PreExposure); a history stored last */    \
+    /* frame is rescaled by PreExposure / PrevPreExposure */                                                        \
+    FIELD( float, PreExposure, { 1.0f } )     /* offset 468, ViewFrame::PreExposure */                              \
+    FIELD( float, PrevPreExposure, { 1.0f } ) /* offset 472, ViewFrame::PrevPreExposure */                          \
+    FIELD( float, CameraPad2, { 0.0f } )      /* offset 476; block size 480 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
-    // The C++ twin of Common/CameraUB.glslh — the shader view of the per-frame ViewFrame (TAA1 step 3). Laid out
-    // exactly as std140 places the GLSL block (mat4 at 64-byte steps, vec2s together, each vec3 completed by a
-    // float, explicit tail pads), so sizeof equals the block size and no member has implicit padding;
-    // Desert/Tests/Engine/TemporalViewContract/camera_ub_layout_test.cpp holds every offset against the .glslh.
-    //
-    // WHICH MATRIX (ViewFrame.hpp): raster geometry -> JitteredViewProjection; world position from depth ->
-    // InvJitteredViewProjection; reprojection -> PrevViewProjection vs ViewProjection (both unjittered).
-    // Projection / View stay the camera's own, unjittered (the vertex shaders still read them, TAA1-B step 5
-    // moves geometry to JitteredViewProjection).
     struct Camera
     {
         inline const static std::string Name = "CameraUB";
 
-        glm::mat4 Projection{ 1.0f };                // offset   0
-        glm::mat4 View{ 1.0f };                      // offset  64
-        glm::mat4 JitteredViewProjection{ 1.0f };    // offset 128
-        glm::mat4 ViewProjection{ 1.0f };            // offset 192
-        glm::mat4 PrevViewProjection{ 1.0f };        // offset 256
-        glm::mat4 InvJitteredViewProjection{ 1.0f }; // offset 320
-        glm::vec2 JitterNdc{ 0.0f };                 // offset 384
-        glm::vec2 PrevJitterNdc{ 0.0f };             // offset 392
-        glm::vec3 CameraPos{ 0.0f };                 // offset 400, world cm
-        float     Time = 0.0f;                       // offset 412, seconds (ViewFrame::TimeSeconds)
-        glm::vec3 PrevCameraPos{ 0.0f };             // offset 416
-        float     PrevTime        = 0.0f;            // offset 428
-        float     MaterialMipBias = 0.0f;            // offset 432
-        float     ShadowSlopeBias  = 0.0f;            // offset 436, light views only (ViewFrame::ShadowSlopeBias)
-        float     ShadowSlopeClamp = 0.0f;            // offset 440, light views only
-        float     ParallaxMinSteps    = 0.0f;         // offset 444 (ViewFrame::Parallax)
-        glm::vec3 SunDirection{ 0.0f };               // offset 448, toward the sun; zero = no directional light
-        float     ParallaxMaxSteps    = 0.0f;         // offset 460
-        float     ParallaxShadowSteps = 0.0f;         // offset 464
-        float     PreExposure         = 1.0f;         // offset 468, ViewFrame::PreExposure
-        float     PrevPreExposure     = 1.0f;         // offset 472, ViewFrame::PrevPreExposure
-        float     Pad2                = 0.0f;         // offset 476; block size 480
+#define DESERT_CAMERA_UB_MEMBER( Type, Member, Init ) Type Member Init;
+        DESERT_CAMERA_UB_FIELDS( DESERT_CAMERA_UB_MEMBER )
+#undef DESERT_CAMERA_UB_MEMBER
     };
+
+    /// The block's members as std140 fields, in declaration order — what Common/CameraUB.glslh is generated from.
+    inline constexpr std::array kCameraFields{
+#define DESERT_CAMERA_UB_FIELD( Type, Member, Init ) MakeStd140Field<Type>( #Member, offsetof( Camera, Member ) ),
+         DESERT_CAMERA_UB_FIELDS( DESERT_CAMERA_UB_FIELD )
+#undef DESERT_CAMERA_UB_FIELD
+    };
+    static_assert( Std140LayoutMatches( kCameraFields, sizeof( Camera ) ),
+                   "ShaderProtocols::Camera is not laid out as std140 places the generated CameraUB block: "
+                   "reorder or pad DESERT_CAMERA_UB_FIELDS" );
+    static_assert( sizeof( Camera ) == 480 );
+
+    /// The include path the shader includer answers with the generated block (angle include, shader-root relative).
+    inline constexpr std::string_view kCameraUBInclude = "Common/CameraUB.glslh";
+
+    /// The GLSL of the camera block — generated once per process from kCameraFields.
+    [[nodiscard]] inline const std::string& CameraUBGlsl()
+    {
+        static const std::string glsl = GenerateUniformBlockGlsl(
+             "DESERT_CAMERA_UB_GLSLH", "Engine/Graphic/ShaderProtocols/Camera.hpp", 0, Camera::Name, "cameraUB",
+             kCameraFields );
+        return glsl;
+    }
 
     // THE one writer of the camera block: every material that declares CameraUB is filled from the frame's
     // ViewFrame through this, never field by field from a Core::Camera.

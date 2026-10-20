@@ -6,6 +6,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
+#include <Engine/Graphic/ShaderProtocols/GeneratedProtocolIncludes.hpp>
 
 #include <format>
 #include <memory>
@@ -106,6 +107,10 @@ namespace Desert::Core
                  std::filesystem::path( requested_source ).lexically_normal().generic_string();
             if ( const std::string* substituted = m_Variant.Find( requested ) )
                 return MakeResult( fullPath.string(), Preprocess::DShaderParser::TranslateSugar( *substituted ) );
+            // A protocol block (Common/CameraUB.glslh) is GENERATED from its C++ struct (Std140Block.hpp): the
+            // struct is the one layout truth, so its GLSL is never a file that could disagree with it.
+            if ( const std::string* generated = Graphic::ShaderProtocols::FindGeneratedProtocolInclude( requested ) )
+                return MakeResult( fullPath.string(), Preprocess::DShaderParser::TranslateSugar( *generated ) );
             // The generated shading-model dispatch is the loaded set's own text, never a file that may predate it;
             // a set that failed to load fails every program that includes it, with the scan's error.
             if ( requested == ShadingModels::kGeneratedInclude )
