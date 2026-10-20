@@ -80,7 +80,7 @@ namespace Common::Json
         std::vector<Group> groups;
         for ( const Issue& issue : issues )
         {
-            const std::string noun = issue.Kind == IssueKind::MissingReference ? issue.Expected : std::string{};
+            const std::string noun  = issue.Kind == IssueKind::MissingReference ? issue.Expected : std::string{};
             auto              group = std::find_if( groups.begin(), groups.end(), [&]( const Group& candidate )
                                                     { return candidate.Kind == issue.Kind && candidate.Noun == noun; } );
             if ( group == groups.end() )
@@ -102,7 +102,8 @@ namespace Common::Json
             if ( group.Kind == IssueKind::MissingReference )
                 text += ( one ? " reference to a missing " : " references to a missing " ) + group.Noun + ": ";
             else
-                text += std::string( one ? " value" : " values" ) + " of the wrong type, each left at its current value: ";
+                text += std::string( one ? " value" : " values" ) +
+                        " of the wrong type, each left at its current value: ";
             for ( std::size_t i = 0; i < group.Members.size(); ++i )
             {
                 if ( i != 0 )

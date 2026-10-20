@@ -1691,8 +1691,8 @@ namespace Desert::Core::Rules
                                    [&]( const WorldPartitionGridSerialized& grid )
                                    { return grid.Name == name; } ) )
                     plan.Issues.push_back(
-                         { std::format( "Entities[{}].{}.TargetGrids", record, kStreamingSourceComponent ),
-                           "grid", name, Common::Json::IssueKind::MissingReference } );
+                         { std::format( "Entities[{}].{}.TargetGrids", record, kStreamingSourceComponent ), "grid",
+                           name, Common::Json::IssueKind::MissingReference } );
 
         // ── 4c. How many levels each grid has for this world ──────────────────────────────────────
         //
