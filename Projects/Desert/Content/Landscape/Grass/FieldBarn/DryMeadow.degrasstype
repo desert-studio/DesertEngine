@@ -23,9 +23,9 @@
             },
             "Blade": {
                 "Height": 28,
-                "Width": 1.0,
+                "Width": 0.85,
                 "Taper": 0.9,
-                "Curvature": 0.5,
+                "Curvature": 0.8,
                 "Stiffness": 0.3,
                 "BaseColor": [
                     0.05,
@@ -44,7 +44,7 @@
                 ],
                 "DryTipShare": 0.6,
                 "DryTipLength": 0.5,
-                "Clumping": 0.8,
+                "Clumping": 0.4,
                 "ClumpSize": 60.0,
                 "ClumpPull": 0.0,
                 "Scatter": 0.8,
