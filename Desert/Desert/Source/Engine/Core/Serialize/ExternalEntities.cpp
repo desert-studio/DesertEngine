@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <system_error>
 #include <unordered_set>
@@ -21,6 +22,39 @@ namespace Desert::Core::ExternalEntities
 {
     namespace
     {
+        // The first line where the file and the record rebuilt from the scene part, both quoted, so a refusal
+        // names the field that moved instead of only the entity.
+        std::string FirstDifferingLine( std::string_view onDisk, std::string_view rebuilt )
+        {
+            std::size_t line = 1;
+            while ( true )
+            {
+                const std::size_t      diskEnd     = onDisk.find( '\n' );
+                const std::size_t      rebuiltEnd  = rebuilt.find( '\n' );
+                const std::string_view diskLine    = onDisk.substr( 0, diskEnd );
+                const std::string_view rebuiltLine = rebuilt.substr( 0, rebuiltEnd );
+                if ( diskLine != rebuiltLine ||
+                     ( diskEnd == std::string_view::npos ) != ( rebuiltEnd == std::string_view::npos ) )
+                {
+                    // The line after it too: a member one side adds shows up as a bare comma on the line before.
+                    const auto next = []( std::string_view text, std::size_t end )
+                    {
+                        if ( end == std::string_view::npos )
+                            return std::string_view{};
+                        text.remove_prefix( end + 1 );
+                        return text.substr( 0, text.find( '\n' ) );
+                    };
+                    return fmt::format( "line {}: file '{}' / '{}' vs scene '{}' / '{}'", line, diskLine,
+                                        next( onDisk, diskEnd ), rebuiltLine, next( rebuilt, rebuiltEnd ) );
+                }
+                if ( diskEnd == std::string_view::npos )
+                    return "identical lines (line endings or trailing bytes differ)";
+                onDisk.remove_prefix( diskEnd + 1 );
+                rebuilt.remove_prefix( rebuiltEnd + 1 );
+                ++line;
+            }
+        }
+
         // The two members this file reads off a JSON tree; every other member is carried as text.
         struct RecordIdentity
         {
@@ -430,9 +464,11 @@ namespace Desert::Core::ExternalEntities
             return Common::MakeFormattedError(
                  "entity '{}' ({}) differs from its file {} but nothing marked it modified - an edit that "
                  "bypassed "
-                 "Scene::MarkModified and the command history would be lost by this save",
+                 "Scene::MarkModified and the command history would be lost by this save ({})",
                  tag && tag.GetValue().Tag ? *tag.GetValue().Tag : std::string( "Entity" ), Bits( id ),
-                 onDisk ? file.string() : fmt::format( "{} (unreadable: {})", file.string(), onDisk.GetError() ) );
+                 onDisk ? file.string() : fmt::format( "{} (unreadable: {})", file.string(), onDisk.GetError() ),
+                 onDisk ? FirstDifferingLine( onDisk.GetValue(), text.GetValue() )
+                        : std::string( "no file text" ) );
         }
         for ( const Common::UUID id : clean )
             if ( !seen.contains( Bits( id ) ) )
