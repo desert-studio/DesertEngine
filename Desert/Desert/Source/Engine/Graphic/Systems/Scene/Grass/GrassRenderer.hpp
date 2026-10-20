@@ -146,7 +146,7 @@ namespace Desert::Graphic::System
             std::shared_ptr<ShaderResources::StorageBuffer> Params;
             std::shared_ptr<ShaderResources::StorageBuffer> Shape; // Kind Blade: GrassBladeShapeGpu
             uint32_t                                        Buckets     = 1;
-            float                                           LodDistance = 0.0f;
+            std::vector<uint32_t> BucketCapacities; // what Args' bucket table was written with
             RDG::ExternalBuffer                             InstancesImport, ArgsImport, ParamsImport;
             GpuInstanceRefs                                 Refs;
             RDG::BufferRef                                  ParamsRef;
