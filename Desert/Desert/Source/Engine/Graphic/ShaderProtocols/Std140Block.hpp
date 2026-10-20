@@ -2,6 +2,7 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <format>
@@ -107,6 +108,29 @@ namespace Desert::Graphic::ShaderProtocols
         }
         return Std140AlignUp( offset, maxAlign ) == structSize;
     }
+
+    /// ONE SHADER STRUCT FROM ITS FIELD LIST — the boilerplate every protocol used to spell out twice.
+    /// @p FIELDS is an X-macro taking FIELD( C++ type, member, GLSL name, initialiser ); the helper declares
+    /// `struct StructName` with those members (plus @p ... — static, non-layout extras such as the block's
+    /// reflection `Name`, which take no bytes) and `k<StructName>Fields`, the members as Std140Field in
+    /// declaration order, from which the GLSL is generated. The layout check stays beside each protocol: std140
+    /// block (Std140LayoutMatches) and std430 array element (Std430StructLayoutMatches) are different rules.
+    /// __builtin_offsetof, not offsetof: MSVC's offsetof macro is a reinterpret_cast (not a constant expression
+    /// inside a constexpr initializer); clang, GCC and MSVC all fold the builtin.
+#define DESERT_SHADER_STRUCT_MEMBER_( Type, Member, Glsl, Init ) Type Member Init;
+#define DESERT_SHADER_STRUCT_FIELD_( Type, Member, Glsl, Init )                                                   \
+    ::Desert::Graphic::ShaderProtocols::MakeStd140Field<Type>( #Glsl, __builtin_offsetof( Self, Member ) ),
+#define DESERT_SHADER_STRUCT( StructName, FIELDS, ... )                                                           \
+    struct StructName                                                                                             \
+    {                                                                                                             \
+        __VA_ARGS__                                                                                               \
+        FIELDS( DESERT_SHADER_STRUCT_MEMBER_ )                                                                    \
+    };                                                                                                            \
+    inline constexpr std::array k##StructName##Fields = []                                                        \
+    {                                                                                                             \
+        using Self = StructName;                                                                                  \
+        return std::array{ FIELDS( DESERT_SHADER_STRUCT_FIELD_ ) };                                               \
+    }();
 
     /// `#ifndef guard` ... `#endif` around @p body, with the banner naming the C++ header it is generated from.
     [[nodiscard]] inline std::string

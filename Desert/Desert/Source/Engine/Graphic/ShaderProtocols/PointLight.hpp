@@ -11,7 +11,7 @@
 #include <vector>
 
 // ONE POINT LIGHT AS THE SHADERS READ IT, listed ONCE: the members expand into PointLightPayload and into
-// kPointLightFields, from which the includer GENERATES `struct PointLight` (Mesh/LightSourceLayouts.glslh,
+// kPointLightPayloadFields, from which the includer GENERATES `struct PointLight` (Mesh/LightSourceLayouts.glslh,
 // included by the binding-free Mesh/LightSources.glslh) and the PointLightsUB storage buffer
 // (Mesh/PointLightsUB.glslh, binding 6, included by Mesh/PointLight.glslh); neither is a file on disk. std430:
 // each vec3 is completed by a scalar, and the explicit pads round the struct to its 16-byte array stride (80
@@ -56,22 +56,10 @@
 
 namespace Desert::Graphic::ShaderProtocols
 {
-    struct PointLightPayload
-    {
-#define DESERT_POINT_LIGHT_MEMBER( Type, Member, Glsl, Init ) Type Member Init;
-        DESERT_POINT_LIGHT_FIELDS( DESERT_POINT_LIGHT_MEMBER )
-#undef DESERT_POINT_LIGHT_MEMBER
-    };
-
-    /// The payload's members as fields (GLSL `struct PointLight`). __builtin_offsetof: see Camera.hpp.
-    inline constexpr std::array kPointLightFields{
-#define DESERT_POINT_LIGHT_FIELD( Type, Member, Glsl, Init )                                                      \
-    MakeStd140Field<Type>( #Glsl, __builtin_offsetof( PointLightPayload, Member ) ),
-         DESERT_POINT_LIGHT_FIELDS( DESERT_POINT_LIGHT_FIELD )
-#undef DESERT_POINT_LIGHT_FIELD
-    };
+    /// PointLightPayload and kPointLightPayloadFields (GLSL `struct PointLight`), Std140Block.hpp.
+    DESERT_SHADER_STRUCT( PointLightPayload, DESERT_POINT_LIGHT_FIELDS )
     static_assert(
-         Std430StructLayoutMatches( kPointLightFields, sizeof( PointLightPayload ) ),
+         Std430StructLayoutMatches( kPointLightPayloadFields, sizeof( PointLightPayload ) ),
          "PointLightPayload is not laid out (or strided) as std430 places the generated struct PointLight: "
          "reorder or pad DESERT_POINT_LIGHT_FIELDS" );
     static_assert( sizeof( PointLightPayload ) == 80 );

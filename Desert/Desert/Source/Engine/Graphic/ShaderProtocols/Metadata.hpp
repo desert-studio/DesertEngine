@@ -22,22 +22,9 @@
 
 namespace Desert::Graphic::ShaderProtocols
 {
-    struct LightsMetadata
-    {
-        inline const static std::string Name = "LightsMetadata";
-
-#define DESERT_LIGHTS_METADATA_MEMBER( Type, Member, Glsl, Init ) Type Member Init;
-        DESERT_LIGHTS_METADATA_FIELDS( DESERT_LIGHTS_METADATA_MEMBER )
-#undef DESERT_LIGHTS_METADATA_MEMBER
-    };
-
-    /// The block's members as std140 fields. __builtin_offsetof: see Camera.hpp.
-    inline constexpr std::array kLightsMetadataFields{
-#define DESERT_LIGHTS_METADATA_FIELD( Type, Member, Glsl, Init )                                                  \
-    MakeStd140Field<Type>( #Glsl, __builtin_offsetof( LightsMetadata, Member ) ),
-         DESERT_LIGHTS_METADATA_FIELDS( DESERT_LIGHTS_METADATA_FIELD )
-#undef DESERT_LIGHTS_METADATA_FIELD
-    };
+    /// LightsMetadata and kLightsMetadataFields (the block's std140 fields), Std140Block.hpp.
+    DESERT_SHADER_STRUCT( LightsMetadata, DESERT_LIGHTS_METADATA_FIELDS,
+                          inline const static std::string Name = "LightsMetadata"; )
     // `Name` is static, so the object is exactly the block — uploaded as one instance.
     static_assert( Std140LayoutMatches( kLightsMetadataFields, sizeof( LightsMetadata ) ),
                    "LightsMetadata is not laid out as std140 places the generated LightsMetadata block" );

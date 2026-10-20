@@ -10,7 +10,7 @@
 #include <vector>
 
 // THE SCENE DIRECTIONAL LIGHT AS THE FORWARD PASSES READ IT, listed ONCE: the members expand into
-// DirectionLightPayload and into kDirectionLightFields, from which the includer GENERATES
+// DirectionLightPayload and into kDirectionLightPayloadFields, from which the includer GENERATES
 // Common/DirectionLightsUB.glslh (struct DirectionLight + the DirectionLightsUB block at binding 3; no file on
 // disk). Engine-filled by reflection name (Graphic::SceneFrameBinding::ApplyTo -> SceneLightsBind).
 //
@@ -21,21 +21,9 @@
 
 namespace Desert::Graphic::ShaderProtocols
 {
-    struct DirectionLightPayload
-    {
-#define DESERT_DIRECTION_LIGHT_MEMBER( Type, Member, Glsl, Init ) Type Member Init;
-        DESERT_DIRECTION_LIGHT_FIELDS( DESERT_DIRECTION_LIGHT_MEMBER )
-#undef DESERT_DIRECTION_LIGHT_MEMBER
-    };
-
-    /// The payload's members as fields (GLSL `struct DirectionLight`). __builtin_offsetof: see Camera.hpp.
-    inline constexpr std::array kDirectionLightFields{
-#define DESERT_DIRECTION_LIGHT_FIELD( Type, Member, Glsl, Init )                                                  \
-    MakeStd140Field<Type>( #Glsl, __builtin_offsetof( DirectionLightPayload, Member ) ),
-         DESERT_DIRECTION_LIGHT_FIELDS( DESERT_DIRECTION_LIGHT_FIELD )
-#undef DESERT_DIRECTION_LIGHT_FIELD
-    };
-    static_assert( Std140LayoutMatches( kDirectionLightFields, sizeof( DirectionLightPayload ) ),
+    /// DirectionLightPayload and kDirectionLightPayloadFields (GLSL `struct DirectionLight`), Std140Block.hpp.
+    DESERT_SHADER_STRUCT( DirectionLightPayload, DESERT_DIRECTION_LIGHT_FIELDS )
+    static_assert( Std140LayoutMatches( kDirectionLightPayloadFields, sizeof( DirectionLightPayload ) ),
                    "DirectionLightPayload is not laid out as std140 places struct DirectionLight" );
     static_assert( sizeof( DirectionLightPayload ) == 32 );
 
@@ -54,7 +42,7 @@ namespace Desert::Graphic::ShaderProtocols
     {
         static const std::string glsl = GenerateGuardedGlsl(
              "DESERT_DIRECTION_LIGHTS_UB_GLSLH", "Engine/Graphic/ShaderProtocols/DirectionLight.hpp",
-             GenerateGlslStruct( "DirectionLight", kDirectionLightFields ) + "\n" +
+             GenerateGlslStruct( "DirectionLight", kDirectionLightPayloadFields ) + "\n" +
                   GenerateGlslBlock( "Uniform", 3, DirectionLight::Name, "    DirectionLight directionLights;\n",
                                      "directionLights" ) );
         return glsl;

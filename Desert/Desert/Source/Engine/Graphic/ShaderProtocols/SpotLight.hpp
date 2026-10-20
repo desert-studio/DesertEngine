@@ -11,10 +11,10 @@
 #include <vector>
 
 // ONE SPOT LIGHT AS THE SHADERS READ IT, listed ONCE: the members expand into SpotLightPayload and into
-// kSpotLightFields, from which the includer GENERATES `struct SpotLight` (Mesh/LightSourceLayouts.glslh) and the
-// SpotLightsUB storage buffer (Mesh/SpotLightsUB.glslh, binding 16, included by Mesh/Spotlight.glslh); neither is
-// a file on disk. std430, 96 bytes. CosInner/CosOuter are the COSINES of the inner/outer cone half-angles
-// (precomputed on the CPU so the shader avoids acos).
+// kSpotLightPayloadFields, from which the includer GENERATES `struct SpotLight` (Mesh/LightSourceLayouts.glslh)
+// and the SpotLightsUB storage buffer (Mesh/SpotLightsUB.glslh, binding 16, included by Mesh/Spotlight.glslh);
+// neither is a file on disk. std430, 96 bytes. CosInner/CosOuter are the COSINES of the inner/outer cone
+// half-angles (precomputed on the CPU so the shader avoids acos).
 //
 // FIELD( C++ type, member, GLSL name, initialiser )
 #define DESERT_SPOT_LIGHT_FIELDS( FIELD )                                                                         \
@@ -49,22 +49,10 @@
 
 namespace Desert::Graphic::ShaderProtocols
 {
-    struct SpotLightPayload
-    {
-#define DESERT_SPOT_LIGHT_MEMBER( Type, Member, Glsl, Init ) Type Member Init;
-        DESERT_SPOT_LIGHT_FIELDS( DESERT_SPOT_LIGHT_MEMBER )
-#undef DESERT_SPOT_LIGHT_MEMBER
-    };
-
-    /// The payload's members as fields (GLSL `struct SpotLight`). __builtin_offsetof: see Camera.hpp.
-    inline constexpr std::array kSpotLightFields{
-#define DESERT_SPOT_LIGHT_FIELD( Type, Member, Glsl, Init )                                                       \
-    MakeStd140Field<Type>( #Glsl, __builtin_offsetof( SpotLightPayload, Member ) ),
-         DESERT_SPOT_LIGHT_FIELDS( DESERT_SPOT_LIGHT_FIELD )
-#undef DESERT_SPOT_LIGHT_FIELD
-    };
+    /// SpotLightPayload and kSpotLightPayloadFields (GLSL `struct SpotLight`), Std140Block.hpp.
+    DESERT_SHADER_STRUCT( SpotLightPayload, DESERT_SPOT_LIGHT_FIELDS )
     static_assert(
-         Std430StructLayoutMatches( kSpotLightFields, sizeof( SpotLightPayload ) ),
+         Std430StructLayoutMatches( kSpotLightPayloadFields, sizeof( SpotLightPayload ) ),
          "SpotLightPayload is not laid out (or strided) as std430 places the generated struct SpotLight: "
          "reorder or pad DESERT_SPOT_LIGHT_FIELDS" );
     static_assert( sizeof( SpotLightPayload ) == 96 );

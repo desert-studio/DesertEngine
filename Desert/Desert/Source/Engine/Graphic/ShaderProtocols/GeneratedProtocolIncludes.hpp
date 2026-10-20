@@ -4,6 +4,7 @@
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/Metadata.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
+#include <Engine/Graphic/ShaderProtocols/SkinnedMaterialUB.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
 
 #include <string>
@@ -21,8 +22,8 @@ namespace Desert::Graphic::ShaderProtocols
         static const std::string glsl =
              GenerateGuardedGlsl( "DESERT_LIGHT_SOURCE_LAYOUTS_GLSLH",
                                   "Engine/Graphic/ShaderProtocols/PointLight.hpp and SpotLight.hpp",
-                                  GenerateGlslStruct( "PointLight", kPointLightFields ) + "\n" +
-                                       GenerateGlslStruct( "SpotLight", kSpotLightFields ) );
+                                  GenerateGlslStruct( "PointLight", kPointLightPayloadFields ) + "\n" +
+                                       GenerateGlslStruct( "SpotLight", kSpotLightPayloadFields ) );
         return glsl;
     }
 
@@ -44,6 +45,8 @@ namespace Desert::Graphic::ShaderProtocols
             return &PointLightsUBGlsl();
         if ( requested == kSpotLightsUBInclude )
             return &SpotLightsUBGlsl();
+        if ( requested == kSkinnedBonesInclude )
+            return &SkinnedBonesGlsl();
         return nullptr;
     }
 } // namespace Desert::Graphic::ShaderProtocols
