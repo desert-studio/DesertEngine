@@ -95,6 +95,18 @@ namespace Desert::Assets::Serialization
         float Clumping = 0.5f;
         /// The clump cell's side, cm.
         float ClumpSize = 35.0f;
+        /// 0..1: how far a blade moves from its grid place towards its clump's point (0 = stays on the jittered
+        /// grid, 1 = all of a clump's blades stand on its point). Gathers the field into tufts with open ground
+        /// between.
+        float ClumpPull = 0.0f;
+        /// 0..1: how far, in grid cells times two, a blade strays past its own cell (0 = stays in its cell, one
+        /// evenly spaced stalk per cell; 1 = up to two cells off, an uneven carpet).
+        float Scatter = 0.0f;
+        /// 0..1: the largest share of blades thinned by broad world patches (0 = even; 0.5 = the sparsest patch
+        /// keeps half). Denser and sparser patches without bare ground.
+        float Patchiness = 0.0f;
+        /// The patch noise's cell, cm.
+        float PatchSize = 800.0f;
         /// Segments of a near blade (1..kGrassBladeMaxSegments); each farther level halves them.
         uint32_t Segments = 6;
         /// The distance, cm, over which a level is drawn before the next, coarser one.

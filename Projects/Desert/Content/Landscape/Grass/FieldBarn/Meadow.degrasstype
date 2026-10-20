@@ -29,7 +29,7 @@
                 "Path": "Materials/Environments/FieldBarn/Grass/M_GrassBlade.demat"
             },
             "Blade": {
-                "Height": 38,
+                "Height": 32,
                 "Width": 1.1,
                 "Taper": 0.9,
                 "Curvature": 0.5,
@@ -49,17 +49,21 @@
                     0.25,
                     0.12
                 ],
-                "DryTipShare": 0.3,
+                "DryTipShare": 0.35,
                 "DryTipLength": 0.3,
                 "Clumping": 0.8,
                 "ClumpSize": 60.0,
+                "ClumpPull": 0.0,
+                "Scatter": 0.8,
+                "Patchiness": 0.5,
+                "PatchSize": 700.0,
                 "Segments": 6,
                 "LodDistance": 500
             },
-            "Density": 32000.0,
+            "Density": 36000.0,
             "PlacementJitter": 1.0,
-            "StartCullDistance": 1200,
-            "EndCullDistance": 2500,
+            "StartCullDistance": 500,
+            "EndCullDistance": 3000,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -115,16 +119,17 @@
                     0.3,
                     0.15
                 ],
-                "DryTipShare": 0.45,
+                "DryTipShare": 0.6,
                 "DryTipLength": 0.4,
                 "Clumping": 0.9,
-                "ClumpSize": 80.0,
+                "ClumpSize": 120.0,
+                "ClumpPull": 0.4,
                 "Segments": 6,
                 "LodDistance": 600
             },
-            "Density": 900.0,
+            "Density": 800.0,
             "PlacementJitter": 1.0,
-            "StartCullDistance": 2500,
+            "StartCullDistance": 1500,
             "EndCullDistance": 4000,
             "AllowedDensityRange": {
                 "Min": 0.0,
@@ -160,7 +165,7 @@
                 "Guid": "dc79330d95aa4bc061fd1391af45ef3f",
                 "Path": "Environments/FieldBarn/Meshes/grass_medium_02/grass_medium_02_grass_medium_02_c.stmesh"
             },
-            "Density": 110.0,
+            "Density": 70.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2700.0,
             "EndCullDistance": 4500.0,
@@ -198,7 +203,7 @@
                 "Guid": "dc79350d95aa4f2661fd1591af45f2a5",
                 "Path": "Environments/FieldBarn/Meshes/grass_medium_02/grass_medium_02_grass_medium_02_a.stmesh"
             },
-            "Density": 80.0,
+            "Density": 50.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2700.0,
             "EndCullDistance": 4500.0,
@@ -350,7 +355,7 @@
                 "Guid": "9cf601bde61059a737e2cbfe2972b75a",
                 "Path": "Environments/FieldBarn/Meshes/grass_medium_01_tall/grass_medium_01_tall_grass_medium_01_tall_a.stmesh"
             },
-            "Density": 45.0,
+            "Density": 30.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2100.0,
             "EndCullDistance": 3500.0,
@@ -360,16 +365,16 @@
             },
             "Scaling": "LockXY",
             "ScaleX": {
-                "Min": 1.0,
-                "Max": 1.4
+                "Min": 1.4,
+                "Max": 2.0
             },
             "ScaleY": {
-                "Min": 1.0,
-                "Max": 1.4
+                "Min": 1.4,
+                "Max": 2.0
             },
             "ScaleZ": {
-                "Min": 0.9,
-                "Max": 1.6
+                "Min": 1.3,
+                "Max": 2.2
             },
             "WeightAttenuatesMaxScale": true,
             "MaxScaleWeightAttenuation": 0.5,
@@ -388,7 +393,7 @@
                 "Guid": "9cf602bde6105b5a37e2cafe2972b5a7",
                 "Path": "Environments/FieldBarn/Meshes/grass_medium_01_tall/grass_medium_01_tall_grass_medium_01_tall_b.stmesh"
             },
-            "Density": 45.0,
+            "Density": 30.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2100.0,
             "EndCullDistance": 3500.0,
@@ -398,16 +403,16 @@
             },
             "Scaling": "LockXY",
             "ScaleX": {
-                "Min": 1.0,
-                "Max": 1.4
+                "Min": 1.4,
+                "Max": 2.0
             },
             "ScaleY": {
-                "Min": 1.0,
-                "Max": 1.4
+                "Min": 1.4,
+                "Max": 2.0
             },
             "ScaleZ": {
-                "Min": 0.9,
-                "Max": 1.6
+                "Min": 1.3,
+                "Max": 2.2
             },
             "WeightAttenuatesMaxScale": true,
             "MaxScaleWeightAttenuation": 0.5,
@@ -426,7 +431,7 @@
                 "Guid": "9cf603bde6105d0d37e2c9fe2972b3f4",
                 "Path": "Environments/FieldBarn/Meshes/grass_medium_01_tall/grass_medium_01_tall_grass_medium_01_tall_c.stmesh"
             },
-            "Density": 45.0,
+            "Density": 30.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2100.0,
             "EndCullDistance": 3500.0,
@@ -436,16 +441,16 @@
             },
             "Scaling": "LockXY",
             "ScaleX": {
-                "Min": 1.0,
-                "Max": 1.4
+                "Min": 1.4,
+                "Max": 2.0
             },
             "ScaleY": {
-                "Min": 1.0,
-                "Max": 1.4
+                "Min": 1.4,
+                "Max": 2.0
             },
             "ScaleZ": {
-                "Min": 0.9,
-                "Max": 1.6
+                "Min": 1.3,
+                "Max": 2.2
             },
             "WeightAttenuatesMaxScale": true,
             "MaxScaleWeightAttenuation": 0.5,

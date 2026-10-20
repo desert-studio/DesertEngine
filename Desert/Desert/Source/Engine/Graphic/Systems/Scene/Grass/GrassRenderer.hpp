@@ -68,7 +68,8 @@ namespace Desert::Graphic::System
         float     Height = 45.0f, Width = 1.2f, Taper = 0.9f, Curvature = 0.35f, Stiffness = 0.3f;
         glm::vec3 BaseColor{ 0.06f, 0.10f, 0.03f }, TipColor{ 0.25f, 0.33f, 0.09f },
              DryTipColor{ 0.45f, 0.38f, 0.2f };
-        float    DryTipShare = 0.25f, DryTipLength = 0.3f, Clumping = 0.5f, ClumpSize = 35.0f;
+        float    DryTipShare = 0.25f, DryTipLength = 0.3f, Clumping = 0.5f, ClumpSize = 35.0f, ClumpPull = 0.0f;
+        float    Scatter = 0.0f, Patchiness = 0.0f, PatchSize = 800.0f;
         uint32_t Segments    = 6;
         float    LodDistance = 700.0f;
     };

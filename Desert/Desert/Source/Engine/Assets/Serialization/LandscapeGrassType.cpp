@@ -63,18 +63,22 @@ namespace Desert::Assets::Serialization
                                         std::isfinite( b.Taper ) && std::isfinite( b.Curvature ) &&
                                         std::isfinite( b.Stiffness ) && std::isfinite( b.DryTipShare ) &&
                                         std::isfinite( b.DryTipLength ) && std::isfinite( b.Clumping ) &&
-                                        std::isfinite( b.ClumpSize ) && std::isfinite( b.LodDistance );
+                                        std::isfinite( b.ClumpPull ) && std::isfinite( b.ClumpSize ) &&
+                                        std::isfinite( b.Scatter ) && std::isfinite( b.Patchiness ) &&
+                                        std::isfinite( b.PatchSize ) && std::isfinite( b.LodDistance );
                     if ( !finite || !( b.Height > 0.0f ) || !( b.Width > 0.0f ) || !( b.ClumpSize > 0.0f ) ||
-                         !( b.LodDistance > 0.0f ) )
+                         !( b.PatchSize > 0.0f ) || !( b.LodDistance > 0.0f ) )
                         return Common::MakeFormattedError<bool>( "grass variety {} (Blade): Height {}, Width {}, "
-                                                                 "ClumpSize {} and LodDistance {} must be "
-                                                                 "finite and > 0",
-                                                                 i, b.Height, b.Width, b.ClumpSize,
+                                                                 "ClumpSize {}, PatchSize {} and LodDistance {} "
+                                                                 "must be finite and > 0",
+                                                                 i, b.Height, b.Width, b.ClumpSize, b.PatchSize,
                                                                  b.LodDistance );
                     for ( const auto& [name, value] :
                           { std::pair{ "Taper", b.Taper }, std::pair{ "Curvature", b.Curvature },
                             std::pair{ "Stiffness", b.Stiffness }, std::pair{ "DryTipShare", b.DryTipShare },
-                            std::pair{ "DryTipLength", b.DryTipLength }, std::pair{ "Clumping", b.Clumping } } )
+                            std::pair{ "DryTipLength", b.DryTipLength }, std::pair{ "Clumping", b.Clumping },
+                            std::pair{ "ClumpPull", b.ClumpPull }, std::pair{ "Scatter", b.Scatter },
+                            std::pair{ "Patchiness", b.Patchiness } } )
                         if ( value < 0.0f || value > 1.0f )
                             return Common::MakeFormattedError<bool>(
                                  "grass variety {} (Blade): {} {} is outside 0..1", i, name, value );

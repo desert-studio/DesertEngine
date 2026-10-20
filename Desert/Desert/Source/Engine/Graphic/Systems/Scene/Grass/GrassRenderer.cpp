@@ -43,9 +43,10 @@ namespace Desert::Graphic::System
             glm::vec4  ScaleZ;
             glm::uvec4 Info;
             glm::uvec4 Buckets; // x = bucket count, y = the bucket table's first word in Args
-            glm::vec4  Blade;   // x = LodDistance (0: one bucket), y = ClumpSize, z = Clumping
+            glm::vec4  Blade;   // x = LodDistance (0: one bucket), y = ClumpSize, z = Clumping, w = ClumpPull
+            glm::vec4  Spread;  // x = Scatter (cells), y = Patchiness, z = PatchSize
         };
-        static_assert( sizeof( GrassParamsGpu ) == 208 );
+        static_assert( sizeof( GrassParamsGpu ) == 224 );
 
         // Mirrors Vertex_GrassBlade.glslh's GrassBladeShape (std430).
         struct GrassBladeShapeGpu
@@ -57,12 +58,12 @@ namespace Desert::Graphic::System
         };
         static_assert( sizeof( GrassBladeShapeGpu ) == 64 );
 
-        // Instances whose cell centre lies within [inner, outer) of the camera, the ring widened by one jittered
-        // cell on each side.
-        uint32_t RingCapacity( double inner, double outer, double cell )
+        // Instances whose cell centre lies within [inner, outer) of the camera, the ring widened on each side by
+        // one jittered cell and by @p moved, the farthest a blade's scatter and clump pull carry it from its cell.
+        uint32_t RingCapacity( double inner, double outer, double cell, double moved )
         {
-            const double lo = std::max( 0.0, inner - 1.5 * cell );
-            const double hi = outer + 1.5 * cell;
+            const double lo = std::max( 0.0, inner - 1.5 * cell - moved );
+            const double hi = outer + 1.5 * cell + moved;
             return static_cast<uint32_t>( std::ceil( 3.14159265 * ( hi * hi - lo * lo ) / ( cell * cell ) ) );
         }
 
@@ -167,6 +168,12 @@ namespace Desert::Graphic::System
         // sections.
         const uint32_t buckets     = variety.Blade ? static_cast<uint32_t>( submeshes.size() ) : 1u;
         const float    lodDistance = variety.Blade ? variety.Blade->LodDistance : 0.0f;
+        // The nearest clump point lies within the 3x3 clump cells around the blade: at most 2 * sqrt(2) cells off;
+        // scatter carries the blade up to 2 * Scatter grid cells before that.
+        const double moved = variety.Blade
+                                  ? 2.0 * 1.41421356 * variety.Blade->ClumpSize * variety.Blade->ClumpPull +
+                                         2.0 * variety.Blade->Scatter * cell
+                                  : 0.0;
         // Every cell whose jittered instance can lie within its bucket's ring of the cull radius.
         std::vector<uint32_t> capacities( buckets );
         uint32_t              capacity = 0;
@@ -175,7 +182,7 @@ namespace Desert::Graphic::System
             const double inner = buckets == 1u ? 0.0 : static_cast<double>( b ) * lodDistance;
             const double outer = b + 1u == buckets ? static_cast<double>( radius )
                                                    : std::min<double>( radius, ( b + 1.0 ) * lodDistance );
-            capacities[b]      = inner >= radius ? 0u : RingCapacity( inner, outer, cell );
+            capacities[b]      = inner >= radius ? 0u : RingCapacity( inner, outer, cell, moved );
             capacity += capacities[b];
         }
 
@@ -274,9 +281,12 @@ namespace Desert::Graphic::System
              buckets,
              static_cast<uint32_t>( GpuInstanceArgsOffset( static_cast<uint32_t>( submeshes.size() ) ) / 4u ), 0u,
              0u );
-        params.Blade = variety.Blade
-                            ? glm::vec4( lodDistance, variety.Blade->ClumpSize, variety.Blade->Clumping, 0.0f )
-                            : glm::vec4( 0.0f );
+        params.Blade = variety.Blade ? glm::vec4( lodDistance, variety.Blade->ClumpSize, variety.Blade->Clumping,
+                                                  variety.Blade->ClumpPull )
+                                     : glm::vec4( 0.0f );
+        params.Spread = variety.Blade ? glm::vec4( 2.0f * variety.Blade->Scatter, variety.Blade->Patchiness,
+                                                   variety.Blade->PatchSize, 0.0f )
+                                      : glm::vec4( 0.0f, 0.0f, 1.0f, 0.0f );
         if ( const auto wrote = gpu.Params->SetData( &params, sizeof( params ) ); !wrote.IsSuccess() )
         {
             LOG_ERROR( "[Grass] the variety's parameters were not written: {}", wrote.GetError() );

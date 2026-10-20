@@ -599,6 +599,10 @@ namespace Desert::ECS
                                                                          .DryTipLength = b.DryTipLength,
                                                                          .Clumping     = b.Clumping,
                                                                          .ClumpSize    = b.ClumpSize,
+                                                                         .ClumpPull    = b.ClumpPull,
+                                                                         .Scatter      = b.Scatter,
+                                                                         .Patchiness   = b.Patchiness,
+                                                                         .PatchSize    = b.PatchSize,
                                                                          .Segments     = b.Segments,
                                                                          .LodDistance  = b.LodDistance };
                     }
