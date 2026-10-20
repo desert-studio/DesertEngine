@@ -711,8 +711,12 @@ namespace Desert::Graphic::System
         void GatherSurfaceCacheInstances( std::vector<SurfaceCache::SceneInstance>& out );
         // The (path x GBuffer) pass state a card of that path is captured with; null when the renderer has none.
         [[nodiscard]] GraphicsPipeline*     CardCapturePassState( MeshVertexPath path ) const;
+        // @p view: the frame's scene/view inputs - the G-buffer cell samples the rain occlusion map its wetness
+        // reads (SurfaceWeather.glslh), bound as the scene's G-buffer pass binds it, so a card is wet where the
+        // surface it stands for is.
         void                                DeclareCardCaptureDraws( RDG::PassBuilder&                             pass,
-                                                                     const std::vector<SurfaceCache::CardCapture>& captures );
+                                                                     const std::vector<SurfaceCache::CardCapture>& captures,
+                                                                     const SceneViewInputs&                        view );
         [[nodiscard]] Common::BoolResultStr RenderCardCaptureManual( const RDG::PassContext& context ) const;
 
         const std::shared_ptr<Framebuffer>& GetSilhouetteMaskFramebuffer() const
