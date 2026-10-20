@@ -5,6 +5,8 @@
 
 #include <rflcpp/rfl/json.hpp>
 
+#include <algorithm>
+#include <iterator>
 #include <limits>
 #include <string>
 
@@ -58,6 +60,8 @@ namespace Common::Json
 
     std::string Describe( const Issue& issue )
     {
+        if ( issue.Kind == IssueKind::MissingReference )
+            return issue.Path + ": no " + issue.Expected + " named " + issue.Found;
         return issue.Path + ": expected " + issue.Expected + ", found " + issue.Found;
     }
 
@@ -65,14 +69,46 @@ namespace Common::Json
     {
         if ( issues.empty() )
             return {};
-        std::string text = std::string( document ) + ": " + std::to_string( issues.size() ) +
-                           ( issues.size() == 1 ? " value" : " values" ) +
-                           " of the wrong type, each left at its current value: ";
-        for ( std::size_t i = 0; i < issues.size(); ++i )
+
+        // One group per kind (and, for a missing reference, per noun), in the order each first appears.
+        struct Group
         {
-            if ( i != 0 )
-                text += "; ";
-            text += Describe( issues[i] );
+            IssueKind                 Kind = IssueKind::WrongType;
+            std::string               Noun;
+            std::vector<const Issue*> Members;
+        };
+        std::vector<Group> groups;
+        for ( const Issue& issue : issues )
+        {
+            const std::string noun = issue.Kind == IssueKind::MissingReference ? issue.Expected : std::string{};
+            auto              group = std::find_if( groups.begin(), groups.end(), [&]( const Group& candidate )
+                                                    { return candidate.Kind == issue.Kind && candidate.Noun == noun; } );
+            if ( group == groups.end() )
+            {
+                groups.push_back( { issue.Kind, noun, {} } );
+                group = std::prev( groups.end() );
+            }
+            group->Members.push_back( &issue );
+        }
+
+        std::string text = std::string( document ) + ": ";
+        for ( std::size_t g = 0; g < groups.size(); ++g )
+        {
+            const Group& group = groups[g];
+            const bool   one   = group.Members.size() == 1;
+            if ( g != 0 )
+                text += " | ";
+            text += std::to_string( group.Members.size() );
+            if ( group.Kind == IssueKind::MissingReference )
+                text += ( one ? " reference to a missing " : " references to a missing " ) + group.Noun + ": ";
+            else
+                text += std::string( one ? " value" : " values" ) + " of the wrong type, each left at its current value: ";
+            for ( std::size_t i = 0; i < group.Members.size(); ++i )
+            {
+                if ( i != 0 )
+                    text += "; ";
+                text += Describe( *group.Members[i] );
+            }
         }
         LOG_ERROR( "{}", text );
         return text;

@@ -1675,7 +1675,7 @@ namespace Desert::Core::Rules
             if ( found == settings.Grids.end() )
             {
                 plan.Issues.push_back( { std::format( "Entities[{}].{}.Grid", held.Anchor, kRuntimeGridComponent ),
-                                         "the name of one of the world's grids", *wanted } );
+                                         "grid", *wanted, Common::Json::IssueKind::MissingReference } );
                 if ( held.Reason == AlwaysLoadedReason::None )
                     held.Reason = AlwaysLoadedReason::NoGrid;
                 continue;
@@ -1692,7 +1692,7 @@ namespace Desert::Core::Rules
                                    { return grid.Name == name; } ) )
                     plan.Issues.push_back(
                          { std::format( "Entities[{}].{}.TargetGrids", record, kStreamingSourceComponent ),
-                           "the name of one of the world's grids", name } );
+                           "grid", name, Common::Json::IssueKind::MissingReference } );
 
         // ── 4c. How many levels each grid has for this world ──────────────────────────────────────
         //

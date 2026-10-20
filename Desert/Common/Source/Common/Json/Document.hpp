@@ -83,20 +83,34 @@ namespace Common::Json
         Object
     };
 
+    // What is wrong with the value an Issue names.
+    enum class IssueKind
+    {
+        // The value is not of the type (or range) the reader wanted; the field keeps its current value.
+        WrongType,
+        // The value is well formed but names something the document does not have (UE: an unresolved
+        // reference): Expected is the noun of what it should name ("grid"), Found the name it holds.
+        MissingReference
+    };
+
     // One value that could not be read: where, what the reader wanted, what the file holds.
     struct Issue
     {
         std::string Path;
         std::string Expected;
         std::string Found;
+        IssueKind   Kind = IssueKind::WrongType;
     };
     using Issues = std::vector<Issue>;
 
-    // "Entities[id=7].Light.Intensity: expected number, found string \"bright\"".
+    // "Entities[id=7].Light.Intensity: expected number, found string \"bright\"";
+    // a MissingReference: "Entities[28].StreamingSource.TargetGrids: no grid named Nope".
     [[nodiscard]] std::string Describe( const Issue& issue );
 
     // The one error line a load writes for everything it could not read (nothing is logged for none); the
-    // same text is returned so the load result can carry it. `document` names the file or record.
+    // same text is returned so the load result can carry it. `document` names the file or record. Issues are
+    // grouped by kind: "N values of the wrong type, each left at its current value: ..." and, per noun,
+    // "N references to a missing grid: ...".
     std::string ReportIssues( const Issues& issues, std::string_view document );
 
     class Node;
