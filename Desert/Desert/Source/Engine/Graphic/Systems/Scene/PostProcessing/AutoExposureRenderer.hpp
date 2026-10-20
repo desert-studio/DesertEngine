@@ -63,7 +63,7 @@ namespace Desert::Graphic::System
         [[nodiscard]] RDG::BufferRef ImportReadback( RDG::Builder& graph );
         // The adapted luminance the Average pass wrote FramesInFlight frames ago into this frame's copy (UE
         // FViewInfo::UpdatePreExposure). Call before this frame's graph binds the copy. 0 = nothing written yet.
-        [[nodiscard]] float ReadBackAdaptedLuminance();
+        [[nodiscard]] float                 ReadBackAdaptedLuminance();
         [[nodiscard]] Common::BoolResultStr RecordAverage( const RDG::PassContext& context );
 
         [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorImage() const

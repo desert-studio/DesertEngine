@@ -117,7 +117,8 @@ namespace Desert::Graphic::System
         m_HistogramPipeline = make( "AEHistogram" );
         m_AveragePipeline   = make( "AEAverage" );
 
-        return m_LumImage[0] && m_LumImage[1] && m_Readback && m_ClearPipeline && m_HistogramPipeline && m_AveragePipeline;
+        return m_LumImage[0] && m_LumImage[1] && m_Readback && m_ClearPipeline && m_HistogramPipeline &&
+               m_AveragePipeline;
     }
 
     bool AutoExposureRenderer::Prepare()
@@ -218,7 +219,8 @@ namespace Desert::Graphic::System
         if ( const Common::BoolResultStr imported = Renderer::ImportBuffer( m_Readback, m_ReadbackImport );
              !imported )
         {
-            LOG_ERROR( "PostFX: AutoExposure: the readback buffer is not in the frame graph: {}", imported.GetError() );
+            LOG_ERROR( "PostFX: AutoExposure: the readback buffer is not in the frame graph: {}",
+                       imported.GetError() );
             return {};
         }
         return graph.RegisterExternal( m_ReadbackImport, "AutoExposure.Readback" );
