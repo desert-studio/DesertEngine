@@ -78,9 +78,14 @@ namespace Desert::Graphic
         // Either gate at 0 makes its half of the composite the exact arithmetic identity, which is what
         // lets one pass serve fog-without-sky, sky-without-fog and both, with no permutation.
         glm::vec4 AerialPerspective;
+
+        // x = ViewFrame::PreExposure: the scale the scene colour is stored at this frame. The fog image's
+        // inscattering is written multiplied by it (the transmittance is not), so the apply's over-composite
+        // lands in the pre-exposed scene colour. yzw unused.
+        glm::vec4 Exposure;
     };
 
-    static_assert( sizeof( FogPush ) == 96 );
+    static_assert( sizeof( FogPush ) == 112 );
 
     // One world unit is one centimetre (Common::Units), so a kilometre is 100 000 of them.
     inline constexpr float kFogWorldUnitsPerKm = 100000.0f;

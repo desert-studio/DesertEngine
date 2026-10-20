@@ -24,6 +24,7 @@
             // ViewProjection / PrevViewProjection), for the velocity both terrain programs write.
             mat4 ViewProjection;
             mat4 PrevViewProjection;
+            vec4 Exposure;   // x = ViewFrame::PreExposure (the forward program's scene-colour write), yzw unused
         }
         u;
 
