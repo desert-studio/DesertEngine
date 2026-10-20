@@ -22,7 +22,7 @@
                 "Path": "Materials/Environments/FieldBarn/Grass/M_GrassBlade.demat"
             },
             "Blade": {
-                "Height": 24,
+                "Height": 28,
                 "Width": 1.0,
                 "Taper": 0.9,
                 "Curvature": 0.5,
@@ -46,11 +46,11 @@
                 "DryTipLength": 0.5,
                 "Clumping": 0.8,
                 "ClumpSize": 60.0,
-                "ClumpPull": 0.4,
+                "ClumpPull": 0.15,
                 "Segments": 6,
                 "LodDistance": 500
             },
-            "Density": 16000.0,
+            "Density": 22000.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 500,
             "EndCullDistance": 3000,
@@ -113,11 +113,11 @@
                 "DryTipLength": 0.55,
                 "Clumping": 0.9,
                 "ClumpSize": 120.0,
-                "ClumpPull": 0.75,
+                "ClumpPull": 0.4,
                 "Segments": 6,
                 "LodDistance": 600
             },
-            "Density": 500.0,
+            "Density": 650.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 1500,
             "EndCullDistance": 4000,
