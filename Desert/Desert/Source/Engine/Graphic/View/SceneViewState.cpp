@@ -516,6 +516,9 @@ namespace Desert::Graphic
         f.TimeSeconds     = inputs.TimeSeconds;
         f.PrevTimeSeconds = isReset ? inputs.TimeSeconds : m_Committed.TimeSeconds;
         f.DeltaSeconds    = static_cast<float>( f.TimeSeconds - f.PrevTimeSeconds );
+        // A reset has no history to rescale: the previous scale is this frame's own.
+        f.PreExposure     = ScenePreExposure( inputs.LastExposure );
+        f.PrevPreExposure = isReset ? f.PreExposure : m_Committed.PreExposure;
 
         // Only a TEMPORAL method reconstructs output-pixel detail from the jittered samples; the spatial
         // upscale has one sample per render pixel, and a negative bias there only aliases. The rule is the

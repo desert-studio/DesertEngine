@@ -603,6 +603,7 @@ namespace Desert::Graphic
         gather.ShortRangeAO         = m_ScreenProbeShortRangeAO;
         gather.PrevViewProjection = frame.PrevViewProjection;
         gather.PrevCameraPosition = frame.PrevCameraPosition;
+        gather.PrevPreExposure      = frame.PrevPreExposure;
         // The screen leg (UE ScreenProbeTraceScreenTextures): the view's HZB and scene colour history, or the
         // system black texture with the leg off when the view has no screen trace.
         gather.HZB = screenTrace.HZB.IsValid() ? screenTrace.HZB : refs.System.Black;
@@ -785,7 +786,8 @@ namespace Desert::Graphic
                                                                                      : 0;
         const DeferredGIInput compositeGI{ .Mode      = giMode,
                                            .Intensity = gi == GIMethod::ScreenSpace ? m_GIIntensity : 0.0f,
-                                           .ScreenSpaceSamples = m_ScreenSpaceGISamples };
+                                           .ScreenSpaceSamples = m_ScreenSpaceGISamples,
+                                           .PreExposure        = frame.PreExposure };
 
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
@@ -1563,6 +1565,7 @@ namespace Desert::Graphic
         settings.Intensity    = m_SSRIntensity;
         settings.Thickness    = Common::Units::Metres( 0.5f ); // literature: 0.5 m
         settings.DownsampleFactor = traceTargets->DownsampleFactor;
+        settings.InvPrevPreExposure = 1.0f / std::max( frame.PrevPreExposure, 1e-30f );
         // SoftwareTraced / HardwareTraced: the rays the screen does not answer go on through the reflections'
         // tracer (ReflectionsTracer, TracedReads).
         std::optional<System::SSRRenderer::TracedReads> traced;

@@ -272,6 +272,8 @@ namespace Desert::Graphic
 
         f.TimeSeconds     = timeSeconds;
         f.PrevTimeSeconds = timeSeconds;
+        f.PreExposure     = 1.0f; // a still camera has no eye adaptation: its output is stored absolute
+        f.PrevPreExposure = f.PreExposure;
         f.HistoryReset    = HistoryResetReason::FirstFrame;
         return f;
     }

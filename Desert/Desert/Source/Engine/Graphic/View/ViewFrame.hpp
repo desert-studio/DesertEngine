@@ -178,6 +178,25 @@ namespace Desert::Graphic
         bool operator==( const ParallaxQuality& ) const = default;
     };
 
+    // The pre-exposure of this frame's scene colour (ViewFrame::PreExposure) — THE one switch.
+    //
+    // THE SOURCE (UE FViewInfo::UpdatePreExposure): @p lastExposure is the exposure the view tonemaps with, as
+    // the CPU last knew it — manual metering: ManualExposureScale (known this frame); auto: key / adapted
+    // luminance read back from the GPU FramesInFlight frames ago (AutoExposureRenderer::GetReadBackLuminance).
+    // <= 0 (or not finite) = no exposure known yet (first frames, a view without the post chain, a capture
+    // view whose output is stored absolute) -> 1.0. SceneRenderer fills ViewInputs::LastExposure.
+    //
+    // ON since PRE-EXPOSURE pass 11b (10-20): writers, readers, thresholds and histories are converted
+    // (DesertEngine-scratch/PRE-EXPOSURE/REMAINDER.md items 1-4); false holds every view at 1.0.
+    inline constexpr bool kScenePreExposureEnabled = true;
+
+    [[nodiscard]] inline float ScenePreExposure( float lastExposure )
+    {
+        if ( !kScenePreExposureEnabled || !( lastExposure > 0.0f ) || !( lastExposure < 3.0e38f ) )
+            return 1.0f;
+        return lastExposure;
+    }
+
     struct ViewFrame
     {
         uint64_t FrameIndex = 0; // this view's frame count (SceneViewState), not the engine's
@@ -242,6 +261,14 @@ namespace Desert::Graphic
         double TimeSeconds     = 0.0;
         double PrevTimeSeconds = 0.0;
         float  DeltaSeconds    = 0.0f; // TimeSeconds - PrevTimeSeconds; 0 on a reset
+
+        // UE View.PreExposure: the scale every HDR write into the scene colour is multiplied by, so radiance is
+        // stored in (roughly) exposed units and a 100 000 lx sun's highlights stay inside RGBA16F (65504). Readers
+        // of the scene colour divide it back out (auto-exposure histogram, SceneComposite); a history written
+        // last frame was stored at PrevPreExposure and is rescaled by PreExposure / PrevPreExposure.
+        // The value comes from ScenePreExposure() — the ONE place it is decided.
+        float PreExposure     = 1.0f;
+        float PrevPreExposure = 1.0f; // the view's previous frame's PreExposure; == PreExposure on a reset
 
         // None: the history textures and every Prev* above belong to the previous frame of this view. Otherwise
         // the temporal pass writes the current frame with no history blend (UE: bCameraCut).

@@ -136,7 +136,7 @@ namespace Desert::Graphic::System
 
         const DownsamplePush push{
              glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ), first ? 1 : 0,
-             m_Threshold, m_ExposureKey, m_AutoExposure ? 1 : 0 };
+             m_Threshold * m_PreExposure, m_ExposureKey, m_AutoExposure ? 1 : 0 };
 
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &push, sizeof( push ) );

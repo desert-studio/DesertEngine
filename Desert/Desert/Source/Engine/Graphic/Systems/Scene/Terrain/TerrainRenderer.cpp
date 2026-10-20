@@ -44,6 +44,9 @@ namespace Desert::Graphic::System
             // velocity the terrain writes (TerrainSurface.glslh TerrainVelocity).
             glm::mat4 ViewProjection;
             glm::mat4 PrevViewProjection;
+            // x = ViewFrame::PreExposure: the forward program writes its lit colour into the scene colour
+            // multiplied by it (the G-buffer program does not: the deferred composite applies it). yzw unused.
+            glm::vec4 Exposure;
         };
 
         // Resolve the scene's main directional light (or a sensible default sun if none exists).
@@ -411,6 +414,7 @@ namespace Desert::Graphic::System
         GetSun( m_SceneRenderer, ub.SunDir, ub.SunColor );
         ub.ViewProjection     = frame.ViewProjection;
         ub.PrevViewProjection = frame.PrevViewProjection;
+        ub.Exposure           = glm::vec4( frame.PreExposure, 0.0f, 0.0f, 0.0f );
 
         for ( const auto& group : m_FrameGroups )
         {

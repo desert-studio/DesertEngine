@@ -172,7 +172,8 @@ Shader "ScreenProbeTraceScreen"
                 return result;
             }
             result.hit      = true;
-            result.radiance = textureLod( u_SceneColorHistory, prevUV, 0.0 ).rgb;
+            // Stored pre-exposed by last frame's P (ViewFrame::PrevPreExposure): undone, the probes stay absolute.
+            result.radiance = textureLod( u_SceneColorHistory, prevUV, 0.0 ).rgb * screenProbeParams.prevCamera.w;
             result.distance = hitDistance;
             // UE: the hit's position minus where its velocity says it was last frame (GetHistoryScreenPosition at
             // the hit; TAA jitter included, as UE notes). Only the moving test reads it.

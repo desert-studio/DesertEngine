@@ -202,7 +202,8 @@ Shader "Terrain"
 
             vec3 lit = albedo * ( ambient * s.AO + sun * ndl * cloudShadow );
 
-            o_Color   = vec4( lit * u_Material.Tint.rgb, 1.0 );
+            // Stored pre-exposed (ViewFrame::PreExposure), like the deferred composite and the forward mesh pass.
+            o_Color   = vec4( lit * u_Material.Tint.rgb * u.Exposure.x, 1.0 );
             oVelocity = TerrainVelocity();
             oThinGeometryCoverage = DesertThinGeometryCoverage( SHADING_MODEL_INDEX_DEFAULT_LIT );
         }

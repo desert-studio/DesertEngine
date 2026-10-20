@@ -68,7 +68,11 @@ Shader "TemporalAA"
             vec2  u_OutputSize;
             vec2  u_JitterUv;           // this frame's jitter in uv (JitterNdc * (0.5, -0.5))
             float u_HistoryValid;
-            float u_Pad;
+            float u_HistoryPreExposureCorrection; // PreExposure / PrevPreExposure (UE HistoryPreExposureCorrection)
+            float u_PreExposure;                  // the scene colour arrives x this (ViewFrame::PreExposure)
+            float u_Pad0;
+            float u_Pad1;
+            float u_Pad2;
         };
         Uniform(8) texture2D u_ResponsiveAA; // R8 coverage of responsive translucency, RenderExtent
         #define u_ResponsiveAA sampler2D(u_ResponsiveAA, u_PointClampSampler)
@@ -256,7 +260,8 @@ Shader "TemporalAA"
         #endif
 
             const float adaptedLum = texelFetch(u_Exposure, ivec2(0), 0).r;
-            const float exposure   = 1.0 / max(adaptedLum, 1e-4);
+            // The scene colour is already x u_PreExposure: divide it out of the weight's exposure.
+            const float exposure   = 1.0 / (max(adaptedLum, 1e-4) * u_PreExposure);
 
             // 3. The filtered current frame and the neighbourhood statistics of K's 3x3. The filter scale (UE
             // InvFilterScaleFactor, TemporalAA.usf :2203-2220): 1, 0 without history (as wide as the kernel goes),
@@ -326,7 +331,7 @@ Shader "TemporalAA"
             vec3 result = filtered;
             if (!ignoreHistory)
             {
-                vec3 history = SampleHistory(historyUv, upsample);
+                vec3 history = SampleHistory(historyUv, upsample) * u_HistoryPreExposureCorrection;
                 if (any(isnan(history)) || any(isinf(history)))
                     history = filtered;
                 const float lumaHistory = Luma(history);

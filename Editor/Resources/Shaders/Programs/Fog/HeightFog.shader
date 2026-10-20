@@ -96,6 +96,7 @@ Shader "HeightFog"
             vec4 u_CameraPosition;   // xyz = camera position in world units, w unused
             vec4 u_ApParams;         // x = volume depth (km), y = view distance scale,
                                      // z = 1 when the volume exists, w = 1 when height fog is enabled
+            vec4 u_Exposure;         // x = ViewFrame::PreExposure (scales the inscattering only), yzw unused
         };
 
         LocalSize(8, 8, 1);
@@ -175,7 +176,9 @@ Shader "HeightFog"
             vec3  inscattering = fog.Inscattering + ap.rgb * fog.Transmittance;
             float transmittance = fog.Transmittance * clamp(ap.a, 0.0f, 1.0f);
 
-            imageStore(u_FogApply, coord, vec4(inscattering, transmittance));
+            // The inscattering is radiance and goes into the pre-exposed scene colour; the transmittance is a
+            // ratio and does not (ViewFrame::PreExposure).
+            imageStore(u_FogApply, coord, vec4(inscattering * u_Exposure.x, transmittance));
         }
     }
 }

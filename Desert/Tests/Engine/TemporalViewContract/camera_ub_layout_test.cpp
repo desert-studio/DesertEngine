@@ -138,8 +138,8 @@ TEST( CameraUBLayout, CppStructHasTheStd140OffsetsOfTheGlslBlock )
          { "SunDirection", offsetof( Camera, SunDirection ) },
          { "ParallaxMaxSteps", offsetof( Camera, ParallaxMaxSteps ) },
          { "ParallaxShadowSteps", offsetof( Camera, ParallaxShadowSteps ) },
-         { "CameraPad0", offsetof( Camera, Pad0 ) },
-         { "CameraPad1", offsetof( Camera, Pad1 ) },
+         { "PreExposure", offsetof( Camera, PreExposure ) },
+         { "PrevPreExposure", offsetof( Camera, PrevPreExposure ) },
          { "CameraPad2", offsetof( Camera, Pad2 ) },
     };
 

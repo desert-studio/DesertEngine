@@ -167,7 +167,7 @@ Shader "DeferredLighting"
         	mat4 u_InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
         	mat4 u_JitteredViewProjection;    // the matrix itself: the contact shadows march the depth in its space
         	vec4 u_ScreenSpaceGI;  // x = the screen-space gather's samples per pixel (Scalability
-        	                       // GlobalIllumination.ScreenSpaceSamples); yzw unused
+        	                       // GlobalIllumination.ScreenSpaceSamples); y = ViewFrame::PreExposure; zw unused
         };
 
         float ssgiHash(vec2 p)
@@ -403,11 +403,13 @@ Shader "DeferredLighting"
         	float       ao   = ge.a * ssao;
 
         	// --- Debug channels (shown on the geometry, over the sky) ---
-        	if (dbg == 1) { oColor = vec4(albedo, 1.0); return; }                          // Albedo
-        	if (dbg == 2) { oColor = vec4(normalize(normal) * 0.5 + 0.5, 1.0); return; }   // Normal
-        	if (dbg == 3) { oColor = vec4(vec3(metallic),  1.0); return; }                 // Metallic
-        	if (dbg == 4) { oColor = vec4(vec3(roughness), 1.0); return; }                 // Roughness
-        	if (dbg == 5) { oColor = vec4(vec3(ao),        1.0); return; }                 // Ambient Occlusion
+        	// Each is stored pre-exposed like the lit result (x u_ScreenSpaceGI.y = PreExposure): the tonemap's
+        	// 1/PreExposure then leaves the channel as authored.
+        	if (dbg == 1) { oColor = vec4(albedo, 1.0); oColor.rgb *= u_ScreenSpaceGI.y; return; }                          // Albedo
+        	if (dbg == 2) { oColor = vec4(normalize(normal) * 0.5 + 0.5, 1.0); oColor.rgb *= u_ScreenSpaceGI.y; return; }   // Normal
+        	if (dbg == 3) { oColor = vec4(vec3(metallic),  1.0); oColor.rgb *= u_ScreenSpaceGI.y; return; }                 // Metallic
+        	if (dbg == 4) { oColor = vec4(vec3(roughness), 1.0); oColor.rgb *= u_ScreenSpaceGI.y; return; }                 // Roughness
+        	if (dbg == 5) { oColor = vec4(vec3(ao),        1.0); oColor.rgb *= u_ScreenSpaceGI.y; return; }                 // Ambient Occlusion
 
         	// Light Complexity: the number of point/spot lights the lighting below shades this pixel with — its froxel's
         	// count in the view's light grid (UE's clustered "light count" view), so the picture is the cost actually
@@ -420,13 +422,13 @@ Shader "DeferredLighting"
         		const uint lights = LightGridCellOverflowed(lightGrid, count)
         		                        ? lightsMetadata.PointLightCount + lightsMetadata.SpotLightCount
         		                        : count;
-        		oColor = vec4(HeatColor(float(lights) / 8.0), 1.0);
+        		oColor = vec4(HeatColor(float(lights) / 8.0), 1.0); oColor.rgb *= u_ScreenSpaceGI.y;
         		return;
         	}
 
         	// Material Complexity: the G-buffer pass stashed the material's sampled-texture count in the shading word's TEXTURES field
         	// (0..3). Heat-map it as a proxy for per-pixel shading cost (UE-style shader/material complexity).
-        	if (dbg == 9) { oColor = vec4(HeatColor(DesertSampledTextureCount(word) / 3.0), 1.0); return; }
+        	if (dbg == 9) { oColor = vec4(HeatColor(DesertSampledTextureCount(word) / 3.0), 1.0); oColor.rgb *= u_ScreenSpaceGI.y; return; }
 
         	// Shading Model / Sun Shadow Receive: the word's other two fields, decoded from the same integer fetch (the
         	// slot is RG32_UINT; a float view of it would reinterpret the bits). One flat colour per model index (golden-
@@ -434,10 +436,10 @@ Shader "DeferredLighting"
         	if (dbg == 10)
         	{
         		const float hue = fract(float(shadingModel) * 0.618034);
-        		oColor          = vec4(clamp(abs(fract(hue + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0), 1.0);
+        		oColor          = vec4(clamp(abs(fract(hue + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0), 1.0); oColor.rgb *= u_ScreenSpaceGI.y;
         		return;
         	}
-        	if (dbg == 11) { oColor = DesertReceivesSunShadows(word) ? vec4(0.1, 0.9, 0.2, 1.0) : vec4(0.9, 0.1, 0.1, 1.0); return; }
+        	if (dbg == 11) { oColor = DesertReceivesSunShadows(word) ? vec4(0.1, 0.9, 0.2, 1.0) : vec4(0.9, 0.1, 0.1, 1.0); oColor.rgb *= u_ScreenSpaceGI.y; return; }
 
         	// --- Lit: shadow-mapped directional sun (N·L) + full lit point/spot lights ---
         	vec3 N    = normalize(normal);
@@ -524,7 +526,7 @@ Shader "DeferredLighting"
         		indirect = GatherIndirectGI(v_TexCoord, worldPos, N, L, radiance) * giIntensity;
         	}
 
-        	if (dbg == 6) { oColor = vec4(indirect, 1.0); return; } // Indirect GI only
+        	if (dbg == 6) { oColor = vec4(indirect, 1.0); oColor.rgb *= u_ScreenSpaceGI.y; return; } // Indirect GI only
 
         	// Ambient = the BAKED ENVIRONMENT (split-sum IBL: diffuse irradiance + prefiltered specular)
         	// plus the one-bounce indirect, attenuated by SSAO — assembled by the SAME shared function the
@@ -578,7 +580,8 @@ Shader "DeferredLighting"
         	// and blooms, matching the forward path. GBufferEmissive is 0 where the material has none.
         	vec3 emissive = ge.rgb;
 
-        	oColor = vec4(result + ambient + emissive, 1.0);
+        	// Stored pre-exposed (ViewFrame::PreExposure): a 100 000 lx sun stays inside RGBA16F.
+        	oColor = vec4((result + ambient + emissive) * u_ScreenSpaceGI.y, 1.0);
         }
     }
 }

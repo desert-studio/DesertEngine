@@ -505,7 +505,8 @@ namespace Desert::Graphic
         evaluation.VerticalFov       = 2.0f * std::atan( 1.0f / std::abs( frame.Projection[1][1] ) );
         evaluation.AspectRatio       = static_cast<float>( frame.Split.Output.Width ) /
                                  static_cast<float>( std::max( frame.Split.Output.Height, 1u ) );
-        evaluation.Reset = !frame.HistoryValid();
+        evaluation.Reset       = !frame.HistoryValid();
+        evaluation.PreExposure = frame.PreExposure;
 
         const RDG::TextureRef color       = inputs.SceneColor;
         const RDG::TextureRef depth       = inputs.SceneDepth;

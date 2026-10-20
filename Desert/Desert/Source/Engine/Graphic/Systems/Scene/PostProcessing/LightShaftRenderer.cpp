@@ -110,7 +110,8 @@ namespace Desert::Graphic::System
     {
         if ( !m_MaskPipeline )
             return Common::MakeError( "LightShaftRenderer: the mask pipeline is not initialised" );
-        const MaskPush    maskPush{ sunScreenUv, m_Params.Threshold, m_Params.MaxBrightness, kMaskWindow };
+        const MaskPush    maskPush{ sunScreenUv, m_Params.Threshold * m_PreExposure,
+                                 m_Params.MaxBrightness * m_PreExposure, kMaskWindow };
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &maskPush, sizeof( maskPush ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_MaskPipeline, GroupCount( desc.Size.Width ),

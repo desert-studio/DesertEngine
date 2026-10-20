@@ -12,6 +12,7 @@
             vec4 CameraPos; // xyz = the observer the LOD rings are centred on (world, cm)
             vec4 SunDir;    // xyz = the scene directional light's travel direction
             vec4 SunColor;  // rgb = colour, a = intensity
+            vec4 Exposure;  // x = ViewFrame::PreExposure (the scene colour is stored pre-exposed), yzw unused
         }
         u;
 

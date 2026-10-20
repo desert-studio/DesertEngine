@@ -293,7 +293,8 @@ namespace Desert::Graphic::System
             glm::vec4 Params;    // x = rays per texel, y = HZB iterations per ray, z = intensity, w = thickness
             glm::vec4 Params2;   // x = max ray distance, y = 1 when the scene colour history is last frame's,
                                  // z = mesh SDF trace distance, w = mesh SDF end distance from the camera
-            glm::vec4 Params3;   // x = the trace's downsample factor (TraceTargets::DownsampleFactor), yzw unused
+            glm::vec4 Params3;   // x = the trace's downsample factor (TraceTargets::DownsampleFactor),
+                                 // y = 1 / PrevPreExposure (the scene history's scale), zw unused
         };
 
         // The trace's uniform block (SSR.shader SSRTraceUB, std140: two mat4), from the ViewFrame once per view
@@ -412,6 +413,10 @@ namespace Desert::Graphic::System
             bool Traced = false;
             // TraceTargets::DownsampleFactor of this frame's targets.
             uint32_t DownsampleFactor = 2;
+            // 1 / ViewFrame::PrevPreExposure: the scene colour history is stored at LAST frame's pre-exposure; a
+            // screen hit's radiance is multiplied by this so the trace's output stays absolute (the deferred
+            // composite applies this frame's PreExposure to it).
+            float InvPrevPreExposure = 1.0f;
         };
         [[nodiscard]] Common::BoolResultStr RecordTrace( const RDG::PassContext& context,
                                                          const glm::vec4& cameraPos, const TraceSettings& settings,
@@ -484,7 +489,8 @@ namespace Desert::Graphic::System
                                          static_cast<float>( settings.Iterations ), settings.Intensity,
                                          settings.Thickness ),
                               glm::vec4( settings.MaxDistance, sceneHistoryReadable ? 1.0f : 0.0f, 0.0f, 0.0f ),
-                              glm::vec4( static_cast<float>( settings.DownsampleFactor ), 0.0f, 0.0f, 0.0f ) };
+                              glm::vec4( static_cast<float>( settings.DownsampleFactor ),
+                                         settings.InvPrevPreExposure, 0.0f, 0.0f ) };
         }
 
         // The front layer permutation's reads (Common/SSRTrace.glslh DESERT_REFLECTIONS_FRONT_LAYER): a

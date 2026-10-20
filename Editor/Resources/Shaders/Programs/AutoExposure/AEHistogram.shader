@@ -28,6 +28,7 @@ Shader "AEHistogram"
         {
             float u_MinLogLum;      // log2 of the darkest metered luminance
             float u_InvLogLumRange; // 1 / (log2 range)
+            float u_InvPreExposure; // 1 / ViewFrame::PreExposure: the scene colour is stored pre-exposed
         };
 
         shared uint s_Bins[256];
@@ -47,7 +48,7 @@ Shader "AEHistogram"
             ivec2 coord = ivec2( gl_GlobalInvocationID.xy );
             if ( coord.x < size.x && coord.y < size.y )
             {
-                float l = Luminance( texelFetch( u_Scene, coord, 0 ).rgb );
+                float l = Luminance( texelFetch( u_Scene, coord, 0 ).rgb ) * u_InvPreExposure;
 
                 uint bin;
                 if ( l < 1e-5 )

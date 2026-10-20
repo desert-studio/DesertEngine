@@ -10,9 +10,9 @@ Shader "TSRDecimateHistory"
         // saturate(2 - |delta| / epsilon), epsilon = pixel radius * PixelDepthError 3 * RadiusToDiameter 2),
         // and the resurrection reprojection :225-250 (r.TSR.Resurrection: this pixel's closest surface through
         // ClipToResurrectionClip into the persistent guide), adapted: no hole-filling velocity, one pixel per lane;
-        // the persistent guide is kept LINEAR (TSR.RecordPersistentFrame divides out its frame's exposure), so the
-        // resurrected guide is re-exposed here with this frame's exposure instead of UE's CPU
-        // ResurrectionPreExposureCorrection ratio.
+        // the persistent guide is kept LINEAR (TSR.RecordPersistentFrame divides out its frame's exposure, leaving the
+        // scene colour pre-exposed by that frame's ViewFrame::PreExposure), so the resurrected guide is brought to
+        // this frame's pre-exposure (UE ResurrectionPreExposureCorrection) and re-exposed with this frame's exposure.
         // Writes the reprojected guide (rgb) with its validity in a (0: off screen, no history, or parallax
         // disoccluded: UE bIsOffScreen / bIsDisoccluded), the reprojected moire history, and the resurrected guide
         // (rgb, GCS) with a = 1 where the resurrection frame sees the pixel on screen (UE !bIsResurrectionOffScreen;
@@ -126,7 +126,7 @@ Shader "TSRDecimateHistory"
                     const vec2 resurrectionUv =
                          clamp(resurrectionScreen * vec2(0.5, -0.5) + 0.5, 0.5 / u_RenderSize, 1.0 - 0.5 / u_RenderSize);
                     const vec3 linearGuide = textureLod(u_ResurrectionGuide, resurrectionUv, 0.0).rgb;
-                    resurrected = vec4(LinearToGCS(linearGuide * TsrExposure(u_Exposure, u_PointClampSampler)), 1.0);
+                    resurrected = vec4(LinearToGCS(linearGuide * u_ResurrectionPreExposureCorrection * TsrExposure(u_Exposure, u_PointClampSampler)), 1.0);
                 }
             }
             imageStore(u_ResurrectedGuide, pixel, resurrected);

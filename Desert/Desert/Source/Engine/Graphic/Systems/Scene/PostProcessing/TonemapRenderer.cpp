@@ -87,7 +87,7 @@ namespace Desert::Graphic::System
         const MaterialTonemap::Params params{
              m_TonemapOperator,     m_Exposure,         bloomIntensity, m_ExposureKey,
              m_AutoExposureEnabled, m_ChromaticBloom,   m_WhitePoint,   lightShaftIntensity,
-             m_LightShaftTint,      lensFlareIntensity, m_LensFlareTint };
+             m_LightShaftTint,      lensFlareIntensity, m_LensFlareTint,    m_PreExposure };
 
         m_MaterialTonemap->BindValues( params );
     }

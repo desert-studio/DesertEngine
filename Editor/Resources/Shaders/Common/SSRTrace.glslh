@@ -232,7 +232,8 @@ PushConstant PushConstants
 	vec4 u_SSRParams;  // x = rays per texel, y = HZB iterations per ray, z = intensity, w = thickness (world)
 	vec4 u_SSRParams2; // x = max ray distance (world), y = 1 when u_SceneColor holds last frame,
 	                   // z = mesh SDF trace distance, w = mesh SDF end distance from the camera (traced only)
-	vec4 u_SSRParams3; // x = the trace's downsample factor (Scalability Reflections.DownsampleFactor: 1 or 2), yzw unused
+	vec4 u_SSRParams3; // x = the trace's downsample factor (Scalability Reflections.DownsampleFactor: 1 or 2),
+	                   // y = 1 / PrevPreExposure (u_SceneColor is stored at LAST frame's pre-exposure), zw unused
 };
 
 // The G-buffer pixel trace texel q traces from: the pixel itself at factor 1; at factor 2 the pixel of its 2x2
@@ -410,7 +411,8 @@ vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
 					if (any(lessThan(prevUV, vec2(0.0))) || any(greaterThan(prevUV, vec2(1.0))))
 						confidence = 0.0;
 					else
-						L_i = textureLod(u_SceneColor, prevUV, 0.0).rgb;
+						// Stored pre-exposed by last frame's P: undone, so the trace's output is absolute radiance.
+						L_i = textureLod(u_SceneColor, prevUV, 0.0).rgb * u_SSRParams3.y;
 #if defined( DESERT_REFLECTIONS_TRACED )
 					// The depth there was certain: a world leg starts just before the surface the screen found.
 					start = max(distance(origin, surface) - kWorldStartBackoff, 0.0);

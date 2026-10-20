@@ -69,6 +69,8 @@ namespace Desert::Graphic
         params.OutputSize   = glm::vec2( static_cast<float>( output.Width ), static_cast<float>( output.Height ) );
         params.JitterUv     = frame.JitterNdc * glm::vec2( 0.5f, -0.5f ); // Velocity.hpp: uv = ndc * (0.5, -0.5)
         params.HistoryValid = frame.HistoryValid() ? 1.0f : 0.0f;
+        params.HistoryPreExposureCorrection = frame.PreExposure / frame.PrevPreExposure;
+        params.PreExposure                  = frame.PreExposure;
         return params;
     }
 

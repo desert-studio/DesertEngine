@@ -9,8 +9,9 @@ Shader "TSRRecordPersistentFrame"
         // r.TSR.Resurrection.PersistentFrameInterval frames). Adapted: the colour and guide histories stay the
         // engine's swapped pairs, and on a recording frame this pass copies the frame just written into one of the
         // persistent textures (HistoryLifetime::Persistent), so no pass ever reads and writes one array. The guide
-        // is stored LINEAR (its guide colour space divided by this frame's exposure), so TSR.DecimateHistory
-        // re-exposes it with the resurrecting frame's exposure (UE: ResurrectionPreExposureCorrection).
+        // is stored LINEAR (its guide colour space divided by this frame's exposure: the scene colour at this frame's
+        // pre-exposure, TsrPersistentFrame::PreExposure), so TSR.DecimateHistory corrects it by
+        // ResurrectionPreExposureCorrection and re-exposes it with the resurrecting frame's exposure.
         //
         // TSR_RECORD_GUIDE: 0 copies the colour history (HistoryExtent, linear already), 1 the guide (RenderExtent).
         #ifndef TSR_RECORD_GUIDE

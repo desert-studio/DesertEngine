@@ -20,7 +20,8 @@ Shader "HeightFogApply"
         // The fog image is the target's own size, so the fetch is one texel per pixel — no filtering to
         // smear a silhouette, and nothing for a bilateral guide to fix.
         //
-        // NO TONEMAP, NO GAMMA, NO EXPOSURE: linear HDR onto linear HDR.
+        // NO TONEMAP, NO GAMMA, NO EXPOSURE here: linear HDR onto linear HDR. The view's PreExposure is already in
+        // the fog image's inscattering (HeightFog.shader writes it multiplied, FogPush::Exposure).
 
         In(0) vec2 v_TexCoord;
 

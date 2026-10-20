@@ -40,7 +40,7 @@
 struct ScreenProbeParams {
     mat4  prevViewProjection; // last frame's (unjittered) view-projection: the screen trace's reprojection
     mat4  prevInvViewProjection; // its inverse: the temporal filter's previous world position of a pixel
-    vec4  prevCamera;         // xyz = last frame's camera (cm)
+    vec4  prevCamera;         // xyz = last frame's camera (cm), w = 1 / PrevPreExposure (the scene colour history's scale)
     vec4  jitter;             // xy = this frame's jitter in NDC, zw = last frame's (the temporal filter's history)
     uvec4 grid;               // xy = level-0 grid, z = uniform probes, w = adaptive probe budget
     uvec4 atlas;              // x = probes per atlas row, y = frame index, z = SP_FLAG_* below,

@@ -1047,6 +1047,25 @@ namespace Desert::Graphic
         // The manual exposure as the scale the composite multiplies by (UE Manual metering, EV100).
         const float manualExposure = ManualExposureScale( post.ManualExposureEV100, post.AutoExposureKey );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->SetParams( manualExposure );
+        // ScenePreExposure's source (UE FViewInfo::UpdatePreExposure): the exposure this view tonemaps with as the
+        // CPU knows it — manual: the scale above; auto: key / the adapted luminance read back FramesInFlight
+        // frames ago (0 until the first copy is written). A capture view keeps 0 -> 1.0: its output is stored
+        // absolute.
+        m_LastExposure = 0.0f;
+        if ( !m_ViewProfile.SceneCapture )
+        {
+            if ( !post.AutoExposure )
+                m_LastExposure = manualExposure;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            else if ( auto* ae =
+                           UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] ) )
+            {
+                const float lum = ae->ReadBackAdaptedLuminance();
+                m_LastExposure  = lum > 0.0f ? post.AutoExposureKey / std::max( lum, 1e-4f ) : 0.0f;
+                LOG_TRACE( "[PreExposure] {}: read-back adapted luminance {} -> exposure {}",
+                           m_ViewResources.GetName(), lum, m_LastExposure );
+            }
+        }
         // The physical sky's on-screen ceiling follows the LOWEST exposure this view can use — the manual scale,
         // or the meter clamped at Max EV100 — so a sky the exposure can show is never cut (SkyLuminanceCeiling).
         UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
@@ -1347,6 +1366,7 @@ namespace Desert::Graphic
                                    ? glm::vec3( 0.0f )
                                    : glm::normalize( -glm::vec3( m_DirectionLights.DirectionLights[0].Direction ) );
         m_LastRenderScalePercent                 = inputs.RenderScalePercent;
+        inputs.LastExposure                      = m_LastExposure;
         const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, m_TemporalUpscaler.get() );
         if ( !begun )
         {
@@ -1356,6 +1376,20 @@ namespace Desert::Graphic
         }
         m_CameraCutPending     = false;
         const ViewFrame& frame = begun.GetValue();
+        // The scale this frame's scene colour is stored at: the readers that undo it (ViewFrame::PreExposure).
+        // A view without the post chain (a capture face) has neither system.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] ) )
+            tonemap->SetPreExposure( frame.PreExposure );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] ) )
+            autoExp->SetPreExposure( frame.PreExposure );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* bloom = UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] ) )
+            bloom->SetPreExposure( frame.PreExposure );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* shafts = UNIQUE_GET_AS( System::LightShaftRenderer, m_RenderSystems["LightShaftSystem"] ) )
+            shafts->SetPreExposure( frame.PreExposure );
         // THE RENDER SET AT THE FRAME'S SPLIT (ViewTargetSet::Render): a scale change resizes the scene's targets
         // here, before any node reads them; the output set stays at m_ViewExtent (Resize).
         ResizeRenderTargets( frame.Split.Render );

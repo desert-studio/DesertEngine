@@ -67,6 +67,8 @@ namespace Desert::Graphic
         float Intensity = 0.0f; // scales the screen-space gather only (PostProcessSettings GIIntensity)
         // The screen-space gather's samples per pixel (Scalability GlobalIllumination.ScreenSpaceSamples).
         int ScreenSpaceSamples = 12;
+        // ViewFrame::PreExposure: the composite writes the scene colour multiplied by it (u_ScreenSpaceGI.y).
+        float PreExposure = 1.0f;
     };
 
     // PURE. The ShadowUB values of @p shadow (x the sun's angular radius tangent for the soft shadow; y enabled;
@@ -182,8 +184,10 @@ namespace Desert::Graphic
             // gather only.
             SetParams( glm::vec4( static_cast<float>( debugMode ), gi.Intensity, ssaoEnabled ? 1.0f : 0.0f,
                                   static_cast<float>( gi.Mode ) ) );
-            // u_ScreenSpaceGI: x = the screen-space gather's samples per pixel (read under mode 1 only).
-            SetScreenSpaceGI( glm::vec4( static_cast<float>( gi.ScreenSpaceSamples ), 0.0f, 0.0f, 0.0f ) );
+            // u_ScreenSpaceGI: x = the screen-space gather's samples per pixel (read under mode 1 only), y = the
+            // view's PreExposure the lit colour is stored at.
+            SetScreenSpaceGI(
+                 glm::vec4( static_cast<float>( gi.ScreenSpaceSamples ), gi.PreExposure, 0.0f, 0.0f ) );
 
             // The contact shadows march the G-buffer depth in the space it was rasterised in
             // (Common/ContactShadow.glslh); their steps and the sun's length ride ShadowUB (UploadShadow).
@@ -236,7 +240,7 @@ namespace Desert::Graphic
         MPROPERTY( glm::vec4, CameraPos,  "u_CameraPos",  ( glm::vec4( 0.0f ) ) )
         MPROPERTY( glm::mat4, InvJitteredViewProjection, "u_InvJitteredViewProjection", ( glm::mat4( 1.0f ) ) )
         MPROPERTY( glm::mat4, JitteredViewProjection, "u_JitteredViewProjection", ( glm::mat4( 1.0f ) ) )
-        MPROPERTY( glm::vec4, ScreenSpaceGI, "u_ScreenSpaceGI", ( glm::vec4( 12.0f, 0.0f, 0.0f, 0.0f ) ) )
+        MPROPERTY( glm::vec4, ScreenSpaceGI, "u_ScreenSpaceGI", ( glm::vec4( 12.0f, 1.0f, 0.0f, 0.0f ) ) )
 
     private:
     };

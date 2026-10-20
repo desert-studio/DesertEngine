@@ -29,6 +29,7 @@ Shader "SceneComposite"
             float u_ChromaticBloom;       // lens dispersion strength on the bloom halo (0 = off)
             float u_WhitePoint;           // REINHARD ONLY: the luminance that maps to pure white (see below)
             float u_TonemapOperator;      // Core::TonemapOperator: < 0.5 = ACES, otherwise extended Reinhard
+            float u_InvPreExposure;       // 1 / ViewFrame::PreExposure (the std140 slot before the vec4s)
             vec4  u_LightShaftTintIntensity; // rgb = the sun light's Bloom Tint, a = Bloom Scale x screen fade
             vec4  u_LensFlareTintIntensity;  // rgb = the lens's Tint, a = Intensity x screen fade
         };
@@ -109,7 +110,8 @@ Shader "SceneComposite"
             vec3 flare = texture(u_LensFlareTexture, v_TexCoord).rgb *
                          (u_LensFlareTintIntensity.rgb * u_LensFlareTintIntensity.a);
 
-            vec3 color = (scene + bloom + shafts + flare) * exposure;
+            // Scene, bloom, shafts and flare are all made from the pre-exposed scene colour: one division undoes it.
+            vec3 color = (scene + bloom + shafts + flare) * (exposure * u_InvPreExposure);
 
         	// The scene's chosen operator. Both branches return LINEAR colour — the display encode below is
         	// the display transfer function and belongs to neither of them.

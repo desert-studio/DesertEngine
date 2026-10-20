@@ -178,6 +178,9 @@ namespace Desert::Graphic::System
         push.AerialPerspective =
              glm::vec4( atmosphere.AerialPerspectiveDepthKm, atmosphere.AerialPerspectiveViewDistanceScale,
                         apActive ? 1.0f : 0.0f, fogActive ? 1.0f : 0.0f );
+        // The scale the scene colour is stored at this frame: the inscattering is written multiplied by it.
+        const ViewFrame* viewFrame = m_SceneRenderer->GetViewFrame();
+        push.Exposure              = glm::vec4( viewFrame ? viewFrame->PreExposure : 1.0f, 0.0f, 0.0f, 0.0f );
 
         // One Compute node: it samples the scene depth, the aerial-perspective volume and the distant sky light,
         // and writes the fog image the apply (HeightFogApply, a Transparency raster node) samples.

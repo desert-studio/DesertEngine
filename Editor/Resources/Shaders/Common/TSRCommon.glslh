@@ -44,6 +44,13 @@ layout(std430, binding = 0) readonly buffer TSRParamsBuffer
     float u_ResurrectionEnabled; // 1 when a persistent frame can be resurrected this frame (UE bEnableResurrection)
     float u_ThinGeometryDetection;  // the project's r.TSR.ThinGeometryDetection: 0 / 1 (TSR.DilateVelocity's offset)
     float u_ThinGeometryFrameIndex; // the frame count since the history reset, mod 64 (the coverage dither)
+    // Pre-exposure (ViewFrame::PreExposure): the scene colour arrives multiplied by u_PreExposure; the colour
+    // history was stored at the previous frame's (UE HistoryPreExposureCorrection = PreExposure / PrevPreExposure)
+    // and a persistent frame at its own (UE ResurrectionPreExposureCorrection = PreExposure / slice's).
+    float u_PreExposure;
+    float u_HistoryPreExposureCorrection;
+    float u_ResurrectionPreExposureCorrection;
+    float u_PreExposurePad;
 };
 
 const float kGCSPreceptionAdd   = 0.17;          // UE TSRColorSpace.ush
@@ -56,12 +63,14 @@ float TsrLuma(vec3 c)
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
 
-// The exposure the history was resolved under: AutoExposure's previous adapted luminance (as TemporalAA.shader).
+// The exposure the history was resolved under: AutoExposure's previous adapted luminance (as TemporalAA.shader),
+// divided by this frame's pre-exposure because the scene colour (and every TSR "linear" texture written this frame)
+// already carries it — so the TSR working space (scene colour x exposure) is the same whatever the pre-exposure.
 // The texture comes in separate with the pass's point sampler: a constructed sampler2D only at a lookup, never as a
 // function argument.
 float TsrExposure(texture2D exposureTexture, sampler pointSampler)
 {
-    return 1.0 / max(texelFetch(sampler2D(exposureTexture, pointSampler), ivec2(0), 0).r, 1e-4);
+    return 1.0 / (max(texelFetch(sampler2D(exposureTexture, pointSampler), ivec2(0), 0).r, 1e-4) * u_PreExposure);
 }
 
 // UE's guide colour space: the pre-exposed linear colour compressed as c / (c + 0.17).

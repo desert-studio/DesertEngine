@@ -25,6 +25,7 @@ namespace Desert::Graphic::System
             glm::vec4 CameraPos;
             glm::vec4 SunDir;
             glm::vec4 SunColor;
+            glm::vec4 Exposure; // x = ViewFrame::PreExposure, yzw unused
         };
 
         // Matches WaterTileRow (WaterTiles, binding 1).
@@ -112,6 +113,7 @@ namespace Desert::Graphic::System
         ub.CameraPos          = glm::vec4( observer, 1.0f );
         ub.SunDir             = glm::vec4( glm::normalize( glm::vec3( -0.4f, -0.85f, -0.35f ) ), 0.0f );
         ub.SunColor           = glm::vec4( 1.0f, 0.98f, 0.92f, 3.0f );
+        ub.Exposure           = glm::vec4( viewFrame->PreExposure, 0.0f, 0.0f, 0.0f );
         if ( const auto& lights = m_SceneRenderer->GetDirectionLights().DirectionLights; !lights.empty() )
         {
             ub.SunDir   = lights[0].Direction;
