@@ -61,6 +61,8 @@ namespace Desert::Assets::Serialization
                     const GrassBlade& b      = *v.Blade;
                     const bool        finite = std::isfinite( b.Height ) && std::isfinite( b.Width ) &&
                                         std::isfinite( b.Taper ) && std::isfinite( b.Curvature ) &&
+                                        std::isfinite( b.CurvatureSpread ) && std::isfinite( b.BendSpread ) &&
+                                        std::isfinite( b.Tilt ) && std::isfinite( b.FacingJitter ) &&
                                         std::isfinite( b.Stiffness ) && std::isfinite( b.DryTipShare ) &&
                                         std::isfinite( b.DryTipLength ) && std::isfinite( b.Clumping ) &&
                                         std::isfinite( b.ClumpPull ) && std::isfinite( b.ClumpSize ) &&
@@ -78,10 +80,17 @@ namespace Desert::Assets::Serialization
                             std::pair{ "Stiffness", b.Stiffness }, std::pair{ "DryTipShare", b.DryTipShare },
                             std::pair{ "DryTipLength", b.DryTipLength }, std::pair{ "Clumping", b.Clumping },
                             std::pair{ "ClumpPull", b.ClumpPull }, std::pair{ "Scatter", b.Scatter },
-                            std::pair{ "Patchiness", b.Patchiness } } )
+                            std::pair{ "Patchiness", b.Patchiness },
+                            std::pair{ "CurvatureSpread", b.CurvatureSpread },
+                            std::pair{ "BendSpread", b.BendSpread } } )
                         if ( value < 0.0f || value > 1.0f )
                             return Common::MakeFormattedError<bool>(
                                  "grass variety {} (Blade): {} {} is outside 0..1", i, name, value );
+                    if ( b.Tilt < 0.0f || b.Tilt > 60.0f || b.FacingJitter < 0.0f || b.FacingJitter > 180.0f )
+                        return Common::MakeFormattedError<bool>(
+                             "grass variety {} (Blade): Tilt {} (0..60 degrees) "
+                             "or FacingJitter {} (0..180 degrees) out of range",
+                             i, b.Tilt, b.FacingJitter );
                     if ( b.Curvature > 0.9f )
                         return Common::MakeFormattedError<bool>(
                              "grass variety {} (Blade): Curvature {} leaves the blade no height (at most 0.9)", i,

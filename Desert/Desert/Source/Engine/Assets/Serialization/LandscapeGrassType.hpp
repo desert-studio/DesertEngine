@@ -81,6 +81,17 @@ namespace Desert::Assets::Serialization
         float Taper = 0.9f;
         /// How far the tip leans forward at rest, as a share of the height (0 = upright).
         float Curvature = 0.35f;
+        /// 0..1: how far each blade's own lean strays from Curvature, either way (0.4: from 0.6 to 1.4 times it).
+        float CurvatureSpread = 0.4f;
+        /// 0..1: how far each blade's bend gathers toward its tip (0 = every blade one even arc; 1 = some stay a
+        /// straight stalk that bends only near the tip), drawn per blade.
+        float BendSpread = 0.0f;
+        /// Degrees, 0..60: the largest angle a blade's root stands off its up axis, drawn per blade in a direction
+        /// of its own (0 = every blade rises upright and only its curvature leans it).
+        float Tilt = 0.0f;
+        /// Degrees, 0..180: how far each blade's facing turns, either way, after it follows its clump (0 = the
+        /// clump's share of the facing alone; restores the per-blade facing a strong Clumping takes away).
+        float FacingJitter = 0.0f;
         /// 0..1: the share of the wind's sway the blade resists (1 = it does not move).
         float                Stiffness = 0.3f;
         std::array<float, 3> BaseColor{ 0.06f, 0.10f, 0.03f };

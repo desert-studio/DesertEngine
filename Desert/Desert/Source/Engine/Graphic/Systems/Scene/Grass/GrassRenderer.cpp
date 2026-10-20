@@ -45,8 +45,9 @@ namespace Desert::Graphic::System
             glm::uvec4 Buckets; // x = bucket count, y = the bucket table's first word in Args
             glm::vec4  Blade;   // x = LodDistance (0: one bucket), y = ClumpSize, z = Clumping, w = ClumpPull
             glm::vec4  Spread;  // x = Scatter (cells), y = Patchiness, z = PatchSize
+            glm::vec4  Lean;    // x = Tilt (radians), y = FacingJitter (radians)
         };
-        static_assert( sizeof( GrassParamsGpu ) == 224 );
+        static_assert( sizeof( GrassParamsGpu ) == 240 );
 
         // Mirrors Vertex_GrassBlade.glslh's GrassBladeShape (std430).
         struct GrassBladeShapeGpu
@@ -55,8 +56,9 @@ namespace Desert::Graphic::System
             glm::vec4 Base; // BaseColor, Stiffness
             glm::vec4 Tip;  // TipColor, DryTipShare
             glm::vec4 Dry;  // DryTipColor, DryTipLength
+            glm::vec4 Bend; // CurvatureSpread, BendSpread
         };
-        static_assert( sizeof( GrassBladeShapeGpu ) == 64 );
+        static_assert( sizeof( GrassBladeShapeGpu ) == 80 );
 
         // Instances whose cell centre lies within [inner, outer) of the camera, the ring widened on each side by
         // one jittered cell and by @p moved, the farthest a blade's scatter and clump pull carry it from its cell.
@@ -237,7 +239,8 @@ namespace Desert::Graphic::System
             const GrassBladeDraw&    b = *variety.Blade;
             const GrassBladeShapeGpu shape{
                  glm::vec4( b.Height, b.Width, b.Taper, b.Curvature ), glm::vec4( b.BaseColor, b.Stiffness ),
-                 glm::vec4( b.TipColor, b.DryTipShare ), glm::vec4( b.DryTipColor, b.DryTipLength ) };
+                 glm::vec4( b.TipColor, b.DryTipShare ), glm::vec4( b.DryTipColor, b.DryTipLength ),
+                 glm::vec4( b.CurvatureSpread, b.BendSpread, 0.0f, 0.0f ) };
             if ( const auto wrote = gpu.Shape->SetData( &shape, sizeof( shape ) ); !wrote.IsSuccess() )
             {
                 LOG_ERROR( "[Grass] the blade shape was not written: {}", wrote.GetError() );
@@ -251,13 +254,15 @@ namespace Desert::Graphic::System
         params.Cull   = glm::vec4( p.StartCullDistance, p.EndCullDistance, cell,
                                    std::clamp( p.PlacementJitter, 0.0f, 0.99f ) * 0.5f );
         // The instance's bounding sphere in its local space: a blade's from its shape (the upright blade's
-        // middle, reaching the leaning tip and the wind's sway), a mesh's from its bounds.
+        // middle, reaching the farthest leaning tip - its own curvature draw and its root's tilt - and the wind's
+        // sway), a mesh's from its bounds.
         float boundsRadius = 0.0f, boundsHeight = 0.0f;
         if ( variety.Blade )
         {
-            boundsHeight = 0.5f * variety.Blade->Height;
-            boundsRadius =
-                 boundsHeight * ( 1.0f + variety.Blade->Curvature ) + variety.Blade->Width + variety.Wind.Strength;
+            const GrassBladeDraw& b = *variety.Blade;
+            boundsHeight            = 0.5f * b.Height;
+            boundsRadius            = boundsHeight * ( 1.0f + b.Curvature * ( 1.0f + b.CurvatureSpread ) ) +
+                           b.Height * std::sin( glm::radians( b.Tilt ) ) + b.Width + variety.Wind.Strength;
         }
         else
         {
@@ -287,6 +292,9 @@ namespace Desert::Graphic::System
         params.Spread = variety.Blade ? glm::vec4( 2.0f * variety.Blade->Scatter, variety.Blade->Patchiness,
                                                    variety.Blade->PatchSize, 0.0f )
                                       : glm::vec4( 0.0f, 0.0f, 1.0f, 0.0f );
+        params.Lean   = variety.Blade ? glm::vec4( glm::radians( variety.Blade->Tilt ),
+                                                   glm::radians( variety.Blade->FacingJitter ), 0.0f, 0.0f )
+                                      : glm::vec4( 0.0f );
         if ( const auto wrote = gpu.Params->SetData( &params, sizeof( params ) ); !wrote.IsSuccess() )
         {
             LOG_ERROR( "[Grass] the variety's parameters were not written: {}", wrote.GetError() );

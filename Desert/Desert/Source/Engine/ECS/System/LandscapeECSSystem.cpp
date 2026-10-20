@@ -587,24 +587,28 @@ namespace Desert::ECS
                         const auto& b   = *v.Blade;
                         const auto  rgb = []( const std::array<float, 3>& c )
                         { return glm::vec3( c[0], c[1], c[2] ); };
-                        variety.Blade = Graphic::System::GrassBladeDraw{ .Height       = b.Height,
-                                                                         .Width        = b.Width,
-                                                                         .Taper        = b.Taper,
-                                                                         .Curvature    = b.Curvature,
-                                                                         .Stiffness    = b.Stiffness,
-                                                                         .BaseColor    = rgb( b.BaseColor ),
-                                                                         .TipColor     = rgb( b.TipColor ),
-                                                                         .DryTipColor  = rgb( b.DryTipColor ),
-                                                                         .DryTipShare  = b.DryTipShare,
-                                                                         .DryTipLength = b.DryTipLength,
-                                                                         .Clumping     = b.Clumping,
-                                                                         .ClumpSize    = b.ClumpSize,
-                                                                         .ClumpPull    = b.ClumpPull,
-                                                                         .Scatter      = b.Scatter,
-                                                                         .Patchiness   = b.Patchiness,
-                                                                         .PatchSize    = b.PatchSize,
-                                                                         .Segments     = b.Segments,
-                                                                         .LodDistance  = b.LodDistance };
+                        variety.Blade = Graphic::System::GrassBladeDraw{ .Height          = b.Height,
+                                                                         .Width           = b.Width,
+                                                                         .Taper           = b.Taper,
+                                                                         .Curvature       = b.Curvature,
+                                                                         .CurvatureSpread = b.CurvatureSpread,
+                                                                         .BendSpread      = b.BendSpread,
+                                                                         .Tilt            = b.Tilt,
+                                                                         .FacingJitter    = b.FacingJitter,
+                                                                         .Stiffness       = b.Stiffness,
+                                                                         .BaseColor       = rgb( b.BaseColor ),
+                                                                         .TipColor        = rgb( b.TipColor ),
+                                                                         .DryTipColor     = rgb( b.DryTipColor ),
+                                                                         .DryTipShare     = b.DryTipShare,
+                                                                         .DryTipLength    = b.DryTipLength,
+                                                                         .Clumping        = b.Clumping,
+                                                                         .ClumpSize       = b.ClumpSize,
+                                                                         .ClumpPull       = b.ClumpPull,
+                                                                         .Scatter         = b.Scatter,
+                                                                         .Patchiness      = b.Patchiness,
+                                                                         .PatchSize       = b.PatchSize,
+                                                                         .Segments        = b.Segments,
+                                                                         .LodDistance     = b.LodDistance };
                     }
                     auto& p                     = variety.Placement;
                     p.Density                   = v.Density;
