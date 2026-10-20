@@ -340,6 +340,59 @@ namespace Desert::Editor
         return viewport->DropMeshAsset( path, target );
     }
 
+    Common::BoolResultStr ViewportPanel::DropPrefabIntoActiveViewport( const std::string&              path,
+                                                                       const std::optional<glm::vec3>& surface )
+    {
+        ViewportPanel* viewport = ActiveViewport();
+        if ( viewport == nullptr )
+            return Common::MakeFormattedError<bool>( "'{}': no viewport is live to drop it into", path );
+        return viewport->DropPrefabAsset( path, surface );
+    }
+
+    Common::BoolResultStr ViewportPanel::DropPrefabAsset( const std::string&              path,
+                                                          const std::optional<glm::vec3>& surface )
+    {
+        if ( !m_Scene || m_AssetManager == nullptr )
+            return Common::MakeFormattedError<bool>( "'{}': this viewport has no scene or no asset manager",
+                                                     path );
+        auto& mgr    = const_cast<Assets::AssetManager&>( *m_AssetManager );
+        auto  prefab = mgr.FindByPath<Assets::PrefabAsset>( path );
+        if ( !prefab )
+            prefab = mgr.CreateAsset<Assets::PrefabAsset>( path );
+        if ( !prefab )
+            return Common::MakeFormattedError<bool>( "'{}': not a prefab the asset manager can open", path );
+        if ( !prefab->IsReadyForUse() )
+            prefab->Load();
+
+        // WHERE IT LANDS DEPENDS ON WHAT IT IS. A world prefab goes to the scene root, as it always did. A UI
+        // prefab dropped into the viewport must land inside the canvas the author is looking at — at the scene
+        // root it would be a correct, selectable, serialized tree covering zero pixels, which is the silent
+        // success PrefabPlacement exists to refuse. Same answer the "UI" create menu uses, from the same two
+        // functions, so the drop and the menu cannot put things in different canvases.
+        ECS::Entity parentEntity;
+        if ( !prefab->GetEntities().empty() &&
+             Assets::ClassifyPrefabRoot( prefab->GetEntities().front() ) == Assets::PrefabRootKind::UIElement )
+        {
+            if ( const auto canvas = UICanvasForCreate( *m_Scene ) )
+                parentEntity =
+                     ECS::Entity{ UIParentForCreate( *m_Scene, canvas.GetValue() ), m_Scene->GetRegistry() };
+        }
+
+        const auto placed = prefab->Instantiate( m_Scene.get(), *m_AssetManager, parentEntity, nullptr );
+        if ( !placed )
+            return Common::MakeError<bool>( placed.GetError() );
+        const ECS::Entity root = placed.GetValue();
+        if ( !root )
+            return Common::MakeFormattedError<bool>( "'{}': the prefab instantiated no root", path );
+        // A world prefab lands on the surface met; a UI prefab keeps the layout its canvas gives it.
+        if ( !parentEntity && surface && root.HasComponent<ECS::TransformComponent>() )
+            root.GetComponent<ECS::TransformComponent>().Translation = *surface;
+        const auto uuid = root.GetComponent<ECS::UUIDComponent>().UUID;
+        Core::SelectionManager::SetSelected( uuid );
+        Commands::NotifyCreated( { uuid } );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr ViewportPanel::DropMeshAsset( const std::string& path, const ActorDrop::Target& target )
     {
         if ( !m_Scene || m_AssetManager == nullptr || !m_AsyncLoader )
@@ -1847,49 +1900,11 @@ namespace Desert::Editor
             {
                 const std::string path( static_cast<const char*>( payload->Data ),
                                         payload->DataSize > 0 ? payload->DataSize - 1 : 0 );
-                auto& mgr = const_cast<Assets::AssetManager&>( *m_AssetManager );
-                auto  prefab = mgr.FindByPath<Assets::PrefabAsset>( path );
-                if ( !prefab )
-                    prefab = mgr.CreateAsset<Assets::PrefabAsset>( path );
-                if ( prefab )
-                {
-                    if ( !prefab->IsReadyForUse() )
-                        prefab->Load();
-
-                    // WHERE IT LANDS DEPENDS ON WHAT IT IS. A world prefab goes to the scene root, as it
-                    // always did. A UI prefab dropped into the viewport must land inside the canvas the
-                    // author is looking at — at the scene root it would be a correct, selectable,
-                    // serialized tree covering zero pixels, which is the silent success PrefabPlacement
-                    // exists to refuse. Same answer the "UI" create menu above uses, from the same two
-                    // functions, so the drop and the menu cannot put things in different canvases.
-                    ECS::Entity parentEntity;
-                    if ( !prefab->GetEntities().empty() &&
-                         Assets::ClassifyPrefabRoot( prefab->GetEntities().front() ) ==
-                              Assets::PrefabRootKind::UIElement )
-                    {
-                        if ( const auto canvas = UICanvasForCreate( *m_Scene ) )
-                        {
-                            parentEntity = ECS::Entity{ UIParentForCreate( *m_Scene, canvas.GetValue() ),
-                                                        m_Scene->GetRegistry() };
-                        }
-                    }
-
-                    const auto placed =
-                         prefab->Instantiate( m_Scene.get(), *m_AssetManager, parentEntity, nullptr );
-                    if ( !placed )
-                    {
-                        LOG_ERROR( "{}", placed.GetError() );
-                    }
-                    else if ( const ECS::Entity root = placed.GetValue() )
-                    {
-                        // A world prefab lands on the surface under the cursor; a UI prefab keeps the layout
-                        // its canvas gives it.
-                        const auto surface = SurfaceAtCursor();
-                        if ( !parentEntity && surface && root.HasComponent<ECS::TransformComponent>() )
-                            root.GetComponent<ECS::TransformComponent>().Translation = surface->Point;
-                        Commands::NotifyCreated( { root.GetComponent<ECS::UUIDComponent>().UUID } );
-                    }
-                }
+                std::optional<glm::vec3> surface;
+                if ( const auto hit = SurfaceAtCursor() )
+                    surface = hit->Point;
+                if ( const auto placed = DropPrefabAsset( path, surface ); !placed )
+                    LOG_ERROR( "[Viewport] prefab drop of '{}' refused: {}", path, placed.GetError() );
             }
 
             // Drag a mesh source (.obj/.fbx/.gltf/...) from the File Explorer onto the viewport to spawn it
