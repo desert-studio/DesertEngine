@@ -31,6 +31,10 @@ namespace Desert::Runtime
         /// what a script names a preset by. Refused when no asset manager is bound or the file does not exist.
         Common::ResultStr<Assets::AssetHandle> HandleForPath( const std::filesystem::path& path );
 
+        /// The handle of the `.decloudtype` at `path` (relative to the assets root) — what a preset's CloudTypes
+        /// name a type by (WTH-OVERCAST). Refused when no asset manager is bound or the file does not exist.
+        Common::ResultStr<Assets::AssetHandle> CloudTypeHandleForPath( const std::filesystem::path& path );
+
         void Clear();
 
     private:

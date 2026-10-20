@@ -127,6 +127,9 @@ layout( std430, binding = CLOUD_PARAMS_BINDING ) readonly buffer CloudParamsBuff
     // Before u_CloudAerial for the reason u_CloudAlbedo is.
     vec4  u_CloudSpeciesWispBase;
     vec4  u_CloudSpeciesWispTop;
+    // PER SPECIES, the weather's per-type weight of the Coverage cut (Graphic::CloudGpuPayload::SpeciesCover,
+    // WTH-OVERCAST). Before u_CloudAerial for the reason u_CloudAlbedo is.
+    vec4  u_CloudSpeciesCover;
     // THE PAINTED LAYOUT (Graphic::CloudGpuPayload::LayoutPlace / LayoutStrength, WX-PAINT): xy offset km, zw
     // (cos, sin) * repeats / region; x pattern strength, y mask strength, 0 when not bound — z and w are
     // not read (Graphic::kCloudUnreadSlots). Before u_CloudAerial for the reason u_CloudAlbedo is.
@@ -195,6 +198,7 @@ CloudFieldParams CloudUnpackFieldParams()
     p.Weather         = u_CloudWeather.yw;
     p.FarScale        = u_CloudWeather.x;
     p.Coverage        = u_CloudWeather.z;
+    p.SpeciesCover    = u_CloudSpeciesCover;
     for ( int band = 0; band < CLOUD_FAR_BANDS; ++band )
     {
         p.FarPresence[band] = u_CloudFarPresence[band];

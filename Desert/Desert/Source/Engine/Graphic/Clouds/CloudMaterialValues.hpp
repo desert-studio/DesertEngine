@@ -67,6 +67,12 @@ namespace Desert::Graphic
 
         // ---- Weather --------------------------------------------------------------------------------
         float   Coverage         = 0.45f;
+        // Per type slot (CloudType1..4), the share of Coverage that type is cut at — the weather's
+        // per-type visibility (WTH-OVERCAST). Independent, never a partition (D-14).
+        float   CloudTypeWeight1 = 1.0f;
+        float   CloudTypeWeight2 = 1.0f;
+        float   CloudTypeWeight3 = 1.0f;
+        float   CloudTypeWeight4 = 1.0f;
         float   CoverageContrast = 1.0f;
         float   WeatherTileSize  = 1200000.0f; // cm; 12 km -> 3 km lattice cells
         int32_t Seed             = 1;
@@ -132,6 +138,15 @@ namespace Desert::Graphic
             out[2] = CloudType3;
             out[3] = CloudType4;
         }
+
+        /// The per-slot weights in the same canonical order as TypeSlots.
+        void TypeWeights( float ( &out )[ECS::kCloudTypeSlots] ) const
+        {
+            out[0] = CloudTypeWeight1;
+            out[1] = CloudTypeWeight2;
+            out[2] = CloudTypeWeight3;
+            out[3] = CloudTypeWeight4;
+        }
     };
 
     namespace Detail
@@ -177,6 +192,14 @@ namespace Desert::Graphic
         {
             if ( name == "Coverage" )
                 AssignCloudValue( v.Coverage, name, p );
+            else if ( name == "CloudTypeWeight1" )
+                AssignCloudValue( v.CloudTypeWeight1, name, p );
+            else if ( name == "CloudTypeWeight2" )
+                AssignCloudValue( v.CloudTypeWeight2, name, p );
+            else if ( name == "CloudTypeWeight3" )
+                AssignCloudValue( v.CloudTypeWeight3, name, p );
+            else if ( name == "CloudTypeWeight4" )
+                AssignCloudValue( v.CloudTypeWeight4, name, p );
             else if ( name == "CoverageContrast" )
                 AssignCloudValue( v.CoverageContrast, name, p );
             else if ( name == "WeatherTileSize" )

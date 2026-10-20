@@ -47,6 +47,17 @@ namespace Desert::Assets::Serialization
         [[nodiscard]] bool operator==( const WeatherParameterValue& ) const = default;
     };
 
+    /// One cloud type the weather shows and how much of it (WTH-OVERCAST): `Type` the `.decloudtype` path relative
+    /// to the assets root, `Weight` 0..1 its share of CloudCoverage — the cloud layer's CloudTypeWeight of the
+    /// slot holding that type. A preset that states any type states the WHOLE set: a type it leaves out is at 0.
+    struct WeatherCloudTypeWeight
+    {
+        std::string Type;
+        float       Weight = 0.0f;
+
+        [[nodiscard]] bool operator==( const WeatherCloudTypeWeight& ) const = default;
+    };
+
     struct WeatherPresetData
     {
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
@@ -54,6 +65,10 @@ namespace Desert::Assets::Serialization
         std::vector<WeatherParameterValue> Parameters;
         // 0..1, the cloud material's Coverage (Graphic/Clouds/CloudMaterialValues.hpp).
         std::optional<float> CloudCoverage;
+        // The cloud types this weather shows (empty = the layer's own weights are left alone).
+        std::vector<WeatherCloudTypeWeight> CloudTypes;
+        // The cloud material's DensityScale (0..2): an overcast deck is thicker than fair-weather cumulus.
+        std::optional<float> CloudDensity;
         // The ExponentialHeightFog's FogDensity (its own units, 0..0.5).
         std::optional<float> FogDensity;
         // cm/s, the zone's WindSource Speed.
