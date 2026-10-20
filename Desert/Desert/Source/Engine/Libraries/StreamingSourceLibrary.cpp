@@ -25,7 +25,7 @@ namespace Desert::Libraries
                  "WorldStreaming.isStreamingCompleted: entity {} has no Streaming Source",
                  static_cast<std::uint32_t>( handle ) );
         }
-        const auto* wait = registry.ctx().find<Core::WorldStreamingWait>();
+        const auto* wait = registry.try_ctx<Core::WorldStreamingWait>();
         if ( wait == nullptr )
         {
             return Common::MakeError<bool>(
