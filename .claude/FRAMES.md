@@ -26,8 +26,8 @@
 ## 1. Один кадр без взаимодействия (сцена + камера)
 ```
 export HOME=/private/tmp/claude-501/<T>/home; mkdir -p $HOME
-cd <TREE>/Editor && /Users/daniilsavcenko/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor --project Desert.deproj \
-  --scene Resources/Assets/Scenes/Starter.desce \
+cd <TREE>/Editor && /Users/daniilsavcenko/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor --project <TREE>/Projects/Desert/Desert.deproj \
+  --scene <TREE>/Projects/Desert/Content/Scenes/Starter.desce \
   --shot /private/tmp/claude-501/<T>/shot.png --shot-frames 90 --camera 0,200,400 --look 0,-0.3,-1 \
   > /private/tmp/claude-501/<T>/editor.log 2>&1
 ```
@@ -41,7 +41,7 @@ PSO1 — кадр «= dev» ничего не доказывал); для объ
 Запуск (Bash с run_in_background: true):
 ```
 export HOME=/private/tmp/claude-501/<T>/home; mkdir -p $HOME
-cd <TREE>/Editor && /Users/daniilsavcenko/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor --project Desert.deproj \
+cd <TREE>/Editor && /Users/daniilsavcenko/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor --project <TREE>/Projects/Desert/Desert.deproj \
   --scene Resources/Assets/Scenes/<Scene>.desce --control-socket /tmp/<T>.sock \
   > /private/tmp/claude-501/<T>/editor.log 2>&1
 ```
@@ -105,11 +105,11 @@ $C quit 0
 - Plane Cut / Mirror on a cylinder, Output = Dynamic Mesh: `/private/tmp/claude-501/p14/frames/run.sh` (P14, 09-27).
 
 ## World Partition flight (`--flight`, WP7/WP11/WP12)
-Scene WP11_HLODFlight lives in the scratchpad (/private/tmp/claude-501/wp11/WP11_HLODFlight.desce) — copy it into
-Editor/Resources/Assets/Scenes/ for the run and delete it after (never commit it). Own HOME per run; remove Autosave/.session.lock.
+Scene WP11_HLODFlight is GONE from the scratchpad (10-20); the live two-grid flight is DesertEngine-scratch/WP22/work/fly.sh + scene/bundle — copy it into
+Projects/Desert/Content/Scenes/ for the run and delete it after (a WP world: migrate.sh it once into a bundle, as WP22/work/fly.sh does) (never commit it). Own HOME per run; remove Autosave/.session.lock.
 ```
-cd <tree>/Editor && ~/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor --project Desert.deproj \
-  --scene Resources/Assets/Scenes/WP11_HLODFlight.desce --play \
+cd <tree>/Editor && ~/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor --project <TREE>/Projects/Desert/Desert.deproj \
+  --scene <TREE>/Projects/Desert/Content/Scenes/WP11_HLODFlight.desce --play \
   --flight line:500,700,500:13500,700,500 --flight-speed <cm/s> --flight-csv <out>/flight.csv \
   --stream-delay-ticks <n> --shot-sequence <out>/seq --shot-every 6 --shot <out>/last.png > <out>/editor.log 2>&1
 ```
