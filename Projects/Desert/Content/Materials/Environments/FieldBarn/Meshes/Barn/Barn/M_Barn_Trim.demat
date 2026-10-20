@@ -5,7 +5,12 @@
         "Versions": {
             "MATL": 5
         },
-        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "febd2e77bc299d43cf5c4a4aa8f3bc50", "ebf4907a499f2625cb893654f4affa97", "3fb2d280d1e451c5e73ffec92d2a5f38"]
+        "Dependencies": [
+            "4f1cac6af403a010c792d835dd6f7d44",
+            "febd2e77bc299d43cf5c4a4aa8f3bc50",
+            "ebf4907a499f2625cb893654f4affa97",
+            "3fb2d280d1e451c5e73ffec92d2a5f38"
+        ]
     },
     "Shader": {
         "Guid": "4f1cac6af403a010c792d835dd6f7d44",
@@ -14,27 +19,57 @@
     "Params": [
         {
             "Name": "AlbedoColor",
-            "Value": [2.1, 2.05, 1.95, 1.0]
+            "Value": [
+                2.1,
+                2.05,
+                1.95,
+                1.0
+            ]
         },
         {
             "Name": "MetallicFactor",
-            "Value": [0.0, 0.0, 0.0, 0.0]
+            "Value": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ]
         },
         {
             "Name": "RoughnessFactor",
-            "Value": [1.0, 0.0, 0.0, 0.0]
+            "Value": [
+                1.0,
+                0.0,
+                0.0,
+                0.0
+            ]
         },
         {
             "Name": "AOStrength",
-            "Value": [1.0, 0.0, 0.0, 0.0]
+            "Value": [
+                1.0,
+                0.0,
+                0.0,
+                0.0
+            ]
         },
         {
             "Name": "NormalScale",
-            "Value": [1.0, 0.0, 0.0, 0.0]
+            "Value": [
+                1.0,
+                0.0,
+                0.0,
+                0.0
+            ]
         },
         {
             "Name": "EmissiveColor",
-            "Value": [0.0, 0.0, 0.0, 1.0]
+            "Value": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ]
         }
     ],
     "Textures": [
