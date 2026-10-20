@@ -54,13 +54,30 @@ namespace Desert::Migration
     // them when it stamps the header, and rfl omits an empty optional, so the file this tool writes is the
     // file the engine reads. A deliberate second copy of the shape; the static_assert below is what keeps
     // it from forking (a member added to the engine's struct and not here fails to compile).
+    // THE WORLD PARTITION BLOCK THIS TOOL READS: the engine's Core::WorldPartitionSerialized PLUS the v50..v66
+    // world-wide DefaultHLODLayer, frozen here. v67 moved the layer onto each grid (Core::
+    // WorldPartitionGridSerialized::HLODLayer), and the read is strict, so an older file's key needs a member to
+    // land in. Read, never written: MigrateGridHLODLayerV66ToV67 moves it onto the grids and clears it, and rfl
+    // omits an empty optional, so the block this tool writes is the block the engine reads.
+    struct WorldPartitionSerialized
+    {
+        std::vector<Core::WorldPartitionGridSerialized>       Grids;
+        std::optional<std::vector<Core::HLODLayerSerialized>> HLODLayers;
+        // v50..v66 files only.
+        std::optional<std::string> DefaultHLODLayer;
+    };
+    static_assert( rfl::named_tuple_t<WorldPartitionSerialized>::size() ==
+                        rfl::named_tuple_t<Core::WorldPartitionSerialized>::size() + 1,
+                   "Core::WorldPartitionSerialized gained or lost a member: mirror it in "
+                   "Migration::WorldPartitionSerialized, or this tool drops it from every scene it rewrites" );
+
     struct SceneSerialized
     {
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
         std::string                                               SceneName;
         std::vector<Assets::EntityData>                           Entities;
         std::optional<rfl::Generic>                               Settings;
-        std::optional<Core::WorldPartitionSerialized>             WorldPartition;
+        std::optional<WorldPartitionSerialized>                   WorldPartition;
         // Pre-v26 files only; read so a refusal can name the version, never written.
         std::optional<int> UnitVersion;
         std::optional<int> SceneVersion;
@@ -358,7 +375,14 @@ namespace Desert::Migration
     //       none of them gains a member (MigrateGridNamesV65ToV66). Scenes only: a prefab has no WorldPartition.
     inline constexpr int kSceneVersionGridNames = 66;
 
-    static_assert( kSceneVersionGridNames == kSceneVersion,
+    //  67 - THE HLOD LAYER IS A GRID'S (WP22c). UE states HLOD setup per runtime partition
+    //       (FRuntimePartitionDesc::HLODSetups), so WorldPartitionGridSerialized gains HLODLayer and the world's
+    //       DefaultHLODLayer is gone. A v66 world built every cell's HLOD with its DefaultHLODLayer, whatever the
+    //       grid, so every grid that states no layer is given that one; a world that stated none gives none
+    //       (its cells had no HLOD and still have none) (MigrateGridHLODLayerV66ToV67). Scenes only.
+    inline constexpr int kSceneVersionGridHLODLayer = 67;
+
+    static_assert( kSceneVersionGridHLODLayer == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -706,6 +730,10 @@ namespace Desert::Migration
     // Names every unnamed grid of a partitioned world (kSceneVersionGridNames); how many it named.
     std::size_t MigrateGridNamesV65ToV66( SceneSerialized& scene );
 
+    // Moves a partitioned world's DefaultHLODLayer onto every grid that states no HLODLayer and clears it
+    // (kSceneVersionGridHLODLayer); how many grids were given the layer.
+    std::size_t MigrateGridHLODLayerV66ToV67( SceneSerialized& scene );
+
     // What MigrateSceneDependenciesV51ToV52 did to one scene.
     struct SceneDependenciesReport
     {
@@ -964,6 +992,8 @@ namespace Desert::Migration
         bool HLODLayerStated  = false; // a partitioned world was given the Instancing layer
         bool        GridNamesRaised = false; // below kSceneVersionGridNames
         std::size_t GridsNamed      = 0;     // grids given a name
+        bool        GridHLODLayerRaised = false; // below kSceneVersionGridHLODLayer
+        std::size_t GridsGivenHLODLayer = 0;     // grids given the world's former DefaultHLODLayer
 
         bool                    SceneDependenciesRaised = false; // below kSceneVersionSceneDependencies
         SceneDependenciesReport SceneDependencies;
@@ -1007,7 +1037,7 @@ namespace Desert::Migration
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
                    RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
-                   GridNamesRaised;
+                   GridNamesRaised || GridHLODLayerRaised;
         }
     };
 
