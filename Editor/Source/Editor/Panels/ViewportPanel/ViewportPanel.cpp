@@ -1319,6 +1319,7 @@ namespace Desert::Editor
                 VM_SurfaceCacheAtlas,
                 VM_SurfaceCacheScene,
                 VM_SurfaceCacheSceneLit,
+                VM_Reflections,
                 VM_ShadowCascades,
                 VM_ShadowFactor,
                 VM_Count
@@ -1343,6 +1344,7 @@ namespace Desert::Editor
                                          ICON_MDI_TEXTURE "  Surface Cache Atlas",
                                          ICON_MDI_CUBE_OUTLINE "  Lumen Scene (Cards)",
                                          ICON_MDI_LIGHTBULB_ON "  Lumen Scene (Lit)",
+                                         ICON_MDI_CIRCLE_HALF_FULL "  Reflections",
                                          ICON_MDI_LAYERS "  Shadow Cascades",
                                          ICON_MDI_BRIGHTNESS_6 "  Shadow Factor" };
             static_assert( IM_ARRAYSIZE( kViewModes ) == VM_Count,
@@ -1392,6 +1394,8 @@ namespace Desert::Editor
                 vm = VM_SurfaceCacheScene;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::SurfaceCacheSceneLit )
                 vm = VM_SurfaceCacheSceneLit;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::Reflections )
+                vm = VM_Reflections;
             else if ( view.ShowNormals )
                 vm = VM_Normals;
 
@@ -1590,6 +1594,9 @@ namespace Desert::Editor
                         break;
                     case VM_SurfaceCacheSceneLit:
                         view.DeferredDebug = Graphic::DeferredDebugMode::SurfaceCacheSceneLit;
+                        break;
+                    case VM_Reflections:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::Reflections;
                         break;
                     case VM_ShadowCascades:
                         view.ShadowDebug = Graphic::ShadowDebugMode::Cascades;

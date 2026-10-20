@@ -692,6 +692,22 @@ namespace Desert::Graphic
                                           : ReflectionsTraced() ? kReflectionInputTraced
                                                                 : kReflectionInputScreen;
         const glm::vec4 cameraPos( frame.CameraPosition, reflectionInput );
+        // The Reflections view shows the traced reflection alone (DeferredLighting.shader, mode 18): a view whose
+        // reflections are not traced has none to show, and the screen trace is no stand-in for it.
+        if ( m_DebugView.DeferredDebug == DeferredDebugMode::Reflections )
+        {
+            if ( !ReflectionsTraced() )
+            {
+                LOG_ERROR( "[SceneRenderer] Reflections view: reflections are not traced (ReflectionsMethod {}); "
+                           "the view shows SoftwareTraced / HardwareTraced only",
+                           static_cast<int>( m_RenderMethods.Reflections.Effective ) );
+            }
+            else if ( !ssr.IsValid() )
+            {
+                LOG_ERROR(
+                     "[SceneRenderer] Reflections view: the traced reflections were not produced this frame" );
+            }
+        }
         // LOAD/STORE on every scene-target attachment. The depth is declared written because the passes after
         // this one that are not graph nodes yet (forward meshes, glass, fog, clouds, overlays) begin their own
         // render passes on it in the depth-attachment layout, and DepthResolve left it a transfer destination.
