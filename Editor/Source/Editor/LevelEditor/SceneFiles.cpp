@@ -407,14 +407,18 @@ namespace Desert::Editor
             const std::size_t readCount = opened.Selection.Records.size();
             const std::size_t total     = readCount + opened.NotLoaded.size();
             if ( heldWhole )
+            {
                 LOG_INFO( "[WorldPartition] '{}' opened: {} of {} record(s) read (the editor had the whole world "
                           "loaded); {} record(s) left on disk",
                           path.string(), readCount, total, opened.NotLoaded.size() );
+            }
             else
+            {
                 LOG_INFO( "[WorldPartition] '{}' opened: {} of {} record(s) read ({} always-loaded composite(s), "
                           "{} in the editor's loaded regions); {} record(s) left on disk",
                           path.string(), readCount, total, opened.Selection.AlwaysLoaded,
                           opened.Selection.InRegions, opened.NotLoaded.size() );
+            }
         }
 
         // Update recent scenes
