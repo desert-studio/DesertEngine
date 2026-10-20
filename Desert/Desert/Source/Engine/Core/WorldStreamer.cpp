@@ -13,6 +13,7 @@
 #include <Common/Json/Json.hpp>
 
 #include <algorithm>
+#include <format>
 #include <chrono>
 #include <cmath>
 #include <unordered_map>
@@ -269,6 +270,7 @@ namespace Desert::Core
             source.Facing                = -glm::vec3( world[2] );
             source.Priority              = data.Priority;
             source.UseVelocityForSorting = data.UseVelocityForSorting;
+            source.TargetGrids           = data.TargetGrids;
             // One shape, always (UE's FStreamingSourceShape on the component): with the defaults it is exactly
             // the circle of the range a source with no shapes loads in.
             Rules::StreamingSourceShape shape;
@@ -373,6 +375,20 @@ namespace Desert::Core
                            m_Scene->GetRegistry()
                                 .get<ECS::StreamingSourceComponent>( static_cast<entt::entity>( entity ) )
                                 .Data.SectorAngle );
+        // A Target Grids name no grid of this world carries targets nothing (Rules::TargetsGrid); it is named once
+        // per entity and name, never matched to a grid by a guess.
+        for ( std::size_t index = 0; index < entities.size(); ++index )
+            for ( const std::string& name : gathered[index].TargetGrids )
+            {
+                const bool known = std::any_of( m_Partition.Grids.begin(), m_Partition.Grids.end(),
+                                                [&name]( const WorldPartitionGridSerialized& grid )
+                                                { return grid.Name == name; } );
+                if ( !known && m_SaidUnknownGrid.insert( std::format( "{}:{}", entities[index], name ) ).second )
+                    LOG_ERROR( "[WorldPartition] '{0}': entity {1}'s Streaming Source targets grid '{2}', which "
+                               "this world does not have; that name streams nothing. The world's grids are named "
+                               "in its World Partition settings.",
+                               m_SceneName, entities[index], name );
+            }
         StampVelocities( gathered, entities, nowSeconds );
         UseSources( std::move( gathered ) );
         const std::span<const Rules::StreamingSource> sources = m_LastSources;
@@ -390,7 +406,7 @@ namespace Desert::Core
         m_LastTick.LoadsInFlight         = m_Loader->InFlight();
         m_MostResident                   = std::max( m_MostResident, m_LastTick.LiveRecords );
         m_LastTick.Streaming =
-             Rules::AssessStreaming( Executor().Plan(), m_Settings, Executor().State(), sources );
+             Rules::AssessStreaming( Executor().Plan(), m_Partition, m_Settings, Executor().State(), sources );
         const bool wasWaiting = m_FramesWaiting > 0;
         m_FramesWaiting       = m_LastTick.Streaming.Blocks() ? m_FramesWaiting + 1 : 0;
         if ( m_FramesWaiting == 1 )

@@ -131,7 +131,20 @@ namespace Desert::Core::Rules
         bool      UseVelocityForSorting = false;
         // Empty = one circle of SourceRadius at Position (UE: no shapes, a sphere of the grid's range).
         std::vector<StreamingSourceShape> Shapes;
+        // The grids this source streams, by WorldPartitionGridSerialized::Name (UE's
+        // FWorldPartitionStreamingSource::TargetGrids); empty = every grid. A grid not named here is not
+        // queried for this source at all - see TargetsGrid. A name no grid of the world carries targets nothing;
+        // the streamer names it (WorldStreamer::Tick), it is never matched by a guess.
+        std::vector<std::string> TargetGrids;
     };
+
+    // Whether @p source streams @p grid: it names no grid (all of them), or names this one.
+    [[nodiscard]] inline bool TargetsGrid( const StreamingSource&              source,
+                                           const WorldPartitionGridSerialized& grid )
+    {
+        return source.TargetGrids.empty() || std::find( source.TargetGrids.begin(), source.TargetGrids.end(),
+                                                        grid.Name ) != source.TargetGrids.end();
+    }
 
     // The radius a source with no Shapes loads within on @p grid, cm.
     [[nodiscard]] inline double SourceRadius( const StreamingSource&              source,
@@ -181,10 +194,15 @@ namespace Desert::Core::Rules
 
     // Every shape of @p source on @p grid as the query tests it (UE's FStreamingSourceShapeHelper::
     // ForEachShape, projected to 2D): one circle when it states none. A shape with no radius or no angle
-    // reaches nothing and is left out, as UE leaves out an invalid FSphericalSector.
+    // reaches nothing and is left out, as UE leaves out an invalid FSphericalSector. A grid the source does not
+    // target (TargetsGrid) has no sector at all, so every reader of the shapes - the query, the assessment, the
+    // map - honours the targeting the same way (UE FWorldPartitionStreamingSource::TargetGrids in
+    // UWorldPartitionRuntimeHash::ForEachStreamingCellsSources).
     [[nodiscard]] inline std::vector<SourceSector> SourceSectors( const StreamingSource&              source,
                                                                   const WorldPartitionGridSerialized& grid )
     {
+        if ( !TargetsGrid( source, grid ) )
+            return {};
         const glm::dvec2 position = Detail::Ground( source.Position );
         glm::dvec2       forward =
              source.Facing ? Detail::UnitOrZero( Detail::Ground( *source.Facing ) ) : glm::dvec2( 0.0 );

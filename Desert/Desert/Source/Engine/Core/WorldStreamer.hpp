@@ -37,6 +37,7 @@
 // before the first frame, and only their Visibility changes — in the same Tick that activates or destroys the
 // cell (Serialize/WorldPartitionHLODSwitch.hpp), so a cell and its HLOD never both draw and never both miss.
 
+#include <set>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldCellLoader.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
@@ -264,6 +265,7 @@ namespace Desert::Core
         bool                                  m_SaidNoSource = false;
         // Entities whose Angle From Camera found no camera, already named in the log.
         std::unordered_set<std::uint32_t> m_SaidWithoutCamera;
+        std::set<std::string> m_SaidUnknownGrid; // "entity:name" of each unknown Target Grids name named
         // Where each entity source stood on the last Tick, and when: what its velocity is measured from.
         std::unordered_map<std::uint32_t, glm::vec3> m_SourcePositions;
         double                                       m_SourcesAt = 0.0;

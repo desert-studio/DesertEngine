@@ -1965,6 +1965,13 @@ namespace Desert::ECS
                   Tooltip( "On = cells the entity is moving toward load first (UE's "
                            "bUseVelocityContributionToCellsSorting); it never changes which cells load." ) )
         bool UseVelocityForSorting = false;
+
+        // UE's FWorldPartitionStreamingSource::TargetGrids: a camera streaming only the near grid's small props,
+        // a cinematic only the main grid. A name the world has no grid of streams nothing and is named in the
+        // log (WorldStreamer::Tick).
+        PROPERTY( DisplayName( "Target Grids" ), Category( "Streaming Source" ),
+                  Tooltip( "The World Partition grids this source streams, by name; empty = every grid." ) )
+        std::vector<std::string> TargetGrids;
     };
 
     struct StreamingSourceComponent

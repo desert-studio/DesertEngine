@@ -56,8 +56,14 @@ namespace Desert::Core::Rules
         }
     };
 
-    [[nodiscard]] inline bool CellHolds( const PlannedCell& cell, const StreamingSource& source )
+    // A source holds a cell only on a grid it targets (TargetsGrid): a source streaming the Near grid alone does
+    // not wait for the Main cell it stands in.
+    [[nodiscard]] inline bool CellHolds( const PlannedCell& cell, const StreamingSource& source,
+                                         const WorldPartitionSerialized& partition )
     {
+        if ( !source.TargetGrids.empty() &&
+             ( cell.Grid >= partition.Grids.size() || !TargetsGrid( source, partition.Grids[cell.Grid] ) ) )
+            return false;
         const float x = source.Position.x;
         const float z = source.Position.z;
         return x >= cell.Square.MinX && x < cell.Square.MaxX && z >= cell.Square.MinZ && z < cell.Square.MaxZ;
@@ -65,6 +71,7 @@ namespace Desert::Core::Rules
 
     // @p state sized for @p plan (an unsized state — before the first step — has nothing resident).
     [[nodiscard]] inline StreamingAssessment AssessStreaming( const WorldPartitionPlan&        plan,
+                                                              const WorldPartitionSerialized&  partition,
                                                               const ResidencySettings&         settings,
                                                               const ResidencyState&            state,
                                                               std::span<const StreamingSource> sources )
@@ -92,7 +99,7 @@ namespace Desert::Core::Rules
             const std::size_t unit = plan.AlwaysLoaded.size() + cell;
             bool              held = false;
             for ( const StreamingSource& source : sources )
-                held = held || CellHolds( plan.Cells[cell], source );
+                held = held || CellHolds( plan.Cells[cell], source, partition );
             if ( !held )
                 continue;
             const Residency now = stateOf( unit );
