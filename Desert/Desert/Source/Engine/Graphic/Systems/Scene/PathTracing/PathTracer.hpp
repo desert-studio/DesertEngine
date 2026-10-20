@@ -86,6 +86,8 @@ namespace Desert::Graphic::System
             uint32_t        PointLightCount = 0;
             uint32_t        SpotLightCount  = 0;
             RDG::TextureRef EnvSpecular; // the environment cube (System.BlackCube without one)
+            RDG::TextureRef CloudShadowMap; // the cloud layer's shadow map (CloudShadowMapOrWhite)
+            RDG::BufferRef  CloudShadow;    // its CloudShadowUB (CloudShadowPackUniforms; Params.y = 0: no map)
             // This frame's hit group table; its Templates built the pipeline (EnsurePipeline).
             const RayTracing::RayTracingHitGroupTable* HitGroups = nullptr;
             RayTracing::EmissiveLightsFrame            Emissive; // this frame's emissive triangle list (Valid)
@@ -434,6 +436,10 @@ namespace Desert::Graphic::System
                           .Texture( "u_EnvSpecularTex", inputs.EnvSpecular, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
                           .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_CloudShadowMap", inputs.CloudShadowMap, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
+                          .Uniform( "CloudShadowUB", inputs.CloudShadow )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
                  },
                  [this, push, hits = inputs.HitGroups, width,

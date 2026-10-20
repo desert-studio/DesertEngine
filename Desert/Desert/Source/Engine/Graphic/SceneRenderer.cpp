@@ -1877,13 +1877,17 @@ namespace Desert::Graphic
         AddFrameSkyAtmosphereLuts( graph, textures );
         // The path tracer's paths carry no participating media (PathTracer.hpp: a task of its own), so a
         // path-traced frame composites no height fog, cloud layer or particles over its accumulation; the
-        // editor's passes at the extension points still draw.
+        // editor's passes at the extension points still draw. The clouds reach its paths through the sky
+        // capture (the environment) and the cloud shadow map (the sun), so the layer's sky-occlusion volume,
+        // which the capture marches through, is still written.
         const bool pathTraced = PathTraced( m_RenderMethods );
         if ( !pathTraced )
         {
             AddFrameAtmosphericFog( graph, textures );
             AddFrameVolumetricClouds( graph, textures, frame );
         }
+        else
+            AddFrameCloudSkyOcclusion( graph, textures );
 
         // The opaque scene is complete (lit, composited, the sky/fog/cloud nodes declared): passes from outside
         // the engine that belong under every translucent layer join here.

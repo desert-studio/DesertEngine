@@ -1022,7 +1022,8 @@ namespace Desert::Graphic
         // groups' templates, records and material rows, and the material service's invalidations. @p environment:
         // GetEnvironmentIdentity().
         [[nodiscard]] uint64_t PathTracingSceneHash( const GlobalIllumination::GIFramePayload& giFrame,
-                                                     uint64_t environment, uint64_t emissive ) const;
+                                                     uint64_t environment, uint64_t emissive,
+                                                     const CloudShadowUniforms& cloudShadow ) const;
         // THE SCENE'S EMISSIVE TRIANGLE LIST in this frame's graph (RayTracing::EmissiveLights.hpp): built from
         // this frame's TLAS instances and segment records (a built m_RayTracingScene), each segment's emission
         // estimated from its material's effective row; m_EmissiveLights keeps the static part on the GPU and
@@ -1185,6 +1186,9 @@ namespace Desert::Graphic
         // (ShadowReallocation): a ray-traced sun keeps only the low-detail cascades, CascadedMaps the full ones.
         void RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality, bool sunRayTraced );
         void AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures );
+        // A path-traced frame: the cloud layer's sky-occlusion volume alone
+        // (VolumetricCloudRenderer::DeclareSkyOcclusionNodes).
+        void AddFrameCloudSkyOcclusion( RDG::Builder& graph, FrameTextures& textures );
         // The sky light, at the head of the graph: the atmosphere nodes that depend on the sky alone (the cached
         // LUT pair, the distant sky light), then this frame's slice of the sky capture, which marches them. Before
         // ImportSceneViewTextures, so the environment it imports is the one this frame's capture completed.
