@@ -13,7 +13,9 @@
 // nearest of a jittered grid of clump points (GoT's Voronoi clumps) lends it its facing, height and tint, and pulls it
 // towards itself by ClumpPull, so blades gather into tufts with open ground between them instead of standing on the
 // jittered grid (white of the grid's own blue noise). Scatter moves a blade past its own cell and Patchiness thins
-// the field by broad world patches, so a carpet stops reading as one evenly spaced stalk per cell. GrassFinalize
+// the field by broad world patches, so a carpet stops reading as one evenly spaced stalk per cell. FacingJitter turns
+// each blade's facing back off its clump's and Tilt stands its root off the vertical in a direction of its own, so
+// near blades stop reading as one upright stalk with one lean. GrassFinalize
 // copies each bucket's count into its draw records.
 Shader "GrassGenerate"
 {
@@ -35,6 +37,7 @@ Shader "GrassGenerate"
             uvec4 Buckets;   // x = bucket count, y = the bucket table's first word in Args
             vec4  Blade;     // x = LodDistance (0: one bucket), y = ClumpSize cm, z = Clumping, w = ClumpPull
             vec4  Spread;    // x = Scatter (cells a blade may stray past its own), y = Patchiness, z = PatchSize cm
+            vec4  Lean;      // x = Tilt (radians), y = FacingJitter (radians)
         };
 
         ReadBuffer(0) Field
@@ -241,11 +244,27 @@ Shader "GrassGenerate"
                 // The facing turns towards the clump's by the shorter arc.
                 float turn = mod( clumpYaw - yaw + 3.14159265359, 6.28318530718 ) - 3.14159265359;
                 yaw += turn * p.Blade.z;
+                // The blade's own facing back on top of its clump's (GoT: per-blade random facing).
+                if ( p.Lean.y > 0.0 )
+                    yaw += ( Fraction( state ) * 2.0 - 1.0 ) * p.Lean.y;
                 scale.y *= mix( 1.0, clumpHeight, p.Blade.z );
                 draws = vec3( Fraction( state ), Fraction( state ), mix( Fraction( state ), clumpTint, p.Blade.z ) );
             }
             float c = cos( yaw ), s = sin( yaw );
             mat3  basis = mat3( vec3( c, 0.0, -s ), vec3( 0.0, 1.0, 0.0 ), vec3( s, 0.0, c ) );
+            if ( blade && p.Lean.x > 0.0 )
+            {
+                // Tilt (GoT): the whole blade turns off its up axis by up to Tilt, about a horizontal axis of its
+                // own, so roots no longer all rise upright and the leans of neighbours differ in direction.
+                float azimuth = Fraction( state ) * 6.28318530718;
+                float angle   = Fraction( state ) * p.Lean.x;
+                vec3  axis    = vec3( cos( azimuth ), 0.0, sin( azimuth ) );
+                float ca = cos( angle ), sa = sin( angle );
+                mat3  axisCross = mat3( vec3( 0.0, axis.z, -axis.y ), vec3( -axis.z, 0.0, axis.x ),
+                                        vec3( axis.y, -axis.x, 0.0 ) );
+                mat3  tilt = mat3( ca ) + sa * axisCross + ( 1.0 - ca ) * outerProduct( axis, axis );
+                basis      = tilt * basis;
+            }
             if ( ( flags & kFlagAlignToSurface ) != 0u )
             {
                 // UE ApplyNormalAlignmentTransform: up becomes the ground normal.

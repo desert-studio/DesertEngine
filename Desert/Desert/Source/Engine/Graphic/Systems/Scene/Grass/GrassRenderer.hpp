@@ -62,10 +62,12 @@ namespace Desert::Graphic::System
     };
 
     // A procedural blade's shape (Assets::Serialization::GrassBlade, colours linear), resolved by the ECS. The
-    // vertex stage reads the first eleven numbers (GrassBladeShapeGpu); the generator the clump and the levels.
+    // vertex stage reads the shape, colours and bend spreads (GrassBladeShapeGpu); the generator the clump, the
+    // tilt, the facing jitter and the levels.
     struct GrassBladeDraw
     {
-        float     Height = 45.0f, Width = 1.2f, Taper = 0.9f, Curvature = 0.35f, Stiffness = 0.3f;
+        float     Height = 45.0f, Width = 1.2f, Taper = 0.9f, Curvature = 0.35f, CurvatureSpread = 0.4f;
+        float     BendSpread = 0.0f, Tilt = 0.0f, FacingJitter = 0.0f, Stiffness = 0.3f;
         glm::vec3 BaseColor{ 0.06f, 0.10f, 0.03f }, TipColor{ 0.25f, 0.33f, 0.09f },
              DryTipColor{ 0.45f, 0.38f, 0.2f };
         float    DryTipShare = 0.25f, DryTipLength = 0.3f, Clumping = 0.5f, ClumpSize = 35.0f, ClumpPull = 0.0f;
