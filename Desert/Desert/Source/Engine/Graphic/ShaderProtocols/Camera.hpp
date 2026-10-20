@@ -63,8 +63,11 @@ namespace Desert::Graphic::ShaderProtocols
     };
 
     /// The block's members as std140 fields, in declaration order — what Common/CameraUB.glslh is generated from.
+    /// __builtin_offsetof, not offsetof: MSVC's offsetof macro is a reinterpret_cast (not a constant expression
+    /// inside a constexpr initializer); clang, GCC and MSVC all fold the builtin.
     inline constexpr std::array kCameraFields{
-#define DESERT_CAMERA_UB_FIELD( Type, Member, Init ) MakeStd140Field<Type>( #Member, offsetof( Camera, Member ) ),
+#define DESERT_CAMERA_UB_FIELD( Type, Member, Init )                                                              \
+    MakeStd140Field<Type>( #Member, __builtin_offsetof( Camera, Member ) ),
          DESERT_CAMERA_UB_FIELDS( DESERT_CAMERA_UB_FIELD )
 #undef DESERT_CAMERA_UB_FIELD
     };
