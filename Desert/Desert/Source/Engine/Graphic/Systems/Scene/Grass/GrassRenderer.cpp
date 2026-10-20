@@ -170,9 +170,10 @@ namespace Desert::Graphic::System
         const float    lodDistance = variety.Blade ? variety.Blade->LodDistance : 0.0f;
         // The nearest clump point lies within the 3x3 clump cells around the blade: at most 2 * sqrt(2) cells off;
         // scatter carries the blade up to 2 * Scatter grid cells before that.
-        const double moved = variety.Blade ? 2.0 * 1.41421356 * variety.Blade->ClumpSize * variety.Blade->ClumpPull +
-                                                  2.0 * variety.Blade->Scatter * cell
-                                           : 0.0;
+        const double moved = variety.Blade
+                                  ? 2.0 * 1.41421356 * variety.Blade->ClumpSize * variety.Blade->ClumpPull +
+                                         2.0 * variety.Blade->Scatter * cell
+                                  : 0.0;
         // Every cell whose jittered instance can lie within its bucket's ring of the cull radius.
         std::vector<uint32_t> capacities( buckets );
         uint32_t              capacity = 0;
