@@ -3,7 +3,7 @@
     "siblingIndex": 3,
     "Tag": "ShotCamera",
     "Translation": [2500.0, 6000.0, 60000.0],
-    "Rotation": [-0.07999999821186066, 3.141590118408203, 0.0],
+    "Rotation": [-0.07999999821186066, 0.0, 0.0],
     "Scale": [1.0, 1.0, 1.0],
     "Camera": {
         "AutoActivateForPlayer": true,
