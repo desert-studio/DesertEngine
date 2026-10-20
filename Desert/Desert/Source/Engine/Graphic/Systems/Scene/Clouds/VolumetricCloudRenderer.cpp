@@ -1013,6 +1013,79 @@ namespace Desert::Graphic::System
         }
     } // namespace
 
+    ComputeNodeDeclaration VolumetricCloudRenderer::SkyOcclusionNode()
+    {
+        ComputeNodeDeclaration occlusion;
+        occlusion.Name = "Clouds: SkyOcclusion";
+        // SETUP: the pipeline route (the renderer's own sampled volumes and buffers) and the node's block over
+        // it; the volume it writes is the block's entry.
+        m_SkyOcclusionPipeline->SetStorageBuffer( kCloudSkyOcclusionParamsBinding, m_ParamsBuffer.get() );
+        m_SkyOcclusionPipeline->SetStorageBuffer( kCloudSkyOcclusionAuthoredBinding, m_AuthoredBuffer.get() );
+        // The same buffer the march binds, and legitimately so: this dispatch is issued inside
+        // ExecuteInFrame between the march's own upload and the march itself, which is exactly the
+        // window m_ParamsBuffer is already shared across.
+        BindMedium( m_SkyOcclusionPipeline.get(), m_MediumParamsBuffer.get() );
+        SampledMedium( SampledVolumes( DeclareComputeBlock( occlusion.Access, m_SkyOcclusionPipeline.get(),
+                                                            m_SkyOcclusionLayout, 0 ) ) )
+             .Storage( "u_CloudSkyOcclusion", m_SkyOcclusionVolume, RDG::Access::StorageWrite,
+                       "Clouds.SkyOcclusion" );
+        occlusion.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+        {
+            DESERT_PROFILE_PASS( "Clouds: SkyOcclusion" );
+            // ONE INVOCATION PER COLUMN — the altitude axis is walked inside the shader, because the whole
+            // point of the pass is that a column's optical depth accumulates downward and a thread per
+            // texel would have to re-integrate everything above it.
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            return Renderer::DispatchCompute( bindings, *m_SkyOcclusionPipeline,
+                                              GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ),
+                                              GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ), 1 );
+        };
+        return occlusion;
+    }
+
+    std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareSkyOcclusionNodes()
+    {
+        std::vector<ComputeNodeDeclaration> nodes;
+        m_SkyOcclusionValid = false;
+
+        if ( !m_SkyOcclusionPipeline || !m_ParamsBuffer || !m_Present || !m_Data.Enabled )
+            return nodes;
+        if ( !m_SceneRenderer->GetAtmosphere().Valid )
+            return nodes;
+
+        // The same field payload and the same two uploads DeclareFrameNodes makes ahead of the volume: a frame
+        // runs one of the two declarations, never both, so the buffer slot is this frame's either way.
+        CloudGpuPayload payload{};
+        if ( !BuildFieldPayload( payload ) )
+            return nodes;
+        m_SkyOcclusionDecided = true;
+        const auto params     = m_ParamsBuffer->SetData( &payload, static_cast<uint32_t>( sizeof( payload ) ) );
+        BuildAuthoredPayload( payload );
+        const auto authored =
+             m_AuthoredBuffer->SetData( &m_AuthoredPayload, static_cast<uint32_t>( sizeof( m_AuthoredPayload ) ) );
+        if ( !params.IsSuccess() || !authored.IsSuccess() )
+        {
+            LOG_ERROR( "[Clouds] the sky-occlusion volume is not rebuilt this frame; its parameters were not "
+                       "uploaded. field: {} | authored: {}",
+                       params.IsSuccess() ? "ok" : params.GetError(),
+                       authored.IsSuccess() ? "ok" : authored.GetError() );
+            return nodes;
+        }
+
+        if ( m_Data.SkyOcclusionVolume && EnsureSkyOcclusionVolume() )
+        {
+            nodes.push_back( SkyOcclusionNode() );
+            m_SkyOcclusionValid = true;
+        }
+        return nodes;
+    }
+
+    void VolumetricCloudRenderer::SettleSkyOcclusionNodes( const bool accepted )
+    {
+        if ( !accepted )
+            m_SkyOcclusionValid = false;
+    }
+
     std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareShadowMapNodes( RDG::Builder& graph )
     {
         std::vector<ComputeNodeDeclaration> nodes;
@@ -1772,35 +1845,7 @@ namespace Desert::Graphic::System
 
         if ( wantsSkyOcclusion && EnsureSkyOcclusionVolume() )
         {
-
-            ComputeNodeDeclaration occlusion;
-            occlusion.Name = "Clouds: SkyOcclusion";
-            // SETUP: the pipeline route (the renderer's own sampled volumes and buffers) and the node's block over
-            // it; the volume it writes is the block's entry.
-            m_SkyOcclusionPipeline->SetStorageBuffer( kCloudSkyOcclusionParamsBinding, m_ParamsBuffer.get() );
-            m_SkyOcclusionPipeline->SetStorageBuffer( kCloudSkyOcclusionAuthoredBinding, m_AuthoredBuffer.get() );
-            // The same buffer the march binds, and legitimately so: this dispatch is issued inside
-            // ExecuteInFrame between the march's own upload and the march itself, which is exactly the
-            // window m_ParamsBuffer is already shared across.
-            BindMedium( m_SkyOcclusionPipeline.get(), m_MediumParamsBuffer.get() );
-            SampledMedium( SampledVolumes( DeclareComputeBlock( occlusion.Access, m_SkyOcclusionPipeline.get(),
-                                                                m_SkyOcclusionLayout, 0 ) ) )
-                 .Storage( "u_CloudSkyOcclusion", m_SkyOcclusionVolume, RDG::Access::StorageWrite,
-                           "Clouds.SkyOcclusion" );
-            occlusion.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
-            {
-                DESERT_PROFILE_PASS( "Clouds: SkyOcclusion" );
-                // ONE INVOCATION PER COLUMN — the altitude axis is walked inside the shader, because the whole
-                // point of the pass is that a column's optical depth accumulates downward and a thread per
-                // texel would have to re-integrate everything above it.
-                const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                return Renderer::DispatchCompute( bindings, *m_SkyOcclusionPipeline,
-                                                  GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ),
-                                                  GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ),
-                                                  1 );
-            };
-            nodes.push_back( std::move( occlusion ) );
-
+            nodes.push_back( SkyOcclusionNode() );
             skyOcclusionReady = true;
         }
 

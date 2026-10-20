@@ -60,6 +60,18 @@ Shader "PathTracer"
             Uniform(8) textureCube u_EnvSpecularTex;
             #define u_EnvSpecularTex samplerCube(u_EnvSpecularTex, u_LinearClampSampler)
 
+            // The cloud layer's shadow map (VolumetricCloudRenderer, CloudShadowMapOrWhite) and its block
+            // (CloudShadowPackUniforms): the sun's transmittance through the clouds, the receiver text every lit
+            // pass compiles (Common/CloudShadowReceiver.glslh).
+            Uniform sampler u_LinearRepeatSampler;
+            Uniform(16) texture2D u_CloudShadowMap;
+            #define u_CloudShadowMap sampler2D(u_CloudShadowMap, u_LinearRepeatSampler)
+            Uniform(17) CloudShadowUB {
+                mat4 u_CloudShadowWorldToMap;
+                vec4 u_CloudShadowParams;
+            };
+            #include <Common/CloudShadowReceiver.glslh>
+
             // The scene's emissive triangles (RayTracing::EmissiveLightsFrame).
             layout(std430, binding = 9) readonly buffer EmissiveSegmentsUB
             {
@@ -336,12 +348,15 @@ Shader "PathTracer"
                     }
                     if (dot(N, L) <= 0.0 || !PathTracingVisible(origin, L, 1.0e9))
                         return vec3(0.0);
+                    // The sun's light crosses the cloud layer on its way down: its transmittance from this vertex
+                    // (the same factor the sun disc a material ray from here meets is weighed by, PathTracingMissRadiance).
+                    const float clouds = CloudShadowFactor(origin);
                     // radiance / pdf of the cone sample is the sun's colour (the cone's radiance is normalised by
                     // its solid angle, UE DirectionalLight_SampleLight).
                     const float weight = lightPdf > 0.0
                                              ? PathTracingMISWeightPower(pickPdf * lightPdf, PathTracingBsdfPdf(m, N, V, L))
                                              : 1.0;
-                    return PathTracingBsdfCos(m, N, V, L) * giFrame.sunRadiance.rgb * weight / pickPdf;
+                    return PathTracingBsdfCos(m, N, V, L) * giFrame.sunRadiance.rgb * (clouds * weight / pickPdf);
                 }
                 if (chosen == 1u)
                 {
@@ -435,8 +450,9 @@ Shader "PathTracer"
 
             // What a material ray that left the scene sees: the sky, and the sun's disc when it has a size. Weighted
             // against the light sampler of the vertex it left (lightPickSky / lightPickSun: that vertex's choice
-            // probabilities; bsdfPdf < 0: a camera ray, nothing to weigh).
-            vec3 PathTracingMissRadiance(vec3 direction, float bsdfPdf, float lightPickSky, float lightPickSun)
+            // probabilities; bsdfPdf < 0: a camera ray, nothing to weigh). The sky carries the clouds (the sky capture
+            // marches them into the environment); the disc is seen through them from @p origin, the ray's start.
+            vec3 PathTracingMissRadiance(vec3 origin, vec3 direction, float bsdfPdf, float lightPickSky, float lightPickSun)
             {
                 vec3 radiance = vec3(0.0);
                 if (bsdfPdf < 0.0)
@@ -456,7 +472,7 @@ Shader "PathTracer"
                         const float solidAngle = 2.0 * PI * oneMinusCos;
                         const float weight =
                             bsdfPdf < 0.0 ? 1.0 : PathTracingMISWeightPower(bsdfPdf, lightPickSun / solidAngle);
-                        radiance += giFrame.sunRadiance.rgb / solidAngle * weight;
+                        radiance += giFrame.sunRadiance.rgb * (CloudShadowFactor(origin) / solidAngle * weight);
                     }
                 }
                 return radiance;
@@ -485,7 +501,7 @@ Shader "PathTracer"
                     PathTracingTraceMaterial(origin, dir, coneWidth);
                     if (payload.HitT < 0.0)
                     {
-                        radiance += throughput * PathTracingMissRadiance(dir, bsdfPdf, lightPickSky, lightPickSun);
+                        radiance += throughput * PathTracingMissRadiance(origin, dir, bsdfPdf, lightPickSky, lightPickSun);
                         break;
                     }
                     const vec3 P = origin + dir * payload.HitT;

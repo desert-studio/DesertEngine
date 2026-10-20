@@ -1149,7 +1149,8 @@ namespace Desert::Graphic
     }
 
     uint64_t SceneRenderer::PathTracingSceneHash( const GlobalIllumination::GIFramePayload& giFrame,
-                                                  const uint64_t environment, const uint64_t emissive ) const
+                                                  const uint64_t environment, const uint64_t emissive,
+                                                  const CloudShadowUniforms& cloudShadow ) const
     {
         System::PathTracer::SceneHasher         hash;
         const RayTracing::RayTracingSceneFrame& rt = m_RayTracingScene.GetFrame();
@@ -1178,6 +1179,8 @@ namespace Desert::Graphic
         hash.Values( std::span<const glm::vec4>( m_ReflectionHitGroups.Rows ) );
         hash.Value( Runtime::ResourceRegistry::GetMaterialService()->GetInvalidationVersion() );
         hash.Value( emissive );
+        // The cloud shadow's placement and strength (the sun's transmittance through the clouds).
+        hash.Value( cloudShadow );
         return hash.Get();
     }
 
@@ -1267,6 +1270,13 @@ namespace Desert::Graphic
         inputs.PointLightCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
         inputs.SpotLightCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
         inputs.EnvSpecular     = SceneViewInputsOf( textures.GraphRefs() ).EnvSpecular;
+        // The sun's way through the cloud layer: the map the lit passes read (Common/CloudShadowReceiver.glslh).
+        const CloudShadowUniforms cloudShadow = CloudShadowPackUniforms( GetCloudShadowInput() );
+        inputs.CloudShadowMap                 = SceneViewInputsOf( textures.GraphRefs() ).CloudShadowMap;
+        inputs.CloudShadow =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( cloudShadow ) }, "PathTracing.CloudShadowUB" );
+        graph.QueueBufferUpload( inputs.CloudShadow,
+                                 std::as_bytes( std::span<const CloudShadowUniforms>( &cloudShadow, 1 ) ) );
         inputs.HitGroups       = &m_ReflectionHitGroups;
         auto emissive          = AddFrameEmissiveLights( graph );
         if ( !emissive )
@@ -1276,7 +1286,8 @@ namespace Desert::Graphic
         inputs.SunSinHalfAngle = std::sin( glm::radians( m_SunSourceAngleDegrees ) * 0.5f );
         // The angle one pixel subtends at the centre of the view: the camera ray's cone (ray cone LOD).
         inputs.PixelSpread     = std::atan( 2.0f / ( frame.Projection[1][1] * static_cast<float>( extent.y ) ) );
-        inputs.SceneHash       = PathTracingSceneHash( giFrame, GetEnvironmentIdentity(), inputs.Emissive.Hash );
+        inputs.SceneHash =
+             PathTracingSceneHash( giFrame, GetEnvironmentIdentity(), inputs.Emissive.Hash, cloudShadow );
         inputs.DynamicGeometry = rt.DynamicGeometry;
         return pathTracer->AddPasses( graph, sceneColor, frame, inputs, m_PathTracingSettings );
     }
