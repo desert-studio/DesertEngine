@@ -47,6 +47,8 @@ namespace Desert::ShaderResources::API::Vulkan
 
         NO_DISCARD const void* GetData() const override;
 
+        NO_DISCARD Common::BoolResultStr ReadBack( void* destination, uint32_t size, uint32_t offset ) override;
+
         // What the render graph knows about the copy it last imported (VulkanRendererAPI::ImportBuffer):
         // that copy's id, the graph's non-owning handle on its VkBuffer, and the state the last graph left
         // it in. A persistent buffer has one copy, so its state carries from frame to frame (a simulation

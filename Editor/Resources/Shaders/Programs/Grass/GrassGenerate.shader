@@ -32,7 +32,7 @@ Shader "GrassGenerate"
             vec4  Range;     // x/y = AllowedDensityRange, z = MaxScaleWeightAttenuation, w = bounds radius (local)
             vec4  ScaleX;    // x/y = ScaleX range, z = scaling (0 uniform, 1 free, 2 lock XY), w = flags
             vec4  ScaleY;    // x/y = ScaleY range, z = bounds centre height (local)
-            vec4  ScaleZ;    // x/y = ScaleZ range (up), w = the share of cells the lens keeps (1 / DrawDistanceScale, at most 1)
+            vec4  ScaleZ;    // x/y = ScaleZ range (up), w = the floor of the lens share (1 / DrawDistanceScale, at most 1; LensShare)
             uvec4 Info;      // x = layer, y = capacity, z = submesh count, w = seed
             uvec4 Buckets;   // x = bucket count, y = the bucket table's first word in Args
             vec4  Blade;     // x = LodDistance through the lens (0: one bucket), y = ClumpSize cm, z = Clumping, w = ClumpPull
@@ -144,6 +144,33 @@ Shader "GrassGenerate"
             return normalize( vec3( centre - hx, spacing, centre - hz ) );
         }
 
+        // The share of cells a zoomed lens (DrawDistanceScale k > 1) keeps at @p world: the one that puts as many
+        // instances on a pixel as the authored 90-degree lens puts there when it views the same ground patch from
+        // the same height at 1/k the horizontal distance (where the patch fills the same screen size). A ground
+        // patch of area A at distance d, seen at cosine s = dot(V, N) between the eye direction and the TERRAIN
+        // normal, covers A s / d^2 of the view through a lens that magnifies k^2 times; equal instances per pixel
+        // then means share = k^2 (s / s') (d' / d)^2 for the authored view's s', d'. Flat ground far away gives
+        // 1/k (the floor, p.ScaleZ.w); a slope facing the camera - or ground under it - gives the full density,
+        // which a flat 1/k share thinned visibly. Ground facing away keeps the floor.
+        float LensShare( vec2 world, float height, GrassParams p )
+        {
+            float k     = 1.0 / p.ScaleZ.w;
+            vec3  toEye = p.Camera.xyz - vec3( world.x, height, world.y );
+            float rise  = toEye.y;
+            vec2  across = toEye.xz;
+            float d2    = dot( toEye, toEye );
+            vec3  n     = FieldNormal( world, p.Info.x, height );
+            float s     = dot( toEye, n ) * inversesqrt( max( d2, 1.0 ) );
+            if ( s <= 0.0 )
+                return p.ScaleZ.w;
+            vec3  authored  = vec3( across.x / k, rise, across.y / k );
+            float authored2 = dot( authored, authored );
+            float s2        = dot( authored, n ) * inversesqrt( max( authored2, 1.0 ) );
+            if ( s2 <= s / k )
+                return 1.0;
+            return clamp( k * k * ( s / s2 ) * ( authored2 / max( d2, 1.0 ) ), p.ScaleZ.w, 1.0 );
+        }
+
         void main()
         {
             GrassParams p = u_Params[0];
@@ -151,13 +178,10 @@ Shader "GrassGenerate"
                 return;
             ivec2 cell  = u_Cells.xy + ivec2( gl_GlobalInvocationID.xy );
             uint  state = Hash( uint( cell.x ) * 0x8da6b343u ^ uint( cell.y ) * 0xd8163841u ^ p.Info.w );
-            // Through a zoomed lens (DrawDistanceScale k > 1) the field reaches k times farther while the camera's
-            // height stays, so the ground rows crowd k times closer on screen: keeping a 1/k share of the cells holds
-            // the instances per pixel - and the buffers - at what the authored 90-degree lens draws. A draw of its own,
-            // so the share does not reshuffle the cell's jitter, scale or rotation.
-            uint thin = Hash( state ^ 0x5bd1e995u );
-            if ( Fraction( thin ) >= p.ScaleZ.w )
-                return;
+            // The lens share's draw (below): a hash of its own, so the share does not reshuffle the cell's jitter,
+            // scale or rotation.
+            uint  thin     = Hash( state ^ 0x5bd1e995u );
+            float thinDraw = Fraction( thin );
 
             // UE's grid branch: the cell centre plus up to PlacementJitter half-cells.
             float cellSize = p.Cull.z;
@@ -200,6 +224,8 @@ Shader "GrassGenerate"
 
             float height, weight;
             if ( !SampleField( world, p.Info.x, height, weight ) )
+                return;
+            if ( thinDraw >= p.ScaleZ.w && thinDraw >= LensShare( world, height, p ) )
                 return;
             float keep = Fraction( state );
             // Patchiness: broad world patches, denser and sparser, thin up to that share of the blades.

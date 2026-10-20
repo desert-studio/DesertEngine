@@ -209,8 +209,9 @@ namespace Desert::Graphic::System
         const double            tanX        = 1.0 / std::max( 1.0e-6f, std::abs( frame.Projection[0][0] ) );
         const double            tanY        = 1.0 / std::max( 1.0e-6f, std::abs( frame.Projection[1][1] ) );
         const float             radius      = p.EndCullDistance * lens;
-        // The share of cells generated (GrassGenerate): 1 / k through a zoomed lens, so a scope's field holds the
-        // per-pixel density - and about the instance count - of the authored lens instead of k times it.
+        // The floor of the share of cells generated (GrassGenerate LensShare): 1 / k through a zoomed lens - flat
+        // ground far away, where it holds the authored lens's instances per pixel; slopes facing the camera and
+        // ground under it keep more, up to every cell.
         const float             keepShare   = std::min( 1.0f, 1.0f / std::max( lens, 1.0e-6f ) );
         const auto&             submeshes   = mesh.GetSubmeshes();
         // A blade draws one level per bucket (submesh b = bucket b, by distance); a mesh one bucket for all its
@@ -246,8 +247,33 @@ namespace Desert::Graphic::System
         // bounding sphere that only touches it, and the cell centre is up to a jittered cell and `moved` off the
         // instance (one more cell for counting lattice points rather than area).
         const double margin = static_cast<double>( boundsRadius ) + 2.5 * cell + moved;
-        // Every cell whose jittered instance can lie within its bucket's ring of the cull radius - and, through a
-        // perspective lens, within what that lens can see of the ring.
+        VarietyGpu&  gpu    = m_Varieties[variety.Key];
+        // What the GPU counted for each bucket FramesInFlight frames ago (GrassFinalize), when this frame's copy
+        // has been written since the feedback buffer was made for this bucket count.
+        std::vector<uint32_t> counted( buckets + 1u, 0u );
+        bool                  fedBack = false;
+        if ( gpu.Feedback && gpu.Buckets == buckets )
+        {
+            if ( const auto read = gpu.Feedback->ReadBack( counted.data(), ( buckets + 1u ) * 4u );
+                 !read.IsSuccess() )
+            {
+                LOG_ERROR( "[Grass] the generated counts were not read back: {}", read.GetError() );
+            }
+            else
+            {
+                fedBack = counted[buckets] != 0u;
+            }
+        }
+        if ( gpu.LowFrames.size() != buckets )
+            gpu.LowFrames.assign( buckets, 0u );
+
+        // Per bucket: every cell whose jittered instance can lie within its ring of the cull radius - and, through
+        // a perspective lens, within what that lens can see of the ring - bounds the capacity (`bound`, every cell
+        // kept); the lens share's floor gives the fewest it can keep (`floor`, flat ground everywhere). Between
+        // them only the terrain decides, and the GPU's own count of last frames says what it decided: the capacity
+        // follows that count (UE-style GPU feedback rather than a CPU guess of the slopes), growing at once to
+        // the count plus a quarter, shrinking only after kShrinkFrames frames in a row two steps (half) above it.
+        constexpr uint32_t    kShrinkFrames = 60;
         std::vector<uint32_t> capacities( buckets );
         uint32_t              capacity = 0;
         for ( uint32_t b = 0; b < buckets; ++b )
@@ -260,7 +286,8 @@ namespace Desert::Graphic::System
                 needed = std::min<uint32_t>(
                      needed, static_cast<uint32_t>( std::ceil( ViewFootprintArea( outer, tanX, tanY, margin ) /
                                                                ( static_cast<double>( cell ) * cell ) ) ) );
-            // The thinned count is a binomial draw over the cells: four standard deviations above its mean (and a
+            const uint32_t bound = needed;
+            // The floor's count is a binomial draw over the cells: four standard deviations above its mean (and a
             // floor for the smallest rings) before GrassFinalize's clamp would drop one.
             if ( keepShare < 1.0f && needed > 0u )
             {
@@ -268,11 +295,30 @@ namespace Desert::Graphic::System
                 needed            = std::min<uint32_t>(
                      needed, static_cast<uint32_t>( std::ceil( mean + 4.0 * std::sqrt( mean ) + 64.0 ) ) );
             }
-            capacities[b] = CapacityStep( needed );
+            uint32_t target = needed;
+            if ( fedBack && keepShare < 1.0f )
+                target = std::max( target, std::min( bound, counted[b] + counted[b] / 4u + 64u ) );
+            const uint32_t step = CapacityStep( target );
+            const uint32_t held = gpu.BucketCapacities.size() == buckets ? gpu.BucketCapacities[b] : 0u;
+            if ( step >= held || held > CapacityStep( bound ) )
+            {
+                capacities[b]    = step;
+                gpu.LowFrames[b] = 0u;
+            }
+            else if ( 2u * step <= held && ++gpu.LowFrames[b] >= kShrinkFrames )
+            {
+                capacities[b]    = step;
+                gpu.LowFrames[b] = 0u;
+            }
+            else
+            {
+                capacities[b] = held;
+                if ( 2u * step > held )
+                    gpu.LowFrames[b] = 0u;
+            }
             capacity += capacities[b];
         }
 
-        VarietyGpu& gpu = m_Varieties[variety.Key];
         if ( gpu.Mesh != &mesh || gpu.Capacity != capacity || gpu.Buckets != buckets ||
              gpu.BucketCapacities != capacities || !gpu.Instances )
         {
@@ -313,6 +359,8 @@ namespace Desert::Graphic::System
                 return nullptr;
             }
             gpu.Params = ShaderResources::StorageBuffer::Create( "GrassParams", sizeof( GrassParamsGpu ), 1 );
+            if ( !gpu.Feedback || gpu.Feedback->GetSize() != ( buckets + 1u ) * 4u )
+                gpu.Feedback = ShaderResources::StorageBuffer::Create( "GrassFeedback", ( buckets + 1u ) * 4u, 1 );
             gpu.Shape.reset();
             if ( variety.Blade )
                 gpu.Shape =
@@ -444,6 +492,8 @@ namespace Desert::Graphic::System
                     imported = Renderer::ImportBuffer( gpu->Args, gpu->ArgsImport );
                 if ( imported )
                     imported = Renderer::ImportBuffer( gpu->Params, gpu->ParamsImport );
+                if ( imported )
+                    imported = Renderer::ImportBuffer( gpu->Feedback, gpu->FeedbackImport );
                 if ( !imported )
                 {
                     LOG_ERROR( "[Grass] a variety's buffers are not in the frame graph: {}", imported.GetError() );
@@ -452,6 +502,7 @@ namespace Desert::Graphic::System
                 gpu->Refs.Instances = graph.RegisterExternal( gpu->InstancesImport, "GrassInstances" );
                 gpu->Refs.Args      = graph.RegisterExternal( gpu->ArgsImport, "GrassArgs" );
                 gpu->ParamsRef      = graph.RegisterExternal( gpu->ParamsImport, "GrassParams" );
+                gpu->FeedbackRef    = graph.RegisterExternal( gpu->FeedbackImport, "GrassFeedback" );
                 gpu->FieldRef       = fieldGpu.Ref;
                 m_Frame.push_back( gpu );
 
@@ -511,7 +562,8 @@ namespace Desert::Graphic::System
                  const auto& layout = m_FinalizeLayout.Get( m_Finalize->GetSpecification().Shader );
                  for ( const VarietyGpu* gpu : m_Frame )
                      pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Finalize ) )
-                          .Storage( "Args", gpu->Refs.Args, RDG::Access::StorageWrite );
+                          .Storage( "Args", gpu->Refs.Args, RDG::Access::StorageWrite )
+                          .Storage( "Feedback", gpu->FeedbackRef, RDG::Access::StorageWrite );
              },
              [this]( RDG::PassContext& context ) -> Common::BoolResultStr
              {

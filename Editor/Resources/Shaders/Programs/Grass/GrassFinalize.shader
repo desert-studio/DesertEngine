@@ -1,8 +1,9 @@
 // DesertAsset {"Kind":"Shader","Guid":"9af5b17398544149b3546d72bc857b7b","Versions":{"SHDR":1},"Dependencies":[]}
 // After GrassGenerate: each bucket's appended count, clamped to its capacity, becomes the instanceCount of the
 // records that draw it and its first instance their firstInstance (GpuInstances.hpp: one bucket for every section of
-// a mesh, bucket s for record s of a blade strip), and the counters are reset for the next frame's generation. One
-// thread.
+// a mesh, bucket s for record s of a blade strip), the UNCLAMPED counts (the generator's atomic counts past the
+// capacity) go to Feedback for the renderer to size the next capacities from (GrassRenderer, GPU-count feedback), and
+// the counters are reset for the next frame's generation. One thread.
 Shader "GrassFinalize"
 {
     Compute
@@ -12,6 +13,11 @@ Shader "GrassFinalize"
         Buffer(0) Args
         {
             uint u_Args[]; // bucket count, capacity, submesh count, drawn, 5 words per submesh, 4 per bucket
+        };
+
+        Buffer(1) Feedback
+        {
+            uint u_Feedback[]; // per bucket the count the generator wanted, then 1 (this copy was written)
         };
 
         void main()
@@ -29,8 +35,10 @@ Shader "GrassFinalize"
             for ( uint b = 0u; b < buckets; ++b )
             {
                 drawn += min( u_Args[table + b * 4u], u_Args[table + b * 4u + 2u] );
+                u_Feedback[b]          = u_Args[table + b * 4u];
                 u_Args[table + b * 4u] = 0u;
             }
+            u_Feedback[buckets] = 1u;
             u_Args[3] = drawn; // the last frame's drawn count, for the stats readout
         }
     }

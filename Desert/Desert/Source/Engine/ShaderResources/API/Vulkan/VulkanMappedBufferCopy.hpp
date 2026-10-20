@@ -40,6 +40,10 @@ namespace Desert::ShaderResources::API::Vulkan
             return m_Mapping.Write( data, size, offset );
         }
 
+        // The device's bytes, after invalidating the host's view of them (a no-op on coherent memory): the
+        // caller has waited for the GPU work that wrote them (VulkanStorageBuffer::ReadBack).
+        [[nodiscard]] Common::BoolResultStr Read( void* destination, uint32_t size, uint32_t offset );
+
         [[nodiscard]] ViewCopyBinding Binding() const
         {
             ViewCopyBinding out;

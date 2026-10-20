@@ -33,6 +33,17 @@ namespace Desert::ShaderResources::API::Vulkan
         Allocator()->RT_DestroyBuffer( m_Buffer, m_Allocation );
     }
 
+    Common::BoolResultStr MappedBufferCopy::Read( void* destination, uint32_t size, uint32_t offset )
+    {
+        if ( const VkResult invalidated = vmaInvalidateAllocation(
+                  Desert::Graphic::API::Vulkan::VulkanAllocator::GetVMAAllocator(), m_Allocation, offset, size );
+             invalidated != VK_SUCCESS )
+            return Common::MakeFormattedError<bool>(
+                 "the host view of {} byte(s) at {} was not invalidated (VkResult {})", size, offset,
+                 static_cast<int>( invalidated ) );
+        return m_Mapping.ReadInto( destination, size, offset );
+    }
+
     Common::BoolResultStr MakeMappedBufferCopy( std::string_view debugName, VkBufferUsageFlags usage,
                                                 uint32_t size, std::unique_ptr<MappedBufferCopy>& out )
     {

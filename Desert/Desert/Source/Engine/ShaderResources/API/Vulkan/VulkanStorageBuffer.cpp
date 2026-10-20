@@ -170,6 +170,22 @@ namespace Desert::ShaderResources::API::Vulkan
         return ActiveCopy( EngineContext::GetInstance().GetCurrentFrameIndex(), copy );
     }
 
+    Common::BoolResultStr VulkanStorageBuffer::ReadBack( void* destination, uint32_t size, uint32_t offset )
+    {
+        if ( IsPersistent() )
+            return Common::MakeFormattedError<bool>(
+                 "storage buffer '{}' is persistent: a frame still in flight "
+                 "may be writing its one device buffer, so it is not read back",
+                 m_BufferName );
+        MappedBufferCopy* copy     = nullptr;
+        const auto        resolved = ActiveCopy( EngineContext::GetInstance().GetCurrentFrameIndex(), copy );
+        if ( !resolved.IsSuccess() )
+            return resolved;
+        if ( const auto read = copy->Read( destination, size, offset ); !read.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "storage buffer '{}': {}", m_BufferName, read.GetError() );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr VulkanStorageBuffer::BindActiveCopy( uint32_t frameIndex, ViewCopyBinding& out )
     {
         MappedBufferCopy* copy     = nullptr;
