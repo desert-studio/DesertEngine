@@ -100,20 +100,22 @@ namespace Desert::Editor
         // long as the undo stack remembered it; ICommand's contract is that an entry whose target is
         // gone returns false and is discarded, and a weak pointer is how that is DETECTED rather than
         // assumed. The scene is addressed as a whole object because the partition is a property of the
-        // world itself and has no id of its own.
-        class ConvertToWorldPartitionCommand final : public ICommand
+        // world itself and has no id of its own. One class for every edit of the block (the conversion, a
+        // grid's HLOD layer): what differs between them is only the label the history shows.
+        class WorldPartitionEditCommand final : public ICommand
         {
         public:
-            ConvertToWorldPartitionCommand( std::weak_ptr<::Desert::Core::Scene>                    scene,
-                                            std::optional<::Desert::Core::WorldPartitionSerialized> before,
-                                            ::Desert::Core::WorldPartitionSerialized                after )
-                 : m_Scene( std::move( scene ) ), m_Before( std::move( before ) ), m_After( std::move( after ) )
+            WorldPartitionEditCommand( std::string label, std::weak_ptr<::Desert::Core::Scene> scene,
+                                       std::optional<::Desert::Core::WorldPartitionSerialized> before,
+                                       ::Desert::Core::WorldPartitionSerialized                after )
+                 : m_Label( std::move( label ) ), m_Scene( std::move( scene ) ), m_Before( std::move( before ) ),
+                   m_After( std::move( after ) )
             {
             }
 
             [[nodiscard]] std::string GetLabel() const override
             {
-                return "Convert to World Partition";
+                return m_Label;
             }
 
             bool Undo() override
@@ -136,6 +138,7 @@ namespace Desert::Editor
                 return true;
             }
 
+            std::string                                             m_Label;
             std::weak_ptr<::Desert::Core::Scene>                    m_Scene;
             std::optional<::Desert::Core::WorldPartitionSerialized> m_Before;
             ::Desert::Core::WorldPartitionSerialized                m_After;
@@ -340,6 +343,10 @@ namespace Desert::Editor
                 ImGui::TextWrapped( "%s", m_RegionStatus.c_str() );
         }
 
+        // ── HLOD per grid (Edit, a partitioned world) ──
+        if ( !playing && m_Scene && m_Scene->GetWorldPartition().has_value() )
+            DrawGridHLODLayers();
+
         if ( plan == nullptr || partition->Grids.empty() )
         {
             ImGui::TextDisabled( "%s",
@@ -357,6 +364,54 @@ namespace Desert::Editor
                              static_cast<double>( partition->Grids[0].CellSize ) / 100.0 );
 
         DrawMap( *plan, *partition, residency, streamer );
+    }
+
+    // UE FRuntimePartitionDesc::HLODSetups, shown where UE shows them - beside the runtime grid they belong to:
+    // one row per grid, the layer its cells' HLOD is built with picked from the world's HLODLayers, or "None"
+    // (the grid's far cells draw nothing). Every pick is one history entry holding the whole block before and
+    // after, the same entry the conversion pushes, so an undo is a plain swap of the block.
+    void WorldPartitionPanel::DrawGridHLODLayers()
+    {
+        const ::Desert::Core::WorldPartitionSerialized& current = *m_Scene->GetWorldPartition();
+        if ( current.Grids.empty() || !ImGui::CollapsingHeader( "HLOD per grid" ) )
+            return;
+        static const std::vector<::Desert::Core::HLODLayerSerialized> kNoLayers;
+        const std::vector<::Desert::Core::HLODLayerSerialized>& layers = current.HLODLayers.value_or( kNoLayers );
+        if ( layers.empty() )
+            ImGui::TextDisabled( "This world states no HLOD layer; a grid can only name one of the world's layers." );
+
+        for ( std::size_t g = 0; g < current.Grids.size(); ++g )
+        {
+            const ::Desert::Core::WorldPartitionGridSerialized& grid    = current.Grids[g];
+            const std::string                                   preview = grid.HLODLayer.value_or( "None" );
+            ImGui::PushID( static_cast<int>( g ) );
+            ImGui::SetNextItemWidth( 200.0f );
+            if ( ImGui::BeginCombo( std::format( "{} (cell {:.0f} m)", grid.Name, grid.CellSize / 100.0f ).c_str(),
+                                    preview.c_str() ) )
+            {
+                std::optional<std::optional<std::string>> picked;
+                if ( ImGui::Selectable( "None", !grid.HLODLayer.has_value() ) && grid.HLODLayer.has_value() )
+                    picked = std::optional<std::string>();
+                for ( const ::Desert::Core::HLODLayerSerialized& layer : layers )
+                    if ( ImGui::Selectable( layer.Name.c_str(), grid.HLODLayer == layer.Name ) &&
+                         grid.HLODLayer != layer.Name )
+                        picked = std::optional<std::string>( layer.Name );
+                ImGui::EndCombo();
+                if ( picked )
+                {
+                    ::Desert::Core::WorldPartitionSerialized after = current;
+                    after.Grids[g].HLODLayer                       = *picked;
+                    std::optional<::Desert::Core::WorldPartitionSerialized> before = current;
+                    const std::string label = std::format( "Set HLOD layer of grid {}", grid.Name );
+                    m_Scene->SetWorldPartition( after );
+                    CommandHistory::Get().PushCommand( std::make_unique<WorldPartitionEditCommand>(
+                         label, m_Scene, std::move( before ), std::move( after ) ) );
+                    ImGui::PopID();
+                    return; // `current` and `grid` referred to the block just replaced
+                }
+            }
+            ImGui::PopID();
+        }
     }
 
     Common::BoolResultStr WorldPartitionPanel::LoadSelectedRegion()
@@ -416,7 +471,8 @@ namespace Desert::Editor
         // The entry, not a dirty flag: the editor reads CommandHistory's revision to decide whether the
         // scene has unsaved changes, so pushing IS marking it dirty (EditorLayer.cpp, s_SavedRevision).
         CommandHistory::Get().PushCommand(
-             std::make_unique<ConvertToWorldPartitionCommand>( m_Scene, std::move( before ), after ) );
+             std::make_unique<WorldPartitionEditCommand>( "Convert to World Partition", m_Scene, std::move( before ),
+                                                          after ) );
         // FO-6: the world's foliage filed by the new grid, one field per type per cell (UE converts a level's
         // InstancedFoliageActor into partitioned ones the same way). Its own undo step, after the conversion's.
         if ( auto filed = Tools::FoliagePaintTool::RepartitionFoliage( *m_Scene ); !filed )
