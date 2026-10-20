@@ -25,15 +25,15 @@ Shader "GrassGenerate"
         struct GrassParams
         {
             vec4  Planes[4]; // the view's left / right / bottom / top planes, xyz.n + w >= 0 inside
-            vec4  Camera;    // xyz = view position (cm), w = EndCullDistance
-            vec4  Cull;      // x = StartCullDistance, y = EndCullDistance, z = cell (cm), w = max jitter (cells)
+            vec4  Camera;    // xyz = view position (cm), w = EndCullDistance through the lens
+            vec4  Cull;      // x, y = Start/EndCullDistance through the lens (DrawDistanceScale), z = cell (cm), w = max jitter (cells)
             vec4  Range;     // x/y = AllowedDensityRange, z = MaxScaleWeightAttenuation, w = bounds radius (local)
             vec4  ScaleX;    // x/y = ScaleX range, z = scaling (0 uniform, 1 free, 2 lock XY), w = flags
             vec4  ScaleY;    // x/y = ScaleY range, z = bounds centre height (local)
             vec4  ScaleZ;    // x/y = ScaleZ range (up)
             uvec4 Info;      // x = layer, y = capacity, z = submesh count, w = seed
             uvec4 Buckets;   // x = bucket count, y = the bucket table's first word in Args
-            vec4  Blade;     // x = LodDistance (0: one bucket), y = ClumpSize cm, z = Clumping, w = ClumpPull
+            vec4  Blade;     // x = LodDistance through the lens (0: one bucket), y = ClumpSize cm, z = Clumping, w = ClumpPull
             vec4  Spread;    // x = Scatter (cells a blade may stray past its own), y = Patchiness, z = PatchSize cm
         };
 
@@ -59,7 +59,7 @@ Shader "GrassGenerate"
 
         PushConstant PushConstants
         {
-            ivec4 u_Cells; // x, y = the first cell (world grid index), z = cells per side
+            ivec4 u_Cells; // x, y = the first cell (world grid index), z, w = cells along x, z (the lens footprint's box)
         };
 
         const uint kFlagRandomRotation = 1u;
@@ -144,7 +144,7 @@ Shader "GrassGenerate"
         void main()
         {
             GrassParams p = u_Params[0];
-            if ( gl_GlobalInvocationID.x >= uint( u_Cells.z ) || gl_GlobalInvocationID.y >= uint( u_Cells.z ) )
+            if ( gl_GlobalInvocationID.x >= uint( u_Cells.z ) || gl_GlobalInvocationID.y >= uint( u_Cells.w ) )
                 return;
             ivec2 cell  = u_Cells.xy + ivec2( gl_GlobalInvocationID.xy );
             uint  state = Hash( uint( cell.x ) * 0x8da6b343u ^ uint( cell.y ) * 0xd8163841u ^ p.Info.w );

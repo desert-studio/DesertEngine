@@ -12,6 +12,7 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
+#include <Engine/Graphic/VisibilityCulling.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -65,6 +66,40 @@ namespace Desert::Graphic::System
             const double lo = std::max( 0.0, inner - 1.5 * cell - moved );
             const double hi = outer + 1.5 * cell + moved;
             return static_cast<uint32_t>( std::ceil( 3.14159265 * ( hi * hi - lo * lo ) / ( cell * cell ) ) );
+        }
+
+        // THE LARGEST GROUND AREA THE PART OF A VIEW'S PYRAMID WITHIN @p reach OF THE EYE CAN COVER, widened by
+        // @p margin on every side, for any orientation of the view. A capacity sized for the whole disc of the
+        // cull radius grows with the square of the lens (DrawDistanceScale stretches the radius k times), while
+        // the pyramid a lens of half-angle tangents (@p tanX, @p tanY) sees grows only linearly with k: a
+        // 12-degree scope keeps ~9.5x the distance but sees a ~1/9.5 wedge of it. Bounds, not estimates - the
+        // capacity must hold every instance the generator can keep, or the farthest are dropped by GrassFinalize's
+        // clamp:
+        //  - an orthogonal projection of a convex body covers at most half its surface area (Cauchy), and the part
+        //    of the pyramid within reach of its apex lies inside the pyramid cut at depth `reach`, whose surface
+        //    is the base 4 r^2 tx ty plus four triangles r^2 tx sqrt(1 + ty^2) and r^2 ty sqrt(1 + tx^2), two
+        //    each;
+        //  - that projection is convex and lies inside the disc of radius `reach`, so its perimeter is at most
+        //    2 pi reach, and the margin adds perimeter x margin + pi margin^2 (Steiner's formula).
+        double ViewFootprintArea( double reach, double tanX, double tanY, double margin )
+        {
+            constexpr double kPi     = 3.14159265358979;
+            const double     surface = reach * reach *
+                                   ( 4.0 * tanX * tanY + 2.0 * tanX * std::sqrt( 1.0 + tanY * tanY ) +
+                                     2.0 * tanY * std::sqrt( 1.0 + tanX * tanX ) );
+            const double inside = std::min( 0.5 * surface, kPi * reach * reach );
+            return inside + 2.0 * kPi * reach * margin + kPi * margin * margin;
+        }
+
+        // A bucket's capacity rounded up to the next power of sqrt(2). The lens changes every frame while a scope
+        // zooms, and an exact capacity would reallocate the variety's buffers on every one of those frames; on the
+        // steps it reallocates about seven times across a 90-to-12-degree zoom and never wastes more than 41 %.
+        uint32_t CapacityStep( uint32_t needed )
+        {
+            if ( needed == 0u )
+                return 0u;
+            const double step = std::exp2( 0.5 * std::ceil( 2.0 * std::log2( static_cast<double>( needed ) ) ) );
+            return std::max( needed, static_cast<uint32_t>( std::ceil( step ) ) );
         }
 
         // UE FGrassBuilderBase: SqrtMaxInstances = sqrt(Extent^2 * GrassDensity / 1000 / 1000), i.e. one instance
@@ -160,21 +195,52 @@ namespace Desert::Graphic::System
     GrassRenderer::VarietyGpu* GrassRenderer::PrepareVariety( const GrassVarietyDraw& variety, Desert::Mesh& mesh,
                                                               const ViewFrame& frame )
     {
-        const GrassPlacement& p         = variety.Placement;
-        const float           cell      = CellSizeCm( p );
-        const float           radius    = p.EndCullDistance;
-        const auto&           submeshes = mesh.GetSubmeshes();
+        const GrassPlacement& p    = variety.Placement;
+        const float           cell = CellSizeCm( p );
+        // Every distance of the field is authored for a 90-degree lens and read through this view's (UE scales the
+        // grass HISM's cull distances by CalculateFieldOfViewDistanceScale the same way): a zoomed scope draws the
+        // field out to k times its EndCullDistance and picks the blade's levels at k times its LodDistance, so a
+        // patch at 100 m through a 12-degree lens looks as it does at ~10 m through a 90-degree one.
+        const Geometry::LODView lensView{ frame.CameraPosition, frame.Projection };
+        const float             lens        = DrawDistanceScale( lensView );
+        const bool              perspective = std::abs( frame.Projection[2][3] ) != 0.0f;
+        const double            tanX        = 1.0 / std::max( 1.0e-6f, std::abs( frame.Projection[0][0] ) );
+        const double            tanY        = 1.0 / std::max( 1.0e-6f, std::abs( frame.Projection[1][1] ) );
+        const float             radius      = p.EndCullDistance * lens;
+        const auto&             submeshes   = mesh.GetSubmeshes();
         // A blade draws one level per bucket (submesh b = bucket b, by distance); a mesh one bucket for all its
         // sections.
         const uint32_t buckets     = variety.Blade ? static_cast<uint32_t>( submeshes.size() ) : 1u;
-        const float    lodDistance = variety.Blade ? variety.Blade->LodDistance : 0.0f;
+        const float    lodDistance = variety.Blade ? variety.Blade->LodDistance * lens : 0.0f;
+        // The instance's bounding sphere in its local space: a blade's from its shape (the upright blade's
+        // middle, reaching the leaning tip and the wind's sway), a mesh's from its bounds.
+        float boundsRadius = 0.0f, boundsHeight = 0.0f;
+        if ( variety.Blade )
+        {
+            boundsHeight = 0.5f * variety.Blade->Height;
+            boundsRadius =
+                 boundsHeight * ( 1.0f + variety.Blade->Curvature ) + variety.Blade->Width + variety.Wind.Strength;
+        }
+        else
+        {
+            const Common::Math::AABB bounds = Geometry::LocalBounds( submeshes );
+            const glm::vec3          centre = ( bounds.Min + bounds.Max ) * 0.5f;
+            boundsHeight                    = centre.y;
+            boundsRadius =
+                 glm::length( bounds.Max - bounds.Min ) * 0.5f + glm::length( glm::vec2( centre.x, centre.z ) );
+        }
         // The nearest clump point lies within the 3x3 clump cells around the blade: at most 2 * sqrt(2) cells off;
         // scatter carries the blade up to 2 * Scatter grid cells before that.
         const double moved = variety.Blade
                                   ? 2.0 * 1.41421356 * variety.Blade->ClumpSize * variety.Blade->ClumpPull +
                                          2.0 * variety.Blade->Scatter * cell
                                   : 0.0;
-        // Every cell whose jittered instance can lie within its bucket's ring of the cull radius.
+        // How far a kept instance's cell centre can lie outside the view's pyramid: the side-plane test passes a
+        // bounding sphere that only touches it, and the cell centre is up to a jittered cell and `moved` off the
+        // instance (one more cell for counting lattice points rather than area).
+        const double margin = static_cast<double>( boundsRadius ) + 2.5 * cell + moved;
+        // Every cell whose jittered instance can lie within its bucket's ring of the cull radius - and, through a
+        // perspective lens, within what that lens can see of the ring.
         std::vector<uint32_t> capacities( buckets );
         uint32_t              capacity = 0;
         for ( uint32_t b = 0; b < buckets; ++b )
@@ -182,18 +248,23 @@ namespace Desert::Graphic::System
             const double inner = buckets == 1u ? 0.0 : static_cast<double>( b ) * lodDistance;
             const double outer = b + 1u == buckets ? static_cast<double>( radius )
                                                    : std::min<double>( radius, ( b + 1.0 ) * lodDistance );
-            capacities[b]      = inner >= radius ? 0u : RingCapacity( inner, outer, cell, moved );
+            uint32_t     needed = inner >= radius ? 0u : RingCapacity( inner, outer, cell, moved );
+            if ( perspective && needed > 0u )
+                needed = std::min<uint32_t>(
+                     needed, static_cast<uint32_t>( std::ceil( ViewFootprintArea( outer, tanX, tanY, margin ) /
+                                                               ( static_cast<double>( cell ) * cell ) ) ) );
+            capacities[b] = CapacityStep( needed );
             capacity += capacities[b];
         }
 
         VarietyGpu& gpu = m_Varieties[variety.Key];
         if ( gpu.Mesh != &mesh || gpu.Capacity != capacity || gpu.Buckets != buckets ||
-             gpu.LodDistance != lodDistance || !gpu.Instances )
+             gpu.BucketCapacities != capacities || !gpu.Instances )
         {
-            gpu.Mesh        = &mesh;
-            gpu.Capacity    = capacity;
-            gpu.Buckets     = buckets;
-            gpu.LodDistance = lodDistance;
+            gpu.Mesh             = &mesh;
+            gpu.Capacity         = capacity;
+            gpu.Buckets          = buckets;
+            gpu.BucketCapacities = capacities;
             if ( gpu.Index == 0 )
                 gpu.Index = ++m_NextIndex;
             gpu.Instances           = ShaderResources::StorageBuffer::Create( "GrassInstances",
@@ -248,25 +319,8 @@ namespace Desert::Graphic::System
         GrassParamsGpu params{};
         SidePlanes( frame.ViewProjection, params.Planes );
         params.Camera = glm::vec4( frame.CameraPosition, radius );
-        params.Cull   = glm::vec4( p.StartCullDistance, p.EndCullDistance, cell,
+        params.Cull   = glm::vec4( p.StartCullDistance * lens, radius, cell,
                                    std::clamp( p.PlacementJitter, 0.0f, 0.99f ) * 0.5f );
-        // The instance's bounding sphere in its local space: a blade's from its shape (the upright blade's
-        // middle, reaching the leaning tip and the wind's sway), a mesh's from its bounds.
-        float boundsRadius = 0.0f, boundsHeight = 0.0f;
-        if ( variety.Blade )
-        {
-            boundsHeight = 0.5f * variety.Blade->Height;
-            boundsRadius =
-                 boundsHeight * ( 1.0f + variety.Blade->Curvature ) + variety.Blade->Width + variety.Wind.Strength;
-        }
-        else
-        {
-            const Common::Math::AABB bounds = Geometry::LocalBounds( submeshes );
-            const glm::vec3          centre = ( bounds.Min + bounds.Max ) * 0.5f;
-            boundsHeight                    = centre.y;
-            boundsRadius =
-                 glm::length( bounds.Max - bounds.Min ) * 0.5f + glm::length( glm::vec2( centre.x, centre.z ) );
-        }
         params.Range = glm::vec4( p.AllowedDensityRange.x, p.AllowedDensityRange.y, p.MaxScaleWeightAttenuation,
                                   boundsRadius );
         const uint32_t flags =
@@ -293,10 +347,37 @@ namespace Desert::Graphic::System
             return nullptr;
         }
 
-        const glm::vec2 lo    = glm::vec2( frame.CameraPosition.x, frame.CameraPosition.z ) - radius;
-        const auto      cells = static_cast<int32_t>( std::ceil( 2.0f * radius / cell ) ) + 2;
-        gpu.Cells             = glm::ivec4( static_cast<int32_t>( std::floor( lo.x / cell ) ) - 1,
-                                            static_cast<int32_t>( std::floor( lo.y / cell ) ) - 1, cells, 0 );
+        // The cells generated: the box of the cull disc, cut to the box of what the lens sees of it. Through a
+        // perspective lens the part of the pyramid within `radius` of the eye lies in the hull of the eye and the
+        // pyramid's four corner rays at `radius`, bulged by at most radius x (1 - cos) of the corner ray's angle
+        // (the sphere's cap between them). A 12-degree scope then dispatches its wedge, not the 9.5x-wider disc.
+        const glm::vec2 eye = glm::vec2( frame.CameraPosition.x, frame.CameraPosition.z );
+        const auto      pad = static_cast<float>( margin );
+        glm::vec2       lo  = eye - ( radius + pad );
+        glm::vec2       hi  = eye + ( radius + pad );
+        if ( perspective )
+        {
+            const glm::mat3 toWorld( frame.InvView );
+            glm::vec2       seenLo = eye, seenHi = eye;
+            for ( const glm::vec2 corner :
+                  { glm::vec2( 1, 1 ), glm::vec2( 1, -1 ), glm::vec2( -1, 1 ), glm::vec2( -1, -1 ) } )
+            {
+                const glm::vec3 ray =
+                     toWorld * glm::normalize( glm::vec3( corner.x * static_cast<float>( tanX ),
+                                                          corner.y * static_cast<float>( tanY ), -1.0f ) );
+                const glm::vec2 end = eye + radius * glm::vec2( ray.x, ray.z );
+                seenLo              = glm::min( seenLo, end );
+                seenHi              = glm::max( seenHi, end );
+            }
+            const auto bulge =
+                 static_cast<float>( radius * ( 1.0 - 1.0 / std::sqrt( 1.0 + tanX * tanX + tanY * tanY ) ) );
+            lo = glm::max( lo, seenLo - ( bulge + pad ) );
+            hi = glm::min( hi, seenHi + ( bulge + pad ) );
+        }
+        gpu.Cells = glm::ivec4( static_cast<int32_t>( std::floor( lo.x / cell ) ) - 1,
+                                static_cast<int32_t>( std::floor( lo.y / cell ) ) - 1,
+                                static_cast<int32_t>( std::ceil( ( hi.x - lo.x ) / cell ) ) + 2,
+                                static_cast<int32_t>( std::ceil( ( hi.y - lo.y ) / cell ) ) + 2 );
         return &gpu;
     }
 
@@ -393,9 +474,11 @@ namespace Desert::Graphic::System
                      const VarietyGpu* gpu = m_Frame[i];
                      RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
                      bindings.PushConstants( &gpu->Cells, sizeof( gpu->Cells ) );
-                     const auto groups =
+                     const auto groupsX =
                           ( static_cast<uint32_t>( gpu->Cells.z ) + kGrassGroupSize - 1 ) / kGrassGroupSize;
-                     if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Generate, groups, groups, 1 );
+                     const auto groupsZ =
+                          ( static_cast<uint32_t>( gpu->Cells.w ) + kGrassGroupSize - 1 ) / kGrassGroupSize;
+                     if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Generate, groupsX, groupsZ, 1 );
                           !dispatched )
                          return dispatched;
                  }
