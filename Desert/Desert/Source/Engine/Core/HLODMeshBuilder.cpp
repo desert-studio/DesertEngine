@@ -9,8 +9,10 @@
 #include <Engine/Geometry/ShapeGenerators.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/AssetHandle.hpp>
 
 #include <glm/gtc/matrix_inverse.hpp>
@@ -18,8 +20,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <fstream>
-#include <iterator>
 #include <format>
 #include <map>
 #include <string>
@@ -304,12 +304,10 @@ namespace Desert::Core
                                                        issues.front().Path, issues.front().Expected,
                                                        issues.front().Found );
 
-        std::ifstream in( heightFile, std::ios::binary );
-        if ( !in )
-            return Common::MakeFormattedError<Result>( "the tile's height file '{}' does not open", heightFile );
-        const std::vector<unsigned char> bytes( ( std::istreambuf_iterator<char>( in ) ),
-                                                std::istreambuf_iterator<char>() );
-        auto                             decoded = Landscape::DecodeLandscapeTile( bytes );
+        // The loader's own read (ComponentRegistry's LandscapeTile load): the scene spells the path relative to
+        // the project, and FullPath resolves it the same way, so the stand-in and the near tile read the same
+        // file.
+        auto decoded = Landscape::ReadLandscapeTileFile( Common::Constants::Path::FullPath( heightFile ) );
         if ( !decoded )
             return Common::MakeFormattedError<Result>( "the tile's height file '{}': {}", heightFile,
                                                        decoded.GetError() );

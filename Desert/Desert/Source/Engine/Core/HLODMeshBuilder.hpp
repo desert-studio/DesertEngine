@@ -33,9 +33,9 @@ namespace Desert::Core
                    std::span<const Common::Utils::AssetRegistry> registries );
 
     // THE LANDSCAPE HLOD OF ONE TILE (WP-FAR-6, Rules::LandscapeHLODRequest): the tile's heights, read from its
-    // HeightFile (DLHT, the path the scene spells relative to the working directory) and decoded by the loader's
-    // DecodeLandscapeTile, laid out by its root's frame (LandscapeTileFrame over the root record's composed world
-    // position) - the same numbers the terrain shader samples, so the stand-in meets the near tiles on their
+    // HeightFile (DLHT, resolved by Constants::Path::FullPath and read by ReadLandscapeTileFile, exactly as the
+    // LandscapeTile load does), laid out by its root's frame (LandscapeTileFrame over the root record's composed
+    // world position) - the same numbers the terrain shader samples, so the stand-in meets the near tiles on their
     // shared edge rows. The stride keeps about TrianglePercent of the quads and always keeps the edge rows. A quad
     // with a corner in the tile's visibility layer hole is left out, as the terrain discards it. Normals from
     // central differences of the full-resolution samples. Refused by name: the tile's block or root does not
