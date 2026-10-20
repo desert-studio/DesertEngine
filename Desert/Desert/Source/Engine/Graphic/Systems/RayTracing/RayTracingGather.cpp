@@ -263,6 +263,92 @@ namespace Desert::Graphic::RayTracing
             }
         }
 
+        // GPU-instanced (the landscape grass): the sections of one producer (one Refs) merge, as an ISM field's
+        // do. Its primitive has no GPU-scene row and no world of its own (each row's transform is the GPU's).
+        std::vector<std::pair<const MeshRenderer::GpuInstancedRenderData*, std::vector<SectionSource>>> producers;
+        for ( const MeshRenderer::GpuInstancedRenderData& data : inputs.GpuInstanced )
+        {
+            if ( data.Mesh == nullptr || data.Refs == nullptr )
+                continue;
+            const SectionSource section = SourceOf( ~data.HiddenSubmeshes, MeshRenderer::ShadingOf( data ) );
+            const auto          same    = std::ranges::find_if( producers, [&data]( const auto& producer )
+                                                                { return producer.first->Refs == data.Refs; } );
+            if ( same != producers.end() )
+            {
+                same->second.push_back( section );
+                continue;
+            }
+            producers.push_back( { &data, { section } } );
+        }
+        for ( const auto& producer : producers )
+        {
+            const MeshRenderer::GpuInstancedRenderData* data     = producer.first;
+            const std::vector<SectionSource>&           sections = producer.second;
+            const RayTracingSubmeshMasks                masks       = MasksOf( *data->Mesh, sections );
+            const bool                                  castShadows = std::ranges::any_of(
+                 inputs.GpuInstanced, [data]( const MeshRenderer::GpuInstancedRenderData& other )
+                 { return other.Refs == data->Refs && other.CastShadows; } );
+            if ( data->Path == MeshVertexPath::GrassBlade )
+            {
+                // A blade strip: one primitive per level (submesh b), its BLAS the level's shared one shaped by
+                // the raster's blade code (GrassBladeRayTracing.hpp), its rows bucket b's instances (record b).
+                const std::size_t levels = std::min<std::size_t>( data->Mesh->GetSubmeshes().size(), 64 );
+                const uint64_t    all    = levels >= 64 ? ~0ull : ( ( 1ull << levels ) - 1ull );
+                if ( data->BladeGeometry.size() != levels || data->BucketCapacities.size() != levels )
+                {
+                    Count( out, RayTracingSkip::NoGeometry );
+                    continue;
+                }
+                for ( std::size_t b = 0; b < levels; ++b )
+                {
+                    const uint64_t level = 1ull << b;
+                    if ( IsSubmeshHidden( masks.Hidden, b ) )
+                        continue;
+                    if ( data->BladeGeometry[b] == nullptr )
+                    {
+                        Count( out, RayTracingSkip::NoGeometry );
+                        continue;
+                    }
+                    const auto           index     = static_cast<uint32_t>( out.Primitives.size() );
+                    RayTracingPrimitive& primitive = out.Primitives.emplace_back();
+                    primitive.Geometry             = data->BladeGeometry[b];
+                    primitive.GpuSceneRow          = kNoGpuSceneRow;
+                    primitive.SourceMesh           = data->Mesh;
+                    primitive.CastShadows          = castShadows;
+                    primitive.Submeshes            = { .Hidden    = masks.Hidden | ( all & ~level ),
+                                                       .NonOpaque = masks.NonOpaque & level };
+                    primitive.Kind                 = RayTracingPrimitiveKind::GpuInstanced;
+                    AppendSegmentRecords( *data->Mesh, sections, primitive, out );
+                    out.GpuInstanced.push_back( { .Primitive = index,
+                                                  .Refs      = data->Refs,
+                                                  .Rows      = data->BucketCapacities[b],
+                                                  .Record    = static_cast<uint32_t>( b ) } );
+                }
+                continue;
+            }
+            if ( NothingVisible( *data->Mesh, masks ) )
+            {
+                Count( out, RayTracingSkip::NothingVisible );
+                continue;
+            }
+            const void* geometry = nullptr;
+            if ( !ResolveGeometry( variants, *data->Mesh, masks, out, geometry ) )
+                continue;
+            const auto           index     = static_cast<uint32_t>( out.Primitives.size() );
+            RayTracingPrimitive& primitive = out.Primitives.emplace_back();
+            primitive.Geometry             = geometry;
+            primitive.GpuSceneRow          = kNoGpuSceneRow;
+            primitive.SourceMesh           = data->Mesh;
+            primitive.CastShadows          = castShadows;
+            primitive.Submeshes = masks;
+            primitive.Kind      = RayTracingPrimitiveKind::GpuInstanced;
+            if ( geometry == nullptr && IsResident( *data->Mesh ) )
+                primitive.ProceduralMesh = data->Mesh;
+            AppendSegmentRecords( *data->Mesh, sections, primitive, out );
+            // One bucket for every section of a mesh (GpuInstances.hpp): record 0 states its count and first.
+            out.GpuInstanced.push_back( { .Primitive = index, .Refs = data->Refs, .Rows = data->Capacity } );
+        }
+
         // Skinned: the per-frame dynamic BLAS fills Geometry (SelectDynamicGeometry); until then counted Skinned.
         // One section per material (MeshRenderer::SkinnedSection); the BLAS leaves out what no section draws and
         // builds a masked section's segments non-opaque.

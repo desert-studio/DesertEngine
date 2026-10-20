@@ -50,17 +50,6 @@ namespace Desert::Graphic::System
         };
         static_assert( sizeof( GrassParamsGpu ) == 240 );
 
-        // Mirrors Vertex_GrassBlade.glslh's GrassBladeShape (std430).
-        struct GrassBladeShapeGpu
-        {
-            glm::vec4 Size; // Height, Width, Taper, Curvature
-            glm::vec4 Base; // BaseColor, Stiffness
-            glm::vec4 Tip;  // TipColor, DryTipShare
-            glm::vec4 Dry;  // DryTipColor, DryTipLength
-            glm::vec4 Bend; // CurvatureSpread, BendSpread
-        };
-        static_assert( sizeof( GrassBladeShapeGpu ) == 80 );
-
         // Instances whose cell centre lies within [inner, outer) of the camera, the ring widened on each side by
         // one jittered cell and by @p moved, the farthest a blade's scatter and clump pull carry it from its cell.
         uint32_t RingCapacity( double inner, double outer, double cell, double moved )
@@ -160,24 +149,11 @@ namespace Desert::Graphic::System
             sm.Name         = std::format( "Blade{}", level );
             sm.VertexOffset = static_cast<uint32_t>( vertices.size() );
             sm.IndexOffset  = static_cast<uint32_t>( indices.size() * 3u );
-            for ( uint32_t row = 0; row <= level; ++row )
-            {
-                const float t = static_cast<float>( row ) / static_cast<float>( level );
-                for ( const float side : { -1.0f, 1.0f } )
-                    vertices.push_back( { .Position  = glm::vec3( side, t, 0.0f ),
-                                          .Normal    = glm::vec3( 0.0f, 0.0f, 1.0f ),
-                                          .Tangent   = glm::vec3( 1.0f, 0.0f, 0.0f ),
-                                          .Bitangent = glm::vec3( 0.0f, 1.0f, 0.0f ),
-                                          .TexCoord  = glm::vec2( side * 0.5f + 0.5f, t ) } );
-            }
-            for ( uint32_t row = 0; row < level; ++row )
-            {
-                const uint32_t a = row * 2u;
-                indices.push_back( { a, a + 1u, a + 2u } );
-                indices.push_back( { a + 1u, a + 3u, a + 2u } );
-            }
-            sm.VertexCount = ( level + 1u ) * 2u;
-            sm.IndexCount  = level * 6u;
+            const GrassBladeStripLevel blade = MakeGrassBladeStripLevel( level );
+            sm.VertexCount                   = static_cast<uint32_t>( blade.Vertices.size() );
+            sm.IndexCount                    = static_cast<uint32_t>( blade.Indices.size() * 3u );
+            vertices.insert( vertices.end(), blade.Vertices.begin(), blade.Vertices.end() );
+            indices.insert( indices.end(), blade.Indices.begin(), blade.Indices.end() );
             sm.Transform   = glm::mat4( 1.0f );
             sm.BoundingBox = Common::Math::AABB{ glm::vec3( -1.0f, 0.0f, 0.0f ), glm::vec3( 1.0f, 1.0f, 0.0f ) };
             submeshes.push_back( std::move( sm ) );
@@ -369,11 +345,12 @@ namespace Desert::Graphic::System
         if ( variety.Blade )
         {
             const GrassBladeDraw&    b = *variety.Blade;
-            const GrassBladeShapeGpu shape{
+            gpu.ShapeData              = GrassBladeShapeGpu{
                  glm::vec4( b.Height, b.Width, b.Taper, b.Curvature ), glm::vec4( b.BaseColor, b.Stiffness ),
                  glm::vec4( b.TipColor, b.DryTipShare ), glm::vec4( b.DryTipColor, b.DryTipLength ),
                  glm::vec4( b.CurvatureSpread, b.BendSpread, 0.0f, 0.0f ) };
-            if ( const auto wrote = gpu.Shape->SetData( &shape, sizeof( shape ) ); !wrote.IsSuccess() )
+            if ( const auto wrote = gpu.Shape->SetData( &gpu.ShapeData, sizeof( gpu.ShapeData ) );
+                 !wrote.IsSuccess() )
             {
                 LOG_ERROR( "[Grass] the blade shape was not written: {}", wrote.GetError() );
                 return nullptr;
@@ -448,9 +425,11 @@ namespace Desert::Graphic::System
         return &gpu;
     }
 
-    void GrassRenderer::AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes )
+    void GrassRenderer::AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes,
+                                  const bool rayTracing )
     {
         m_Frame.clear();
+        m_BladeRayTracing.BeginFrame( rayTracing );
         if ( m_Queue.empty() || !m_Generate || !m_Finalize )
             return;
 
@@ -506,18 +485,43 @@ namespace Desert::Graphic::System
                 gpu->FieldRef       = fieldGpu.Ref;
                 m_Frame.push_back( gpu );
 
+                std::vector<MeshRenderer::GpuInstancedRenderData> sections;
+                sections.reserve( variety.Sections.size() );
                 for ( uint32_t s = 0; s < variety.Sections.size(); ++s )
-                    meshes.SubmitGpuInstanced(
+                    sections.push_back(
                          { .Mesh     = mesh,
                            .Path     = variety.Blade ? MeshVertexPath::GrassBlade : MeshVertexPath::Instanced,
                            .Material = variety.Sections[s].Material,
-                           .HiddenSubmeshes = variety.Sections[s].HiddenSubmeshes,
-                           .CastShadows     = variety.Placement.CastDynamicShadow,
-                           .Wind            = variety.Wind,
-                           .Instances       = gpu->Instances,
-                           .BladeShape      = gpu->Shape,
-                           .Refs            = &gpu->Refs,
-                           .Key             = gpu->Index * 64u + s } );
+                           .HiddenSubmeshes  = variety.Sections[s].HiddenSubmeshes,
+                           .CastShadows      = variety.Placement.CastDynamicShadow,
+                           .Wind             = variety.Wind,
+                           .Instances        = gpu->Instances,
+                           .BladeShape       = gpu->Shape,
+                           .Refs             = &gpu->Refs,
+                           .Capacity         = gpu->Capacity,
+                           .BucketCapacities = gpu->BucketCapacities,
+                           .Key              = gpu->Index * 64u + s } );
+                // A Blade variety's levels in the view's TLAS: one shared BLAS per level, built from the shape
+                // (GrassBladeRayTracing.hpp). A level a Masked section draws runs the alpha test, as MasksOf rules
+                // for a mesh (RayTracingGather.cpp).
+                if ( variety.Blade && m_BladeRayTracing.IsRequired() )
+                {
+                    uint64_t nonOpaque = 0;
+                    for ( const MeshRenderer::GpuInstancedRenderData& section : sections )
+                        if ( MeshRenderer::ShadingOf( section ).Masked )
+                            nonOpaque |= ~section.HiddenSubmeshes;
+                    const auto blas =
+                         m_BladeRayTracing.PrepareVariety( graph, variety.Key, *mesh, gpu->ShapeData, nonOpaque );
+                    if ( blas )
+                        for ( MeshRenderer::GpuInstancedRenderData& section : sections )
+                            section.BladeGeometry = blas.GetValue();
+                    else
+                        LOG_ERROR(
+                             "[Grass] a blade variety is not in the view's TLAS; rays miss it this frame: {}",
+                             blas.GetError() );
+                }
+                for ( const MeshRenderer::GpuInstancedRenderData& section : sections )
+                    meshes.SubmitGpuInstanced( section );
             }
         }
         if ( m_Frame.empty() )
@@ -577,5 +581,11 @@ namespace Desert::Graphic::System
                  }
                  return BOOLSUCCESS;
              } );
+
+        // The blade levels whose BLAS this frame builds: their vertices, before the view's TLAS block requests the
+        // builds (SceneRenderer).
+        if ( const Common::BoolResultStr blades = m_BladeRayTracing.AddPass( graph ); !blades )
+            LOG_ERROR( "[Grass] the blade grass is not in the view's TLAS; rays miss it this frame: {}",
+                       blades.GetError() );
     }
 } // namespace Desert::Graphic::System

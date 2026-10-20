@@ -228,13 +228,18 @@ Shader "PathTracer"
             }
 
             // ---- Rays. ----
+            // Both rays index the hit groups per BLAS segment (sbtRecordStride 1): the table holds one record per
+            // segment record, an instance's SBT offset is its first one, and a hit's geometry index picks its
+            // segment's (RayTracingHitRecord.glslh, as SSRTrace.glslh). Stride 0 shaded every segment of a BLAS
+            // with its FIRST segment's group and record: a tree's leaves took the trunk's template (no any-hit, no
+            // mask) and the trunk's index range.
             // The material ray: the hit's surface into the payload (HitT < 0: a miss).
             void PathTracingTraceMaterialTo(vec3 origin, vec3 direction, float coneWidth, float distance)
             {
                 payload.HitT       = -1.0;
                 payload.ConeWidth  = coneWidth;
                 payload.ConeSpread = u_Sun.y;
-                traceRayEXT(u_SceneTLAS, gl_RayFlagsNoneEXT, 0xFFu, 0u, 0u, 0u, origin, 0.0, direction, distance, 0);
+                traceRayEXT(u_SceneTLAS, gl_RayFlagsNoneEXT, 0xFFu, 0u, 1u, 0u, origin, 0.0, direction, distance, 0);
             }
             void PathTracingTraceMaterial(vec3 origin, vec3 direction, float coneWidth)
             {
@@ -247,7 +252,7 @@ Shader "PathTracer"
             {
                 payload.HitT = 1.0;
                 traceRayEXT(u_SceneTLAS,
-                            gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFFu, 0u, 0u, 0u,
+                            gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFFu, 0u, 1u, 0u,
                             origin, 0.0, direction, distance, 0);
                 return payload.HitT < 0.0;
             }

@@ -1530,6 +1530,18 @@ namespace Desert::Graphic
 
         AddFrameClearMainFramebuffer( graph, textures );
 
+        // The landscape grass of this view, before every node that draws it (the cascades, the geometry) and
+        // before the view's TLAS, whose GPU-written grass rows read its transforms and drawn counts
+        // (RayTracingGpuInstanceSource). A face view grows none, as it simulates no particles.
+        if ( !m_ViewProfile.SceneCapture )
+        {
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
+            UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
+                 ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ),
+                             RayTracing::RayTracingSceneRequired( m_RenderMethods ) );
+            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        }
+
         // The view's TLAS, before any pass that traces rays is declared (RayTracingSceneRenderer.hpp). A frame
         // whose TLAS could not be declared still draws; its ray readers see GetFrame().Built == false.
         {
@@ -1594,11 +1606,31 @@ namespace Desert::Graphic
             }
             // A failed AddPasses may have registered tiles whose build was never declared: none enters the TLAS.
             const RayTracing::LandscapeRayTracingFrame& landscapeFrame = m_LandscapeRayTracing.GetFrame();
-            RayTracing::RayTracingExternalPrimitives    external;
+            // The blade grass's level BLASes (GrassBladeRayTracing.hpp) join the same dynamic-geometry pass: their
+            // primitives are the grass sections the gather reads from the mesh renderer. A face view grew no grass
+            // this frame (above), so it hands none. The landscape stats stay the landscape's own.
+            std::vector<RayTracing::RayTracingDynamicGeometryBuild> builds;
+            std::vector<RDG::BufferRef>                             resident;
+            if ( landscape.IsSuccess() )
+            {
+                builds.assign( landscapeFrame.Builds.begin(), landscapeFrame.Builds.end() );
+                resident.assign( landscapeFrame.Resident.begin(), landscapeFrame.Resident.end() );
+            }
+            if ( !m_ViewProfile.SceneCapture )
+            {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                const auto* const grass = UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] );
+                const std::span<const RayTracing::RayTracingDynamicGeometryBuild> bladeBuilds =
+                     grass->GetBladeRayTracing().GetBuilds();
+                const std::span<const RDG::BufferRef> bladeResident = grass->GetBladeRayTracing().GetResident();
+                builds.insert( builds.end(), bladeBuilds.begin(), bladeBuilds.end() );
+                resident.insert( resident.end(), bladeResident.begin(), bladeResident.end() );
+            }
+            RayTracing::RayTracingExternalPrimitives external{ .Builds = builds, .Resident = resident };
             if ( landscape.IsSuccess() )
                 external = { .Primitives       = landscapeFrame.Primitives,
-                             .Builds           = landscapeFrame.Builds,
-                             .Resident         = landscapeFrame.Resident,
+                             .Builds           = builds,
+                             .Resident         = resident,
                              .Built            = landscapeFrame.Built,
                              .Refit            = landscapeFrame.Refit,
                              .VertexBytes      = landscapeFrame.VertexBytes,
@@ -1699,16 +1731,6 @@ namespace Desert::Graphic
             AddFrameParticlesSimulate( graph );
 
         AddFrameCloudShadowMap( graph, textures );
-
-        // The landscape grass of this view, before every node that draws it (the cascades, the geometry). A face
-        // view grows none, as it simulates no particles.
-        if ( !m_ViewProfile.SceneCapture )
-        {
-            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
-            UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
-                 ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) );
-            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
-        }
 
         // The opaque raster of the systems, in this order: the cascade depths (the geometry's shadow lookups read
         // them), the scene target's sky and geometry, the outline mask.
