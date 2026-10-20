@@ -134,7 +134,7 @@ namespace Desert::Core::WorldCells
                     if ( !nested )
                         return Common::MakeFormattedError<Result>( "prefab '{}': {}", stated, nested.GetError() );
                     const std::size_t from = body.size();
-                    for ( BodyRecord& record : nested.GetValue() )
+                    for ( BodyRecord record : nested.GetValue() ) // GetValue is const-only: copy, then move into the body
                     {
                         if ( record.Parent != kNone )
                             record.Parent += from;
@@ -231,7 +231,7 @@ namespace Desert::Core::WorldCells
             auto     read = expander.Body( *instance.PrefabPath, {} );
             if ( !read )
                 return Common::MakeFormattedError<Result>( "{}: {}", what, read.GetError() );
-            std::vector<BodyRecord>& body = read.GetValue();
+            std::vector<BodyRecord> body = read.GetValue(); // a copy: GetValue is const-only
             if ( instance.PrefabOverrides.has_value() )
                 if ( auto layered =
                           Expander::Layer( body, 0, *instance.PrefabOverrides, {}, *instance.PrefabPath );
