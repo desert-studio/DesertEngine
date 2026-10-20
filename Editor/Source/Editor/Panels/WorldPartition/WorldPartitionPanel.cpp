@@ -378,7 +378,8 @@ namespace Desert::Editor
         static const std::vector<::Desert::Core::HLODLayerSerialized> kNoLayers;
         const std::vector<::Desert::Core::HLODLayerSerialized>& layers = current.HLODLayers.value_or( kNoLayers );
         if ( layers.empty() )
-            ImGui::TextDisabled( "This world states no HLOD layer; a grid can only name one of the world's layers." );
+            ImGui::TextDisabled(
+                 "This world states no HLOD layer; a grid can only name one of the world's layers." );
 
         for ( std::size_t g = 0; g < current.Grids.size(); ++g )
         {
@@ -399,8 +400,8 @@ namespace Desert::Editor
                 ImGui::EndCombo();
                 if ( picked )
                 {
-                    ::Desert::Core::WorldPartitionSerialized after = current;
-                    after.Grids[g].HLODLayer                       = *picked;
+                    ::Desert::Core::WorldPartitionSerialized after                 = current;
+                    after.Grids[g].HLODLayer                                       = *picked;
                     std::optional<::Desert::Core::WorldPartitionSerialized> before = current;
                     const std::string label = std::format( "Set HLOD layer of grid {}", grid.Name );
                     m_Scene->SetWorldPartition( after );
@@ -470,9 +471,8 @@ namespace Desert::Editor
         m_Scene->SetWorldPartition( after );
         // The entry, not a dirty flag: the editor reads CommandHistory's revision to decide whether the
         // scene has unsaved changes, so pushing IS marking it dirty (EditorLayer.cpp, s_SavedRevision).
-        CommandHistory::Get().PushCommand(
-             std::make_unique<WorldPartitionEditCommand>( "Convert to World Partition", m_Scene, std::move( before ),
-                                                          after ) );
+        CommandHistory::Get().PushCommand( std::make_unique<WorldPartitionEditCommand>(
+             "Convert to World Partition", m_Scene, std::move( before ), after ) );
         // FO-6: the world's foliage filed by the new grid, one field per type per cell (UE converts a level's
         // InstancedFoliageActor into partitioned ones the same way). Its own undo step, after the conversion's.
         if ( auto filed = Tools::FoliagePaintTool::RepartitionFoliage( *m_Scene ); !filed )
