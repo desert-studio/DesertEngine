@@ -12,7 +12,8 @@
 // bucket, a blade one per level of its strip, chosen by distance (GRASS-BLADE). A blade also follows its clump - the
 // nearest of a jittered grid of clump points (GoT's Voronoi clumps) lends it its facing, height and tint, and pulls it
 // towards itself by ClumpPull, so blades gather into tufts with open ground between them instead of standing on the
-// jittered grid (white of the grid's own blue noise). GrassFinalize
+// jittered grid (white of the grid's own blue noise). Scatter moves a blade past its own cell and Patchiness thins
+// the field by broad world patches, so a carpet stops reading as one evenly spaced stalk per cell. GrassFinalize
 // copies each bucket's count into its draw records.
 Shader "GrassGenerate"
 {
@@ -33,6 +34,7 @@ Shader "GrassGenerate"
             uvec4 Info;      // x = layer, y = capacity, z = submesh count, w = seed
             uvec4 Buckets;   // x = bucket count, y = the bucket table's first word in Args
             vec4  Blade;     // x = LodDistance (0: one bucket), y = ClumpSize cm, z = Clumping, w = ClumpPull
+            vec4  Spread;    // x = Scatter (cells a blade may stray past its own), y = Patchiness, z = PatchSize cm
         };
 
         ReadBuffer(0) Field
@@ -75,6 +77,26 @@ Shader "GrassGenerate"
         {
             state = Hash( state + 0x9e3779b9u );
             return float( state >> 8u ) * ( 1.0 / 16777216.0 );
+        }
+
+        // Smooth value noise in 0..1 at world XZ over @p size cm cells, two octaves.
+        float Lattice( ivec2 c, uint seed )
+        {
+            return float( Hash( uint( c.x ) * 0x27d4eb2du ^ uint( c.y ) * 0x165667b1u ^ seed ) >> 8u ) *
+                   ( 1.0 / 16777216.0 );
+        }
+        float ValueNoise( vec2 at, uint seed )
+        {
+            ivec2 c = ivec2( floor( at ) );
+            vec2  f = at - floor( at );
+            f       = f * f * ( 3.0 - 2.0 * f );
+            return mix( mix( Lattice( c, seed ), Lattice( c + ivec2( 1, 0 ), seed ), f.x ),
+                        mix( Lattice( c + ivec2( 0, 1 ), seed ), Lattice( c + ivec2( 1, 1 ), seed ), f.x ), f.y );
+        }
+        float PatchNoise( vec2 world, float size, uint seed )
+        {
+            return ( 2.0 * ValueNoise( world / size, seed ) + ValueNoise( world * 2.0 / size, seed ^ 0x5bd1e995u ) ) /
+                   3.0;
         }
 
         uint SamplesX() { return u_Field[0]; }
@@ -131,6 +153,13 @@ Shader "GrassGenerate"
             float cellSize = p.Cull.z;
             vec2  jitter   = vec2( Fraction( state ), Fraction( state ) ) * 2.0 - 1.0;
             vec2  world    = ( vec2( cell ) + 0.5 + jitter * p.Cull.w ) * cellSize;
+            if ( p.Spread.x > 0.0 )
+            {
+                // Scatter: the blade strays past its own cell, so the field is no longer one stalk per cell.
+                float angle = Fraction( state ) * 6.28318530718;
+                float reach = sqrt( Fraction( state ) ) * p.Spread.x;
+                world += vec2( cos( angle ), sin( angle ) ) * reach * cellSize;
+            }
 
             uint  flags = floatBitsToUint( p.ScaleX.w );
             bool  blade = ( flags & kFlagBlade ) != 0u;
@@ -163,7 +192,11 @@ Shader "GrassGenerate"
             if ( !SampleField( world, p.Info.x, height, weight ) )
                 return;
             float keep = Fraction( state );
-            if ( !( weight > p.Range.x && weight <= p.Range.y && weight >= keep ) )
+            // Patchiness: broad world patches, denser and sparser, thin up to that share of the blades.
+            float patchy = weight;
+            if ( p.Spread.y > 0.0 )
+                patchy *= 1.0 - p.Spread.y * PatchNoise( world, p.Spread.z, p.Info.w );
+            if ( !( weight > p.Range.x && weight <= p.Range.y && patchy >= keep ) )
                 return;
 
             vec3  position = vec3( world.x, height, world.y );
