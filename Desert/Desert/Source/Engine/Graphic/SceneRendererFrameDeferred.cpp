@@ -821,6 +821,9 @@ namespace Desert::Graphic
         // The surface cache's shadow rays off the view's maps.
         if ( SurfaceCacheRuns() && GlobalIllumination::TracerReadsGlobalDistanceField( SurfaceCacheTracer() ) )
             return true;
+        // The traced reflections' own rays: SoftwareTraced walks the field whatever GI's method is.
+        if ( ReflectionsTraced() && GlobalIllumination::TracerReadsGlobalDistanceField( ReflectionsTracer() ) )
+            return true;
 #if DESERT_DEV_INSTRUMENTS
         return m_RenderPath == Core::RenderPath::Deferred &&
                m_DebugView.DeferredDebug == DeferredDebugMode::GlobalDistanceField;
