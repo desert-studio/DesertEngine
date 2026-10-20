@@ -58,10 +58,9 @@ include "Tools/LatticePeak/"
 include "Tools/AssetClosure/"
 -- AssetRegistryTool writes the file both hosts now boot from, and checks it in CI (T2.4/T2.7).
 include "Tools/AssetRegistryTool/"
--- GamePackager is the PLAYER's artifact with no editor in the loop. Here for the same reason
--- AssetClosure is here and not under Editor/: it compiles two Editor translation units into itself
--- rather than linking the Editor project, which is what keeps it buildable on a machine that has no
--- display and no Vulkan driver (see Tools/GamePackager/premake5.lua).
+-- GamePackager is the PLAYER's artifact with no editor in the loop: it compiles its four Editor
+-- translation units into itself and links the engine libraries, never the Editor project, so the
+-- Shipping leg that builds Runtime builds no editor for it (see Tools/GamePackager/premake5.lua).
 include "Tools/GamePackager/"
 -- TextureCook compiles the editor's TextureImporter into itself for the same reason, and cooks the one
 -- texture a script has to: the editor splash that scripts/MacOS/Package.sh puts in the engine drop.
