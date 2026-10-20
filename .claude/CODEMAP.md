@@ -27,10 +27,10 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Assets/Shader` — 2 files, 325 lines: ShaderAsset
 - `Assets/Skybox` — 2 files, 123 lines: SkyboxAsset
 - `Audio` — 4 files, 442 lines: AudioEngine, AudioMix
-- `Core` — 72 files, 11,209 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CameraSourceTicket, CellHLOD, CookedWorldStart, DebugDrawCanvasLine, DebugDrawLine, DebugDrawPanelStyle, … (+62)
+- `Core` — 72 files, 11,243 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CameraSourceTicket, CellHLOD, CookedWorldStart, DebugDrawCanvasLine, DebugDrawLine, DebugDrawPanelStyle, … (+62)
 - `Core/Formats` — 11 files, 3,603 lines: BC6HCeilingCensus, BlockPolicy, Image2DSpecification, Image3DSpecification, ImageCubeSpecification, MaterialLayout, MaterialLayoutBindings, MaterialLayoutParam, MaterialLayoutPushField, MaterialLayoutTexture, MipLevelSpan, ReflectedLayoutMember, … (+8)
 - `Core/IO` — 2 files, 89 lines: ImageReader, ImageReaderGifInfo
-- `Core/Serialize` — 47 files, 13,185 lines: AxisSpan, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, CookedFile, CookedWorld, DanglingContainment, … (+79)
+- `Core/Serialize` — 47 files, 13,198 lines: AxisSpan, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, CookedFile, CookedWorld, DanglingContainment, … (+80)
 - `Core/ShaderCompiler` — 16 files, 2,293 lines: BindlessShaderDefine, ScopedShaderPhase, ShaderCacheCounts, ShaderCompiler, ShaderMap, ShaderMapLookup, ShaderMapOutcome, ShaderMapRequest, ShaderMapStage, ShaderPhaseTimes, ShaderVariant, ShaderVirtualSource
 - `Core/ShaderCompiler/DShader` — 2 files, 3,328 lines: DShaderParseResult, DShaderParser, DShaderPass, SurfaceTemplateInfo
 - `Core/ShaderCompiler/Includer` — 2 files, 256 lines: ShaderIncluder
@@ -180,7 +180,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Import` — 47 files, 8,658 lines: AsyncMeshLoader, DdsBlockChain, DdsSourceImage, Done, IAssetImporter, ImportManager, ImportOutcome, ImportResult, ImportSettingsEdit, ImportTemplate, ImportedLight, ImportedMaterial, … (+15)
 - `Import/Assimp` — 12 files, 2,213 lines: AssimpImporter, SceneVertexStreams, SourceAlpha, SourceMaterialRead, SourceTextureFile
 - `Import/Blend` — 2 files, 236 lines: BlendImporter
-- `LevelEditor` — 51 files, 13,274 lines: AssetCompiling, ControlService, DockLayout, DocumentHost, EditorImGuiHost, EditorPanelHandles, EditorStartup, LevelEditorCommands, LevelToolbar, MainMenu, MainMenuActions, Modules, … (+17)
+- `LevelEditor` — 51 files, 13,299 lines: AssetCompiling, ControlService, DockLayout, DocumentHost, EditorImGuiHost, EditorPanelHandles, EditorStartup, LevelEditorCommands, LevelToolbar, MainMenu, MainMenuActions, Modules, … (+17)
 - `Packaging` — 8 files, 2,178 lines: CookStats, PackageOptions, PackageResult, PackagedTree, TargetPlatformInfo
 - `Panels` — 4 files, 670 lines: AssetEditorToolbar, Choice, DocumentAction, Entry, IPanel, ISubjectDocument
 - `Panels/Animation` — 10 files, 4,145 lines: AnimGraphCanvas, AnimGraphPanel, ControlRigPanel, PoseFieldEdit, PoseGraphCanvas, PoseGraphTarget, PosePinRef, PoseWireRef, StatePosition, TransitionRef, WarningTarget
@@ -191,7 +191,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/Collections` — 5 files, 1,025 lines: CollectionFoliageTypes, CollectionItem, CollectionManifest, CollectionManifestAssetRef, CollectionManifestItem, CollectionManifestMaterial, CollectionsPanel, LoadedCollection
 - `Panels/ControlRig` — 4 files, 1,626 lines: ControlRigDocument, ControlRigDocumentModel, PinRef
 - `Panels/Debug` — 4 files, 855 lines: ShaderLibraryPanel, UIDebuggerPanel
-- `Panels/FileExplorer` — 41 files, 6,302 lines: AssetCommands, AssetContextMenu, AssetFileCensus, AssetThumbnailPool, AssetTileThumbnail, AssetViewState, ContentBrowserAssetView, ContentBrowserHistory, ContentBrowserPathView, ContentBrowserSelection, ContentBrowserToolbar, ContentDirectoryModel, … (+15)
+- `Panels/FileExplorer` — 41 files, 6,322 lines: AssetCommands, AssetContextMenu, AssetFileCensus, AssetThumbnailPool, AssetTileThumbnail, AssetViewState, ContentBrowserAssetView, ContentBrowserHistory, ContentBrowserPathView, ContentBrowserSelection, ContentBrowserToolbar, ContentDirectoryModel, … (+15)
 - `Panels/Foliage` — 5 files, 1,218 lines: FoliageFootprint, FoliageTypeCost, PalettePresetEntry
 - `Panels/Fracture` — 6 files, 882 lines: FileStamp, FracturePanel, FractureTool
 - `Panels/History` — 2 files, 103 lines: HistoryPanel
@@ -222,7 +222,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/ViewportPanel` — 17 files, 6,492 lines: CameraPilot, LightGizmoRenderer, PerfHudOverlay, ViewportCameraAim, ViewportCameraPresetRow, ViewportCommandKey, ViewportData, ViewportPanel
 - `Panels/ViewportPanel/Tools` — 33 files, 8,602 lines: ActiveToolLabel, CameraFrustumGizmo, CreateShapeTool, CubeGridTool, ElementSelectTool, FeatureEdge, FoliageBrushDab, FoliageBrushStats, FoliageBrushWorld, FoliageFillTriangle, FoliagePaintTool, FoliagePick, … (+23)
 - `Panels/WorldParameters` — 2 files, 315 lines: WorldParametersPanel
-- `Panels/WorldPartition` — 4 files, 1,210 lines: LegendRow, RegionRequest, View, WorldPartitionPanel
+- `Panels/WorldPartition` — 6 files, 1,353 lines: LegendRow, RegionRequest, View, WorldPartitionPanel
 - `Panels/WorldSettings` — 2 files, 113 lines: WorldSettingsPanel
 - `Platform` — 1 files, 25 lines: DesktopPlatform
 - `Platform/Windows` — 1 files, 83 lines
