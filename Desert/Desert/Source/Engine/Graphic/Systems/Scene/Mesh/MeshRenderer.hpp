@@ -311,8 +311,14 @@ namespace Desert::Graphic::System
             // The instances Instances holds room for (GpuInstances.hpp header word 1): the TLAS rows reserved for
             // the producer (RayTracingGpuInstanceSource::Rows).
             uint32_t Capacity = 0;
+            // Per bucket (a strip level for GrassBlade), the instances its record holds room for: the TLAS rows
+            // reserved for that level (RayTracingGpuInstanceSource::Rows). Owned by the producer, this frame.
+            std::span<const uint32_t> BucketCapacities;
             // Stable per section across frames: the view-variant key (several cascades: Key * kMaxCascades + c).
             uint32_t Key = 0;
+            // GrassBlade only: the shared BLAS of each strip level (GrassBladeRayTracing.hpp), indexed by submesh;
+            // empty when the view has no TLAS. Owned by the grass renderer, this frame.
+            std::span<const RayTracing::RayTracingGeometryResource* const> BladeGeometry;
         };
 
         // A static mesh drawn with a generic data-driven material. Two producers:

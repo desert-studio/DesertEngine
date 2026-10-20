@@ -23,7 +23,9 @@
 //   * GPU-instanced (the landscape grass): one primitive per producer (its sections merged) holding the mesh's
 //     BLAS and segment run; the TLAS rows are written on the GPU from the transforms and the drawn count the
 //     raster's indirect draw reads (RayTracingGpuInstanceSource). One shared BLAS per variety at the drawn level,
-//     no per-instance deformation (UE default: ray tracing ignores WPO). A blade strip has no BLAS yet.
+//     no per-instance deformation (UE default: ray tracing ignores WPO). A blade strip: one primitive per
+//     level, its BLAS the level's shared one shaped by the raster's blade code at the median draw, unwound
+//     (GrassBladeRayTracing.hpp), its rows the instances that level's bucket drew.
 //   * skinned: one primitive per record, its BLAS the per-frame dynamic one (SelectDynamicGeometry).
 namespace Desert::Graphic::RayTracing
 {

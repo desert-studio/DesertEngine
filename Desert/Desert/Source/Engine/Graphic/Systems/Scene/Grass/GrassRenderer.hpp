@@ -132,8 +132,8 @@ namespace Desert::Graphic::System
         // handed with the sections (GrassBladeRayTracing.hpp).
         void AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes, bool rayTracing );
 
-        // This frame's blade BLAS requests and resident BLASes (after AddFrame): the view's TLAS block hands them to
-        // the RT scene with the landscape's.
+        // This frame's blade BLAS requests and resident BLASes (after AddFrame): the view's TLAS block hands them
+        // to the RT scene with the landscape's.
         [[nodiscard]] const GrassBladeRayTracing& GetBladeRayTracing() const
         {
             return m_BladeRayTracing;

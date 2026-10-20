@@ -345,11 +345,12 @@ namespace Desert::Graphic::System
         if ( variety.Blade )
         {
             const GrassBladeDraw&    b = *variety.Blade;
-            gpu.ShapeData           = GrassBladeShapeGpu{
+            gpu.ShapeData              = GrassBladeShapeGpu{
                  glm::vec4( b.Height, b.Width, b.Taper, b.Curvature ), glm::vec4( b.BaseColor, b.Stiffness ),
                  glm::vec4( b.TipColor, b.DryTipShare ), glm::vec4( b.DryTipColor, b.DryTipLength ),
                  glm::vec4( b.CurvatureSpread, b.BendSpread, 0.0f, 0.0f ) };
-            if ( const auto wrote = gpu.Shape->SetData( &gpu.ShapeData, sizeof( gpu.ShapeData ) ); !wrote.IsSuccess() )
+            if ( const auto wrote = gpu.Shape->SetData( &gpu.ShapeData, sizeof( gpu.ShapeData ) );
+                 !wrote.IsSuccess() )
             {
                 LOG_ERROR( "[Grass] the blade shape was not written: {}", wrote.GetError() );
                 return nullptr;
@@ -491,15 +492,15 @@ namespace Desert::Graphic::System
                          { .Mesh     = mesh,
                            .Path     = variety.Blade ? MeshVertexPath::GrassBlade : MeshVertexPath::Instanced,
                            .Material = variety.Sections[s].Material,
-                           .HiddenSubmeshes = variety.Sections[s].HiddenSubmeshes,
-                           .CastShadows     = variety.Placement.CastDynamicShadow,
-                           .Wind            = variety.Wind,
-                           .Instances       = gpu->Instances,
-                           .BladeShape      = gpu->Shape,
-                           .Refs            = &gpu->Refs,
-                           .Capacity        = gpu->Capacity,
+                           .HiddenSubmeshes  = variety.Sections[s].HiddenSubmeshes,
+                           .CastShadows      = variety.Placement.CastDynamicShadow,
+                           .Wind             = variety.Wind,
+                           .Instances        = gpu->Instances,
+                           .BladeShape       = gpu->Shape,
+                           .Refs             = &gpu->Refs,
+                           .Capacity         = gpu->Capacity,
                            .BucketCapacities = gpu->BucketCapacities,
-                           .Key             = gpu->Index * 64u + s } );
+                           .Key              = gpu->Index * 64u + s } );
                 // A Blade variety's levels in the view's TLAS: one shared BLAS per level, built from the shape
                 // (GrassBladeRayTracing.hpp). A level a Masked section draws runs the alpha test, as MasksOf rules
                 // for a mesh (RayTracingGather.cpp).
@@ -515,8 +516,9 @@ namespace Desert::Graphic::System
                         for ( MeshRenderer::GpuInstancedRenderData& section : sections )
                             section.BladeGeometry = blas.GetValue();
                     else
-                        LOG_ERROR( "[Grass] a blade variety is not in the view's TLAS; rays miss it this frame: {}",
-                                   blas.GetError() );
+                        LOG_ERROR(
+                             "[Grass] a blade variety is not in the view's TLAS; rays miss it this frame: {}",
+                             blas.GetError() );
                 }
                 for ( const MeshRenderer::GpuInstancedRenderData& section : sections )
                     meshes.SubmitGpuInstanced( section );

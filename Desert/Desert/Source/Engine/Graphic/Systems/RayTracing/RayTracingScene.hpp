@@ -183,9 +183,6 @@ namespace Desert::Graphic::RayTracing
         NothingVisible,          // every submesh of the row is hidden: there is no triangle to trace
         RowOutOfRange,           // the GPU-scene row does not fit the 24-bit custom index
         SegmentRecordOutOfRange, // the first segment record does not fit the 24-bit SBT record offset
-        // A GPU-instanced grass blade strip (MeshVertexPath::GrassBlade): the vertex stage shapes the strip per
-        // instance, so the strip mesh is not the drawn blade and has no BLAS to trace (REMAINDER PT-GRASS).
-        GrassBladeShape,
         Count
     };
 
@@ -227,8 +224,6 @@ namespace Desert::Graphic::RayTracing
                 return "Row out of range";
             case RayTracingSkip::SegmentRecordOutOfRange:
                 return "Segment record out of range";
-            case RayTracingSkip::GrassBladeShape:
-                return "Grass blade (no BLAS)";
             case RayTracingSkip::Count:
                 break;
         }
