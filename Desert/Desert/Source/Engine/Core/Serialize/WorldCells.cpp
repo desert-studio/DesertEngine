@@ -444,9 +444,10 @@ namespace Desert::Core::WorldCells
                                   record, scene.SceneName, static_cast<std::uint64_t>( *records[record].id ) ) );
         const Rules::WorldPartitionPlan plan =
              Rules::PlanWorldPartition( descriptors, *scene.WorldPartition, BoundsFrom( registries ) );
-        // Values of the wrong type were read as the loader reads them (default kept); the cook goes on and
-        // names every one of them once, after the reference walk and the HLOD build below have added theirs.
-        Common::Json::Issues issues    = plan.Issues;
+        // What the planner refused is named by the one plan report Play and editor regions use too. Values of
+        // the wrong type the reference walk and the HLOD build below find are the cook's own, named once at the end.
+        Rules::ReportPlanIssues( plan, scene.SceneName );
+        Common::Json::Issues issues;
         const std::size_t unitCount = Rules::ResidencyUnitCount( plan );
 
         CookedWorld cooked;

@@ -419,7 +419,8 @@ namespace Desert::Core::Rules
 
         // EVERY COMPONENT VALUE THE PLANNER READ AND FOUND OF THE WRONG TYPE, each with its full path
         // (`Entities[id=7].LandscapeTile.TileX`). The planner reads such a value as the loader does — the
-        // component's default is kept — and says so here instead of in silence; CookWorld logs the list.
+        // component's default is kept — and says so here instead of in silence; every place that plans a world
+        // to act on it (cook, Play, editor regions) names them through ReportPlanIssues.
         Common::Json::Issues Issues;
 
         // How many levels the grid has for THIS world: level LevelCount-1 is the first whose cell reaches
@@ -1428,6 +1429,15 @@ namespace Desert::Core::Rules
             return World::Landscape::LandscapeTileBounds( root, tile.LandscapeTile->X, tile.LandscapeTile->Z );
         }
     } // namespace Detail
+
+    // THE ONE REPORT OF A PLAN'S ISSUES. Every caller that plans a world to act on it - the cook (WorldCells),
+    // Play (BeginWorldStreaming) and editor regions (EditorRegions) - names what the planner refused through
+    // this, so an Issue (an unknown StreamingSource.TargetGrids name, a RuntimeGrid.Grid the world lacks, ...)
+    // is never seen by one of them and dropped by another. Returns the logged text ("" when there is none).
+    inline std::string ReportPlanIssues( const WorldPartitionPlan& plan, std::string_view world )
+    {
+        return Common::Json::ReportIssues( plan.Issues, std::format( "the world partition plan of '{}'", world ) );
+    }
 
     // THE PLANNER, over descriptors (an index on disk, EntityDescriptorIndex.hpp, or DescribeEntities of a
     // scene in memory). Record `r` of the plan is descriptor `r`.
