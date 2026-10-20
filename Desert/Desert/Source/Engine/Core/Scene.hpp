@@ -471,6 +471,11 @@ namespace Desert::Core
         {
             return m_ViewTarget;
         }
+        // THE PLAYER'S VIEW POINT (UE: APlayerController::GetPlayerViewPoint - its camera manager's view), as a
+        // world matrix (translation = eye, -Z = forward): the view target camera entity's world transform, or,
+        // with no target entity (Play from Here's editor camera, a view pinned from outside), the active
+        // camera's. nullopt outside Play/Paused, or with no camera to look through.
+        [[nodiscard]] std::optional<glm::mat4> PlayerViewPoint();
         // A Camera Cut (UE: the Level Sequence's camera cut calling APlayerController::SetViewTarget) moves the
         // view to another camera entity; the sequence hands the previous target back when its cut ends.
         void SetViewTarget( entt::entity target )

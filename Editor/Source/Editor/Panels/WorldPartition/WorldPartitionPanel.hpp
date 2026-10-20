@@ -78,6 +78,9 @@ namespace Desert::Editor
         /// scene not opened from its files). The undo history is reset on success, as UE resets its transactions
         /// when it unloads actors: an entry may name an entity that is gone.
         [[nodiscard]] Common::BoolResultStr LoadRegion( const RegionRequest& request );
+        /// The panel's Load Region button: the rectangle selected on the map. Refused by name when nothing is
+        /// selected; otherwise LoadRegion. The palette offers it beside Unload All / Load All.
+        [[nodiscard]] Common::BoolResultStr LoadSelectedRegion();
         // The default layout docks the panel (EditorLayer). A layout saved before that line has no place for
         // it and ImGui floats it: at this size the map is still readable instead of a ~30 px strip.
         [[nodiscard]] glm::vec2 GetDefaultSize() const override

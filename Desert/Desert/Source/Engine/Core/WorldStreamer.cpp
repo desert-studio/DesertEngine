@@ -277,6 +277,17 @@ namespace Desert::Core
             if ( entities != nullptr )
                 entities->push_back( static_cast<std::uint32_t>( entity ) );
         }
+        // THE PLAYER (UE's APlayerController, a streaming source provider at GetPlayerViewPoint): with a pawn
+        // the pawn's own component above stands for it; with none - a level without a Default Pawn, played from
+        // here or through an Auto Activate camera - the player is a source where it looks from.
+        if ( scene.GetPlayerPawn() == entt::null )
+            if ( const std::optional<glm::mat4> view = scene.PlayerViewPoint() )
+            {
+                Rules::StreamingSource player;
+                player.Position = glm::vec3( ( *view )[3] );
+                player.Facing   = -glm::vec3( ( *view )[2] );
+                sources.push_back( std::move( player ) );
+            }
         sources.insert( sources.end(), instruments.begin(), instruments.end() );
         return sources;
     }
@@ -306,8 +317,9 @@ namespace Desert::Core
         {
             m_SaidNoSource = true;
             LOG_ERROR( "[WorldPartition] '{0}': Play has no streaming source — no entity has an enabled Streaming "
-                       "Source and the level spawned no pawn — so only the always-loaded part of the world is "
-                       "resident. Give the level a Default Pawn or put a Streaming Source on an entity.",
+                       "Source, the level spawned no pawn and the player has no view — so only the always-loaded "
+                       "part of the world is resident. Give the level a Default Pawn or put a Streaming Source on "
+                       "an entity.",
                        m_SceneName );
         }
         m_LastSources = std::move( sources );
