@@ -3,6 +3,7 @@
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
+#include <Engine/Core/Serialize/PrefabExpansion.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Project/ProjectFormat.hpp>
@@ -178,8 +179,8 @@ namespace Desert::WorldCook
         out << "WorldCook: descriptors " << descriptors.GetValue().Described << " described, "
             << descriptors.GetValue().Reused << " reused, " << descriptors.GetValue().Dropped << " dropped\n";
         const auto planned = Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
-        auto       cooked  = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries,
-                                                          Core::WorldCells::PrefabFileReader() );
+        const auto prefabs = Core::WorldCells::PrefabFileReader();
+        auto       cooked  = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries, prefabs );
         if ( !cooked )
         {
             err << "WorldCook: " << cooked.GetError() << "\n";
@@ -271,7 +272,7 @@ namespace Desert::WorldCook
             return 0;
 
         // THE ROUND TRIP, FROM DISK: what a reader gets back out of the directory holds exactly the source's
-        // records. Read through the same functions the runtime will use.
+        // records, prefab instances expanded. Read through the same functions the runtime will use.
         const auto verifyStart = std::chrono::steady_clock::now();
         const auto reader      = [&]( std::string_view name ) -> Common::ResultStr<std::vector<unsigned char>>
         {
@@ -300,14 +301,25 @@ namespace Desert::WorldCook
             err << "WorldCook: verify: " << back.GetError() << "\n";
             return 6;
         }
-        if ( Core::WorldCells::CanonicalRecords( back.GetValue() ) !=
-             Core::WorldCells::CanonicalRecords( scene.GetValue().Scene ) )
+        // The cells hold the EXPANDED world: every prefab instance replaced by its records, expanded exactly as
+        // the cook expanded it (same function, same reader). The source's own records are not what a reader gets
+        // back.
+        auto expanded = Core::WorldCells::ExpandPrefabInstances( scene.GetValue().Scene, prefabs );
+        if ( !expanded )
         {
-            err << "WorldCook: verify: the world assembled from the cells does not hold the source's records\n";
+            err << "WorldCook: verify: " << expanded.GetError() << "\n";
+            return 6;
+        }
+        if ( Core::WorldCells::CanonicalRecords( back.GetValue() ) !=
+             Core::WorldCells::CanonicalRecords( expanded.GetValue().Scene ) )
+        {
+            err << "WorldCook: verify: the world assembled from the cells does not hold the expanded source's "
+                   "records\n";
             return 7;
         }
         out << "  verify       : " << back.GetValue().Entities.size() << " records back from the cells, equal to "
-            << "the source (" << MsSince( verifyStart ) << " ms)\n";
+            << "the expanded source (" << expanded.GetValue().Instances << " prefab instances) ("
+            << MsSince( verifyStart ) << " ms)\n";
         return 0;
     }
 } // namespace Desert::WorldCook
