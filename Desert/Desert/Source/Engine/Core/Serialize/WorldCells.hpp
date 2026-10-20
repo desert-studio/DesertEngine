@@ -77,8 +77,9 @@ namespace Desert::Core::WorldCells
     // index/cell payload shapes below. A reader refuses any other number by name, older included; a cooked
     // world is re-derivable, so the answer to an old one is a re-cook.
     inline constexpr std::uint32_t kWorldFormatTag     = Common::Content::FourCC( "WPCW" );
-    inline constexpr std::uint32_t kWorldFormatVersion = 6; // 4: HLOD layers (WP-FAR-7); 5: a cell row states its grid (WP22);
-                                                           // 6: prefab instances expanded at cook (WP21)
+    inline constexpr std::uint32_t kWorldFormatVersion =
+         6; // 4: HLOD layers (WP-FAR-7); 5: a cell row states its grid (WP22);
+            // 6: prefab instances expanded at cook (WP21)
 
     inline constexpr std::string_view kIndexFileName        = "World.dwindex";
     inline constexpr std::string_view kCellExtension        = ".dwcell";
@@ -206,7 +207,8 @@ namespace Desert::Core::WorldCells
     // empty reader is a stated condition - a world with an instance is then refused by the prefab's name.
     [[nodiscard]] Common::ResultStr<CookedWorld>
     CookWorld( const SceneSerialized& scene, std::span<const Common::Utils::AssetRegistry> registries,
-               const PrefabReader& prefabs, const Rules::HLODMeshBuilder& meshBuilder = {}, const Rules::LandscapeHLODBuilder& landscape = {} );
+               const PrefabReader& prefabs, const Rules::HLODMeshBuilder& meshBuilder = {},
+               const Rules::LandscapeHLODBuilder& landscape = {} );
 
     // The same cook, PLANNED FROM DESCRIPTORS (WP18): `descriptors` (the world's descriptor index,
     // EntityDescriptorIndex.hpp) are what the cells are decided with; the records only fill the cell files.

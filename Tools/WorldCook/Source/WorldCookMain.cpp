@@ -132,7 +132,7 @@ namespace Desert::WorldCook
             << descriptors.GetValue().Reused << " reused, " << descriptors.GetValue().Dropped << " dropped\n";
         const auto planned = Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
         auto       cooked  = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries,
-                                                         Core::WorldCells::PrefabFileReader() );
+                                                          Core::WorldCells::PrefabFileReader() );
         if ( !cooked )
         {
             err << "WorldCook: " << cooked.GetError() << "\n";

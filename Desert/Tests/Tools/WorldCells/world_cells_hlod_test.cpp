@@ -517,7 +517,7 @@ TEST( WorldCellsHLOD, AMeshWhoseEveryMaterialHasItsOwnShaderIsANamedHole )
     scene.Entities.push_back( points );
 
     const std::array<Common::Utils::AssetRegistry, 1> registries{ MaterialRegistry() };
-    auto                                              cooked = Cells::CookWorld( scene, registries, Cells::PrefabReader{} );
+    auto cooked = Cells::CookWorld( scene, registries, Cells::PrefabReader{} );
     ASSERT_TRUE( cooked.IsSuccess() ) << cooked.GetError();
     const Cells::WorldIndex& index = cooked.GetValue().Index;
     // The authored ISM's instance sits at the origin, so its footprint is another cell: read every HLOD.

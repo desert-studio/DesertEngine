@@ -414,12 +414,10 @@ namespace Desert::Core::WorldCells
         return CookPlanned( world, descriptors, registries, meshBuilder, landscape );
     }
 
-    Common::ResultStr<CookedWorld> CookWorld( const SceneSerialized&                        scene,
-                                              std::span<const Rules::EntityDescriptor>      descriptors,
-                                              std::span<const Common::Utils::AssetRegistry> registries,
-                                              const PrefabReader&                           prefabs,
-                                              const Rules::HLODMeshBuilder&                 meshBuilder,
-                                              const Rules::LandscapeHLODBuilder&            landscape )
+    Common::ResultStr<CookedWorld>
+    CookWorld( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
+               std::span<const Common::Utils::AssetRegistry> registries, const PrefabReader& prefabs,
+               const Rules::HLODMeshBuilder& meshBuilder, const Rules::LandscapeHLODBuilder& landscape )
     {
         using Result = CookedWorld;
         // The index is the SOURCE world's: it must be its records', one for one, before an instance is expanded.
@@ -463,10 +461,10 @@ namespace Desert::Core::WorldCells
     }
 
     static Common::ResultStr<CookedWorld> CookPlanned( const SceneSerialized&                        scene,
-                                                std::span<const Rules::EntityDescriptor>      descriptors,
-                                                std::span<const Common::Utils::AssetRegistry> registries,
-                                                const Rules::HLODMeshBuilder&                 meshBuilder,
-                                                const Rules::LandscapeHLODBuilder&            landscape )
+                                                       std::span<const Rules::EntityDescriptor>      descriptors,
+                                                       std::span<const Common::Utils::AssetRegistry> registries,
+                                                       const Rules::HLODMeshBuilder&                 meshBuilder,
+                                                       const Rules::LandscapeHLODBuilder&            landscape )
     {
         using Result = CookedWorld;
         if ( !scene.WorldPartition.has_value() )
