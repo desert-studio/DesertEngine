@@ -1,0 +1,50 @@
+{
+    "Header": {
+        "Kind": "Scene",
+        "Guid": "ec46392a140b5adabdb81ae9bfb4d1a7",
+        "Versions": {
+            "SCNE": 66,
+            "UNIT": 1
+        },
+        "Dependencies": []
+    },
+    "SceneName": "WP21_PrefabSpan_Far",
+    "ExternalEntities": [636758187238421050, 8227077724870736328, 9001, 9002],
+    "Settings": {
+        "RenderingPath": 1,
+        "Gravity": 981.0,
+        "DefaultPawn": {
+            "Guid": "",
+            "Path": ""
+        },
+        "PlayerController": {
+            "Guid": "",
+            "Path": ""
+        },
+        "RespawnDelay": 3.0,
+        "WorldParameters": "",
+        "SplashSprite": {
+            "Guid": "",
+            "Path": ""
+        },
+        "SplashDuration": 0.0,
+        "SplashFade": 0.4000000059604645
+    },
+    "WorldPartition": {
+        "Grids": [
+            {
+                "Name": "Main",
+                "CellSize": 1000.0,
+                "LoadingRange": 3000.0,
+                "Priority": 0
+            }
+        ],
+        "HLODLayers": [
+            {
+                "Name": "HLOD0",
+                "Type": "Instancing"
+            }
+        ],
+        "DefaultHLODLayer": "HLOD0"
+    }
+}

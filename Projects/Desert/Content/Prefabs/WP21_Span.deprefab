@@ -1,0 +1,130 @@
+{
+    "Header": {
+        "Kind": "Prefab",
+        "Guid": "2b21aa0000000000000000000000e021",
+        "Versions": {
+            "SCNE": 66,
+            "UNIT": 1
+        },
+        "Dependencies": []
+    },
+    "Name": "WP21_Span",
+    "Entities": [
+        {
+            "id": 9101,
+            "Tag": "SpanRoot",
+            "Translation": [
+                0.0,
+                50.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                100.0,
+                100.0,
+                100.0
+            ],
+            "StaticMesh": {
+                "MaterialPaths": [
+                    "Materials/Starter_Prop.demat"
+                ],
+                "MaterialGuids": [
+                    "f6f923426f71eb4a270b1db46ebceeff"
+                ],
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 9102,
+            "Tag": "SpanB",
+            "Translation": [
+                15.0,
+                0.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "StaticMesh": {
+                "MaterialPaths": [
+                    "Materials/Starter_Prop.demat"
+                ],
+                "MaterialGuids": [
+                    "f6f923426f71eb4a270b1db46ebceeff"
+                ],
+                "Primitive": "Cube"
+            },
+            "parent": 9101
+        },
+        {
+            "id": 9103,
+            "Tag": "SpanC",
+            "Translation": [
+                30.0,
+                0.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "StaticMesh": {
+                "MaterialPaths": [
+                    "Materials/Starter_Prop.demat"
+                ],
+                "MaterialGuids": [
+                    "f6f923426f71eb4a270b1db46ebceeff"
+                ],
+                "Primitive": "Cube"
+            },
+            "parent": 9101
+        },
+        {
+            "id": 9104,
+            "Tag": "SpanD",
+            "Translation": [
+                45.0,
+                0.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "StaticMesh": {
+                "MaterialPaths": [
+                    "Materials/Starter_Prop.demat"
+                ],
+                "MaterialGuids": [
+                    "f6f923426f71eb4a270b1db46ebceeff"
+                ],
+                "Primitive": "Cube"
+            },
+            "parent": 9101
+        }
+    ],
+    "Root": 9101
+}
