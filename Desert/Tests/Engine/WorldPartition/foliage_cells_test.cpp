@@ -43,7 +43,7 @@ namespace
     WorldPartitionSerialized Grid()
     {
         WorldPartitionSerialized partition;
-        partition.Grids.push_back( WorldPartitionGridSerialized{ "Main", static_cast<float>( kCell ), 25600.0f } );
+        partition.Grids.push_back( WorldPartitionGridSerialized{ static_cast<float>( kCell ), 25600.0f } );
         return partition;
     }
 
