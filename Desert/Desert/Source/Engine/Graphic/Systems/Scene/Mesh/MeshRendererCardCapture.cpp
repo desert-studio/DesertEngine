@@ -273,7 +273,8 @@ namespace Desert::Graphic::System
     }
 
     void MeshRenderer::DeclareCardCaptureDraws( RDG::PassBuilder&                             pass,
-                                                const std::vector<SurfaceCache::CardCapture>& captures )
+                                                const std::vector<SurfaceCache::CardCapture>& captures,
+                                                const SceneViewInputs&                        view )
     {
         m_CardCaptureDraws.Clear();
         if ( captures.empty() )
@@ -407,7 +408,7 @@ namespace Desert::Graphic::System
                                           } } );
             }
         }
-        m_CardCaptureDraws.Declare( pass, std::nullopt );
+        m_CardCaptureDraws.Declare( pass, view );
     }
 
     Common::BoolResultStr MeshRenderer::RenderCardCaptureManual( const RDG::PassContext& context ) const

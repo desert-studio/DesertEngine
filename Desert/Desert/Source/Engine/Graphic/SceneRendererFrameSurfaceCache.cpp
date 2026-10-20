@@ -205,11 +205,13 @@ namespace Desert::Graphic
             coverageDesc.Format            = ViewTargetFormats::kThinGeometryCoverage;
             const RDG::TextureRef coverage =
                  graph.CreateTexture( coverageDesc, "SurfaceCacheCapture.ThinGeometryCoverage" );
+            // The cell's one scene input (the rain occlusion map of the wetness), as the scene's G-buffer pass.
+            const SceneViewInputs captureView = SceneViewInputsOf( textures.GraphRefs() );
             graph.AddPass(
                  passName, RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
                  [&]( RDG::PassBuilder& pass )
                  {
-                     meshRenderer->DeclareCardCaptureDraws( pass, captures );
+                     meshRenderer->DeclareCardCaptureDraws( pass, captures, captureView );
                      // An invalid colour is the unused shading-word slot: no target.
                      for ( uint32_t slot = 0; slot < targets->Colors.size(); ++slot )
                          if ( targets->Colors[slot].IsValid() )
