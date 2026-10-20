@@ -939,7 +939,7 @@ void RegisterReflection_Engine()
         TypeBuilder( "StreamingSourceLibrary", sizeof( T ) )
             .ScriptName( "WorldStreaming" )
 #ifndef DESERT_REFLECTION_DATA_ONLY
-                    .Function( ::Desert::Reflection::MakeFunction<&T::IsStreamingCompleted>( "IsStreamingCompleted", "StreamingSourceLibrary", "Common::ResultStr<bool>", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "isStreamingCompleted", .ScriptMethod = true } ) )
+                    .Function( ::Desert::Reflection::MakeFunction<&T::StreamingCellsPending>( "StreamingCellsPending", "StreamingSourceLibrary", "Common::ResultStr<int>", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "", .ScriptName = "streamingCellsPending", .ScriptMethod = true } ) )
 #endif
             .WithDefault<T>()
             .Register();

@@ -156,7 +156,7 @@ namespace Desert::Core
         Rules::StreamingAssessment Assessment;
         std::uint32_t              FramesWaiting = 0; // consecutive blocked ticks; drives the overlay's motion
         // Each enabled StreamingSourceComponent's entity (entt id) and how much of what it wants is resident,
-        // as of this tick: what a script asks with WorldStreaming.isStreamingCompleted.
+        // as of this tick: what a script asks with entity:streamingCellsPending().
         std::unordered_map<std::uint32_t, Rules::SourceCompletion> Sources;
     };
 } // namespace Desert::Core
