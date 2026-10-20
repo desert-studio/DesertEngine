@@ -256,9 +256,13 @@ namespace Desert::Graphic::System
         {
             if ( const auto read = gpu.Feedback->ReadBack( counted.data(), ( buckets + 1u ) * 4u );
                  !read.IsSuccess() )
+            {
                 LOG_ERROR( "[Grass] the generated counts were not read back: {}", read.GetError() );
+            }
             else
+            {
                 fedBack = counted[buckets] != 0u;
+            }
         }
         if ( gpu.LowFrames.size() != buckets )
             gpu.LowFrames.assign( buckets, 0u );

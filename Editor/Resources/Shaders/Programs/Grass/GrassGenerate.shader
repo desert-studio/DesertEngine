@@ -157,13 +157,13 @@ Shader "GrassGenerate"
             float k     = 1.0 / p.ScaleZ.w;
             vec3  toEye = p.Camera.xyz - vec3( world.x, height, world.y );
             float rise  = toEye.y;
-            vec2  flat  = toEye.xz;
+            vec2  across = toEye.xz;
             float d2    = dot( toEye, toEye );
             vec3  n     = FieldNormal( world, p.Info.x, height );
             float s     = dot( toEye, n ) * inversesqrt( max( d2, 1.0 ) );
             if ( s <= 0.0 )
                 return p.ScaleZ.w;
-            vec3  authored  = vec3( flat.x / k, rise, flat.y / k );
+            vec3  authored  = vec3( across.x / k, rise, across.y / k );
             float authored2 = dot( authored, authored );
             float s2        = dot( authored, n ) * inversesqrt( max( authored2, 1.0 ) );
             if ( s2 <= s / k )
