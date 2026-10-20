@@ -11,7 +11,13 @@ Patterns:
   idle wake   — a turn woken by a notification / agent message that made no tool call (pure cost);
   stale watch — a notification of a background task this session never started (a waiter left by an older
                 session: find it with ps and kill it);
-  long context — the last request's context above CONTEXT_LIMIT: write the handover and ask for /clear.
+  long context — above CLEAR_AT every owner prompt (and every CLEAR_EVERY requests) carries the /clear reminder:
+                write the handover and ask the owner for /clear (owner 10-20: «напоминай всегда про CLEAR»);
+  digging     — the lead's own log/code digging fills its context (10-20: 43 shell reads + 40 searches = 39 % of the
+                lead's spend): a tool result over BIG_RESULT chars, or more than DIG_PER_TURN reads/searches in a turn;
+  big schema  — ToolSearch loading a large deferred schema (notion-query-data-sources ~20k) into the lead: it stays
+                in every later request (10-20: ToolSearch 17 % of the lead);
+  long wait   — a foreground call with a timeout over the cache TTL keeps the lead open while nothing happens.
 Cost units as ledger.py: 5*out + 1.25*new input + 0.1*cache reads.
 """
 import csv, json, os, re, sys, time
@@ -24,6 +30,13 @@ STATE_DIR = os.path.expanduser("~/.claude/lead-watch")
 CSV = os.path.expanduser("~/.claude/lead-spend.csv")
 REPORT_EVERY = 20
 CONTEXT_LIMIT = 250_000
+CLEAR_AT = 150_000
+CLEAR_EVERY = 10
+BIG_RESULT = 6_000
+DIG_PER_TURN = 6
+DIG_TOOLS = re.compile(r"^\s*(cat|head|tail|sed|grep|rg|awk|find|ls|git\s+(log|show|diff|grep))")
+BIG_SCHEMAS = re.compile(r"notion-query-data-sources|notion-query-meeting-notes|notion-create-database")
+LONG_WAIT_MS = 300_000
 NOTIFY = re.compile(r"<task-notification>|Another Claude session sent a message|<agent-message")
 TASK_ID = re.compile(r"<task-id>([A-Za-z0-9]+)</task-id>")
 STARTED = re.compile(r"(?:running in background with ID: |agentId: )([A-Za-z0-9]+)")
@@ -67,6 +80,7 @@ def main():
     st = load(spath) or {"offset": 0, "req": {}, "n": 0, "out": 0, "new": 0, "read": 0, "ctx": 0,
                           "turn_notify": False, "turn_tools": 0, "turn_tid": "", "idle": 0, "stale": 0,
                           "started": [], "pending": [], "last_report_n": 0}
+    st.setdefault("turn_dig", 0); st.setdefault("last_clear_n", 0)
     started = set(st["started"])
     pending = st["pending"]
     size = os.path.getsize(tpath)
@@ -92,6 +106,11 @@ def main():
                 for m in STARTED.finditer(txt):
                     started.add(m.group(1))
                 if is_result:
+                    size = sum(len(text_of(b.get("content"))) for b in content
+                               if isinstance(b, dict) and b.get("type") == "tool_result")
+                    if size > BIG_RESULT:
+                        pending.append(f"tool result {size//1000}k chars entered the lead context and is re-read on every "
+                                       "later request — print a 3-5 line digest from a script, or give the digging to a haiku agent")
                     continue
                 # a new turn begins: close the previous one
                 if st["turn_notify"] and st["turn_tools"] == 0:
@@ -99,6 +118,7 @@ def main():
                     pending.append(f"idle wake (no tool call) after {st['turn_tid'] or 'an agent message'}")
                 st["turn_notify"] = bool(NOTIFY.search(txt))
                 st["turn_tools"] = 0
+                st["turn_dig"] = 0
                 tid = TASK_ID.search(txt)
                 st["turn_tid"] = tid.group(1) if tid else ""
                 if tid and tid.group(1) not in started:
@@ -110,6 +130,18 @@ def main():
                 for b in msg.get("content") or []:
                     if isinstance(b, dict) and b.get("type") == "tool_use":
                         st["turn_tools"] += 1
+                        inp = b.get("input") or {}
+                        name = b.get("name") or ""
+                        if name in ("Read", "Grep", "Glob") or (name in ("Bash", "PowerShell") and DIG_TOOLS.match(str(inp.get("command") or ""))):
+                            st["turn_dig"] += 1
+                            if st["turn_dig"] == DIG_PER_TURN + 1:
+                                pending.append(f"{DIG_PER_TURN}+ reads/searches by the lead in one turn — the lead coordinates; "
+                                               "digging goes to a script that prints a digest or to a haiku Explore agent")
+                        if name == "ToolSearch" and BIG_SCHEMAS.search(str(inp.get("query") or "")):
+                            pending.append("ToolSearch loaded a large schema into the lead; it is re-read on every later request — "
+                                           "run such queries from a sub-agent or a script")
+                        if int(inp.get("timeout") or 0) > LONG_WAIT_MS and not inp.get("run_in_background"):
+                            pending.append("foreground call longer than the cache TTL — run it in the background and end the turn")
                 if u and rid:
                     prev = st["req"].get(rid)
                     if prev is None:
@@ -130,9 +162,11 @@ def main():
     if pending:
         lines += pending[-5:]
         pending = []
-    if st["ctx"] > CONTEXT_LIMIT and not st.get("ctx_warned"):
-        st["ctx_warned"] = True
-        lines.append(f"context {st['ctx']//1000}k > {CONTEXT_LIMIT//1000}k: every request re-reads it — write the handover and ask the owner for /clear at the next phase boundary")
+    event = data.get("hook_event_name", "")
+    if st["ctx"] > CLEAR_AT and (event == "UserPromptSubmit" or st["n"] - st["last_clear_n"] >= CLEAR_EVERY):
+        st["last_clear_n"] = st["n"]
+        lines.append(f"/CLEAR: context {st['ctx']//1000}k > {CLEAR_AT//1000}k — every request re-reads it; write the handover "
+                     "(memory STATE FOR /clear) and ASK THE OWNER FOR /clear in this reply")
     if st["n"] - st["last_report_n"] >= REPORT_EVERY:
         st["last_report_n"] = st["n"]
         read_pct = round(100 * 0.1 * st["read"] / units) if units else 0

@@ -40,7 +40,7 @@ def load():
             s = json.load(f)
     except (OSError, ValueError):
         s = {}
-    for k in ("pages", "writes", "pending", "agents", "unblock"):
+    for k in ("pages", "writes", "pending", "agents", "unblock", "launched", "stopped"):
         s.setdefault(k, {})
     return s
 
@@ -96,6 +96,18 @@ def deny(reason):
                                  "permissionDecisionReason": "[board_guard] " + reason}})
 
 
+RUNNING_MAX_AGE = 4 * 3600  # an agent with no SubagentStop older than this died with its session (crash, reboot)
+
+
+def running_agent(s, code):
+    """The id of a launched agent for @p code that has not stopped yet, or None."""
+    now = time.time()
+    for aid, c in s["agents"].items():
+        if c == code and aid not in s["stopped"] and now - s["launched"].get(aid, 0) < RUNNING_MAX_AGE:
+            return aid
+    return None
+
+
 def unaccepted(s):
     return sorted(c for c, t in s["pending"].items() if s["writes"].get(c, 0) < t)
 
@@ -125,9 +137,10 @@ def main():
     if event == "SubagentStop":
         code = s["agents"].get(data.get("agent_id") or "") or \
             code_from_transcript(data.get("agent_transcript_path") or "")
+        s["stopped"][data.get("agent_id") or ""] = time.time()
         if code:
             s["pending"][code] = time.time()
-            save(s)
+        save(s)
         sys.exit(0)
 
     if data.get("agent_id"):
@@ -172,6 +185,7 @@ def main():
         m = re.search(r"agentId\"?\s*[:=]\s*\"?([0-9a-z]{8,})", json.dumps(data.get("tool_response"), ensure_ascii=False))
         if code and m:
             s["agents"][m.group(1)] = code
+            s["launched"][m.group(1)] = time.time()
             save(s)
         sys.exit(0)
 
@@ -198,6 +212,10 @@ def main():
             if not code:
                 deny("в промпте нет кода задачи («You are agent <КОД>» или /private/tmp/claude-501/<КОД>/BRIEF.md) — "
                      "без кода карточку не сверить.")
+            alive = running_agent(s, code)
+            if alive:
+                deny(f"агент {code} ещё работает ({alive}): второй агент на ту же задачу правит то же дерево и сжигает "
+                     "токены впустую (10-20: двойной PT-GLASS, 2,3 млн). Дождись его уведомления или TaskStop, потом запускай.")
             if code not in s["writes"]:
                 deny(f"нет карточки {code} на доске «Задачи»: создай/обнови ДО запуска (Код={code}, Статус «В работе», "
                      "Ветка, «Кто ведёт»; заголовок «КОД · …»). Владелец 10-09: «почему я каждый раз тебя тыкаю?»")

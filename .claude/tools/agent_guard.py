@@ -32,9 +32,9 @@ for _stream in (sys.stdin, sys.stdout, sys.stderr):
     _stream.reconfigure(encoding="utf-8")
 
 STATE_DIR = os.path.expanduser("~/.claude/agent-guard")  # survives a reboot: /tmp reset the 80-call budget
-TURN_WARN = 135
-TURN_LIMIT = 150  # owner 10-10 evening: one agent carries a feature to the end, no a/b/c/d passes
-TURN_HARD_CAP = 150  # owner 2026-10-10 (was 60, 09-29): the rest goes to a FRESH agent with REMAINDER file:line, never an extension
+TURN_WARN = 32
+TURN_LIMIT = 40  # owner 10-20: «запиши это все в хуки» — an agent's cost grows with the square of its length (PT-LANDSCAPE 135 calls = 20.6M re-read); one cause per agent, the rest to a fresh agent
+TURN_HARD_CAP = 40  # owner 2026-10-20 (150 on 10-10, 60 on 09-29): the rest goes to a FRESH agent with REMAINDER file:line, never an extension
 # Owner 10-15 «давай»: three of six agents that day ran out at 150 mid-build and handed over unchecked code, each
 # costing a fresh agent 1.5-3 h. So 300 through Monday 2026-10-19, then 150 again by itself; and a blocking wait on a
 # build or background job (build_wait.sh / wait_bg.sh) is not counted — waiting is not work.
