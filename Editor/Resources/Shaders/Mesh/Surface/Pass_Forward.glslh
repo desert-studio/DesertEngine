@@ -321,5 +321,6 @@ void main()
     const vec3 ambient = DesertEvaluateShadingModelAmbient(
          DESERT_SHADING_MODEL_INDEX,
          DesertSampleViewAmbient( surface, localIndirect, s.AmbientOcclusion, gl_FragCoord.xy ), surface, payload );
-    oColor = vec4( light + ambient + s.Emissive, 1.0 );
+    // Stored pre-exposed (ViewFrame::PreExposure), like the deferred composite.
+    oColor = vec4( ( light + ambient + s.Emissive ) * cameraUB.PreExposure, 1.0 );
 }

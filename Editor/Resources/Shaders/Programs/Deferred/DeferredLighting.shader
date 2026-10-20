@@ -167,7 +167,7 @@ Shader "DeferredLighting"
         	mat4 u_InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
         	mat4 u_JitteredViewProjection;    // the matrix itself: the contact shadows march the depth in its space
         	vec4 u_ScreenSpaceGI;  // x = the screen-space gather's samples per pixel (Scalability
-        	                       // GlobalIllumination.ScreenSpaceSamples); yzw unused
+        	                       // GlobalIllumination.ScreenSpaceSamples); y = ViewFrame::PreExposure; zw unused
         };
 
         float ssgiHash(vec2 p)
@@ -578,7 +578,8 @@ Shader "DeferredLighting"
         	// and blooms, matching the forward path. GBufferEmissive is 0 where the material has none.
         	vec3 emissive = ge.rgb;
 
-        	oColor = vec4(result + ambient + emissive, 1.0);
+        	// Stored pre-exposed (ViewFrame::PreExposure): a 100 000 lx sun stays inside RGBA16F.
+        	oColor = vec4((result + ambient + emissive) * u_ScreenSpaceGI.y, 1.0);
         }
     }
 }

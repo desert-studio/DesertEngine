@@ -170,7 +170,10 @@ void main()
     const MegaLightsVolumeLighting local = MegaLightsVolumeLightingAt( gl_FragCoord.xy, v_Surface.WorldPosition, N );
     const vec3 localSpec = pow( max( dot( N, normalize( V + local.L ) ), 0.0 ), 128.0 ) * local.Radiance;
 
-    oColor = vec4( mix( refracted, envRefl, fresnel ) + vec3( spec ) + localSpec + s.Emissive, 1.0 );
+    // `refracted` is read from this frame's scene colour, already pre-exposed; only the terms lit here are scaled.
+    const float preExposure = cameraUB.PreExposure;
+    oColor = vec4( mix( refracted, envRefl * preExposure, fresnel ) + ( vec3( spec ) + localSpec + s.Emissive ) * preExposure,
+                   1.0 );
 #ifdef DESERT_SURFACE_RESPONSIVE_AA
     oResponsiveAA = vec4( 1.0, 0.0, 0.0, 1.0 );
 #endif

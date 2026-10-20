@@ -25,6 +25,8 @@ Shader "ProceduralSky"
         // this engine keeps CameraUB a vertex-stage block. Constant across the triangle, so interpolation
         // returns it exactly.
         In(1) vec3 v_CameraPos;
+        // ViewFrame::PreExposure, forwarded from the vertex stage like v_CameraPos (constant across the triangle).
+        In(2) float v_PreExposure;
         Out(0) vec4 oColor;
 
         // The sky parameter block. A std430 STORAGE buffer rather than a uniform block, because the
@@ -149,7 +151,8 @@ Shader "ProceduralSky"
 
             // (Dithering is done at the FINAL 8-bit output in the composite/tonemap pass — doing it here in linear
             // HDR is lost through Reinhard+gamma. See SceneComposite.glsl.frag.)
-            oColor = vec4(color, 1.0);
+            // Stored pre-exposed, like every scene-colour writer (ViewFrame::PreExposure).
+            oColor = vec4(color * v_PreExposure, 1.0);
         }
     }
 
@@ -162,6 +165,7 @@ Shader "ProceduralSky"
         Out(0) vec3 v_RayDir;
         // Camera position for the physical model's altitude (constant across the triangle).
         Out(1) vec3 v_CameraPos;
+        Out(2) float v_PreExposure;
 
         void main()
         {
@@ -176,6 +180,7 @@ Shader "ProceduralSky"
             vec3 viewRay = viewH.xyz / viewH.w;
             v_RayDir     = mat3(inverse(cameraUB.View)) * viewRay;
             v_CameraPos  = cameraUB.CameraPos;
+            v_PreExposure = cameraUB.PreExposure;
         }
     }
 }

@@ -785,7 +785,8 @@ namespace Desert::Graphic
                                                                                      : 0;
         const DeferredGIInput compositeGI{ .Mode      = giMode,
                                            .Intensity = gi == GIMethod::ScreenSpace ? m_GIIntensity : 0.0f,
-                                           .ScreenSpaceSamples = m_ScreenSpaceGISamples };
+                                           .ScreenSpaceSamples = m_ScreenSpaceGISamples,
+                                           .PreExposure        = frame.PreExposure };
 
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );

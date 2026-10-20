@@ -45,13 +45,16 @@ Shader "Skybox"
         // `v_Position` is part of why this program spent its whole life reading the camera's own
         // position as if it were one. Common/ViewRay.glslh carries the account.
         In(3) vec3 v_ViewRay;
+        // ViewFrame::PreExposure from the vertex stage (CameraUB is a vertex-stage block here).
+        In(4) float v_PreExposure;
 
         void main()
         {
         	// The scene's look, through the SAME two calls the ambient and the reflections use — which is
         	// what makes the backdrop and the IBL the same sky now that the cube no longer carries it.
         	vec4 sky = texture(samplerCubeMap, SkyLookDirection(v_ViewRay, skyLook.YawCosSin.xy));
-        	oColor   = vec4(ApplySkyGain(sky.rgb, skyLook.Gain.rgb), sky.a);
+        	// Pre-exposed AFTER the gain and its luminance ceiling, so the ceiling stays in absolute units.
+        	oColor   = vec4(ApplySkyGain(sky.rgb, skyLook.Gain.rgb) * v_PreExposure, sky.a);
         }
     }
 
@@ -62,6 +65,7 @@ Shader "Skybox"
         #include <Common/ViewRay.glslh>
 
         Out(3) vec3 v_ViewRay;
+        Out(4) float v_PreExposure;
 
         void main()
         {
@@ -77,6 +81,7 @@ Shader "Skybox"
             // background showed a single direction -- the camera's own position -- on all six sides.
             // See Common/ViewRay.glslh, and Tests/Engine/DepthConvention for the rule.
         	v_ViewRay = WorldViewRay(cameraUB.Projection, cameraUB.View, position);
+        	v_PreExposure = cameraUB.PreExposure;
         }
     }
 }
