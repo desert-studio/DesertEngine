@@ -186,10 +186,9 @@ namespace Desert::Graphic
     // <= 0 (or not finite) = no exposure known yet (first frames, a view without the post chain, a capture
     // view whose output is stored absolute) -> 1.0. SceneRenderer fills ViewInputs::LastExposure.
     //
-    // HELD AT 1.0 (PRE-EXPOSURE, 10-20) by kScenePreExposureEnabled: writers, readers, thresholds and histories
-    // are converted (DesertEngine-scratch/PRE-EXPOSURE/REMAINDER.md items 1-4); the flip waits for the
-    // verify-list and the item-5 proof. Returning anything else before that mixes two scales in one image.
-    inline constexpr bool kScenePreExposureEnabled = false;
+    // ON since PRE-EXPOSURE pass 11b (10-20): writers, readers, thresholds and histories are converted
+    // (DesertEngine-scratch/PRE-EXPOSURE/REMAINDER.md items 1-4); false holds every view at 1.0.
+    inline constexpr bool kScenePreExposureEnabled = true;
 
     [[nodiscard]] inline float ScenePreExposure( float lastExposure )
     {
