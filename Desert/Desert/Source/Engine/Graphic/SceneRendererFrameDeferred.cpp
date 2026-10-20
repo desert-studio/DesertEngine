@@ -1367,6 +1367,15 @@ namespace Desert::Graphic
                 }
                 return surface; // past the tile list: a broken invariant, the default surface, counted
             }
+            // A generic record with its own hit group (3D text: TextRayHit) is shaded by it from its own row (UE:
+            // the proxy's ray tracing material); a template that did not compile takes the default surface,
+            // counted.
+            if ( segment.ProgramHit != nullptr )
+            {
+                surface.Template = segment.ProgramHit->Template;
+                surface.Row      = segment.ProgramHit->Row;
+                return surface;
+            }
             const auto* material = dynamic_cast<const DataDrivenMaterial*>( segment.SurfaceMaterial );
             if ( material == nullptr )
                 return surface; // a whole-entity override: the default surface, counted

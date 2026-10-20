@@ -50,6 +50,8 @@ namespace Desert::Graphic::RayTracing
     // (PathTracer.shader PathTracingTransmittance).
     inline constexpr uint8_t kMaskTranslucent = 1u << 2;
 
+    struct RayTracingProgramHit; // RayTracingProgramHit.hpp
+
     // VkAccelerationStructureInstanceKHR::instanceCustomIndex is 24 bits. Its last value is no row:
     // kNoGpuSceneRow is the custom index of an instance with no GPU-scene row (the GPU-written grass instances,
     // RayTracingGpuInstanceSource). Every reader of the custom index takes it as "no row": the GI tracer's card
@@ -90,6 +92,9 @@ namespace Desert::Graphic::RayTracing
         // the ground is at a hit (the TerrainRayHit hit group) and where its holes are (the alpha test).
         // kNoLandscapeTile for every mesh segment.
         uint32_t LandscapeTile = kNoLandscapeTile;
+        // A generic record's own hit group (RayTracingProgramHit.hpp: 3D text's TextRayHit): what the segment's
+        // hit runs and its alpha test, the record's for the frame. Null for every other segment.
+        const RayTracingProgramHit* ProgramHit = nullptr;
 
         bool operator==( const RayTracingSegmentRecord& ) const = default;
     };

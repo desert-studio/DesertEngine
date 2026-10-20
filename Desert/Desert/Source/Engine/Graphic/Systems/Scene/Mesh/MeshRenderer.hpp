@@ -12,6 +12,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingProgramHit.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialSilhouette.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialShadow.hpp>
@@ -361,6 +362,11 @@ namespace Desert::Graphic::System
             // system's SDF font atlas. Non-owning: the producer keeps it alive for the frame.
             Graphic::Image2D* DirectTexture        = nullptr;
             std::string       DirectTextureSampler;
+
+            // The record's own hit group when its program is no surface template (3D text: TextRayHit, built by
+            // the producer from the values this draw carries). Empty Template: a ray hit shades with SlotMaterial,
+            // else the default surface. Read by the gather only when VisibleInRayTracing.
+            RayTracing::RayTracingProgramHit RayHit;
         };
 
         // THE MATERIAL A SECTION SHADES WITH, and whether it is Masked: the one answer the raster's casters

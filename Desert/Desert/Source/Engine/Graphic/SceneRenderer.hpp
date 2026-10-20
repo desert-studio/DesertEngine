@@ -85,6 +85,7 @@
 #include <Engine/Graphic/IRenderSystem.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
 #include <Engine/Graphic/Systems/RayTracing/EmissiveLightsRenderer.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingProgramHit.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
@@ -337,7 +338,8 @@ namespace Desert::Graphic
                                 const std::string& shaderName, const MaterialOverrides& overrides,
                                 bool outlined = false, Image2D* directTexture = nullptr,
                                 const std::string& directTextureSampler = {}, bool castShadows = false,
-                                bool visibleInRayTracing = false );
+                                bool                                    visibleInRayTracing = false,
+                                const RayTracing::RayTracingProgramHit& rayHit              = {} );
 
         // v3 per-slot custom shaders: draw only @p visibleSubmeshMask submeshes of the mesh with the
         // slot's own runtime material (a MaterialService-owned DataDrivenMaterial). @p motionPart: the stable part

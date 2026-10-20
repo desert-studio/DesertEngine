@@ -289,6 +289,9 @@ namespace Desert::Graphic::RayTracing
              m_Gather.Primitives, m_Gather.SegmentRecords,
              [&external]( const RayTracingSegmentRecord& segment ) -> std::optional<RayTracingMaterialRecord>
              {
+                 // A generic record's own alpha test (3D text's glyph coverage, RayTracingProgramHit::Opacity).
+                 if ( segment.ProgramHit != nullptr )
+                     return segment.ProgramHit->Opacity;
                  if ( segment.LandscapeTile == kNoLandscapeTile ||
                       segment.LandscapeTile >= external.LandscapeOpacity.size() )
                      return std::nullopt;

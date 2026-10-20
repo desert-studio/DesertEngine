@@ -90,8 +90,9 @@ namespace Desert::Graphic::RayTracing
             const RayTracingInstance& instance = instances[i];
             std::byte* const          row      = bytes.data() + i * kInstanceRowBytes;
             std::memcpy( row, instance.Transform.data(), kInstanceTransformBytes );
+            // The whole 24-bit field (kNoGpuSceneRow is its last value, and an instance with no row carries it).
             const uint32_t indexAndMask =
-                 ( instance.CustomIndex & kMaxGpuSceneRow ) | ( static_cast<uint32_t>( instance.Mask ) << 24u );
+                 ( instance.CustomIndex & kNoGpuSceneRow ) | ( static_cast<uint32_t>( instance.Mask ) << 24u );
             // Flags 0: culling is the ray's choice and opacity each segment's (RayTracingGeometrySegment::Opaque).
             const uint32_t sbtAndFlags = instance.FirstSegmentRecord & kMaxSegmentRecord;
             const uint64_t address =
