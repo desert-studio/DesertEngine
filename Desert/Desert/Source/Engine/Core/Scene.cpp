@@ -533,6 +533,19 @@ namespace Desert::Core
         return Common::MakeSuccess( entt::entity( m_ViewTarget ) );
     }
 
+    std::optional<glm::mat4> Scene::PlayerViewPoint()
+    {
+        if ( m_State != SceneState::Play && m_State != SceneState::Paused )
+            return std::nullopt;
+        if ( m_ViewTarget != entt::null && m_Registry.valid( m_ViewTarget ) &&
+             m_Registry.has<ECS::TransformComponent>( m_ViewTarget ) )
+            return ECS::Entity( m_ViewTarget, m_Registry ).GetWorldTransform();
+        const std::shared_ptr<Camera> camera = GetActiveCamera();
+        if ( !camera )
+            return std::nullopt;
+        return glm::inverse( camera->GetViewMatrix() );
+    }
+
     void Scene::UpdateActiveCameraSource()
     {
         // Camera source follows the play state: Edit/Paused -> EditorCamera; Play -> the view target
