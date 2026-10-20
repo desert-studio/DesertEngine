@@ -207,6 +207,9 @@ namespace Desert::Graphic::System
         const double            tanX        = 1.0 / std::max( 1.0e-6f, std::abs( frame.Projection[0][0] ) );
         const double            tanY        = 1.0 / std::max( 1.0e-6f, std::abs( frame.Projection[1][1] ) );
         const float             radius      = p.EndCullDistance * lens;
+        // The share of cells generated (GrassGenerate): 1 / k through a zoomed lens, so a scope's field holds the
+        // per-pixel density - and about the instance count - of the authored lens instead of k times it.
+        const float             keepShare   = std::min( 1.0f, 1.0f / std::max( lens, 1.0e-6f ) );
         const auto&             submeshes   = mesh.GetSubmeshes();
         // A blade draws one level per bucket (submesh b = bucket b, by distance); a mesh one bucket for all its
         // sections.
@@ -253,6 +256,14 @@ namespace Desert::Graphic::System
                 needed = std::min<uint32_t>(
                      needed, static_cast<uint32_t>( std::ceil( ViewFootprintArea( outer, tanX, tanY, margin ) /
                                                                ( static_cast<double>( cell ) * cell ) ) ) );
+            // The thinned count is a binomial draw over the cells: four standard deviations above its mean (and a
+            // floor for the smallest rings) before GrassFinalize's clamp would drop one.
+            if ( keepShare < 1.0f && needed > 0u )
+            {
+                const double mean = static_cast<double>( needed ) * keepShare;
+                needed            = std::min<uint32_t>(
+                     needed, static_cast<uint32_t>( std::ceil( mean + 4.0 * std::sqrt( mean ) + 64.0 ) ) );
+            }
             capacities[b] = CapacityStep( needed );
             capacity += capacities[b];
         }
@@ -328,7 +339,7 @@ namespace Desert::Graphic::System
              ( p.WeightAttenuatesMaxScale ? kFlagWeightAttenuates : 0u ) | ( variety.Blade ? kFlagBlade : 0u );
         params.ScaleX  = glm::vec4( p.ScaleX, static_cast<float>( p.Scaling ), std::bit_cast<float>( flags ) );
         params.ScaleY  = glm::vec4( p.ScaleY, boundsHeight, 0.0f );
-        params.ScaleZ  = glm::vec4( p.ScaleZ, 0.0f, 0.0f );
+        params.ScaleZ  = glm::vec4( p.ScaleZ, 0.0f, keepShare );
         params.Info    = glm::uvec4( variety.Layer, capacity, static_cast<uint32_t>( submeshes.size() ),
                                      static_cast<uint32_t>( variety.Key * 0x9E3779B97F4A7C15ull >> 32 ) );
         params.Buckets = glm::uvec4(
