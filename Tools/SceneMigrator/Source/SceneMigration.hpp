@@ -1005,8 +1005,8 @@ namespace Desert::Migration
         std::size_t GridsNamed      = 0;     // grids given a name
         bool        GridHLODLayerRaised = false; // below kSceneVersionGridHLODLayer
         std::size_t GridsGivenHLODLayer = 0;     // grids given the world's former DefaultHLODLayer
-        bool        RootSiblingIndexRaised = false; // below kSceneVersionRootSiblingIndex
-        std::size_t RootSiblingIndexDropped = 0;    // root records that lost their siblingIndex
+        bool        RootSiblingIndexRaised  = false; // below kSceneVersionRootSiblingIndex
+        std::size_t RootSiblingIndexDropped = 0;     // root records that lost their siblingIndex
 
         bool                    SceneDependenciesRaised = false; // below kSceneVersionSceneDependencies
         SceneDependenciesReport SceneDependencies;
