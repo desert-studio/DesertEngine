@@ -15,6 +15,7 @@
 #include "ParticleWorldGpu.hpp"
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -141,7 +142,19 @@ namespace Desert::Graphic::System
             Common::AssetHandle Handle;
             MaterialInstancePtr Instance;
             Common::AssetHandle Refused;
-            bool                HasRefused = false;
+            bool                HasRefused  = false;
+            bool                KindRefused = false; // a Ribbon / Mesh row this view cannot draw yet, said once
+        };
+        // One renderer row's material: (the emitter's index in its system, the row's index in its Renderers).
+        using RendererKey      = std::pair<uint32_t, uint32_t>;
+        using EmitterMaterials = std::map<RendererKey, EmitterMaterial>;
+
+        // One draw of a renderer row in this view (UE: one FNiagaraRenderer of the emitter).
+        struct ViewDraw
+        {
+            SpriteDraw*       Sprite   = nullptr;
+            MaterialInstance* Instance = nullptr; // the row's own (null = the cell's defaults)
+            uint32_t          Row      = 0;       // the draw's row in Sprite->Rows this frame
         };
 
         // This view's imports of the scene's pool.
@@ -161,9 +174,7 @@ namespace Desert::Graphic::System
         struct ViewEmitter
         {
             const ParticleFrameEmitter* Frame    = nullptr;
-            SpriteDraw*                 Sprite   = nullptr;
-            MaterialInstance*           Instance = nullptr; // the emitter's own (null = the cell's defaults)
-            uint32_t                    Row      = 0;       // the emitter's row in Sprite->Rows this frame
+            std::vector<ViewDraw>       Draws; // one per drawn renderer row, in `.dfx` order
             RDG::ExternalBuffer         StepsImport;
             RDG::ExternalBuffer         CountersImport;
             RDG::ExternalBuffer         ArgsImport;
@@ -197,9 +208,9 @@ namespace Desert::Graphic::System
         bool RunsCompact( const ViewEmitter& ve, uint32_t compact ) const;
         // The sprite draw of @p cellShader in this view, built on first use (null = refused, said once by name).
         SpriteDraw* SpriteDrawFor( const std::string& cellShader );
-        // The sprite draw emitter @p entityId draws with this frame (its material @p handle's ParticleSprite cell,
-        // or the default cell with the refusal logged once), its runtime instance kept in @p material.
-        SpriteDraw* ResolveSprite( uint32_t entityId, const Common::AssetHandle& handle,
+        // The sprite draw renderer row @p row of @p fe draws with this frame (the row's material's ParticleSprite
+        // cell, or the default cell with the refusal logged once), its runtime instance kept in @p material.
+        SpriteDraw* ResolveSprite( const ParticleFrameEmitter& fe, const ParticleFrameRenderer& row,
                                    EmitterMaterial& material );
 
         std::shared_ptr<ComputePipeline> m_CompactPipeline;
@@ -218,9 +229,9 @@ namespace Desert::Graphic::System
         std::string m_DefaultCell;
         // Per cell shader, per view (a draw's camera block is the view's). Null = that cell was refused.
         std::unordered_map<std::string, std::unique_ptr<SpriteDraw>> m_Sprites;
-        // Per emitter (raw entt entity value), per view.
-        std::unordered_map<uint32_t, EmitterMaterial> m_Materials;
-        const ParticleWorldGpu*                       m_World     = nullptr;
+        // Per entity (raw entt entity value), per (emitter, renderer row), per view.
+        std::unordered_map<uint32_t, EmitterMaterials> m_Materials;
+        const ParticleWorldGpu*                        m_World     = nullptr;
         bool                                          m_Simulates = false;
         std::vector<ViewEmitter>                      m_ViewEmitters;
         ViewPool                                      m_Pool;

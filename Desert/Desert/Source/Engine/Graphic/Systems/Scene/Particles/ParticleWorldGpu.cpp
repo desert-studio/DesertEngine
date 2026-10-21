@@ -292,7 +292,7 @@ namespace Desert::Graphic::System
                      if ( !EnsureTickBuffers( gpu, stepCapacity ) )
                          continue;
                      if ( !PrepareEmitter( gpu, *instance, instances->System->Emitters[k], range, entityId,
-                                           worldPos, stepSeconds, stepSerial ) )
+                                           static_cast<uint32_t>( k ), worldPos, stepSeconds, stepSerial ) )
                          continue;
                  }
              } );
@@ -323,8 +323,8 @@ namespace Desert::Graphic::System
     bool ParticleWorldGpu::PrepareEmitter( ParticleEmitterGpu& gpu, const VFX::EmitterInstance& emitter,
                                            const Assets::Serialization::VFXEmitterData& data,
                                            const ParticlePoolRange& range, const uint32_t entityId,
-                                           const glm::vec3& worldPos, const float stepSeconds,
-                                           const uint32_t stepSerial )
+                                           const uint32_t emitterIndex, const glm::vec3& worldPos,
+                                           const float stepSeconds, const uint32_t stepSerial )
     {
         const VFX::EmitterInstance* instance = &emitter;
         // The emitter's range of the pool; a new or moved range starts dead.
@@ -430,6 +430,7 @@ namespace Desert::Graphic::System
 
         ParticleFrameEmitter fe;
         fe.EntityId        = entityId;
+        fe.Emitter         = emitterIndex;
         fe.Gpu             = &gpu;
         fe.Pipeline        = gpu.Pipeline.get();
         fe.StepCount       = stepCount;

@@ -98,11 +98,14 @@ namespace Desert::Graphic::System
         m_ViewEmitters.clear();
         m_World     = nullptr;
         m_Simulates = false;
-        if ( m_Materials.empty() )
-            return;
-        LOG_INFO( "[Particles] Released {} emitter material instance(s) belonging to the previous scene.",
-                  m_Materials.size() );
+        std::size_t rows = 0;
+        for ( const auto& [entity, materials] : m_Materials )
+            rows += materials.size();
         m_Materials.clear();
+        if ( rows == 0 )
+            return;
+        LOG_INFO( "[Particles] Released {} renderer row material instance(s) belonging to the previous scene.",
+                  rows );
     }
 
     void ParticleRenderer::PrepareFrame( const ::Desert::Core::Scene& scene )
@@ -119,18 +122,37 @@ namespace Desert::Graphic::System
         m_ViewEmitters.reserve( world.FrameEmitters().size() );
         for ( const ParticleFrameEmitter& fe : world.FrameEmitters() )
         {
-            EmitterMaterial& material = m_Materials[fe.EntityId];
-            ViewEmitter      ve;
+            EmitterMaterials& materials = m_Materials[fe.EntityId];
+            ViewEmitter       ve;
             ve.Frame = &fe;
-            // The view draws the emitter's first Sprite row; a list of draws, one per row (Ribbon and Mesh rows
-            // included), replaces this one draw next (VFX-09 step 3). No Sprite row = not drawn here.
-            const auto sprite =
-                 std::find_if( fe.Renderers.begin(), fe.Renderers.end(), []( const ParticleFrameRenderer& r )
-                               { return r.Kind == Assets::Serialization::VFXRendererKind::Sprite; } );
-            ve.Sprite =
-                 sprite != fe.Renderers.end() ? ResolveSprite( fe.EntityId, sprite->Material, material ) : nullptr;
-            ve.Instance = ve.Sprite != nullptr ? material.Instance.get() : nullptr;
-            m_ViewEmitters.push_back( ve );
+            // One draw per enabled renderer row, in `.dfx` order (UE: every renderer of the emitter draws), each
+            // with its own material instance keyed by (emitter, row).
+            ve.Draws.reserve( fe.Renderers.size() );
+            for ( const ParticleFrameRenderer& row : fe.Renderers )
+            {
+                EmitterMaterial& material = materials[RendererKey{ fe.Emitter, row.Row }];
+                if ( row.Kind != Assets::Serialization::VFXRendererKind::Sprite )
+                {
+                    // Ribbon and Mesh rows need their own vertex factories (VFX-09 next passes): refused aloud,
+                    // once per row, never skipped silently.
+                    if ( !material.KindRefused )
+                    {
+                        LOG_ERROR( "[Particles] emitter {}.{} renderer row {} does not draw: {} renderers have no "
+                                   "vertex factory yet",
+                                   fe.EntityId, fe.Emitter, row.Row,
+                                   row.Kind == Assets::Serialization::VFXRendererKind::Ribbon ? "Ribbon"
+                                                                                              : "Mesh" );
+                        material.KindRefused = true;
+                    }
+                    continue;
+                }
+                ViewDraw draw;
+                draw.Sprite   = ResolveSprite( fe, row, material );
+                draw.Instance = draw.Sprite != nullptr ? material.Instance.get() : nullptr;
+                if ( draw.Sprite != nullptr )
+                    ve.Draws.push_back( draw );
+            }
+            m_ViewEmitters.push_back( std::move( ve ) );
         }
     }
 
@@ -395,8 +417,14 @@ namespace Desert::Graphic::System
                 continue;
             const ParticleEmitterGpu& gpu  = *ve.Frame->Gpu;
             const uint32_t            half = ve.Frame->StepCount & 1u;
+            // The emitter's alive half is sorted once for all its draws: when any of them blends (an opaque draw
+            // reads the sorted order as well as the unsorted one).
+            const auto blends = std::find_if( ve.Draws.begin(), ve.Draws.end(), []( const ViewDraw& d )
+                                              { return ParticleSpritesSort( d.Sprite->Blend ); } );
+            const Core::Formats::SurfaceBlendMode blend =
+                 blends != ve.Draws.end() ? blends->Sprite->Blend : ve.Draws.front().Sprite->Blend;
             emitters.push_back(
-                 { i, ve.Sprite->Blend, gpu.Range.Count, 2u * gpu.Range.Base + half * gpu.Range.Count, half } );
+                 { i, blend, gpu.Range.Count, 2u * gpu.Range.Base + half * gpu.Range.Count, half } );
         }
         const ParticleSortPlan plan = PlanParticleSort( emitters );
         if ( plan.Ranges.empty() )
@@ -442,7 +470,7 @@ namespace Desert::Graphic::System
 
     bool ParticleRenderer::IsDrawn( const ViewEmitter& ve )
     {
-        return ve.Declared && ve.Sprite != nullptr;
+        return ve.Declared && !ve.Draws.empty();
     }
 
     ParticleRenderer::SpriteDraw* ParticleRenderer::SpriteDrawFor( const std::string& cellShader )
@@ -493,10 +521,11 @@ namespace Desert::Graphic::System
         return slot.get();
     }
 
-    ParticleRenderer::SpriteDraw* ParticleRenderer::ResolveSprite( const uint32_t             entityId,
-                                                                   const Common::AssetHandle& handle,
-                                                                   EmitterMaterial&           material )
+    ParticleRenderer::SpriteDraw* ParticleRenderer::ResolveSprite( const ParticleFrameEmitter&  fe,
+                                                                   const ParticleFrameRenderer& row,
+                                                                   EmitterMaterial&             material )
     {
+        const Common::AssetHandle& handle = row.Material;
         // A named material draws through its own ParticleSprite.Forward cell (UE: the sprite renderer's material).
         if ( handle != Common::AssetHandle::Null() )
         {
@@ -515,8 +544,9 @@ namespace Desert::Graphic::System
             }
             if ( !material.HasRefused || material.Refused != handle )
             {
-                LOG_ERROR( "[Particles] emitter {} draws with ParticleSpriteDefault: its material {} {}", entityId,
-                           static_cast<uint64_t>( handle ),
+                LOG_ERROR( "[Particles] emitter {}.{} renderer row {} draws with ParticleSpriteDefault: its "
+                           "material {} {}",
+                           fe.EntityId, fe.Emitter, row.Row, static_cast<uint64_t>( handle ),
                            cell == nullptr ? "is missing or its template has no `Usage ParticleSprites` cell"
                                            : "has a ParticleSprite cell that cannot draw (logged above)" );
                 material.Refused    = handle;
@@ -548,22 +578,28 @@ namespace Desert::Graphic::System
                  {
                      if ( !IsDrawn( ve ) )
                          continue;
-                     SpriteDraw& sprite = *ve.Sprite;
-                     // Still in the driver (PSO1): not drawn this frame and not a fault — an engine pipeline is
-                     // counted by PipelineBuilds, so no gated frame is shown without it. Failed still faults.
-                     if ( sprite.Pipeline->GetReadiness() == PipelineReadiness::Compiling )
-                         continue;
-                     const RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
-                     sprite.Material->SetMaterialIndex( ve.Row );
-                     sprite.Material->Bind( sprite.Instance.get() );
-                     // The last compact (index StepCount) filled slot StepCount & 1: six vertices per alive
-                     // particle of alive half StepCount & 1 (the slot's FirstVertex).
-                     const uint64_t slot = ( ve.Frame->StepCount & 1u ) * kParticleDrawSlotStride;
-                     if ( auto drawn = Renderer::DrawProceduralIndirect( bindings, *sprite.Pipeline,
-                                                                         sprite.Material->GetMaterialExecutor(),
-                                                                         ve.CountersRef, slot );
-                          !drawn.IsSuccess() )
-                         return drawn;
+                     for ( const ViewDraw& draw : ve.Draws )
+                     {
+                         // The n-th declared block is the n-th draw, drawn or not.
+                         const uint32_t drawBlock = block++;
+                         SpriteDraw&    sprite    = *draw.Sprite;
+                         // Still in the driver (PSO1): not drawn this frame and not a fault — an engine pipeline
+                         // is counted by PipelineBuilds, so no gated frame is shown without it. Failed still
+                         // faults.
+                         if ( sprite.Pipeline->GetReadiness() == PipelineReadiness::Compiling )
+                             continue;
+                         const RDG::PassBindings bindings( context, context.GetBindingBlock( drawBlock ) );
+                         sprite.Material->SetMaterialIndex( draw.Row );
+                         sprite.Material->Bind( sprite.Instance.get() );
+                         // The last compact (index StepCount) filled slot StepCount & 1: six vertices per alive
+                         // particle of alive half StepCount & 1 (the slot's FirstVertex).
+                         const uint64_t slot = ( ve.Frame->StepCount & 1u ) * kParticleDrawSlotStride;
+                         if ( auto drawn = Renderer::DrawProceduralIndirect(
+                                   bindings, *sprite.Pipeline, sprite.Material->GetMaterialExecutor(),
+                                   ve.CountersRef, slot );
+                              !drawn.IsSuccess() )
+                             return drawn;
+                     }
                  }
                  return BOOLSUCCESS;
              },
@@ -586,9 +622,14 @@ namespace Desert::Graphic::System
             {
                 if ( !IsDrawn( ve ) )
                     continue;
-                MaterialInstance* instance = ve.Instance != nullptr ? ve.Instance : ve.Sprite->Instance.get();
-                ve.Row                     = MeshRendererDetail::AppendRow(
-                     ve.Sprite->Rows, MeshRendererDetail::EffectiveRow( ve.Sprite->Material.get(), instance ) );
+                for ( ViewDraw& draw : ve.Draws )
+                {
+                    MaterialInstance* instance =
+                         draw.Instance != nullptr ? draw.Instance : draw.Sprite->Instance.get();
+                    draw.Row = MeshRendererDetail::AppendRow(
+                         draw.Sprite->Rows,
+                         MeshRendererDetail::EffectiveRow( draw.Sprite->Material.get(), instance ) );
+                }
             }
             for ( auto& [cell, sprite] : m_Sprites )
             {
@@ -612,32 +653,37 @@ namespace Desert::Graphic::System
             {
                 if ( !IsDrawn( ve ) )
                     continue;
-                const auto& layout = ve.Sprite->Layout.Get( ve.Sprite->Pipeline->GetSpecification().Shader );
-                // A translucent / additive emitter reads its alive half back to front from this view's SortedAlive
-                // (AddSortPasses), at the same offset; an opaque / masked one reads AliveList unsorted.
-                auto block =
-                     declared.Bindings( layout, ve.Sprite->Material->GetMaterialExecutor()->GetRouteFill() )
-                          .Storage( "AttributeFloats", ve.FloatsRef, RDG::Access::StorageRead )
-                          .Storage( "DrawLayout", ve.DrawLayoutRef, RDG::Access::StorageRead )
-                          .Storage( "AliveList", ve.Sorted ? m_SortedRef : m_Pool.AliveRef,
-                                    RDG::Access::StorageRead );
-                const bool fades = SceneViewDetail::LayoutSamples( *layout, kSceneViewSceneDepthName );
-                if ( fades && depth )
-                    block.Texture( kSceneViewSceneDepthName, depth, RDG::Access::SampledGraphics,
-                                   "SceneDepth.Compute" )
-                         .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
-                // The rest of the list, minus the depth above and minus what the material route already fills
-                // (a slot filled by both faults the node as surely as one filled by neither).
-                const RDG::OtherRouteFill& route  = ve.Sprite->Material->GetMaterialExecutor()->GetRouteFill();
-                RDG::ShaderBindingLayout   others = *layout;
-                std::erase_if( others.Slots,
-                               [&route]( const RDG::ShaderSlot& slot )
-                               {
-                                   return slot.Name == kSceneViewSceneDepthName ||
-                                          std::find( route.Slots.begin(), route.Slots.end(), slot.Name ) !=
-                                               route.Slots.end();
-                               } );
-                BindSceneViewInputs( block, inputs, others );
+                for ( const ViewDraw& draw : ve.Draws )
+                {
+                    const SpriteDraw& sprite = *draw.Sprite;
+                    const auto&       layout = sprite.Layout.Get( sprite.Pipeline->GetSpecification().Shader );
+                    // A translucent / additive emitter reads its alive half back to front from this view's
+                    // SortedAlive (AddSortPasses), at the same offset; an opaque / masked one reads AliveList
+                    // unsorted.
+                    auto block =
+                         declared.Bindings( layout, sprite.Material->GetMaterialExecutor()->GetRouteFill() )
+                              .Storage( "AttributeFloats", ve.FloatsRef, RDG::Access::StorageRead )
+                              .Storage( "DrawLayout", ve.DrawLayoutRef, RDG::Access::StorageRead )
+                              .Storage( "AliveList", ve.Sorted ? m_SortedRef : m_Pool.AliveRef,
+                                        RDG::Access::StorageRead );
+                    const bool fades = SceneViewDetail::LayoutSamples( *layout, kSceneViewSceneDepthName );
+                    if ( fades && depth )
+                        block.Texture( kSceneViewSceneDepthName, depth, RDG::Access::SampledGraphics,
+                                       "SceneDepth.Compute" )
+                             .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                    // The rest of the list, minus the depth above and minus what the material route already fills
+                    // (a slot filled by both faults the node as surely as one filled by neither).
+                    const RDG::OtherRouteFill& route  = sprite.Material->GetMaterialExecutor()->GetRouteFill();
+                    RDG::ShaderBindingLayout   others = *layout;
+                    std::erase_if( others.Slots,
+                                   [&route]( const RDG::ShaderSlot& slot )
+                                   {
+                                       return slot.Name == kSceneViewSceneDepthName ||
+                                              std::find( route.Slots.begin(), route.Slots.end(), slot.Name ) !=
+                                                   route.Slots.end();
+                                   } );
+                    BindSceneViewInputs( block, inputs, others );
+                }
                 declared.Read( ve.CountersRef, RDG::Access::IndirectArgs );
             }
         };

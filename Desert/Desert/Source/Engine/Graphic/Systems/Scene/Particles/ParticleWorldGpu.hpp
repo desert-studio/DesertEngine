@@ -154,6 +154,7 @@ namespace Desert::Graphic::System
     struct ParticleFrameEmitter
     {
         uint32_t            EntityId = 0;
+        uint32_t            Emitter  = 0; // the emitter's index in its system (VFXSystemData::Emitters)
         ParticleEmitterGpu* Gpu      = nullptr;
         ParticleSimPush     Push;
         ComputePipeline*    Pipeline = nullptr; // the emitter's stack host program (Gpu->Pipeline)
@@ -211,8 +212,8 @@ namespace Desert::Graphic::System
         // Uploads emitter @p emitter's tick into @p gpu and adds its frame emitter; false = it sits out this tick.
         bool PrepareEmitter( ParticleEmitterGpu& gpu, const VFX::EmitterInstance& emitter,
                              const Assets::Serialization::VFXEmitterData& data, const ParticlePoolRange& range,
-                             uint32_t entityId, const glm::vec3& worldPos, float stepSeconds,
-                             uint32_t stepSerial );
+                             uint32_t entityId, uint32_t emitterIndex, const glm::vec3& worldPos,
+                             float stepSeconds, uint32_t stepSerial );
         // Makes @p gpu's per-tick buffers (step table, counters, dispatch args, channel spawns); false = it sits
         // out.
         static bool EnsureTickBuffers( ParticleEmitterGpu& gpu, uint32_t stepCapacity );
