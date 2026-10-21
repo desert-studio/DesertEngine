@@ -101,7 +101,7 @@ Shader "FoliageSurface"
         Texture2D   u_NormalTexture ("Normal Map", Category("Textures"), Intent(NormalMap)) = "normal"
         Texture2D   u_OpacityTexture ("Opacity Map", Category("Textures"), Intent(Mask))
         // Packed glTF-style: R = occlusion, G = roughness, B = metallic, each multiplying its factor; white when empty.
-        Texture2D   u_ORMTexture ("ORM Map", Category("Textures"), Intent(Data))
+        Texture2D   u_ORMTexture ("ORM Map", Category("Textures"), Intent(PackedMasks))
         Texture2D   u_EmissiveTexture ("Emissive Map", Category("Textures"), Intent(Colour))
     }
 

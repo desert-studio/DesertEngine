@@ -5,6 +5,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanFormat.hpp>
 
+#include <Engine/Graphic/PixelPack.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <vulkan/vulkan.h>
@@ -165,6 +166,7 @@ namespace Desert::Graphic::API::Vulkan
         }
         NO_DISCARD Common::ResultStr<std::vector<uint8_t>> ReadPixelsRGBA8() override;
         NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>> BeginReadbackRGBA8() override;
+        NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>> BeginReadbackBytes() override;
 
         Common::BoolResultStr Invalidate() override;
         Common::BoolResultStr Release() override;
@@ -225,6 +227,10 @@ namespace Desert::Graphic::API::Vulkan
         // Generate mips 1..N-1 from mip 0 via linear blits, leaving every mip in `finalLayout`.
         // Precondition: the whole image is in TRANSFER_DST_OPTIMAL and mip 0 holds the source pixels.
         void GenerateMips( VkCommandBuffer cmdBuffer, VkImageLayout finalLayout );
+        // The one image->host copy both readbacks submit. @p source: how ReadRGBA8 packs the bytes; nullopt = a
+        // raw copy (ReadBytes only). @p caller names the entry point in every refusal.
+        NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>>
+                   BeginCopyToHost( std::optional<Graphic::PackedPixelSource> source, std::string_view caller );
 
     private:
         Core::Formats::Image2DSpecification m_Specification;

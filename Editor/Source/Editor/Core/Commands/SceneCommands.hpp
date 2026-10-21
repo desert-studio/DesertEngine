@@ -67,6 +67,11 @@ namespace Desert::Editor::Commands
     // Rename the entity's tag undoably. No-ops on empty/unchanged names.
     void Rename( const Common::UUID& uuid, const std::string& newName );
 
+    // Lock or unlock each root AND its subtree (ECS::SetLockedRecursive's rule) as ONE undo step. THE route of
+    // every lock control - the Outliner's padlock and context menu, the Details padlock, the palette - so a lock
+    // is a recorded entity edit like any other: it names the entities, and a partitioned save writes their files.
+    void SetLocked( const std::vector<Common::UUID>& roots, bool locked );
+
     // Record a finished edit of the entity's editable mesh (UE's FMeshReplacementChange) (a PolyEdit drag): @p
     // before is the mesh the component held when the edit began; the component's CURRENT EditableMesh is the
     // "after". One undo step; no-op when the two are the same object. The meshes are immutable, so both are kept

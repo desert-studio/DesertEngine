@@ -252,15 +252,14 @@ namespace Desert::Core::Rules
         std::size_t CellsExamined = 0;
     };
 
-    // Distance on the ground from (x, z) to the square of @p cell at a level whose cells are
-    // @p levelCellSize wide. Zero inside the square and on its edge.
-    [[nodiscard]] inline double DistanceToCellSquare( double x, double z, const CellCoord& cell,
-                                                      double levelCellSize )
+    // Distance on the ground from (x, z) to a cell's streaming bounds (PlannedCell::Bounds: its square
+    // grown by what its level's footprints may reach past it). Zero inside and on the edge.
+    [[nodiscard]] inline double DistanceToCellSquare( double x, double z, const CellBounds& bounds )
     {
-        const double lowX  = static_cast<double>( cell.X ) * levelCellSize;
-        const double lowZ  = static_cast<double>( cell.Z ) * levelCellSize;
-        const double highX = lowX + levelCellSize;
-        const double highZ = lowZ + levelCellSize;
+        const double lowX  = static_cast<double>( bounds.MinX );
+        const double lowZ  = static_cast<double>( bounds.MinZ );
+        const double highX = static_cast<double>( bounds.MaxX );
+        const double highZ = static_cast<double>( bounds.MaxZ );
         const double dx    = std::max( { lowX - x, 0.0, x - highX } );
         const double dz    = std::max( { lowZ - z, 0.0, z - highZ } );
         return std::sqrt( dx * dx + dz * dz );
@@ -367,21 +366,19 @@ namespace Desert::Core::Rules
         }
     } // namespace Detail
 
-    // Distance on the ground from @p sector's centre to the part of @p cell's square (a level whose cells are
-    // @p levelCellSize wide) that lies inside the sector's slice: zero when the centre is in that part, +∞
+    // Distance on the ground from @p sector's centre to the part of a cell's streaming @p bounds that lies
+    // inside the sector's slice: zero when the centre is in that part, +∞
     // when the slice misses the square. For a circle, DistanceToCellSquare. A cell is in the sector when this
     // is at most its radius.
-    [[nodiscard]] inline double DistanceToCellInSector( const SourceSector& sector, const CellCoord& cell,
-                                                        double levelCellSize )
+    [[nodiscard]] inline double DistanceToCellInSector( const SourceSector& sector, const CellBounds& bounds )
     {
         if ( sector.IsCircle() )
-            return DistanceToCellSquare( sector.Centre.x, sector.Centre.y, cell, levelCellSize );
-        const double                  lowX = static_cast<double>( cell.X ) * levelCellSize;
-        const double                  lowZ = static_cast<double>( cell.Z ) * levelCellSize;
-        const std::vector<glm::dvec2> square{ { lowX, lowZ },
-                                              { lowX + levelCellSize, lowZ },
-                                              { lowX + levelCellSize, lowZ + levelCellSize },
-                                              { lowX, lowZ + levelCellSize } };
+            return DistanceToCellSquare( sector.Centre.x, sector.Centre.y, bounds );
+        const double                  lowX  = static_cast<double>( bounds.MinX );
+        const double                  lowZ  = static_cast<double>( bounds.MinZ );
+        const double                  highX = static_cast<double>( bounds.MaxX );
+        const double                  highZ = static_cast<double>( bounds.MaxZ );
+        const std::vector<glm::dvec2> square{ { lowX, lowZ }, { highX, lowZ }, { highX, highZ }, { lowX, highZ } };
         const double                  half = sector.Angle * 0.5;
         if ( half <= 90.0 )
         {
@@ -403,15 +400,14 @@ namespace Desert::Core::Rules
     // THE ORDER's weight of a cell for one shape: (cos·0.5 + 0.5) of the angle between the shape's heading
     // and the direction from the cell's nearest point to the shape's centre — 0 straight ahead, 1 straight
     // behind (UE's SourceCosAngleRatio); 1 with no heading, so the key is the plain distance; 0 inside.
-    [[nodiscard]] inline double HeadingWeight( const SourceSector& sector, const CellCoord& cell,
-                                               double levelCellSize )
+    [[nodiscard]] inline double HeadingWeight( const SourceSector& sector, const CellBounds& bounds )
     {
         if ( sector.Heading == glm::dvec2( 0.0 ) )
             return 1.0;
-        const double     lowX = static_cast<double>( cell.X ) * levelCellSize;
-        const double     lowZ = static_cast<double>( cell.Z ) * levelCellSize;
-        const glm::dvec2 closest( std::clamp( sector.Centre.x, lowX, lowX + levelCellSize ),
-                                  std::clamp( sector.Centre.y, lowZ, lowZ + levelCellSize ) );
+        const glm::dvec2 closest(
+             std::clamp( sector.Centre.x, static_cast<double>( bounds.MinX ), static_cast<double>( bounds.MaxX ) ),
+             std::clamp( sector.Centre.y, static_cast<double>( bounds.MinZ ),
+                         static_cast<double>( bounds.MaxZ ) ) );
         const glm::dvec2 toSource = Detail::UnitOrZero( sector.Centre - closest );
         if ( toSource == glm::dvec2( 0.0 ) )
             return 0.0;
@@ -538,6 +534,18 @@ namespace Desert::Core::Rules
                                        []( const PlannedCell& cell, int key ) { return cell.Level < key; } );
                 levelBegin[static_cast<std::size_t>( level )] = static_cast<std::size_t>( first - plan.Cells.begin() );
             }
+            // How far a cell of each level reaches past its square (PlannedCell::Bounds): the enumeration
+            // below widens the circle by it, so a cell whose square is out of range but whose bounds are not
+            // is still considered.
+            std::vector<double> levelReach( static_cast<std::size_t>( lastLevel ) + 1, 0.0 );
+            for ( auto cell = gridFirst; cell != gridLast; ++cell )
+            {
+                double& reachOf = levelReach[static_cast<std::size_t>( cell->Level )];
+                reachOf = std::max( { reachOf, static_cast<double>( cell->Square.MinX ) - cell->Bounds.MinX,
+                                      static_cast<double>( cell->Square.MinZ ) - cell->Bounds.MinZ,
+                                      static_cast<double>( cell->Bounds.MaxX ) - cell->Square.MaxX,
+                                      static_cast<double>( cell->Bounds.MaxZ ) - cell->Square.MaxZ } );
+            }
 
             for ( std::size_t sourceIndex = 0; sourceIndex < sources.size(); ++sourceIndex )
             {
@@ -559,18 +567,19 @@ namespace Desert::Core::Rules
                         const auto consider = [&]( std::size_t cellIndex )
                         {
                             ++wish.CellsExamined;
-                            const CellCoord& coord    = plan.Cells[cellIndex].Cell;
-                            const double     distance = DistanceToCellInSector( sector, coord, size );
+                            const CellBounds& bounds   = plan.Cells[cellIndex].Bounds;
+                            const double      distance = DistanceToCellInSector( sector, bounds );
                             if ( distance <= radius )
                             {
                                 hits.push_back( WantedCell{ cellIndex, distance, sourceIndex, priority,
-                                                            distance * HeadingWeight( sector, coord, size ),
-                                                        grid.Priority } );
+                                                            distance * HeadingWeight( sector, bounds ),
+                                                            grid.Priority } );
                             }
                         };
 
-                        const Detail::AxisSpan alongX = Detail::CellsAlong( x, radius, size );
-                        const Detail::AxisSpan alongZ = Detail::CellsAlong( z, radius, size );
+                        const double           reach  = levelReach[static_cast<std::size_t>( level )];
+                        const Detail::AxisSpan alongX = Detail::CellsAlong( x, radius + reach, size );
+                        const Detail::AxisSpan alongZ = Detail::CellsAlong( z, radius + reach, size );
                         const double           enumerated =
                              ( alongX.Last - alongX.First + 1.0 ) * ( alongZ.Last - alongZ.First + 1.0 );
                         if ( enumerated > static_cast<double>( end - begin ) )

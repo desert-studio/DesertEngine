@@ -146,7 +146,7 @@ namespace Desert::Editor
         phases.Lap( "spawn the player's pawn", scene->GetAllEntities().size() );
         auto streamer = Desert::Core::WorldStreamer::Begin(
              *scene, *m_Assets, completedFromDisk ? playedWorld : m_PlayWorld.AuthoredSnapshot(),
-             InstrumentStreamingSources() );
+             scene->Packages()->BaselinePath().value_or( std::filesystem::path() ), InstrumentStreamingSources() );
         phases.Lap( "begin the world streamer", scene->GetAllEntities().size() );
         phases.LogSummary();
         if ( !streamer )
@@ -315,8 +315,8 @@ namespace Desert::Editor
         // Play first: the spawned pawn is the source the streamer begins around (PawnIsAStreamingSource).
         if ( const auto began = Desert::Core::BeginPlay( *scene, *m_Assets, {} ); !began )
             return stayInPlay( std::format( "Play refused for '{}': {}", path, began.GetError() ) );
-        auto streamer =
-             Desert::Core::WorldStreamer::Begin( *scene, *m_Assets, json, InstrumentStreamingSources() );
+        auto streamer = Desert::Core::WorldStreamer::Begin( *scene, *m_Assets, json, std::filesystem::path( path ),
+                                                            InstrumentStreamingSources() );
         if ( !streamer )
             return stayInPlay(
                  std::format( "Travel to '{}' could not stream the world: {}", path, streamer.GetError() ) );
