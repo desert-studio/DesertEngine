@@ -136,7 +136,8 @@ namespace Desert::Graphic::System
             BindGpuInstancedBuffers( *caster, gpu );
             std::vector<glm::vec4> rows;
             const uint32_t         row = AppendRow( rows, EffectiveRow( parent, gpu.Material.get() ) );
-            // Find: a masked caster whose surface has no parameters (or whose mask reads none) declares no row block.
+            // Find: a masked caster whose surface has no parameters (or whose mask reads none) declares no row
+            // block.
             if ( auto* sb = caster->Find<StorageBufferProperty>( kMaterialRowBlock ) )
                 sb->SetRawData( rows.data(), static_cast<uint32_t>( rows.size() * sizeof( glm::vec4 ) ) );
 

@@ -810,7 +810,8 @@ namespace Desert::Graphic::System
         for ( auto& [state, cellRows] : rows )
         {
             // Find: a translucent surface template with no parameters declares no Materials row block.
-            if ( auto* sb = state->Material->Find<StorageBufferProperty>( MeshForwardShaderParameters::Materials ) )
+            if ( auto* sb =
+                      state->Material->Find<StorageBufferProperty>( MeshForwardShaderParameters::Materials ) )
             {
                 sb->SetRawData( cellRows.data(), static_cast<uint32_t>( cellRows.size() * sizeof( glm::vec4 ) ) );
             }
@@ -1619,8 +1620,8 @@ namespace Desert::Graphic::System
                           set.Mat->Get<StorageBufferProperty>( MeshForwardShaderParameters::InstanceTransforms ) )
                     sb->SetRawData( set.Transforms.data(),
                                     static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
-                // Find (InstanceTransforms above stays Get: every instanced cell reads it): a surface template with
-                // no parameters declares no Materials row block.
+                // Find (InstanceTransforms above stays Get: every instanced cell reads it): a surface template
+                // with no parameters declares no Materials row block.
                 if ( auto* sb = set.Mat->Find<StorageBufferProperty>( MeshForwardShaderParameters::Materials ) )
                     sb->SetRawData( set.Materials.data(),
                                     static_cast<uint32_t>( set.Materials.size() * sizeof( glm::vec4 ) ) );

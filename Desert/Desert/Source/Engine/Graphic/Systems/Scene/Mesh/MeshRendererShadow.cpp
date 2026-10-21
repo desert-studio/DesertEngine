@@ -1078,7 +1078,8 @@ namespace Desert::Graphic::System
             auto& set = *m_ScratchMaskedSets[i];
             WriteLightCamera( *set.Caster, glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
                               m_CascadeCasterBias[c], m_ParallaxQuality );
-            // Find: a masked caster whose surface has no parameters (or whose mask reads none) declares no row block.
+            // Find: a masked caster whose surface has no parameters (or whose mask reads none) declares no row
+            // block.
             if ( auto* sb = set.Caster->Find<StorageBufferProperty>( kMaterialRowBlock ) )
             {
                 sb->SetRawData( set.Rows.data(), static_cast<uint32_t>( set.Rows.size() * sizeof( glm::vec4 ) ) );

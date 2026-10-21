@@ -645,7 +645,8 @@ namespace Desert::Graphic::System
             {
                 if ( !sprite || sprite->Rows.empty() )
                     continue;
-                // Find: a sprite surface template with no parameters (or every row field dead) declares no row block.
+                // Find: a sprite surface template with no parameters (or every row field dead) declares no row
+                // block.
                 if ( auto* sb =
                           sprite->Material->Find<StorageBufferProperty>( ParticleShaderParameters::Materials ) )
                     sb->SetRawData( sprite->Rows.data(),
