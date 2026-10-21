@@ -144,6 +144,56 @@
             }
         },
         {
+            "id": 4001,
+            "siblingIndex": 4,
+            "Tag": "Crate",
+            "Translation": [0.0, 250.0, 0.0],
+            "Rotation": [0.30000001192092896, 0.0, 0.4000000059604645],
+            "Scale": [1.0, 1.0, 1.0],
+            "Destructible": {
+                "Source": 0,
+                "Fracture": "Fractures/Crate.dfrac",
+                "RuntimeSites": 12,
+                "ImpactRadius": 50.0,
+                "ImpactShells": 3,
+                "ImpactSitesPerShell": 8,
+                "InteriorMaterial": "",
+                "DamageThreshold": [50000.0, 50000.0],
+                "AnchoredNodes": [],
+                "DensityKgPerCm3": 0.002400000113993883,
+                "Friction": 0.6000000238418579,
+                "Restitution": 0.10000000149011612,
+                "RemoveOnSleep": true,
+                "MaxSleepTime": [5.0, 10.0],
+                "SlowMovingAsSleeping": true,
+                "SlowMovingVelocityThreshold": 1.0,
+                "NotifyBreaks": true,
+                "NotifyCollisions": true,
+                "NotifyRemovals": true,
+                "CollisionEventMinImpulse": 1000.0
+            },
+            "Script": {
+                "Scripts": [
+                    {
+                        "ScriptKey": "assets:Scripts/Examples/DestructionDust.lua",
+                        "Props": []
+                    }
+                ]
+            }
+        },
+        {
+            "id": 4002,
+            "siblingIndex": 5,
+            "Tag": "Dust",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "VFX": {
+                "System": "VFX/DestructionDust.dfx",
+                "AutoActivate": true
+            }
+        },
+        {
             "id": 13938200367345369301,
             "siblingIndex": 3,
             "Tag": "PostProcessVolume",
@@ -202,56 +252,6 @@
                     "LensFlareStreakAngle": 0.0,
                     "LensFlareChromaShift": 0.15000000596046448
                 }
-            }
-        },
-        {
-            "id": 4001,
-            "siblingIndex": 4,
-            "Tag": "Crate",
-            "Translation": [0.0, 250.0, 0.0],
-            "Rotation": [0.30000001192092896, 0.0, 0.4000000059604645],
-            "Scale": [1.0, 1.0, 1.0],
-            "Destructible": {
-                "Source": 0,
-                "Fracture": "Fractures/Crate.dfrac",
-                "RuntimeSites": 12,
-                "ImpactRadius": 50.0,
-                "ImpactShells": 3,
-                "ImpactSitesPerShell": 8,
-                "InteriorMaterial": "",
-                "DamageThreshold": [50000.0, 50000.0],
-                "AnchoredNodes": [],
-                "DensityKgPerCm3": 0.002400000113993883,
-                "Friction": 0.6000000238418579,
-                "Restitution": 0.10000000149011612,
-                "RemoveOnSleep": true,
-                "MaxSleepTime": [5.0, 10.0],
-                "SlowMovingAsSleeping": true,
-                "SlowMovingVelocityThreshold": 1.0,
-                "NotifyBreaks": true,
-                "NotifyCollisions": true,
-                "NotifyRemovals": true,
-                "CollisionEventMinImpulse": 1000.0
-            },
-            "Script": {
-                "Scripts": [
-                    {
-                        "ScriptKey": "assets:Scripts/Examples/DestructionDust.lua",
-                        "Props": []
-                    }
-                ]
-            }
-        },
-        {
-            "id": 4002,
-            "siblingIndex": 5,
-            "Tag": "Dust",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "VFX": {
-                "System": "VFX/DestructionDust.dfx",
-                "AutoActivate": true
             }
         }
     ],
