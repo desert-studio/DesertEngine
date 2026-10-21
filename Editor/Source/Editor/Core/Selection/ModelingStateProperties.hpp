@@ -40,7 +40,7 @@ namespace Desert::Editor::Core
     };
 
     // clang-format off
-    inline constexpr std::array<ModelingStateRow, 86> kModelingStateRows = { {
+    inline constexpr std::array<ModelingStateRow, 93> kModelingStateRows = { {
          { "CubeGrid.GridFrameOrigin",  "Grid Frame Origin",  "CubeGrid", 3, false, -1.0e6f, 1.0e6f,
            []( ModelingState& s ) { return &s.GridOrigin.x; }, nullptr },
          { "CubeGrid.GridFrameOrientation", "Grid Frame Orientation", "CubeGrid", 3, false, -180.0f, 180.0f,
@@ -216,6 +216,20 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.UVLayout.Translation.x; }, nullptr },
          { "UVLayout.TranslateV",       "Translate V",        "UV Layout", 1, false, -1000.0f, 1000.0f,
            []( ModelingState& s ) { return &s.UVLayout.Translation.y; }, nullptr },
+         { "Smooth.SmoothingPerStep",   "Smoothing Per Step", "Smooth", 1, false, 0.0f, 1.0f,
+           []( ModelingState& s ) { return &s.DeformSmooth.SmoothingPerStep; }, nullptr },
+         { "Smooth.Steps",              "Steps",              "Smooth", 1, true, 1.0f, 100.0f, nullptr,
+           []( ModelingState& s ) { return &s.DeformSmooth.Steps; } },
+         { "Smooth.Smoothness",         "Smoothness",         "Smooth", 1, false, 0.0f, 1.0f,
+           []( ModelingState& s ) { return &s.DeformSmooth.Smoothness; }, nullptr },
+         { "Smooth.SmoothSpeed",        "Smooth Speed",       "Smooth", 1, false, 0.0f, 1.0f,
+           []( ModelingState& s ) { return &s.DeformSmooth.SmoothSpeed; }, nullptr },
+         { "Offset.Distance",           "Distance",           "Offset", 1, false, -10000.0f, 10000.0f,
+           []( ModelingState& s ) { return &s.DeformOffset.Distance; }, nullptr },
+         { "Offset.Steps",              "Steps",              "Offset", 1, true, 1.0f, 100.0f, nullptr,
+           []( ModelingState& s ) { return &s.DeformOffset.Steps; } },
+         { "Offset.SmoothingPerStep",   "Smoothing Per Step", "Offset", 1, false, 0.0f, 1.0f,
+           []( ModelingState& s ) { return &s.DeformOffset.SmoothingPerStep; }, nullptr },
     } };
     // clang-format on
 

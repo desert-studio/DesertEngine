@@ -6,6 +6,13 @@
 //   Offset - UE 5.8 MeshModelingToolset/Operators/Private/SmoothingOps/IterativeOffsetMeshOp (UOffsetMeshTool,
 //            Iterative): Steps rounds of StepDistance = Distance / Steps along the current vertex normals,
 //            each followed by a smoothing round of SmoothingPerStep; boundaries held unless bOffsetBoundaries.
+//   Smooth, Implicit / Diffusion - UE 5.8 SmoothingOps/CotanSmoothingOp.cpp (ComputeSmoothing_BiHarmonic: the
+//            least-squares fairing |L x|^2 + w |x - p|^2, UE's normalisation SmoothPower = Smoothness^2 / 50 *
+//            VertexCount) and IterativeSmoothingOp Smooth_Implicit (ComputeSmoothing_Diffusion: backward-Euler
+//            heat steps), both on the ClampedCotangent (or uniform) Laplacian; UE's Eigen SimplicialLDLT is our
+//            SparseLDLT (MeshUVSolver.hpp). Pinned vertices are eliminated from the system (their positions
+//            move to the right-hand side) instead of UE's heavily weighted soft constraints, so they hold exactly.
+//            UE's Implicit VolumeCorrection (a normal push against the shrink) is not ported.
 // Deviation from UE: the cotan centroid clamps a negative edge weight (an obtuse opposite angle pair) to zero
 // so an explicit step can never push a vertex away from its ring; UE leaves the weight signed and relies on
 // small SmoothAlpha. Rounds run serially (UE ParallelFor) - Modeling Mode recomputes synchronously.
@@ -13,6 +20,7 @@
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshNormals.hpp"
+#include "Engine/Geometry/MeshCore/Solvers/MeshUVSolver.hpp"
 #include "Engine/Geometry/MeshRegionOperation.hpp"
 
 #include <spdlog/fmt/fmt.h>
@@ -20,6 +28,8 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
+#include <utility>
 #include <cmath>
 #include <vector>
 
@@ -175,7 +185,192 @@ namespace Desert::Geometry
                      fmt::format( "{}: SmoothingPerStep is {}, 0..1 expected", tool, alpha ) );
             return Common::MakeSuccess( true );
         }
+
+        // ---- implicit solvers ----
+        using LaplacianRow = std::vector<std::pair<int32_t, double>>; // (vertex ID, value), diagonal included
+
+        // The symmetric positive semi-definite Laplacian, rows by vertex ID: L_ii = sum w, L_ij = -w. Uniform:
+        // w = 1; Cotan: UE's ClampedCotangent w = max( 0, (cot a + cot b) / 2 ), a degenerate corner adds 0.
+        std::vector<LaplacianRow> BuildLaplacian( const DynamicMesh3& mesh, SmoothWeightType type,
+                                                  const std::vector<glm::dvec3>& p )
+        {
+            std::vector<LaplacianRow> rows( static_cast<size_t>( mesh.MaxVertexID() ) );
+            std::vector<double>       diagonal( rows.size(), 0.0 );
+            for ( const int eid : mesh.EdgeIndicesItr() )
+            {
+                const Index2i ev     = mesh.GetEdgeV( eid );
+                double        weight = 1.0;
+                if ( type == SmoothWeightType::Cotan )
+                {
+                    weight = 0.0;
+                    for ( const int o : { mesh.GetEdgeOpposingV( eid ).A, mesh.GetEdgeOpposingV( eid ).B } )
+                    {
+                        double cot = 0.0;
+                        if ( o != DynamicMesh3::InvalidID &&
+                             CotAt( p[static_cast<size_t>( o )], p[static_cast<size_t>( ev.A )],
+                                    p[static_cast<size_t>( ev.B )], cot ) )
+                            weight += 0.5 * cot;
+                    }
+                    weight = std::max( weight, 0.0 );
+                }
+                if ( weight == 0.0 )
+                    continue;
+                rows[static_cast<size_t>( ev.A )].push_back( { ev.B, -weight } );
+                rows[static_cast<size_t>( ev.B )].push_back( { ev.A, -weight } );
+                diagonal[static_cast<size_t>( ev.A )] += weight;
+                diagonal[static_cast<size_t>( ev.B )] += weight;
+            }
+            for ( const int vid : mesh.VertexIndicesItr() )
+                rows[static_cast<size_t>( vid )].push_back( { vid, diagonal[static_cast<size_t>( vid )] } );
+            return rows;
+        }
+
+        // Unknowns are the movable vertices only: vertex ID -> compact index, -1 for a pinned or absent one.
+        std::vector<int32_t> CompactMovable( const std::vector<uint8_t>& movable, int32_t& count )
+        {
+            std::vector<int32_t> index( movable.size(), -1 );
+            count = 0;
+            for ( size_t i = 0; i < movable.size(); ++i )
+                if ( movable[i] != 0 )
+                    index[i] = count++;
+            return index;
+        }
+
+        // Factor @p a and solve it for the three coordinates of @p rhs; the solution is written to the movable
+        // vertices of @p p. False when the system is not positive definite.
+        bool SolveInto( const SparseMatrixD& a, const std::vector<int32_t>& index, int32_t count,
+                        const std::array<std::vector<double>, 3>& rhs, std::vector<glm::dvec3>& p,
+                        const SparseLDLT* factored = nullptr )
+        {
+            SparseLDLT        local;
+            const SparseLDLT* solver = factored;
+            if ( solver == nullptr )
+            {
+                if ( !local.Factorize( a ) )
+                    return false;
+                solver = &local;
+            }
+            std::vector<double> x( static_cast<size_t>( count ) );
+            for ( int c = 0; c < 3; ++c )
+            {
+                solver->Solve( rhs[static_cast<size_t>( c )], x );
+                for ( size_t vid = 0; vid < index.size(); ++vid )
+                    if ( index[vid] >= 0 )
+                        p[vid][c] = x[static_cast<size_t>( index[vid] )];
+            }
+            return true;
+        }
+
+        // UE ComputeSmoothing_BiHarmonic: x = argmin |L x|^2 + (1/s) |x_m - p_m|^2 over the movable x_m, pinned
+        // vertices fixed at p. Normal equations ( L_m^T L_m + I/s ) x_m = p_m / s - L_m^T L_pin p_pin.
+        Common::BoolResultStr ImplicitSmooth( const DynamicMesh3& mesh, const SmoothSettings& settings,
+                                              const std::vector<uint8_t>& movable, std::vector<glm::dvec3>& p )
+        {
+            const double smoothness = static_cast<double>( settings.Smoothness );
+            const double s          = smoothness * smoothness / 50.0 * static_cast<double>( mesh.VertexCount() );
+            if ( s <= 0.0 )
+                return Common::MakeSuccess( true ); // Smoothness 0: the fairing term has no weight
+            int32_t                             count = 0;
+            const std::vector<int32_t>          index = CompactMovable( movable, count );
+            const std::vector<LaplacianRow>     rows  = BuildLaplacian( mesh, settings.WeightType, p );
+            std::vector<SparseMatrixD::Triplet> triplets;
+            std::array<std::vector<double>, 3>  rhs;
+            for ( auto& r : rhs )
+                r.assign( static_cast<size_t>( count ), 0.0 );
+            for ( const int k : mesh.VertexIndicesItr() )
+            {
+                const LaplacianRow& row = rows[static_cast<size_t>( k )];
+                glm::dvec3          pinnedPart( 0.0 ); // L_k,pin p_pin
+                for ( const auto& [j, b] : row )
+                    if ( index[static_cast<size_t>( j )] < 0 )
+                        pinnedPart += b * p[static_cast<size_t>( j )];
+                for ( const auto& [i, a] : row )
+                {
+                    const int32_t ci = index[static_cast<size_t>( i )];
+                    if ( ci < 0 )
+                        continue;
+                    for ( const auto& [j, b] : row )
+                        if ( const int32_t cj = index[static_cast<size_t>( j )]; cj >= 0 )
+                            triplets.push_back( { ci, cj, a * b } );
+                    for ( int c = 0; c < 3; ++c )
+                        rhs[static_cast<size_t>( c )][static_cast<size_t>( ci )] -= a * pinnedPart[c];
+                }
+            }
+            const std::vector<glm::dvec3> start = p;
+            for ( size_t vid = 0; vid < index.size(); ++vid )
+                if ( const int32_t ci = index[vid]; ci >= 0 )
+                {
+                    triplets.push_back( { ci, ci, 1.0 / s } );
+                    for ( int c = 0; c < 3; ++c )
+                        rhs[static_cast<size_t>( c )][static_cast<size_t>( ci )] += p[vid][c] / s;
+                }
+            if ( !SolveInto( SparseMatrixD( count, count, std::move( triplets ) ), index, count, rhs, p ) )
+                return Common::MakeError<bool>( "Smooth (Implicit): the fairing system is not positive definite" );
+            const double speed = static_cast<double>( settings.SmoothSpeed );
+            for ( size_t vid = 0; vid < index.size(); ++vid )
+                if ( index[vid] >= 0 )
+                    p[vid] = start[vid] + speed * ( p[vid] - start[vid] );
+            return Common::MakeSuccess( true );
+        }
+
+        // UE ComputeSmoothing_Diffusion: Steps backward-Euler heat steps ( I + t L_mm ) x' = x - t L_m,pin p_pin,
+        // t = SmoothingPerStep, L taken from the input positions and factored once.
+        Common::BoolResultStr DiffusionSmooth( const DynamicMesh3& mesh, const SmoothSettings& settings,
+                                               const std::vector<uint8_t>& movable, std::vector<glm::dvec3>& p )
+        {
+            const double t = static_cast<double>( settings.SmoothingPerStep );
+            if ( t <= 0.0 )
+                return Common::MakeSuccess( true );
+            int32_t                             count = 0;
+            const std::vector<int32_t>          index = CompactMovable( movable, count );
+            const std::vector<LaplacianRow>     rows  = BuildLaplacian( mesh, settings.WeightType, p );
+            std::vector<SparseMatrixD::Triplet> triplets;
+            std::vector<glm::dvec3>             pinnedTerm( index.size(), glm::dvec3( 0.0 ) ); // t L_m,pin p_pin
+            for ( size_t vid = 0; vid < index.size(); ++vid )
+            {
+                const int32_t ci = index[vid];
+                if ( ci < 0 )
+                    continue;
+                triplets.push_back( { ci, ci, 1.0 } );
+                for ( const auto& [j, w] : rows[vid] )
+                    if ( const int32_t cj = index[static_cast<size_t>( j )]; cj >= 0 )
+                        triplets.push_back( { ci, cj, t * w } );
+                    else
+                        pinnedTerm[vid] += t * w * p[static_cast<size_t>( j )];
+            }
+            const SparseMatrixD a( count, count, std::move( triplets ) );
+            SparseLDLT          solver;
+            if ( !solver.Factorize( a ) )
+                return Common::MakeError<bool>( "Smooth (Diffusion): the heat system is not positive definite" );
+            std::array<std::vector<double>, 3> rhs;
+            for ( auto& r : rhs )
+                r.assign( static_cast<size_t>( count ), 0.0 );
+            for ( int32_t step = 0; step < settings.Steps; ++step )
+            {
+                for ( size_t vid = 0; vid < index.size(); ++vid )
+                    if ( const int32_t ci = index[vid]; ci >= 0 )
+                        for ( int c = 0; c < 3; ++c )
+                            rhs[static_cast<size_t>( c )][static_cast<size_t>( ci )] =
+                                 p[vid][c] - pinnedTerm[vid][c];
+                SolveInto( a, index, count, rhs, p, &solver );
+            }
+            return Common::MakeSuccess( true );
+        }
     } // namespace
+
+    const char* ToString( SmoothType type )
+    {
+        switch ( type )
+        {
+            case SmoothType::Iterative:
+                return "Iterative";
+            case SmoothType::Implicit:
+                return "Implicit";
+            case SmoothType::Diffusion:
+                return "Diffusion";
+        }
+        return "Unknown";
+    }
 
     const char* ToString( SmoothWeightType type )
     {
@@ -195,21 +390,48 @@ namespace Desert::Geometry
              !check.IsSuccess() )
             return Common::MakeError<DeformOutcome>( check.GetError() );
 
+        if ( !( settings.Smoothness >= 0.0f && settings.Smoothness <= 1.0f ) )
+            return Common::MakeError<DeformOutcome>(
+                 fmt::format( "Smooth: Smoothness is {}, 0..1 expected", settings.Smoothness ) );
+        if ( !( settings.SmoothSpeed >= 0.0f && settings.SmoothSpeed <= 1.0f ) )
+            return Common::MakeError<DeformOutcome>(
+                 fmt::format( "Smooth: SmoothSpeed is {}, 0..1 expected", settings.SmoothSpeed ) );
+
         DynamicMesh3               mesh  = input;
         int32_t                    moved = 0, pinned = 0;
         const std::vector<uint8_t> movable =
              MovableVertices( mesh, settings.SmoothBoundary, settings.PinUVSeams, moved, pinned );
-        std::vector<glm::dvec3> p    = Positions( mesh );
-        std::vector<glm::dvec3> next = p;
-        for ( int32_t step = 0; step < settings.Steps; ++step )
+        std::vector<glm::dvec3> p = Positions( mesh );
+        std::string             report;
+        switch ( settings.Type )
         {
-            SmoothRound( mesh, settings.WeightType, settings.SmoothingPerStep, movable, p, next );
-            p.swap( next );
+            case SmoothType::Iterative:
+            {
+                std::vector<glm::dvec3> next = p;
+                for ( int32_t step = 0; step < settings.Steps; ++step )
+                {
+                    SmoothRound( mesh, settings.WeightType, settings.SmoothingPerStep, movable, p, next );
+                    p.swap( next );
+                }
+                report = fmt::format( "Iterative {} smoothing, {} steps at {:.2f}",
+                                      ToString( settings.WeightType ), settings.Steps, settings.SmoothingPerStep );
+                break;
+            }
+            case SmoothType::Implicit:
+                if ( auto solved = ImplicitSmooth( mesh, settings, movable, p ); !solved.IsSuccess() )
+                    return Common::MakeError<DeformOutcome>( solved.GetError() );
+                report = fmt::format( "Implicit {} smoothing, smoothness {:.2f}, speed {:.2f}",
+                                      ToString( settings.WeightType ), settings.Smoothness, settings.SmoothSpeed );
+                break;
+            case SmoothType::Diffusion:
+                if ( auto solved = DiffusionSmooth( mesh, settings, movable, p ); !solved.IsSuccess() )
+                    return Common::MakeError<DeformOutcome>( solved.GetError() );
+                report = fmt::format( "Diffusion {} smoothing, {} steps at {:.2f}",
+                                      ToString( settings.WeightType ), settings.Steps, settings.SmoothingPerStep );
+                break;
         }
         WritePositions( mesh, p );
-        return Finish( std::move( mesh ), "Smooth", moved, pinned,
-                       fmt::format( "{} smoothing, {} steps at {:.2f}", ToString( settings.WeightType ),
-                                    settings.Steps, settings.SmoothingPerStep ) );
+        return Finish( std::move( mesh ), "Smooth", moved, pinned, std::move( report ) );
     }
 
     Common::ResultStr<DeformOutcome> Offset( const DynamicMesh3& input, const OffsetSettings& settings )

@@ -629,16 +629,33 @@ namespace Desert::Editor
         {
             case MS::Tool::Smooth:
             {
-                auto& s      = ms.DeformSmooth;
-                int   weight = static_cast<int>( s.WeightType );
+                auto&                 s          = ms.DeformSmooth;
+                int                   smoothType = static_cast<int>( s.Type );
+                int                   weight     = static_cast<int>( s.WeightType );
+                constexpr const char* kTypes[]   = { "Iterative", "Implicit", "Diffusion" };
+                row( "Smoothing Type" );
+                if ( ImGui::Combo( "##SmoothType", &smoothType, kTypes, 3 ) )
+                    s.Type = static_cast<Geometry::SmoothType>( smoothType );
                 row( "Weight Type" );
                 if ( ImGui::Combo( "##SmoothWeight", &weight, kWeights, 2 ) )
                     s.WeightType = static_cast<Geometry::SmoothWeightType>( weight );
-                row( "Smoothing Per Step" );
-                ImGui::SliderFloat( "##SmoothPerStep", &s.SmoothingPerStep, 0.0f, 1.0f, "%.2f",
-                                    ImGuiSliderFlags_AlwaysClamp );
-                row( "Steps" );
-                ImGui::SliderInt( "##SmoothSteps", &s.Steps, 0, 100, "%d", ImGuiSliderFlags_AlwaysClamp );
+                if ( s.Type == Geometry::SmoothType::Implicit )
+                {
+                    row( "Smoothness" );
+                    ImGui::SliderFloat( "##SmoothSmoothness", &s.Smoothness, 0.0f, 1.0f, "%.2f",
+                                        ImGuiSliderFlags_AlwaysClamp );
+                    row( "Smooth Speed" );
+                    ImGui::SliderFloat( "##SmoothSpeed", &s.SmoothSpeed, 0.0f, 1.0f, "%.2f",
+                                        ImGuiSliderFlags_AlwaysClamp );
+                }
+                else
+                {
+                    row( "Smoothing Per Step" );
+                    ImGui::SliderFloat( "##SmoothPerStep", &s.SmoothingPerStep, 0.0f, 1.0f, "%.2f",
+                                        ImGuiSliderFlags_AlwaysClamp );
+                    row( "Steps" );
+                    ImGui::SliderInt( "##SmoothSteps", &s.Steps, 1, 100, "%d", ImGuiSliderFlags_AlwaysClamp );
+                }
                 ImGui::Checkbox( "Smooth Boundary##Smooth", &s.SmoothBoundary );
                 ImGui::Checkbox( "Pin UV Seams##Smooth", &s.PinUVSeams );
                 break;

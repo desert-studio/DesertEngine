@@ -35,14 +35,27 @@ namespace Desert::Geometry
     };
     [[nodiscard]] const char* ToString( SmoothWeightType type );
 
-    // ---- Smooth (UE USmoothMeshTool, Smoothing Type = Iterative; UIterativeSmoothProperties) ----
-    // Steps rounds of p <- lerp( p, centroid( one-ring ), SmoothingPerStep ), all vertices from the previous
-    // round's positions (Jacobi, as UE's double buffer).
+    // UE ESmoothMeshToolSmoothType: which solver USmoothMeshTool runs.
+    enum class SmoothType : uint8_t
+    {
+        Iterative, // explicit: Steps rounds of p <- lerp( p, centroid( one-ring ), SmoothingPerStep ) (Jacobi)
+        Implicit,  // one sparse solve: argmin |L x|^2 + (1/s) |x - p|^2, s = Smoothness^2 * VertexCount / 50
+        Diffusion, // implicit heat flow: Steps backward-Euler solves ( I + SmoothingPerStep * L ) x' = x
+    };
+    [[nodiscard]] const char* ToString( SmoothType type );
+
+    // ---- Smooth (UE USmoothMeshTool; UIterativeSmoothProperties / UImplicitSmoothProperties /
+    // UDiffusionSmoothProperties). L is the mesh Laplacian of WeightType (Cotan = UE's ClampedCotangent:
+    // symmetric, negative cotangents clamped to zero), so the implicit systems are symmetric positive definite and
+    // factor once with SparseLDLT for all three coordinates. Pinned vertices are held by the solve.
     struct SmoothSettings
     {
+        SmoothType       Type             = SmoothType::Iterative;
         SmoothWeightType WeightType       = SmoothWeightType::Uniform;
-        float            SmoothingPerStep = 0.8f;  // UE SmoothingPerStep, 0..1 (the step's speed)
-        int32_t          Steps            = 10;    // UE Steps
+        float            SmoothingPerStep = 0.8f;  // Iterative / Diffusion: UE SmoothingPerStep, 0..1
+        int32_t          Steps            = 10;    // Iterative / Diffusion: UE Steps
+        float            Smoothness       = 0.2f;  // Implicit: UE Smoothness, 0..1, non-linear (squared)
+        float            SmoothSpeed      = 1.0f;  // Implicit: fraction of the solved move applied, 0..1
         bool             SmoothBoundary   = true;  // UE bSmoothBoundary: off pins open-boundary vertices
         bool             PinUVSeams       = false; // UV-seam vertices held, so UV islands keep their outline
 

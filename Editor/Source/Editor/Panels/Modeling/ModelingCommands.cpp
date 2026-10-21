@@ -622,6 +622,14 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         }
+        for ( const Geometry::SmoothType type : { Geometry::SmoothType::Iterative, Geometry::SmoothType::Implicit,
+                                                  Geometry::SmoothType::Diffusion } )
+            commands.push_back( { "Modeling", std::string( "Smoothing type: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().DeformSmooth.Type = type;
+                                      return PaletteCommandDone();
+                                  } } );
         modelingOnOff( "Modeling", "Smooth: Smooth Boundary",
                        []( MS& ms, bool on ) { ms.DeformSmooth.SmoothBoundary = on; } );
         modelingOnOff( "Modeling", "Smooth: Pin UV Seams",
