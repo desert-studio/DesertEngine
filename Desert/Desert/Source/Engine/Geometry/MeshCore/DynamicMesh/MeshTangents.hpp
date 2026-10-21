@@ -1,8 +1,8 @@
-// Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/MeshTangents.h:1-259, adapted: only the
-// per-triangle path (SetMesh, InitializeTriVertexTangents, SetPerTriangleTangent, GetPerTriangleTangent,
-// ComputeSeparatePerTriangleTangents, CopyToOverlays); the averaged / MikkT paths and FComputeTangentsOptions are
-// not ported (ParallelFor is a serial for loop, so bParallel has nothing to switch). UE Core as
-// std/glm, namespace Desert::Geometry, instantiated for double only.
+// Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/MeshTangents.h:1-259, adapted: the
+// per-corner storage (SetMesh, InitializeTriVertexTangents, SetPerTriangleTangent, GetPerTriangleTangent,
+// CopyToOverlays); the frame is MikkTSpace's (ComputeMikkTTangents, through Engine/Geometry/MikkTangents.hpp,
+// the generator the importer uses too) instead of UE's per-triangle / averaged paths. UE Core as std/glm,
+// namespace Desert::Geometry, instantiated for double only.
 #pragma once
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
@@ -73,11 +73,12 @@ namespace Desert::Geometry
         }
 
         /**
-         * Calculate per-triangle tangent spaces from the triangle's UVs and positions, each projected into the
-         * plane of the corner's overlay normal. The same triangle vertex may have different tangents on
-         * different triangles. Triangles unset in UVOverlay are left unwritten.
+         * Calculate the MikkTSpace frame of every triangle corner from the mesh positions and the overlay normals
+         * and UVs: unit tangent T, bitangent sign * cross(N, T) with N the corner's overlay normal. Triangles unset
+         * in either overlay are left zero.
+         * @return false when MikkTSpace could not allocate its working set
          */
-        void ComputeSeparatePerTriangleTangents( const DynamicMeshNormalOverlay* NormalOverlay,
+        [[nodiscard]] bool ComputeMikkTTangents( const DynamicMeshNormalOverlay* NormalOverlay,
                                                  const DynamicMeshUVOverlay*     UVOverlay );
 
         /**

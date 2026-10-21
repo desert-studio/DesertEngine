@@ -94,6 +94,7 @@ project "GamePackager"
         "Optick",
         "MeshOptimizer",
         "Voro",
+        "MikkTSpace",
         "OpenSubdiv",
         "OpenEXRCore", -- .exr texture sources (BuildScripts/ThirdParty/OpenEXR.lua)
         "Dav1d",

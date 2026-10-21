@@ -13,6 +13,7 @@ include( buildScripts .. "/Luau.lua" ) -- 0.741: VM, Compiler, CodeGen and their
 include( buildScripts .. "/Optick.lua" )
 include( buildScripts .. "/MeshOptimizer.lua" )
 include( buildScripts .. "/Voro.lua" ) -- voro++ 0.4.6, the fracture bake's Voronoi cells
+include( buildScripts .. "/MikkTSpace.lua" ) -- the mesh build's tangent-space generator, see the file
 include( buildScripts .. "/OpenSubdiv.lua" ) -- CPU refiner only (sdc/vtr/far), see the file
 include( buildScripts .. "/Dlib.lua" ) -- optional; no-op when ThirdParty/dlib is absent
 

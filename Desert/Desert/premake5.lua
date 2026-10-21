@@ -103,6 +103,8 @@ local function EngineModuleLibrary(module, legacyFiles)
     externalincludedirs {
         -- voro++ 0.4.6 (BuildScripts/ThirdParty/Voro.lua): the fracture bake's Voronoi cells.
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/voro++/src",
+        -- MikkTSpace (BuildScripts/ThirdParty/MikkTSpace.lua): the tangent generator, Engine/Geometry/MikkTangents.cpp.
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/mikktspace",
         -- Engine/Media: AV1 (dav1d) and Opus, both compiled from their submodules
         -- (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua).
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/dav1d/include",
@@ -145,6 +147,7 @@ end
         "Optick",
         "MeshOptimizer",
         "Voro",
+        "MikkTSpace",
         "OpenSubdiv",
         "Dav1d",
         "Opus",

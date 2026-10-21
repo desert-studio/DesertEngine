@@ -34,7 +34,7 @@ namespace Desert::Assets
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
-         3; // 3: vertex colour and UV1 streams; 2: sections named by slot
+         4; // 4: MikkTSpace tangent frames (import and DynamicMesh derive); 3: vertex colour and UV1 streams; 2: sections named by slot
 
     // The settings image the key hashes (UE SerializeForKey): fixed order, little-endian, one u32 per field.
     struct MeshBuildSettings
@@ -82,7 +82,7 @@ namespace Desert::Assets
     // conversion produces different bytes for the same source file.
     // 2 (FIX8): the envelope's GUID is the source's import record's, no longer minted per import.
     // 3 (SKEL-eng3): MeshSourceAsset SRCE version 3 (the skin names its skeleton by GUID).
-    inline constexpr uint32_t kMeshSourceBuilderVersion = 3;
+    inline constexpr uint32_t kMeshSourceBuilderVersion = 4; // 4: MikkTSpace tangents (Engine/Geometry/MikkTangents.hpp), vertices split on frame seams
 
     // Reads and hashes @p file whole (Utils::PakContentHash over its bytes) - the one place both the
     // importer (keying its Put) and the loader (keying its Get) compute this, so they can never drift into
