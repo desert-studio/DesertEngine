@@ -113,12 +113,14 @@ namespace Desert::Graphic::SurfaceCache
                 ViewTargetFormats::kGBufferEmissive } )
             spec.Attachments.Attachments.emplace_back( format );
         spec.Attachments.Attachments.emplace_back( ViewTargetFormats::kGBufferDepth );
-        m_CaptureBuffer = Framebuffer::Create( spec );
-        if ( !m_CaptureBuffer )
+        std::shared_ptr<Framebuffer> captureBuffer = Framebuffer::Create( spec );
+        if ( !captureBuffer )
             return Common::MakeError<bool>( "surface cache: the capture framebuffer could not be created" );
-        if ( const auto resized = m_CaptureBuffer->Resize( kCaptureAtlasSize, kCaptureAtlasSize ); !resized )
+        if ( const auto resized = captureBuffer->Resize( kCaptureAtlasSize, kCaptureAtlasSize ); !resized )
             return Common::MakeFormattedError<bool>( "surface cache: capture atlas {}²: {}", kCaptureAtlasSize,
                                                      resized.GetError() );
+        // Last: IsInitialized() reads it, so a renderer is initialised only once everything is.
+        m_CaptureBuffer = std::move( captureBuffer );
         return BOOLSUCCESS;
     }
 

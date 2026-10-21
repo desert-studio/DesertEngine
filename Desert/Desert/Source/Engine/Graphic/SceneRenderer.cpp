@@ -2820,6 +2820,11 @@ namespace Desert::Graphic
         m_SharedGlobalDistanceField = field;
     }
 
+    void SceneRenderer::ShareSurfaceCache( SurfaceCache::SurfaceCacheRenderer* cache )
+    {
+        m_SharedSurfaceCache = cache;
+    }
+
     std::shared_ptr<Image2D> SceneRenderer::GetShadowCascadeCacheImage( uint32_t cascade )
     {
         return UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
