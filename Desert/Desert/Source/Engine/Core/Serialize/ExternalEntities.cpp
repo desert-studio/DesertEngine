@@ -158,17 +158,20 @@ namespace Desert::Core::ExternalEntities
         std::string FirstDifference( std::string_view composed, std::string_view onDisk )
         {
             constexpr std::size_t kClip = 240;
-            const auto            clip  = []( std::string_view line )
-            { return line.size() <= kClip ? std::string( line ) : std::format( "{}...", line.substr( 0, kClip ) ); };
+            const auto            clip  = []( std::string_view line ) {
+                return line.size() <= kClip ? std::string( line )
+                                                        : std::format( "{}...", line.substr( 0, kClip ) );
+            };
             std::size_t lineNumber = 1;
             std::size_t a          = 0;
             std::size_t b          = 0;
             while ( a < composed.size() || b < onDisk.size() )
             {
-                const std::size_t aEnd = a < composed.size() ? std::min( composed.find( '\n', a ), composed.size() ) : a;
+                const std::size_t aEnd =
+                     a < composed.size() ? std::min( composed.find( '\n', a ), composed.size() ) : a;
                 const std::size_t bEnd = b < onDisk.size() ? std::min( onDisk.find( '\n', b ), onDisk.size() ) : b;
-                const auto aLine = a < composed.size() ? composed.substr( a, aEnd - a ) : std::string_view();
-                const auto bLine = b < onDisk.size() ? onDisk.substr( b, bEnd - b ) : std::string_view();
+                const auto aLine       = a < composed.size() ? composed.substr( a, aEnd - a ) : std::string_view();
+                const auto bLine       = b < onDisk.size() ? onDisk.substr( b, bEnd - b ) : std::string_view();
                 if ( aLine != bLine || ( a >= composed.size() ) != ( b >= onDisk.size() ) )
                     return std::format( "first difference at line {}: composed `{}`, file `{}`", lineNumber,
                                         a < composed.size() ? clip( aLine ) : std::string( "<end>" ),
@@ -177,8 +180,8 @@ namespace Desert::Core::ExternalEntities
                 b = bEnd + 1;
                 ++lineNumber;
             }
-            return std::format( "texts equal by line but differ in bytes (composed {} B, file {} B)", composed.size(),
-                                onDisk.size() );
+            return std::format( "texts equal by line but differ in bytes (composed {} B, file {} B)",
+                                composed.size(), onDisk.size() );
         }
     } // namespace
 
