@@ -20,12 +20,9 @@
 // did not, 2 for a command line it cannot act on. Every source gets one line on stdout saying which.
 
 #include <ToolMain.hpp>
-#include <ToolEngineDir.hpp>
+#include <ToolProject.hpp>
 
 #include <Editor/Import/TextureImporter.hpp>
-#include <Engine/Project/ProjectContext.hpp>
-
-#include <Common/Core/Logger.hpp>
 
 #include <cstdio>
 #include <filesystem>
@@ -74,17 +71,7 @@ int main( int argc, char** argv )
              if ( count < 3 )
                  return Usage();
 
-             std::error_code ec;
-             const fs::path  deproj = fs::absolute( args[1], ec );
-             if ( ec || !fs::is_regular_file( deproj, ec ) )
-             {
-                 std::fprintf( stderr, "TextureCook: '%s' is not a .deproj file this process can read\n",
-                               args[1] );
-                 return 2;
-             }
-
-             // The engine directory from the executable (or --engine-dir), never from the working
-             // directory: the process stays where the shell started it (ToolEngineDir.hpp).
+             // --engine-dir, when given, overrides the engine directory found from the executable.
              int      first = 2;
              fs::path engineDirOverride;
              if ( std::string( args[first] ) == "--engine-dir" )
@@ -94,23 +81,17 @@ int main( int argc, char** argv )
                  engineDirOverride = args[first + 1];
                  first += 2;
              }
-             if ( const std::string refused = Desert::Tools::SetEngineDirFromExecutable( engineDirOverride );
-                  !refused.empty() )
+             // The engine directory from the executable (or --engine-dir), the log in the project's
+             // Saved/Logs, the project opened outside the recent list: one call for every tool that opens a
+             // project (ToolProject.hpp).
+             const Desert::Tools::OpenedToolProject opened =
+                  Desert::Tools::OpenToolProject( args[1], engineDirOverride );
+             if ( !opened.Refused.empty() )
              {
-                 std::fprintf( stderr, "TextureCook: %s\n", refused.c_str() );
+                 std::fprintf( stderr, "TextureCook: %s\n", opened.Refused.c_str() );
                  return 2;
              }
-
-             Common::Logger::LogInit();
-             Common::Logger::RelocateLogFile( deproj.parent_path() / "Saved" / "Logs" );
-
-             if ( !Desert::Project::ProjectContext::Open( deproj.string(),
-                                                          Desert::Project::ProjectContext::RecordInRecent::No ) )
-             {
-                 std::fprintf( stderr, "TextureCook: could not open '%s' (missing or corrupt .deproj)\n",
-                               deproj.string().c_str() );
-                 return 2;
-             }
+             const fs::path& deproj = opened.Descriptor;
 
              // Project-relative, as the usage states (UE: FPaths::ConvertRelativePathToFull off ProjectDir).
              const auto InProject = []( const char* path ) { return Common::Constants::Path::FullPath( path ); };
@@ -160,7 +141,8 @@ int main( int argc, char** argv )
              int                             status = 0;
              for ( int i = first; i < count; ++i )
              {
-                 const fs::path source = InProject( args[i] );
+                 const fs::path  source = InProject( args[i] );
+                 std::error_code ec;
                  if ( !fs::is_regular_file( source, ec ) )
                  {
                      std::fprintf( stderr, "TextureCook: '%s' is not a file under '%s'\n", args[i],
