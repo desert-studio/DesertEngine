@@ -4428,6 +4428,31 @@ namespace Desert::Migration
         // restated as its "assets:" key. The spelling may be relative to the assets root itself
         // ("Materials/M.demat", what ToPath wrote for 16 asset types) or to the project above it
         // ("Resources/Assets/Meshes/M.skmesh"): both name one file and that file has one key.
+        // The file a bare relative spelling names under @p root, as its path relative to @p root: the spelling is
+        // tried against the assets root and up to two folders above it (the project-relative spelling), and only
+        // a regular file inside the root counts. Empty when the spelling has no extension, climbs out with "..",
+        // or names no such file.
+        std::optional<std::string> BareSpellingUnderRoot( const std::string& spelled, const std::filesystem::path& root )
+        {
+            namespace fs = std::filesystem;
+            const fs::path named = fs::path( spelled ).lexically_normal();
+            if ( !named.has_extension() || named.is_absolute() || named.generic_string().starts_with( ".." ) )
+                return std::nullopt;
+            std::error_code ec;
+            fs::path        base = root;
+            for ( int up = 0; up < 3 && !base.empty(); ++up, base = base.parent_path() )
+            {
+                const fs::path candidate = ( base / named ).lexically_normal();
+                if ( !fs::is_regular_file( candidate, ec ) )
+                    continue;
+                const std::string relative = candidate.lexically_relative( root ).generic_string();
+                if ( relative.empty() || relative == "." || relative.starts_with( ".." ) )
+                    continue;
+                return relative;
+            }
+            return std::nullopt;
+        }
+
         rfl::Generic RestateBareReferences( const rfl::Generic& value, const std::filesystem::path& root,
                                             const std::string& prefix, std::size_t& keyed )
         {
@@ -4453,23 +4478,12 @@ namespace Desert::Migration
             const std::string& spelled = text.value();
             // A tagged key, a drive-letter or rooted path, or a word: not a bare relative file path.
             if ( spelled.empty() || spelled.find( ':' ) != std::string::npos || spelled.front() == '/' ||
-                 spelled.front() == '\' || spelled.find( '/' ) == std::string::npos )
+                 spelled.front() == '\\' || spelled.find( '/' ) == std::string::npos )
                 return value;
-            const fs::path named = fs::path( spelled ).lexically_normal();
-            if ( !named.has_extension() || named.is_absolute() || named.generic_string().starts_with( ".." ) )
-                return value;
-            std::error_code ec;
-            fs::path        base = root;
-            for ( int up = 0; up < 3 && !base.empty(); ++up, base = base.parent_path() )
+            if ( const auto relative = BareSpellingUnderRoot( spelled, root ); relative.has_value() )
             {
-                const fs::path candidate = ( base / named ).lexically_normal();
-                if ( !fs::is_regular_file( candidate, ec ) )
-                    continue;
-                const std::string relative = candidate.lexically_relative( root ).generic_string();
-                if ( relative.empty() || relative == "." || relative.starts_with( ".." ) )
-                    continue;
                 ++keyed;
-                return rfl::Generic( prefix + relative );
+                return rfl::Generic( prefix + *relative );
             }
             return value;
         }
@@ -4499,6 +4513,30 @@ namespace Desert::Migration
         };
         for ( auto& entity : entities )
         {
+            // The record's own PrefabPath is a path by its field, not by its spelling: a bare one (no tag, not
+            // rooted) is keyed under the root even without a '/', and one that names no file under the root is
+            // refused by name - ResolvePrefabPath reads only the key, so leaving it bare loses the instance.
+            if ( entity.PrefabPath.has_value() )
+            {
+                const std::string& spelled = *entity.PrefabPath;
+                const bool         bare    = !spelled.empty() && spelled.find( ':' ) == std::string::npos &&
+                                  spelled.front() != '/' && spelled.front() != '\\';
+                if ( bare )
+                {
+                    if ( const auto relative = BareSpellingUnderRoot( spelled, root ); relative.has_value() )
+                    {
+                        entity.PrefabPath = prefix + *relative;
+                        ++report.Keyed;
+                        ++report.PrefabPathsKeyed;
+                    }
+                    else
+                        report.Refused.push_back( std::format(
+                             "Entities[{}] > PrefabPath '{}' names no file under the assets root '{}'",
+                             entity.id.has_value() ? std::to_string( static_cast<uint64_t>( *entity.id ) )
+                                                   : std::string( "?" ),
+                             spelled, root.generic_string() ) );
+                }
+            }
             restate( entity.Components );
             if ( entity.PrefabOverrides )
                 for ( auto& override_ : *entity.PrefabOverrides )

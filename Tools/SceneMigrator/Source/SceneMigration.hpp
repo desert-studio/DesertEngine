@@ -731,12 +731,14 @@ namespace Desert::Migration
     // What MigrateAssetKeysV67ToV68 did to one file.
     struct AssetKeysReport
     {
-        std::size_t              Keyed = 0; // bare spellings restated as "assets:" keys
-        std::vector<std::string> Refused;   // non-empty: the file is not written
+        std::size_t              Keyed            = 0; // bare spellings restated as "assets:" keys (all sites)
+        std::size_t              PrefabPathsKeyed = 0; // of Keyed: records' own PrefabPath
+        std::vector<std::string> Refused;              // non-empty: the file is not written
     };
 
     // Restates every bare relative file path naming a file under @p assetsRoot as its "assets:" key, in every
-    // record, every prefab override and, when given, the scene settings (kSceneVersionAssetKeys).
+    // record (its PrefabPath and its blocks), every prefab override and, when given, the scene settings
+    // (kSceneVersionAssetKeys). A bare PrefabPath that names no file under the root is refused by name.
     AssetKeysReport MigrateAssetKeysV67ToV68( std::vector<Assets::EntityData>& entities,
                                               std::optional<rfl::Generic>*     settings,
                                               const std::filesystem::path&     assetsRoot );
