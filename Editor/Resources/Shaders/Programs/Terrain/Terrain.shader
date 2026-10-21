@@ -150,7 +150,6 @@ Shader "Terrain"
         // The view's thin-geometry coverage, slot 3 of the scene target: this pass writes the view's depth, and the
         // ground is lit as DefaultLit (the G-buffer program packs that model).
         Out(3) float oThinGeometryCoverage;
-        #include <Common/ThinGeometryCoverage.glslh>
 
         #include <Programs/Terrain/TerrainSurface.glslh>
 
@@ -246,6 +245,10 @@ Shader "Terrain"
         // G-buffer stores for the same texel (TerrainGBuffer.shader: DefaultLit, the tinted albedo, metallic 0,
         // the layers' roughness and occlusion).
         #include <Generated/ShadingModels.glslh>
+        // After the dispatch, not before: it includes the generated models itself, and a model included ahead of
+        // the whole AmbientIBL text above takes its sampler-less half (DefaultLit.shadingmodel), leaving this pass
+        // without DesertSampleAmbient (as Mesh/Surface/Pass_Forward.glslh orders them).
+        #include <Common/ThinGeometryCoverage.glslh>
 
         void main()
         {
