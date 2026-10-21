@@ -358,15 +358,15 @@ namespace Desert::Graphic::System
                     if ( !layers.ArrayNames[kind].empty() && layers.Arrays[kind] &&
                          !surface->SetTexture( layers.ArrayNames[kind], layers.Arrays[kind].get() ) )
                         LogRefusedTextureOverride( surface->GetShaderName(), layers.ArrayNames[kind] );
-                surface->SetTexture( "u_Heightmap", t.Heightmap.get() );
-                materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap.get() );
-                materials.VirtualShadow->SetTexture( "u_Heightmap", t.Heightmap.get() );
+                surface->SetTexture( "HeightmapTexture", t.Heightmap.get() );
+                materials.Shadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
+                materials.VirtualShadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
                 if ( t.Weights.Weightmap != nullptr )
                 {
-                    surface->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
+                    surface->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
                     // The casters read the visibility channel too: a hole must not cast a shadow.
-                    materials.Shadow->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
-                    materials.VirtualShadow->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
+                    materials.Shadow->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
+                    materials.VirtualShadow->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
                 }
             }
             FrameGroup&         group   = m_FrameGroups[it->second];

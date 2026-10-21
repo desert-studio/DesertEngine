@@ -110,15 +110,15 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( "RadianceCacheParamsUB", inputs.RadianceCache.Params, kR )
                           .Storage( "RadianceCacheIndirectionUB", inputs.RadianceCache.Indirection, kR )
                           .Storage( "RadianceCacheProbesUB", inputs.RadianceCache.Probes, kR )
-                          .Texture( "u_GBufferDepth", inputs.GBufferDepth, kS, all )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Texture( "u_GBufferB", inputs.GBufferB, kS, all )
-                          .Texture( "u_RadianceCacheIrradiance", inputs.RadianceCache.Irradiance, kS, all )
-                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                          .Texture( "u_RadianceCacheDepth", inputs.RadianceCache.Depth, kS, all )
-                          .Storage( "u_GIHalfDiffuseOut", halfDiffuse, kW )
-                          .Storage( "u_GIHalfSpecularOut", halfSpecular, kW )
-                          .Storage( "u_GIHalfBackfaceOut", halfBackface, kW );
+                          .Texture( "GBufferDepthTexture", inputs.GBufferDepth, kS, all )
+                          .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                          .Texture( "GBufferBTexture", inputs.GBufferB, kS, all )
+                          .Texture( "RadianceCacheIrradianceTexture", inputs.RadianceCache.Irradiance, kS, all )
+                          .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "RadianceCacheDepthTexture", inputs.RadianceCache.Depth, kS, all )
+                          .Storage( "GiHalfDiffuseOutTexture", halfDiffuse, kW )
+                          .Storage( "GiHalfSpecularOutTexture", halfSpecular, kW )
+                          .Storage( "GiHalfBackfaceOutTexture", halfBackface, kW );
                  },
                  [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -136,16 +136,16 @@ namespace Desert::Graphic::GlobalIllumination
                      auto block = builder.Bindings( m_Layouts[Upsample].Get( m_Shaders[Upsample] ),
                                                     Renderer::GetPipelineRouteFill( *pipeline ) );
                      block.Storage( "GIFrameUB", inputs.GIFrame, kR )
-                          .Texture( "u_GBufferDepth", inputs.GBufferDepth, kS, all )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Texture( "u_GBufferB", inputs.GBufferB, kS, all )
-                          .Texture( "u_GIHalfDiffuse", halfDiffuse, kS, all )
-                          .Texture( "u_GIHalfSpecular", halfSpecular, kS, all )
-                          .Storage( "u_GIDiffuseOut", diffuse, kW )
-                          .Storage( "u_GISpecularOut", specular, kW )
-                          .Texture( "u_GIHalfBackface", halfBackface, kS, all )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Storage( "u_GIBackfaceOut", backface, kW );
+                          .Texture( "GBufferDepthTexture", inputs.GBufferDepth, kS, all )
+                          .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                          .Texture( "GBufferBTexture", inputs.GBufferB, kS, all )
+                          .Texture( "GiHalfDiffuseTexture", halfDiffuse, kS, all )
+                          .Texture( "GiHalfSpecularTexture", halfSpecular, kS, all )
+                          .Storage( "GiDiffuseOutTexture", diffuse, kW )
+                          .Storage( "GiSpecularOutTexture", specular, kW )
+                          .Texture( "GiHalfBackfaceTexture", halfBackface, kS, all )
+                          .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                          .Storage( "GiBackfaceOutTexture", backface, kW );
                  },
                  [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {

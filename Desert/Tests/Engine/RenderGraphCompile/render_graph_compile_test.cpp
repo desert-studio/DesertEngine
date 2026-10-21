@@ -811,15 +811,15 @@ TEST( RenderGraphCompile, ABlockEntryNamingAnEngineImageIsDeclaredOnItsImportAnd
     Desert::Graphic::RenderPassDeclaration writer;
     writer
          .Bindings( ShaderBindingLayout{ "TransmittanceLut",
-                                         { { "u_TransmittanceLut", ShaderResourceKind::StorageTexture } } },
+                                         { { "TransmittanceLutTexture", ShaderResourceKind::StorageTexture } } },
                     {} )
-         .Storage( "u_TransmittanceLut", lut, Access::StorageWrite, "Sky.TransmittanceLut" );
+         .Storage( "TransmittanceLutTexture", lut, Access::StorageWrite, "Sky.TransmittanceLut" );
     Desert::Graphic::RenderPassDeclaration reader;
     reader
-         .Bindings( ShaderBindingLayout{ "Skybox", { { "u_TransmittanceLut", ShaderResourceKind::Texture } } },
+         .Bindings( ShaderBindingLayout{ "Skybox", { { "TransmittanceLutTexture", ShaderResourceKind::Texture } } },
                     {} )
-         .Texture( "u_TransmittanceLut", lut, Access::SampledGraphics, "Sky.TransmittanceLut" )
-         .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() );
+         .Texture( "TransmittanceLutTexture", lut, Access::SampledGraphics, "Sky.TransmittanceLut" )
+         .Sampler( "LinearClampSampler", SamplerDesc::LinearClamp() );
     ASSERT_EQ( Desert::Graphic::BlockImageEntries( writer ).size(), 1u );
     EXPECT_EQ( Desert::Graphic::BlockImageEntries( writer ).front()->ImportName, "Sky.TransmittanceLut" );
     EXPECT_EQ( Desert::Graphic::InvalidDeclaredRef( writer ), nullptr );
@@ -863,12 +863,12 @@ TEST( RenderGraphCompile, TwoBlockEntriesReadingOneImageInOneStateAreOneReadAndT
     Desert::Graphic::RenderPassDeclaration resolve;
     resolve
          .Bindings( ShaderBindingLayout{ "CloudResolve",
-                                         { { "u_CloudHistory", ShaderResourceKind::Texture },
-                                           { "u_CloudHistoryGuide", ShaderResourceKind::Texture } } },
+                                         { { "CloudHistoryTexture", ShaderResourceKind::Texture },
+                                           { "CloudHistoryGuideTexture", ShaderResourceKind::Texture } } },
                     {} )
-         .Texture( "u_CloudHistory", fallback, Access::SampledCompute, "Clouds.HistoryFallback" )
-         .Sampler( "u_LinearRepeatSampler", SamplerDesc::LinearRepeat() )
-         .Texture( "u_CloudHistoryGuide", fallback, Access::SampledCompute, "Clouds.HistoryFallback" );
+         .Texture( "CloudHistoryTexture", fallback, Access::SampledCompute, "Clouds.HistoryFallback" )
+         .Sampler( "LinearRepeatSampler", SamplerDesc::LinearRepeat() )
+         .Texture( "CloudHistoryGuideTexture", fallback, Access::SampledCompute, "Clouds.HistoryFallback" );
     ASSERT_EQ( Desert::Graphic::BlockImageEntries( resolve ).size(), 2u );
     EXPECT_EQ( Desert::Graphic::InvalidDeclaredRef( resolve ), nullptr );
 
@@ -925,14 +925,14 @@ TEST( RenderGraphCompile, ADeclarationOfAnInvalidGraphRefIsRefused )
     EXPECT_NE( std::string_view( bufferRefusal ).find( "buffer" ), std::string_view::npos );
 }
 
-// VAL-SSAO1: "u_SSAO bound as VkImageView 0x0" (30 validation warnings, one editor session). Before RDG-A2 the
+// VAL-SSAO1: "SsaoTexture bound as VkImageView 0x0" (30 validation warnings, one editor session). Before RDG-A2 the
 // composite's AO was a material Texture2DProperty set only `if ( m_SSAO && aoImage )`: a frame without an AO image
 // (SSAO off, a new renderer's first frame) drew with whatever the property held - nothing on a fresh material.
 // Now the AO input is declared from the graph: the SSAO transient when the SSAO pass ran, else the registered
 // System.White (AO = 1); a ref that is neither faults the composite before its exec, so no null view is bound.
 TEST( RenderGraphCompile, CompositeAOIsTheSSAOTransientOrSystemWhiteAndANullRefFaultsThePass )
 {
-    const ShaderBindingLayout layout{ "DeferredLighting", { { "u_SSAO", ShaderResourceKind::Texture } }, 0 };
+    const ShaderBindingLayout layout{ "DeferredLighting", { { "SsaoTexture", ShaderResourceKind::Texture } }, 0 };
 
     // SSAO did not run this frame: the composite reads System.White, compiled with no fault and not culled.
     {
@@ -949,9 +949,9 @@ TEST( RenderGraphCompile, CompositeAOIsTheSSAOTransientOrSystemWhiteAndANullRefF
              [&]( PassBuilder& pass )
              {
                  pass.Bindings( layout, {} )
-                      .Texture( "u_SSAO", ssao.IsValid() ? ssao : system.White, Access::SampledGraphics,
+                      .Texture( "SsaoTexture", ssao.IsValid() ? ssao : system.White, Access::SampledGraphics,
                                 SubresourceRange::All() )
-                      .Sampler( "u_LinearRepeatSampler", SamplerDesc::LinearRepeat() );
+                      .Sampler( "LinearRepeatSampler", SamplerDesc::LinearRepeat() );
                  pass.ColorTarget( 0, back, LoadOp::DontCare() );
              },
              Ok );
@@ -971,8 +971,8 @@ TEST( RenderGraphCompile, CompositeAOIsTheSSAOTransientOrSystemWhiteAndANullRefF
              [&]( PassBuilder& pass )
              {
                  pass.Bindings( layout, {} )
-                      .Texture( "u_SSAO", TextureRef{}, Access::SampledGraphics, SubresourceRange::All() )
-                      .Sampler( "u_LinearRepeatSampler", SamplerDesc::LinearRepeat() );
+                      .Texture( "SsaoTexture", TextureRef{}, Access::SampledGraphics, SubresourceRange::All() )
+                      .Sampler( "LinearRepeatSampler", SamplerDesc::LinearRepeat() );
                  pass.ColorTarget( 0, back, LoadOp::DontCare() );
              },
              Ok );
@@ -983,7 +983,7 @@ TEST( RenderGraphCompile, CompositeAOIsTheSSAOTransientOrSystemWhiteAndANullRefF
     }
 
     // The frame code keeps that shape: the one assignment of the composite's AO falls back to System.White, and
-    // the deferred-lighting material holds no u_SSAO property of its own (the pre-RDG route that bound null).
+    // the deferred-lighting material holds no SsaoTexture property of its own (the pre-RDG route that bound null).
     const fs::path root     = RepoRoot();
     const auto     stripped = [&root]( const char* relative )
     {
@@ -1001,7 +1001,7 @@ TEST( RenderGraphCompile, CompositeAOIsTheSSAOTransientOrSystemWhiteAndANullRefF
     EXPECT_EQ( frame.find( "inputs.SSAO=", first == std::string::npos ? 0 : first + 1 ), std::string::npos )
          << "the composite's AO is assigned in more than one place";
     EXPECT_EQ( stripped( "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp" )
-                    .find( "u_SSAO" ),
+                    .find( "SsaoTexture" ),
                std::string::npos );
 }
 
@@ -2562,13 +2562,13 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                  std::string( std::istreambuf_iterator<char>( file ), std::istreambuf_iterator<char>() ) );
         };
         EXPECT_NE(
-             declaration( "SSRRenderer.hpp" ).find( ".Storage(\"u_Trace\",trace,RDG::Access::StorageWrite)" ),
+             declaration( "SSRRenderer.hpp" ).find( ".Storage(\"SsrTraceTexture\",trace,RDG::Access::StorageWrite)" ),
              std::string::npos );
         EXPECT_NE( declaration( "SSAORenderer.hpp" )
-                        .find( ".Texture(\"u_GBufferDepth\",depth,RDG::Access::SampledGraphics" ),
+                        .find( ".Texture(\"GBufferDepthTexture\",depth,RDG::Access::SampledGraphics" ),
                    std::string::npos );
         EXPECT_NE(
-             declaration( "DeferredLightingRenderer.hpp" ).find( ".Texture(\"u_SSAO\",inputs.SSAO,kRead,kWhole)" ),
+             declaration( "DeferredLightingRenderer.hpp" ).find( ".Texture(\"SsaoTexture\",inputs.SSAO,kRead,kWhole)" ),
              std::string::npos );
     }
 }
@@ -3761,10 +3761,10 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
     const std::pair<const char*, const char*> declared[] = {
          // The procedural sky's LUTs are entries of the SkyboxPass's block (DeclareSkyDraw), each the read.
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
-           ".Texture(\"u_SkyViewLut\",refs.Transients.SkyViewLut.IsValid()?refs.Transients.SkyViewLut:white,"
+           ".Texture(\"SkyViewLutTexture\",refs.Transients.SkyViewLut.IsValid()?refs.Transients.SkyViewLut:white,"
            "RDG::Access::SampledGraphics" },
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
-           ".Texture(\"u_TransmittanceLut\",refs.Transients.SkyTransmittanceLut.IsValid()?refs.Transients."
+           ".Texture(\"TransmittanceLutTexture\",refs.Transients.SkyTransmittanceLut.IsValid()?refs.Transients."
            "SkyTransmittanceLut:white,RDG::Access::SampledGraphics" },
          // The forward mesh node's scene/view inputs are bound per material block of the draw list its Declare
          // builds (MeshDrawList::Declare -> BindSceneViewInputs), so the graph sees each sampled input as a
@@ -3781,12 +3781,12 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
            ".Storage(\"AttributeFloats\",ve.FloatsRef,RDG::Access::StorageRead)" },
          // The fog apply's image: the entry of its block (no material route), the read.
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
-           ".Texture(\"u_FogApply\",refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
+           ".Texture(\"FogApplyTexture\",refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
          // The cloud composite's pair: entries of its block (the material route + both halves), each the read.
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-           ".Texture(\"u_CloudScatter\",scatter,RDG::Access::SampledGraphics" },
+           ".Texture(\"CloudScatterTexture\",scatter,RDG::Access::SampledGraphics" },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-           ".Texture(\"u_CloudGuide\",guide,RDG::Access::SampledGraphics" },
+           ".Texture(\"CloudGuideTexture\",guide,RDG::Access::SampledGraphics" },
          // The cascades and the cloud shadow map are imported once per frame as scene-view inputs, and every lit
          // node binds them through BindSceneViewInputs (the block entry is the read; RDG-FAULT1).
          { "SceneRendererFrameDeferred.cpp", "view.ShadowCascades=mesh->AcquireCascadeMaps(graph);" },
@@ -3860,12 +3860,12 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
            // Each LUT node's block 0 names every LUT as an entry (the renderer's own image, imported by the
            // graph): the entry IS the declaration of the write / the sampled read; no pipeline-level image
            // binding.
-           { "Storage(\"u_TransmittanceLut\",m_TransmittanceLut,RDG::Access::StorageWrite",
-             "Storage(\"u_MultiScatterLut\",m_MultiScatterLut,RDG::Access::StorageWrite",
-             "Storage(\"u_SkyViewLut\",m_SkyViewLut,RDG::Access::StorageWrite",
-             "Storage(\"u_AerialPerspectiveLut\",m_AerialPerspectiveLut,RDG::Access::StorageWrite",
-             "Storage(\"u_DistantSkyLight\",m_DistantLight,RDG::Access::StorageWrite",
-             R"(Sampled("u_TransmittanceLut",m_TransmittanceLut,RDG::Access::SampledCompute,GlobalTextureFilterSampler())",
+           { "Storage(\"TransmittanceLutTexture\",m_TransmittanceLut,RDG::Access::StorageWrite",
+             "Storage(\"MultiScatterLutTexture\",m_MultiScatterLut,RDG::Access::StorageWrite",
+             "Storage(\"SkyViewLutTexture\",m_SkyViewLut,RDG::Access::StorageWrite",
+             "Storage(\"AerialPerspectiveLutTexture\",m_AerialPerspectiveLut,RDG::Access::StorageWrite",
+             "Storage(\"DistantSkyLightTexture\",m_DistantLight,RDG::Access::StorageWrite",
+             R"(Sampled("TransmittanceLutTexture",m_TransmittanceLut,RDG::Access::SampledCompute,GlobalTextureFilterSampler())",
              // RDG-PSO: each LUT node's layout is the one kept for its pipeline (keyed on the pipeline's shader).
              "declared.Bindings(layout.Get(pipeline->GetSpecification().Shader),",
              "declareBlock(transmittance.Access,m_TransmittanceLutPipeline.get(),m_TransmittanceLutLayout,0)",
@@ -3874,32 +3874,32 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
            "VolumetricCloudRenderer::DeclareShadowMapNodes(",
            { "SampledMedium(SampledVolumes(DeclareComputeBlock(shadow.Access,m_ShadowMapPipeline.get(),m_"
              "ShadowMapLayout,",
-             R"(Storage("u_CloudShadowMap",m_ShadowMapImage,RDG::Access::StorageWrite,"Clouds.ShadowMap"))" } },
+             R"(Storage("CloudShadowMapTexture",m_ShadowMapImage,RDG::Access::StorageWrite,"Clouds.ShadowMap"))" } },
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            "HeightFogRenderer::DeclareFrameNodes(",
            // Block 0's entries: the fog image it writes, the depth and the sky's two images it samples, each
            // with the sampler the image carried as its own.
-           { "block.Storage(\"u_FogApply\",fogImage,RDG::Access::StorageWrite)",
-             ".Texture(\"u_SceneDepth\",depth,RDG::Access::SampledCompute,\"SceneDepth.Compute\").Sampler(\"u_"
+           { "block.Storage(\"FogApplyTexture\",fogImage,RDG::Access::StorageWrite)",
+             ".Texture(\"SceneDepthTexture\",depth,RDG::Access::SampledCompute,\"SceneDepth.Compute\").Sampler(\"u_"
              "GlobalFilterSampler\",GlobalTextureFilterSampler())",
-             ".Texture(\"u_AerialPerspective\",aerialPerspective,RDG::Access::SampledCompute,",
-             R"(.Texture("u_DistantSkyLight",distantSkyLight,RDG::Access::SampledCompute,)",
+             ".Texture(\"AerialPerspectiveTexture\",aerialPerspective,RDG::Access::SampledCompute,",
+             R"(.Texture("DistantSkyLightTexture",distantSkyLight,RDG::Access::SampledCompute,)",
              "graph.CreateTexture(fogDesc,\"HeightFog.Fog\")", "transients.HeightFog=fogImage" } },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            "VolumetricCloudRenderer::DeclareFrameNodes(",
-           { "Storage(\"u_CloudSkyOcclusion\",m_SkyOcclusionVolume,RDG::Access::StorageWrite",
-             "Texture(\"u_SceneDepth\",depth,RDG::Access::SampledCompute,\"SceneDepth.Compute\").Sampler(\"u_"
+           { "Storage(\"CloudSkyOcclusionTexture\",m_SkyOcclusionVolume,RDG::Access::StorageWrite",
+             "Texture(\"SceneDepthTexture\",depth,RDG::Access::SampledCompute,\"SceneDepth.Compute\").Sampler(\"u_"
              "GlobalFilterSampler\",GlobalTextureFilterSampler())",
              "SampledMedium(SampledVolumes(DeclareComputeBlock(march.Access,m_MarchPipeline.get(),m_MarchLayout,",
              // The sky's three images are entries of the march with the sampler each carried as its own.
-             R"(.Texture("u_DistantSkyLight",distantSkyLight,RDG::Access::SampledCompute,)",
-             ".Texture(\"u_CloudAerialPerspective\",aerialPerspective,RDG::Access::SampledCompute,",
-             R"(.Texture("u_CloudSunTransmittanceLut",sunTransmittanceLut,RDG::Access::SampledCompute,)",
+             R"(.Texture("DistantSkyLightTexture",distantSkyLight,RDG::Access::SampledCompute,)",
+             ".Texture(\"CloudAerialPerspectiveTexture\",aerialPerspective,RDG::Access::SampledCompute,",
+             R"(.Texture("CloudSunTransmittanceLutTexture",sunTransmittanceLut,RDG::Access::SampledCompute,)",
              // The trace pair: block entries of the march (written) and of the resolve (sampled).
-             ".Storage(\"u_CloudScatter\",trace,RDG::Access::StorageWrite)",
-             ".Texture(\"u_CloudTrace\",trace,RDG::Access::SampledCompute",
+             ".Storage(\"CloudScatterTexture\",trace,RDG::Access::StorageWrite)",
+             ".Texture(\"CloudTraceTexture\",trace,RDG::Access::SampledCompute",
              "graph.CreateTexture(traceDesc,\"Clouds.Trace\")",
-             "Storage(\"u_ReconstructedScatter\",m_HistoryImage[writeIndex],RDG::Access::StorageWrite" } } };
+             "Storage(\"ReconstructedScatterTexture\",m_HistoryImage[writeIndex],RDG::Access::StorageWrite" } } };
     for ( const Declares& d : declares )
     {
         const std::string body = FunctionBody( source( d.File ), d.Function );
@@ -3948,7 +3948,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
                std::string::npos );
     const std::string deferredMaterial = source( "Materials/Deferred/MaterialDeferredLighting.hpp" );
     EXPECT_NE( deferredMaterial.find( "CloudShadowUpload(this,cloudShadow)" ), std::string::npos );
-    EXPECT_EQ( deferredMaterial.find( "\"u_CloudShadowMap\"" ), std::string::npos )
+    EXPECT_EQ( deferredMaterial.find( "\"CloudShadowMapTexture\"" ), std::string::npos )
          << "the deferred material sets the cloud map itself; it is a pass parameter";
 }
 
@@ -3965,7 +3965,7 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
          // MESH-PB1 M2a: the material-route draws (no PassBindings) are deleted from Renderer / RendererAPI.
          R"(|SubmitVertices\s*\(|RenderMesh\(\s*const GraphicsPipeline\s*\*)"
          // MESH-PB1 M2e: the out-of-graph fullscreen blit (the runtime present is a graph node) and the
-         // material-side cloud-map binder (u_CloudShadowMap is a pass parameter).
+         // material-side cloud-map binder (CloudShadowMapTexture is a pass parameter).
          R"(|SubmitFullscreenTriangle\s*\(|CloudShadowBind\s*\()"
          // MESH-PB1 M2d: the editor's ImGui draw is a graph node; the out-of-graph swapchain pass is gone.
          R"(|BeginSwapChainRenderPass)" );
@@ -4355,8 +4355,8 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     for ( const char* fill :
           { "SetRawData(", "SetPushMatrix(", "SetMaterialIndex(", "PushConstant(&m_Projection" } )
         EXPECT_EQ( flush.find( fill ), std::string::npos ) << "Flush fills an executor: " << fill;
-    EXPECT_NE( setup.find( ".Texture(\"u_Backdrop\",backdrop,RDG::Access::SampledGraphics,RDG::SubresourceRange::"
-                           "All()).Sampler(\"u_LinearClampSampler\",RDG::SamplerDesc::LinearClamp())."
+    EXPECT_NE( setup.find( ".Texture(\"BackdropTexture\",backdrop,RDG::Access::SampledGraphics,RDG::SubresourceRange::"
+                           "All()).Sampler(\"LinearClampSampler\",RDG::SamplerDesc::LinearClamp())."
                            "PushConstantBytes(static_cast<uint32_t>(sizeof("
                            "GlassPush)));" ),
                std::string::npos );
@@ -4559,9 +4559,9 @@ TEST( RenderGraphCompile, RuntimePresentIsAGraphNode )
     EXPECT_NE( runtime.find( "pass.ColorTarget(0,target," ), std::string::npos );
     // The blit's block is declared in the node's setup (RDG-FAULT1 C3b) with the sampler it had: LinearClamp.
     EXPECT_NE( runtime.find( "pass.Bindings(m_BlitLayout.Get(m_BlitPipeline->GetSpecification().Shader),"
-                             "m_BlitExecutor->GetRouteFill()).Texture(\"u_Texture\",sceneRef,"
+                             "m_BlitExecutor->GetRouteFill()).Texture(\"Texture\",sceneRef,"
                              "Graphic::RDG::Access::SampledGraphics,Graphic::RDG::SubresourceRange::All())."
-                             "Sampler(\"u_LinearClampSampler\",Graphic::RDG::SamplerDesc::LinearClamp());" ),
+                             "Sampler(\"LinearClampSampler\",Graphic::RDG::SamplerDesc::LinearClamp());" ),
                std::string::npos );
     // The ref the graph extracts is the imported back buffer itself, not the node's target: under
     // --render-movie the node composes into the movie target and the back buffer is only cleared.
@@ -4642,8 +4642,8 @@ namespace
     ShaderBindingLayout GlassLayout()
     {
         return { "StaticMeshGlass",
-                 { { "u_SceneColor", ShaderResourceKind::Texture },
-                   { "u_LinearClampSampler", ShaderResourceKind::Sampler } },
+                 { { "SceneColorTexture", ShaderResourceKind::Texture },
+                   { "LinearClampSampler", ShaderResourceKind::Sampler } },
                  0 };
     }
 
@@ -4697,8 +4697,8 @@ namespace
                  {
                      pass.ColorTarget( 0, glass, LoadOp::ClearColor( 0, 0, 0, 0 ) );
                      pass.Bindings( GlassLayout(), {} )
-                          .Texture( "u_SceneColor", lit, Access::SampledGraphics, SubresourceRange::All() )
-                          .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() )
+                          .Texture( "SceneColorTexture", lit, Access::SampledGraphics, SubresourceRange::All() )
+                          .Sampler( "LinearClampSampler", SamplerDesc::LinearClamp() )
                           .Texture( "u_ShadowMap0", shadow, Access::SampledGraphics, SubresourceRange::All() );
                  },
                  record( "Glass" ) );
@@ -4742,7 +4742,7 @@ TEST( RenderGraphCompile, BindingValidationNamesTheSlotTheShaderLacks )
 {
     DeclaredBindingBlock block;
     block.Layout = std::make_shared<const ShaderBindingLayout>( GlassLayout() );
-    block.Entries.push_back( { "u_SceneColor", ShaderResourceKind::Texture, ResourceKind::Texture, 0,
+    block.Entries.push_back( { "SceneColorTexture", ShaderResourceKind::Texture, ResourceKind::Texture, 0,
                                Access::SampledGraphics, SubresourceRange::All(), SamplerDesc::LinearClamp() } );
     EXPECT_TRUE( ValidatePassBindings( block ).IsSuccess() );
 
@@ -4846,19 +4846,19 @@ TEST( RenderGraphCompile, OneRefInThreeSlotsOfOneBlockIsOneRead )
     const TextureRef    black = graph.RegisterExternal( blackImport, "System.Black" );
     const TextureRef    back  = graph.RegisterExternal( backbuffer, "Backbuffer" );
     ShaderBindingLayout layout{ "SceneComposite",
-                                { { "u_BloomTexture", ShaderResourceKind::Texture },
-                                  { "u_LightShaftTexture", ShaderResourceKind::Texture },
-                                  { "u_LensFlareTexture", ShaderResourceKind::Texture } },
+                                { { "BloomTexture", ShaderResourceKind::Texture },
+                                  { "LightShaftTexture", ShaderResourceKind::Texture },
+                                  { "LensFlareTexture", ShaderResourceKind::Texture } },
                                 0 };
     graph.AddPass(
          "PostFX: Tonemap", PassFlags::Raster,
          [&]( PassBuilder& pass )
          {
              pass.Bindings( layout, {} )
-                  .Texture( "u_BloomTexture", black, Access::SampledGraphics, SubresourceRange::Mip( 0 ) )
-                  .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() )
-                  .Texture( "u_LightShaftTexture", black, Access::SampledGraphics, SubresourceRange::Mip( 0 ) )
-                  .Texture( "u_LensFlareTexture", black, Access::SampledGraphics, SubresourceRange::Mip( 0 ) );
+                  .Texture( "BloomTexture", black, Access::SampledGraphics, SubresourceRange::Mip( 0 ) )
+                  .Sampler( "LinearClampSampler", SamplerDesc::LinearClamp() )
+                  .Texture( "LightShaftTexture", black, Access::SampledGraphics, SubresourceRange::Mip( 0 ) )
+                  .Texture( "LensFlareTexture", black, Access::SampledGraphics, SubresourceRange::Mip( 0 ) );
              pass.ColorTarget( 0, back, LoadOp::DontCare() );
          },
          Ok );
@@ -5149,8 +5149,8 @@ namespace
                  { std::string( Desert::Graphic::kSceneViewEnvSpecularName ), ShaderResourceKind::Texture },
                  { std::string( Desert::Graphic::kSceneViewBrdfLutName ), ShaderResourceKind::Texture },
                  { std::string( Desert::Graphic::kSceneViewCloudShadowMapName ), ShaderResourceKind::Texture },
-                 { "u_LinearRepeatSampler", ShaderResourceKind::Sampler },
-                 { "u_LinearClampSampler", ShaderResourceKind::Sampler } };
+                 { "LinearRepeatSampler", ShaderResourceKind::Sampler },
+                 { "LinearClampSampler", ShaderResourceKind::Sampler } };
     }
 } // namespace
 
@@ -5167,8 +5167,8 @@ TEST( RenderGraphCompile, SceneViewInputsDeclareOnlyTheSlotsTheLayoutHas )
     EXPECT_TRUE( Desert::Graphic::SamplesSceneViewInputs( glass ) );
     CollectedBlock glassBlock;
     glassBlock.Block.Layout = std::make_shared<const ShaderBindingLayout>( glass );
-    glassBlock.Texture( "u_SceneColor", TextureRef{ 0 }, Access::SampledGraphics, SubresourceRange::All() )
-         .Sampler( "u_LinearClampSampler", SamplerDesc::LinearClamp() );
+    glassBlock.Texture( "SceneColorTexture", TextureRef{ 0 }, Access::SampledGraphics, SubresourceRange::All() )
+         .Sampler( "LinearClampSampler", SamplerDesc::LinearClamp() );
     Desert::Graphic::BindSceneViewInputs( glassBlock, view, glass );
     const Common::BoolResultStr glassValid = ValidatePassBindings( glassBlock.Block );
     EXPECT_TRUE( glassValid.IsSuccess() ) << glassValid.GetError();
@@ -5191,7 +5191,7 @@ TEST( RenderGraphCompile, SceneViewInputsDeclareOnlyTheSlotsTheLayoutHas )
 
     // A G-buffer program samples no scene/view input: nothing is declared for it.
     const ShaderBindingLayout gbuffer{
-         "StaticMeshGBuffer", { { "u_AlbedoTexture", ShaderResourceKind::Texture } }, 0 };
+         "StaticMeshGBuffer", { { "AlbedoTexture", ShaderResourceKind::Texture } }, 0 };
     EXPECT_FALSE( Desert::Graphic::SamplesSceneViewInputs( gbuffer ) );
     CollectedBlock gbufferBlock;
     Desert::Graphic::BindSceneViewInputs( gbufferBlock, view, gbuffer );
@@ -5452,7 +5452,7 @@ TEST( RenderGraphCompile, ChannelSpawnsAreTheSpawnPassUploadReadAsStorage )
     const std::string shader =
          SqueezedSource( root, "Editor/Resources/Shaders/Programs/Particles/ParticleSimulate.shader" );
     EXPECT_NE( shader.find( "ReadBuffer(5)ChannelSpawns{VFXChannelSpawnu_ChannelSpawns[];}" ), std::string::npos );
-    EXPECT_NE( shader.find( "if(t<u_Steps[step].ChannelCount)" ), std::string::npos );
-    EXPECT_NE( shader.find( "channel=u_ChannelSpawns[u_Steps[step].ChannelFirst+t];" ), std::string::npos )
+    EXPECT_NE( shader.find( "if(t<Steps[step].ChannelCount)" ), std::string::npos );
+    EXPECT_NE( shader.find( "channel=ChannelSpawnsData[Steps[step].ChannelFirst+t];" ), std::string::npos )
          << "Spawn+Update does not take spawn t's payload from the channel record ChannelFirst + t";
 }

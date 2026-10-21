@@ -252,12 +252,12 @@ namespace Desert::Graphic::RayTracing
                  // Both maps are read only by texelFetch (Common/LandscapeHeight.glslh decodes the exact R16
                  // integer; the weights are fetched per vertex): separate textures through the point-clamped
                  // shared state.
-                 .Texture( "u_Heightmap", job.Heightmap, RDG::Access::SampledCompute,
+                 .Texture( "HeightmapTexture", job.Heightmap, RDG::Access::SampledCompute,
                            std::format( "Landscape.Heightmap.{}", job.Entity ) )
-                 .Texture( "u_Weightmap", job.Weightmap, RDG::Access::SampledCompute,
+                 .Texture( "WeightmapTexture", job.Weightmap, RDG::Access::SampledCompute,
                            job.HasWeightmap ? std::format( "Landscape.Weightmap.{}", job.Entity )
                                             : std::string( "Landscape.RayTracing.WeightmapFallback" ) )
-                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                 .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
                  .Storage( "LandscapeRayTracingVertexData", job.Vertices, RDG::Access::StorageWrite )
                  .Storage( "LandscapeRayTracingIndexData", job.Indices, RDG::Access::StorageWrite );
         }

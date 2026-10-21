@@ -10,7 +10,7 @@
 
 // THE GLOBAL BINDLESS TEXTURE TABLE (UE: FRHIDescriptorHandle over the Vulkan bindless descriptor heap,
 // r.Vulkan.Bindless). Every texture created from uploaded pixels gets a SLOT for its GPU life; a shader reaches it
-// as u_BindlessTextures[slot] and samples it with one of a small FIXED sampler set
+// as BindlessTextures[slot] and samples it with one of a small FIXED sampler set
 // (Common/BindlessTextures.glslh). Sampled images and samplers are separate arrays, not combined image samplers:
 // Metal (MoltenVK) caps samplers at ~1-2k, so a sampler per texture cannot scale, and a sampler is a property of
 // the material slot anyway.

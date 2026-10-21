@@ -33,7 +33,7 @@ namespace Desert::Graphic::System
     // RDG-A2 P5: the pyramid is a TRANSIENT of the frame graph (SceneRenderer::AddFrameBackdropBlur creates it
     // from GetPyramidDesc, sized from THIS frame's view, so there is no image to resize and nothing that outlives
     // the frame). The UI glass reads it as FrameTransients::BackdropBlur through the extension pass context it
-    // is handed and binds it by name (u_Backdrop) — no Image2D of it crosses into a pass body.
+    // is handed and binds it by name (BackdropTexture) — no Image2D of it crosses into a pass body.
     class BackdropBlurRenderer final : public RenderSystem
     {
     public:
@@ -79,16 +79,16 @@ namespace Desert::Graphic::System
                                         Renderer::GetPipelineRouteFill( *m_DownsamplePipeline ) );
             if ( mip == 0 )
             {
-                block.Texture( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                     .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
+                block.Texture( "SourceMipTexture", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                     .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
             }
             else
             {
-                block.Texture( "u_Source", pyramid, RDG::Access::SampledCompute,
+                block.Texture( "SourceMipTexture", pyramid, RDG::Access::SampledCompute,
                                RDG::SubresourceRange::Mip( mip - 1 ) )
-                     .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
+                     .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
             }
-            block.Storage( "u_Output", pyramid, RDG::Access::StorageWrite, mip )
+            block.Storage( "DestinationMipTexture", pyramid, RDG::Access::StorageWrite, mip )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( DownsamplePush ) ) );
         }
 

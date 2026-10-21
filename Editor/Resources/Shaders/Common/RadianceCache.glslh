@@ -176,7 +176,7 @@ ivec2 RadianceCacheProbeAtlasOrigin( RadianceCacheParams cache, uint probe, uint
 
 // THE INTERPOLATED READ (UE SampleRadianceCacheInterpolated + DDGI's visibility), outside the guard: a reader
 // includes this file once for the structs, declares `RadianceCacheParams radianceCache`, its indirection array, its
-// probe array and the sampler2Ds u_RadianceCacheIrradiance / u_RadianceCacheDepth, defines
+// probe array and the sampler2Ds RadianceCacheIrradianceTexture / RadianceCacheDepthTexture, defines
 // RADIANCE_CACHE_INDIRECTION and RADIANCE_CACHE_PROBES as the two arrays' names and includes the file again.
 #if defined( RADIANCE_CACHE_INDIRECTION ) && !defined( RADIANCE_CACHE_READ_GLSLH )
 #define RADIANCE_CACHE_READ_GLSLH
@@ -194,7 +194,7 @@ vec3 RadianceCacheSampleProbeIrradiance( uint probe, vec3 direction )
     const uint  res    = radianceCache.atlas.y;
     const vec2  origin = vec2( RadianceCacheProbeAtlasOrigin( radianceCache, probe, res + 2u ) ) + 1.0;
     const vec2  texel  = origin + ( RadianceCacheOctEncode( direction ) * 0.5 + 0.5 ) * float( res );
-    return textureLod( u_RadianceCacheIrradiance, texel / vec2( textureSize( u_RadianceCacheIrradiance, 0 ) ), 0.0 ).rgb;
+    return textureLod( RadianceCacheIrradianceTexture, texel / vec2( textureSize( RadianceCacheIrradianceTexture, 0 ) ), 0.0 ).rgb;
 }
 
 vec2 RadianceCacheSampleProbeDistance( uint probe, vec3 direction )
@@ -202,7 +202,7 @@ vec2 RadianceCacheSampleProbeDistance( uint probe, vec3 direction )
     const uint  res    = radianceCache.atlas.w;
     const vec2  origin = vec2( RadianceCacheProbeAtlasOrigin( radianceCache, probe, res + 2u ) ) + 1.0;
     const vec2  texel  = origin + ( RadianceCacheOctEncode( direction ) * 0.5 + 0.5 ) * float( res );
-    return textureLod( u_RadianceCacheDepth, texel / vec2( textureSize( u_RadianceCacheDepth, 0 ) ), 0.0 ).rg;
+    return textureLod( RadianceCacheDepthTexture, texel / vec2( textureSize( RadianceCacheDepthTexture, 0 ) ), 0.0 ).rg;
 }
 
 // Chebyshev visibility of @p point from a probe at @p probePos, from the probe's distance moments (DDGI): 1 where
@@ -342,7 +342,7 @@ vec4 RadianceCacheSmoothIrradianceAt( vec3 p, vec3 N )
 #endif // RADIANCE_CACHE_INDIRECTION
 
 // THE RADIANCE READ (UE SampleRadianceCacheInterpolated + the DDGI visibility of the irradiance read), for a reader
-// that also declares the sampler2D u_RadianceCacheRadianceAtlas (the traced radiance probes with their octahedral
+// that also declares the sampler2D RadianceCacheRadianceAtlasTexture (the traced radiance probes with their octahedral
 // borders) and defines RADIANCE_CACHE_RADIANCE_ATLAS before including the file a second time: the radiance arriving
 // at @p p (a surface point with normal @p N) from @p direction, over the eight probes around @p p in the clipmap
 // the dither picks. It is the far field of a ray that left @p p and travelled the coverage's
@@ -363,7 +363,7 @@ vec3 RadianceCacheSampleProbeRadiance( uint probe, vec3 direction )
     const uint res    = radianceCache.shape.z;
     const vec2 origin = vec2( RadianceCacheProbeAtlasOrigin( radianceCache, probe, radianceCache.shape.w ) ) + 1.0;
     const vec2 texel  = origin + ( RadianceCacheOctEncode( direction ) * 0.5 + 0.5 ) * float( res );
-    return textureLod( u_RadianceCacheRadianceAtlas, texel / vec2( textureSize( u_RadianceCacheRadianceAtlas, 0 ) ),
+    return textureLod( RadianceCacheRadianceAtlasTexture, texel / vec2( textureSize( RadianceCacheRadianceAtlasTexture, 0 ) ),
                        0.0 ).rgb;
 }
 

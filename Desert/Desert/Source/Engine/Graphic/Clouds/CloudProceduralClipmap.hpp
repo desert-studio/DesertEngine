@@ -104,7 +104,7 @@ namespace Desert::Graphic
             return m_Image;
         }
 
-        /// u_CloudLevel[k] for the march (CloudParams.glslh): xy the level's minimum corner on the device,
+        /// CloudLevel[k] for the march (CloudParams.glslh): xy the level's minimum corner on the device,
         /// world km; z 1 / its side, 1/km; w its voxel, km. Texel coordinate of a world point p (km) on
         /// level k: p * z (REPEAT), equivalently (p - xy) * z + fract( xy * z ).
         std::array<glm::vec4, kLevels> LevelUniforms() const;

@@ -45,15 +45,15 @@
         #include <Common/TerrainInstance.glslh>
         ReadBuffer(8) TerrainInstances
         {
-            TerrainInstance u_Terrains[];
+            TerrainInstance Terrains[];
         };
         // m_PushConstants is already declared here: the generated Materials[] transport injects
         // MaterialTransport.glslh at the top of the fragment stage, and its include guard makes this
         // stage's declaration one with the other stages' explicit includes.
-        #define u_T u_Terrains[m_PushConstants.MaterialIndex]
+        #define CurrentTerrain Terrains[m_PushConstants.MaterialIndex]
 
         // Data-driven material params (binding 1) are generated from the Properties block above and read
-        // through `u_Material`; nothing is declared here.
+        // through `Material`; nothing is declared here.
 
         // The tile's painted weight layers, one per RGBA8 channel, four to a page and the pages stacked along
         // the image's height (LandscapeECSSystem's copy of the tile's LandscapeWeightLayer weights, one texel
@@ -61,9 +61,9 @@
         // (Params2.y > 0); otherwise the binding holds the backend's white fallback.
         // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
         // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
-        Uniform(10) texture2D u_Weightmap;
-        Uniform(12) sampler u_WeightmapSampler;
-        #define u_Weightmap sampler2D(u_Weightmap, u_WeightmapSampler)
+        Uniform(10) texture2D WeightmapTexture;
+        Uniform(12) sampler WeightmapSampler;
+        #define WeightmapTexture sampler2D(WeightmapTexture, WeightmapSampler)
 
         #include <Common/LandscapeSurface.glslh>
         #include <Common/TangentNormal.glslh>
@@ -76,18 +76,18 @@
         // that map (TerrainInstance.InputSlices; -1 = none). Four arrays whatever the input count - the lift
         // from the three inputs sixteen sampled images allowed. Each a separate texture read through its own
         // sampler state `<name>Sampler`, as every bound texture property (VulkanMaterialBackend::ApplyTexture2D).
-        Uniform(13) texture2DArray u_LayerAlbedo;
-        Uniform(14) texture2DArray u_LayerNormal;
-        Uniform(15) texture2DArray u_LayerARM;
-        Uniform(16) texture2DArray u_LayerHeight;
-        Uniform(17) sampler u_LayerAlbedoSampler;
-        Uniform(18) sampler u_LayerNormalSampler;
-        Uniform(19) sampler u_LayerARMSampler;
-        Uniform(20) sampler u_LayerHeightSampler;
-        #define u_LayerAlbedo sampler2DArray(u_LayerAlbedo, u_LayerAlbedoSampler)
-        #define u_LayerNormal sampler2DArray(u_LayerNormal, u_LayerNormalSampler)
-        #define u_LayerARM sampler2DArray(u_LayerARM, u_LayerARMSampler)
-        #define u_LayerHeight sampler2DArray(u_LayerHeight, u_LayerHeightSampler)
+        Uniform(13) texture2DArray LayerAlbedoTexture;
+        Uniform(14) texture2DArray LayerNormalTexture;
+        Uniform(15) texture2DArray LayerArmTexture;
+        Uniform(16) texture2DArray LayerHeightTexture;
+        Uniform(17) sampler LayerAlbedoSampler;
+        Uniform(18) sampler LayerNormalSampler;
+        Uniform(19) sampler LayerArmSampler;
+        Uniform(20) sampler LayerHeightSampler;
+        #define LayerAlbedoTexture sampler2DArray(LayerAlbedoTexture, LayerAlbedoSampler)
+        #define LayerNormalTexture sampler2DArray(LayerNormalTexture, LayerNormalSampler)
+        #define LayerArmTexture sampler2DArray(LayerArmTexture, LayerArmSampler)
+        #define LayerHeightTexture sampler2DArray(LayerHeightTexture, LayerHeightSampler)
 
         // ELandscapeLayerBlendType, the material's per-input `LayerKBlend` (an Int: the row stores it as one,
         // MaterialRowSlotValue).
@@ -124,13 +124,13 @@
         TerrainLayer TerrainFetchLayer( vec4 slices, vec2 uv )
         {
             TerrainLayer l;
-            l.Albedo = texture( u_LayerAlbedo, vec3( uv, slices.x ) ).rgb;
-            l.Normal = slices.y >= 0.0 ? DecodeTangentNormal( texture( u_LayerNormal, vec3( uv, slices.y ) ).rg )
+            l.Albedo = texture( LayerAlbedoTexture, vec3( uv, slices.x ) ).rgb;
+            l.Normal = slices.y >= 0.0 ? DecodeTangentNormal( texture( LayerNormalTexture, vec3( uv, slices.y ) ).rg )
                                        : vec3( 0.0, 0.0, 1.0 );
-            vec3 o      = slices.z >= 0.0 ? texture( u_LayerARM, vec3( uv, slices.z ) ).rgb : vec3( 1.0 );
+            vec3 o      = slices.z >= 0.0 ? texture( LayerArmTexture, vec3( uv, slices.z ) ).rgb : vec3( 1.0 );
             l.AO        = o.r;
             l.Roughness = o.g;
-            l.Height    = slices.w >= 0.0 ? texture( u_LayerHeight, vec3( uv, slices.w ) ).r : 0.5;
+            l.Height    = slices.w >= 0.0 ? texture( LayerHeightTexture, vec3( uv, slices.w ) ).r : 0.5;
             return l;
         }
 
@@ -161,54 +161,54 @@
             i.TileCm = 300.0;
             i.Tint   = vec4( 1.0 );
             i.Blend  = kTerrainWeightBlend;
-            i.Slices = u_T.InputSlices[clamp( k, 0, 7 )];
+            i.Slices = CurrentTerrain.InputSlices[clamp( k, 0, 7 )];
             if ( k == 0 )
             {
-                i.TileCm = u_Material.Layer0TileSize;
-                i.Tint   = u_Material.Layer0Tint;
-                i.Blend  = u_Material.Layer0Blend;
+                i.TileCm = Material.Layer0TileSize;
+                i.Tint   = Material.Layer0Tint;
+                i.Blend  = Material.Layer0Blend;
             }
             if ( k == 1 )
             {
-                i.TileCm = u_Material.Layer1TileSize;
-                i.Tint   = u_Material.Layer1Tint;
-                i.Blend  = u_Material.Layer1Blend;
+                i.TileCm = Material.Layer1TileSize;
+                i.Tint   = Material.Layer1Tint;
+                i.Blend  = Material.Layer1Blend;
             }
             if ( k == 2 )
             {
-                i.TileCm = u_Material.Layer2TileSize;
-                i.Tint   = u_Material.Layer2Tint;
-                i.Blend  = u_Material.Layer2Blend;
+                i.TileCm = Material.Layer2TileSize;
+                i.Tint   = Material.Layer2Tint;
+                i.Blend  = Material.Layer2Blend;
             }
             if ( k == 3 )
             {
-                i.TileCm = u_Material.Layer3TileSize;
-                i.Tint   = u_Material.Layer3Tint;
-                i.Blend  = u_Material.Layer3Blend;
+                i.TileCm = Material.Layer3TileSize;
+                i.Tint   = Material.Layer3Tint;
+                i.Blend  = Material.Layer3Blend;
             }
             if ( k == 4 )
             {
-                i.TileCm = u_Material.Layer4TileSize;
-                i.Tint   = u_Material.Layer4Tint;
-                i.Blend  = u_Material.Layer4Blend;
+                i.TileCm = Material.Layer4TileSize;
+                i.Tint   = Material.Layer4Tint;
+                i.Blend  = Material.Layer4Blend;
             }
             if ( k == 5 )
             {
-                i.TileCm = u_Material.Layer5TileSize;
-                i.Tint   = u_Material.Layer5Tint;
-                i.Blend  = u_Material.Layer5Blend;
+                i.TileCm = Material.Layer5TileSize;
+                i.Tint   = Material.Layer5Tint;
+                i.Blend  = Material.Layer5Blend;
             }
             if ( k == 6 )
             {
-                i.TileCm = u_Material.Layer6TileSize;
-                i.Tint   = u_Material.Layer6Tint;
-                i.Blend  = u_Material.Layer6Blend;
+                i.TileCm = Material.Layer6TileSize;
+                i.Tint   = Material.Layer6Tint;
+                i.Blend  = Material.Layer6Blend;
             }
             if ( k == 7 )
             {
-                i.TileCm = u_Material.Layer7TileSize;
-                i.Tint   = u_Material.Layer7Tint;
-                i.Blend  = u_Material.Layer7Blend;
+                i.TileCm = Material.Layer7TileSize;
+                i.Tint   = Material.Layer7Tint;
+                i.Blend  = Material.Layer7Blend;
             }
             return i;
         }
@@ -228,7 +228,7 @@
             else
             {
                 TerrainLayer distant = TerrainFetchLayer(
-                     layerInput.Slices, uv / max( u_Material.FarTilingScale, 1.0 ) + vec2( 0.37, 0.61 ) );
+                     layerInput.Slices, uv / max( Material.FarTilingScale, 1.0 ) + vec2( 0.37, 0.61 ) );
                 l = farMix >= 1.0 ? distant
                                   : TerrainMixLayer( TerrainFetchLayer( layerInput.Slices, uv ), distant, farMix );
             }
@@ -276,32 +276,32 @@
 
             // Distance to the camera for the far tiling: the view-space length, from the matrix the frame has.
             float dist   = length( ( u.View * vec4( v_WorldPos, 1.0 ) ).xyz );
-            float start  = u_Material.FarTilingDistance;
+            float start  = Material.FarTilingDistance;
             float farMix = clamp( ( dist - 0.5 * start ) / max( start, 1.0 ), 0.0, 1.0 );
 
             // The ground: the root's first layer, through the input that names it (white, flat, when the root
             // names none).
-            int  groundInput = int( floor( u_T.GroundInput.x + 0.5 ) );
-            bool hasGround   = u_T.GroundColor.a > 0.5;
+            int  groundInput = int( floor( CurrentTerrain.GroundInput.x + 0.5 ) );
+            bool hasGround   = CurrentTerrain.GroundColor.a > 0.5;
             TerrainLayer blended = TerrainFlatLayer( vec3( 1.0 ) );
 
             // Painted layers over the ground. g = this pixel's sample coordinate within the tile (the
             // same global-sample frame the vertex stage places the tile by), and the texel centre of sample
             // i is (i + 0.5) / size, so the filter blends neighbouring samples as the mesh interpolates them.
-            if ( LandscapeTileHasLayers( u_T ) )
+            if ( LandscapeTileHasLayers( CurrentTerrain ) )
             {
-                vec2  g     = LandscapeTileSampleCoord( u_T, v_WorldPos );
-                vec2  size  = vec2( textureSize( u_Weightmap, 0 ) );
-                float pages = LandscapeTilePages( u_T );
-                vec4  w0    = texture( u_Weightmap, LandscapeWeightmapPageUV( g, 0.0, size, pages ) );
-                vec4  w1 = pages > 1.5 ? texture( u_Weightmap, LandscapeWeightmapPageUV( g, 1.0, size, pages ) ) : vec4( 0.0 );
+                vec2  g     = LandscapeTileSampleCoord( CurrentTerrain, v_WorldPos );
+                vec2  size  = vec2( textureSize( WeightmapTexture, 0 ) );
+                float pages = LandscapeTilePages( CurrentTerrain );
+                vec4  w0    = texture( WeightmapTexture, LandscapeWeightmapPageUV( g, 0.0, size, pages ) );
+                vec4  w1 = pages > 1.5 ? texture( WeightmapTexture, LandscapeWeightmapPageUV( g, 1.0, size, pages ) ) : vec4( 0.0 );
                 // UE's Landscape Visibility Mask: the tile's visibility layer punches a hole (the shadow
                 // caster, TerrainShadow.shader, discards on the same test).
-                if ( LandscapeTileIsHole( u_T, w0, w1 ) )
+                if ( LandscapeTileIsHole( CurrentTerrain, w0, w1 ) )
                     discard;
 
-                vec4 drawn0 = vec4( u_T.LayerColors[0].a, u_T.LayerColors[1].a, u_T.LayerColors[2].a, u_T.LayerColors[3].a );
-                vec4 drawn1 = vec4( u_T.LayerColors[4].a, u_T.LayerColors[5].a, u_T.LayerColors[6].a, u_T.LayerColors[7].a );
+                vec4 drawn0 = vec4( CurrentTerrain.LayerColors[0].a, CurrentTerrain.LayerColors[1].a, CurrentTerrain.LayerColors[2].a, CurrentTerrain.LayerColors[3].a );
+                vec4 drawn1 = vec4( CurrentTerrain.LayerColors[4].a, CurrentTerrain.LayerColors[5].a, CurrentTerrain.LayerColors[6].a, CurrentTerrain.LayerColors[7].a );
 
                 // Each channel's blend type: its input's (UE's per-layer ELandscapeLayerBlendType); a layer no
                 // input names keeps its layer info's painting rule (NoWeightBlend = laid over, as UE's alpha).
@@ -309,9 +309,9 @@
                 int  inputOf[8];
                 for ( int i = 0; i < 8; ++i )
                 {
-                    int   k     = int( floor( u_T.LayerInput[i / 4][i % 4] + 0.5 ) );
+                    int   k     = int( floor( CurrentTerrain.LayerInput[i / 4][i % 4] + 0.5 ) );
                     int   type  = k >= 0 ? TerrainInputOf( k ).Blend
-                                         : ( u_T.LayerAlphaBlend[i / 4][i % 4] > 0.5 ? kTerrainAlphaBlend
+                                         : ( CurrentTerrain.LayerAlphaBlend[i / 4][i % 4] > 0.5 ? kTerrainAlphaBlend
                                                                                       : kTerrainWeightBlend );
                     float alpha = type == kTerrainAlphaBlend ? 1.0 : 0.0;
                     float hb    = type == kTerrainHeightBlend ? 1.0 : 0.0;
@@ -328,13 +328,13 @@
                 for ( int i = 0; i < 8; ++i )
                 {
                     float w = i < 4 ? w0[i] : w1[i - 4];
-                    l[i]    = w > 0.0 && u_T.LayerColors[i].a > 0.5
-                                  ? TerrainLayerOf( inputOf[i], u_T.LayerColors[i].rgb, farMix )
-                                  : TerrainFlatLayer( u_T.LayerColors[i].rgb );
+                    l[i]    = w > 0.0 && CurrentTerrain.LayerColors[i].a > 0.5
+                                  ? TerrainLayerOf( inputOf[i], CurrentTerrain.LayerColors[i].rgb, farMix )
+                                  : TerrainFlatLayer( CurrentTerrain.LayerColors[i].rgb );
                 }
                 float claimed = dot( w0, drawn0 * ( vec4( 1.0 ) - a0 ) ) + dot( w1, drawn1 * ( vec4( 1.0 ) - a1 ) );
-                TerrainLayer ground = hasGround && claimed < 1.0 ? TerrainLayerOf( groundInput, u_T.GroundColor.rgb, farMix )
-                                                                 : TerrainFlatLayer( hasGround ? u_T.GroundColor.rgb : vec3( 1.0 ) );
+                TerrainLayer ground = hasGround && claimed < 1.0 ? TerrainLayerOf( groundInput, CurrentTerrain.GroundColor.rgb, farMix )
+                                                                 : TerrainFlatLayer( hasGround ? CurrentTerrain.GroundColor.rgb : vec3( 1.0 ) );
 
                 if ( dot( hb0, drawn0 ) + dot( hb1, drawn1 ) + groundHB > 0.0 )
                 {
@@ -366,13 +366,13 @@
                 blended.AO        = ra.y;
             }
             else if ( hasGround )
-                blended = TerrainLayerOf( groundInput, u_T.GroundColor.rgb, farMix );
+                blended = TerrainLayerOf( groundInput, CurrentTerrain.GroundColor.rgb, farMix );
 
             // Macro variation (the other anti-tiling half): a broad brightness field over the whole
             // landscape, two octaves of value noise at MacroVariationSize, so no two tiles of a map read the same.
-            vec2  m     = v_WorldPos.xz / max( u_Material.MacroVariationSize, 1.0 );
+            vec2  m     = v_WorldPos.xz / max( Material.MacroVariationSize, 1.0 );
             float macro = 0.65 * TerrainValueNoise( m ) + 0.35 * TerrainValueNoise( m * 3.7 + vec2( 11.3, 4.1 ) );
-            blended.Albedo *= 1.0 + u_Material.MacroVariationStrength * ( 2.0 * macro - 1.0 );
+            blended.Albedo *= 1.0 + Material.MacroVariationStrength * ( 2.0 * macro - 1.0 );
 
             // Tangent space of a world-aligned projection on the heightfield: T follows +X (u), B the image's
             // up, which is -Z for v = z / tile (OpenGL-convention maps: green = up), both projected onto the

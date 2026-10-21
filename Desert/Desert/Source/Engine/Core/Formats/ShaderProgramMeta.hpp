@@ -316,7 +316,7 @@ namespace Desert::Core::Formats
     enum class SurfaceBlendMode : uint8_t
     {
         Opaque,
-        Masked,      // the pass headers discard below u_Material.OpacityMaskClipValue
+        Masked,      // the pass headers discard below Material.OpacityMaskClipValue
         Translucent, // drawn over the composited scene by the translucency pass; Forward cells only
         // UE BLEND_Additive: everything Translucent is (Forward cells only, the translucency pass header, the
         // DESERT_SURFACE_TRANSLUCENT define) except how the pass composites it: colour x opacity ADDED to the

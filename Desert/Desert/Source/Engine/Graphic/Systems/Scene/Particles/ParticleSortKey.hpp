@@ -37,7 +37,7 @@ namespace Desert::Graphic::System
 
     // THE VIEW DEPTH the key is taken of, in cm: along the camera's forward axis from its position. The view basis
     // looks down its own -Z (the engine's camera, as glm::lookAt), so forward is -InvView[2]; ParticleSort.shader
-    // computes dot( position - u_ViewOrigin, u_ViewForward ) from exactly these two vectors (ParticleRenderer
+    // computes dot( position - ViewOrigin, ViewForward ) from exactly these two vectors (ParticleRenderer
     // pushes them), and the test holds that a farther particle gets the smaller key under a real view matrix.
     struct ParticleSortView
     {
@@ -62,7 +62,7 @@ namespace Desert::Graphic::System
     }
 
     // THE STAGES of one emitter's sort, in order — one graph node each (Programs/Particles/ParticleSort.shader
-    // states what each stage does; the values are its u_Step.x). The network runs every k <= 1024 inside one
+    // states what each stage does; the values are its Step.x). The network runs every k <= 1024 inside one
     // workgroup's shared memory (Local), and each larger k as the global exchanges with j >= 1024 followed by one
     // Merge that finishes j < 1024 in shared memory.
     enum class ParticleSortStageKind : std::uint32_t

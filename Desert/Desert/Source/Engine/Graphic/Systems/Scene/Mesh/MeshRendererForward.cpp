@@ -826,7 +826,7 @@ namespace Desert::Graphic::System
                                 } } );
         }
 
-        // A cell's block also carries the scene snapshot the cells sample for refraction (u_SceneColor), this
+        // A cell's block also carries the scene snapshot the cells sample for refraction (SceneColorTexture), this
         // frame's graph transient, with the sampler the material route sampled the copy with (linear, REPEAT) -
         // bound only where the cell's layout HAS the slot, as the scene/view inputs are (UE's pass parameters: a
         // shader receives what it declares). The default-surface stand-in (RDG-PSO) samples no scene copy, and
@@ -835,18 +835,18 @@ namespace Desert::Graphic::System
              pass, view,
              [sceneCopy, frontLayer]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& layout )
              {
-                 if ( SceneViewDetail::LayoutSamples( layout, "u_SceneColor" ) )
-                     block.Texture( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics,
+                 if ( SceneViewDetail::LayoutSamples( layout, "SceneColorTexture" ) )
+                     block.Texture( "SceneColorTexture", sceneCopy, RDG::Access::SampledGraphics,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
+                          .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
                  // The front layer's reflection where this fragment is the front layer
                  // (Pass_Forward_Translucent.glslh), fetched by texel through the state its declaration names.
-                 if ( SceneViewDetail::LayoutSamples( layout, "u_FrontLayerReflection" ) )
-                     block.Texture( "u_FrontLayerReflection", frontLayer.Reflection, RDG::Access::SampledGraphics,
+                 if ( SceneViewDetail::LayoutSamples( layout, "FrontLayerReflectionTexture" ) )
+                     block.Texture( "FrontLayerReflectionTexture", frontLayer.Reflection, RDG::Access::SampledGraphics,
                                     RDG::SubresourceRange::All() )
-                          .Texture( "u_FrontLayerDepth", frontLayer.Depth, RDG::Access::SampledGraphics,
+                          .Texture( "FrontLayerDepthTexture", frontLayer.Depth, RDG::Access::SampledGraphics,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
+                          .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
              } );
     }
 

@@ -379,7 +379,7 @@ namespace Desert::Graphic::System
         /// Build the world weather map for m_ModellingParams if its seed or shortest wave moved; false when
         /// the device refused the image.
         bool EnsureFarWeatherMap();
-        /// The painted layout as the march's two textures (u_CloudLayoutPattern / u_CloudLayoutMask), re-uploaded
+        /// The painted layout as the march's two textures (CloudLayoutPatternTexture / CloudLayoutMaskTexture), re-uploaded
         /// only when the painting's content hash moves; neutral 1x1 stand-ins when nothing is painted.
         bool EnsureLayoutTextures();
 

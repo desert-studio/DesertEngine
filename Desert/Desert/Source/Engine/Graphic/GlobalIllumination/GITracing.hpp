@@ -205,7 +205,7 @@ namespace Desert::Graphic::GlobalIllumination
         GlobalIllumination::Pipeline   Pipeline{};
         std::array<RDG::TextureRef, 4> GlobalDistanceField{};
         RDG::BufferRef                 GlobalDistanceFieldLevels; // "GITracerSoftwareUB" (TracerSoftwarePayload)
-        RDG::TextureRef                GlobalDistanceFieldObjectGrid; // "u_GlobalDistanceFieldObjectGrid"
+        RDG::TextureRef                GlobalDistanceFieldObjectGrid; // "GlobalDistanceFieldObjectGridTexture"
         DistanceField::MeshDistanceFieldReads MeshDistanceFields;
         RDG::BufferRef                        Tlas;
         RayTracing::RayTracingMetadataFrame   Metadata;
@@ -222,7 +222,7 @@ namespace Desert::Graphic::GlobalIllumination
 
     // The shader names of the hardware tracer's four reads (Common/GITracer.glslh declares them at
     // GI_TRACER_BINDING + 0..3; the record blocks are Common/RayQueryVisibility.glslh's, shared with RT-SHADOWS).
-    inline constexpr std::string_view kHardwareTracerTlasName                     = "u_SceneTLAS";
+    inline constexpr std::string_view kHardwareTracerTlasName                     = "SceneTlas";
     inline constexpr std::string_view kHardwareTracerGeometryName                 = "RayTracingGeometryRecords";
     inline constexpr std::string_view kHardwareTracerMaterialsName                = "RayTracingMaterialRecords";
     inline constexpr std::string_view kHardwareTracerInstanceSurfaceCacheRowsName = "GIInstanceSurfaceCacheRows";

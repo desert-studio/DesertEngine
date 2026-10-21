@@ -45,12 +45,12 @@ namespace
     }
 
     // All five image declarations at once, which is exactly what CLD-11 asks to be shown apart.
-    // u_EnvNoise is a sampler2D and u_Radiance a samplerCube: under name matching the first would be
+    // u_EnvNoise is a sampler2D and RadianceTexture a samplerCube: under name matching the first would be
     // filed as a cube and the second as 2D, so this shader alone fails if the old rule comes back.
     const char* kAllFiveImageKinds = R"(#version 450
 layout(binding = 0) uniform sampler2D   u_EnvNoise;
 layout(binding = 1) uniform sampler3D   u_ShapeNoise;
-layout(binding = 2) uniform samplerCube u_Radiance;
+layout(binding = 2) uniform samplerCube RadianceTexture;
 layout(binding = 3, rgba8) writeonly uniform image2D u_OutSlice;
 layout(binding = 4, rgba8) writeonly uniform image3D u_OutVolume;
 
@@ -62,7 +62,7 @@ void main()
 {
     vec4 c = texture(u_EnvNoise, vec2(0.5))
            + texture(u_ShapeNoise, vec3(0.5))
-           + texture(u_Radiance, vec3(0.0, 1.0, 0.0))
+           + texture(RadianceTexture, vec3(0.0, 1.0, 0.0))
            + u_Bounds + u_Extent;
     imageStore(u_OutSlice,  ivec2(gl_GlobalInvocationID.xy), c);
     imageStore(u_OutVolume, ivec3(gl_GlobalInvocationID),    c);
@@ -90,7 +90,7 @@ TEST( ShaderReflection, FiveImageKindsLandInFiveDistinctBuckets )
 
     EXPECT_EQ( set0.SampledImages.at( 0 ).Name, "u_EnvNoise" );
     EXPECT_EQ( set0.SampledImages.at( 1 ).Name, "u_ShapeNoise" );
-    EXPECT_EQ( set0.SampledImages.at( 2 ).Name, "u_Radiance" );
+    EXPECT_EQ( set0.SampledImages.at( 2 ).Name, "RadianceTexture" );
     EXPECT_EQ( set0.StorageImage2DSamplers.at( 3 ).Name, "u_OutSlice" );
     EXPECT_EQ( set0.StorageImage3DSamplers.at( 4 ).Name, "u_OutVolume" );
 
@@ -187,10 +187,10 @@ void main() { o_Color = texture(u_Slices, vec2(0.5)); }
 TEST( ShaderReflection, ReflectsTexture2DArrayAsItsOwnDimension )
 {
     const char* kArrayed = R"(#version 450
-layout(binding = 0) uniform texture2DArray u_ShadowCascades;
-layout(binding = 1) uniform sampler u_LinearRepeatSampler;
+layout(binding = 0) uniform texture2DArray ShadowCascadesTexture;
+layout(binding = 1) uniform sampler LinearRepeatSampler;
 layout(location = 0) out vec4 o_Color;
-void main() { o_Color = texture(sampler2DArray(u_ShadowCascades, u_LinearRepeatSampler), vec3(0.5)); }
+void main() { o_Color = texture(sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler), vec3(0.5)); }
 )";
 
     const auto spirv = Compile( kArrayed, shaderc_glsl_fragment_shader );
@@ -216,8 +216,8 @@ void main() { o_Color = texture(sampler2DArray(u_ShadowCascades, u_LinearRepeatS
 TEST( ShaderReflection, BindsSampler2DMSThroughTheImage2DBucket )
 {
     const char* kMultisampled = R"(#version 450
-layout(binding = 1) uniform sampler2DMS u_Depth;
-void main() { gl_FragDepth = texelFetch(u_Depth, ivec2(gl_FragCoord.xy), 0).r; }
+layout(binding = 1) uniform sampler2DMS SourceDepthTexture;
+void main() { gl_FragDepth = texelFetch(SourceDepthTexture, ivec2(gl_FragCoord.xy), 0).r; }
 )";
 
     const auto spirv = Compile( kMultisampled, shaderc_glsl_fragment_shader );
@@ -229,7 +229,7 @@ void main() { gl_FragDepth = texelFetch(u_Depth, ivec2(gl_FragCoord.xy), 0).r; }
     EXPECT_TRUE( diagnostics.empty() ) << ( diagnostics.empty() ? "" : diagnostics.front() );
     const auto& set0 = data.ShaderDescriptorSets[0];
     ASSERT_EQ( set0.SampledImages.size(), 1u );
-    EXPECT_EQ( set0.SampledImages.at( 1 ).Name, "u_Depth" );
+    EXPECT_EQ( set0.SampledImages.at( 1 ).Name, "SourceDepthTexture" );
 
     spirv_cross::CompilerGLSL compiler( spirv );
     const auto                resources = compiler.get_shader_resources();
@@ -345,7 +345,7 @@ TEST( ShaderReflection, ClassifiesDimensionsDirectly )
             EXPECT_EQ( kind, ShaderReflection::ImageKind::Image3D );
             EXPECT_EQ( described, "sampler3D" );
         }
-        else if ( resource.name == "u_Radiance" )
+        else if ( resource.name == "RadianceTexture" )
         {
             EXPECT_EQ( kind, ShaderReflection::ImageKind::ImageCube );
             EXPECT_EQ( described, "samplerCube" );
@@ -448,9 +448,9 @@ TEST( ShaderReflection, RefusesAUniformBufferAndASamplerOnOneBinding )
     const char* kCrossBucket = R"(#version 450
 #define FOG_PARAMS_BINDING 3
 layout(binding = FOG_PARAMS_BINDING) uniform FogParams { vec4 u_Fog; };
-layout(binding = 3) uniform sampler2D u_Depth;
+layout(binding = 3) uniform sampler2D SourceDepthTexture;
 layout(location = 0) out vec4 o_Color;
-void main() { o_Color = u_Fog + texture(u_Depth, vec2(0.5)); }
+void main() { o_Color = u_Fog + texture(SourceDepthTexture, vec2(0.5)); }
 )";
 
     const auto spirv = Compile( kCrossBucket, shaderc_glsl_fragment_shader );
@@ -461,7 +461,7 @@ void main() { o_Color = u_Fog + texture(u_Depth, vec2(0.5)); }
 
     ASSERT_EQ( diagnostics.size(), 1u ) << FirstOr( diagnostics, "no diagnostic at all" );
     EXPECT_NE( diagnostics.front().find( "FogParams" ), std::string::npos ) << diagnostics.front();
-    EXPECT_NE( diagnostics.front().find( "u_Depth" ), std::string::npos ) << diagnostics.front();
+    EXPECT_NE( diagnostics.front().find( "SourceDepthTexture" ), std::string::npos ) << diagnostics.front();
     EXPECT_NE( diagnostics.front().find( "binding 3" ), std::string::npos ) << diagnostics.front();
 
     const auto bindings = ShaderReflection::BuildLayoutBindings( data.ShaderDescriptorSets.at( 0 ) );
@@ -505,8 +505,8 @@ void main() { gl_Position = texture(u_Albedo, vec2(0.5)); }
 TEST( ShaderReflection, RefusesTwoStagesNamingDifferentResourcesOnOneSlot )
 {
     const char* kVertex   = R"(#version 450
-layout(binding = 0) uniform Transform { mat4 u_ViewProjection; };
-void main() { gl_Position = u_ViewProjection[0]; }
+layout(binding = 0) uniform Transform { mat4 ViewProjection; };
+void main() { gl_Position = ViewProjection[0]; }
 )";
     const char* kFragment = R"(#version 450
 layout(binding = 0) uniform sampler2D u_Albedo;
@@ -738,13 +738,13 @@ TEST( ShaderReflection, AnAccelerationStructureIsReflectedOnItsSetAndBinding )
 {
     const char*             source = R"(#version 460
 #extension GL_EXT_ray_query : require
-layout(set = 1, binding = 3) uniform accelerationStructureEXT u_Scene;
+layout(set = 1, binding = 3) uniform accelerationStructureEXT SceneColorTexture;
 layout(binding = 0, r8) writeonly uniform image2D u_Visibility;
 layout(local_size_x = 8, local_size_y = 8) in;
 void main()
 {
     rayQueryEXT q;
-    rayQueryInitializeEXT(q, u_Scene, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, vec3(0.0), 0.0, vec3(0.0, 1.0, 0.0), 1000.0);
+    rayQueryInitializeEXT(q, SceneColorTexture, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, vec3(0.0), 0.0, vec3(0.0, 1.0, 0.0), 1000.0);
     while (rayQueryProceedEXT(q)) {}
     float lit = rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
     imageStore(u_Visibility, ivec2(gl_GlobalInvocationID.xy), vec4(lit));
@@ -767,7 +767,7 @@ void main()
     const auto& set1 = data.ShaderDescriptorSets.at( 1 );
     ASSERT_EQ( set1.AccelerationStructures.size(), 1u );
     const auto& as = set1.AccelerationStructures.at( 3 );
-    EXPECT_EQ( as.Name, "u_Scene" );
+    EXPECT_EQ( as.Name, "SceneColorTexture" );
     EXPECT_EQ( as.BindingPoint, 3u );
     EXPECT_EQ( as.DescriptorSet, 1u );
     EXPECT_EQ( as.ShaderStage, ShaderStage::Compute );

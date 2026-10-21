@@ -924,7 +924,7 @@ TEST( ShaderSchemaConsumers, TheSamplerSearchFollowsIncludes )
     const std::string    own      = Strip( ReadAll( terrain ) );
     const ExpandedShader expanded = ExpandIncludes( shadersDir, terrain );
     EXPECT_TRUE( expanded.Unresolved.empty() ) << "first unresolved include: " << expanded.Unresolved.front();
-    for ( const char* name : { "u_Weightmap" } )
+    for ( const char* name : { "WeightmapTexture" } )
     {
         EXPECT_EQ( own.find( std::string( "sampler2D " ) + name ), std::string::npos )
              << name << " is declared in Terrain.shader itself again; this test no longer exercises includes";
@@ -947,7 +947,7 @@ TEST( ShaderSchemaConsumers, EveryTexturePropertyHasASamplerToBindTo )
     ASSERT_FALSE( root.empty() );
 
     // The known drift, with the reason and the owner. Empty since MAT1b: the importer packs glTF's
-    // metallic-roughness and occlusion into u_ORMTexture, and the three separate map slots are gone.
+    // metallic-roughness and occlusion into OrmTexture, and the three separate map slots are gone.
     static const std::set<std::string> knownUnsampled = {};
     std::set<std::string>              seenUnsampled;
 

@@ -2,8 +2,8 @@
 Shader "UIRetainer"
 {
     // The composite of one retained UI layer (UE Retainer Box + its effect material). Render2D rendered the
-    // element's subtree into u_Content (premultiplied: a transparent target with the UI's "over" blend) and,
-    // when the element names a mask, the mask element's subtree into u_Mask over the same rectangle. This
+    // element's subtree into RetainedLayerTexture (premultiplied: a transparent target with the UI's "over" blend) and,
+    // when the element names a mask, the mask element's subtree into MaskLayerTexture over the same rectangle. This
     // pass shows the layer through every effect at once — the effect is data, not a pipeline per effect.
     //
     // The math is Engine/Graphic/Render2D/RetainerEffect.hpp line for line (hash constants included), so a
@@ -41,11 +41,11 @@ Shader "UIRetainer"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(2) sampler u_LinearClampSampler;
-        Uniform(0) texture2D u_Content;
-        #define u_Content sampler2D(u_Content, u_LinearClampSampler)
-        Uniform(1) texture2D u_Mask;
-        #define u_Mask sampler2D(u_Mask, u_LinearClampSampler)
+        Uniform(2) sampler LinearClampSampler;
+        Uniform(0) texture2D RetainedLayerTexture;
+        #define RetainedLayerTexture sampler2D(RetainedLayerTexture, LinearClampSampler)
+        Uniform(1) texture2D MaskLayerTexture;
+        #define MaskLayerTexture sampler2D(MaskLayerTexture, LinearClampSampler)
 
         PushConstant constants
         {
@@ -99,12 +99,12 @@ Shader "UIRetainer"
             // its unused part must never bleed in.
             vec2 halfTexel = 0.5 * m_PushConstants.Uv.zw;
             vec2 uvContent = clamp((localPx + offset) * m_PushConstants.Uv.zw, halfTexel, m_PushConstants.Uv.xy - halfTexel);
-            vec4 texel     = texture(u_Content, uvContent);
+            vec4 texel     = texture(RetainedLayerTexture, uvContent);
 
             float coverage = 1.0;
             if (m_PushConstants.Mask.x > 0.5)
             {
-                float m  = clamp(texture(u_Mask, localPx * m_PushConstants.Uv.zw).a, 0.0, 1.0);
+                float m  = clamp(texture(MaskLayerTexture, localPx * m_PushConstants.Uv.zw).a, 0.0, 1.0);
                 coverage = m_PushConstants.Mask.y > 0.5 ? 1.0 - m : m;
             }
 

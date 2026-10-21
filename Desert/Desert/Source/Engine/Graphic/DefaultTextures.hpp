@@ -15,7 +15,7 @@ namespace Desert::Graphic
      * WHAT THIS IS NOT. It is not `FallbackTextures`, which stands next to it and answers a different
      * question. A fallback exists so that a descriptor the engine never wrote is still DEFINED — its
      * colour is an implementation detail nobody authors and nobody should read meaning into. These are
-     * AUTHORED: a shader says `Texture2D u_NormalTexture ("Normal Map") = "normal"`, and that sentence
+     * AUTHORED: a shader says `Texture2D NormalTexture ("Normal Map") = "normal"`, and that sentence
      * is a statement about what the surface looks like with no map assigned. The two happen to agree on
      * white and disagree on everything else, which is exactly why they are not one table.
      *

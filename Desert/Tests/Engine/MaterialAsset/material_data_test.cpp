@@ -41,14 +41,14 @@ TEST( MaterialData, ParamAndTextureAccessors )
 
     const Common::Content::AssetGuid a{ 0x0102030405060708ull, 0x1112131415161718ull };
     const Common::Content::AssetGuid b{ 0x2122232425262728ull, 0x3132333435363738ull };
-    EXPECT_EQ( m.GetTexture( "u_AlbedoTexture" ), 0ull );
-    m.SetTexture( "u_AlbedoTexture", a, "assets:Textures/A.detex" );
-    EXPECT_EQ( m.GetTexture( "u_AlbedoTexture" ), static_cast<uint64_t>( Common::Content::HandleForGuid( a ) ) );
-    m.SetTexture( "u_AlbedoTexture", b, "assets:Textures/B.detex" );
-    EXPECT_EQ( m.GetTexture( "u_AlbedoTexture" ), static_cast<uint64_t>( Common::Content::HandleForGuid( b ) ) );
+    EXPECT_EQ( m.GetTexture( "AlbedoTexture" ), 0ull );
+    m.SetTexture( "AlbedoTexture", a, "assets:Textures/A.detex" );
+    EXPECT_EQ( m.GetTexture( "AlbedoTexture" ), static_cast<uint64_t>( Common::Content::HandleForGuid( a ) ) );
+    m.SetTexture( "AlbedoTexture", b, "assets:Textures/B.detex" );
+    EXPECT_EQ( m.GetTexture( "AlbedoTexture" ), static_cast<uint64_t>( Common::Content::HandleForGuid( b ) ) );
     ASSERT_EQ( m.Textures.size(), 1u );
-    m.SetTexture( "u_AlbedoTexture", {}, "ignored" ); // an authored empty slot: no GUID, no locator
-    EXPECT_EQ( m.GetTexture( "u_AlbedoTexture" ), 0ull );
+    m.SetTexture( "AlbedoTexture", {}, "ignored" ); // an authored empty slot: no GUID, no locator
+    EXPECT_EQ( m.GetTexture( "AlbedoTexture" ), 0ull );
     EXPECT_TRUE( m.Textures[0].Path.empty() );
 }
 
@@ -136,7 +136,7 @@ TEST( MaterialFormatV3, AWrittenMaterialReadsBackWithEverySlotByGuidAndEveryGuid
     const Common::Content::AssetGuid kShaderGuid{ 0xc1c2c3c4ull, 0xd1d2d3d4ull };
     constexpr const char*            kShaderPath = "engine:Shaders/Programs/Clouds/CloudRaymarch.shader";
     m.SetShader( kShaderGuid, kShaderPath );
-    m.SetTexture( "u_AlbedoTexture", kTexGuid, "assets:Textures/T.detex" );
+    m.SetTexture( "AlbedoTexture", kTexGuid, "assets:Textures/T.detex" );
     m.SetCloudAsset( "CloudType1", kTypeGuid, "assets:Clouds/Types/Cu.decloudtype" );
     m.SetCloudAsset( "LayoutPattern", kLayoutGuid, "assets:Clouds/Layouts/L.dclayout" );
     m.SetCloudAsset( "LayoutMask", kLayoutGuid, "assets:Clouds/Layouts/L.dclayout" );
@@ -149,7 +149,7 @@ TEST( MaterialFormatV3, AWrittenMaterialReadsBackWithEverySlotByGuidAndEveryGuid
     const auto back = Desert::Assets::ParseMaterialJson( "v3.demat", text.GetValue() );
     ASSERT_TRUE( back ) << back.GetError();
     const MaterialData& r = back.GetValue();
-    EXPECT_EQ( r.GetTexture( "u_AlbedoTexture" ), Fold( kTexGuid ) );
+    EXPECT_EQ( r.GetTexture( "AlbedoTexture" ), Fold( kTexGuid ) );
     EXPECT_EQ( r.GetCloudAsset( "CloudType1" ), Fold( kTypeGuid ) );
     EXPECT_EQ( r.GetCloudAsset( "LayoutMask" ), Fold( kLayoutGuid ) );
     EXPECT_EQ( r.GetTexture( "CloudType1" ), 0ull ) << "cloud slots live in their own list, not in Textures";
@@ -211,7 +211,7 @@ TEST( MaterialFormatV3, ASlotGuidTheHeaderDoesNotStateOrAPathWithoutAGuidIsRefus
               R"(]},"Shader":{"Guid":"","Path":"engine:Shaders/S.shader"},"Params":[],"Textures":[],"CloudAssets":[]})" ) );
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson(
          "pathonly", head + R"(]},"Params":[],"CloudAssets":[],)"
-                            R"("Textures":[{"Name":"u_AlbedoTexture","Guid":"","Path":"assets:T.detex"}]})" ) );
+                            R"("Textures":[{"Name":"AlbedoTexture","Guid":"","Path":"assets:T.detex"}]})" ) );
 }
 
 // The relation, not either end: a type registers under HandleForGuid of its header GUID (CloudTypeAsset's
@@ -274,8 +274,8 @@ TEST( MaterialData, ASlotSamplerOverridesTheTemplateAndAnUnstatedSlotKeepsTheTem
     using Desert::Core::Formats::SamplerWrap;
 
     MaterialData m;
-    m.SetTexture( "u_AlbedoTexture", kTexGuid, "assets:Textures/T.detex" );
-    m.SetTexture( "u_NormalTexture", kTexGuid, "assets:Textures/T.detex" );
+    m.SetTexture( "AlbedoTexture", kTexGuid, "assets:Textures/T.detex" );
+    m.SetTexture( "NormalTexture", kTexGuid, "assets:Textures/T.detex" );
     const SamplerState clamp{ SamplerWrap::Clamp, SamplerWrap::Clamp, SamplerFilter::Nearest };
     m.Textures[0].Sampler = clamp;
 
@@ -288,8 +288,8 @@ TEST( MaterialData, ASlotSamplerOverridesTheTemplateAndAnUnstatedSlotKeepsTheTem
     const MaterialData& r = back.GetValue();
 
     const SamplerState templateDefault{ SamplerWrap::Mirror, SamplerWrap::Repeat, SamplerFilter::Linear };
-    EXPECT_EQ( r.SlotSampler( "u_AlbedoTexture", templateDefault ), clamp ) << "the slot's own state wins";
-    EXPECT_EQ( r.SlotSampler( "u_NormalTexture", templateDefault ), templateDefault )
+    EXPECT_EQ( r.SlotSampler( "AlbedoTexture", templateDefault ), clamp ) << "the slot's own state wins";
+    EXPECT_EQ( r.SlotSampler( "NormalTexture", templateDefault ), templateDefault )
          << "no state: the template's";
     EXPECT_EQ( r.SlotSampler( "u_Unnamed", templateDefault ), templateDefault ) << "no slot: the template's";
 }

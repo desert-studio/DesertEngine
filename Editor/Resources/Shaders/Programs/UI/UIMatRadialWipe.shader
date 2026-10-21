@@ -51,21 +51,21 @@ Shader "UIMatRadialWipe"
             // Sweep clockwise from StartAngle, measured in TURNS so the parameter reads 0..1 like
             // Progress does and the two can be keyed against each other without a conversion.
             vec2  p     = v_TexCoord - vec2( 0.5 );
-            float turn  = fract( atan( p.x, -p.y ) / 6.28318530718 - u_Material.StartAngle );
+            float turn  = fract( atan( p.x, -p.y ) / 6.28318530718 - Material.StartAngle );
 
             // The swept region is turn < Progress. Feather is applied in turns, so the soft edge is a
             // constant ANGLE and does not fatten as the element grows.
-            float edge  = max( u_Material.Feather, 1e-4 );
-            float sweep = 1.0 - smoothstep( u_Material.Progress - edge, u_Material.Progress, turn );
+            float edge  = max( Material.Feather, 1e-4 );
+            float sweep = 1.0 - smoothstep( Material.Progress - edge, Material.Progress, turn );
 
             // Progress 1 must be a FULLY closed disc: without this the smoothstep above still eats a
             // feather-wide wedge at turn ~= 1, so "full" would render with a seam.
-            sweep = max( sweep, step( 1.0, u_Material.Progress ) );
+            sweep = max( sweep, step( 1.0, Material.Progress ) );
 
             vec4 mask = texture( Mask, v_TexCoord );
 
-            o_Color = vec4( v_Color.rgb * u_Material.Tint.rgb * mask.rgb,
-                            v_Color.a * u_Material.Tint.a * mask.a * sweep );
+            o_Color = vec4( v_Color.rgb * Material.Tint.rgb * mask.rgb,
+                            v_Color.a * Material.Tint.a * mask.a * sweep );
         }
     }
 }

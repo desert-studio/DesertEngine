@@ -24,23 +24,23 @@ Shader "LensFlareBrightPass"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(2) sampler u_LinearClampSampler;
-        Uniform(0) texture2D u_Source;
-        #define u_Source sampler2D(u_Source, u_LinearClampSampler)
-        layout(binding = 1, rgba16f) restrict writeonly uniform image2D u_Output;
+        Uniform(2) sampler LinearClampSampler;
+        Uniform(0) texture2D SourceMipTexture;
+        #define SourceMipTexture sampler2D(SourceMipTexture, LinearClampSampler)
+        layout(binding = 1, rgba16f) restrict writeonly uniform image2D BrightPassTexture;
 
         PushConstant LensFlareBrightPush
         {
-            int   u_FirstPass;     // 1 = u_Source is the HDR scene and the threshold applies
-            float u_Threshold;     // HDR luminance below this contributes nothing
-            float u_MaxBrightness; // cap on extracted energy — one blown pixel must not own the flare
+            int   FirstPass;     // 1 = SourceMipTexture is the HDR scene and the threshold applies
+            float Threshold;     // HDR luminance below this contributes nothing
+            float MaxBrightness; // cap on extracted energy — one blown pixel must not own the flare
         };
 
         LocalSize(16, 16, 1);
 
         void main()
         {
-            ivec2 size  = imageSize(u_Output);
+            ivec2 size  = imageSize(BrightPassTexture);
             ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
@@ -62,25 +62,25 @@ Shader "LensFlareBrightPass"
             vec2 o   = texel * 0.5f;
             vec2 lo  = texel * 0.5f;
             vec2 hi  = vec2(1.0f, 1.0f) - lo;
-            // u_Source is a view of the ONE mip the graph node declared, so its only level is lod 0.
-            vec3 colour = textureLod(u_Source, clamp(uv + vec2(-o.x, -o.y), lo, hi), 0.0f).rgb +
-                          textureLod(u_Source, clamp(uv + vec2( o.x, -o.y), lo, hi), 0.0f).rgb +
-                          textureLod(u_Source, clamp(uv + vec2(-o.x,  o.y), lo, hi), 0.0f).rgb +
-                          textureLod(u_Source, clamp(uv + vec2( o.x,  o.y), lo, hi), 0.0f).rgb;
+            // SourceMipTexture is a view of the ONE mip the graph node declared, so its only level is lod 0.
+            vec3 colour = textureLod(SourceMipTexture, clamp(uv + vec2(-o.x, -o.y), lo, hi), 0.0f).rgb +
+                          textureLod(SourceMipTexture, clamp(uv + vec2( o.x, -o.y), lo, hi), 0.0f).rgb +
+                          textureLod(SourceMipTexture, clamp(uv + vec2(-o.x,  o.y), lo, hi), 0.0f).rgb +
+                          textureLod(SourceMipTexture, clamp(uv + vec2( o.x,  o.y), lo, hi), 0.0f).rgb;
             colour *= 0.25f;
 
-            if (u_FirstPass == 1)
+            if (FirstPass == 1)
             {
                 // Hue-preserving bright pass — the same form BloomDownsample and LightShaftMask use, so
                 // all three effects agree about what "bright" means. Applied only once: the deeper mips
                 // are averages of already-thresholded energy, and thresholding them again would eat the
                 // soft skirt that makes a magnified ghost read as out of focus rather than as a stamp.
                 float brightness   = max(colour.r, max(colour.g, colour.b));
-                float contribution = max(brightness - u_Threshold, 0.0f) / max(brightness, 1e-4f);
-                colour             = min(colour * contribution, vec3(u_MaxBrightness));
+                float contribution = max(brightness - Threshold, 0.0f) / max(brightness, 1e-4f);
+                colour             = min(colour * contribution, vec3(MaxBrightness));
             }
 
-            imageStore(u_Output, coord, vec4(colour, 1.0f));
+            imageStore(BrightPassTexture, coord, vec4(colour, 1.0f));
         }
     }
 }

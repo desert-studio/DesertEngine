@@ -15,45 +15,45 @@ Shader "LightShaftMask"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(2) sampler u_LinearClampSampler;
-        Uniform(0) texture2D u_SceneColor;
-        #define u_SceneColor sampler2D(u_SceneColor, u_LinearClampSampler)
-        layout(binding = 1, rgba16f) restrict writeonly uniform image2D u_Mask;
+        Uniform(2) sampler LinearClampSampler;
+        Uniform(0) texture2D SceneColorTexture;
+        #define SceneColorTexture sampler2D(SceneColorTexture, LinearClampSampler)
+        layout(binding = 1, rgba16f) restrict writeonly uniform image2D ShaftMaskTexture;
 
         PushConstant ShaftMaskPush
         {
-            vec2  u_SunUV;         // sun position in [0,1] screen UV (may be slightly off-screen)
-            float u_Threshold;     // HDR luminance below this contributes nothing (UE: Bloom Threshold)
-            float u_MaxBrightness; // cap on the extracted energy (UE: Bloom Max Brightness) — one
+            vec2  SunUv;         // sun position in [0,1] screen UV (may be slightly off-screen)
+            float Threshold;     // HDR luminance below this contributes nothing (UE: Bloom Threshold)
+            float MaxBrightness; // cap on the extracted energy (UE: Bloom Max Brightness) — one
                                    // blown-out pixel must not own the whole streak
-            float u_WindowRadius;  // radial window (UV units) beyond which the mask fades to zero
+            float WindowRadius;  // radial window (UV units) beyond which the mask fades to zero
         };
 
         LocalSize(16, 16, 1);
 
         void main()
         {
-            ivec2 size  = imageSize(u_Mask);
+            ivec2 size  = imageSize(ShaftMaskTexture);
             ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 
             vec2 uv = (vec2(coord) + vec2(0.5f, 0.5f)) / vec2(size);
 
-            vec3  colour     = textureLod(u_SceneColor, uv, 0.0f).rgb;
+            vec3  colour     = textureLod(SceneColorTexture, uv, 0.0f).rgb;
             float brightness = max(colour.r, max(colour.g, colour.b));
 
             // Keep only the energy above the threshold, hue preserved — the same bright-pass form the
             // bloom uses, so the two effects agree about what "bright" means.
-            float contribution = max(brightness - u_Threshold, 0.0f) / max(brightness, 1e-4f);
-            vec3  masked       = min(colour * contribution, vec3(u_MaxBrightness));
+            float contribution = max(brightness - Threshold, 0.0f) / max(brightness, 1e-4f);
+            vec3  masked       = min(colour * contribution, vec3(MaxBrightness));
 
             // Radial window about the sun: energy far from the sun has no business in a sun streak —
             // without this, every bright rim on screen would smear toward the sun.
-            float d      = distance(uv, u_SunUV);
-            float window = 1.0f - smoothstep(u_WindowRadius * 0.5f, u_WindowRadius, d);
+            float d      = distance(uv, SunUv);
+            float window = 1.0f - smoothstep(WindowRadius * 0.5f, WindowRadius, d);
 
-            imageStore(u_Mask, coord, vec4(masked * window, 1.0f));
+            imageStore(ShaftMaskTexture, coord, vec4(masked * window, 1.0f));
         }
     }
 }

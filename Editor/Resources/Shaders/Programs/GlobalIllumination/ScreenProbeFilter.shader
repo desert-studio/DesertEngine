@@ -43,10 +43,10 @@ Shader "ScreenProbeFilter"
         {
             GIFrame giFrame;
         };
-        Uniform sampler u_PointClampSampler;
+        Uniform sampler PointClampSampler;
         Uniform(4) texture2D ScreenProbeRadiance; // rgb = radiance, a = hit distance, SP_RES² per probe
-        #define ScreenProbeRadiance sampler2D(ScreenProbeRadiance, u_PointClampSampler)
-        layout(binding = 5, rgba16f) restrict writeonly uniform image2D u_ScreenProbeFiltered;
+        #define ScreenProbeRadiance sampler2D(ScreenProbeRadiance, PointClampSampler)
+        layout(binding = 5, rgba16f) restrict writeonly uniform image2D ScreenProbeFilteredTexture;
         WriteBuffer(6) ScreenProbeSHUB
         {
             vec4 screenProbeSH[];
@@ -63,11 +63,11 @@ Shader "ScreenProbeFilter"
         {
             RadianceCacheProbe radianceCacheProbes[];
         };
-        Uniform sampler u_LinearClampSampler;
-        Uniform(10) texture2D u_RadianceCacheIrradiance;
-        #define u_RadianceCacheIrradiance sampler2D(u_RadianceCacheIrradiance, u_LinearClampSampler)
-        Uniform(11) texture2D u_RadianceCacheDepth;
-        #define u_RadianceCacheDepth sampler2D(u_RadianceCacheDepth, u_LinearClampSampler)
+        Uniform sampler LinearClampSampler;
+        Uniform(10) texture2D RadianceCacheIrradianceTexture;
+        #define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
+        Uniform(11) texture2D RadianceCacheDepthTexture;
+        #define RadianceCacheDepthTexture sampler2D(RadianceCacheDepthTexture, LinearClampSampler)
         WriteBuffer(12) ScreenProbeBackfaceUB
         {
             vec4 screenProbeBackface[]; // rgb = irradiance / pi from -N, a = 1 when the cache answered
@@ -128,7 +128,7 @@ Shader "ScreenProbeFilter"
 
             // ---- The filtered radiance with its border.
             const ivec2 tileOrigin = SPAtlasOrigin( probe, SP_TILE ) + 1;
-            imageStore( u_ScreenProbeFiltered, tileOrigin + t, vec4( radiance, 1.0 ) );
+            imageStore( ScreenProbeFilteredTexture, tileOrigin + t, vec4( radiance, 1.0 ) );
             barrier();
             // The 4 * (SP_RES + 1) border texels, one per thread: the rows above and below (corners included),
             // then the columns left and right; each repeats the nearest interior texel.
@@ -145,7 +145,7 @@ Shader "ScreenProbeFilter"
                     b           = ivec2( j < R ? -1 : R, j % R );
                 }
                 const ivec2 s = clamp( b, ivec2( 0 ), ivec2( R - 1 ) );
-                imageStore( u_ScreenProbeFiltered, tileOrigin + b, vec4( s_Radiance[s.x + s.y * R], 1.0 ) );
+                imageStore( ScreenProbeFilteredTexture, tileOrigin + b, vec4( s_Radiance[s.x + s.y * R], 1.0 ) );
             }
 
             // ---- Irradiance SH: nine coefficients, one thread each.

@@ -88,7 +88,7 @@ namespace Desert::Graphic::SceneResources
         float    SunNonCastingIntensity = 0.0f;  // DirectionalLightData::ContactShadowNonCastingIntensity
     };
 
-    // The view's half of the march as the shaders read it (u_ContactShadowView, Common/ContactShadow.glslh): x =
+    // The view's half of the march as the shaders read it (ContactShadowView, Common/ContactShadow.glslh): x =
     // steps, y = tan(fov / 2), z = dither frame. ShadowUB carries it; MegaLights' view block too.
     inline glm::vec4 ContactShadowViewVector( const ContactShadowSettings& contact )
     {
@@ -104,18 +104,18 @@ namespace Desert::Graphic::SceneResources
     }
 
     inline constexpr const char* kShadowBlockName              = "ShadowUB";
-    inline constexpr const char* kShadowMapName                = "u_ShadowCascades"; // texture2DArray, layer c
-    inline constexpr const char* kEnvIrradianceName            = "u_EnvIrradianceTex";
-    inline constexpr const char* kEnvSpecularName              = "u_EnvSpecularTex";
-    inline constexpr const char* kBrdfLutName                  = "u_BRDFLUTTexture";
+    inline constexpr const char* kShadowMapName                = "ShadowCascadesTexture"; // texture2DArray, layer c
+    inline constexpr const char* kEnvIrradianceName            = "EnvironmentIrradianceTexture";
+    inline constexpr const char* kEnvSpecularName              = "EnvironmentSpecularTexture";
+    inline constexpr const char* kBrdfLutName                  = "BrdfLutTexture";
     inline constexpr const char* kTimeBlockName                = "TimeUB";
     inline constexpr const char* kCloudShadowBlockName         = "CloudShadowUB";
-    inline constexpr const char* kCloudShadowMapName           = "u_CloudShadowMap";
+    inline constexpr const char* kCloudShadowMapName           = "CloudShadowMapTexture";
     inline constexpr const char* kObjectMotionsName            = "ObjectMotions";
     inline constexpr const char* kObjectBonesName              = "ObjectBones";
     inline constexpr const char* kWorldParametersName          = "WorldParameters";
     inline constexpr const char* kRainOcclusionBlockName       = "RainOcclusionUB";
-    inline constexpr const char* kRainOcclusionMapName         = "u_RainOcclusionMap";
+    inline constexpr const char* kRainOcclusionMapName         = "RainOcclusionMapTexture";
 
     struct Entry
     {

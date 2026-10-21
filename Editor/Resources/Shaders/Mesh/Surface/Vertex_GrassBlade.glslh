@@ -37,7 +37,7 @@ layout( std430, binding = 13 ) readonly buffer GrassBladeShape
     vec4 Dry;  // DryTipColor, DryTipLength
     vec4 Bend; // CurvatureSpread, BendSpread
 }
-u_Blade;
+Blade;
 
 #include <Common/MaterialTransport.glslh>
 #include <Common/FoliageWind.glslh>
@@ -63,24 +63,24 @@ BladePoint BladeAt( mat4 model, float side, float t, vec4 windA, vec4 windB )
     const vec3  up      = model[1].xyz / max( heightK, 1e-6 );
     const vec3  right   = model[0].xyz / max( length( model[0].xyz ), 1e-6 );
     const vec3  forward = model[2].xyz / max( length( model[2].xyz ), 1e-6 );
-    const float height  = u_Blade.Size.x * heightK;
-    const float width   = u_Blade.Size.y * length( model[0].xyz );
+    const float height  = Blade.Size.x * heightK;
+    const float width   = Blade.Size.y * length( model[0].xyz );
 
     // The rest lean: the variety's curvature, varied per blade by CurvatureSpread either way. The bend's power
     // draws from the curvature draw's low 16 bits (it is a 24-bit fraction, so they are independent of the
     // top bits the lean mostly reads).
-    const float lean = u_Blade.Size.w * ( 1.0 + u_Blade.Bend.x * ( 2.0 * model[1].w - 1.0 ) );
-    const float bend = 2.0 + 3.0 * u_Blade.Bend.y * fract( model[1].w * 256.0 );
+    const float lean = Blade.Size.w * ( 1.0 + Blade.Bend.x * ( 2.0 * model[1].w - 1.0 ) );
+    const float bend = 2.0 + 3.0 * Blade.Bend.y * fract( model[1].w * 256.0 );
     vec3        tip  = forward * ( height * lean );
     // The wind at the tip, as a mesh vertex at the blade's height would sway, less what the stiffness resists.
-    tip += FoliageWindOffset( vec3( 0.0, height, 0.0 ), root, windA, windB ) * ( 1.0 - u_Blade.Base.w );
+    tip += FoliageWindOffset( vec3( 0.0, height, 0.0 ), root, windA, windB ) * ( 1.0 - Blade.Base.w );
     const float reach = min( length( tip ) / max( height, 1e-3 ), 0.95 );
     const float rise  = height * sqrt( 1.0 - reach * reach );
 
     BladePoint p;
     p.Right    = right;
     p.Position = root + up * ( rise * t ) + tip * pow( t, bend ) +
-                 right * ( 0.5 * width * side * ( 1.0 - u_Blade.Size.z * t ) );
+                 right * ( 0.5 * width * side * ( 1.0 - Blade.Size.z * t ) );
     p.Along    = up * rise + tip * ( bend * pow( t, bend - 1.0 ) );
     return p;
 }
@@ -97,9 +97,9 @@ void main()
     const vec3 normal = normalize( face + blade.Right * ( 0.45 * side ) );
 #ifdef DESERT_SURFACE_HAS_VARYINGS
     // Root to tip, then the dry tip on the blades that drew one; the clump's tint varies the whole blade.
-    vec3 colour = mix( u_Blade.Base.rgb, u_Blade.Tip.rgb, t );
-    if ( model[0].w < u_Blade.Tip.w )
-        colour = mix( colour, u_Blade.Dry.rgb, smoothstep( 1.0 - u_Blade.Dry.w, 1.0, t ) );
+    vec3 colour = mix( Blade.Base.rgb, Blade.Tip.rgb, t );
+    if ( model[0].w < Blade.Tip.w )
+        colour = mix( colour, Blade.Dry.rgb, smoothstep( 1.0 - Blade.Dry.w, 1.0, t ) );
     // Cool and dark to warm and light, so clumps read as patches of one meadow and not as one green
     colour *= mix( vec3( 0.75, 0.9, 0.85 ), vec3( 1.2, 1.1, 0.8 ), model[2].w );
     v_Surface.WorldPosition = blade.Position;

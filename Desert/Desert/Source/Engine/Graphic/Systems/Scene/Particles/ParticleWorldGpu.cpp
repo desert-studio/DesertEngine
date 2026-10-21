@@ -245,7 +245,7 @@ namespace Desert::Graphic::System
         if ( retired > 0 )
             LOG_INFO( "[Particles] Released {} system(s) whose entity is gone.", retired );
         m_Ranges.ReleaseUnless( [this]( const uint32_t key ) { return m_Systems.contains( key ); } );
-        // The random streams' step: unique per fixed step of the world's life (u_Stack.x + step).
+        // The random streams' step: unique per fixed step of the world's life (Stack.x + step).
         const auto stepSerial = static_cast<uint32_t>( world.GetTickSerial() * std::max( 1u, stepCapacity ) );
 
         auto view = reg.view<const ECS::VFXComponent, const ECS::TransformComponent, const ECS::UUIDComponent>();

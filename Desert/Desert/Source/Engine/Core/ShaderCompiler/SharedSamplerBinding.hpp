@@ -4,8 +4,8 @@
 
 // THE ONE RULE THAT NUMBERS A SHARED SAMPLER STATE (MAT-BINDLESS-5).
 //
-// A shared sampler state (`u_LinearClampSampler`, `u_GlobalFilterSampler`, ...) is declared in the DSL WITHOUT a
-// number: `Uniform sampler u_LinearClampSampler;`. The parser does not pick the number from the text it is
+// A shared sampler state (`LinearClampSampler`, `GlobalFilterSampler`, ...) is declared in the DSL WITHOUT a
+// number: `Uniform sampler LinearClampSampler;`. The parser does not pick the number from the text it is
 // translating (DShaderParser.cpp TranslateLayoutSugar): that text is one stage body, one Include block or one
 // .glslh, it never sees the other stages or the included headers, and a header spells its buffer binding as a
 // macro — which is how thirteen programs put a sampler on a binding a buffer already held (2154ca589). The parser

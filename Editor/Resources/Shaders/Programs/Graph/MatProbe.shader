@@ -25,9 +25,9 @@ Shader "MatProbe"
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
             const vec2 v_UV = i.UV0;
-            vec4 n1 = u_Material.TintA;
-            vec4 n2 = u_Material.TintB;
-            float n3 = u_Material.Blend;
+            vec4 n1 = Material.TintA;
+            vec4 n2 = Material.TintB;
+            float n3 = Material.Blend;
             vec4 n0 = mix( n1, n2, n3 );
             const vec4 albedo = n0;
             SurfaceOutput s = DefaultSurfaceOutput();

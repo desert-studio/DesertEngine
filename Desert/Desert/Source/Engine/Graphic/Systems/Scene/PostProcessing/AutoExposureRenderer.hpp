@@ -25,7 +25,7 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override;
 
-        // The histogram's bins: one uint per bin, 256 bins (AEHistogram*.shader `uint u_Bins[256]`).
+        // The histogram's bins: one uint per bin, 256 bins (AEHistogram*.shader `uint Bins[256]`).
         static constexpr uint32_t kBins           = 256;
         static constexpr uint64_t kHistogramBytes = kBins * sizeof( uint32_t );
         // The histogram is a transient of each frame graph (Builder::CreateBuffer with this desc): it is written

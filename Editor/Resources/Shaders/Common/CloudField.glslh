@@ -136,14 +136,14 @@ struct CloudFieldParams
     // CloudProceduralLevelOriginKm decides each corner and snaps it to the level's own voxel, and the march
     // only asks which window a position is inside. Level 0 is the finest (side RegionSize / 4), level
     // CLOUD_PROCEDURAL_CLIP_LEVELS - 1 is the whole region. Common/CloudParams.glslh fills it from
-    // u_CloudLevel[k].
+    // CloudLevel[k].
     vec4 ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS];
 
     // THE WORLD WEATHER (Graphic::CloudGpuPayload::Weather .y and .w): x the weather strength, y 1 / the
     // weather's period in km. A vec2 because x is FarScale and z is Coverage, below — and the unpack fetches
     // only what is read, as
     // LayoutStrength does (WX-PAINT-b). A MEMBER AND NOT A MACRO, because
-    // it is a value of the parameter block and not a sampler: a macro naming u_CloudWeather was read here,
+    // it is a value of the parameter block and not a sampler: a macro naming CloudWeather was read here,
     // in this header, BEFORE Common/CloudParams.glslh declares the block — and a GLSL variable cannot be
     // declared forward, so all four cloud passes failed to compile (FARWX-b6). Only samplers cross the seam
     // as macros; every block value arrives here through CloudUnpackFieldParams.

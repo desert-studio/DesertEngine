@@ -61,17 +61,17 @@ namespace Desert::Graphic::System
         // (RenderGraphCompile TwoBlockEntriesReadingOneImageInOneState...).
         pass.Bindings( m_BindingLayout.Get( m_Pipeline->GetSpecification().Shader ),
                        m_MaterialTonemap->GetMaterialExecutor()->GetRouteFill() )
-             .Texture( "u_GeometryTexture", inputs.Source, RDG::Access::SampledGraphics,
+             .Texture( "GeometryTexture", inputs.Source, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::All() )
-             .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-             .Texture( "u_AvgLuminance", inputs.AvgLuminance, RDG::Access::SampledGraphics,
+             .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
+             .Texture( "AverageLuminanceTexture", inputs.AvgLuminance, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::All() )
-             .Texture( "u_BloomTexture", inputs.Bloom, RDG::Access::SampledGraphics,
+             .Texture( "BloomTexture", inputs.Bloom, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::Mip( 0 ) )
-             .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-             .Texture( "u_LightShaftTexture", inputs.LightShafts, RDG::Access::SampledGraphics,
+             .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+             .Texture( "LightShaftTexture", inputs.LightShafts, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::Mip( 0 ) )
-             .Texture( "u_LensFlareTexture", inputs.LensFlare, RDG::Access::SampledGraphics,
+             .Texture( "LensFlareTexture", inputs.LensFlare, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::Mip( 0 ) );
     }
 

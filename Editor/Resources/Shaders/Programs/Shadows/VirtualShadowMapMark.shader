@@ -13,49 +13,49 @@ Shader "VirtualShadowMapMark"
 
         ReadBuffer(0) VsmFrameData
         {
-            VsmFrame u_Frame;
-            VsmLevel u_Levels[];
+            VsmFrame Frame;
+            VsmLevel Levels[];
         };
         Buffer(1) VsmPageTable
         {
-            VsmPageEntry u_Entries[];
+            VsmPageEntry Entries[];
         };
-        Uniform sampler u_PointClampSampler;
-        Uniform(2) texture2D u_GBufferDepth; // device depth, reversed-Z (0 = far: no surface)
-        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
+        Uniform sampler PointClampSampler;
+        Uniform(2) texture2D GBufferDepthTexture; // device depth, reversed-Z (0 = far: no surface)
+        #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
 
         PushConstant PushConstants
         {
-            uvec4 u_Size; // xy = render size
+            uvec4 RenderSize; // xy = render size
         };
 
         void MarkPage( uint level, vec3 world )
         {
             vec2  texel;
             float depth;
-            if ( !VsmProject( u_Levels[level], world, texel, depth ) )
+            if ( !VsmProject( Levels[level], world, texel, depth ) )
                 return;
             const ivec2 windowPage = ivec2( texel ) / int( VSM_PAGE_SIZE );
-            const uint  index      = VsmEntryIndex( level, u_Levels[level].Window.xy + windowPage );
+            const uint  index      = VsmEntryIndex( level, Levels[level].Window.xy + windowPage );
             // Most pixels of a page find it requested already: read before the atomic (UE does the same).
-            if ( ( u_Entries[index].Flags & VSM_FLAG_REQUESTED ) == 0u )
-                atomicOr( u_Entries[index].Flags, VSM_FLAG_REQUESTED );
+            if ( ( Entries[index].Flags & VSM_FLAG_REQUESTED ) == 0u )
+                atomicOr( Entries[index].Flags, VSM_FLAG_REQUESTED );
         }
 
         void main()
         {
             const ivec2 pixel = ivec2( gl_GlobalInvocationID.xy );
-            if ( pixel.x >= int( u_Size.x ) || pixel.y >= int( u_Size.y ) )
+            if ( pixel.x >= int( RenderSize.x ) || pixel.y >= int( RenderSize.y ) )
                 return;
-            const float depth = texelFetch( u_GBufferDepth, pixel, 0 ).r;
+            const float depth = texelFetch( GBufferDepthTexture, pixel, 0 ).r;
             if ( depth <= 0.0 )
                 return;
-            const vec2 uv       = ( vec2( pixel ) + 0.5 ) / vec2( u_Size.xy );
+            const vec2 uv       = ( vec2( pixel ) + 0.5 ) / vec2( RenderSize.xy );
             // Common/ReconstructPosition.glslh: (0,0) is the top-left pixel and NDC +y is up.
-            const vec3 position = ReconstructWorldPosition( uv, depth, u_Frame.InvViewProjection );
+            const vec3 position = ReconstructWorldPosition( uv, depth, Frame.InvViewProjection );
 
-            const uint first = VsmSelectLevel( u_Frame, position );
-            const uint last  = min( first + 1u, uint( u_Frame.Lod.y ) - 1u );
+            const uint first = VsmSelectLevel( Frame, position );
+            const uint last  = min( first + 1u, uint( Frame.Lod.y ) - 1u );
             for ( uint level = first; level <= last; ++level )
                 MarkPage( level, position );
         }

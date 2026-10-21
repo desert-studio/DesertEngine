@@ -35,7 +35,7 @@ Shader "EmissiveLights"
 
             PushConstant PushConstants
             {
-                uvec4 u_List; // x = triangles, y = leaves (a power of two >= x), z = segments
+                uvec4 ListCounts; // x = triangles, y = leaves (a power of two >= x), z = segments
             };
 
             layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer EmissiveUintRef
@@ -65,7 +65,7 @@ Shader "EmissiveLights"
             uint EmissiveSegmentOf(uint triangle)
             {
                 uint lo = 0u;
-                uint hi = u_List.z - 1u;
+                uint hi = ListCounts.z - 1u;
                 while (lo < hi)
                 {
                     const uint mid = (lo + hi + 1u) / 2u;
@@ -81,9 +81,9 @@ Shader "EmissiveLights"
             void main()
             {
                 const uint leaf = gl_GlobalInvocationID.x;
-                if (leaf >= u_List.y)
+                if (leaf >= ListCounts.y)
                     return;
-                if (leaf >= u_List.x)
+                if (leaf >= ListCounts.x)
                 {
                     emissivePower[leaf] = 0.0;
                     return;
@@ -121,14 +121,14 @@ Shader "EmissiveLights"
 
             PushConstant PushConstants
             {
-                uvec4 u_List; // y = leaves, w = the level this dispatch writes (>= 1)
+                uvec4 ListCounts; // y = leaves, w = the level this dispatch writes (>= 1)
             };
 
             // One node of level w: the SUM of its two children in level w - 1, so the root is the total power.
             void main()
             {
-                const uint leaves = u_List.y;
-                const uint level  = u_List.w;
+                const uint leaves = ListCounts.y;
+                const uint level  = ListCounts.w;
                 const uint node   = gl_GlobalInvocationID.x;
                 if (node >= (leaves >> level))
                     return;

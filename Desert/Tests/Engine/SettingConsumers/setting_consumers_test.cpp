@@ -1881,7 +1881,7 @@ TEST( SettingConsumers, TheShaderClampsTheShadowRayAtTheSameCeilingTheSliderOffe
 
     // The exact line the march clamps on. Written out in full rather than matched loosely, because a
     // regex that still matched after somebody rewrote the clamp would pass while testing nothing.
-    const std::string expected = "int   lightSamples = int(clamp(u_CloudSunColour.w, 1.0f, " +
+    const std::string expected = "int   lightSamples = int(clamp(CloudSunColour.w, 1.0f, " +
                                  std::to_string( Desert::ECS::kCloudLightMarchMaxSamples ) + ".0f));";
 
     EXPECT_NE( source.find( expected ), std::string::npos )

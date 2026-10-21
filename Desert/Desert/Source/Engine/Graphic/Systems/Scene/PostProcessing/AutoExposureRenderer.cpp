@@ -155,8 +155,8 @@ namespace Desert::Graphic::System
         // The shader reads texels with texelFetch: no filtering or addressing applies, PointClamp states that.
         pass.Bindings( m_HistogramLayout.Get( m_HistogramPipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_HistogramPipeline ) )
-             .Texture( "u_Scene", scene, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-             .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+             .Texture( "SceneColorTexture", scene, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
              .Storage( "Histogram", histogram, RDG::Access::StorageWrite )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( HistogramPush ) ) );
     }
@@ -179,13 +179,13 @@ namespace Desert::Graphic::System
     {
         if ( !m_AveragePipeline )
             return;
-        // u_PrevLum is 1x1 and sampled at its centre: PointClamp returns exactly the stored luminance.
+        // PreviousLuminanceTexture is 1x1 and sampled at its centre: PointClamp returns exactly the stored luminance.
         pass.Bindings( m_AverageLayout.Get( m_AveragePipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_AveragePipeline ) )
              .Storage( "Histogram", histogram, RDG::Access::StorageRead )
-             .Texture( "u_PrevLum", previous, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-             .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-             .Storage( "u_OutLum", adapted, RDG::Access::StorageWrite, 0 )
+             .Texture( "PreviousLuminanceTexture", previous, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+             .Storage( "OutLuminanceTexture", adapted, RDG::Access::StorageWrite, 0 )
              .Storage( "Readback", readback, RDG::Access::StorageWrite )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( AveragePush ) ) );
     }

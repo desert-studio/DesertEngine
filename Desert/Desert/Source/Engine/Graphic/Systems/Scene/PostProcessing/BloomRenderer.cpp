@@ -20,7 +20,7 @@ namespace Desert::Graphic::System
             glm::vec2 SrcTexelSize;
             int32_t   FirstPass;
             float     Threshold;
-            float     ExposureKey;  // auto-exposure key (composite's u_ExposureKey)
+            float     ExposureKey;  // auto-exposure key (composite's ExposureKey)
             int32_t   AutoExposure; // 1 => threshold is after exposure, divided by key / adapted luminance
         };
 
@@ -98,14 +98,14 @@ namespace Desert::Graphic::System
         auto block = pass.Bindings( m_DownsampleLayout.Get( m_DownsamplePipeline->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_DownsamplePipeline ) );
         if ( mip == 0 )
-            block.Texture( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+            block.Texture( "SourceMipTexture", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         else
-            block.Texture( "u_Source", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
-        block.Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-             .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-             .Texture( "u_AdaptedLuminance", adaptedLuminance, RDG::Access::SampledCompute,
+            block.Texture( "SourceMipTexture", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
+        block.Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+             .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+             .Texture( "AdaptedLuminanceTexture", adaptedLuminance, RDG::Access::SampledCompute,
                        RDG::SubresourceRange::All() );
-        block.Storage( "u_Output", chain, RDG::Access::StorageWrite, mip )
+        block.Storage( "DestinationMipTexture", chain, RDG::Access::StorageWrite, mip )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( DownsamplePush ) ) );
     }
 
@@ -152,9 +152,9 @@ namespace Desert::Graphic::System
             return; // RecordUpsample refuses both by name
         pass.Bindings( m_UpsampleLayout.Get( m_UpsamplePipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_UpsamplePipeline ) )
-             .Texture( "u_Source", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ) )
-             .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-             .Storage( "u_Output", chain, RDG::Access::StorageWrite, mip - 1 )
+             .Texture( "SourceMipTexture", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ) )
+             .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+             .Storage( "DestinationMipTexture", chain, RDG::Access::StorageWrite, mip - 1 )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( UpsamplePush ) ) );
     }
 

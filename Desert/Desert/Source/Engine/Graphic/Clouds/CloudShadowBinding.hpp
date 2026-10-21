@@ -16,7 +16,7 @@ namespace Desert::Graphic
      *
      * Every shader that receives the cloud layer's shadow compiles the same receiver text
      * (Editor/Resources/Shaders/Common/CloudShadowReceiver.glslh), which names exactly two resources —
-     * `u_CloudShadowMap` and the `CloudShadowUB` block. The shaders declare them at different SLOT
+     * `CloudShadowMapTexture` and the `CloudShadowUB` block. The shaders declare them at different SLOT
      * NUMBERS (the deferred composite is a fullscreen material with a layout of its own, the four mesh
      * shaders share one with the G-buffer pass, the terrain has a small one), but every material in this
      * engine binds by NAME, so one function can serve all of them.

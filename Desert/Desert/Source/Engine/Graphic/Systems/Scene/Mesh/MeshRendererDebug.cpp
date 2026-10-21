@@ -251,13 +251,13 @@ namespace Desert::Graphic::System
             return;
         // 2) Resolve: heat-map the accumulation over the scene colour (the graph opens the target with LOAD;
         //    the resolve discards empty texels). The resolve's one block: the shader's reflected layout, the
-        //    material as the other route, and the accumulation as u_Overdraw with the sampler the material route
+        //    material as the other route, and the accumulation as OverdrawTexture with the sampler the material route
         //    sampled it with (the image's own: linear, REPEAT).
         const MaterialExecutor& executor = *m_OverdrawResolveMaterial->GetMaterialExecutor();
         pass.Bindings( m_OverdrawResolveLayout.Get( m_OverdrawResolvePipeline->GetSpecification().Shader ),
                        executor.GetRouteFill() )
-             .Texture( "u_Overdraw", overdraw, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-             .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
+             .Texture( "OverdrawTexture", overdraw, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
     }
 
     Common::BoolResultStr MeshRenderer::RecordOverdrawResolve( const RDG::PassContext& context ) const

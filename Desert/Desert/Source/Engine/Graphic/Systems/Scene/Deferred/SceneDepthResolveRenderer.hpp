@@ -13,7 +13,7 @@
 namespace Desert::Graphic
 {
     // "Scene: DepthResolve": SceneDepthResolve.shader fetches sample 0 of the multisampled scene depth. The
-    // material holds nothing of its own: u_Depth is a pass parameter (not in the shader's Properties), bound by
+    // material holds nothing of its own: SourceDepthTexture is a pass parameter (not in the shader's Properties), bound by
     // SceneDepthResolveRenderer::Record through RDG::PassBindings from the node's SampledGraphics read.
     // Header-only.
     class MaterialSceneDepthResolve final : public Material
@@ -101,15 +101,15 @@ namespace Desert::Graphic::System
             return m_Resolved;
         }
 
-        // SETUP of "Scene: DepthResolve": the node's one block (block 0) - @p sceneDepth as u_Depth, fetched at
+        // SETUP of "Scene: DepthResolve": the node's one block (block 0) - @p sceneDepth as SourceDepthTexture, fetched at
         // sample 0 (PointClamp), the material as the other route. Not ready: nothing declared, Record refuses.
         void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneDepth ) const
         {
             if ( !IsReady() || !sceneDepth.IsValid() )
                 return;
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
-                 .Texture( "u_Depth", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                 .Texture( "SourceDepthTexture", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
         }
 
         // Inside the render pass the frame graph opens on SceneDepthResolved: opens block 0.

@@ -6,11 +6,11 @@ Shader "ParticleSort"
         // "Particles: Sort {view} {emitter} {stage}" (VFX-08): the back-to-front order of ONE translucent sprite
         // emitter for ONE view, on the GPU because the alive count lives on the GPU (the draw is indirect; a CPU
         // sort would need a readback, a frame late). A bitonic network over N = the power of two covering the
-        // emitter's range (ParticleSortLength), staged by u_Step.x:
+        // emitter's range (ParticleSortLength), staged by Step.x:
         //   0 KEYS   thread t < N: (ParticleSortKey(view depth), alive index) for t < alive, the pad key past it;
         //   1 LOCAL  each group sorts its block of 1024 keys (or all N) in shared memory, every k <= block;
-        //   2 GLOBAL one compare-exchange (k = u_Step.y, j = u_Step.z) across blocks, j >= 1024;
-        //   3 MERGE  each group finishes k = u_Step.y for every j < 1024 in shared memory;
+        //   2 GLOBAL one compare-exchange (k = Step.y, j = Step.z) across blocks, j >= 1024;
+        //   3 MERGE  each group finishes k = Step.y for every j < 1024 in shared memory;
         //   4 WRITE  thread t < alive: the sorted index into SortedAlive at the emitter's alive half, so the draw
         //            binds SortedAlive in place of AliveList and its slot (FirstVertex) is unchanged.
         // Ascending keys = far first (Common/ParticleSortKey.glslh). The stages are separate graph nodes: the graph
@@ -25,42 +25,42 @@ Shader "ParticleSort"
         // depth is the drawn position's, read from the one store the sprite draw reads it from.
         ReadBuffer(0) AttributeFloats
         {
-            float u_DrawFloats[];
+            float DrawFloats[];
         };
 
         ReadBuffer(5) DrawLayout
         {
-            ParticleDrawLayout u_DrawLayout;
+            ParticleDrawLayout DrawLayoutData;
         };
 
         #include <Common/ParticleDrawRead.glslh>
 
         Buffer(1) AliveList
         {
-            uint u_Alive[];
+            uint AliveData[];
         };
 
         Buffer(2) Counters
         {
-            ParticleDrawSlot u_Slots[];
+            ParticleDrawSlot Slots[];
         };
 
         Buffer(3) SortKeys
         {
-            uvec2 u_Keys[];
+            uvec2 Keys[];
         };
 
         Buffer(4) SortedAlive
         {
-            uint u_Sorted[];
+            uint Sorted[];
         };
 
         PushConstant PushConstants
         {
-            uvec4 u_Range;       // x = the alive half's offset in AliveList, y = the draw slot, z = key base, w = N
-            uvec4 u_Step;        // x = stage, y = k, z = j
-            vec4  u_ViewOrigin;  // xyz = the view's position (cm)
-            vec4  u_ViewForward; // xyz = the view's forward axis (unit)
+            uvec4 SortRange;       // x = the alive half's offset in AliveList, y = the draw slot, z = key base, w = N
+            uvec4 Step;        // x = stage, y = k, z = j
+            vec4  ViewOrigin;  // xyz = the view's position (cm)
+            vec4  ViewForward; // xyz = the view's forward axis (unit)
         };
 
         shared uvec2 s_Keys[1024];
@@ -85,10 +85,10 @@ Shader "ParticleSort"
 
         void main()
         {
-            uint stage   = u_Step.x;
-            uint n       = u_Range.w;
-            uint keyBase = u_Range.z;
-            uint alive   = u_Slots[u_Range.y].VertexCount / 6u;
+            uint stage   = Step.x;
+            uint n       = SortRange.w;
+            uint keyBase = SortRange.z;
+            uint alive   = Slots[SortRange.y].VertexCount / 6u;
             uint t       = gl_GlobalInvocationID.x;
 
             if ( stage == 0u )
@@ -98,30 +98,30 @@ Shader "ParticleSort"
                 uvec2 key = uvec2( PARTICLE_SORT_PAD_KEY, 0u );
                 if ( t < alive )
                 {
-                    uint  index = u_Alive[u_Range.x + t];
-                    float depth = dot( ParticleWorldPosition( ParticleLocalIndex( index ) ) - u_ViewOrigin.xyz,
-                                       u_ViewForward.xyz );
+                    uint  index = AliveData[SortRange.x + t];
+                    float depth = dot( ParticleWorldPosition( ParticleLocalIndex( index ) ) - ViewOrigin.xyz,
+                                       ViewForward.xyz );
                     key         = uvec2( ParticleSortKey( depth ), index );
                 }
-                u_Keys[keyBase + t] = key;
+                Keys[keyBase + t] = key;
                 return;
             }
 
             if ( stage == 2u )
             {
-                uint k = u_Step.y;
-                uint j = u_Step.z;
+                uint k = Step.y;
+                uint j = Step.z;
                 if ( t >= n / 2u )
                     return;
                 uint  i         = 2u * j * ( t / j ) + ( t % j );
                 uint  l         = i + j;
-                uvec2 a         = u_Keys[keyBase + i];
-                uvec2 b         = u_Keys[keyBase + l];
+                uvec2 a         = Keys[keyBase + i];
+                uvec2 b         = Keys[keyBase + l];
                 bool  ascending = ( i & k ) == 0u;
                 if ( KeyBefore( b, a ) == ascending )
                 {
-                    u_Keys[keyBase + i] = b;
-                    u_Keys[keyBase + l] = a;
+                    Keys[keyBase + i] = b;
+                    Keys[keyBase + l] = a;
                 }
                 return;
             }
@@ -129,7 +129,7 @@ Shader "ParticleSort"
             if ( stage == 4u )
             {
                 if ( t < alive )
-                    u_Sorted[u_Range.x + t] = u_Keys[keyBase + t].y;
+                    Sorted[SortRange.x + t] = Keys[keyBase + t].y;
                 return;
             }
 
@@ -139,12 +139,12 @@ Shader "ParticleSort"
             uint p     = gl_LocalInvocationID.x;
             if ( 2u * p < block )
             {
-                s_Keys[2u * p]      = u_Keys[keyBase + first + 2u * p];
-                s_Keys[2u * p + 1u] = u_Keys[keyBase + first + 2u * p + 1u];
+                s_Keys[2u * p]      = Keys[keyBase + first + 2u * p];
+                s_Keys[2u * p + 1u] = Keys[keyBase + first + 2u * p + 1u];
             }
             barrier();
-            uint kFirst = stage == 1u ? 2u : u_Step.y;
-            uint kLast  = stage == 1u ? block : u_Step.y;
+            uint kFirst = stage == 1u ? 2u : Step.y;
+            uint kLast  = stage == 1u ? block : Step.y;
             for ( uint k = kFirst; k <= kLast; k *= 2u )
             {
                 for ( uint j = min( k, block ) / 2u; j > 0u; j /= 2u )
@@ -159,8 +159,8 @@ Shader "ParticleSort"
             }
             if ( 2u * p < block )
             {
-                u_Keys[keyBase + first + 2u * p]      = s_Keys[2u * p];
-                u_Keys[keyBase + first + 2u * p + 1u] = s_Keys[2u * p + 1u];
+                Keys[keyBase + first + 2u * p]      = s_Keys[2u * p];
+                Keys[keyBase + first + 2u * p + 1u] = s_Keys[2u * p + 1u];
             }
         }
     }

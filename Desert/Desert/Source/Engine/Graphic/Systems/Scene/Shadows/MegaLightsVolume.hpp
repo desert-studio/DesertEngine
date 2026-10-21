@@ -206,12 +206,12 @@ namespace Desert::Graphic::System
                      auto block =
                           pass.Bindings( m_Layout.Get( m_Shader ), Renderer::GetPipelineRouteFill( *m_Pipeline ) );
                      block.Uniform( "MegaLightsVolumeViewUB", view )
-                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                          .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
                           .Storage( ShaderProtocols::PointLight::Name, in.Lights.Point, RDG::Access::StorageRead )
                           .Storage( ShaderProtocols::SpotLight::Name, in.Lights.Spot, RDG::Access::StorageRead )
                           .Storage( kLightGridParamsBlockName, in.Lights.GridParams, RDG::Access::StorageRead )
                           .Storage( kLightGridCellsBlockName, in.Lights.GridCells, RDG::Access::StorageRead )
-                          .AccelerationStructure( "u_SceneTLAS", in.Tlas )
+                          .AccelerationStructure( "SceneTlas", in.Tlas )
                           .Storage( "RayTracingGeometryRecords", in.Metadata.Geometry, RDG::Access::StorageRead )
                           .Storage( "RayTracingMaterialRecords", in.Metadata.Materials, RDG::Access::StorageRead );
                      for ( std::size_t channel = 0; channel < 3; ++channel )
@@ -237,9 +237,9 @@ namespace Desert::Graphic::System
     private:
         static constexpr std::string_view                kShaderName        = "MegaLightsVolume";
         static constexpr std::string_view                kPassName          = "MegaLights: Volume";
-        static constexpr std::array<std::string_view, 3> kHistoryInputNames = { "u_HistoryR", "u_HistoryG",
-                                                                                "u_HistoryB" };
-        static constexpr std::array<std::string_view, 3> kOutputNames       = { "u_OutR", "u_OutG", "u_OutB" };
+        static constexpr std::array<std::string_view, 3> kHistoryInputNames = { "HistoryRTexture", "HistoryGTexture",
+                                                                                "HistoryBTexture" };
+        static constexpr std::array<std::string_view, 3> kOutputNames       = { "OutRTexture", "OutGTexture", "OutBTexture" };
         // The two history slots' graph names (static: the graph keeps a view of each while it builds).
         static constexpr std::array<std::array<std::string_view, 3>, 2> kSlotNames = {
              { { "MegaLights.Volume0.R", "MegaLights.Volume0.G", "MegaLights.Volume0.B" },

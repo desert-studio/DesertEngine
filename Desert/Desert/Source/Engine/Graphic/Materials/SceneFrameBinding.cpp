@@ -49,7 +49,7 @@ namespace Desert::Graphic
         {
             SceneEnvironmentBind( material, EnvironmentLook );
         }
-        // The block only: u_CloudShadowMap is a pass parameter, bound by every mesh node that draws these
+        // The block only: CloudShadowMapTexture is a pass parameter, bound by every mesh node that draws these
         // materials (CloudShadowMapOrWhite through RDG::PassBindings).
         if ( Reads( groups, SceneRead::CloudShadow ) )
         {
@@ -79,7 +79,7 @@ namespace Desert::Graphic
             DESERT_VERIFY( bound, "a material reads WorldParameters but the frame carries none" );
             table->SetBuffer( WorldParameters );
         }
-        // The block only: u_RainOcclusionMap is a pass parameter, bound by the mesh node that draws these
+        // The block only: RainOcclusionMapTexture is a pass parameter, bound by the mesh node that draws these
         // materials (SceneViewInputs::RainOcclusionMap through BindSceneViewInputs).
         if ( Reads( groups, SceneRead::RainOcclusion ) )
         {

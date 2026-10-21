@@ -619,7 +619,7 @@ namespace Desert::Graphic::System
                 if ( fades && depth )
                     block.Texture( kSceneViewSceneDepthName, depth, RDG::Access::SampledGraphics,
                                    "SceneDepth.Compute" )
-                         .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                         .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
                 // The rest of the list, minus the depth above and minus what the material route already fills
                 // (a slot filled by both faults the node as surely as one filled by neither).
                 const RDG::OtherRouteFill& route  = ve.Sprite->Material->GetMaterialExecutor()->GetRouteFill();

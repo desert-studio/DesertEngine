@@ -358,10 +358,10 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_SkyPrepareLayout.Get( m_SkyPrepareShader ),
                                     Renderer::GetPipelineRouteFill( *m_SkyPreparePipeline ) )
-                          .Texture( "u_EnvSpecularTex", inputs.EnvSpecular, RDG::Access::SampledCompute,
+                          .Texture( "EnvironmentSpecularTexture", inputs.EnvSpecular, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                          .Storage( "u_SkyRadiance", sky.Radiance, RDG::Access::StorageWrite )
+                          .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                          .Storage( "SkyRadianceTexture", sky.Radiance, RDG::Access::StorageWrite )
                           .Storage( "PathTracingSkyPdfUB", sky.Pdf, RDG::Access::StorageWrite )
                           .Storage( "GIFrameUB", inputs.GIFrame, RDG::Access::StorageRead )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( SkyPush ) ) );
@@ -417,12 +417,12 @@ namespace Desert::Graphic::System
                      constexpr RDG::Access kR = RDG::Access::StorageRead;
                      pass.Bindings( m_TraceLayout.Get( m_TraceShader ), RDG::OtherRouteFill{} )
                           .Uniform( "CameraUB", inputs.Camera )
-                          .AccelerationStructure( "u_SceneTLAS", inputs.Tlas )
-                          .Storage( "u_Accumulation", accumulation, RDG::Access::StorageWrite )
+                          .AccelerationStructure( "SceneTlas", inputs.Tlas )
+                          .Storage( "AccumulationTexture", accumulation, RDG::Access::StorageWrite )
                           .Storage( "GIFrameUB", inputs.GIFrame, kR )
                           .Storage( "PointLightsUB", inputs.PointLights, kR )
                           .Storage( "SpotLightsUB", inputs.SpotLights, kR )
-                          .Storage( "u_SkyRadiance", sky.Radiance, kR )
+                          .Storage( "SkyRadianceTexture", sky.Radiance, kR )
                           .Storage( "PathTracingSkyPdfUB", sky.Pdf, kR )
                           .Storage( "EmissiveSegmentsUB", inputs.Emissive.Static.Segments, kR )
                           .Storage( "EmissiveLookupUB", inputs.Emissive.Lookup, kR )
@@ -431,9 +431,9 @@ namespace Desert::Graphic::System
                           .Storage( "EmissiveDynamicSegmentsUB", inputs.Emissive.Dynamic.Segments, kR )
                           .Storage( "EmissiveDynamicTrianglesUB", inputs.Emissive.Dynamic.Triangles, kR )
                           .Storage( "EmissiveDynamicPowerUB", inputs.Emissive.Dynamic.Power, kR )
-                          .Texture( "u_EnvSpecularTex", inputs.EnvSpecular, RDG::Access::SampledCompute,
+                          .Texture( "EnvironmentSpecularTexture", inputs.EnvSpecular, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                          .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
                  },
                  [this, push, hits = inputs.HitGroups, width,
@@ -461,9 +461,9 @@ namespace Desert::Graphic::System
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_ResolveLayout.Get( m_ResolveShader ), RDG::OtherRouteFill{} )
-                          .Texture( "u_Accumulation", accumulation, RDG::Access::SampledGraphics,
+                          .Texture( "AccumulationTexture", accumulation, RDG::Access::SampledGraphics,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                          .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
                      // Every pixel is written: what the scene colour held is not loaded.
                      pass.ColorTarget( 0, sceneColor, RDG::LoadOp::DontCare() );
                  },

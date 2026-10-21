@@ -1243,9 +1243,9 @@ namespace Desert::Player
                  {
                      pass.Bindings( m_BlitLayout.Get( m_BlitPipeline->GetSpecification().Shader ),
                                     m_BlitExecutor->GetRouteFill() )
-                          .Texture( "u_Texture", sceneRef, Graphic::RDG::Access::SampledGraphics,
+                          .Texture( "FinalColorTexture", sceneRef, Graphic::RDG::Access::SampledGraphics,
                                     Graphic::RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearClampSampler", Graphic::RDG::SamplerDesc::LinearClamp() );
+                          .Sampler( "LinearClampSampler", Graphic::RDG::SamplerDesc::LinearClamp() );
                  }
                  // The runtime has no backdrop pyramid: a glass panel draws as its flat tinted fill.
                  if ( drawUI )

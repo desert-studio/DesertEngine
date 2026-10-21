@@ -823,7 +823,7 @@ namespace Desert::Assets
     std::vector<float> BakeCloudFarWeatherMap( uint32_t seed, float tileKm );
 
     /// What the march needs to read the world weather W, as the GPU block carries it (CloudGpuPayload::Weather
-    /// / u_CloudWeather): y the PatchStrength the weather map W is drawn at — ZERO when the weather stands
+    /// / CloudWeather): y the PatchStrength the weather map W is drawn at — ZERO when the weather stands
     /// down (no strength, or a painted pattern is the weather, exactly as CloudProceduralLocalWeather
     /// decides), w 1 / kCloudFarWeatherPeriodKm, x CloudFarFieldScale (the far path's own read of the same
     /// map). z is zero and unread (Graphic::kCloudUnreadSlots): the cover's softness is the bake's since

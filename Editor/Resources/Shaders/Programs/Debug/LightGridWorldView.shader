@@ -31,12 +31,12 @@ Shader "LightGridWorldView"
         // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
         // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
         // AssignSharedSamplerBindings).
-        Uniform sampler u_LinearRepeatSampler;
-        Uniform(0) texture2D u_Depth; // the G-buffer's device depth (render extent)
-        #define u_Depth sampler2D(u_Depth, u_LinearRepeatSampler)
+        Uniform sampler LinearRepeatSampler;
+        Uniform(0) texture2D DeviceDepthTexture; // the G-buffer's device depth (render extent)
+        #define DeviceDepthTexture sampler2D(DeviceDepthTexture, LinearRepeatSampler)
         ReadBuffer(1) LightGridWorldViewUB
         {
-        	mat4 u_InvJitteredViewProjection; // the inverse of the matrix the depth was rasterised with
+        	mat4 InverseJitteredViewProjection; // the inverse of the matrix the depth was rasterised with
         };
         ReadBuffer(2) LightGridParamsUB
         {
@@ -62,10 +62,10 @@ Shader "LightGridWorldView"
 
         void main()
         {
-        	const ivec2 size  = textureSize(u_Depth, 0);
+        	const ivec2 size  = textureSize(DeviceDepthTexture, 0);
         	const ivec2 texel = clamp(ivec2(v_TexCoord * vec2(size)), ivec2(0), size - 1);
-        	const float depth = texelFetch(u_Depth, texel, 0).r;
-        	const vec3  p     = ReconstructWorldPosition(v_TexCoord, depth, u_InvJitteredViewProjection);
+        	const float depth = texelFetch(DeviceDepthTexture, texel, 0).r;
+        	const vec3  p     = ReconstructWorldPosition(v_TexCoord, depth, InverseJitteredViewProjection);
 
         	const uint cell = LightGridWorldCellAt(lightGrid, p);
         	if (cell == LIGHT_GRID_NO_CELL)

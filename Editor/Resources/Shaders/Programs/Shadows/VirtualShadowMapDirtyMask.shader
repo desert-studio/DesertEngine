@@ -14,16 +14,16 @@ Shader "VirtualShadowMapDirtyMask"
 
         ReadBuffer(0) VsmFrameData
         {
-            VsmFrame u_Frame;
-            VsmLevel u_Levels[];
+            VsmFrame Frame;
+            VsmLevel Levels[];
         };
         ReadBuffer(1) VsmPageTable
         {
-            VsmPageEntry u_Entries[];
+            VsmPageEntry Entries[];
         };
         Buffer(2) VsmDirtyMask
         {
-            uint u_Mask[]; // level l, cell c: bit c % 32 of word l * VSM_MASK_WORDS_PER_LEVEL + c / 32
+            uint DirtyPageMask[]; // level l, cell c: bit c % 32 of word l * VSM_MASK_WORDS_PER_LEVEL + c / 32
         };
 
         void main()
@@ -33,14 +33,14 @@ Shader "VirtualShadowMapDirtyMask"
             if ( local >= VSM_PAGES_PER_LEVEL )
                 return;
             const uint drawn = VSM_FLAG_ALLOCATED | VSM_FLAG_DIRTY | VSM_FLAG_REQUESTED;
-            if ( ( u_Entries[level * VSM_PAGES_PER_LEVEL + local].Flags & drawn ) != drawn )
+            if ( ( Entries[level * VSM_PAGES_PER_LEVEL + local].Flags & drawn ) != drawn )
                 return;
             // The slot's world page this frame, as a page of the level's window (0 .. 127 on each axis).
-            const ivec2 window     = u_Levels[level].Window.xy;
+            const ivec2 window     = Levels[level].Window.xy;
             const ivec2 windowPage = VsmWorldPageOfSlot( window, local ) - window;
             const uvec2 cell       = uvec2( windowPage ) / VSM_MASK_CELL_PAGES;
             const uint  index      = cell.y * VSM_MASK_CELLS + cell.x;
-            atomicOr( u_Mask[level * VSM_MASK_WORDS_PER_LEVEL + index / 32u], 1u << ( index % 32u ) );
+            atomicOr( DirtyPageMask[level * VSM_MASK_WORDS_PER_LEVEL + index / 32u], 1u << ( index % 32u ) );
         }
     }
 }

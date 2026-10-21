@@ -25,8 +25,8 @@ namespace Desert::Graphic::SurfaceCache
              "SurfaceCache.Normal", "SurfaceCache.Emissive", "SurfaceCache.Subsurface" };
         // The shader names of the atlas layers, in kCapturedLayers order (Programs/SurfaceCache/*.shader).
         constexpr std::array<std::string_view, SurfaceCacheRenderer::kCapturedLayers.size()> kLayerImages{
-             "u_AtlasDepth",  "u_AtlasAlbedo",   "u_AtlasOpacity",
-             "u_AtlasNormal", "u_AtlasEmissive", "u_AtlasSubsurface" };
+             "AtlasDepthTexture",  "AtlasAlbedoTexture",   "AtlasOpacityTexture",
+             "AtlasNormalTexture", "AtlasEmissiveTexture", "AtlasSubsurfaceTexture" };
         constexpr uint32_t kCopyGroup = 8; // Programs/SurfaceCache/SurfaceCacheCardCopy.shader LocalSize
 
         constexpr std::array<std::string_view, 3> kLitLayerNames{
@@ -192,21 +192,21 @@ namespace Desert::Graphic::SurfaceCache
              {
                  auto block = pass.Bindings( m_CopyLayout.Get( m_CopyShader ),
                                              Renderer::GetPipelineRouteFill( *pipeline ) );
-                 block.Texture( "u_CaptureAlbedo", capture.Albedo, RDG::Access::SampledCompute,
+                 block.Texture( "CaptureAlbedoTexture", capture.Albedo, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Texture( "u_CaptureNormal", capture.Normal, RDG::Access::SampledCompute,
+                      .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Texture( "CaptureNormalTexture", capture.Normal, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Texture( "u_CaptureShadingWord", capture.ShadingWord, RDG::Access::SampledCompute,
+                      .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Texture( "CaptureShadingWordTexture", capture.ShadingWord, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Texture( "u_CaptureEmissive", capture.Emissive, RDG::Access::SampledCompute,
+                      .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Texture( "CaptureEmissiveTexture", capture.Emissive, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Texture( "u_CaptureDepth", capture.Depth, RDG::Access::SampledCompute,
+                      .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Texture( "CaptureDepthTexture", capture.Depth, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
                       .Storage( "SurfaceCardPageCopies", copies, RDG::Access::StorageRead );
                  for ( std::size_t i = 0; i < layers.size(); ++i )
                      block.Storage( kLayerImages[i], layers[i], RDG::Access::StorageWrite );
@@ -272,7 +272,7 @@ namespace Desert::Graphic::SurfaceCache
                      if ( kCapturedLayers[i] != Layer::Emissive && kCapturedLayers[i] != Layer::Subsurface )
                          block.Texture( kLayerImages[i], layers[i], RDG::Access::SampledGraphics,
                                         RDG::SubresourceRange::All() )
-                              .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                              .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
                  pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 1.0f ) );
              },
              [raw]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -331,11 +331,11 @@ namespace Desert::Graphic::SurfaceCache
                  pass.Bindings( m_SceneViewLayout.Get( m_SceneViewShader ), RDG::OtherRouteFill{} )
                       .Storage( "SurfaceCardBuffer", cards, RDG::Access::StorageRead )
                       .Storage( "SurfaceCardPageBuffer", pages, RDG::Access::StorageRead )
-                      .Texture( "u_AtlasColor", color, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Texture( "u_AtlasDepth", depthLayer, RDG::Access::SampledGraphics,
+                      .Texture( "AtlasColorTexture", color, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                      .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Texture( "AtlasDepthTexture", depthLayer, RDG::Access::SampledGraphics,
                                 RDG::SubresourceRange::All() )
-                      .Texture( "u_AtlasOpacity", opacity, RDG::Access::SampledGraphics,
+                      .Texture( "AtlasOpacityTexture", opacity, RDG::Access::SampledGraphics,
                                 RDG::SubresourceRange::All() )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( SceneViewPush ) ) );
                  pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.02f, 0.02f, 0.03f, 1.0f ) );
@@ -474,10 +474,10 @@ namespace Desert::Graphic::SurfaceCache
                  for ( std::size_t i = 0; i < layers.size(); ++i )
                      block.Texture( kLayerImages[i], layers[i], RDG::Access::SampledGraphics,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
-                 block.Texture( "u_AtlasIndirectLighting", indirect, RDG::Access::SampledGraphics,
+                          .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                 block.Texture( "AtlasIndirectLightingTexture", indirect, RDG::Access::SampledGraphics,
                                 RDG::SubresourceRange::All() )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                      .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
                  // The active tracer's reads (its visibility rays), sampled in the fragment stage.
                  GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, RDG::Access::SampledGraphics );
                  // The cascades, the cloud map and the local shadow atlas, with the composite's samplers; the
@@ -532,14 +532,14 @@ namespace Desert::Graphic::SurfaceCache
                       .Storage( "RadianceCacheParamsUB", inputs.Params, RDG::Access::StorageRead )
                       .Storage( "RadianceCacheIndirectionUB", inputs.Indirection, RDG::Access::StorageRead )
                       .Storage( "RadianceCacheProbesUB", inputs.Probes, RDG::Access::StorageRead )
-                      .Texture( "u_RadianceCacheIrradiance", inputs.Irradiance, RDG::Access::SampledGraphics, all )
-                      .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                      .Texture( "u_RadianceCacheDepth", inputs.Depth, RDG::Access::SampledGraphics, all )
-                      .Texture( "u_AtlasDirectLighting", direct, RDG::Access::SampledGraphics, all )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                      .Texture( "RadianceCacheIrradianceTexture", inputs.Irradiance, RDG::Access::SampledGraphics, all )
+                      .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                      .Texture( "RadianceCacheDepthTexture", inputs.Depth, RDG::Access::SampledGraphics, all )
+                      .Texture( "AtlasDirectLightingTexture", direct, RDG::Access::SampledGraphics, all )
+                      .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
                  for ( std::size_t i = 0; i < layers.size(); ++i )
                      block.Texture( kLayerImages[i], layers[i], RDG::Access::SampledGraphics, all )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                          .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
                  pass.ColorTarget( 0, indirect, RDG::LoadOp::Load() );
                  pass.ColorTarget( 1, finalLit, RDG::LoadOp::Load() );
              },

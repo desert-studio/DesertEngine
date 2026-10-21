@@ -17,7 +17,7 @@
 namespace Desert::Graphic
 {
     // "<Color>: Resolve": GraphColorResolve.shader fetches sample 0 of a multisampled graph colour. The material
-    // holds nothing of its own: u_Input is a pass parameter bound by GraphColorResolveRenderer::Record through
+    // holds nothing of its own: MultisampledColorTexture is a pass parameter bound by GraphColorResolveRenderer::Record through
     // RDG::PassBindings from the node's SampledGraphics read. Header-only.
     class MaterialGraphColorResolve final : public Material
     {
@@ -76,7 +76,7 @@ namespace Desert::Graphic::System
             return m_Shader && m_Material && m_Pipelines.size() == kFormats.size();
         }
 
-        // SETUP of "<Color>: Resolve": the node's one block (block 0) - @p multisample as u_Input, fetched at
+        // SETUP of "<Color>: Resolve": the node's one block (block 0) - @p multisample as MultisampledColorTexture, fetched at
         // sample 0 (PointClamp). Not ready: nothing declared, Record refuses (the node faults, the colour reads
         // its fault default).
         void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef multisample ) const
@@ -84,8 +84,8 @@ namespace Desert::Graphic::System
             if ( !IsReady() || !multisample.IsValid() )
                 return;
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
-                 .Texture( "u_Input", multisample, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                 .Texture( "MultisampledColorTexture", multisample, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
         }
 
         // Inside the render pass the graph opens on the single-sample colour of @p format: opens block 0.

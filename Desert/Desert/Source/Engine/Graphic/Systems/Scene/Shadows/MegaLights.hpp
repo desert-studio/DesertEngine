@@ -212,22 +212,22 @@ namespace Desert::Graphic::System
             const auto common = [&]( RDG::BindingBlockBuilder& block, const bool shading )
             {
                 block.Uniform( "MegaLightsViewUB", view )
-                     .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                     .Texture( "u_GBufferDepth", in.Depth, RDG::Access::SampledCompute,
+                     .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                     .Texture( "GBufferDepthTexture", in.Depth, RDG::Access::SampledCompute,
                                RDG::SubresourceRange::All() )
-                     .Texture( "u_GBufferNormal", in.GBufferB, RDG::Access::SampledCompute,
+                     .Texture( "GBufferNormalTexture", in.GBufferB, RDG::Access::SampledCompute,
                                RDG::SubresourceRange::All() )
                      .Storage( ShaderProtocols::PointLight::Name, in.Lights.Point, RDG::Access::StorageRead )
                      .Storage( ShaderProtocols::SpotLight::Name, in.Lights.Spot, RDG::Access::StorageRead );
                 if ( shading )
-                    block.Texture( "u_GBufferA", in.GBufferA, RDG::Access::SampledCompute,
+                    block.Texture( "GBufferATexture", in.GBufferA, RDG::Access::SampledCompute,
                                    RDG::SubresourceRange::All() )
-                         .Texture( "u_GBufferShadingWord", in.ShadingWord, RDG::Access::SampledCompute,
+                         .Texture( "GBufferShadingWordTexture", in.ShadingWord, RDG::Access::SampledCompute,
                                    RDG::SubresourceRange::All() );
             };
             const auto tracing = [&]( RDG::BindingBlockBuilder& block )
             {
-                block.AccelerationStructure( "u_SceneTLAS", in.Tlas )
+                block.AccelerationStructure( "SceneTlas", in.Tlas )
                      .Storage( "RayTracingGeometryRecords", in.Metadata.Geometry, RDG::Access::StorageRead )
                      .Storage( "RayTracingMaterialRecords", in.Metadata.Materials, RDG::Access::StorageRead );
             };
@@ -242,24 +242,24 @@ namespace Desert::Graphic::System
                           block.Storage( kLightGridParamsBlockName, in.Lights.GridParams,
                                          RDG::Access::StorageRead )
                                .Storage( kLightGridCellsBlockName, in.Lights.GridCells, RDG::Access::StorageRead )
-                               .Storage( "u_OutReservoirs", generated, RDG::Access::StorageWrite );
+                               .Storage( "OutReservoirsTexture", generated, RDG::Access::StorageWrite );
                       } );
             AddStage( graph, kTemporal, sampleWidth, sampleHeight,
                       [&]( RDG::BindingBlockBuilder& block )
                       {
                           common( block, true );
-                          read( block, "u_Reservoirs", generated );
-                          read( block, "u_HistoryReservoirs", history[0] );
-                          read( block, "u_HistorySurface", history[1] );
-                          read( block, "u_Velocity", in.Velocity );
-                          block.Storage( "u_OutReservoirs", temporal, RDG::Access::StorageWrite );
+                          read( block, "ReservoirsTexture", generated );
+                          read( block, "HistoryReservoirsTexture", history[0] );
+                          read( block, "HistorySurfaceTexture", history[1] );
+                          read( block, "VelocityTexture", in.Velocity );
+                          block.Storage( "OutReservoirsTexture", temporal, RDG::Access::StorageWrite );
                       } );
             AddStage( graph, kSpatial, sampleWidth, sampleHeight,
                       [&]( RDG::BindingBlockBuilder& block )
                       {
                           common( block, true );
-                          read( block, "u_Reservoirs", temporal );
-                          block.Storage( "u_OutReservoirs", spatial, RDG::Access::StorageWrite );
+                          read( block, "ReservoirsTexture", temporal );
+                          block.Storage( "OutReservoirsTexture", spatial, RDG::Access::StorageWrite );
                       } );
             HistorySlot* stamped = &next;
             AddStage(
@@ -268,18 +268,18 @@ namespace Desert::Graphic::System
                  {
                      common( block, true );
                      tracing( block );
-                     read( block, "u_Reservoirs", spatial );
-                     block.Storage( "u_OutReservoirs", written[0], RDG::Access::StorageWrite )
-                          .Storage( "u_OutSurface", written[1], RDG::Access::StorageWrite );
+                     read( block, "ReservoirsTexture", spatial );
+                     block.Storage( "OutReservoirsTexture", written[0], RDG::Access::StorageWrite )
+                          .Storage( "OutSurfaceTexture", written[1], RDG::Access::StorageWrite );
                  },
                  [stamped, index = frame.FrameIndex]() { stamped->Stamp.Stamp( index ); } );
             AddStage( graph, kShade, width, height,
                       [&]( RDG::BindingBlockBuilder& block )
                       {
                           common( block, true );
-                          read( block, "u_Reservoirs", written[0] );
-                          block.Storage( "u_OutDiffuse", diffuse, RDG::Access::StorageWrite )
-                               .Storage( "u_OutSpecular", specular, RDG::Access::StorageWrite );
+                          read( block, "ReservoirsTexture", written[0] );
+                          block.Storage( "OutDiffuseTexture", diffuse, RDG::Access::StorageWrite )
+                               .Storage( "OutSpecularTexture", specular, RDG::Access::StorageWrite );
                       } );
 
             const DenoiserSceneTextures scene{ .GBufferNormal = in.GBufferB,

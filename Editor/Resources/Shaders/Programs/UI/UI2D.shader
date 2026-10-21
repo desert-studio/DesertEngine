@@ -9,7 +9,7 @@ Shader "UI2D"
     // else the 2D pass samples is a pass parameter bound through RDG::PassBindings.
     Properties
     {
-        Texture2D   u_Texture ("Texture")
+        Texture2D   ElementTexture ("Texture")
     }
 
     Vertex
@@ -42,15 +42,15 @@ Shader "UI2D"
 
         // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
         // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
-        Uniform(0) texture2D u_Texture;
-        Uniform(1) sampler u_TextureSampler;
-        #define u_Texture sampler2D(u_Texture, u_TextureSampler)
+        Uniform(0) texture2D ElementTexture;
+        Uniform(1) sampler ElementSampler;
+        #define ElementTexture sampler2D(ElementTexture, ElementSampler)
 
         Out(0) vec4 o_Color;
 
         void main()
         {
-            o_Color = texture(u_Texture, v_TexCoord) * v_Color;
+            o_Color = texture(ElementTexture, v_TexCoord) * v_Color;
         }
     }
 }

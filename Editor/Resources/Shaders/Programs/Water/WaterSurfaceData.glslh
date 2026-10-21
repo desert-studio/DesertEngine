@@ -26,7 +26,7 @@
 
         ReadBuffer(1) WaterTiles
         {
-            WaterTileRow u_Tiles[];
+            WaterTileRow WaterTileRows[];
         };
 
 #endif // DESERT_WATER_SURFACE_DATA_GLSLH

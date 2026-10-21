@@ -9,7 +9,7 @@ Shader "Terrain"
     Role Terrain
 
     // Binding(1) is what makes these parameters a ROW of the shared `Materials[]` storage buffer, read
-    // through `u_Material` in the fragment stage. The block used to be written out by hand below and was
+    // through `Material` in the fragment stage. The block used to be written out by hand below and was
     // a uniform block per material — one set of values for every terrain in the scene, which is the same
     // defect the graph materials had (Engine/Core/Formats/MaterialParamRow.hpp).
     Properties Binding(1)
@@ -31,80 +31,80 @@ Shader "Terrain"
         Int         Layer0Blend ("Layer 0 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 0")) = 0
         Float       Layer0TileSize ("Layer 0 Tile Size (cm)", Range(10,10000), Category("Layer 0")) = 300
         Color       Layer0Tint ("Layer 0 Tint", Category("Layer 0")) = (1, 1, 1, 1)
-        Texture2D   u_Layer0Albedo ("Layer 0 Albedo", Category("Layer 0"), Intent(Colour), Element(u_LayerAlbedo, 0))
-        Texture2D   u_Layer0Normal ("Layer 0 Normal", Category("Layer 0"), Intent(NormalMap), Element(u_LayerNormal, 0))
-        Texture2D   u_Layer0ARM ("Layer 0 ARM", Category("Layer 0"), Intent(Data), Element(u_LayerARM, 0))
-        Texture2D   u_Layer0Height ("Layer 0 Height", Category("Layer 0"), Intent(Data), Element(u_LayerHeight, 0))
+        Texture2D   Layer0AlbedoTexture ("Layer 0 Albedo", Category("Layer 0"), Intent(Colour), Element(LayerAlbedoTexture, 0))
+        Texture2D   Layer0NormalTexture ("Layer 0 Normal", Category("Layer 0"), Intent(NormalMap), Element(LayerNormalTexture, 0))
+        Texture2D   Layer0ArmTexture ("Layer 0 ARM", Category("Layer 0"), Intent(Data), Element(LayerArmTexture, 0))
+        Texture2D   Layer0HeightTexture ("Layer 0 Height", Category("Layer 0"), Intent(Data), Element(LayerHeightTexture, 0))
         LandscapeLayerInfo Layer1Layer ("Layer 1 Layer", Category("Layer 1"), Element(Layers, 1))
         Int         Layer1Blend ("Layer 1 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 1")) = 0
         Float       Layer1TileSize ("Layer 1 Tile Size (cm)", Range(10,10000), Category("Layer 1")) = 300
         Color       Layer1Tint ("Layer 1 Tint", Category("Layer 1")) = (1, 1, 1, 1)
-        Texture2D   u_Layer1Albedo ("Layer 1 Albedo", Category("Layer 1"), Intent(Colour), Element(u_LayerAlbedo, 1))
-        Texture2D   u_Layer1Normal ("Layer 1 Normal", Category("Layer 1"), Intent(NormalMap), Element(u_LayerNormal, 1))
-        Texture2D   u_Layer1ARM ("Layer 1 ARM", Category("Layer 1"), Intent(Data), Element(u_LayerARM, 1))
-        Texture2D   u_Layer1Height ("Layer 1 Height", Category("Layer 1"), Intent(Data), Element(u_LayerHeight, 1))
+        Texture2D   Layer1AlbedoTexture ("Layer 1 Albedo", Category("Layer 1"), Intent(Colour), Element(LayerAlbedoTexture, 1))
+        Texture2D   Layer1NormalTexture ("Layer 1 Normal", Category("Layer 1"), Intent(NormalMap), Element(LayerNormalTexture, 1))
+        Texture2D   Layer1ArmTexture ("Layer 1 ARM", Category("Layer 1"), Intent(Data), Element(LayerArmTexture, 1))
+        Texture2D   Layer1HeightTexture ("Layer 1 Height", Category("Layer 1"), Intent(Data), Element(LayerHeightTexture, 1))
         LandscapeLayerInfo Layer2Layer ("Layer 2 Layer", Category("Layer 2"), Element(Layers, 2))
         Int         Layer2Blend ("Layer 2 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 2")) = 0
         Float       Layer2TileSize ("Layer 2 Tile Size (cm)", Range(10,10000), Category("Layer 2")) = 300
         Color       Layer2Tint ("Layer 2 Tint", Category("Layer 2")) = (1, 1, 1, 1)
-        Texture2D   u_Layer2Albedo ("Layer 2 Albedo", Category("Layer 2"), Intent(Colour), Element(u_LayerAlbedo, 2))
-        Texture2D   u_Layer2Normal ("Layer 2 Normal", Category("Layer 2"), Intent(NormalMap), Element(u_LayerNormal, 2))
-        Texture2D   u_Layer2ARM ("Layer 2 ARM", Category("Layer 2"), Intent(Data), Element(u_LayerARM, 2))
-        Texture2D   u_Layer2Height ("Layer 2 Height", Category("Layer 2"), Intent(Data), Element(u_LayerHeight, 2))
+        Texture2D   Layer2AlbedoTexture ("Layer 2 Albedo", Category("Layer 2"), Intent(Colour), Element(LayerAlbedoTexture, 2))
+        Texture2D   Layer2NormalTexture ("Layer 2 Normal", Category("Layer 2"), Intent(NormalMap), Element(LayerNormalTexture, 2))
+        Texture2D   Layer2ArmTexture ("Layer 2 ARM", Category("Layer 2"), Intent(Data), Element(LayerArmTexture, 2))
+        Texture2D   Layer2HeightTexture ("Layer 2 Height", Category("Layer 2"), Intent(Data), Element(LayerHeightTexture, 2))
         LandscapeLayerInfo Layer3Layer ("Layer 3 Layer", Category("Layer 3"), Element(Layers, 3))
         Int         Layer3Blend ("Layer 3 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 3")) = 0
         Float       Layer3TileSize ("Layer 3 Tile Size (cm)", Range(10,10000), Category("Layer 3")) = 300
         Color       Layer3Tint ("Layer 3 Tint", Category("Layer 3")) = (1, 1, 1, 1)
-        Texture2D   u_Layer3Albedo ("Layer 3 Albedo", Category("Layer 3"), Intent(Colour), Element(u_LayerAlbedo, 3))
-        Texture2D   u_Layer3Normal ("Layer 3 Normal", Category("Layer 3"), Intent(NormalMap), Element(u_LayerNormal, 3))
-        Texture2D   u_Layer3ARM ("Layer 3 ARM", Category("Layer 3"), Intent(Data), Element(u_LayerARM, 3))
-        Texture2D   u_Layer3Height ("Layer 3 Height", Category("Layer 3"), Intent(Data), Element(u_LayerHeight, 3))
+        Texture2D   Layer3AlbedoTexture ("Layer 3 Albedo", Category("Layer 3"), Intent(Colour), Element(LayerAlbedoTexture, 3))
+        Texture2D   Layer3NormalTexture ("Layer 3 Normal", Category("Layer 3"), Intent(NormalMap), Element(LayerNormalTexture, 3))
+        Texture2D   Layer3ArmTexture ("Layer 3 ARM", Category("Layer 3"), Intent(Data), Element(LayerArmTexture, 3))
+        Texture2D   Layer3HeightTexture ("Layer 3 Height", Category("Layer 3"), Intent(Data), Element(LayerHeightTexture, 3))
         LandscapeLayerInfo Layer4Layer ("Layer 4 Layer", Category("Layer 4"), Element(Layers, 4))
         Int         Layer4Blend ("Layer 4 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 4")) = 0
         Float       Layer4TileSize ("Layer 4 Tile Size (cm)", Range(10,10000), Category("Layer 4")) = 300
         Color       Layer4Tint ("Layer 4 Tint", Category("Layer 4")) = (1, 1, 1, 1)
-        Texture2D   u_Layer4Albedo ("Layer 4 Albedo", Category("Layer 4"), Intent(Colour), Element(u_LayerAlbedo, 4))
-        Texture2D   u_Layer4Normal ("Layer 4 Normal", Category("Layer 4"), Intent(NormalMap), Element(u_LayerNormal, 4))
-        Texture2D   u_Layer4ARM ("Layer 4 ARM", Category("Layer 4"), Intent(Data), Element(u_LayerARM, 4))
-        Texture2D   u_Layer4Height ("Layer 4 Height", Category("Layer 4"), Intent(Data), Element(u_LayerHeight, 4))
+        Texture2D   Layer4AlbedoTexture ("Layer 4 Albedo", Category("Layer 4"), Intent(Colour), Element(LayerAlbedoTexture, 4))
+        Texture2D   Layer4NormalTexture ("Layer 4 Normal", Category("Layer 4"), Intent(NormalMap), Element(LayerNormalTexture, 4))
+        Texture2D   Layer4ArmTexture ("Layer 4 ARM", Category("Layer 4"), Intent(Data), Element(LayerArmTexture, 4))
+        Texture2D   Layer4HeightTexture ("Layer 4 Height", Category("Layer 4"), Intent(Data), Element(LayerHeightTexture, 4))
         LandscapeLayerInfo Layer5Layer ("Layer 5 Layer", Category("Layer 5"), Element(Layers, 5))
         Int         Layer5Blend ("Layer 5 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 5")) = 0
         Float       Layer5TileSize ("Layer 5 Tile Size (cm)", Range(10,10000), Category("Layer 5")) = 300
         Color       Layer5Tint ("Layer 5 Tint", Category("Layer 5")) = (1, 1, 1, 1)
-        Texture2D   u_Layer5Albedo ("Layer 5 Albedo", Category("Layer 5"), Intent(Colour), Element(u_LayerAlbedo, 5))
-        Texture2D   u_Layer5Normal ("Layer 5 Normal", Category("Layer 5"), Intent(NormalMap), Element(u_LayerNormal, 5))
-        Texture2D   u_Layer5ARM ("Layer 5 ARM", Category("Layer 5"), Intent(Data), Element(u_LayerARM, 5))
-        Texture2D   u_Layer5Height ("Layer 5 Height", Category("Layer 5"), Intent(Data), Element(u_LayerHeight, 5))
+        Texture2D   Layer5AlbedoTexture ("Layer 5 Albedo", Category("Layer 5"), Intent(Colour), Element(LayerAlbedoTexture, 5))
+        Texture2D   Layer5NormalTexture ("Layer 5 Normal", Category("Layer 5"), Intent(NormalMap), Element(LayerNormalTexture, 5))
+        Texture2D   Layer5ArmTexture ("Layer 5 ARM", Category("Layer 5"), Intent(Data), Element(LayerArmTexture, 5))
+        Texture2D   Layer5HeightTexture ("Layer 5 Height", Category("Layer 5"), Intent(Data), Element(LayerHeightTexture, 5))
         LandscapeLayerInfo Layer6Layer ("Layer 6 Layer", Category("Layer 6"), Element(Layers, 6))
         Int         Layer6Blend ("Layer 6 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 6")) = 0
         Float       Layer6TileSize ("Layer 6 Tile Size (cm)", Range(10,10000), Category("Layer 6")) = 300
         Color       Layer6Tint ("Layer 6 Tint", Category("Layer 6")) = (1, 1, 1, 1)
-        Texture2D   u_Layer6Albedo ("Layer 6 Albedo", Category("Layer 6"), Intent(Colour), Element(u_LayerAlbedo, 6))
-        Texture2D   u_Layer6Normal ("Layer 6 Normal", Category("Layer 6"), Intent(NormalMap), Element(u_LayerNormal, 6))
-        Texture2D   u_Layer6ARM ("Layer 6 ARM", Category("Layer 6"), Intent(Data), Element(u_LayerARM, 6))
-        Texture2D   u_Layer6Height ("Layer 6 Height", Category("Layer 6"), Intent(Data), Element(u_LayerHeight, 6))
+        Texture2D   Layer6AlbedoTexture ("Layer 6 Albedo", Category("Layer 6"), Intent(Colour), Element(LayerAlbedoTexture, 6))
+        Texture2D   Layer6NormalTexture ("Layer 6 Normal", Category("Layer 6"), Intent(NormalMap), Element(LayerNormalTexture, 6))
+        Texture2D   Layer6ArmTexture ("Layer 6 ARM", Category("Layer 6"), Intent(Data), Element(LayerArmTexture, 6))
+        Texture2D   Layer6HeightTexture ("Layer 6 Height", Category("Layer 6"), Intent(Data), Element(LayerHeightTexture, 6))
         LandscapeLayerInfo Layer7Layer ("Layer 7 Layer", Category("Layer 7"), Element(Layers, 7))
         Int         Layer7Blend ("Layer 7 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 7")) = 0
         Float       Layer7TileSize ("Layer 7 Tile Size (cm)", Range(10,10000), Category("Layer 7")) = 300
         Color       Layer7Tint ("Layer 7 Tint", Category("Layer 7")) = (1, 1, 1, 1)
-        Texture2D   u_Layer7Albedo ("Layer 7 Albedo", Category("Layer 7"), Intent(Colour), Element(u_LayerAlbedo, 7))
-        Texture2D   u_Layer7Normal ("Layer 7 Normal", Category("Layer 7"), Intent(NormalMap), Element(u_LayerNormal, 7))
-        Texture2D   u_Layer7ARM ("Layer 7 ARM", Category("Layer 7"), Intent(Data), Element(u_LayerARM, 7))
-        Texture2D   u_Layer7Height ("Layer 7 Height", Category("Layer 7"), Intent(Data), Element(u_LayerHeight, 7))
+        Texture2D   Layer7AlbedoTexture ("Layer 7 Albedo", Category("Layer 7"), Intent(Colour), Element(LayerAlbedoTexture, 7))
+        Texture2D   Layer7NormalTexture ("Layer 7 Normal", Category("Layer 7"), Intent(NormalMap), Element(LayerNormalTexture, 7))
+        Texture2D   Layer7ArmTexture ("Layer 7 ARM", Category("Layer 7"), Intent(Data), Element(LayerArmTexture, 7))
+        Texture2D   Layer7HeightTexture ("Layer 7 Height", Category("Layer 7"), Intent(Data), Element(LayerHeightTexture, 7))
 
         // The four arrays the inputs' maps are copied into, slice by slice (TerrainRenderer: an array per map kind,
         // every slice of one kind at one size and format). Engine-built from the Element textures above, never
         // authored; declared by hand in TerrainSurface.glslh as sampler2DArray.
-        Texture2DArray u_LayerAlbedo ("Layer Albedo", EngineSet)
-        Texture2DArray u_LayerNormal ("Layer Normal", EngineSet)
-        Texture2DArray u_LayerARM ("Layer ARM", EngineSet)
-        Texture2DArray u_LayerHeight ("Layer Height", EngineSet)
+        Texture2DArray LayerAlbedoTexture ("Layer Albedo", EngineSet)
+        Texture2DArray LayerNormalTexture ("Layer Normal", EngineSet)
+        Texture2DArray LayerArmTexture ("Layer ARM", EngineSet)
+        Texture2DArray LayerHeightTexture ("Layer Height", EngineSet)
 
         // The landscape tile's own maps (LandscapeECSSystem's R16 height / RGBA8 weight copies): material
         // parameters the TerrainRenderer writes per tile, never an artist (EngineSet). Declared by hand in
         // TerrainVertex.glslh / TerrainSurface.glslh; a Binding(1) row skips textures.
-        Texture2D   u_Heightmap ("Heightmap", EngineSet)
-        Texture2D   u_Weightmap ("Weightmap", EngineSet)
+        Texture2D   HeightmapTexture ("Heightmap", EngineSet)
+        Texture2D   WeightmapTexture ("Weightmap", EngineSet)
     }
 
     State
@@ -162,15 +162,15 @@ Shader "Terrain"
         // every material binds by name (Graphic::CloudShadowBind).
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform sampler u_LinearRepeatSampler;
-        Uniform(6) texture2D u_CloudShadowMap;
-        #define u_CloudShadowMap sampler2D(u_CloudShadowMap, u_LinearRepeatSampler)
+        Uniform sampler LinearRepeatSampler;
+        Uniform(6) texture2D CloudShadowMapTexture;
+        #define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearRepeatSampler)
         Uniform(7) CloudShadowUB
         {
-        	mat4 u_CloudShadowWorldToMap;
+        	mat4 CloudShadowWorldToMap;
         	// x = the kilometres the map's clip z spans, y = 1 when the map is real and must be read,
         	// z = the UV width of the border fade, w = the artist's shadow strength.
-        	vec4 u_CloudShadowParams;
+        	vec4 CloudShadowParams;
         };
 
         // THE receiver, shared verbatim with the deferred composite and the mesh shaders.
@@ -203,7 +203,7 @@ Shader "Terrain"
             vec3 lit = albedo * ( ambient * s.AO + sun * ndl * cloudShadow );
 
             // Stored pre-exposed (ViewFrame::PreExposure), like the deferred composite and the forward mesh pass.
-            o_Color   = vec4( lit * u_Material.Tint.rgb * u.Exposure.x, 1.0 );
+            o_Color   = vec4( lit * Material.Tint.rgb * u.Exposure.x, 1.0 );
             oVelocity = TerrainVelocity();
             oThinGeometryCoverage = DesertThinGeometryCoverage( SHADING_MODEL_INDEX_DEFAULT_LIT );
         }

@@ -29,7 +29,7 @@ namespace Desert::Graphic::System
         return Core::Formats::IsTranslucentBlend( blend );
     }
 
-    // ParticleSort.shader's push block: u_Range, u_Step, u_ViewOrigin, u_ViewForward (four 16-byte rows).
+    // ParticleSort.shader's push block: SortRange, Step, ViewOrigin, ViewForward (four 16-byte rows).
     inline constexpr std::uint32_t kParticleSortPushBytes = 64;
 
     // One emitter as the sort sees it: its index in the view's emitter list, its cell's blend mode, its range's

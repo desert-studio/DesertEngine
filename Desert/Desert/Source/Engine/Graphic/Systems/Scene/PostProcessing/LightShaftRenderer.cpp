@@ -98,9 +98,9 @@ namespace Desert::Graphic::System
             return; // RecordMask refuses by name
         pass.Bindings( m_MaskLayout.Get( m_MaskPipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_MaskPipeline ) )
-             .Texture( "u_SceneColor", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-             .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-             .Storage( "u_Mask", mask, RDG::Access::StorageWrite, 0 )
+             .Texture( "SceneColorTexture", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+             .Storage( "ShaftMaskTexture", mask, RDG::Access::StorageWrite, 0 )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( MaskPush ) ) );
     }
 
@@ -126,9 +126,9 @@ namespace Desert::Graphic::System
             return; // RecordBlur refuses by name
         pass.Bindings( m_BlurLayout.Get( m_BlurPipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_BlurPipeline ) )
-             .Texture( "u_Source", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-             .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-             .Storage( "u_Output", target, RDG::Access::StorageWrite, 0 )
+             .Texture( "ShaftMaskTexture", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+             .Storage( "BlurredShaftsTexture", target, RDG::Access::StorageWrite, 0 )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( BlurPush ) ) );
     }
 

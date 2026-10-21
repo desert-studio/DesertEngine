@@ -30,7 +30,7 @@ namespace Desert::Graphic::System
 {
     // Screen-space reflections (SSR2): one compute dispatch that classifies and traces; the screen-space
     // denoiser (ScreenSpaceDenoiser, the reflections signal) turns the trace into the reflection the deferred
-    // lighting composes (DeferredLighting.shader u_SSR).
+    // lighting composes (DeferredLighting.shader SsrTexture).
     //  1) CLASSIFY + TRACE (SSR.shader, compute, one workgroup per kTileSize x kTileSize screen tile): the tile
     //     is marked in the tile mask when any pixel passes the trace's G-buffer gate (sky / too rough -
     //     Common/SSRGate.glslh), and the same workgroup then traces at the resolution Reflections.DownsampleFactor
@@ -86,7 +86,7 @@ namespace Desert::Graphic::System
         }
 
         // The front layer's G-buffer (Mesh/Surface/Pass_FrontLayer.glslh) the TranslucentFrontLayer programs start
-        // their rays from: normal + roughness and depth, as u_FrontLayerNormal / u_FrontLayerDepth.
+        // their rays from: normal + roughness and depth, as FrontLayerNormalTexture / FrontLayerDepthTexture.
         struct FrontLayerInputs
         {
             RDG::TextureRef Normal;
@@ -238,7 +238,7 @@ namespace Desert::Graphic::System
         struct TraceTargets
         {
             RDG::TextureDesc Trace;
-            RDG::TextureDesc TraceRay; // the trace texels' hit points + ray pdfs (SSR.shader u_TraceRay)
+            RDG::TextureDesc TraceRay; // the trace texels' hit points + ray pdfs (SSR.shader TraceRayTexture)
             RDG::TextureDesc TileMask;
             // The factor the targets were sized for: the trace's push (TraceSettings) and the denoiser's
             // reconstruction (ReflectionsDenoiserInputs) take it from here, so all three agree within a frame.
@@ -340,20 +340,20 @@ namespace Desert::Graphic::System
             ComputePipeline&               pipeline = tracedProgram ? *m_TracedPipeline : *m_TracePipeline;
             ShaderBindingLayoutCache&      layout   = tracedProgram ? m_TracedLayout : m_TraceLayout;
             auto block = pass.Bindings( layout.Get( shader ), Renderer::GetPipelineRouteFill( pipeline ) );
-            block.Texture( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
+            block.Texture( "GBufferNormalTexture", gbuffer[1], RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                 .Texture( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute,
+                 .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
+                 .Texture( "GBufferDepthTexture", gbuffer[2], RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .Texture( "u_SceneColor", sceneHistory, RDG::Access::SampledCompute,
+                 .Texture( "SceneColorTexture", sceneHistory, RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                 .Texture( "u_HZB", hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                 .Texture( "u_Velocity", velocity, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                 .Storage( "u_Trace", trace, RDG::Access::StorageWrite )
-                 .Storage( "u_TraceRay", traceRay, RDG::Access::StorageWrite )
-                 .Storage( "u_TileMask", tiles, RDG::Access::StorageWrite )
+                 .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                 .Texture( "HzbTexture", hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Texture( "VelocityTexture", velocity, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                 .Storage( "SsrTraceTexture", trace, RDG::Access::StorageWrite )
+                 .Storage( "TraceRayTexture", traceRay, RDG::Access::StorageWrite )
+                 .Storage( "TileMaskTexture", tiles, RDG::Access::StorageWrite )
                  .Uniform( "SSRTraceUB", uniforms )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
             if ( tracedProgram )
@@ -375,20 +375,20 @@ namespace Desert::Graphic::System
             if ( !m_HitLightingPipeline )
                 return;
             auto block = pass.Bindings( m_HitLightingLayout.Get( m_HitLightingShader ), RDG::OtherRouteFill{} );
-            block.Texture( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
+            block.Texture( "GBufferNormalTexture", gbuffer[1], RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                 .Texture( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute,
+                 .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
+                 .Texture( "GBufferDepthTexture", gbuffer[2], RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .Texture( "u_SceneColor", sceneHistory, RDG::Access::SampledCompute,
+                 .Texture( "SceneColorTexture", sceneHistory, RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                 .Texture( "u_HZB", hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                 .Texture( "u_Velocity", velocity, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                 .Storage( "u_Trace", trace, RDG::Access::StorageWrite )
-                 .Storage( "u_TraceRay", traceRay, RDG::Access::StorageWrite )
-                 .Storage( "u_TileMask", tiles, RDG::Access::StorageRead )
+                 .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                 .Texture( "HzbTexture", hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Texture( "VelocityTexture", velocity, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                 .Storage( "SsrTraceTexture", trace, RDG::Access::StorageWrite )
+                 .Storage( "TraceRayTexture", traceRay, RDG::Access::StorageWrite )
+                 .Storage( "TileMaskTexture", tiles, RDG::Access::StorageRead )
                  .Uniform( "SSRTraceUB", uniforms )
                  .Uniform( "CameraUB", camera )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
@@ -501,11 +501,11 @@ namespace Desert::Graphic::System
             if ( frontLayer == nullptr )
                 return;
             block
-                 .Texture( "u_FrontLayerNormal", frontLayer->Normal, RDG::Access::SampledCompute,
+                 .Texture( "FrontLayerNormalTexture", frontLayer->Normal, RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .Texture( "u_FrontLayerDepth", frontLayer->Depth, RDG::Access::SampledCompute,
+                 .Texture( "FrontLayerDepthTexture", frontLayer->Depth, RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                 .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
         }
 
         // The traced permutation's reads (SSR.shader DESERT_REFLECTIONS_TRACED), by the names its includes
@@ -523,13 +523,13 @@ namespace Desert::Graphic::System
                  .Storage( "RadianceCacheParamsUB", traced.RadianceCache.Params, kR )
                  .Storage( "RadianceCacheIndirectionUB", traced.RadianceCache.Indirection, kR )
                  .Storage( "RadianceCacheProbesUB", traced.RadianceCache.Probes, kR )
-                 .Texture( "u_RadianceCacheIrradiance", traced.RadianceCache.Irradiance, kS, all )
-                 .Texture( "u_RadianceCacheDepth", traced.RadianceCache.Depth, kS, all )
-                 .Texture( "u_EnvSpecularTex", traced.EnvSpecular, kS, all )
-                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                 .Texture( "u_GBufferA", traced.GBufferA, kS, all )
-                 .Texture( "u_GBufferEmissive", traced.GBufferEmissive, kS, all )
-                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                 .Texture( "RadianceCacheIrradianceTexture", traced.RadianceCache.Irradiance, kS, all )
+                 .Texture( "RadianceCacheDepthTexture", traced.RadianceCache.Depth, kS, all )
+                 .Texture( "EnvironmentSpecularTexture", traced.EnvSpecular, kS, all )
+                 .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                 .Texture( "GBufferATexture", traced.GBufferA, kS, all )
+                 .Texture( "GBufferEmissiveTexture", traced.GBufferEmissive, kS, all )
+                 .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
             GlobalIllumination::DeclareTracerReads( block, traced.Tracer );
             if ( traced.Tracer.Pipeline.Hits == GlobalIllumination::HitLighting::SurfaceCache )
                 GlobalIllumination::DeclareSurfaceCacheReads( block, traced.SurfaceCache );

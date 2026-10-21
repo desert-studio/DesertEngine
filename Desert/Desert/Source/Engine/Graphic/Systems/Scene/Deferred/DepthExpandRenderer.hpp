@@ -66,7 +66,7 @@ namespace Desert::Graphic::System
             return m_Pipeline && m_Material;
         }
 
-        // SETUP of "Deferred: DepthExpand": the node's one block (block 0) - @p gbufferDepth as u_Depth, fetched
+        // SETUP of "Deferred: DepthExpand": the node's one block (block 0) - @p gbufferDepth as SourceDepthTexture, fetched
         // texel by texel (PointClamp), the material as the other route. Not ready: nothing declared, Record
         // refuses.
         void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef gbufferDepth ) const
@@ -74,8 +74,8 @@ namespace Desert::Graphic::System
             if ( !IsReady() || !gbufferDepth.IsValid() )
                 return;
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
-                 .Texture( "u_Depth", gbufferDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                 .Texture( "SourceDepthTexture", gbufferDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
         }
 
         // Inside the render pass the frame graph opens on the multisampled scene depth: opens block 0.

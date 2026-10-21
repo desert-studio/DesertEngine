@@ -3,9 +3,9 @@
 
 // THE SHADOW OF A POINT OR SPOT LIGHT, read from the view's local shadow atlas (Graphic/LocalShadows.hpp says
 // why it is one 2D pool of tiles). Declares no binding: the includer declares, at slots free in ITS layout,
-//     sampler2D u_LocalShadowAtlas;                         (R32F, standard-Z depth of each view's casters)
+//     sampler2D LocalShadowAtlasTexture;                         (R32F, standard-Z depth of each view's casters)
 //     ReadBuffer LocalShadowViewsUB { LocalShadowView localShadowViews[]; };
-// and the view's ShadowUB with u_ShadowFilter (y = Scalability Shadows.FilterTaps, the PCF's taps),
+// and the view's ShadowUB with ShadowFilter (y = Scalability Shadows.FilterTaps, the PCF's taps),
 // (the row struct is Mesh/LocalLightShadowView.glslh, included BEFORE the buffer) and includes this AFTER
 // them, the way Mesh/CascadedShadow.glslh is included. The lights' contact shadows (their ContactShadowLength)
 // are applied here too: Common/ContactShadow.glslh, which the includer has included with its inputs.
@@ -33,7 +33,7 @@ float LocalShadowCompare2x2(LocalShadowView v, vec2 texel, vec2 lo, vec2 hi, flo
     for (int k = 0; k < 4; ++k)
     {
         const vec2  t        = clamp(base + vec2(float(k & 1), float(k >> 1)), lo, hi);
-        const float occluder = LocalShadowLinearDepth(texelFetch(u_LocalShadowAtlas, ivec2(t), 0).r, v.params.x,
+        const float occluder = LocalShadowLinearDepth(texelFetch(LocalShadowAtlasTexture, ivec2(t), 0).r, v.params.x,
                                                       v.params.y);
         lit[k] = receiverDepth <= occluder ? 1.0 : 0.0;
     }
@@ -41,7 +41,7 @@ float LocalShadowCompare2x2(LocalShadowView v, vec2 texel, vec2 lo, vec2 hi, flo
 }
 
 // PCF over the shadow filters' Vogel disc (Common/ShadowFilterDisk.glslh) with Shadows.FilterTaps taps - the
-// count the sun's PCSS filter takes (u_ShadowFilter.y), so one quality level sets both - each tap a bilinear 2x2
+// count the sun's PCSS filter takes (ShadowFilter.y), so one quality level sets both - each tap a bilinear 2x2
 // comparison, the disc kLocalShadowFilterRadiusTexels wide. 1 = lit.
 float LocalShadowPCF(LocalShadowView v, vec2 tileUV, float receiverDepth)
 {
@@ -49,7 +49,7 @@ float LocalShadowPCF(LocalShadowView v, vec2 tileUV, float receiverDepth)
     const vec2  lo    = v.atlasRect.xy * side;
     const vec2  hi    = lo + v.atlasRect.zw * side - 1.0;
     const vec2  texel = (v.atlasRect.xy + tileUV * v.atlasRect.zw) * side - 0.5;
-    const int   taps  = int(u_ShadowFilter.y + 0.5);
+    const int   taps  = int(ShadowFilter.y + 0.5);
     const float phi   = 6.28318531 * shadowInterleavedGradientNoise(gl_FragCoord.xy);
     float       lit   = 0.0;
     for (int i = 0; i < taps; ++i)
@@ -82,7 +82,7 @@ float LocalShadowAt(int viewIndex, vec3 worldPosition, vec3 N, vec3 L)
 
 // THE LIGHT THROUGH A SUBSURFACE RECEIVER'S OCCLUDERS (DesertLight::TransmissionShadow) for one view: the
 // cascades' TransmissionShadowFactor (Mesh/CascadedShadow.glslh, ported from UE ShadowProjectionPixelShader.usf's
-// subsurface branch) on the atlas — the receiver at its own position (no normal offset, no bias: the leaf's far
+// subsurface branch) on the atlas - the receiver at its own position (no normal offset, no bias: the leaf's far
 // side reads the leaf at its own depth and passes), its linear distance against each occluder's, in centimetres,
 // as exp( -thickness * density ), filtered with LocalShadowPCF's 3x3 bilinear shape. A texel at the far plane was
 // never written and transmits all (UE: depth > .99).
@@ -110,7 +110,7 @@ float LocalShadowTransmissionAt(int viewIndex, vec3 worldPosition, float density
         for (int i = 0; i < 4; ++i)
         {
             const vec2  t        = clamp(base + vec2(float(i - 1), float(j - 1)), lo, hi);
-            const float raw      = texelFetch(u_LocalShadowAtlas, ivec2(t), 0).r;
+            const float raw      = texelFetch(LocalShadowAtlasTexture, ivec2(t), 0).r;
             const float occluder = LocalShadowLinearDepth(raw, v.params.x, v.params.y);
             const float tap      = raw > 0.99 ? 1.0 : clamp(exp(-max(clip.w - occluder, 0.0) * density), 0.0, 1.0);
             through += wx[i] * wy[j] * tap;

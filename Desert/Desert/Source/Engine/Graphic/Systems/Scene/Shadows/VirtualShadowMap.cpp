@@ -363,8 +363,8 @@ namespace Desert::Graphic::System
              {
                  block.Storage( "VsmFrameData", frameData, kR )
                       .Storage( "VsmPageTable", pageTable, kW )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Texture( "u_GBufferDepth", view.Depth, RDG::Access::SampledCompute,
+                      .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Texture( "GBufferDepthTexture", view.Depth, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() );
              },
              glm::uvec4( view.Width, view.Height, 0u, 0u ),
@@ -428,7 +428,7 @@ namespace Desert::Graphic::System
                                     Renderer::GetPipelineRouteFill( *kernel.Pipeline ) )
                           .Storage( "VsmPageTable", pageTable, kR )
                           .Storage( "VsmLists", lists, kR )
-                          .Storage( "u_PhysicalPool", pool, kW )
+                          .Storage( "PhysicalPoolTexture", pool, kW )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( push ) ) );
                  },
                  [pipeline = kernel.Pipeline, push,
@@ -528,13 +528,13 @@ namespace Desert::Graphic::System
                                 Renderer::GetPipelineRouteFill( *kernel.Pipeline ) )
                       .Storage( "VsmFrameData", frame.FrameData, RDG::Access::StorageRead )
                       .Storage( "VsmPageTable", frame.PageTable, RDG::Access::StorageRead )
-                      .Storage( "u_PhysicalPool", frame.PhysicalPool, RDG::Access::StorageRead )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Texture( "u_GBufferDepth", view.Depth, RDG::Access::SampledCompute,
+                      .Storage( "PhysicalPoolTexture", frame.PhysicalPool, RDG::Access::StorageRead )
+                      .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Texture( "GBufferDepthTexture", view.Depth, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-                      .Texture( "u_GBufferNormal", view.Normal, RDG::Access::SampledCompute,
+                      .Texture( "GBufferNormalTexture", view.Normal, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-                      .Storage( "u_ShadowMask", mask, RDG::Access::StorageWrite );
+                      .Storage( "ShadowMaskTexture", mask, RDG::Access::StorageWrite );
              },
              [pipeline = kernel.Pipeline, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
              {

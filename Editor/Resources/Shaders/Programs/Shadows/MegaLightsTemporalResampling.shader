@@ -11,20 +11,20 @@ Shader "MegaLightsTemporalResampling"
 
     Compute
     {
-        Uniform sampler u_PointClampSampler;
+        Uniform sampler PointClampSampler;
         #define MEGALIGHTS_SHADING
         #include <Common/MegaLights.glslh>
 
-        Uniform(10) texture2D u_Reservoirs;        // "MegaLights: Generate Samples"
-        #define u_Reservoirs sampler2D(u_Reservoirs, u_PointClampSampler)
-        Uniform(12) texture2D u_HistoryReservoirs; // the previous frame's traced reservoirs (stacked layers)
-        #define u_HistoryReservoirs sampler2D(u_HistoryReservoirs, u_PointClampSampler)
-        Uniform(13) texture2D u_HistorySurface;    // the previous frame's representatives: xyz = normal, w = clip w
+        Uniform(10) texture2D ReservoirsTexture;        // "MegaLights: Generate Samples"
+        #define ReservoirsTexture sampler2D(ReservoirsTexture, PointClampSampler)
+        Uniform(12) texture2D HistoryReservoirsTexture; // the previous frame's traced reservoirs (stacked layers)
+        #define HistoryReservoirsTexture sampler2D(HistoryReservoirsTexture, PointClampSampler)
+        Uniform(13) texture2D HistorySurfaceTexture;    // the previous frame's representatives: xyz = normal, w = clip w
                                                    // (0 = none); sample-pixel sized
-        #define u_HistorySurface sampler2D(u_HistorySurface, u_PointClampSampler)
-        Uniform(14) texture2D u_Velocity;          // NDC current - previous, unjittered
-        #define u_Velocity sampler2D(u_Velocity, u_PointClampSampler)
-        layout(binding = 11, rgba32f) writeonly uniform image2D u_OutReservoirs;
+        #define HistorySurfaceTexture sampler2D(HistorySurfaceTexture, PointClampSampler)
+        Uniform(14) texture2D VelocityTexture;          // NDC current - previous, unjittered
+        #define VelocityTexture sampler2D(VelocityTexture, PointClampSampler)
+        layout(binding = 11, rgba32f) writeonly uniform image2D OutReservoirsTexture;
 
         // The surface the previous frame shaded at the reprojected pixel is this pixel's (UE MegaLights / RTXDI's
         // disocclusion test): the normals within ~25 degrees, the depth within 10 %.
@@ -46,18 +46,18 @@ Shader "MegaLightsTemporalResampling"
         	// The reprojected pixel, when the previous frame shaded this surface there.
         	bool  reprojected = false;
         	ivec2 previous    = ivec2(0);
-        	if (p.Valid && u_Params.y > 0.5 && u_Params.x > 0.0)
+        	if (p.Valid && Params.y > 0.5 && Params.x > 0.0)
         	{
-        		const vec4 clip = u_ViewProjection * vec4(p.Position, 1.0);
+        		const vec4 clip = ViewProjection * vec4(p.Position, 1.0);
         		if (clip.w > 0.0)
         		{
-        			const vec2 prevNdc = clip.xy / clip.w - texelFetch(u_Velocity, screen, 0).xy;
+        			const vec2 prevNdc = clip.xy / clip.w - texelFetch(VelocityTexture, screen, 0).xy;
         			const vec2 prevUV  = vec2(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * 0.5); // Y-flipped
         			if (prevUV.x >= 0.0 && prevUV.x < 1.0 && prevUV.y >= 0.0 && prevUV.y < 1.0)
         			{
         				previous                = ivec2(prevUV * vec2(size)); // the previous sample pixel
-        				const vec4  surface     = texelFetch(u_HistorySurface, previous, 0);
-        				const float expected    = (u_PrevViewProjection * vec4(p.Position, 1.0)).w;
+        				const vec4  surface     = texelFetch(HistorySurfaceTexture, previous, 0);
+        				const float expected    = (PreviousViewProjection * vec4(p.Position, 1.0)).w;
         				reprojected = surface.w > 0.0 && dot(surface.xyz, p.N) > kNormalThreshold &&
         				              abs(surface.w - expected) <= kDepthThreshold * expected;
         			}
@@ -68,24 +68,24 @@ Shader "MegaLightsTemporalResampling"
         	for (uint k = 0u; k < samples; ++k)
         	{
         		const MegaLightsReservoir current =
-        		     MegaLightsUnpackReservoir(texelFetch(u_Reservoirs, MegaLightsReservoirTexel(pixel, k), 0));
+        		     MegaLightsUnpackReservoir(texelFetch(ReservoirsTexture, MegaLightsReservoirTexel(pixel, k), 0));
         		if (!reprojected)
         		{
-        			imageStore(u_OutReservoirs, MegaLightsReservoirTexel(pixel, k), MegaLightsPackReservoir(current));
+        			imageStore(OutReservoirsTexture, MegaLightsReservoirTexel(pixel, k), MegaLightsPackReservoir(current));
         			continue;
         		}
         		MegaLightsMerge merge = MegaLightsBeginMerge();
         		MegaLightsMergeReservoir(merge, current, current.TargetPdf, current.M, MegaLightsRandom(random));
         		const MegaLightsReservoir history =
-        		     MegaLightsUnpackReservoir(texelFetch(u_HistoryReservoirs, MegaLightsReservoirTexel(previous, k), 0));
+        		     MegaLightsUnpackReservoir(texelFetch(HistoryReservoirsTexture, MegaLightsReservoirTexel(previous, k), 0));
         		// The history's confidence, capped relative to this frame's (ReSTIR's M clamp).
-        		const float historyM = min(history.M, u_Params.x * max(current.M, 1.0));
+        		const float historyM = min(history.M, Params.x * max(current.M, 1.0));
         		if (history.Light >= 0 && history.Light < MegaLightsLightCount())
         			MegaLightsMergeReservoir(merge, history, MegaLightsTargetPdf(p, history.Light), historyM,
         			                         MegaLightsRandom(random));
         		else
         			merge.Result.M += historyM; // an empty history still says how often nothing was found
-        		imageStore(u_OutReservoirs, MegaLightsReservoirTexel(pixel, k),
+        		imageStore(OutReservoirsTexture, MegaLightsReservoirTexel(pixel, k),
         		           MegaLightsPackReservoir(MegaLightsEndMerge(merge)));
         	}
         }

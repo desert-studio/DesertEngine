@@ -362,7 +362,7 @@ namespace Desert::Graphic
         if ( tonemap == nullptr )
             return;
         const System::TonemapRenderer::Inputs inputs = tonemap->GetInputs();
-        // Without an auto-exposure node the shader's u_AvgLuminance reads System.White; the manual exposure is
+        // Without an auto-exposure node the shader's AverageLuminanceTexture reads System.White; the manual exposure is
         // used then (the auto flag is off), so the value is never read as a measurement.
         const RDG::TextureRef adapted      = textures.Import( inputs.AutoExposure, "AutoExposure.Adapted" );
         const RDG::TextureRef avgLuminance = adapted.IsValid() ? adapted : textures.System.White;

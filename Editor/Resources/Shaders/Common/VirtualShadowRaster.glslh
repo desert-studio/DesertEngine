@@ -19,18 +19,18 @@
 
 layout( std430, binding = 40 ) restrict readonly buffer VsmFrameData
 {
-    VsmFrame u_Frame;
-    VsmLevel u_Levels[];
+    VsmFrame Frame;
+    VsmLevel Levels[];
 };
 layout( std430, binding = 41 ) restrict readonly buffer VsmPageTable
 {
-    VsmPageEntry u_Entries[];
+    VsmPageEntry Entries[];
 };
-layout( binding = 42, r32ui ) restrict uniform uimage2D u_PhysicalPool;
+layout( binding = 42, r32ui ) restrict uniform uimage2D PhysicalPoolTexture;
 // The level this draw rasterizes (VirtualShadowMapFrame::RasterLevel): x = level index.
 layout( std430, binding = 43 ) restrict readonly buffer VsmRasterLevel
 {
-    uvec4 u_RasterLevel;
+    uvec4 RasterLevel;
 };
 
 // @p depth is the caster's standard-Z depth at this fragment: the rasterised one (VsmRasterWrite), or a surface's
@@ -42,12 +42,12 @@ void VsmRasterWriteDepth( float depth )
     const ivec2 texel = ivec2( int( gl_FragCoord.x ), int( VSM_VIRTUAL_RESOLUTION - gl_FragCoord.y ) );
     if ( any( lessThan( texel, ivec2( 0 ) ) ) || any( greaterThanEqual( texel, ivec2( int( VSM_VIRTUAL_RESOLUTION ) ) ) ) )
         return;
-    const uint         level = u_RasterLevel.x;
-    const VsmPageEntry entry = u_Entries[VsmEntryIndex( level, u_Levels[level].Window.xy + texel / int( VSM_PAGE_SIZE ) )];
+    const uint         level = RasterLevel.x;
+    const VsmPageEntry entry = Entries[VsmEntryIndex( level, Levels[level].Window.xy + texel / int( VSM_PAGE_SIZE ) )];
     const uint         drawn = VSM_FLAG_ALLOCATED | VSM_FLAG_DIRTY | VSM_FLAG_REQUESTED;
     if ( ( entry.Flags & drawn ) != drawn )
         return;
-    imageAtomicMax( u_PhysicalPool, VsmPoolPageOrigin( entry.Physical ) + ( texel & ivec2( int( VSM_PAGE_SIZE ) - 1 ) ),
+    imageAtomicMax( PhysicalPoolTexture, VsmPoolPageOrigin( entry.Physical ) + ( texel & ivec2( int( VSM_PAGE_SIZE ) - 1 ) ),
                     floatBitsToUint( 1.0 - clamp( depth, 0.0, 1.0 ) ) );
 }
 

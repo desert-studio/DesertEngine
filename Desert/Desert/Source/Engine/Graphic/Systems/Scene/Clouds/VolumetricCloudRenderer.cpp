@@ -1125,7 +1125,7 @@ namespace Desert::Graphic::System
         SampledMedium(
              SampledVolumes( DeclareComputeBlock( shadow.Access, m_ShadowMapPipeline.get(), m_ShadowMapLayout,
                                                   static_cast<uint32_t>( sizeof( CloudShadowPush ) ) ) ) )
-             .Storage( "u_CloudShadowMap", shadowMap, RDG::Access::StorageWrite );
+             .Storage( "CloudShadowMapTexture", shadowMap, RDG::Access::StorageWrite );
         shadow.Record = [this, push, resolution]( RDG::PassContext& context,
                                                   const FrameGraphRefs& ) -> Common::BoolResultStr
         {
@@ -1392,7 +1392,7 @@ namespace Desert::Graphic::System
         // ResolveMediumValues leaves no null here — an unassigned slot already carries the schema's own
         // default image. The fallback is for the one case it cannot cover, a default-texture service that has
         // not come up. Each image is a separate texture read through the generated medium's one shared state,
-        // u_CloudMediumSampler (ShaderGraph's Volume-domain emitter), with the global texture filter, REPEAT.
+        // CloudMediumSampler (ShaderGraph's Volume-domain emitter), with the global texture filter, REPEAT.
         const std::shared_ptr<Image> fallback =
              FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F );
         const std::size_t named = std::min( m_MediumImages.size(), m_MediumTextureNames.size() );
@@ -1401,7 +1401,7 @@ namespace Desert::Graphic::System
             block.Texture( m_MediumTextureNames[slot],
                            m_MediumImages[slot] ? std::shared_ptr<Image>( m_MediumImages[slot] ) : fallback,
                            RDG::Access::SampledCompute, std::format( "Clouds.Medium{}", slot ) )
-                 .Sampler( "u_CloudMediumSampler", GlobalTextureFilterSampler() );
+                 .Sampler( "CloudMediumSampler", GlobalTextureFilterSampler() );
         }
         return block;
     }
@@ -1789,7 +1789,7 @@ namespace Desert::Graphic::System
             BindMedium( m_SkyOcclusionPipeline.get(), m_MediumParamsBuffer.get() );
             SampledMedium( SampledVolumes( DeclareComputeBlock( occlusion.Access, m_SkyOcclusionPipeline.get(),
                                                                 m_SkyOcclusionLayout, 0 ) ) )
-                 .Storage( "u_CloudSkyOcclusion", m_SkyOcclusionVolume, RDG::Access::StorageWrite,
+                 .Storage( "CloudSkyOcclusionTexture", m_SkyOcclusionVolume, RDG::Access::StorageWrite,
                            "Clouds.SkyOcclusion" );
             occlusion.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
@@ -1899,19 +1899,19 @@ namespace Desert::Graphic::System
                   : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
         SampledMedium( SampledVolumes( DeclareComputeBlock( march.Access, m_MarchPipeline.get(), m_MarchLayout,
                                                             static_cast<uint32_t>( sizeof( CloudPush ) ) ) ) )
-             .Storage( "u_CloudScatter", trace, RDG::Access::StorageWrite )
-             .Storage( "u_CloudGuide", traceGuide, RDG::Access::StorageWrite )
-             .Texture( "u_SceneDepth", depth, RDG::Access::SampledCompute, "SceneDepth.Compute" )
-             .Sampler( "u_GlobalFilterSampler", GlobalTextureFilterSampler() )
-             .Texture( "u_CloudSkyOcclusionVolume", skyOcclusion, RDG::Access::SampledCompute,
+             .Storage( "CloudScatterTexture", trace, RDG::Access::StorageWrite )
+             .Storage( "CloudGuideTexture", traceGuide, RDG::Access::StorageWrite )
+             .Texture( "SceneDepthTexture", depth, RDG::Access::SampledCompute, "SceneDepth.Compute" )
+             .Sampler( "GlobalFilterSampler", GlobalTextureFilterSampler() )
+             .Texture( "CloudSkyOcclusionVolumeTexture", skyOcclusion, RDG::Access::SampledCompute,
                        skyOcclusionReady ? "Clouds.SkyOcclusion" : "Clouds.SkyOcclusionFallback" )
-             .Sampler( "u_LinearRepeatSampler", VolumeSampler() )
-             .Texture( "u_DistantSkyLight", distantSkyLight, RDG::Access::SampledCompute,
+             .Sampler( "LinearRepeatSampler", VolumeSampler() )
+             .Texture( "DistantSkyLightTexture", distantSkyLight, RDG::Access::SampledCompute,
                        atmosphere.DistantSkyLight ? "Sky.DistantLight" : "Clouds.DistantSkyLightFallback" )
-             .Texture( "u_CloudAerialPerspective", aerialPerspective, RDG::Access::SampledCompute,
+             .Texture( "CloudAerialPerspectiveTexture", aerialPerspective, RDG::Access::SampledCompute,
                        atmosphere.AerialPerspectiveVolume ? "Sky.AerialPerspectiveLut"
                                                           : "Clouds.AerialPerspectiveFallback" )
-             .Texture( "u_CloudSunTransmittanceLut", sunTransmittanceLut, RDG::Access::SampledCompute,
+             .Texture( "CloudSunTransmittanceLutTexture", sunTransmittanceLut, RDG::Access::SampledCompute,
                        atmosphere.TransmittanceLut ? "Sky.TransmittanceLut"
                                                    : "Clouds.SunTransmittanceLutFallback" );
         march.Record = [this, push, traceWidth, traceHeight]( RDG::PassContext& context,
@@ -1977,25 +1977,25 @@ namespace Desert::Graphic::System
         // owns and bilinearly upsamples (texture(..., traceUv)) the ones it does not.
         RenderPassDeclaration::BlockDeclaration resolveBlock =
              DeclareComputeBlock( temporal.Access, m_ResolvePipeline.get(), m_ResolveLayout, 0 );
-        resolveBlock.Texture( "u_CloudTrace", trace, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-             .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-             .Texture( "u_CloudTraceGuide", traceGuide, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+        resolveBlock.Texture( "CloudTraceTexture", trace, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+             .Texture( "CloudTraceGuideTexture", traceGuide, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
              // The march's depth image again: the resolve gives every half-res pixel its OWN scene distance rather
-             // than the one the jitter cycle's traced sub-pixel saw (CloudTemporalResolve.shader, u_SceneDepth).
-             .Texture( "u_SceneDepth", depth, RDG::Access::SampledCompute, "SceneDepth.Compute" )
-             .Sampler( "u_GlobalFilterSampler", GlobalTextureFilterSampler() )
-             .Storage( "u_ReconstructedScatter", current.Scatter, RDG::Access::StorageWrite )
-             .Storage( "u_ReconstructedGuide", current.Guide, RDG::Access::StorageWrite );
+             // than the one the jitter cycle's traced sub-pixel saw (CloudTemporalResolve.shader, SceneDepthTexture).
+             .Texture( "SceneDepthTexture", depth, RDG::Access::SampledCompute, "SceneDepth.Compute" )
+             .Sampler( "GlobalFilterSampler", GlobalTextureFilterSampler() )
+             .Storage( "ReconstructedScatterTexture", current.Scatter, RDG::Access::StorageWrite )
+             .Storage( "ReconstructedGuideTexture", current.Guide, RDG::Access::StorageWrite );
         if ( historyReadable )
             resolveBlock
-                 .Texture( "u_CloudHistory", previous.Scatter, RDG::Access::SampledCompute,
+                 .Texture( "CloudHistoryTexture", previous.Scatter, RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .Texture( "u_CloudHistoryGuide", previous.Guide, RDG::Access::SampledCompute,
+                 .Texture( "CloudHistoryGuideTexture", previous.Guide, RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() );
         else
             resolveBlock
-                 .Texture( "u_CloudHistory", fallback, RDG::Access::SampledCompute, "Clouds.HistoryFallback" )
-                 .Texture( "u_CloudHistoryGuide", fallback, RDG::Access::SampledCompute,
+                 .Texture( "CloudHistoryTexture", fallback, RDG::Access::SampledCompute, "Clouds.HistoryFallback" )
+                 .Texture( "CloudHistoryGuideTexture", fallback, RDG::Access::SampledCompute,
                            "Clouds.HistoryFallback" );
         temporal.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
@@ -2073,26 +2073,26 @@ namespace Desert::Graphic::System
         // image (ResolveCloudNoiseVolumes), which the frame imports once, so two entries read one graph texture
         // in one state. The atlas is ALWAYS an entry, the 3D fallback while there is none -- a declared sampler
         // with no image is an invalid descriptor set. Each with the sampler the volume carries as its own.
-        static constexpr const char* kNoiseNames[kCloudSpeciesSlots] = { "u_CloudNoise", "u_CloudNoise1",
-                                                                         "u_CloudNoise2", "u_CloudNoise3" };
+        static constexpr const char* kNoiseNames[kCloudSpeciesSlots] = { "CloudNoiseTexture", "CloudNoise1Texture",
+                                                                         "CloudNoise2Texture", "CloudNoise3Texture" };
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
             block.Texture( kNoiseNames[slot], m_NoiseVolume[slot], RDG::Access::SampledCompute,
                            std::format( "Clouds.Noise{}", slot ) )
-                 .Sampler( "u_LinearRepeatSampler", VolumeSampler() );
+                 .Sampler( "LinearRepeatSampler", VolumeSampler() );
         const std::shared_ptr<Image> atlas =
              m_AuthoredAtlas ? std::shared_ptr<Image>( m_AuthoredAtlas )
                              : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
         // The clipmap's one image (three toroidal levels), the world weather map and the painted layout's two
         // textures: always present once EnsureInputs has run, each LINEAR and REPEAT -- the weather and the
         // layout tile over their own periods, and a "Nearest" read would cut the sky along texel edges.
-        block.Texture( "u_CloudModelling", m_Clipmap.GetImage(), RDG::Access::SampledCompute, "Clouds.Modelling" )
-             .Sampler( "u_LinearRepeatSampler", VolumeSampler() )
-             .Texture( "u_CloudFarWeather", m_FarWeatherMap, RDG::Access::SampledCompute, "Clouds.FarWeather" )
-             .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-             .Texture( "u_CloudLayoutPattern", m_LayoutPatternTexture, RDG::Access::SampledCompute,
+        block.Texture( "CloudModellingTexture", m_Clipmap.GetImage(), RDG::Access::SampledCompute, "Clouds.Modelling" )
+             .Sampler( "LinearRepeatSampler", VolumeSampler() )
+             .Texture( "CloudFarWeatherTexture", m_FarWeatherMap, RDG::Access::SampledCompute, "Clouds.FarWeather" )
+             .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
+             .Texture( "CloudLayoutPatternTexture", m_LayoutPatternTexture, RDG::Access::SampledCompute,
                        "Clouds.LayoutPattern" )
-             .Texture( "u_CloudLayoutMask", m_LayoutMaskTexture, RDG::Access::SampledCompute, "Clouds.LayoutMask" )
-             .Texture( "u_CloudAuthoredAtlas", atlas, RDG::Access::SampledCompute,
+             .Texture( "CloudLayoutMaskTexture", m_LayoutMaskTexture, RDG::Access::SampledCompute, "Clouds.LayoutMask" )
+             .Texture( "CloudAuthoredAtlasTexture", atlas, RDG::Access::SampledCompute,
                        m_AuthoredAtlas ? "Clouds.AuthoredAtlas" : "Clouds.AuthoredAtlasFallback" );
         return block;
     }
@@ -2135,9 +2135,9 @@ namespace Desert::Graphic::System
             declared
                  .Bindings( m_CompositeLayout.Get( m_CompositePipeline->GetSpecification().Shader ),
                             executor.GetRouteFill() )
-                 .Texture( "u_CloudScatter", scatter, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                 .Texture( "u_CloudGuide", guide, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
+                 .Texture( "CloudScatterTexture", scatter, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
+                 .Texture( "CloudGuideTexture", guide, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
         };
 
         return config;

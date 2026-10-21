@@ -131,16 +131,16 @@ namespace Desert::Graphic::System
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_Layout.Get( m_Shader ), Renderer::GetPipelineRouteFill( *m_Pipeline ) )
-                          .AccelerationStructure( "u_SceneTLAS", in.Tlas )
-                          .Texture( "u_GBufferDepth", in.Depth, RDG::Access::SampledCompute,
+                          .AccelerationStructure( "SceneTlas", in.Tlas )
+                          .Texture( "GBufferDepthTexture", in.Depth, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Texture( "u_GBufferNormal", in.Normal, RDG::Access::SampledCompute,
+                          .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                          .Texture( "GBufferNormalTexture", in.Normal, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
                           .Storage( "RayTracingGeometryRecords", in.Metadata.Geometry, RDG::Access::StorageRead )
                           .Storage( "RayTracingMaterialRecords", in.Metadata.Materials, RDG::Access::StorageRead )
-                          .Storage( "u_ShadowMask", out.Mask, RDG::Access::StorageWrite )
-                          .Storage( "u_ShadowOccluder", out.ClosestOccluder, RDG::Access::StorageWrite )
+                          .Storage( "ShadowMaskTexture", out.Mask, RDG::Access::StorageWrite )
+                          .Storage( "ShadowOccluderTexture", out.ClosestOccluder, RDG::Access::StorageWrite )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( RayTracedSunShadowPush ) ) );
                  },
                  [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr

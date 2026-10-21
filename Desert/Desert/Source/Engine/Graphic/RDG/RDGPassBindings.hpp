@@ -28,8 +28,8 @@
 // LUT loaded from disk). A pass that binds a graph resource through a Material property or a pipeline setter
 // is a defect, and so is a slot bound by both routes (the draw is refused, see Renderer::DrawFullscreen).
 //
-// SLOTS ARE SHADER NAMES. An entry names the resource as the shader declares it ("u_BloomTexture",
-// "u_Output"); the consumer resolves the name against the pipeline's shader reflection to (set, binding,
+// SLOTS ARE SHADER NAMES. An entry names the resource as the shader declares it ("BloomTexture",
+// "DestinationMipTexture"); the consumer resolves the name against the pipeline's shader reflection to (set, binding,
 // descriptor type). A name the shader does not declare, a kind that does not match the declared descriptor
 // type (Sampled into a storage-image slot), and a resource slot of the shader that neither this block nor the
 // material fills are errors returned by the consumer, never a silent fallback image. Binding indices never

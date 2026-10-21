@@ -542,7 +542,7 @@ namespace Desert::Tests::CloudAuthoredRef
                      vec4( sky.LevelOriginKm[level].x, sky.LevelOriginKm[level].y,
                            1.0f / Desert::Assets::CloudProceduralLevelSideKm( sky.Params, level ), 0.0f );
             }
-            // As CloudUnpackFieldParams unpacks u_CloudWeather: .yw the weather, .x the far path's read scale.
+            // As CloudUnpackFieldParams unpacks CloudWeather: .yw the weather, .x the far path's read scale.
             const vec4 farWeather = Desert::Assets::CloudFarWeatherUniform( Procedural( BoundCoverage() ).Params );
             params.Weather        = vec2( farWeather.y, farWeather.w );
             params.FarScale       = farWeather.x;

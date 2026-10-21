@@ -29,26 +29,26 @@ namespace Desert::Graphic
             float     PreExposure;         // ViewFrame::PreExposure the scene colour is stored at (> 0)
         };
 
-        // Uniform values only: every texture the shader samples (u_GeometryTexture, u_AvgLuminance,
-        // u_BloomTexture, u_LightShaftTexture, u_LensFlareTexture) is a graph resource the tonemap exec binds
+        // Uniform values only: every texture the shader samples (GeometryTexture, AverageLuminanceTexture,
+        // BloomTexture, LightShaftTexture, LensFlareTexture) is a graph resource the tonemap exec binds
         // through RDG::PassBindings, never here.
         void BindValues( const Params& params );
 
-        MPROPERTY( float, Exposure, "u_Exposure", 1.0f )
-        MPROPERTY( float, BloomIntensity,      "u_BloomIntensity",      0.0f )
-        MPROPERTY( float, ExposureKey,         "u_ExposureKey",         0.18f )
-        MPROPERTY( float, AutoExposureEnabled, "u_AutoExposureEnabled", 0.0f )
-        MPROPERTY( float, ChromaticBloom,      "u_ChromaticBloom",      0.0f )
-        MPROPERTY( float, WhitePoint, "u_WhitePoint", 8.0f )
+        MPROPERTY( float, Exposure, "ExposureTexture", 1.0f )
+        MPROPERTY( float, BloomIntensity,      "BloomIntensity",      0.0f )
+        MPROPERTY( float, ExposureKey,         "ExposureKey",         0.18f )
+        MPROPERTY( float, AutoExposureEnabled, "AutoExposureEnabled", 0.0f )
+        MPROPERTY( float, ChromaticBloom,      "ChromaticBloom",      0.0f )
+        MPROPERTY( float, WhitePoint, "WhitePoint", 8.0f )
         // 0 = ACES, 1 = extended Reinhard — Core::TonemapOperator's own numbering, converted in Bind().
-        MPROPERTY( float, TonemapOperator, "u_TonemapOperator", 0.0f )
-        MPROPERTY( float, InvPreExposure, "u_InvPreExposure", 1.0f )
+        MPROPERTY( float, TonemapOperator, "TonemapOperator", 0.0f )
+        MPROPERTY( float, InvPreExposure, "InversePreExposure", 1.0f )
         // rgb = tint, a = intensity: one vec4 slot, and the two cannot disagree about being on.
-        MPROPERTY( glm::vec4, LightShaftTintIntensity, "u_LightShaftTintIntensity",
+        MPROPERTY( glm::vec4, LightShaftTintIntensity, "LightShaftTintIntensity",
                    ( glm::vec4( 1.0f, 1.0f, 1.0f, 0.0f ) ) )
         // Same packing as the shafts above, for the same reason: tint and intensity travel together so
         // they cannot disagree about whether the effect is on.
-        MPROPERTY( glm::vec4, LensFlareTintIntensity, "u_LensFlareTintIntensity",
+        MPROPERTY( glm::vec4, LensFlareTintIntensity, "LensFlareTintIntensity",
                    ( glm::vec4( 1.0f, 1.0f, 1.0f, 0.0f ) ) )
     };
 } // namespace Desert::Graphic

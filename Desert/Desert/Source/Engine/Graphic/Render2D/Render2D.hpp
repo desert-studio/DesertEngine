@@ -79,7 +79,7 @@ namespace Desert::Graphic::Render2D
         }
 
         // Upload the recorded geometry and draw it into the current render pass. No-op when nothing was recorded.
-        // Glass rects sample @p backdrop (this frame's BackdropBlur transient, bound by name as u_Backdrop through
+        // Glass rects sample @p backdrop (this frame's BackdropBlur transient, bound by name as BackdropTexture through
         // RDG::PassBindings over @p context, the UI node's context) at up to its coarsest mip, read from the
         // texture's own description (PassContext::GetTextureDesc); with an invalid ref (no blur this frame) they
         // draw as a flat tinted panel. Every batch is drawn through Renderer::DrawIndexed over @p context; the
@@ -93,7 +93,7 @@ namespace Desert::Graphic::Render2D
         // order (Flush opens block n for its n-th drawn command), each against the layout of the pipeline it
         // draws with and the route fill of its executor. The executors are filled here (a UI material's row,
         // push matrix and index; a 2D batch's projection), so the block validation sees what the draw will
-        // carry. A glass command declares u_Backdrop (@p backdrop, LinearClamp, every mip) and its push block.
+        // carry. A glass command declares BackdropTexture (@p backdrop, LinearClamp, every mip) and its push block.
         // Called after the canvas walk recorded this frame's draw list, before Flush, with the same backdrop.
         void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef backdrop );
         void DeclareBindings( RenderPassDeclaration& declared, RDG::TextureRef backdrop );
@@ -267,7 +267,7 @@ namespace Desert::Graphic::Render2D
 
         ExecutorCache m_Executors;     // UI2D, keyed by bound Image2D* (null => white)
         ExecutorCache m_TextExecutors; // UIText, keyed by font atlas Image2D*
-        // UIRetainer with the engine's white image written to u_Mask (an unmasked composite; the layer itself and
+        // UIRetainer with the engine's white image written to MaskLayerTexture (an unmasked composite; the layer itself and
         // a mask layer are graph textures bound through RDG::PassBindings). One entry, keyed by null.
         ExecutorCache m_RetainerExecutors;
 

@@ -40,7 +40,7 @@ namespace Desert::Graphic
 
             if ( auto* ub = Get<UniformBufferProperty>( "CubemapSphereUB" ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
-            if ( auto* tex = Get<TextureCubeProperty>( "u_CubeMap" ) )
+            if ( auto* tex = Get<TextureCubeProperty>( "CubeMapTexture" ) )
                 tex->SetTexture( cube );
             // The ball shows the sky the scene shows: a Details-panel preview beside a Rotation slider
             // that did not turn would read as a slider that does nothing.

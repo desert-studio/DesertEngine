@@ -534,7 +534,7 @@ namespace Desert::Graphic::System
         // @p maps is this frame's AcquireCascadeMaps.
         [[nodiscard]] ShadowCascadeFrame ShadowCascadePasses( RDG::TextureRef maps );
         // THE ONE ANSWER TO "does a program of this frame sample the sun's cascades while the sun is ray traced":
-        // a blended draw of the generic queue, in the camera's frustum, whose program declares u_ShadowCascades
+        // a blended draw of the generic queue, in the camera's frustum, whose program declares ShadowCascadesTexture
         // (the opaque ones read the screen mask through their DESERT_SUN_SHADOW_SCREEN_MASK permutation, the lit
         // queue is shaded by the composite). SceneRenderer::OnUpdate draws the low-detail cascades only when true.
         [[nodiscard]] bool SunCascadeReadersQueued() const;
@@ -666,12 +666,12 @@ namespace Desert::Graphic::System
         // DeclareGlassBindings built in the node's setup. Nothing to draw is success; a refused draw is the error.
         [[nodiscard]] Common::BoolResultStr RenderGlassManual( const RDG::PassContext& context ) const;
         // SETUP of the "Deferred: Glass" node: the frame's translucent draw list, one binding block per cell (its
-        // shader's reflected layout, its dedicated material as the other route), each carrying u_SceneColor =
+        // shader's reflected layout, its dedicated material as the other route), each carrying SceneColorTexture =
         // @p sceneCopy (this frame's snapshot of the opaque scene, FrameTransients::SceneColorCopy, sampled for
         // refraction) and the scene/view inputs of @p view the cell's shader has a slot for. Declares nothing
         // (and the node draws nothing) when no translucent object is visible.
         // @p frontLayer: this frame's front layer reflection and depth (Reflections.TranslucentFrontLayer), bound as
-        // u_FrontLayerReflection / u_FrontLayerDepth wherever the cell's shader has the slots - the graph's black
+        // FrontLayerReflectionTexture / FrontLayerDepthTexture wherever the cell's shader has the slots - the graph's black
         // texture for both when the frame has no front layer.
         struct GlassFrontLayer
         {
@@ -733,7 +733,7 @@ namespace Desert::Graphic::System
         void                                DeclareOverdrawDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderOverdrawAccumManual( const RDG::PassContext& context ) const;
         // node "Debug: Overdraw Resolve" (the scene target): its setup declares the resolve's block, which samples
-        // @p overdraw - the accumulation the node "Debug: Overdraw" wrote - as u_Overdraw; the exec draws through
+        // @p overdraw - the accumulation the node "Debug: Overdraw" wrote - as OverdrawTexture; the exec draws through
         // it.
         void DeclareOverdrawResolve( RDG::PassBuilder& pass, RDG::TextureRef overdraw );
         [[nodiscard]] Common::BoolResultStr RecordOverdrawResolve( const RDG::PassContext& context ) const;
@@ -1108,7 +1108,7 @@ namespace Desert::Graphic::System
              GenericPipelineSpec( const std::shared_ptr<Shader>& shader );
         void PrecacheRequestedMaterials();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
-        // An opaque generic program that samples the sun's shadow (declares u_ShadowCascades): the one that gets a
+        // An opaque generic program that samples the sun's shadow (declares ShadowCascadesTexture): the one that gets a
         // DESERT_SUN_SHADOW_SCREEN_MASK permutation while the sun is ray traced. A blended program (TextSDF) or
         // one that reads no sun shadow is shaded through itself.
         [[nodiscard]] static bool ReadsSunShadowScreenMask( const Shader& shader, bool opaque );

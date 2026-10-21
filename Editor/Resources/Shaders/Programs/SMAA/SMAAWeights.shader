@@ -6,20 +6,20 @@ Shader "SMAAWeights"
         // SMAA pass 2: blending-weight calculation. Reads the edges texture + the precomputed AreaTex/SearchTex
         // LUTs; writes per-direction blend weights (rgba).
         // The one sampler state of every input below (separate textures); Common/SMAA.glslh samples through it.
-        Uniform(5) sampler u_LinearClampSampler;
+        Uniform(5) sampler LinearClampSampler;
         #include <Common/SMAA.glslh>
 
         In(0)  vec2 v_TexCoord;
-        Uniform(2) texture2D u_EdgesTex;
-        Uniform(3) texture2D u_AreaTex;
-        Uniform(4) texture2D u_SearchTex;
+        Uniform(2) texture2D EdgesTexture;
+        Uniform(3) texture2D AreaTexture;
+        Uniform(4) texture2D SearchTexture;
         Out(0) vec4 oColor;
 
         void main()
         {
-            vec2 ts      = vec2( textureSize( sampler2D( u_EdgesTex, u_LinearClampSampler ), 0 ) );
+            vec2 ts      = vec2( textureSize( sampler2D( EdgesTexture, LinearClampSampler ), 0 ) );
             vec4 metrics = vec4( 1.0 / ts, ts );
-            oColor = SMAABlendingWeightCalculation( u_EdgesTex, u_AreaTex, u_SearchTex, v_TexCoord, metrics );
+            oColor = SMAABlendingWeightCalculation( EdgesTexture, AreaTexture, SearchTexture, v_TexCoord, metrics );
         }
     }
 

@@ -20,16 +20,16 @@ Shader "MeshSDFCullGridSort"
 
         ReadBuffer(0) MeshSDFCullParamsUB
         {
-            MeshSDFCullParams u_Cull;
+            MeshSDFCullParams CullParams;
         };
         Buffer(1) MeshSDFGridCellsUB
         {
-            uint u_GridCells[];
+            uint GridCellsData[];
         };
         // MeshSDFCullGrid.shader's scatter: (object index, key bits) per entry, at the entry's index less the headers.
         ReadBuffer(2) MeshSDFGridUnsortedUB
         {
-            uvec2 u_Unsorted[];
+            uvec2 UnsortedData[];
         };
 
         const uint kTile = 64u;
@@ -45,15 +45,15 @@ Shader "MeshSDFCullGridSort"
         void main()
         {
             // One workgroup per cell; the dispatch is 2D when the cells exceed one dimension's group count.
-            const uint cells = u_Cull.grid.cells.w;
+            const uint cells = CullParams.grid.cells.w;
             const uint cell  = gl_WorkGroupID.x + gl_WorkGroupID.y * gl_NumWorkGroups.x;
             if (cell >= cells)
                 return;
             const uint header = cell * MeshSDFGridHeaderStride;
-            const uint length = u_GridCells[header + 1u];
+            const uint length = GridCellsData[header + 1u];
             if (length == 0u)
                 return;
-            const uint first = u_GridCells[header];
+            const uint first = GridCellsData[header];
             const uint src   = first - cells * MeshSDFGridHeaderStride;
             const uint t     = gl_LocalInvocationIndex;
 
@@ -61,13 +61,13 @@ Shader "MeshSDFCullGridSort"
             {
                 const uint  i    = iBase + t;
                 const bool  mine = i < length;
-                const uvec2 pair = mine ? u_Unsorted[src + i] : uvec2(0u);
+                const uvec2 pair = mine ? UnsortedData[src + i] : uvec2(0u);
                 uint rank = 0u;
                 for (uint jBase = 0u; jBase < length; jBase += kTile)
                 {
                     const uint j = jBase + t;
                     if (j < length)
-                        s_Pair[t] = u_Unsorted[src + j];
+                        s_Pair[t] = UnsortedData[src + j];
                     barrier();
                     const uint count = min(kTile, length - jBase);
                     for (uint k = 0u; k < count; ++k)
@@ -75,7 +75,7 @@ Shader "MeshSDFCullGridSort"
                     barrier();
                 }
                 if (mine)
-                    u_GridCells[first + rank] = pair.x;
+                    GridCellsData[first + rank] = pair.x;
             }
         }
     }

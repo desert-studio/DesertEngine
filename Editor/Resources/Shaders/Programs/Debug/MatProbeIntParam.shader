@@ -27,7 +27,7 @@ Shader "MatProbeIntParam"
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
             vec3 colour;
-            switch ( u_Material.Mode )
+            switch ( Material.Mode )
             {
                 case 0: colour = vec3( 0.9, 0.1, 0.1 ); break;
                 case 1: colour = vec3( 0.1, 0.9, 0.1 ); break;
@@ -35,7 +35,7 @@ Shader "MatProbeIntParam"
                 case 3: colour = vec3( 0.95, 0.85, 0.1 ); break;
                 default: colour = vec3( 1.0, 0.0, 1.0 ); break;
             }
-            if ( u_Material.Darken != 0 )
+            if ( Material.Darken != 0 )
                 colour *= 0.25;
             SurfaceOutput s = DefaultSurfaceOutput();
             s.BaseColor = vec3( 0.0 );

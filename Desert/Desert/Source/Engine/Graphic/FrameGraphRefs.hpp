@@ -27,7 +27,7 @@ namespace Desert::Graphic
     // JFA ping-pong, SSR trace/tiles, cloud trace/guide, the exposure histogram) stays a local of that
     // AddFrame*. A history (read in a LATER frame) is never here: it is an external the renderer owns.
     // The struct is rebuilt with every graph and dies with it.
-    // The most shadow cascades a lit pass samples (the layers of u_ShadowCascades); SceneResources::kMaxCascades
+    // The most shadow cascades a lit pass samples (the layers of ShadowCascadesTexture); SceneResources::kMaxCascades
     // is asserted equal where both are visible (MeshRendererInternal.hpp).
     inline constexpr uint32_t kSceneViewShadowCascades = 4;
 
@@ -176,7 +176,7 @@ namespace Desert::Graphic
         RDG::SystemTextures System;
     };
 
-    // What a cloud-shadow receiver samples as u_CloudShadowMap this frame: the cloud layer's map, or
+    // What a cloud-shadow receiver samples as CloudShadowMapTexture this frame: the cloud layer's map, or
     // System.White (the sun is not occluded) when the frame has none. The ONE choice every receiver pass
     // (deferred composite, forward meshes, glass, terrain) declares and binds.
     [[nodiscard]] inline RDG::TextureRef CloudShadowMapOrWhite( const FrameGraphRefs& refs )
@@ -253,35 +253,35 @@ namespace Desert::Graphic
 
     // The shader names the inputs are bound under (Mesh/CascadedShadow.glslh, Mesh/AmbientIBL.glslh, the cloud
     // shadow receiver). Every one is a separate texture read through a shared sampler state of the pass (the slot
-    // names in SceneViewDetail::BindWhere); the cascades are one `texture2DArray u_ShadowCascades`, layer c =
+    // names in SceneViewDetail::BindWhere); the cascades are one `texture2DArray ShadowCascadesTexture`, layer c =
     // cascade c.
-    inline constexpr std::string_view kSceneViewShadowCascadesName   = "u_ShadowCascades";
-    inline constexpr std::string_view kSceneViewEnvIrradianceName  = "u_EnvIrradianceTex";
-    inline constexpr std::string_view kSceneViewEnvSpecularName    = "u_EnvSpecularTex";
-    inline constexpr std::string_view kSceneViewBrdfLutName        = "u_BRDFLUTTexture";
-    inline constexpr std::string_view kSceneViewCloudShadowMapName   = "u_CloudShadowMap";
-    inline constexpr std::string_view kSceneViewReflectionCubesName = "u_ReflectionCaptureCubes";
+    inline constexpr std::string_view kSceneViewShadowCascadesName   = "ShadowCascadesTexture";
+    inline constexpr std::string_view kSceneViewEnvIrradianceName  = "EnvironmentIrradianceTexture";
+    inline constexpr std::string_view kSceneViewEnvSpecularName    = "EnvironmentSpecularTexture";
+    inline constexpr std::string_view kSceneViewBrdfLutName        = "BrdfLutTexture";
+    inline constexpr std::string_view kSceneViewCloudShadowMapName   = "CloudShadowMapTexture";
+    inline constexpr std::string_view kSceneViewReflectionCubesName = "ReflectionCaptureCubesTexture";
     inline constexpr std::string_view kSceneViewReflectionListName  = "ReflectionCapturesUB";
-    inline constexpr std::string_view kSceneViewLocalShadowAtlasName = "u_LocalShadowAtlas";
-    inline constexpr std::string_view kSceneViewSceneDepthName       = "u_SceneDepth";
-    inline constexpr std::string_view kSceneViewSceneShadingWordName = "u_SceneShadingWord";
+    inline constexpr std::string_view kSceneViewLocalShadowAtlasName = "LocalShadowAtlasTexture";
+    inline constexpr std::string_view kSceneViewSceneDepthName       = "SceneDepthTexture";
+    inline constexpr std::string_view kSceneViewSceneShadingWordName = "SceneShadingWordTexture";
     // DeferredLighting.shader and Mesh/Surface/Pass_Forward.glslh's DESERT_SUN_SHADOW_SCREEN_MASK branch.
-    inline constexpr std::string_view kSceneViewSunShadowMaskName = "u_ScreenShadowMask";
-    inline constexpr std::string_view kSceneViewRainOcclusionMapName = "u_RainOcclusionMap";
+    inline constexpr std::string_view kSceneViewSunShadowMaskName = "ScreenShadowMaskTexture";
+    inline constexpr std::string_view kSceneViewRainOcclusionMapName = "RainOcclusionMapTexture";
     // Its own shared sampler state (SharedSamplerBinding.hpp): the G-buffer cells declare none of the others.
-    inline constexpr std::string_view kSceneViewRainOcclusionSamplerName = "u_RainOcclusionSampler";
+    inline constexpr std::string_view kSceneViewRainOcclusionSamplerName = "RainOcclusionSampler";
     // The permutation define of every program that reads kSceneViewSunShadowMaskName in place of the cascades
     // (DeferredLighting.shader, Mesh/Surface/Pass_Forward.glslh): one name for every renderer that acquires it.
     inline constexpr std::string_view kSunShadowScreenMaskDefine = "DESERT_SUN_SHADOW_SCREEN_MASK";
     // The deferred composite's MegaLights program (Shadows Stochastic): the local lights from MegaLights'
-    // u_MegaLightsDiffuse / u_MegaLightsSpecular (System::MegaLightsRenderer) in place of the light-grid loop.
+    // MegaLightsDiffuseTexture / MegaLightsSpecularTexture (System::MegaLightsRenderer) in place of the light-grid loop.
     inline constexpr std::string_view kMegaLightsDefine = "DESERT_MEGALIGHTS";
     // The radiance cache's read (Common/RadianceCache.glslh; the names every reader of the cache binds).
     inline constexpr std::string_view kSceneViewRadianceCacheParamsName      = "RadianceCacheParamsUB";
     inline constexpr std::string_view kSceneViewRadianceCacheIndirectionName = "RadianceCacheIndirectionUB";
     inline constexpr std::string_view kSceneViewRadianceCacheProbesName      = "RadianceCacheProbesUB";
-    inline constexpr std::string_view kSceneViewRadianceCacheIrradianceName  = "u_RadianceCacheIrradiance";
-    inline constexpr std::string_view kSceneViewRadianceCacheDepthName       = "u_RadianceCacheDepth";
+    inline constexpr std::string_view kSceneViewRadianceCacheIrradianceName  = "RadianceCacheIrradianceTexture";
+    inline constexpr std::string_view kSceneViewRadianceCacheDepthName       = "RadianceCacheDepthTexture";
     // The light grid's two blocks (Mesh/LightGrid.glslh): the build shader, the composite, the forward cells.
     inline constexpr std::string_view kLightGridParamsBlockName = "LightGridParamsUB";
     inline constexpr std::string_view kLightGridCellsBlockName  = "LightGridCellsUB";
@@ -291,7 +291,7 @@ namespace Desert::Graphic
     // The MegaLights translucency volume's names (Common/MegaLightsVolume.glslh): its block and its three volumes.
     inline constexpr std::string_view                kMegaLightsVolumeBlockName = "MegaLightsVolumeUB";
     inline constexpr std::array<std::string_view, 3> kMegaLightsVolumeNames     = {
-         "u_MegaLightsVolumeR", "u_MegaLightsVolumeG", "u_MegaLightsVolumeB" };
+         "MegaLightsVolumeRTexture", "MegaLightsVolumeGTexture", "MegaLightsVolumeBTexture" };
 
     [[nodiscard]] inline SceneViewInputs SceneViewInputsOf( const FrameGraphRefs& refs )
     {
@@ -358,9 +358,9 @@ namespace Desert::Graphic
                 block.Texture( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                      .Sampler( samplerSlot, sampler );
             };
-            constexpr std::string_view kRepeat = "u_LinearRepeatSampler";
-            constexpr std::string_view kClamp  = "u_LinearClampSampler";
-            constexpr std::string_view kPoint  = "u_PointClampSampler";
+            constexpr std::string_view kRepeat = "LinearRepeatSampler";
+            constexpr std::string_view kClamp  = "LinearClampSampler";
+            constexpr std::string_view kPoint  = "PointClampSampler";
             if ( inputs.ShadowCascades.IsValid() )
                 bind( kSceneViewShadowCascadesName, inputs.ShadowCascades, kRepeat,
                       RDG::SamplerDesc::LinearRepeat() );
@@ -410,7 +410,7 @@ namespace Desert::Graphic
     // SETUP: declares on @p block (RenderPassDeclaration::BlockDeclaration or RDG::BindingBlockBuilder) every
     // input
     // @p layout has a sampled slot for, so a shader that samples no cascade (the glass) is never handed one - the
-    // block would fault the pass in ValidatePassBindings ("'u_ShadowCascades' is not a resource of shader ...").
+    // block would fault the pass in ValidatePassBindings ("'ShadowCascadesTexture' is not a resource of shader ...").
     // A block entry IS the read: the node does not also declare inputs.Refs().
     template <typename Block>
     void BindSceneViewInputs( Block& block, const SceneViewInputs& inputs, const RDG::ShaderBindingLayout& layout )
@@ -448,6 +448,6 @@ namespace Desert::Graphic
                 std::pair{ kSceneViewRadianceCacheDepthName, inputs.RadianceCacheDepth } } )
             if ( SceneViewDetail::LayoutSamples( layout, name ) )
                 block.Texture( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                     .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
+                     .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
     }
 } // namespace Desert::Graphic

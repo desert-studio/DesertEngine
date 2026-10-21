@@ -435,7 +435,7 @@ namespace Desert::Graphic::System
             {
                 block.Storage( "VsmFrameData", frame.FrameData, RDG::Access::StorageRead )
                      .Storage( "VsmPageTable", frame.PageTable, RDG::Access::StorageRead )
-                     .Storage( "u_PhysicalPool", frame.PhysicalPool, RDG::Access::StorageWrite )
+                     .Storage( "PhysicalPoolTexture", frame.PhysicalPool, RDG::Access::StorageWrite )
                      .Storage( "VsmRasterLevel", frame.RasterLevel[level], RDG::Access::StorageRead );
                 if ( std::any_of( layout.Slots.begin(), layout.Slots.end(),
                                   []( const RDG::ShaderSlot& slot ) { return slot.Name == "VsmInstanceRemap"; } ) )

@@ -73,19 +73,19 @@ Shader "CloudComposite"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(2) sampler u_LinearRepeatSampler;
-        Uniform(0) texture2D u_CloudScatter;
-        #define u_CloudScatter sampler2D(u_CloudScatter, u_LinearRepeatSampler)
+        Uniform(2) sampler LinearRepeatSampler;
+        Uniform(0) texture2D CloudScatterTexture;
+        #define CloudScatterTexture sampler2D(CloudScatterTexture, LinearRepeatSampler)
 
         // The guide, same size as the scatter: .x = cloud front distance (km), .y = scene
         // distance (km). Point-fetched, never filtered — a filtered depth across a silhouette averages
         // near and far into a distance where nothing is, which is the artefact this pass exists to undo.
-        Uniform(1) texture2D u_CloudGuide;
-        #define u_CloudGuide sampler2D(u_CloudGuide, u_LinearRepeatSampler)
+        Uniform(1) texture2D CloudGuideTexture;
+        #define CloudGuideTexture sampler2D(CloudGuideTexture, LinearRepeatSampler)
 
         Uniform(3) CloudCompositeUB
         {
-            vec4 u_Exposure; // x = ViewFrame::PreExposure (MaterialCloudComposite::SetExposure), yzw unused
+            vec4 ExposureTexture; // x = ViewFrame::PreExposure (MaterialCloudComposite::SetExposure), yzw unused
         };
 
         // Unreal's coherence threshold: a tenth of the reference distance. Relative rather than absolute
@@ -101,7 +101,7 @@ Shader "CloudComposite"
 
         void main()
         {
-            ivec2 size = textureSize(u_CloudScatter, 0);
+            ivec2 size = textureSize(CloudScatterTexture, 0);
 
             // The half-texel shift is the bilinear rule itself: texel centres sit at (i + 0.5) / size, so
             // the four texels straddling this pixel start at floor(uv * size - 0.5). Without the shift the
@@ -135,8 +135,8 @@ Shader "CloudComposite"
 
             for (int i = 0; i < 4; ++i)
             {
-                scatter[i]  = texelFetch(u_CloudScatter, coords[i], 0);
-                vec2 guide  = texelFetch(u_CloudGuide, coords[i], 0).xy;
+                scatter[i]  = texelFetch(CloudScatterTexture, coords[i], 0);
+                vec2 guide  = texelFetch(CloudGuideTexture, coords[i], 0).xy;
                 frontKm[i]  = guide.x;
                 sceneKm[i]  = guide.y;
             }
@@ -198,7 +198,7 @@ Shader "CloudComposite"
             // source texel can propagate into. Transmittance is clamped both ways because it multiplies
             // the scene: a value above 1 brightens what is BEHIND the cloud, which reads as a glowing
             // rectangle and is very hard to trace back to a filter.
-            o_Color = vec4(max(cloud.rgb, vec3(0.0)) * u_Exposure.x, clamp(cloud.a, 0.0, 1.0));
+            o_Color = vec4(max(cloud.rgb, vec3(0.0)) * ExposureTexture.x, clamp(cloud.a, 0.0, 1.0));
         }
     }
 

@@ -185,7 +185,7 @@ namespace Desert::Core::Preprocess
     }
 
     // The template's blend mode lives on the program metadata (Core/Formats/ShaderProgramMeta.hpp), where the
-    // renderer reads it. Masked: the pass headers discard below u_Material.<kSurfaceMaskClipParam>. Translucent:
+    // renderer reads it. Masked: the pass headers discard below Material.<kSurfaceMaskClipParam>. Translucent:
     // the template has Forward cells only, built on the translucency pass header (kSurfaceTranslucentPassInclude).
     using SurfaceBlendMode = Formats::SurfaceBlendMode;
 

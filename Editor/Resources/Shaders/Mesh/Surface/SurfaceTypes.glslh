@@ -35,7 +35,7 @@ vec4 SurfaceSampleMaterial( BindlessTexture materialTexture, vec2 uv )
     return SampleBindless( materialTexture, uv );
 }
 #else
-// A material texture is its row slot (u_Material.<name>, a BindlessTexture), read through the bindless table.
+// A material texture is its row slot (Material.<name>, a BindlessTexture), read through the bindless table.
 vec4 SurfaceSampleMaterial( BindlessTexture materialTexture, vec2 uv )
 {
     return SampleBindlessBias( materialTexture, uv, cameraUB.MaterialMipBias );
@@ -115,24 +115,24 @@ SurfaceSubUV DesertParticleSubUV( SurfaceParticleInput p, vec2 uv, float columns
 // texture read through the point-clamped shared state (ParticleRenderer / Graphic::BindSceneViewInputs bind both),
 // numbered by the program build (SharedSamplerBinding.hpp).
 #if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) &&      ( defined( DESERT_SURFACE_PARTICLE_SPRITE ) || defined( DESERT_SURFACE_PASS_Forward ) )
-Uniform sampler u_PointClampSampler;
-layout( binding = 27 ) uniform texture2D u_SceneDepth; // 27 = Core::kSceneDepthBinding, the scene-read range's third slot (ShaderGraphBindings.hpp)
-#define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
+Uniform sampler PointClampSampler;
+layout( binding = 27 ) uniform texture2D SceneDepthTexture; // 27 = Core::kSceneDepthBinding, the scene-read range's third slot (ShaderGraphBindings.hpp)
+#define SceneDepthTexture sampler2D(SceneDepthTexture, PointClampSampler)
 #endif
 // THE SCENE SHADING WORD beside it, for the Forward cells only: the contact-shadow ray's hit texel's NO_CONTACT_SHADOW
 // bit (UE CastContactShadow( GBuffer ); SceneViewInputs::SceneShadingWord, the G-buffer's, or an integer zero). Read
 // with texelFetch through the same point-clamped state.
 #if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) && defined( DESERT_SURFACE_PASS_Forward )
-layout( binding = 28 ) uniform utexture2D u_SceneShadingWord; // 28 = Core::kSceneShadingWordBinding, the range's fourth slot
-#define u_SceneShadingWord usampler2D(u_SceneShadingWord, u_PointClampSampler)
+layout( binding = 28 ) uniform utexture2D SceneShadingWordTexture; // 28 = Core::kSceneShadingWordBinding, the range's fourth slot
+#define SceneShadingWordTexture usampler2D(SceneShadingWordTexture, PointClampSampler)
 #endif
 
 #if defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
 #include <Common/ReconstructPosition.glslh>
 float DesertDepthFade( vec3 worldPosition, float opacity, float fadeDistance )
 {
-    const vec2  uv     = gl_FragCoord.xy / vec2( textureSize( u_SceneDepth, 0 ) );
-    const float depth  = texture( u_SceneDepth, uv ).r;
+    const vec2  uv     = gl_FragCoord.xy / vec2( textureSize( SceneDepthTexture, 0 ) );
+    const float depth  = texture( SceneDepthTexture, uv ).r;
     // Common/ReconstructPosition.glslh: (0,0) is the top-left pixel and NDC +y is up - the one convention.
     const vec3  scene  = ReconstructWorldPosition( uv, depth, cameraUB.InvJitteredViewProjection );
     const float behind = -( cameraUB.View * vec4( scene, 1.0 ) ).z;
@@ -159,7 +159,7 @@ struct SurfaceOutput
     vec3  Normal;    // TANGENT space, as UE's Normal pin: (0,0,1) is the geometric normal
     float AmbientOcclusion;
     // The sun-shadow receive half the material owns (the renderer zeroes a mesh's row value when its Receive
-    // Shadows toggle is off; a template that exposes it forwards u_Material.ReceiveSunShadows here). < 0.5 =
+    // Shadows toggle is off; a template that exposes it forwards Material.ReceiveSunShadows here). < 0.5 =
     // the cascades do not shadow this surface.
     float ReceiveSunShadows;
     // The material-complexity proxy the deferred debug view heat-maps (G-buffer C.w): real textures sampled.
@@ -293,7 +293,7 @@ vec3 DesertSurfaceWorldNormal( SurfaceInput i, SurfaceOutput s )
 // A hit cell clips in its any-hit stage (ignoreIntersectionEXT), never in closest hit: a hit has no discard.
 #if defined( DESERT_SURFACE_MASKED ) && !defined( DESERT_SURFACE_PASS_Hit )
 #define DESERT_SURFACE_CLIP( i ) \
-    if ( DesertSurfaceOpacityMask( i ) < u_Material.OpacityMaskClipValue ) \
+    if ( DesertSurfaceOpacityMask( i ) < Material.OpacityMaskClipValue ) \
         discard
 #else
 #define DESERT_SURFACE_CLIP( i )

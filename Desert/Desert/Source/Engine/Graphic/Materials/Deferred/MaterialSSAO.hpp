@@ -46,7 +46,7 @@ namespace Desert::Graphic
             int        Angles           = 0; // UE r.GTAO.NumAngles
         };
 
-        // The SSAOUB values only: u_GBufferDepth / u_GBufferNormal are graph resources, bound by name through
+        // The SSAOUB values only: GBufferDepthTexture / GBufferNormalTexture are graph resources, bound by name through
         // RDG::PassBindings (SSAORenderer::Record). Ported from UE 5.8
         // Renderer/Private/CompositionLighting/PostProcessAmbientOcclusion.cpp GetGTAOShaderParameters (440-481):
         // the six-step slice rotation, the step offset that advances once per six frames, the thickness remap 1 -

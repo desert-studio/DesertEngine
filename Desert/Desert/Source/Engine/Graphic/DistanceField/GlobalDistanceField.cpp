@@ -522,11 +522,11 @@ namespace Desert::Graphic::DistanceField
                      pipeline->SetStorageBuffer( kGdfBrickListBinding, m_BrickObjectBuffer.get() );
                      pass.Bindings( m_CompositeLayout.Get( m_CompositeShader ),
                                     Renderer::GetPipelineRouteFill( *pipeline ) )
-                          .Texture( "u_DFBrickAtlas", atlas, RDG::Access::SampledCompute,
+                          .Texture( "DistanceFieldBrickAtlasTexture", atlas, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                          .Storage( "u_Clipmap", clipmap, RDG::Access::StorageWrite )
-                          .Storage( "u_ObjectGrid", grid, RDG::Access::StorageWrite )
+                          .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
+                          .Storage( "ClipmapTexture", clipmap, RDG::Access::StorageWrite )
+                          .Storage( "ObjectGridTexture", grid, RDG::Access::StorageWrite )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( GdfCompositePush ) ) );
                  },
                  [pipeline, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -821,7 +821,7 @@ namespace Desert::Graphic::DistanceField
                  for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
                      block.Texture( std::format( "u_GlobalDistanceField{}", level ), field.Clipmaps[level],
                                     RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
+                          .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
                  block.PushConstantBytes( static_cast<uint32_t>( sizeof( GdfViewPush ) ) );
                  pass.ColorTarget( 0, target, load );
              },

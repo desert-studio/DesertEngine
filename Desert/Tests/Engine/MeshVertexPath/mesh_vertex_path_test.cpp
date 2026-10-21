@@ -496,7 +496,7 @@ TEST_F( MeshVertexPathShaderRoot, TheForwardVariantsAreOneSurfacePlusExactlyTheP
 // Two assertions, and the second is the one that fires if somebody puts the padding back:
 //
 //   * where two cells of ONE path declare the same slot, they must give it the same NAME. A material
-//     writes by name and a pipeline binds by number, so a slot that means `u_NormalTexture` in one cell
+//     writes by name and a pipeline binds by number, so a slot that means `NormalTexture` in one cell
 //     and something else in another is a texture bound into the wrong sampler with nothing to notice it.
 //   * the G-buffer cell is a PROPER subset of its path's forward cell. Subset, because it shades the same
 //     surface and can read nothing the surface does not have; PROPER, because a G-buffer write reads no
@@ -730,7 +730,7 @@ namespace
         Color     Tint    ("Tint")    = (1, 1, 1, 1)
         Float     Tiling  ("Tiling")  = 2
 )" + extraProperties +
-               R"(        Texture2D u_Mask ("Mask") = "white"
+               R"(        Texture2D MaskTexture ("Mask") = "white"
     }
     Vertex
     {
@@ -741,7 +741,7 @@ namespace
     {
 )" + fragmentPush +
                R"(        layout( location = 0 ) out vec4 o_Color;
-        void main() { o_Color = texture( u_Mask, vec2( 0.5 ) ) * u_Material.Tint * u_Material.Tiling; }
+        void main() { o_Color = texture( MaskTexture, vec2( 0.5 ) ) * Material.Tint * Material.Tiling; }
     }
 }
 )";
@@ -754,7 +754,7 @@ namespace
     Domain Surface
     Properties TextureBinding(31)
     {
-        Texture2D u_Mask ("Mask") = "white"
+        Texture2D MaskTexture ("Mask") = "white"
     }
     Vertex
     {
@@ -767,7 +767,7 @@ namespace
         )" + fragmentPush +
                R"(
         layout( location = 0 ) out vec4 o_Color;
-        void main() { o_Color = texture( u_Mask, vec2( 0.5 ) ) * float( m_PushConstants.MaterialIndex ); }
+        void main() { o_Color = texture( MaskTexture, vec2( 0.5 ) ) * float( m_PushConstants.MaterialIndex ); }
     }
 }
 )";
@@ -788,8 +788,8 @@ TEST_F( MeshVertexPathShaderRoot, AMockTemplatesLayoutIsItsPropertiesAndItsPushB
     EXPECT_EQ( *cell.Layout.RowBinding, 30u );
     ASSERT_NE( cell.Layout.FindParam( "Tiling" ), nullptr );
     EXPECT_EQ( cell.Layout.FindParam( "Tiling" )->Offset, 16u );
-    ASSERT_NE( cell.Layout.FindTexture( "u_Mask" ), nullptr );
-    EXPECT_EQ( cell.Layout.FindTexture( "u_Mask" )->Binding, 31u );
+    ASSERT_NE( cell.Layout.FindTexture( "MaskTexture" ), nullptr );
+    EXPECT_EQ( cell.Layout.FindTexture( "MaskTexture" )->Binding, 31u );
 
     const auto* index = cell.Layout.FindPush( "MaterialIndex" );
     ASSERT_NE( index, nullptr );

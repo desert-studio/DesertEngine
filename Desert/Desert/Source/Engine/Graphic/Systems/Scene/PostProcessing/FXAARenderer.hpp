@@ -32,7 +32,7 @@ namespace Desert::Graphic::System
         }
 
         // SETUP of "PostFX: FXAA": declares the node's one block (block 0) - @p input (GetInputImage() imported)
-        // as u_InputTexture, with the sampler the material route sampled it with (the image's own: linear,
+        // as LdrSceneColorTexture, with the sampler the material route sampled it with (the image's own: linear,
         // REPEAT); the material is the other route. Not initialised: nothing is declared and Record refuses.
         void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef input ) const;
         // Records the fullscreen FXAA inside the render pass the frame graph opens on GetOutputImage(), drawing

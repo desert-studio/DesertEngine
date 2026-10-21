@@ -9,20 +9,20 @@ Shader "VirtualShadowMapClearArgs"
 
         Buffer(0) VsmAllocator
         {
-            uint  u_EmptyCount;
-            uint  u_CachedCount;
-            uint  u_AllocCursor;
-            uint  u_DirtyCount;
-            uint  u_Overflow;
-            uint  u_Reserved0;
-            uint  u_Reserved1;
-            uint  u_Reserved2;
-            uvec4 u_ClearArgs;
+            uint  EmptyCount;
+            uint  CachedCount;
+            uint  AllocationCursor;
+            uint  DirtyCount;
+            uint  Overflow;
+            uint  Reserved0;
+            uint  Reserved1;
+            uint  Reserved2;
+            uvec4 ClearArgs;
         };
 
         void main()
         {
-            u_ClearArgs = uvec4( u_DirtyCount, 1u, 1u, 0u );
+            ClearArgs = uvec4( DirtyCount, 1u, 1u, 0u );
         }
     }
 }

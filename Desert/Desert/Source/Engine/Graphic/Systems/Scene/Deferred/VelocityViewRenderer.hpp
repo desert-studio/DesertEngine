@@ -59,14 +59,14 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        // SETUP of "Debug: Velocity": block 0 - u_Velocity, the shader's only resource, read by texelFetch.
+        // SETUP of "Debug: Velocity": block 0 - VelocityTexture, the shader's only resource, read by texelFetch.
         void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef velocity ) const
         {
             if ( !m_Current )
                 return;
             pass.Bindings( m_BindingLayout.Get( m_Shader ), RDG::OtherRouteFill{} )
-                 .Texture( "u_Velocity", velocity, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
+                 .Texture( "VelocityTexture", velocity, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
         }
 
         [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context ) const

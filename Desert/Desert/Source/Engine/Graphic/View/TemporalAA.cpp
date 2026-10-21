@@ -44,17 +44,17 @@ namespace Desert::Graphic
         static const std::shared_ptr<const RDG::ShaderBindingLayout> layout =
              std::make_shared<const RDG::ShaderBindingLayout>(
                   RDG::ShaderBindingLayout{ .ShaderName        = kShaderName,
-                                            .Slots             = { { "u_SceneColor", Kind::Texture },
-                                                                   { "u_SceneDepth", Kind::Texture },
-                                                                   { "u_Velocity", Kind::Texture },
-                                                                   { "u_Exposure", Kind::Texture },
-                                                                   { "u_History", Kind::Texture },
-                                                                   { "u_LinearClampSampler", Kind::Sampler },
-                                                                   { "u_PointClampSampler", Kind::Sampler },
-                                                                   { "u_HistoryOut", Kind::StorageTexture },
-                                                                   { "u_Output", Kind::StorageTexture },
+                                            .Slots             = { { "SceneColorTexture", Kind::Texture },
+                                                                   { "SceneDepthTexture", Kind::Texture },
+                                                                   { "VelocityTexture", Kind::Texture },
+                                                                   { "ExposureTexture", Kind::Texture },
+                                                                   { "PreviousResolvedColorTexture", Kind::Texture },
+                                                                   { "LinearClampSampler", Kind::Sampler },
+                                                                   { "PointClampSampler", Kind::Sampler },
+                                                                   { "HistoryOutTexture", Kind::StorageTexture },
+                                                                   { "ResolvedColorTexture", Kind::StorageTexture },
                                                                    { "TemporalAABuffer", Kind::StorageBuffer },
-                                                                   { "u_ResponsiveAA", Kind::Texture } },
+                                                                   { "ResponsiveAaTexture", Kind::Texture } },
                                             .PushConstantBytes = 0 } );
         return layout;
     }
@@ -162,22 +162,22 @@ namespace Desert::Graphic
                  // Every texture is read at texel centres or filtered inside the shader; the linear sampler on
                  // the history is its bilinear fetch (Low / Medium) and the Catmull-Rom taps (High).
                  pass.Bindings( TemporalAALayout(), RDG::OtherRouteFill{} )
-                      .Texture( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute,
+                      .Texture( "SceneColorTexture", inputs.SceneColor, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-                      .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                      .Texture( "u_SceneDepth", inputs.SceneDepth, RDG::Access::SampledCompute,
+                      .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                      .Texture( "SceneDepthTexture", inputs.SceneDepth, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Texture( "u_Velocity", inputs.Velocity, RDG::Access::SampledCompute,
+                      .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                      .Texture( "VelocityTexture", inputs.Velocity, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-                      .Texture( "u_Exposure", inputs.Exposure, RDG::Access::SampledCompute,
+                      .Texture( "ExposureTexture", inputs.Exposure, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-                      .Texture( "u_History", history.Previous, RDG::Access::SampledCompute,
+                      .Texture( "PreviousResolvedColorTexture", history.Previous, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() )
-                      .Storage( "u_HistoryOut", history.Current, RDG::Access::StorageWrite, 0 )
-                      .Storage( "u_Output", output, RDG::Access::StorageWrite, 0 )
+                      .Storage( "HistoryOutTexture", history.Current, RDG::Access::StorageWrite, 0 )
+                      .Storage( "ResolvedColorTexture", output, RDG::Access::StorageWrite, 0 )
                       .Storage( "TemporalAABuffer", buffer, RDG::Access::StorageRead )
-                      .Texture( "u_ResponsiveAA", inputs.ResponsiveAA, RDG::Access::SampledCompute,
+                      .Texture( "ResponsiveAaTexture", inputs.ResponsiveAA, RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::All() );
              },
              [this, quality, extent]( RDG::PassContext& context ) -> Common::BoolResultStr

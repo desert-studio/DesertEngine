@@ -16,14 +16,14 @@
 //
 // Declares no binding. The includer names its inputs, then includes this:
 //     #define CONTACT_SHADOW_DEPTH   <sampler2D>  the opaque scene's device depth (nearest): the deferred composite's
-//                                                 u_GBufferDepth, the forward passes' u_SceneDepth
+//                                                 GBufferDepthTexture, the forward passes' SceneDepthTexture
 //     #define CONTACT_SHADOW_VP      <mat4>       the matrix that depth was rasterised with (jittered)
 //     #define CONTACT_SHADOW_PIXEL   <vec2>       the render pixel the march's dither is keyed on: a fragment
 //                                                 program's gl_FragCoord.xy; a compute pass (MegaLights) names
 //                                                 the pixel it traces for
 //     #define CONTACT_SHADOW_INV_VP  <mat4>       its inverse (the depth's world positions, Common/ReconstructPosition)
 // and declares the ShadowUB block (SceneResources::ShadowUBData), whose
-//     vec4 u_ContactShadowView;  x = ray steps (Scalability Shadows.ContactShadowSteps; 0 = off),
+//     vec4 ContactShadowView;  x = ray steps (Scalability Shadows.ContactShadowSteps; 0 = off),
 //                                y = tan(vertical FOV / 2), z = dither frame (0..7; the cascade filter's disc
 //                                turns by it too, Mesh/CascadedShadow.glslh), w unused
 // carries the view's half of the march.
@@ -47,7 +47,7 @@ float ContactShadowWorldLength(vec3 worldPosition, float contactShadowLength, bo
 	if (inWorldSpace)
 		return contactShadowLength;
 	const float viewDepth = (CONTACT_SHADOW_VP * vec4(worldPosition, 1.0)).w;
-	return contactShadowLength * u_ContactShadowView.y * viewDepth;
+	return contactShadowLength * ContactShadowView.y * viewDepth;
 }
 
 #include <Common/ReconstructPosition.glslh>
@@ -97,7 +97,7 @@ vec3 ContactShadowDepthPlaneNormal(vec2 uv, vec3 centre, float centreDepth, vec3
 float ContactShadowRayCast(vec3 worldPosition, vec3 N, vec3 L, float rayLength, out vec2 hitUV)
 {
 	hitUV           = vec2(0.0);
-	const int steps = int(u_ContactShadowView.x + 0.5);
+	const int steps = int(ContactShadowView.x + 0.5);
 	if (steps <= 0 || rayLength <= 0.0)
 		return -1.0;
 
@@ -144,7 +144,7 @@ float ContactShadowRayCast(vec3 worldPosition, vec3 N, vec3 L, float rayLength, 
 	}
 	const float planeNoL = dot(planeN, L);
 
-	const float stepOffset = ContactShadowDither(CONTACT_SHADOW_PIXEL, u_ContactShadowView.z) - 0.5;
+	const float stepOffset = ContactShadowDither(CONTACT_SHADOW_PIXEL, ContactShadowView.z) - 0.5;
 	float       sampleTime = stepOffset * stepFraction + stepFraction;
 
 	for (int i = 0; i < steps; i++)
