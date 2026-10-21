@@ -3,6 +3,7 @@
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
@@ -332,6 +333,13 @@ namespace Desert::Graphic
         // their passes: a view's pipelines are destroyed with it, at once (VulkanPipeline::Release), and the frame
         // that rendered the last face is still on the GPU when the next one releases them.
         Assets::FrameRetireQueue<std::unique_ptr<FaceView>> m_RetiringFaces;
+        // THE FACES' ONE GLOBAL DISTANCE FIELD: the six face views stand at one capture point, so they read one
+        // field, lent to each before its frame (SceneRenderer::ShareGlobalDistanceField) - the first face of a
+        // capture composites the window, the other five find nothing dirty. Made with the faces (uninitialised
+        // until a face reads it), released with them and parked like them: its pipelines and per-frame buffers
+        // outlive the frames in flight that recorded its passes.
+        std::unique_ptr<DistanceField::GlobalDistanceField>                           m_FaceField;
+        Assets::FrameRetireQueue<std::unique_ptr<DistanceField::GlobalDistanceField>> m_RetiringFields;
 
         ResourceOwnerInstance m_Scene; // see the constructor
 

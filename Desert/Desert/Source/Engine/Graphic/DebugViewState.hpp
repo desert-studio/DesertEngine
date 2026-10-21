@@ -64,6 +64,13 @@ namespace Desert::Graphic
         SurfaceCacheAtlas    = 15,
         SurfaceCacheScene    = 16,
         SurfaceCacheSceneLit = 17,
+        // The traced reflections alone (UE ShowFlag.Reflections / r.Lumen.Visualize reflections): what the traced
+        // path of the reflection trace wrote into the composite's reflection input (DeferredLighting.shader
+        // REFLECTION_INPUT_TRACED) - its hits' radiance by their coverage, over black: no environment for a miss,
+        // no rough specular of the GI, no direct or diffuse light. Proves the tracer: an object behind the camera
+        // shows in a mirror under SoftwareTraced / HardwareTraced. Deferred only; under any other reflection
+        // method the frame is black and the renderer refuses by name - never the screen trace in its place.
+        Reflections = 18,
     };
 
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a

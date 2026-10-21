@@ -182,6 +182,16 @@ namespace Desert::Editor
                                   EditorPreferences::Save();
                                   return PaletteCommandDone();
                               } } );
+        // The traced reflections alone under a name: the proof that a mirror shows what is behind the camera
+        // under SoftwareTraced / HardwareTraced is a frame taken over the channel.
+        commands.push_back( { "View", "View mode: Reflections", []
+                              {
+                                  auto& view = EditorPreferences::Get().DebugView;
+                                  view.ClearViewMode();
+                                  view.DeferredDebug = Graphic::DeferredDebugMode::Reflections;
+                                  EditorPreferences::Save();
+                                  return PaletteCommandDone();
+                              } } );
         // Lit and Wireframe under names (the dropdown's first two entries): the CubeGrid seam check is "no
         // interior faces", which only a wireframe frame shows, and a mode reachable only by the toolbar
         // combo could not be photographed over the channel. Same channel reset as the dropdown

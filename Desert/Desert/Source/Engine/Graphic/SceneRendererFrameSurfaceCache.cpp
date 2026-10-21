@@ -101,12 +101,15 @@ namespace Desert::Graphic
         const std::unordered_map<uint64_t, uint32_t>           rows = m_SurfaceCache->GetScene().RowsByPlacement();
         const std::span<const RayTracing::RayTracingPrimitive> primitives = m_RayTracingScene.GetPrimitives();
         uint32_t                                               count      = 1u; // a graph buffer cannot be empty
+        // A primitive with no GPU-scene row (kNoGpuSceneRow: the GPU-instanced grass) has no entry: its hits read
+        // past the table, GI_NO_INSTANCE.
         for ( const RayTracing::RayTracingPrimitive& primitive : primitives )
-            count = std::max( count, primitive.GpuSceneRow + 1u );
+            if ( primitive.GpuSceneRow <= RayTracing::kMaxGpuSceneRow )
+                count = std::max( count, primitive.GpuSceneRow + 1u );
         std::vector<uint32_t> table( count, SurfaceCache::kNoInstance );
         for ( const RayTracing::RayTracingPrimitive& primitive : primitives )
         {
-            if ( primitive.SourceMesh == nullptr )
+            if ( primitive.SourceMesh == nullptr || primitive.GpuSceneRow > RayTracing::kMaxGpuSceneRow )
                 continue;
             const auto it = rows.find(
                  SurfaceCache::SurfaceCacheScene::PlacementKey( primitive.SourceMesh, primitive.World ) );

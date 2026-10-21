@@ -116,6 +116,20 @@ namespace Desert::Graphic
         textures.Transients.CloudShadowMap = clouds->GetShadowMap();
     }
 
+    void SceneRenderer::AddFrameCloudSkyOcclusion( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // A path-traced frame draws no screen clouds, but the layer's sky-occlusion volume is an input of the sky
+        // capture that marches the clouds into the environment the paths read (PathTracerSky "Prepare"): without
+        // it the capture waits on an undecided volume and the path-traced sky has no clouds.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
+        if ( clouds == nullptr )
+            return;
+        std::vector<ComputeNodeDeclaration> nodes = clouds->DeclareSkyOcclusionNodes();
+        clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
+        clouds->SettleSkyOcclusionNodes( AddComputeNodes( graph, textures, std::move( nodes ) ) );
+    }
+
     void SceneRenderer::AddFrameSkyLight( RDG::Builder& graph, FrameTextures& textures )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type

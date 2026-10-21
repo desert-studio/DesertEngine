@@ -63,6 +63,11 @@ namespace Desert::Graphic
     struct Environment;
 } // namespace Desert::Graphic
 
+namespace Desert::Graphic::DistanceField
+{
+    class DistanceFieldSceneData;
+}
+
 namespace Common::Math
 {
     class Ray;
@@ -651,6 +656,14 @@ namespace Desert::Core
             return *m_LocalShadows;
         }
 
+        // THE SCENE'S MESH DISTANCE FIELDS (UE: FScene's FDistanceFieldSceneData): one brick atlas, one set of
+        // records and one streaming for every view of this scene, the reflection captures' face views included
+        // (Graphic/DistanceField/DistanceFieldSceneData.hpp). Renderer state cached on the scene, like the captures.
+        [[nodiscard]] Graphic::DistanceField::DistanceFieldSceneData& GetDistanceFields() const
+        {
+            return *m_DistanceFields;
+        }
+
         // THE SCENE in the resource ledger: every device object of the scene's shared renderer state above — the
         // reflection-capture arrays, the ray-tracing cache, the sky light's capture — is a row of this instance,
         // and the scene's budget entry (SceneRenderer::SceneHoldings) is the sum of them.
@@ -789,6 +802,8 @@ namespace Desert::Core
         std::shared_ptr<Graphic::SceneSkyLight> m_SkyLight;
         // See GetLocalShadows. Never null: made by both constructors.
         std::unique_ptr<Graphic::LocalShadowCache> m_LocalShadows;
+        // See GetDistanceFields. Never null: made by both constructors.
+        std::unique_ptr<Graphic::DistanceField::DistanceFieldSceneData> m_DistanceFields;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)

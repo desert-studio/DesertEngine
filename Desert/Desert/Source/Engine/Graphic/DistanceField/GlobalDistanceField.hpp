@@ -96,6 +96,14 @@ namespace Desert::Graphic::DistanceField
                                                              const glm::ivec3& centre, float voxelSize,
                                                              const std::vector<Common::Math::AABB>& dirty );
 
+    // THE FIELD: the clipmaps, the object grid and what they were composited from - one per camera that owns a
+    // field (the scene view's own; the six face views of the scene's reflection captures share ONE,
+    // ReflectionCaptureRenderer's: they stand at one capture point). Updated AT MOST ONCE PER ENGINE FRAME: the
+    // first AddUpdatePasses of a frame plans, uploads and records the composites into its graph; a later one in the
+    // same frame for the same camera and objects records nothing and hands the same field to its own graph; a
+    // later one for another camera or object set is refused - the object, brick and brick-list buffers are
+    // per-frame copies written by the CPU, and a second write in the frame would change what the frame's earlier
+    // graph reads. What a view does with the field (its near-field grid, its debug view) is GlobalDistanceFieldView.
     class GlobalDistanceField
     {
     public:
@@ -104,15 +112,21 @@ namespace Desert::Graphic::DistanceField
         GlobalDistanceField( const GlobalDistanceField& )            = delete;
         GlobalDistanceField& operator=( const GlobalDistanceField& ) = delete;
 
-        // Shaders, pipelines, clipmap volumes and buffers. An error names what is missing.
+        // The composite's shader and pipeline, the clipmap volumes and the per-frame buffers. An error names what
+        // is missing.
         [[nodiscard]] Common::BoolResultStr Initialize();
+        [[nodiscard]] bool                  IsInitialized() const
+        {
+            return m_CompositePipeline != nullptr;
+        }
 
         using ImportImage = std::function<RDG::TextureRef( const std::shared_ptr<Image>&, std::string_view )>;
 
         // What a reader of this frame's field binds: the clipmaps as graph textures and their parameters,
         // (centre.xyz in cm, voxel size in cm) per level - GlobalDistanceField.glslh's GDFLevel - and the mesh
-        // fields it was composited from with, after AddNearFieldCullPasses, the view's near-field froxel grid (a
-        // GI ray's first metres).
+        // fields it was composited from (AddUpdatePasses fills the brick atlas and the object count; the view's
+        // GlobalDistanceFieldView::AddFramePasses registers the buffers in its graph and adds its near-field froxel
+        // grid, a GI ray's first metres).
         struct FrameField
         {
             std::array<RDG::TextureRef, kGlobalDistanceFieldClipmaps> Clipmaps;
@@ -121,12 +135,76 @@ namespace Desert::Graphic::DistanceField
             MeshDistanceFieldReads                                    MeshFields;
         };
 
-        // Brings the clipmaps up to @p camera and @p objects: residency and mip streaming in the brick atlas of
-        // @p poolMiB (Scalability GlobalIllumination.DistanceFieldPoolMiB), the update plan, and one composite
-        // pass per level that has bricks to rewrite.
+        // Brings the clipmaps up to @p camera and @p objects, once per @p engineFrame (the class comment). The
+        // mesh fields are @p scene's - the one DistanceFieldSceneData of the Core::Scene every view of it shares:
+        // the frame's update starts its frame there (@p poolMiB: Scalability
+        // GlobalIllumination.DistanceFieldPoolMiB), looks its objects' fields up in the set the scene decided; then
+        // its update plan and one composite pass per level that has bricks to rewrite. Every call imports the
+        // clipmaps, the object grid and the brick atlas into @p graph through @p import.
         [[nodiscard]] Common::ResultStr<FrameField>
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
-                         const std::vector<GlobalDistanceFieldObject>& objects, uint32_t poolMiB );
+                         const std::vector<GlobalDistanceFieldObject>& objects, DistanceFieldSceneData& scene,
+                         uint64_t engineFrame, uint32_t poolMiB );
+
+        // The object records of the frame's update (DF_OBJECT_*): what a view's graph registers as
+        // MeshDistanceFieldReads::Objects.
+        [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& GetObjectBuffer() const
+        {
+            return m_ObjectBuffer;
+        }
+
+    private:
+        struct TrackedObject
+        {
+            Common::Math::AABB Bounds;
+            uint32_t           Count = 0;
+        };
+
+        std::array<std::shared_ptr<Image3D>, kGlobalDistanceFieldClipmaps>  m_Clipmaps;
+        std::shared_ptr<Image3D>                                            m_ObjectGrid;
+        std::array<std::optional<glm::ivec3>, kGlobalDistanceFieldClipmaps> m_ValidCentre;
+        // The objects the clipmaps hold, by identity (field and transform): a difference is a dirty box.
+        std::unordered_map<uint64_t, TrackedObject> m_Tracked;
+        // The scene pool generation the clipmaps were composited from (DistanceFieldSceneData::GetPoolGeneration).
+        std::optional<uint64_t> m_PoolGeneration;
+
+        // THE FRAME'S UPDATE (once per frame): the engine frame it ran in, what it was asked for (the camera and
+        // the identity of the object list: field, transform, foliage flag and row of each, in order), and what
+        // a later call of that frame hands back without recording anything.
+        struct FrameUpdate
+        {
+            uint64_t                                            Frame = 0;
+            glm::vec3                                           Camera{ 0.0f };
+            uint64_t                                            Objects = 0;
+            std::array<glm::vec4, kGlobalDistanceFieldClipmaps> Levels{};
+            uint32_t                                            NumObjects = 0;
+        };
+        std::optional<FrameUpdate> m_FrameUpdate;
+
+        std::shared_ptr<Shader>          m_CompositeShader;
+        std::shared_ptr<ComputePipeline> m_CompositePipeline;
+        mutable ShaderBindingLayoutCache m_CompositeLayout;
+
+        // Per-frame copies (one per frame in flight), written by the frame's update only.
+        std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectBuffer;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_UpdateBrickBuffer;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_BrickObjectBuffer;
+    };
+
+    // THE VIEW OF A FIELD: what one view does with the field it reads (its own, or one shared with other views at
+    // its camera) - registers the field's buffers in its graph, culls the near field's froxel grid to its frustum,
+    // draws the debug view. One per view: the near field's grid and feedback follow this view's frustum and frame
+    // slots, and no other view's.
+    class GlobalDistanceFieldView
+    {
+    public:
+        GlobalDistanceFieldView();
+        ~GlobalDistanceFieldView();
+        GlobalDistanceFieldView( const GlobalDistanceFieldView& )            = delete;
+        GlobalDistanceFieldView& operator=( const GlobalDistanceFieldView& ) = delete;
+
+        // The near-field cull's and the debug view's shaders and pipelines. An error names what is missing.
+        [[nodiscard]] Common::BoolResultStr Initialize();
 
         // The view a near-field grid is culled for: its unjittered matrices, its camera, its extent in pixels.
         struct NearFieldView
@@ -139,6 +217,22 @@ namespace Desert::Graphic::DistanceField
             glm::uvec2 Extent{ 0u };
         };
 
+        // This view's frame of @p field: GlobalDistanceField::AddUpdatePasses at @p view's camera (once per frame
+        // for the field, whichever view asks first), the scene's asset and indirection buffers and the field's
+        // objects registered in @p graph, then this view's near-field grid (AddNearFieldCullPasses).
+        [[nodiscard]] Common::ResultStr<GlobalDistanceField::FrameField>
+        AddFramePasses( RDG::Builder& graph, GlobalDistanceField& field,
+                        const GlobalDistanceField::ImportImage&       import,
+                        const std::vector<GlobalDistanceFieldObject>& objects, DistanceFieldSceneData& scene,
+                        uint64_t engineFrame, uint32_t poolMiB, const NearFieldView& view );
+
+        // "Debug: Global Distance Field" over @p target (a full-screen sphere trace of the clipmaps).
+        [[nodiscard]] Common::BoolResultStr AddDebugViewPass( RDG::Builder&                          graph,
+                                                              const GlobalDistanceField::FrameField& field,
+                                                              RDG::TextureRef target, const RDG::LoadOp& load,
+                                                              const glm::mat4& inverseViewProjection );
+
+    private:
         // THE NEAR FIELD'S FROXEL GRID (UE LumenMeshSDFCulling: CullMeshSDFObjectsForView,
         // CullMeshSDFObjectsToViewGrid, ComputeCulledObjectsStartOffset, CompactCulledObjects - written from
         // memory): five compute passes over @p field's objects - the ones near @p view's frustum; per froxel of
@@ -148,58 +242,24 @@ namespace Desert::Graphic::DistanceField
         // lists' room is m_NearFieldListRoom, grown from what earlier frames needed (ReadNearFieldFeedback); a
         // frame that needs more is refused on the GPU (every list empty) and logged. Fills @p field.MeshFields'
         // NearFieldGrid and NearFieldGridPlacement. An error names the bad input.
-        [[nodiscard]] Common::BoolResultStr AddNearFieldCullPasses( RDG::Builder& graph, FrameField& field,
-                                                                    const NearFieldView& view );
-
-        // "Debug: Global Distance Field" over @p target (a full-screen sphere trace of the clipmaps).
-        [[nodiscard]] Common::BoolResultStr AddDebugViewPass( RDG::Builder& graph, const FrameField& field,
-                                                              RDG::TextureRef target, const RDG::LoadOp& load,
-                                                              const glm::mat4& inverseViewProjection );
-
-        [[nodiscard]] const DistanceFieldSceneData& GetSceneData() const
-        {
-            return m_SceneData;
-        }
-
-    private:
-        struct TrackedObject
-        {
-            Common::Math::AABB Bounds;
-            uint32_t           Count = 0;
-        };
-
-        // One line when the streaming settles (no field waits for a finer mip) after it moved.
-        void LogStreaming();
+        [[nodiscard]] Common::BoolResultStr AddNearFieldCullPasses( RDG::Builder&                    graph,
+                                                                    GlobalDistanceField::FrameField& field,
+                                                                    const NearFieldView&             view );
 
         [[nodiscard]] Common::BoolResultStr PrepareDebugPipeline( Core::Formats::ImageFormat format,
                                                                   uint32_t                   samples );
 
-        DistanceFieldSceneData                                              m_SceneData;
-        std::array<std::shared_ptr<Image3D>, kGlobalDistanceFieldClipmaps>  m_Clipmaps;
-        std::shared_ptr<Image3D>                                            m_ObjectGrid;
-        std::array<std::optional<glm::ivec3>, kGlobalDistanceFieldClipmaps> m_ValidCentre;
-        // The objects the clipmaps hold, by identity (field and transform): a difference is a dirty box.
-        std::unordered_map<uint64_t, TrackedObject> m_Tracked;
-        bool                                        m_StreamingMoved = false;
+        // This view's graph's view of the buffers a trace reads - the scene's records and table, the field's
+        // objects (re-imported every frame: each frame in flight has its own copy).
+        RDG::ExternalBuffer m_AssetImport;
+        RDG::ExternalBuffer m_IndirectionImport;
+        RDG::ExternalBuffer m_ObjectImport;
 
-        std::shared_ptr<Shader>                                               m_CompositeShader;
-        std::shared_ptr<ComputePipeline>                                      m_CompositePipeline;
-        mutable ShaderBindingLayoutCache                                      m_CompositeLayout;
         std::shared_ptr<Shader>                                               m_ViewShader;
         mutable ShaderBindingLayoutCache                                      m_ViewLayout;
         std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>> m_ViewPipelines;
         std::shared_ptr<GraphicsPipeline>                                     m_ViewPipeline;
 
-        std::shared_ptr<ShaderResources::StorageBuffer> m_AssetBuffer;
-        std::shared_ptr<ShaderResources::StorageBuffer> m_IndirectionBuffer;
-        std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectBuffer;
-        std::shared_ptr<ShaderResources::StorageBuffer> m_UpdateBrickBuffer;
-        std::shared_ptr<ShaderResources::StorageBuffer> m_BrickObjectBuffer;
-        // The graph's view of the buffers a trace reads (re-imported every frame: each frame in flight has its
-        // own copy).
-        RDG::ExternalBuffer m_AssetImport;
-        RDG::ExternalBuffer m_IndirectionImport;
-        RDG::ExternalBuffer m_ObjectImport;
         // The near field's cull (AddNearFieldCullPasses).
         std::shared_ptr<Shader>          m_CullObjectsShader;
         std::shared_ptr<ComputePipeline> m_CullObjectsPipeline;

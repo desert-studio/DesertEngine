@@ -540,6 +540,17 @@ Shader "DeferredLighting"
         	// gather's specular in GI modes 2 and 3, else over the sky).
         	const vec3 environment     = sampled.Prefiltered;
         	const int  reflectionInput = int(u_CameraPos.w + 0.5);
+        	// DeferredDebugMode::Reflections (18): the traced reflection alone - u_SSR's radiance by its coverage over
+        	// black, so a miss, the environment, the GI's rough specular and the direct light are all absent. Any other
+        	// input is not a traced reflection: black, never the screen trace (SceneRenderer::AddFrameComposite refuses
+        	// it by name).
+        	if (dbg == 18)
+        	{
+        		oColor = reflectionInput == REFLECTION_INPUT_TRACED
+        		             ? vec4(DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), vec3(0.0)), 1.0)
+        		             : vec4(0.0, 0.0, 0.0, 1.0);
+        		return;
+        	}
         	if (giMode >= 2)
         	{
         		// The traced gather replaced the sky terms; a two-sided leaf's far side is lit by its -N gather.

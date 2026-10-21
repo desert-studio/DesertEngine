@@ -59,9 +59,14 @@ namespace Desert::Graphic::System
     // lights, and emission met by a material ray is weighed against it (PathTracer.shader). The list's hash is in
     // the scene hash, so a changed emitter restarts the sum.
     //
+    // GLASS (UE PathTracingGlass.ush, smooth): a BlendMode Translucent surface is a dielectric interface - Fresnel
+    // reflection or refraction by its IOR, thin at IOR 1, Beer absorption by its tint inside a solid - and light
+    // rays are attenuated by it instead of blocked (PathTracer.shader; its primitives carry
+    // RayTracing::kMaskTranslucent alone, so only these rays meet them).
+    //
     // Not here (each is UE's and a task of its own): a denoiser (UE's is a plugin over albedo/normal guides),
-    // transmission, participating media, a Sobol sequence, pixel filters other than a
-    // box.
+    // rough glass (the raster's glass pass reads no roughness), participating media, a Sobol sequence, pixel
+    // filters other than a box.
     class PathTracer final : public RenderSystem
     {
     public:
@@ -86,6 +91,8 @@ namespace Desert::Graphic::System
             uint32_t        PointLightCount = 0;
             uint32_t        SpotLightCount  = 0;
             RDG::TextureRef EnvSpecular; // the environment cube (System.BlackCube without one)
+            RDG::TextureRef CloudShadowMap; // the cloud layer's shadow map (CloudShadowMapOrWhite)
+            RDG::BufferRef  CloudShadow;    // its CloudShadowUB (CloudShadowPackUniforms; Params.y = 0: no map)
             // This frame's hit group table; its Templates built the pipeline (EnsurePipeline).
             const RayTracing::RayTracingHitGroupTable* HitGroups = nullptr;
             RayTracing::EmissiveLightsFrame            Emissive; // this frame's emissive triangle list (Valid)
@@ -434,6 +441,10 @@ namespace Desert::Graphic::System
                           .Texture( "u_EnvSpecularTex", inputs.EnvSpecular, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
                           .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_CloudShadowMap", inputs.CloudShadowMap, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
+                          .Uniform( "CloudShadowUB", inputs.CloudShadow )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
                  },
                  [this, push, hits = inputs.HitGroups, width,

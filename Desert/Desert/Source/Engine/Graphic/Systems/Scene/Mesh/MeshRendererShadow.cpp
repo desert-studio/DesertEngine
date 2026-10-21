@@ -68,6 +68,12 @@ namespace Desert::Graphic::System
             m_ShadowInstancedMaterial[i].reset();
             m_ShadowSkinnedMaterial[i].reset();
         }
+        // The rain occlusion view's materials went with the others, and this runs inside the frame (SceneRenderer
+        // RebudgetShadowsFor, after UpdateRainOcclusion): its box goes too, so this frame declares no rain pass over
+        // the released materials, and the next UpdateRainOcclusion makes them again and redraws the map.
+        m_RainOcclusionBox.reset();
+        m_RainOcclusionSignature.reset();
+        m_RainOcclusionRedraw = false;
         // The local lights' atlas is the scene's (Graphic/LocalShadowCache.hpp): it follows the viewports' new
         // budget (LocalShadowAtlasSize) at the next frame boundary. This view's table goes.
         // The array is made again at the new size by the next frame (AcquireCascadeMaps); the device is idle.
@@ -404,13 +410,27 @@ namespace Desert::Graphic::System
                     ShadowCasterCell::Own;
     }
 
+    bool MeshRenderer::IsTranslucentSurface( const DataDrivenMaterial* material )
+    {
+        return material != nullptr && Core::Formats::IsTranslucentBlend( material->GetSchema().Blend );
+    }
+
     MeshRenderer::SectionShading MeshRenderer::ShadingOf( const StaticMeshRenderData& data )
     {
         const SurfaceSlot slot = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
-        return { slot.Instance, slot.Surface, IsMaskedSurface( slot.Surface ) };
+        return { slot.Instance, slot.Surface, IsMaskedSurface( slot.Surface ),
+                 IsTranslucentSurface( slot.Surface ) };
     }
 
     MeshRenderer::SectionShading MeshRenderer::ShadingOf( const InstancedMeshRenderData& data )
+    {
+        MaterialInstance* instance = data.Material.get();
+        auto*             surface =
+             instance != nullptr ? dynamic_cast<DataDrivenMaterial*>( instance->GetParentMaterial() ) : nullptr;
+        return { instance, surface, IsMaskedSurface( surface ), IsTranslucentSurface( surface ) };
+    }
+
+    MeshRenderer::SectionShading MeshRenderer::ShadingOf( const GpuInstancedRenderData& data )
     {
         MaterialInstance* instance = data.Material.get();
         auto*             surface =
@@ -420,7 +440,8 @@ namespace Desert::Graphic::System
 
     MeshRenderer::SectionShading MeshRenderer::ShadingOf( const SkinnedSection& section )
     {
-        return { section.Instance, section.Material, IsMaskedSurface( section.Material ) };
+        return { section.Instance, section.Material, IsMaskedSurface( section.Material ),
+                 IsTranslucentSurface( section.Material ) };
     }
 
     DataDrivenMaterial* MeshRenderer::MaskedCasterMaterial( const DataDrivenMaterial* material,

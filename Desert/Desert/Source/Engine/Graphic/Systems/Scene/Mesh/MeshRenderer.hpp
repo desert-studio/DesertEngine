@@ -12,6 +12,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingProgramHit.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialSilhouette.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialShadow.hpp>
@@ -308,8 +309,17 @@ namespace Desert::Graphic::System
             // GrassBlade only: the variety's shape, Vertex_GrassBlade.glslh's GrassBladeShape.
             std::shared_ptr<ShaderResources::StorageBuffer> BladeShape;
             const GpuInstanceRefs*                          Refs = nullptr; // the producer's, this frame
+            // The instances Instances holds room for (GpuInstances.hpp header word 1): the TLAS rows reserved for
+            // the producer (RayTracingGpuInstanceSource::Rows).
+            uint32_t Capacity = 0;
+            // Per bucket (a strip level for GrassBlade), the instances its record holds room for: the TLAS rows
+            // reserved for that level (RayTracingGpuInstanceSource::Rows). Owned by the producer, this frame.
+            std::span<const uint32_t> BucketCapacities;
             // Stable per section across frames: the view-variant key (several cascades: Key * kMaxCascades + c).
             uint32_t Key = 0;
+            // GrassBlade only: the shared BLAS of each strip level (GrassBladeRayTracing.hpp), indexed by submesh;
+            // empty when the view has no TLAS. Owned by the grass renderer, this frame.
+            std::span<const RayTracing::RayTracingGeometryResource* const> BladeGeometry;
         };
 
         // A static mesh drawn with a generic data-driven material. Two producers:
@@ -352,6 +362,11 @@ namespace Desert::Graphic::System
             // system's SDF font atlas. Non-owning: the producer keeps it alive for the frame.
             Graphic::Image2D* DirectTexture        = nullptr;
             std::string       DirectTextureSampler;
+
+            // The record's own hit group when its program is no surface template (3D text: TextRayHit, built by
+            // the producer from the values this draw carries). Empty Template: a ray hit shades with SlotMaterial,
+            // else the default surface. Read by the gather only when VisibleInRayTracing.
+            RayTracing::RayTracingProgramHit RayHit;
         };
 
         // THE MATERIAL A SECTION SHADES WITH, and whether it is Masked: the one answer the raster's casters
@@ -362,13 +377,19 @@ namespace Desert::Graphic::System
             MaterialInstance*            Instance = nullptr;
             Graphic::DataDrivenMaterial* Surface  = nullptr; // null: the slot holds no mesh-cell surface
             bool                         Masked   = false;
+            // The surface's template is BlendMode Translucent / Additive (the translucency pass draws it): a ray
+            // tracing primitive drawn only by such sections takes the translucent instance mask alone.
+            bool Translucent = false;
         };
         [[nodiscard]] static bool IsMaskedSurface( const Graphic::DataDrivenMaterial* material );
+        [[nodiscard]] static bool IsTranslucentSurface( const Graphic::DataDrivenMaterial* material );
         // A static entry's section: SectionSurface of its SectionSlot.
         [[nodiscard]] static SectionShading ShadingOf( const StaticMeshRenderData& data );
         // An ISM section group: its slot instance and that instance's parent surface.
         [[nodiscard]] static SectionShading ShadingOf( const InstancedMeshRenderData& data );
         [[nodiscard]] static SectionShading ShadingOf( const SkinnedSection& section );
+        // A GPU-instanced section: its slot instance and that instance's parent surface, as an ISM's.
+        [[nodiscard]] static SectionShading ShadingOf( const GpuInstancedRenderData& data );
 
         using RenderSystem::RenderSystem;
 
@@ -468,6 +489,11 @@ namespace Desert::Graphic::System
         [[nodiscard]] std::span<const InstancedMeshRenderData> GetInstancedQueue() const
         {
             return m_InstancedQueue;
+        }
+        // This frame's GPU-instanced sections (the landscape grass): their TLAS rows are written on the GPU.
+        [[nodiscard]] std::span<const GpuInstancedRenderData> GetGpuInstancedQueue() const
+        {
+            return m_GpuInstancedQueue;
         }
         // Every queued field's per-instance GPU-scene rows, end to end (InstancedMeshRenderData::FirstMotionRow).
         [[nodiscard]] std::span<const uint32_t> GetInstancedMotionRows() const

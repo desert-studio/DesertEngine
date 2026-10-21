@@ -864,6 +864,8 @@ namespace Desert::Graphic
         m_SceneLedgerInstance  = scene.GetLedgerInstance();
         // The scene's local-light shadow cache, which this view's lights draw into and read (UpdateLocalShadows).
         m_FrameLocalShadows = &scene.GetLocalShadows();
+        // The scene's mesh distance fields, which this view's global distance field composites from.
+        m_FrameDistanceFields = &scene.GetDistanceFields();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -1537,6 +1539,18 @@ namespace Desert::Graphic
 
         AddFrameClearMainFramebuffer( graph, textures );
 
+        // The landscape grass of this view, before every node that draws it (the cascades, the geometry) and
+        // before the view's TLAS, whose GPU-written grass rows read its transforms and drawn counts
+        // (RayTracingGpuInstanceSource). A face view grows none, as it simulates no particles.
+        if ( !m_ViewProfile.SceneCapture )
+        {
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
+            UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
+                 ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ),
+                             RayTracing::RayTracingSceneRequired( m_RenderMethods ) );
+            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        }
+
         // The view's TLAS, before any pass that traces rays is declared (RayTracingSceneRenderer.hpp). A frame
         // whose TLAS could not be declared still draws; its ray readers see GetFrame().Built == false.
         {
@@ -1565,16 +1579,18 @@ namespace Desert::Graphic
             const auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
             std::span<const System::TerrainDrawData>       queue     = terrain->GetQueue();
             const std::span<const System::TerrainInstance> instances = terrain->GetFrameInstances();
-            const std::span<const glm::vec4>               tints     = terrain->GetFrameTints();
+            const std::span<const System::TerrainFrameMaterial> materials = terrain->GetFrameMaterials();
             const std::span<const uint32_t>                rows      = meshes->GetOtherMotionRows();
             // Parallel by construction (PrepareFrame packs one row per queued tile, BuildObjectMotions one motion
             // row per tile record); a mismatch is a broken invariant, said and not traced, never truncated.
             std::vector<RayTracing::LandscapeRayTracingTile> tiles;
-            if ( instances.size() != queue.size() || tints.size() != queue.size() || rows.size() != queue.size() )
+            if ( instances.size() != queue.size() || materials.size() != queue.size() ||
+                 rows.size() != queue.size() )
             {
-                LOG_ERROR( "[SceneRenderer] {}: {} landscape tiles queued but {} terrain rows, {} tints and {} "
-                           "GPU-scene rows; the landscape is not in this frame's TLAS",
-                           m_ViewResources.GetName(), queue.size(), instances.size(), tints.size(), rows.size() );
+                LOG_ERROR(
+                     "[SceneRenderer] {}: {} landscape tiles queued but {} terrain rows, {} materials and {} "
+                     "GPU-scene rows; the landscape is not in this frame's TLAS",
+                     m_ViewResources.GetName(), queue.size(), instances.size(), materials.size(), rows.size() );
                 queue = {};
             }
             tiles.reserve( queue.size() );
@@ -1589,7 +1605,7 @@ namespace Desert::Graphic
                                    .WeightRevision = draw.Weights.Revision,
                                    .Instance       = instances[i],
                                    .Weights        = draw.Weights,
-                                   .Tint           = tints[i] } );
+                                   .Material       = materials[i] } );
             }
             const Common::BoolResultStr landscape =
                  m_LandscapeRayTracing.AddPasses( graph, textures, required, tiles );
@@ -1601,11 +1617,31 @@ namespace Desert::Graphic
             }
             // A failed AddPasses may have registered tiles whose build was never declared: none enters the TLAS.
             const RayTracing::LandscapeRayTracingFrame& landscapeFrame = m_LandscapeRayTracing.GetFrame();
-            RayTracing::RayTracingExternalPrimitives    external;
+            // The blade grass's level BLASes (GrassBladeRayTracing.hpp) join the same dynamic-geometry pass: their
+            // primitives are the grass sections the gather reads from the mesh renderer. A face view grew no grass
+            // this frame (above), so it hands none. The landscape stats stay the landscape's own.
+            std::vector<RayTracing::RayTracingDynamicGeometryBuild> builds;
+            std::vector<RDG::BufferRef>                             resident;
+            if ( landscape.IsSuccess() )
+            {
+                builds.assign( landscapeFrame.Builds.begin(), landscapeFrame.Builds.end() );
+                resident.assign( landscapeFrame.Resident.begin(), landscapeFrame.Resident.end() );
+            }
+            if ( !m_ViewProfile.SceneCapture )
+            {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                const auto* const grass = UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] );
+                const std::span<const RayTracing::RayTracingDynamicGeometryBuild> bladeBuilds =
+                     grass->GetBladeRayTracing().GetBuilds();
+                const std::span<const RDG::BufferRef> bladeResident = grass->GetBladeRayTracing().GetResident();
+                builds.insert( builds.end(), bladeBuilds.begin(), bladeBuilds.end() );
+                resident.insert( resident.end(), bladeResident.begin(), bladeResident.end() );
+            }
+            RayTracing::RayTracingExternalPrimitives external{ .Builds = builds, .Resident = resident };
             if ( landscape.IsSuccess() )
                 external = { .Primitives       = landscapeFrame.Primitives,
-                             .Builds           = landscapeFrame.Builds,
-                             .Resident         = landscapeFrame.Resident,
+                             .Builds           = builds,
+                             .Resident         = resident,
                              .Built            = landscapeFrame.Built,
                              .Refit            = landscapeFrame.Refit,
                              .VertexBytes      = landscapeFrame.VertexBytes,
@@ -1706,16 +1742,6 @@ namespace Desert::Graphic
             AddFrameParticlesSimulate( graph );
 
         AddFrameCloudShadowMap( graph, textures );
-
-        // The landscape grass of this view, before every node that draws it (the cascades, the geometry). A face
-        // view grows none, as it simulates no particles.
-        if ( !m_ViewProfile.SceneCapture )
-        {
-            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
-            UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
-                 ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) );
-            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
-        }
 
         // The opaque raster of the systems, in this order: the cascade depths (the geometry's shadow lookups read
         // them), the scene target's sky and geometry, the outline mask.
@@ -1875,13 +1901,17 @@ namespace Desert::Graphic
         AddFrameSkyAtmosphereLuts( graph, textures );
         // The path tracer's paths carry no participating media (PathTracer.hpp: a task of its own), so a
         // path-traced frame composites no height fog, cloud layer or particles over its accumulation; the
-        // editor's passes at the extension points still draw.
+        // editor's passes at the extension points still draw. The clouds reach its paths through the sky
+        // capture (the environment) and the cloud shadow map (the sun), so the layer's sky-occlusion volume,
+        // which the capture marches through, is still written.
         const bool pathTraced = PathTraced( m_RenderMethods );
         if ( !pathTraced )
         {
             AddFrameAtmosphericFog( graph, textures );
             AddFrameVolumetricClouds( graph, textures, frame );
         }
+        else
+            AddFrameCloudSkyOcclusion( graph, textures );
 
         // The opaque scene is complete (lit, composited, the sky/fog/cloud nodes declared): passes from outside
         // the engine that belong under every translucent layer join here.
@@ -2066,6 +2096,7 @@ namespace Desert::Graphic
         m_FrameReflectionCaptures = nullptr;
         m_FrameRayTracingCache    = nullptr;
         m_FrameLocalShadows       = nullptr;
+        m_FrameDistanceFields     = nullptr;
 
         return BOOLSUCCESS;
     }
@@ -2645,7 +2676,8 @@ namespace Desert::Graphic
                                            const std::string& shaderName, const MaterialOverrides& overrides,
                                            bool outlined, Image2D* directTexture,
                                            const std::string& directTextureSampler, bool castShadows,
-                                           bool visibleInRayTracing )
+                                           bool                                    visibleInRayTracing,
+                                           const RayTracing::RayTracingProgramHit& rayHit )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -2659,7 +2691,8 @@ namespace Desert::Graphic
                                     .CastShadows          = castShadows,
                                     .VisibleInRayTracing  = visibleInRayTracing,
                                     .DirectTexture        = directTexture,
-                                    .DirectTextureSampler = directTextureSampler } );
+                                    .DirectTextureSampler = directTextureSampler,
+                                    .RayHit               = rayHit } );
     }
 
     void SceneRenderer::SubmitSlotMaterialMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
@@ -2800,6 +2833,11 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
              ->BorrowEnvironment( std::move( environment ) );
+    }
+
+    void SceneRenderer::ShareGlobalDistanceField( DistanceField::GlobalDistanceField* field )
+    {
+        m_SharedGlobalDistanceField = field;
     }
 
     std::shared_ptr<Image2D> SceneRenderer::GetShadowCascadeCacheImage( uint32_t cascade )
@@ -2989,8 +3027,12 @@ namespace Desert::Graphic
     bool SceneRenderer::ReadsReflectionCaptures() const
     {
         // The profile admits captures for the view; the resolved method decides whether this view reflects them
-        // (Off is the sky's environment only - ReflectionMethod).
-        return m_ViewProfile.ReflectionCaptures &&
+        // (Off is the sky's environment only - ReflectionMethod). A PATH-TRACED view reads none: its frame branch
+        // (EndScene, PathTraced( m_RenderMethods )) traces every bounce and never records
+        // AddFrameReflectionCaptureUpdate (UE: the path tracer ignores reflection captures). Answering true here
+        // made Scene::OnUpdate drive RenderCaptureViews every frame for a view that never fills them, so
+        // FirstFillPending stayed true forever and the --shot gate (ReflectionCapturesFilling) never admitted.
+        return m_ViewProfile.ReflectionCaptures && !PathTraced( m_RenderMethods ) &&
                m_RenderMethods.Reflections.Effective != Common::Scalability::ReflectionMethod::Off;
     }
 

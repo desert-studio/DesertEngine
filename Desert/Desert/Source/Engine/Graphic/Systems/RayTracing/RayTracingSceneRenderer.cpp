@@ -3,9 +3,14 @@
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingGeometry.hpp>
+#include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Render/RayTracingMeshInput.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGather.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <algorithm>
 #include <format>
@@ -25,6 +30,150 @@ namespace Desert::Graphic::RayTracing
                 return Common::MakeError<std::shared_ptr<RayTracingGeometryResource>>( built.GetError() );
             return Common::MakeSuccess( std::shared_ptr<RayTracingGeometryResource>( built.GetValue() ) );
         };
+    }
+
+    namespace
+    {
+        // Programs/RayTracing/RayTracingGpuInstances.shader's push constants, one dispatch per source.
+        struct GpuInstanceRowsPush
+        {
+            uint32_t RowBase      = 0; // the source's first row in the instance buffer
+            uint32_t Rows         = 0; // its reserved rows
+            uint32_t Record       = 0; // the indexed-indirect record stating the drawn count and first instance
+            uint32_t IndexAndMask = 0; // customIndex:24 | mask:8 of every active row
+            uint32_t SbtAndFlags  = 0; // sbtOffset:24 | flags:8 (the primitive's first segment record)
+            uint32_t AddressLo    = 0; // the BLAS device address
+            uint32_t AddressHi    = 0;
+            uint32_t Pad          = 0;
+        };
+        constexpr uint32_t kGpuInstanceRowsGroupSize = 64; // the program's LocalSize
+
+        class GpuInstanceRows final : public RayTracingGpuInstanceRows
+        {
+        public:
+            Common::BoolResultStr Prepare( std::span<const RayTracingGpuInstanceSource> sources,
+                                           std::span<const RayTracingPrimitive>         primitives,
+                                           RayTracingInstanceList&                      list ) override
+            {
+                m_Sources.clear();
+                m_Rows = 0;
+                m_Key  = 14695981039346656037ull;
+                if ( sources.empty() )
+                    return BOOLSUCCESS;
+                if ( !m_Program )
+                {
+                    const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( kProgramName );
+                    if ( !shader )
+                        return Common::MakeError( std::format( "missing shader '{}'", kProgramName ) );
+                    const auto made = ComputePipeline::Create( { .Shader = shader, .DebugName = kProgramName } );
+                    if ( !made )
+                        return Common::MakeError( made.GetError() );
+                    m_Program = made.GetValue();
+                }
+                const auto skip = [&list]( RayTracingSkip reason )
+                { ++list.Skipped[static_cast<std::size_t>( reason )]; };
+                for ( const RayTracingGpuInstanceSource& source : sources )
+                {
+                    const RayTracingPrimitive& primitive = primitives[source.Primitive];
+                    if ( primitive.Geometry == nullptr )
+                    {
+                        skip( RayTracingSkip::NoGeometry );
+                        continue;
+                    }
+                    if ( primitive.FirstSegmentRecord > kMaxSegmentRecord )
+                    {
+                        skip( RayTracingSkip::SegmentRecordOutOfRange );
+                        continue;
+                    }
+                    // A producer with no room this frame generated nothing: no row to trace.
+                    if ( source.Refs == nullptr || source.Rows == 0 )
+                        continue;
+                    const uint64_t address =
+                         static_cast<const RayTracingGeometryResource*>( primitive.Geometry )->GetDeviceAddress();
+                    const auto mask =
+                         static_cast<uint32_t>( kMaskOpaque | ( primitive.CastShadows ? kMaskShadowCaster : 0u ) );
+                    GpuInstanceRowsPush push;
+                    push.RowBase      = m_Rows;
+                    push.Rows         = source.Rows;
+                    push.Record       = source.Record;
+                    push.IndexAndMask = kNoGpuSceneRow | ( mask << 24u );
+                    push.SbtAndFlags  = primitive.FirstSegmentRecord & kMaxSegmentRecord;
+                    push.AddressLo    = static_cast<uint32_t>( address );
+                    push.AddressHi    = static_cast<uint32_t>( address >> 32u );
+                    m_Sources.push_back( { *source.Refs, push } );
+                    m_Rows += source.Rows;
+                    for ( const uint64_t value : { address, uint64_t{ source.Rows }, uint64_t{ push.Record },
+                                                   uint64_t{ push.IndexAndMask }, uint64_t{ push.SbtAndFlags } } )
+                        m_Key = ( m_Key ^ value ) * 1099511628211ull;
+                    list.InstancesByKind[static_cast<std::size_t>( RayTracingPrimitiveKind::GpuInstanced )] +=
+                         source.Rows;
+                }
+                return BOOLSUCCESS;
+            }
+
+            uint32_t GetRows() const override
+            {
+                return m_Rows;
+            }
+            uint64_t GetKey() const override
+            {
+                return m_Key;
+            }
+
+            Common::BoolResultStr AddPass( RDG::Builder& graph, const RDG::BufferRef instances,
+                                           const uint32_t firstRow ) override
+            {
+                std::vector<Source> sources = m_Sources;
+                for ( Source& source : sources )
+                    source.Push.RowBase += firstRow;
+                graph.AddPass(
+                     kGpuInstancesPassName, RDG::PassFlags::Compute,
+                     [this, &sources, instances]( RDG::PassBuilder& pass )
+                     {
+                         const auto& layout = m_Layout.Get( m_Program->GetSpecification().Shader );
+                         for ( const Source& source : sources )
+                             pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Program ) )
+                                  .Storage( "Transforms", source.Refs.Instances, RDG::Access::StorageRead )
+                                  .Storage( "Args", source.Refs.Args, RDG::Access::StorageRead )
+                                  .Storage( "TlasRows", instances, RDG::Access::StorageWrite )
+                                  .PushConstantBytes( static_cast<uint32_t>( sizeof( GpuInstanceRowsPush ) ) );
+                     },
+                     [program = m_Program, sources]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     {
+                         auto& renderer = Renderer::GetInstance();
+                         for ( uint32_t i = 0; i < sources.size(); ++i )
+                         {
+                             RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
+                             bindings.PushConstants( &sources[i].Push, sizeof( GpuInstanceRowsPush ) );
+                             const uint32_t groups = ( sources[i].Push.Rows + kGpuInstanceRowsGroupSize - 1 ) /
+                                                     kGpuInstanceRowsGroupSize;
+                             if ( auto dispatched = renderer.DispatchCompute( bindings, *program, groups, 1, 1 );
+                                  !dispatched )
+                                 return dispatched;
+                         }
+                         return BOOLSUCCESS;
+                     } );
+                return BOOLSUCCESS;
+            }
+
+        private:
+            static constexpr const char* kProgramName = "RayTracingGpuInstances";
+            struct Source
+            {
+                GpuInstanceRefs     Refs;
+                GpuInstanceRowsPush Push;
+            };
+            std::shared_ptr<ComputePipeline> m_Program;
+            mutable ShaderBindingLayoutCache m_Layout;
+            std::vector<Source>              m_Sources;
+            uint32_t                         m_Rows = 0;
+            uint64_t                         m_Key  = 0;
+        };
+    } // namespace
+
+    std::unique_ptr<RayTracingGpuInstanceRows> CreateRayTracingGpuInstanceRows()
+    {
+        return std::make_unique<GpuInstanceRows>();
     }
 
     std::string FormatRayTracingSceneMemory( const RayTracingSceneStats& stats )
@@ -80,6 +229,7 @@ namespace Desert::Graphic::RayTracing
                                           .Instanced           = meshes.GetInstancedQueue(),
                                           .InstancedMotionRows = meshes.GetInstancedMotionRows(),
                                           .Skinned             = meshes.GetSkinnedQueue(),
+                                          .GpuInstanced        = meshes.GetGpuInstancedQueue(),
                                           .ViewOrigin          = viewOrigin,
                                           .DrawDistanceScale   = drawDistanceScale },
                                         cache.GetVariants(), m_Gather );
@@ -120,6 +270,15 @@ namespace Desert::Graphic::RayTracing
         m_Instances = BuildRayTracingInstances( m_Gather.Primitives );
         for ( std::size_t reason = 0; reason < m_Instances.Skipped.size(); ++reason )
             m_Instances.Skipped[reason] += m_Gather.Skipped[reason];
+        // The GPU-instanced primitives' rows (the landscape grass), after the CPU rows: their BLAS is final now
+        // (variants, procedural builds above).
+        if ( !m_GpuInstanceRows && !m_Gather.GpuInstanced.empty() )
+            m_GpuInstanceRows = CreateRayTracingGpuInstanceRows();
+        if ( m_GpuInstanceRows )
+            if ( const Common::BoolResultStr prepared =
+                      m_GpuInstanceRows->Prepare( m_Gather.GpuInstanced, m_Gather.Primitives, m_Instances );
+                 !prepared )
+                return Common::MakeError( std::format( "{}: {}", kGpuInstancesPassName, prepared.GetError() ) );
 
         // The GPU twin of the segment records: record i of SegmentRecords becomes geometry record i, the row an
         // instance's SBT offset (its FirstSegmentRecord) + a hit's geometry index names. A landscape tile's masked
@@ -130,6 +289,9 @@ namespace Desert::Graphic::RayTracing
              m_Gather.Primitives, m_Gather.SegmentRecords,
              [&external]( const RayTracingSegmentRecord& segment ) -> std::optional<RayTracingMaterialRecord>
              {
+                 // A generic record's own alpha test (3D text's glyph coverage, RayTracingProgramHit::Opacity).
+                 if ( segment.ProgramHit != nullptr )
+                     return segment.ProgramHit->Opacity;
                  if ( segment.LandscapeTile == kNoLandscapeTile ||
                       segment.LandscapeTile >= external.LandscapeOpacity.size() )
                      return std::nullopt;
@@ -142,7 +304,7 @@ namespace Desert::Graphic::RayTracing
             m_Target = CreateRayTracingSceneTarget();
         const Common::ResultStr<RayTracingSceneFrame> frame =
              AddRayTracingScenePass( graph, required, m_Instances, *m_Target, m_DynamicBlas,
-                                     !m_DynamicBuilds.empty() );
+                                     !m_DynamicBuilds.empty(), m_GpuInstanceRows.get() );
         if ( !frame )
             return Common::MakeError( frame.GetError() );
         m_Frame = frame.GetValue();
@@ -162,6 +324,11 @@ namespace Desert::Graphic::RayTracing
             if ( traced.insert( instance.Geometry ).second )
                 m_Stats.TracedBlasBytes +=
                      static_cast<const RayTracingGeometryResource*>( instance.Geometry )->GetMemoryBytes();
+        for ( const RayTracingGpuInstanceSource& source : m_Gather.GpuInstanced )
+            if ( const void* geometry = m_Gather.Primitives[source.Primitive].Geometry;
+                 geometry != nullptr && traced.insert( geometry ).second )
+                m_Stats.TracedBlasBytes +=
+                     static_cast<const RayTracingGeometryResource*>( geometry )->GetMemoryBytes();
         m_Stats.VariantBlasBytes                    = cache.GetVariants().GetMemoryBytes();
         m_Stats.ProceduralBlasBytes                 = cache.GetProcedural().GetMemoryBytes();
         const RayTracingSkinCache::MemoryBytes skin = cache.GetSkinCache().GetMemoryBytes();

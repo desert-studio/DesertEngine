@@ -85,6 +85,7 @@
 #include <Engine/Graphic/IRenderSystem.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
 #include <Engine/Graphic/Systems/RayTracing/EmissiveLightsRenderer.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingProgramHit.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
@@ -337,7 +338,8 @@ namespace Desert::Graphic
                                 const std::string& shaderName, const MaterialOverrides& overrides,
                                 bool outlined = false, Image2D* directTexture = nullptr,
                                 const std::string& directTextureSampler = {}, bool castShadows = false,
-                                bool visibleInRayTracing = false );
+                                bool                                    visibleInRayTracing = false,
+                                const RayTracing::RayTracingProgramHit& rayHit              = {} );
 
         // v3 per-slot custom shaders: draw only @p visibleSubmeshMask submeshes of the mesh with the
         // slot's own runtime material (a MaterialService-owned DataDrivenMaterial). @p motionPart: the stable part
@@ -428,6 +430,10 @@ namespace Desert::Graphic
         // none (SkyboxRenderer::BorrowEnvironment): @p environment is the reading view's, handed before each
         // frame.
         void BorrowEnvironment( std::optional<Environment> environment );
+        // A reflection capture's face views stand at one capture point and read ONE global distance field, their
+        // capture renderer's (DistanceField::GlobalDistanceField: updated once per frame): @p field is lent before
+        // each frame and outlives the frames in flight that read it; null returns the view to its own field.
+        void ShareGlobalDistanceField( DistanceField::GlobalDistanceField* field );
 
         // Procedural sky configuration (from the SkyAtmosphereComponent + the atmosphere sun, via the ECS).
         // sunDir is the direction TOWARD the sun, already normalized; bakeNow is the one-shot request from
@@ -692,8 +698,12 @@ namespace Desert::Graphic
         // (EnsureTemporalUpscaler), so its lazily built pipelines survive frames; it outlives every graph that
         // recorded its node (the graph executes inside OnUpdate). Handed to SceneViewState::BeginFrame.
         std::unique_ptr<ITemporalUpscaler> m_TemporalUpscaler;
-        // The view's global distance field (clipmaps follow this view's camera), made on first use.
-        std::unique_ptr<DistanceField::GlobalDistanceField> m_GlobalDistanceField;
+        // The view's own global distance field (clipmaps follow this view's camera), made on first use - unless
+        // one is lent (ShareGlobalDistanceField): a face view of a reflection capture reads its capture's.
+        std::unique_ptr<DistanceField::GlobalDistanceField> m_OwnGlobalDistanceField;
+        DistanceField::GlobalDistanceField*                 m_SharedGlobalDistanceField = nullptr;
+        // What this view does with the field it reads (its near-field grid, the debug view), made on first use.
+        std::unique_ptr<DistanceField::GlobalDistanceFieldView> m_GlobalDistanceFieldView;
         // The view's world radiance cache (a traced GI method, either tracer; clipmaps follow this view's camera),
         // made on first use.
         std::unique_ptr<GlobalIllumination::WorldRadianceCache> m_RadianceCache;
@@ -1022,7 +1032,8 @@ namespace Desert::Graphic
         // groups' templates, records and material rows, and the material service's invalidations. @p environment:
         // GetEnvironmentIdentity().
         [[nodiscard]] uint64_t PathTracingSceneHash( const GlobalIllumination::GIFramePayload& giFrame,
-                                                     uint64_t environment, uint64_t emissive ) const;
+                                                     uint64_t environment, uint64_t emissive,
+                                                     const CloudShadowUniforms& cloudShadow ) const;
         // THE SCENE'S EMISSIVE TRIANGLE LIST in this frame's graph (RayTracing::EmissiveLights.hpp): built from
         // this frame's TLAS instances and segment records (a built m_RayTracingScene), each segment's emission
         // estimated from its material's effective row; m_EmissiveLights keeps the static part on the GPU and
@@ -1185,6 +1196,9 @@ namespace Desert::Graphic
         // (ShadowReallocation): a ray-traced sun keeps only the low-detail cascades, CascadedMaps the full ones.
         void RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality, bool sunRayTraced );
         void AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures );
+        // A path-traced frame: the cloud layer's sky-occlusion volume alone
+        // (VolumetricCloudRenderer::DeclareSkyOcclusionNodes).
+        void AddFrameCloudSkyOcclusion( RDG::Builder& graph, FrameTextures& textures );
         // The sky light, at the head of the graph: the atmosphere nodes that depend on the sky alone (the cached
         // LUT pair, the distant sky light), then this frame's slice of the sky capture, which marches them. Before
         // ImportSceneViewTextures, so the environment it imports is the one this frame's capture completed.
@@ -1255,6 +1269,9 @@ namespace Desert::Graphic
         RayTracing::RayTracingSceneCache* m_FrameRayTracingCache = nullptr;
         // The scene's local-light shadow cache, the same bracket (GetFrameLocalShadows).
         LocalShadowCache* m_FrameLocalShadows = nullptr;
+        // The scene's mesh distance fields (brick atlas, records, streaming), the same bracket: what this view's
+        // global distance field composites from (AddFrameGlobalDistanceField).
+        DistanceField::DistanceFieldSceneData* m_FrameDistanceFields = nullptr;
 #if DESERT_DEV_INSTRUMENTS
         // The gameplay debug drawing of the scene BeginScene was handed (Core/DebugDraw.hpp): this view's lines
         // and strings passes, fed the scene's store by BeginScene and emptied by EndScene. Made on first use.
@@ -1383,8 +1400,9 @@ namespace Desert::Graphic
         System::PathTracer::Settings m_PathTracingSettings;
         bool                         m_PathTracerReady  = false;
         bool                         m_PathTracerFailed = false;
-        // The mesh distance-field brick pool, MiB (Scalability GlobalIllumination.DistanceFieldPoolMiB): what the
-        // global distance field's atlas holds and its finer mips stream within.
+        // The mesh distance-field brick pool, MiB (Scalability GlobalIllumination.DistanceFieldPoolMiB): this
+        // view's request to its scene's pool (DistanceFieldSceneData::BeginViewFrame) - a scene budget, counted
+        // once in the scene's ledger rows, not per view.
         uint32_t m_DistanceFieldPoolMiB = 256;
         int m_SSAOSamples = 16;
         // Adaptive screen probes per uniform one, percent (Scalability GlobalIllumination.
