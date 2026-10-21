@@ -1,4 +1,5 @@
 #include <Common/Core/DevInstruments.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
@@ -861,6 +862,11 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] Global Distance Field: no MeshSystem" );
             return;
         }
+        if ( m_FrameDistanceFields == nullptr )
+        {
+            LOG_ERROR( "[SceneRenderer] Global Distance Field: no scene's distance fields (outside BeginScene)" );
+            return;
+        }
         if ( !m_GlobalDistanceField )
         {
             auto field = std::make_unique<DistanceField::GlobalDistanceField>();
@@ -920,8 +926,9 @@ namespace Desert::Graphic
         // The view's camera (ViewFrame; SceneRenderer.hpp: a pass that reads a camera position takes the
         // ViewFrame)
         // - not m_SceneInfo.ActiveCamera's, which would frame the field from another camera than the frame's.
-        const auto field = m_GlobalDistanceField->AddUpdatePasses( graph, import, frame.CameraPosition, objects,
-                                                                   m_DistanceFieldPoolMiB );
+        const auto field = m_GlobalDistanceField->AddUpdatePasses(
+             graph, import, frame.CameraPosition, objects, *m_FrameDistanceFields,
+             Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(), m_DistanceFieldPoolMiB );
         if ( !field )
         {
             LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", field.GetError() );

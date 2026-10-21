@@ -121,12 +121,15 @@ namespace Desert::Graphic::DistanceField
             MeshDistanceFieldReads                                    MeshFields;
         };
 
-        // Brings the clipmaps up to @p camera and @p objects: residency and mip streaming in the brick atlas of
-        // @p poolMiB (Scalability GlobalIllumination.DistanceFieldPoolMiB), the update plan, and one composite
-        // pass per level that has bricks to rewrite.
+        // Brings the clipmaps up to @p camera and @p objects. The mesh fields are @p scene's - the one
+        // DistanceFieldSceneData of the Core::Scene every view of it shares: this view starts its frame there
+        // (@p frame, the engine's absolute frame number, and its @p poolMiB request - Scalability
+        // GlobalIllumination.DistanceFieldPoolMiB), acquires its objects' fields and publishes; then its own
+        // update plan and one composite pass per level that has bricks to rewrite.
         [[nodiscard]] Common::ResultStr<FrameField>
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
-                         const std::vector<GlobalDistanceFieldObject>& objects, uint32_t poolMiB );
+                         const std::vector<GlobalDistanceFieldObject>& objects, DistanceFieldSceneData& scene,
+                         uint64_t frame, uint32_t poolMiB );
 
         // The view a near-field grid is culled for: its unjittered matrices, its camera, its extent in pixels.
         struct NearFieldView
@@ -156,11 +159,6 @@ namespace Desert::Graphic::DistanceField
                                                               RDG::TextureRef target, const RDG::LoadOp& load,
                                                               const glm::mat4& inverseViewProjection );
 
-        [[nodiscard]] const DistanceFieldSceneData& GetSceneData() const
-        {
-            return m_SceneData;
-        }
-
     private:
         struct TrackedObject
         {
@@ -168,19 +166,16 @@ namespace Desert::Graphic::DistanceField
             uint32_t           Count = 0;
         };
 
-        // One line when the streaming settles (no field waits for a finer mip) after it moved.
-        void LogStreaming();
-
         [[nodiscard]] Common::BoolResultStr PrepareDebugPipeline( Core::Formats::ImageFormat format,
                                                                   uint32_t                   samples );
 
-        DistanceFieldSceneData                                              m_SceneData;
         std::array<std::shared_ptr<Image3D>, kGlobalDistanceFieldClipmaps>  m_Clipmaps;
         std::shared_ptr<Image3D>                                            m_ObjectGrid;
         std::array<std::optional<glm::ivec3>, kGlobalDistanceFieldClipmaps> m_ValidCentre;
         // The objects the clipmaps hold, by identity (field and transform): a difference is a dirty box.
         std::unordered_map<uint64_t, TrackedObject> m_Tracked;
-        bool                                        m_StreamingMoved = false;
+        // The scene pool generation the clipmaps were composited from (DistanceFieldSceneData::GetPoolGeneration).
+        std::optional<uint64_t> m_PoolGeneration;
 
         std::shared_ptr<Shader>                                               m_CompositeShader;
         std::shared_ptr<ComputePipeline>                                      m_CompositePipeline;
@@ -190,13 +185,11 @@ namespace Desert::Graphic::DistanceField
         std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>> m_ViewPipelines;
         std::shared_ptr<GraphicsPipeline>                                     m_ViewPipeline;
 
-        std::shared_ptr<ShaderResources::StorageBuffer> m_AssetBuffer;
-        std::shared_ptr<ShaderResources::StorageBuffer> m_IndirectionBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_UpdateBrickBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_BrickObjectBuffer;
-        // The graph's view of the buffers a trace reads (re-imported every frame: each frame in flight has its
-        // own copy).
+        // This view's graph's view of the buffers a trace reads - the scene's records and table, this view's
+        // objects (re-imported every frame: each frame in flight has its own copy).
         RDG::ExternalBuffer m_AssetImport;
         RDG::ExternalBuffer m_IndirectionImport;
         RDG::ExternalBuffer m_ObjectImport;

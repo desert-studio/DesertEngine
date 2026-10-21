@@ -864,6 +864,8 @@ namespace Desert::Graphic
         m_SceneLedgerInstance  = scene.GetLedgerInstance();
         // The scene's local-light shadow cache, which this view's lights draw into and read (UpdateLocalShadows).
         m_FrameLocalShadows = &scene.GetLocalShadows();
+        // The scene's mesh distance fields, which this view's global distance field composites from.
+        m_FrameDistanceFields = &scene.GetDistanceFields();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -2074,6 +2076,7 @@ namespace Desert::Graphic
         m_FrameReflectionCaptures = nullptr;
         m_FrameRayTracingCache    = nullptr;
         m_FrameLocalShadows       = nullptr;
+        m_FrameDistanceFields     = nullptr;
 
         return BOOLSUCCESS;
     }
