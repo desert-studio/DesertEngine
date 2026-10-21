@@ -540,6 +540,10 @@ namespace
             out << " scene v" << Desert::Migration::kSceneVersionGridNames << "->v"
                 << Desert::Migration::kSceneVersionLandscapeHeightKeys << " (" << report.LandscapeHeightKeys.Keyed
                 << " landscape height file(s) named by content key)";
+        if ( report.AssetKeysRaised && report.AssetKeys.Keyed > 0 )
+            out << " scene v" << Desert::Migration::kSceneVersionLandscapeHeightKeys << "->v"
+                << Desert::Migration::kSceneVersionAssetKeys << " (" << report.AssetKeys.Keyed
+                << " bare asset reference(s) restated as content keys)";
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

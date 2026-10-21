@@ -4421,6 +4421,94 @@ namespace Desert::Migration
         return report;
     }
 
+    namespace
+    {
+        // One stated value of the v67 -> v68 step, walked whole: objects and arrays are entered, a string that
+        // is spelled like a file path relative to some folder and names a file under the assets root is
+        // restated as its "assets:" key. The spelling may be relative to the assets root itself
+        // ("Materials/M.demat", what ToPath wrote for 16 asset types) or to the project above it
+        // ("Resources/Assets/Meshes/M.skmesh"): both name one file and that file has one key.
+        rfl::Generic RestateBareReferences( const rfl::Generic& value, const std::filesystem::path& root,
+                                            const std::string& prefix, std::size_t& keyed )
+        {
+            namespace fs = std::filesystem;
+            if ( const auto object = value.to_object(); object.has_value() )
+            {
+                rfl::Generic::Object out;
+                for ( const auto& [name, field] : object.value() )
+                    out[name] = RestateBareReferences( field, root, prefix, keyed );
+                return rfl::Generic( std::move( out ) );
+            }
+            if ( const auto array = value.to_array(); array.has_value() )
+            {
+                rfl::Generic::Array out;
+                out.reserve( array.value().size() );
+                for ( const auto& element : array.value() )
+                    out.push_back( RestateBareReferences( element, root, prefix, keyed ) );
+                return rfl::Generic( std::move( out ) );
+            }
+            const auto text = value.to_string();
+            if ( !text.has_value() )
+                return value;
+            const std::string& spelled = text.value();
+            // A tagged key, a drive-letter or rooted path, or a word: not a bare relative file path.
+            if ( spelled.empty() || spelled.find( ':' ) != std::string::npos || spelled.front() == '/' ||
+                 spelled.front() == '\' || spelled.find( '/' ) == std::string::npos )
+                return value;
+            const fs::path named = fs::path( spelled ).lexically_normal();
+            if ( !named.has_extension() || named.is_absolute() || named.generic_string().starts_with( ".." ) )
+                return value;
+            std::error_code ec;
+            fs::path        base = root;
+            for ( int up = 0; up < 3 && !base.empty(); ++up, base = base.parent_path() )
+            {
+                const fs::path candidate = ( base / named ).lexically_normal();
+                if ( !fs::is_regular_file( candidate, ec ) )
+                    continue;
+                const std::string relative = candidate.lexically_relative( root ).generic_string();
+                if ( relative.empty() || relative == "." || relative.starts_with( ".." ) )
+                    continue;
+                ++keyed;
+                return rfl::Generic( prefix + relative );
+            }
+            return value;
+        }
+    } // namespace
+
+    AssetKeysReport MigrateAssetKeysV67ToV68( std::vector<Assets::EntityData>& entities,
+                                              std::optional<rfl::Generic>*     settings,
+                                              const std::filesystem::path&     assetsRoot )
+    {
+        namespace fs = std::filesystem;
+        AssetKeysReport   report;
+        const std::string prefix = std::string( Common::AssetHandle::AssetsTag() ) + ':';
+        std::error_code   ec;
+        const fs::path    root = fs::absolute( assetsRoot, ec ).lexically_normal();
+        if ( ec || !fs::is_directory( root, ec ) )
+        {
+            report.Refused.push_back( std::format(
+                 "the assets root '{}' is not a folder - a bare reference cannot be told from a word without it",
+                 assetsRoot.generic_string() ) );
+            return report;
+        }
+
+        const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components )
+        {
+            for ( auto& [name, block] : components )
+                block = RestateBareReferences( block, root, prefix, report.Keyed );
+        };
+        for ( auto& entity : entities )
+        {
+            restate( entity.Components );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    restate( override_.Components );
+        }
+        if ( settings != nullptr && settings->has_value() )
+            *settings = RestateBareReferences( settings->value(), root, prefix, report.Keyed );
+        return report;
+    }
+
     SceneDependenciesReport MigrateSceneDependenciesV51ToV52( SceneSerialized&             scene,
                                                               const std::filesystem::path& assetsRoot )
     {
@@ -4569,6 +4657,16 @@ namespace Desert::Migration
                 return report;
             }
         }
+        if ( statedSceneVersion < kSceneVersionAssetKeys )
+        {
+            report.AssetKeysRaised = true;
+            report.AssetKeys       = MigrateAssetKeysV67ToV68( scene.Entities, &scene.Settings, assetsRoot );
+            if ( !report.AssetKeys.Refused.empty() )
+            {
+                report.Refused = RefusedWhole( scene.SceneName, report.AssetKeys.Refused );
+                return report;
+            }
+        }
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently
         // (MigrationHeader keeps an existing GUID) - leaving it unstamped is how a load would re-run this.
@@ -4633,6 +4731,13 @@ namespace Desert::Migration
         {
             outcome.Steps.WindSourceRaised = true;
             outcome.Steps.WindSource       = MigrateWindSourceV42ToV43( prefab.Entities, prefab.Name, false );
+        }
+        if ( outcome.Steps.Refused.empty() && outcome.FoundSceneVersion < kSceneVersionAssetKeys )
+        {
+            outcome.Steps.AssetKeysRaised = true;
+            outcome.Steps.AssetKeys       = MigrateAssetKeysV67ToV68( prefab.Entities, nullptr, assetsRoot );
+            if ( !outcome.Steps.AssetKeys.Refused.empty() )
+                outcome.Steps.Refused = RefusedWhole( prefab.Name, outcome.Steps.AssetKeys.Refused );
         }
         if ( !outcome.Steps.Refused.empty() )
         {

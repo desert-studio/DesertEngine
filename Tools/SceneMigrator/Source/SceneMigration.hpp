@@ -368,7 +368,19 @@ namespace Desert::Migration
     //       only: a landscape tile is a scene's.
     inline constexpr int kSceneVersionLandscapeHeightKeys = 67;
 
-    static_assert( kSceneVersionLandscapeHeightKeys == kSceneVersion,
+    //  68 - EVERY ASSET REFERENCE IS A CONTENT KEY (PATH1). Sixteen asset types (materials, cloud volumes,
+    //       rigs, graphs, themes, retargets, prefabs, foliage types, fractures, waves, input contexts, physics,
+    //       sounds, VFX systems, world parameters, weather presets) wrote the path relative to the assets root
+    //       ("Materials/M.demat") and the loader joined it to ASSETS_PATH; meshes were also spelled relative to
+    //       the project ("Resources/Assets/Meshes/M.skmesh"). The joins are gone - the load refuses a bare
+    //       spelling (ComponentRegistry FileForStoredReference) - so every string of a block (records, prefab
+    //       overrides, scene settings) that is a relative file path naming a file under the assets root, by
+    //       either spelling, becomes "assets:<relative>" (MigrateAssetKeysV67ToV68). A spelling that names no
+    //       file is left as stated: it cannot be told from text, and its load refuses it by name. Scenes and
+    //       prefabs alike.
+    inline constexpr int kSceneVersionAssetKeys = 68;
+
+    static_assert( kSceneVersionAssetKeys == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -716,6 +728,19 @@ namespace Desert::Migration
     // Names every unnamed grid of a partitioned world (kSceneVersionGridNames); how many it named.
     std::size_t MigrateGridNamesV65ToV66( SceneSerialized& scene );
 
+    // What MigrateAssetKeysV67ToV68 did to one file.
+    struct AssetKeysReport
+    {
+        std::size_t              Keyed = 0; // bare spellings restated as "assets:" keys
+        std::vector<std::string> Refused;   // non-empty: the file is not written
+    };
+
+    // Restates every bare relative file path naming a file under @p assetsRoot as its "assets:" key, in every
+    // record, every prefab override and, when given, the scene settings (kSceneVersionAssetKeys).
+    AssetKeysReport MigrateAssetKeysV67ToV68( std::vector<Assets::EntityData>& entities,
+                                              std::optional<rfl::Generic>*     settings,
+                                              const std::filesystem::path&     assetsRoot );
+
     // What MigrateLandscapeHeightKeysV66ToV67 did to one scene.
     struct LandscapeHeightKeysReport
     {
@@ -989,6 +1014,8 @@ namespace Desert::Migration
         std::size_t GridsNamed      = 0;     // grids given a name
         bool                      LandscapeHeightKeysRaised = false; // below kSceneVersionLandscapeHeightKeys
         LandscapeHeightKeysReport LandscapeHeightKeys;
+        bool                      AssetKeysRaised = false; // below kSceneVersionAssetKeys
+        AssetKeysReport           AssetKeys;
 
         bool                    SceneDependenciesRaised = false; // below kSceneVersionSceneDependencies
         SceneDependenciesReport SceneDependencies;
@@ -1032,7 +1059,7 @@ namespace Desert::Migration
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
                    RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
-                   GridNamesRaised || LandscapeHeightKeysRaised;
+                   GridNamesRaised || LandscapeHeightKeysRaised || AssetKeysRaised;
         }
     };
 
