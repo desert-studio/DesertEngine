@@ -186,10 +186,13 @@ workspace "Desert"
 -- PCH not being relocatable (clang relocates only under -relocatable-pch + -isysroot, i.e. the SDK root).
 -- A target-specific exported variable reaches only that rule's recipe; GNU make 3.81 (/usr/bin/make) and 4.4 both
 -- honour it. Without ccache the variable is unread.
-premake.override(premake.modules.gmake.cpp, "pchRules", function(base, cfg, toolset)
-    base(cfg, toolset)
-    _p('ifneq (,$(PCH))')
-    _p('$(GCH): export CCACHE_NAMESPACE = pch:$(abspath $(PCH))')
-    _p('endif')
-    _p('')
-end)
+-- The gmake module is loaded only for gmake actions; vs2022 (Windows) has no premake.modules.gmake.
+if premake.modules.gmake then
+    premake.override(premake.modules.gmake.cpp, "pchRules", function(base, cfg, toolset)
+        base(cfg, toolset)
+        _p('ifneq (,$(PCH))')
+        _p('$(GCH): export CCACHE_NAMESPACE = pch:$(abspath $(PCH))')
+        _p('endif')
+        _p('')
+    end)
+end
