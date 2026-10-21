@@ -1,3 +1,4 @@
+#include "VFXOverviewOverlay.hpp"
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <array>
 #include "ViewportPanel.hpp"
@@ -2124,6 +2125,9 @@ namespace Desert::Editor
                 DrawRenderMethodsOverlay( renderer->GetRenderMethods(), viewportMin, viewportMax );
                 DrawRayTracingSceneOverlay( renderer->GetRayTracingScene().GetStats(),
                                             renderer->TakeLedgerMemory(), viewportMin, viewportMax );
+                // VFX-16: the effects world's overview (Particle Debugger -> Viewport overview).
+                if ( m_Scene->GetVFXWorld().GetDebugSettings().Overview )
+                    DrawVFXOverviewOverlay( m_Scene->GetVFXWorld().GetDebugStats(), viewportMin, viewportMax );
             }
 
         // Perf HUD (View -> Perf HUD): FPS + frame graph + top CPU scopes, useful in Play too.

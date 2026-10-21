@@ -2,6 +2,7 @@
 
 #include <ImGui/imgui.h>
 #include <Engine/Desert.hpp>
+#include <Engine/VFX/VFXWorld.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp>
 
 #include <string>
@@ -26,7 +27,6 @@ namespace Desert::Editor
         m_Scene    = scene;
         m_Selected = false;
         m_FirstRow = 0;
-        m_Frozen   = false;
     }
 
     void ParticleDebuggerPanel::SendRequest( const bool enabled ) const
@@ -60,74 +60,102 @@ namespace Desert::Editor
             ImGui::End();
             return;
         }
-        const auto& emitters = ParticleWorldGpu::Of( scene->GetVFXWorld() ).DebugEmitters();
-        ImGui::Text( "%zu emitter(s) - GPU counts of the last finished frame (no stall)", emitters.size() );
+        VFX::VFXWorld&          world = scene->GetVFXWorld();
+        const ParticleWorldGpu& gpu   = ParticleWorldGpu::Of( world );
 
-        const ParticleEmitterDebug* selected = nullptr;
-        if ( ImGui::BeginTable( "##emitters", 6, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg ) )
+        // UE Niagara Debugger's playback and HUD controls, held by the world so every view agrees.
+        VFX::VFXDebugSettings settings = world.GetDebugSettings();
+        bool                  changed  = ImGui::Checkbox( "Freeze", &settings.Frozen );
+        ImGui::SameLine();
+        ImGui::BeginDisabled( !settings.Frozen );
+        if ( ImGui::Button( "Step" ) )
+            world.StepFrozen();
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        changed |= ImGui::Checkbox( "Viewport overview", &settings.Overview );
+        ImGui::SameLine();
+        changed |= ImGui::Checkbox( "Draw bounds", &settings.DrawBounds );
+        if ( changed )
+            world.SetDebugSettings( settings );
+
+        const VFX::VFXDebugStats stats = world.GetDebugStats();
+        ImGui::Text( "%zu system(s), step %llu%s - GPU counts of the last finished frame (no stall)",
+                     stats.Systems.size(), static_cast<unsigned long long>( stats.Step ),
+                     stats.Frozen ? " - frozen" : "" );
+
+        bool selectionListed = false;
+        if ( ImGui::BeginTable( "##emitters", 8, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg ) )
         {
-            for ( const char* header : { "Entity", "Emitter", "Name", "Alive", "Free", "Capacity" } )
+            for ( const char* header : { "Entity", "Emitter", "Name", "Alive", "Free", "Capacity", "Spawned",
+                                         "Channel overflow" } )
                 ImGui::TableSetupColumn( header );
             ImGui::TableHeadersRow();
-            for ( const ParticleEmitterDebug& e : emitters )
-            {
-                const bool isSelected = m_Selected && e.EntityId == m_EntityId && e.Emitter == m_Emitter;
-                if ( isSelected )
-                    selected = &e;
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                const std::string id = std::to_string( e.EntityId ) + "##" + std::to_string( e.Emitter );
-                if ( ImGui::Selectable( id.c_str(), isSelected, ImGuiSelectableFlags_SpanAllColumns ) )
+            for ( const VFX::VFXSystemDebugStats& system : stats.Systems )
+                for ( const VFX::VFXEmitterDebugStats& e : system.Emitters )
                 {
-                    m_Selected = true;
-                    m_EntityId = e.EntityId;
-                    m_Emitter  = e.Emitter;
-                    m_FirstRow = 0;
-                    m_Frozen   = false; // a frozen page belongs to the previous selection
+                    const bool isSelected = m_Selected && system.EntityId == m_EntityId && e.Emitter == m_Emitter;
+                    selectionListed |= isSelected;
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    const std::string id = std::to_string( system.EntityUuid ) + "##" + std::to_string( e.Emitter );
+                    if ( ImGui::Selectable( id.c_str(), isSelected, ImGuiSelectableFlags_SpanAllColumns ) )
+                    {
+                        m_Selected = true;
+                        m_EntityId = system.EntityId;
+                        m_Emitter  = e.Emitter;
+                        m_FirstRow = 0;
+                    }
+                    ImGui::TableNextColumn();
+                    ImGui::Text( "%u", e.Emitter );
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted( e.Name.c_str() );
+                    ImGui::TableNextColumn();
+                    if ( e.GpuRead )
+                        ImGui::Text( "%u", e.Alive );
+                    else
+                        ImGui::TextUnformatted( "-" );
+                    ImGui::TableNextColumn();
+                    if ( e.GpuRead )
+                        ImGui::Text( "%u", e.Free );
+                    else
+                        ImGui::TextUnformatted( "-" );
+                    ImGui::TableNextColumn();
+                    ImGui::Text( "%u", e.Capacity );
+                    ImGui::TableNextColumn();
+                    ImGui::Text( "%u", e.Spawned );
+                    ImGui::TableNextColumn();
+                    ImGui::Text( "%llu", static_cast<unsigned long long>( e.ChannelOverflowTotal ) );
                 }
-                ImGui::TableNextColumn();
-                ImGui::Text( "%u", e.Emitter );
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted( e.Name.c_str() );
-                ImGui::TableNextColumn();
-                if ( e.Read )
-                    ImGui::Text( "%u", e.Alive );
-                else
-                    ImGui::TextUnformatted( "-" );
-                ImGui::TableNextColumn();
-                if ( e.Read )
-                    ImGui::Text( "%u", e.Free );
-                else
-                    ImGui::TextUnformatted( "-" );
-                ImGui::TableNextColumn();
-                ImGui::Text( "%u", e.Capacity );
-            }
             ImGui::EndTable();
         }
+        if ( !selectionListed )
+            m_Selected = false; // the selected system left the world
+
+        // The attribute page of the selection, as the GPU last read it back.
+        const ParticleEmitterDebug* selected = nullptr;
+        if ( m_Selected )
+            for ( const ParticleEmitterDebug& read : gpu.DebugEmitters() )
+                if ( read.EntityId == m_EntityId && read.Emitter == m_Emitter )
+                    selected = &read;
 
         if ( selected == nullptr )
         {
-            m_Frozen = false;
-            ImGui::TextUnformatted( "Select an emitter for its particle attribute table." );
+            ImGui::TextUnformatted( m_Selected ? "Waiting for the selected emitter's first readback."
+                                               : "Select an emitter for its particle attribute table." );
             ImGui::End();
             return;
         }
         ImGui::Separator();
-        // Freeze holds the page last read (UE's captured frame) - the counts above keep updating.
-        if ( ImGui::Checkbox( "Freeze", &m_Frozen ) && m_Frozen )
-            m_FrozenPage = *selected;
-        const ParticleEmitterDebug& page = m_Frozen ? m_FrozenPage : *selected;
+        const ParticleEmitterDebug& page = *selected;
         ImGui::SameLine();
         ImGui::Text( "Attributes of '%s' - alive rows %u..%u of %u (read %u frame(s) after the GPU wrote them)%s",
                      page.Name.c_str(), m_FirstRow, m_FirstRow + static_cast<uint32_t>( page.RowIndex.size() ),
-                     page.Alive, page.FramesOld, m_Frozen ? " - frozen" : "" );
-        ImGui::BeginDisabled( m_Frozen );
+                     page.Alive, page.FramesOld, stats.Frozen ? " - frozen" : "" );
         if ( ImGui::Button( "< Page" ) && m_FirstRow >= kParticleDebugMaxRows )
             m_FirstRow -= kParticleDebugMaxRows;
         ImGui::SameLine();
         if ( ImGui::Button( "Page >" ) && m_FirstRow + kParticleDebugMaxRows < page.Alive )
             m_FirstRow += kParticleDebugMaxRows;
-        ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 200.0f );
         ImGui::InputTextWithHint( "##filter", "attribute filter", m_Filter, sizeof( m_Filter ) );

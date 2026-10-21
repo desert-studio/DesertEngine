@@ -366,7 +366,7 @@ namespace Desert::Graphic::System
                 ve.IntsRef   = graph.RegisterExternal( ve.IntsImport, std::format( "VFXAttributeInts{}", i ) );
                 ve.ParamsRef = graph.RegisterExternal( ve.ParamsImport, std::format( "VFXStackParams{}", i ) );
                 ve.CurvesRef = graph.RegisterExternal( ve.CurvesImport, std::format( "VFXStackCurves{}", i ) );
-                if ( gpu.DebugReadback && m_World->DebugRequest().Enabled )
+                if ( gpu.DebugReadback && m_World->DebugReading() )
                 {
                     const Common::BoolResultStr debug = Renderer::ImportBuffer( gpu.DebugReadback, ve.DebugImport );
                     if ( debug )
@@ -394,7 +394,7 @@ namespace Desert::Graphic::System
 
     bool ParticleRenderer::DebugReadbackRequested() const
     {
-        return m_Simulates && m_DebugPipeline != nullptr && m_World != nullptr && m_World->DebugRequest().Enabled;
+        return m_Simulates && m_DebugPipeline != nullptr && m_World != nullptr && m_World->DebugReading();
     }
 
     Common::BoolResultStr ParticleRenderer::DebugReadback( const RDG::PassContext& context )
