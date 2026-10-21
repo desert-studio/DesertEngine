@@ -416,6 +416,36 @@ namespace Desert::Geometry
             }
             return Common::MakeSuccess( true );
         }
+        // UE FBendMeshOp on one point of its y-up copy of the gizmo frame (y = the bend axis): the slab
+        // [LowerBound, UpperBound] rolls onto an arc of BendDegrees about x, and what lies beyond the slab is
+        // carried along the arc's end tangent. LockBottom pins the slab's bottom instead of the frame origin.
+        double BendAngle( const WarpSettings& settings )
+        {
+            return -static_cast<double>( settings.BendDegrees ) * 3.14159265358979323846 / 180.0;
+        }
+
+        glm::dvec3 BendYUp( const WarpSettings& settings, glm::dvec3 g )
+        {
+            const double totalAngle = BendAngle( settings );
+            const double yMin = settings.LowerBound, yMax = settings.UpperBound, bentLength = yMax - yMin;
+            const bool   sharp = bentLength == 0.0;
+            const double y0    = settings.LockBottom ? yMin : 0.0;
+            const double k     = sharp ? 1.0 : totalAngle / bentLength;
+            const double ik    = 1.0 / k; // the arc's radius: the rotation centre's z
+            const double yHat  = std::clamp( g.y, yMin, yMax );
+            const double theta = sharp && g.y > y0 ? totalAngle : k * ( yHat - y0 );
+            const double s0 = std::sin( theta ), c0 = std::cos( theta );
+            const double zRel = g.z - ik;
+            double       y    = -s0 * zRel + y0;
+            double       z    = c0 * zRel + ik;
+            if ( g.y > yMax || g.y < yMin )
+            {
+                const double yDiff = g.y - ( g.y > yMax ? yMax : yMin );
+                y += c0 * yDiff;
+                z += s0 * yDiff;
+            }
+            return { g.x, y, z };
+        }
     } // namespace
 
     const char* ToString( SmoothType type )
@@ -633,32 +663,13 @@ namespace Desert::Geometry
         std::string             report;
         if ( settings.Operation == WarpOperation::Bend )
         {
-            const double totalAngle = -static_cast<double>( settings.BendDegrees ) * kPi / 180.0;
-            if ( std::abs( totalAngle ) >= 1e-8 ) // UE: no bend asked, the mesh is returned as is
+            if ( std::abs( BendAngle( settings ) ) >= 1e-8 ) // UE: no bend asked, the mesh is returned as is
             {
-                const double yMin = zMin, yMax = zMax, bentLength = yMax - yMin;
-                const bool   sharp = bentLength == 0.0;
-                const double y0    = settings.LockBottom ? yMin : 0.0;
-                const double k     = sharp ? 1.0 : totalAngle / bentLength;
-                const double ik    = 1.0 / k; // the arc's radius: the rotation centre's z
                 for ( const int vid : mesh.VertexIndicesItr() )
                 {
-                    glm::dvec4   g     = toOp * glm::dvec4( p[static_cast<size_t>( vid )], 1.0 );
-                    const double yHat  = std::clamp( g.y, yMin, yMax );
-                    const double theta = sharp && g.y > y0 ? totalAngle : k * ( yHat - y0 );
-                    const double s0 = std::sin( theta ), c0 = std::cos( theta );
-                    const double zRel = g.z - ik;
-                    double       y    = -s0 * zRel + y0;
-                    double       z    = c0 * zRel + ik;
-                    if ( g.y > yMax || g.y < yMin ) // beyond the slab: carried along the arc's end tangent
-                    {
-                        const double yDiff = g.y - ( g.y > yMax ? yMax : yMin );
-                        y += c0 * yDiff;
-                        z += s0 * yDiff;
-                    }
-                    g.y                           = y;
-                    g.z                           = z;
-                    p[static_cast<size_t>( vid )] = glm::dvec3( fromOp * g );
+                    const glm::dvec4 g = toOp * glm::dvec4( p[static_cast<size_t>( vid )], 1.0 );
+                    p[static_cast<size_t>( vid )] =
+                         glm::dvec3( fromOp * glm::dvec4( BendYUp( settings, glm::dvec3( g ) ), 1.0 ) );
                 }
             }
             report = fmt::format( "Bend {:.1f} deg over [{:.1f}, {:.1f}] cm{}", settings.BendDegrees, zMin, zMax,
@@ -710,5 +721,13 @@ namespace Desert::Geometry
         WritePositions( mesh, p );
         const int32_t moved = mesh.VertexCount();
         return Finish( std::move( mesh ), "Warp", moved, 0, std::move( report ) );
+    }
+    glm::dvec3 WarpBendGizmoPoint( const WarpSettings& settings, const glm::dvec3& gizmoPoint )
+    {
+        if ( std::abs( BendAngle( settings ) ) < 1e-8 )
+            return gizmoPoint;
+        // gizmo (x, y, z) -> UE's y-up (x, z, -y), bent, and back.
+        const glm::dvec3 b = BendYUp( settings, { gizmoPoint.x, gizmoPoint.z, -gizmoPoint.y } );
+        return { b.x, -b.z, b.y };
     }
 } // namespace Desert::Geometry

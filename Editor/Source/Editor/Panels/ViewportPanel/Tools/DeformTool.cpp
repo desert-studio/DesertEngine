@@ -12,6 +12,8 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/MeshDeformOperations.hpp>
 
+#include <ImGui/imgui.h>
+
 #include <format>
 #include <string>
 
@@ -155,6 +157,36 @@ namespace Desert::Editor::Tools
         if ( ms.ActiveTool == MS::Tool::Warp )
             PlaceWarpGizmo( *m_Session->Input, WorldOf( scene, *selected ), ms );
         Recompute( scene, ms );
+    }
+
+    void DeformTool::DrawWarpVisualization( const MS& ms, const glm::mat4& viewProj, const glm::vec2& viewportPos,
+                                            const glm::vec2& viewportSize )
+    {
+        const Geometry::WarpSettings& warp = ms.DeformWarp;
+        if ( warp.Operation != Geometry::WarpOperation::Bend || warp.UpperBound - warp.LowerBound <= 0.0f )
+            return;
+        constexpr int    kSegments = 48;
+        ImDrawList*      dl        = ::ImGui::GetWindowDrawList();
+        const glm::dmat4 gizmo( ms.WarpGizmo );
+        ImVec2           prev{};
+        bool             havePrev = false;
+        for ( int i = 0; i <= kSegments; ++i )
+        {
+            const double     z    = warp.LowerBound + ( warp.UpperBound - warp.LowerBound ) * i / kSegments;
+            const glm::dvec3 g    = Geometry::WarpBendGizmoPoint( warp, { 0.0, 0.0, z } );
+            const glm::vec4  clip = viewProj * glm::vec4( glm::vec3( gizmo * glm::dvec4( g, 1.0 ) ), 1.0f );
+            if ( clip.w <= 0.0001f )
+            {
+                havePrev = false;
+                continue;
+            }
+            const ImVec2 p( viewportPos.x + ( clip.x / clip.w * 0.5f + 0.5f ) * viewportSize.x,
+                            viewportPos.y + ( 0.5f - clip.y / clip.w * 0.5f ) * viewportSize.y );
+            if ( havePrev )
+                dl->AddLine( prev, p, IM_COL32( 80, 220, 255, 255 ), 2.5f );
+            prev     = p;
+            havePrev = true;
+        }
     }
 
     void DeformTool::Recompute( ::Desert::Core::Scene& scene, MS& ms )

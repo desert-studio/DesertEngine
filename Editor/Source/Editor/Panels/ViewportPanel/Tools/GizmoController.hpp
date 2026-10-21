@@ -44,12 +44,21 @@ namespace Desert::Editor::Tools
         bool RenderFrame( const char* site, glm::mat4& frame,
                           const std::shared_ptr<::Desert::Core::Camera>& camera, const glm::vec2& viewportPos,
                           const glm::vec2& viewportSize );
+        // UE's UIntervalGizmo on a tool frame (Warp's Upper / Lower bounds): the frame's Z axis between @p lower
+        // and @p upper (cm from the frame origin) with a handle at each end, dragged along the axis; upper stays
+        // >= 0 and lower <= 0, as UE clamps them. A hovered or held handle stands picking down like the gizmo.
+        // True on a frame a drag changed a bound.
+        bool RenderInterval( const glm::mat4& frame, float& lower, float& upper,
+                             const std::shared_ptr<::Desert::Core::Camera>& camera, const glm::vec2& viewportPos,
+                             const glm::vec2& viewportSize );
         // Bone gizmo (Skeleton Edit mode) — edits the selected bone's LocalBindTransform.
         void RenderBone( ::Desert::Core::Scene& scene, const std::shared_ptr<::Desert::Core::Camera>& camera,
                          const glm::vec2& viewportPos, const glm::vec2& viewportSize );
 
     private:
         bool m_Hovered = false;
+        // RenderInterval's held handle: 0 none, 1 lower, 2 upper.
+        int m_IntervalDrag = 0;
 
         // One undo entry per gizmo drag: pre-drag TRS of every selected top-level root captured when the
         // drag starts, committed as one (possibly composite) command on release.

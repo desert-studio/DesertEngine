@@ -38,6 +38,11 @@ namespace Desert::Editor::Tools
             return m_Session.has_value() && m_Session->Tool == Core::ModelingState::Tool::Warp;
         }
 
+        // UE UMeshSpaceDeformerTool bDrawVisualization: while Warp bends, the axis slab [Lower, Upper] drawn bent,
+        // as the deformer carries it (Geometry::WarpBendGizmoPoint), over the viewport.
+        static void DrawWarpVisualization( const Core::ModelingState& ms, const glm::mat4& viewProj,
+                                           const glm::vec2& viewportPos, const glm::vec2& viewportSize );
+
     private:
         struct Session
         {

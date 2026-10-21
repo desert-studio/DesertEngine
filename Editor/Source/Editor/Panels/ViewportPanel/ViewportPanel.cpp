@@ -2049,9 +2049,17 @@ namespace Desert::Editor
                 m_UVTool.Update( *m_Scene );
                 m_DeformTool.Update( *m_Scene );
                 // Warp's frame: UE's transform gizmo on the deformer (UMeshSpaceDeformerTool TransformProxy).
+                // Its Upper / Lower bounds: UE's interval gizmo on the frame's axis; Bend draws the bent axis.
                 if ( m_DeformTool.HasWarpSession() )
-                    m_Gizmo.RenderFrame( "WarpFrame", Core::ModelingState::Get().WarpGizmo, ViewCamera(),
-                                         m_ViewportData.ViewportPos, m_ViewportData.Size );
+                {
+                    auto& ms = Core::ModelingState::Get();
+                    m_Gizmo.RenderFrame( "WarpFrame", ms.WarpGizmo, ViewCamera(), m_ViewportData.ViewportPos,
+                                         m_ViewportData.Size );
+                    Tools::DeformTool::DrawWarpVisualization( ms, viewProj, m_ViewportData.ViewportPos,
+                                                              m_ViewportData.Size );
+                    m_Gizmo.RenderInterval( ms.WarpGizmo, ms.DeformWarp.LowerBound, ms.DeformWarp.UpperBound,
+                                            ViewCamera(), m_ViewportData.ViewportPos, m_ViewportData.Size );
+                }
                 m_CubeGridTool.Update( *m_Scene, Core::ModelingState::Get().CubeGridAimCentre ? centreRay : ray,
                                        viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                        m_ViewportData.IsHovered );

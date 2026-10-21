@@ -139,4 +139,7 @@ namespace Desert::Geometry
     };
     [[nodiscard]] Common::ResultStr<DeformOutcome> Warp( const DynamicMesh3& mesh, const WarpSettings& settings,
                                                          const glm::dmat4& objectToGizmo );
+    // One point of Bend in the deformer's frame (gizmo space, Z = the bend axis): the map Warp applies to every
+    // vertex. The viewport traces the bent axis with it, as UE's UMeshSpaceDeformerTool bDrawVisualization.
+    [[nodiscard]] glm::dvec3 WarpBendGizmoPoint( const WarpSettings& settings, const glm::dvec3& gizmoPoint );
 } // namespace Desert::Geometry

@@ -24,6 +24,7 @@
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
 #include <functional>
 #include <vector>
 
@@ -87,6 +88,83 @@ namespace Desert::Editor::Tools
         if ( ImGuizmo::IsOver() || ImGuizmo::IsUsing() )
             m_Hovered = true;
         return manipulated;
+    }
+
+    bool GizmoController::RenderInterval( const glm::mat4& frame, float& lower, float& upper,
+                                          const std::shared_ptr<::Desert::Core::Camera>& camera,
+                                          const glm::vec2& viewportPos, const glm::vec2& viewportSize )
+    {
+        if ( !camera || viewportSize.x <= 0.0f || viewportSize.y <= 0.0f )
+            return false;
+        const glm::mat4 viewProj = camera->GetProjectionMatrix() * camera->GetViewMatrix();
+        const glm::vec3 origin( frame[3] );
+        const glm::vec3 axis     = glm::normalize( glm::vec3( frame[2] ) );
+        auto            toScreen = [&]( const glm::vec3& world, ImVec2& out )
+        {
+            const glm::vec4 clip = viewProj * glm::vec4( world, 1.0f );
+            if ( clip.w <= 0.0001f )
+                return false; // behind the camera
+            out = ImVec2( viewportPos.x + ( clip.x / clip.w * 0.5f + 0.5f ) * viewportSize.x,
+                          viewportPos.y + ( 0.5f - clip.y / clip.w * 0.5f ) * viewportSize.y );
+            return true;
+        };
+        ImVec2 lo, hi;
+        if ( !toScreen( origin + axis * lower, lo ) || !toScreen( origin + axis * upper, hi ) )
+        {
+            m_IntervalDrag = 0;
+            return false;
+        }
+        const ImVec2 mouse  = ::ImGui::GetMousePos();
+        auto         isNear = [&]( const ImVec2& p )
+        { return ( p.x - mouse.x ) * ( p.x - mouse.x ) + ( p.y - mouse.y ) * ( p.y - mouse.y ) <= 81.0f; };
+        int hover = m_IntervalDrag;
+        if ( hover == 0 && !ImGuizmo::IsOver() && !ImGuizmo::IsUsing() )
+            hover = isNear( hi ) ? 2 : isNear( lo ) ? 1 : 0;
+        if ( hover != 0 )
+            m_Hovered = true;
+
+        ImDrawList*    dl       = ::ImGui::GetWindowDrawList();
+        constexpr auto kLine    = IM_COL32( 230, 200, 60, 255 );
+        constexpr auto kHandle  = IM_COL32( 240, 210, 70, 255 );
+        constexpr auto kHovered = IM_COL32( 255, 255, 255, 255 );
+        dl->AddLine( lo, hi, kLine, 2.0f );
+        for ( int h = 1; h <= 2; ++h )
+        {
+            const ImVec2 p = h == 1 ? lo : hi;
+            const float  r = hover == h ? 7.0f : 5.0f;
+            dl->AddRectFilled( ImVec2( p.x - r, p.y - r ), ImVec2( p.x + r, p.y + r ),
+                               hover == h ? kHovered : kHandle );
+            dl->AddRect( ImVec2( p.x - r, p.y - r ), ImVec2( p.x + r, p.y + r ), IM_COL32( 20, 20, 20, 255 ) );
+        }
+
+        if ( m_IntervalDrag == 0 && hover != 0 && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+            m_IntervalDrag = hover;
+        if ( m_IntervalDrag == 0 )
+            return false;
+        if ( !::ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
+        {
+            m_IntervalDrag = 0;
+            return false;
+        }
+        // The mouse ray against the axis line: the axis parameter of the closest point is the new bound.
+        const glm::mat4 inv = glm::inverse( viewProj );
+        const float     nx  = ( mouse.x - viewportPos.x ) / viewportSize.x * 2.0f - 1.0f;
+        const float     ny  = 1.0f - ( mouse.y - viewportPos.y ) / viewportSize.y * 2.0f;
+        const glm::vec4 a4  = inv * glm::vec4( nx, ny, 0.1f, 1.0f );
+        const glm::vec4 b4  = inv * glm::vec4( nx, ny, 0.9f, 1.0f );
+        const glm::vec3 p0  = glm::vec3( a4 ) / a4.w;
+        const glm::vec3 ray = glm::normalize( glm::vec3( b4 ) / b4.w - p0 );
+        const glm::vec3 w0  = origin - p0;
+        const float     b = glm::dot( axis, ray ), denom = 1.0f - b * b;
+        if ( denom < 1e-6f )
+            return false; // looking straight down the axis
+        const float t     = ( b * glm::dot( ray, w0 ) - glm::dot( axis, w0 ) ) / denom;
+        float&      bound = m_IntervalDrag == 2 ? upper : lower;
+        const float next  = m_IntervalDrag == 2 ? std::max( 0.0f, t ) : std::min( 0.0f, t );
+        if ( next == bound )
+            return false;
+        bound = next;
+        return true;
     }
 
     void GizmoController::RenderObject( ::Desert::Core::Scene&                         scene,
