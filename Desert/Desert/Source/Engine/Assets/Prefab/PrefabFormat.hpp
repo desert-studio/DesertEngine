@@ -73,7 +73,7 @@ namespace Desert::Assets
     // instance placed in the editor unsaveable: the dependency gather refused the absolute spelling.
     [[nodiscard]] std::string StatePrefabPath( const std::filesystem::path& file );
 
-    // The file a stated PrefabPath names: a relative spelling joined to the assets root, an absolute one as is.
+    // The file a stated PrefabPath names: the content key expanded, an absolute path as is, a bare spelling refused.
     [[nodiscard]] std::filesystem::path ResolvePrefabPath( std::string_view stated );
 
 } // namespace Desert::Assets

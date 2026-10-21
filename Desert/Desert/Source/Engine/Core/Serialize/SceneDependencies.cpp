@@ -3,6 +3,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Json/Document.hpp>
 
 #include <algorithm>
@@ -16,22 +17,19 @@ namespace Desert::Core
         namespace fs = std::filesystem;
         if ( statedPath.empty() )
             return std::nullopt;
-        std::error_code ec;
-        const fs::path  relative( statedPath );
+        // A reference is the content key "assets:<path under the assets root>" (PATH1, SCNE v68), and only
+        // that: a bare relative string is no longer tried against the assets root and each of its ancestors,
+        // which was a guessed root (the gather walks EVERY string of a block, so a non-key is simply not a
+        // reference here; the prefab caller below reports its own refusal by name).
+        std::error_code   ec;
+        const std::string prefix = std::string( Common::AssetHandle::AssetsTag() ) + ':';
+        if ( statedPath.size() <= prefix.size() || !statedPath.starts_with( prefix ) )
+            return std::nullopt;
+        const fs::path relative( statedPath.substr( prefix.size() ) );
         if ( relative.is_absolute() || !relative.has_extension() )
             return std::nullopt;
-        fs::path file;
-        for ( fs::path at = fs::absolute( assetsRoot, ec ).lexically_normal(); !at.empty(); at = at.parent_path() )
-        {
-            if ( fs::is_regular_file( at / relative, ec ) )
-            {
-                file = at / relative;
-                break;
-            }
-            if ( at == at.parent_path() )
-                break;
-        }
-        if ( file.empty() )
+        const fs::path file = ( fs::absolute( assetsRoot, ec ) / relative ).lexically_normal();
+        if ( !fs::is_regular_file( file, ec ) )
             return std::nullopt;
 
         // A cooked mesh binary states its GUID in its own prefix; every other kind in the asset header.
@@ -130,7 +128,7 @@ namespace Desert::Core
             if ( auto guid = StatedPathGuid( *record.PrefabPath, assetsRoot ) )
                 gather.Guids.push_back( std::move( *guid ) );
             else
-                gather.Refused.push_back( "prefab '" + *record.PrefabPath + "': no file under an ancestor of " +
+                gather.Refused.push_back( "prefab '" + *record.PrefabPath + "': not a content key naming a file under " +
                                           assetsRoot.generic_string() + " states its GUID" );
         }
         if ( settings != nullptr )

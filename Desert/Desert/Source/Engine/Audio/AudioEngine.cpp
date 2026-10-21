@@ -3,6 +3,7 @@
 
 #include <algorithm>
 
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -17,16 +18,17 @@ namespace Desert::Audio
 {
     namespace
     {
-        // Resolve a clip path: as given first, then relative to the project's Assets root. Uses the
-        // VFS-aware Exists so packaged games resolve into the mounted .dpak.
+        // The file a clip reference names: a content key ("assets:Audio/Hit.wav") expanded under its root, or
+        // an absolute path (what SoundAsset::ResolveSourceFile hands over). A bare relative spelling is
+        // refused by name inside PathForStableKey rather than tried against the working directory and then
+        // against the assets root (PATH1: one reader, no guessed root). Exists is the VFS-aware one, so a
+        // packaged game resolves into the mounted .dpak.
         std::filesystem::path ResolveClipPath( const std::string& clipPath )
         {
-            if ( Common::Utils::FileSystem::Exists( clipPath ) )
-                return clipPath;
-            const auto assetsRelative = Common::Constants::Path::ASSETS_PATH / clipPath;
-            if ( Common::Utils::FileSystem::Exists( assetsRelative ) )
-                return assetsRelative;
-            return {};
+            const std::filesystem::path file = Common::AssetHandle::PathForStableKey( clipPath );
+            if ( file.empty() || !Common::Utils::FileSystem::Exists( file ) )
+                return {};
+            return file;
         }
     } // namespace
 

@@ -46,8 +46,8 @@ namespace Desert::Core::Serialize
 
     // The handle for a stored string, or 0 when it is empty or nothing resolves.
     //
-    // Accepts every spelling: the tagged key above, a plain relative path, and an absolute path to a file
-    // outside the project (`PathForStableKey` returns an untagged string unchanged). Creates the asset
+    // Accepts the tagged key above and an absolute path to a file outside the project; a bare relative
+    // path is refused by name (`PathForStableKey` answers it with an empty path). Creates the asset
     // when the manager does not already have it. A miss is logged with the name, its expansion and the
     // roots searched, never returned as a bare 0.
     //

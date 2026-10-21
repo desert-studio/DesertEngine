@@ -1,5 +1,6 @@
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 
 #include <Common/Json/Json.hpp>
@@ -101,20 +102,17 @@ namespace Desert::Assets
         return guid ? guid.GetValue() : Common::Content::AssetGuid{};
     }
 
+    // The content key ("assets:Prefabs/P.deprefab") StableKeyForPath mints for the file; a file outside every
+    // root comes back absolute, which is that function's own explicit form.
     std::string StatePrefabPath( const std::filesystem::path& file )
     {
-        const std::filesystem::path full = Common::Constants::Path::FullPath( file );
-        const std::filesystem::path relative =
-             full.lexically_relative( Common::Constants::Path::ASSETS_PATH.lexically_normal() );
-        if ( relative.empty() || *relative.begin() == ".." )
-            return full.generic_string();
-        return relative.generic_string();
+        return Common::AssetHandle::StableKeyForPath( Common::Constants::Path::FullPath( file ) );
     }
 
+    // The exact inverse: a bare relative spelling is refused by name (PathForStableKey) and answers an empty
+    // path, which no FindByPath matches; SCNE v68 restated every stored one as its key.
     std::filesystem::path ResolvePrefabPath( std::string_view stated )
     {
-        const std::filesystem::path named( stated );
-        return named.is_absolute() ? named.lexically_normal()
-                                   : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+        return Common::AssetHandle::PathForStableKey( stated );
     }
 } // namespace Desert::Assets

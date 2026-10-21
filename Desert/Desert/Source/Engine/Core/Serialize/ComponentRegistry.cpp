@@ -99,10 +99,8 @@ namespace Desert::Core::Serialize
 
         std::string ServicePathForKey( const std::string& key )
         {
-            // PathForStableKey hands an untagged string back verbatim, so a key from outside the root
-            // table behaves exactly as the old bare path did instead of silently becoming something
-            // else. Nothing in this repository has one; a file hand-edited to hold one still works
-            // where it worked before.
+            // PathForStableKey reads a content key, a synthetic scheme:// key or an absolute path, and
+            // refuses a bare relative string by name (answering empty: the slot names nothing).
             return key.empty() ? std::string() : Common::AssetHandle::PathForStableKey( key ).generic_string();
         }
 
@@ -2157,10 +2155,7 @@ namespace Desert::Core::Serialize
                 {
                     out.Set( "SequenceGuid", Common::Content::AssetGuidToText( sequence->Guid() ) );
                     out.Set( "SequencePath",
-                             sequence->GetMetadata()
-                                  .Filepath.lexically_normal()
-                                  .lexically_relative( Common::Constants::Path::ASSETS_PATH.lexically_normal() )
-                                  .generic_string() );
+                             Common::AssetHandle::StableKeyForPath( sequence->GetMetadata().Filepath ) );
                 }
                 else if ( static_cast<uint64_t>( actor.Sequence ) != 0 )
                 {
@@ -2193,6 +2188,12 @@ namespace Desert::Core::Serialize
                 std::string path;
                 g.ReadInto( "SequenceGuid", guidText, issues );
                 g.ReadInto( "SequencePath", path, issues );
+                // The path is the reader's label; the GUID is the identity. A label in the bare form is refused
+                // by name (PATH1) — the actor still binds by GUID.
+                if ( !path.empty() && !Common::AssetHandle::IsProjectRelativeKey( path ) &&
+                     !std::filesystem::path( path ).is_absolute() )
+                    issues.push_back( Common::Json::Issue{ "LevelSequence.SequencePath",
+                                                           "a content key (\"assets:<path>\")", path } );
 
                 auto& actor = entity.AddComponent<ECS::LevelSequenceComponent>();
                 g.ReadInto( "Loop", actor.Loop, issues ); // an unknown name is a named issue, the default kept
@@ -2294,10 +2295,7 @@ namespace Desert::Core::Serialize
                 {
                     out.Set( "FoliageTypeGuid", Common::Content::AssetGuidToText( type->Guid() ) );
                     out.Set( "FoliageTypePath",
-                             type->GetMetadata()
-                                  .Filepath.lexically_normal()
-                                  .lexically_relative( Common::Constants::Path::ASSETS_PATH.lexically_normal() )
-                                  .generic_string() );
+                             Common::AssetHandle::StableKeyForPath( type->GetMetadata().Filepath ) );
                 }
                 else if ( foliage.FoliageType )
                 {
@@ -2318,6 +2316,11 @@ namespace Desert::Core::Serialize
                 std::string path;
                 g.ReadInto( "FoliageTypeGuid", guidText, issues );
                 g.ReadInto( "FoliageTypePath", path, issues );
+                // As SequencePath above: a label, refused by name in the bare form; the GUID binds.
+                if ( !path.empty() && !Common::AssetHandle::IsProjectRelativeKey( path ) &&
+                     !std::filesystem::path( path ).is_absolute() )
+                    issues.push_back( Common::Json::Issue{ "Foliage.FoliageTypePath",
+                                                           "a content key (\"assets:<path>\")", path } );
 
                 auto& foliage = entity.AddComponent<ECS::FoliageComponent>();
                 if ( guidText.empty() && path.empty() )
