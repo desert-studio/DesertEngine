@@ -175,21 +175,29 @@ namespace Desert::Graphic
         template <typename T>
         T* Get( RDG::ShaderParameterOf<MaterialPropertyKind<T>> parameter ) const
         {
-            const std::string name = parameter.SlotName();
-            T*                found = nullptr;
-            if constexpr ( std::is_same_v<T, UniformBufferProperty> )
-                found = m_MaterialExecutor->GetUniformBufferProperty( name ).get();
-            else if constexpr ( std::is_same_v<T, StorageBufferProperty> )
-                found = m_MaterialExecutor->GetStorageBufferProperty( name ).get();
-            else if constexpr ( std::is_same_v<T, Texture2DProperty> )
-                found = m_MaterialExecutor->GetTexture2DProperty( name ).get();
-            else
-                found = m_MaterialExecutor->GetTextureCubeProperty( name ).get();
+            T* found = Find<T>( parameter );
             // A parameter that names no property of the shader is a named error, not a silent null: the caller's
             // write would otherwise land nowhere and the slot keep its default (a renamed slot rendered black).
             if ( found == nullptr )
-                ReportMissingProperty( name );
+                ReportMissingProperty( parameter.SlotName() );
             return found;
+        }
+
+        // Get for a slot the shader MAY leave out (UE's FShaderParameter::IsBound probe): null, said nowhere, when
+        // the shader declares no such property. Only for a program that legitimately lacks the slot (a shadow
+        // variant without the surface's blocks); a slot the shader must have goes through Get.
+        template <typename T>
+        T* Find( RDG::ShaderParameterOf<MaterialPropertyKind<T>> parameter ) const
+        {
+            const std::string name = parameter.SlotName();
+            if constexpr ( std::is_same_v<T, UniformBufferProperty> )
+                return m_MaterialExecutor->GetUniformBufferProperty( name ).get();
+            else if constexpr ( std::is_same_v<T, StorageBufferProperty> )
+                return m_MaterialExecutor->GetStorageBufferProperty( name ).get();
+            else if constexpr ( std::is_same_v<T, Texture2DProperty> )
+                return m_MaterialExecutor->GetTexture2DProperty( name ).get();
+            else
+                return m_MaterialExecutor->GetTextureCubeProperty( name ).get();
         }
 
         // Logs once that @p name is not a property of this material's shader (Get's miss).

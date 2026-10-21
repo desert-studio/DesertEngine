@@ -433,15 +433,22 @@ namespace Desert::Graphic::System
             for ( DataDrivenMaterial* material :
                   { surface, materials.Shadow.get(), materials.VirtualShadow.get() } )
             {
-                // The shadow programs have no TerrainUB: its vertices are the camera's (the LOD rides in the row).
-                if ( auto* terrainUB = material->Get<UniformBufferProperty>( TerrainShaderParameters::TerrainUB ) )
+                // The shadow programs have no TerrainUB (their vertices are the camera's, the LOD rides in the
+                // row) and no Materials[] row block (no Properties block): for them both slots are optional.
+                const bool shadowProgram = material != surface;
+                auto*      terrainUB =
+                     shadowProgram ? material->Find<UniformBufferProperty>( TerrainShaderParameters::TerrainUB )
+                                        : material->Get<UniformBufferProperty>( TerrainShaderParameters::TerrainUB );
+                if ( terrainUB )
                     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a uniform block uploaded as
                     // bytes
                     // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
                     terrainUB->SetRawData( reinterpret_cast<const std::byte*>( &ub ), sizeof( ub ) );
                 // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 
-                if ( auto* rows = material->Get<StorageBufferProperty>( kMaterialRowBlock ) )
+                auto* rows = shadowProgram ? material->Find<StorageBufferProperty>( kMaterialRowBlock )
+                                           : material->Get<StorageBufferProperty>( kMaterialRowBlock );
+                if ( rows )
                     if ( !group.ParamRows.empty() )
                         rows->SetRawData( group.ParamRows.data(),
                                           static_cast<uint32_t>( group.ParamRows.size() * sizeof( glm::vec4 ) ) );
