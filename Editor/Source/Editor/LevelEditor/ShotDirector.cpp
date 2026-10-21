@@ -234,13 +234,16 @@ namespace Desert::Editor
                        "orthographic; the camera stays where it is" );
             return;
         }
-        const ScenePrimitiveBounds bounds = MeasureScenePrimitives( scene->GetRegistry(), &SharedPrimitiveSubmeshes );
+        const ScenePrimitiveBounds bounds =
+             MeasureScenePrimitives( scene->GetRegistry(), &SharedPrimitiveSubmeshes );
         if ( bounds.Missing > 0 )
-            LOG_WARN( "[Shot] framing: {} primitive(s) whose asset is not read yet are outside the measured bounds",
-                      bounds.Missing );
+            LOG_WARN(
+                 "[Shot] framing: {} primitive(s) whose asset is not read yet are outside the measured bounds",
+                 bounds.Missing );
         if ( Geometry::IsEmpty( bounds.Box ) )
         {
-            LOG_ERROR( "[Shot] no --camera/--look and the scene has no measurable primitive (mesh, foliage, landscape, effect) to frame: the camera "
+            LOG_ERROR( "[Shot] no --camera/--look and the scene has no measurable primitive (mesh, foliage, "
+                       "landscape, effect) to frame: the camera "
                        "stays where it is" );
             return;
         }
@@ -253,10 +256,11 @@ namespace Desert::Editor
         cam->SetFar( view.Far );
         PlaceEditorCamera( *cam, view.Position, view.Forward );
         cam->SetInputEnabled( false );
-        LOG_INFO( "[Shot] framed {} mesh(es), {} instance(s), {} tile(s), {} effect(s): box ({}, {}, {})..({}, {}, {}), camera ({}, {}, {}), near {} far {}",
-                  bounds.Meshes, bounds.Instances, bounds.Tiles, bounds.Effects, bounds.Box.Min.x, bounds.Box.Min.y, bounds.Box.Min.z, bounds.Box.Max.x,
-                  bounds.Box.Max.y, bounds.Box.Max.z, view.Position.x, view.Position.y, view.Position.z, view.Near,
-                  view.Far );
+        LOG_INFO( "[Shot] framed {} mesh(es), {} instance(s), {} tile(s), {} effect(s): box ({}, {}, {})..({}, "
+                  "{}, {}), camera ({}, {}, {}), near {} far {}",
+                  bounds.Meshes, bounds.Instances, bounds.Tiles, bounds.Effects, bounds.Box.Min.x,
+                  bounds.Box.Min.y, bounds.Box.Min.z, bounds.Box.Max.x, bounds.Box.Max.y, bounds.Box.Max.z,
+                  view.Position.x, view.Position.y, view.Position.z, view.Near, view.Far );
     }
 
     bool ShotDirector::CountRenderedFrame( const bool recordedFrame )
