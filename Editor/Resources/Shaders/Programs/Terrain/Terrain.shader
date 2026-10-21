@@ -190,36 +190,38 @@ Shader "Terrain"
         // The sun: the one statement of it every lit program reads (Common/DirectionLightsUB.glslh).
         #include <Common/DirectionLightsUB.glslh>
         // The cascaded shadow's two bindings; Mesh/CascadedShadow.glslh reads them by these names.
-        layout( binding = 5 ) uniform sampler2DArray u_ShadowCascades;
-        layout( binding = 7 ) uniform ShadowUB
-        {
-            mat4 u_LightViewProj[4];
-            vec4 u_ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode, w = cascade count
-            vec4 u_DebugParams;
-            vec4 u_CascadeTexelWorld; // per-cascade world size of one shadow-map texel
-            vec4 u_CascadeDepthRange; // per-cascade world length the [0,1] map depth spans
-            vec4 u_ContactShadowView; // x = contact shadow ray steps (0 = off), y = tan(fovY / 2), z = dither frame
-            vec4 u_SunContactShadow;  // the sun's contact shadow (Common/ContactShadow.glslh)
-        };
+        layout( binding = 5 ) uniform texture2DArray u_ShadowCascades;
+        #define u_ShadowCascades sampler2DArray(u_ShadowCascades, u_LinearRepeatSampler)
+        #include <Mesh/ShadowUB.glslh> // the view's ShadowUB, binding 7 (SceneResources::ShadowUBData)
         #include <Mesh/CascadedShadow.glslh>
         // The contact shadows' march (the Forward path has no opaque scene depth to march: ShadowUB says 0 steps).
-        layout( binding = 27 ) uniform sampler2D u_SceneDepth;          // Core::kSceneDepthBinding
-        layout( binding = 28 ) uniform usampler2D u_SceneShadingWord;   // Core::kSceneShadingWordBinding
+        // Read through the shared point-clamped state, as Mesh/Surface/SurfaceTypes.glslh reads them (the local
+        // shadow atlas below takes the same state).
+        Uniform sampler u_PointClampSampler;
+        layout( binding = 27 ) uniform texture2D u_SceneDepth;          // Core::kSceneDepthBinding
+        #define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
+        layout( binding = 28 ) uniform utexture2D u_SceneShadingWord;   // Core::kSceneShadingWordBinding
+        #define u_SceneShadingWord usampler2D(u_SceneShadingWord, u_PointClampSampler)
         #include <ShadingModels/ShadingModelContract.glslh>
         #define CONTACT_SHADOW_DEPTH        u_SceneDepth
         #define CONTACT_SHADOW_VP           u.JitteredViewProjection
+        #define CONTACT_SHADOW_INV_VP       u.InvJitteredViewProjection
         #define CONTACT_SHADOW_SHADING_WORD u_SceneShadingWord
         #include <Common/ContactShadow.glslh>
         // The point and spot lights with their shadows (Mesh/ForwardLocalLights.glslh: the light buffers 4/6/16,
         // the grid 29/30, the local shadow atlas and views 38/39). The atlas is read through the shared
-        // point-clamped state, declared here before the include.
-        Uniform sampler u_PointClampSampler;
+        // point-clamped state declared above.
         #include <Mesh/ForwardLocalLights.glslh>
 
         // The environment: the sky's two cubes, the sky look (Common/SkyLook.glslh) and the split-sum LUT.
-        layout( binding = 17 ) uniform samplerCube u_EnvSpecularTex;
-        layout( binding = 18 ) uniform samplerCube u_EnvIrradianceTex;
-        layout( binding = 19 ) uniform sampler2D u_BRDFLUTTexture;
+        // Separate textures through the shared linear-clamped state, as Mesh/Surface/Pass_Forward.glslh reads them.
+        Uniform sampler u_LinearClampSampler;
+        layout( binding = 17 ) uniform textureCube u_EnvSpecularTex;
+        #define u_EnvSpecularTex samplerCube(u_EnvSpecularTex, u_LinearClampSampler)
+        layout( binding = 18 ) uniform textureCube u_EnvIrradianceTex;
+        #define u_EnvIrradianceTex samplerCube(u_EnvIrradianceTex, u_LinearClampSampler)
+        layout( binding = 19 ) uniform texture2D u_BRDFLUTTexture;
+        #define u_BRDFLUTTexture sampler2D(u_BRDFLUTTexture, u_LinearClampSampler)
         layout( binding = 22 ) uniform SkyLookUB
         {
             vec4 YawCosSin; // xy = (cos yaw, sin yaw) - Graphic::SkyLookGPU
@@ -235,7 +237,8 @@ Shader "Terrain"
             uvec4                u_ReflectionCaptureHeader; // x = capture count
             ReflectionCaptureGpu u_ReflectionCaptures[];
         };
-        Uniform(1, 1) samplerCubeArray u_ReflectionCaptureCubes;
+        layout( set = 1, binding = 1 ) uniform textureCubeArray u_ReflectionCaptureCubes;
+        #define u_ReflectionCaptureCubes samplerCubeArray(u_ReflectionCaptureCubes, u_LinearClampSampler)
         // THE ambient, the same text the forward meshes and the deferred composite compile (DesertSampleAmbient).
         #include <Mesh/AmbientIBL.glslh>
         // THE ONE BRDF: every light and the ambient go through the shading model dispatch the forward meshes and the
@@ -252,7 +255,8 @@ Shader "Terrain"
             // The eye from the view matrix (rigid: its inverse rotation is its transpose).
             const vec3          eye     = -transpose( mat3( u.View ) ) * u.View[3].xyz;
             const DesertSurface surface = DesertMakeSurface( v_WorldPos, N, eye - v_WorldPos,
-                                                             s.Albedo * u_Material.Tint.rgb, 0.0, s.Roughness );
+                                                             s.Albedo * u_Material.Tint.rgb, 0.0, s.Roughness,
+                                                             0.5 ); // UE's default Specular, as TerrainGBuffer packs
             const DesertPayload payload = DesertPayload( 0.0, 0.0, 0.0, 0.0 );
 
             // The sun, occluded by the cascades and its contact shadow, then by the cloud layer - the order
@@ -270,7 +274,7 @@ Shader "Terrain"
                      DesertSunLight( directionLights.directionLights.Direction.xyz,
                                      directionLights.directionLights.ColorIntensity.rgb *
                                           directionLights.directionLights.ColorIntensity.a,
-                                     shadow ),
+                                     shadow, 1.0 ), // the ground is not a subsurface receiver
                      surface, payload );
 
             // The point and spot lights of the pixel's froxel, each with its shadow (Mesh/ForwardLocalLights.glslh).

@@ -44,6 +44,8 @@ namespace Desert::Graphic::System
             // The jittered one the scene depth was rasterised with: the forward program's contact-shadow march
             // (Common/ContactShadow.glslh, its point and spot lights).
             glm::mat4 JitteredViewProjection;
+            glm::mat4
+                 InvJitteredViewProjection; // its inverse: the march's world positions (CONTACT_SHADOW_INV_VP)
             // x = ViewFrame::PreExposure: the forward program writes its lit colour into the scene colour
             // multiplied by it (the G-buffer program does not: the deferred composite applies it). yzw unused.
             glm::vec4 Exposure;
@@ -479,6 +481,7 @@ namespace Desert::Graphic::System
         ub.ViewProjection         = frame.ViewProjection;
         ub.PrevViewProjection     = frame.PrevViewProjection;
         ub.JitteredViewProjection = frame.JitteredViewProjection;
+        ub.InvJitteredViewProjection = frame.InvJitteredViewProjection;
         ub.Exposure               = glm::vec4( frame.PreExposure, 0.0f, 0.0f, 0.0f );
 
         for ( const auto& group : m_FrameGroups )

@@ -58,18 +58,7 @@ layout( binding = 5 ) uniform texture2D u_ScreenShadowMask;
 layout( binding = 5 ) uniform texture2DArray u_ShadowCascades;
 #define u_ShadowCascades sampler2DArray(u_ShadowCascades, u_LinearRepeatSampler)
 #endif
-layout( binding = 7 ) uniform ShadowUB
-{
-    mat4 u_LightViewProj[4];
-    vec4 u_ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
-    vec4 u_DebugParams;       // x = show normals (>0.5), y = light debug (>0.5); z,w reserved
-    vec4 u_CascadeTexelWorld; // per-cascade world size of one shadow-map texel (x..w = cascade 0..3)
-    vec4 u_CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (x..w = cascade 0..3)
-    vec4 u_ContactShadowView; // x = contact shadow ray steps (0 = off), y = tan(fovY / 2), z = dither frame 0..7
-    vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5),
-                              // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
-    vec4 u_ShadowFilter;      // x = PCSS blocker search taps, y = PCSS filter taps (Mesh/CascadedShadow.glslh)
-};
+#include <Mesh/ShadowUB.glslh> // the view's ShadowUB, binding 7 (SceneResources::ShadowUBData)
 
 #ifndef DESERT_SUN_SHADOW_SCREEN_MASK
 #include <Mesh/CascadedShadow.glslh>
