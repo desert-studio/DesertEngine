@@ -604,6 +604,11 @@ namespace Desert::Editor
                     ahead.Sweep  = glm::dvec2( 0.0 );
                     PaintSector( list, m_View, size, origin, ahead, 1.0, 1.0, IM_COL32( 120, 200, 255, 200 ),
                                  false );
+                    // The tip's unload band: StepResidency widens the sweep by the same margin as the radius.
+                    auto keptAhead   = ahead;
+                    keptAhead.Centre = sector.Centre + sector.Sweep * ( 1.0 + margin );
+                    PaintSector( list, m_View, size, origin, keptAhead, 1.0 + margin, 1.0 + margin,
+                                 IM_COL32( 120, 200, 255, 120 ), true );
                     list.AddLine( ToScreen( m_View, size, origin, sector.Centre ),
                                   ToScreen( m_View, size, origin, ahead.Centre ), IM_COL32( 120, 200, 255, 200 ),
                                   2.0f );
