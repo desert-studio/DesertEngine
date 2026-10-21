@@ -6,13 +6,17 @@
 // (::Desert::Core::LandscapeHLODTileAreaOf), and the G-buffer's albedo — the material's BaseColor before any
 // light, not the lit and tonemapped picture — is read back and saved beside the built HLODs as
 // `T_<tile>_BaseColor.detex`; the G-buffer's roughness (B.a) and material AO (Emissive.a) are read back with it
-// and saved as `T_<tile>_ORM.detex` (UE's landscape HLOD bakes roughness too), and the material that binds both,
+// and saved as `T_<tile>_ORM.detex` (UE's landscape HLOD bakes roughness too); the G-buffer's world normal (B.xyz)
+// is brought into the tangent frame of the tile's own HLOD render mesh — the mesh the runtime draws, rasterised in
+// its UV space — and saved as `T_<tile>_Normal.detex` (UE bakes the landscape normal into the HLOD the same way,
+// FMaterialUtilities::ExportLandscapeMaterial + the proxy's tangent frame), and the material that binds all three,
 // `M_<tile>.demat`. The capture is recorded into the
 // editor's own frames (as AssetThumbnailRenderer's is), so a bake runs over several frames: Tick() once per editor
 // frame until it answers true.
 
 #include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Geometry/SavedMeshForm.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
@@ -51,14 +55,22 @@ namespace Desert::Editor
         std::string  MaterialPath; // as a scene record stores a material slot (assets-relative)
     };
 
+    // One tile to bake: the X/Z rectangle its UVs span and the HLOD mesh the build made for it (its EditMesh, the
+    // source the runtime's render mesh is derived from), whose tangent frame the baked normal is stated in.
+    struct LandscapeHLODBakeTile
+    {
+        ::Desert::Core::LandscapeHLODTileArea Area;
+        ::Desert::Geometry::MeshSavedForm     Mesh;
+    };
+
     class LandscapeHLODBake
     {
     public:
         // @p scenePath: the saved scene (its BuiltHLODDirectory receives the assets). @p saved: that file, parsed;
-        // only its landscape records are loaded into the bake's scene. @p tiles: the areas to bake.
+        // only its landscape records are loaded into the bake's scene. @p tiles: the areas to bake, each with its
+        // HLOD mesh.
         LandscapeHLODBake( std::filesystem::path scenePath, ::Desert::Core::LoadableScene saved,
-                           std::vector<::Desert::Core::LandscapeHLODTileArea> tiles,
-                           const Assets::AssetManager*                        assets );
+                           std::vector<LandscapeHLODBakeTile> tiles, const Assets::AssetManager* assets );
         ~LandscapeHLODBake();
 
         LandscapeHLODBake( const LandscapeHLODBake& )            = delete;
@@ -96,14 +108,15 @@ namespace Desert::Editor
 
         std::filesystem::path                    m_ScenePath;
         std::optional<::Desert::Core::LoadableScene>       m_Saved;
-        std::vector<::Desert::Core::LandscapeHLODTileArea> m_Tiles;
+        std::vector<LandscapeHLODBakeTile>                 m_Tiles;
         const Assets::AssetManager*              m_Assets = nullptr;
 
         std::unique_ptr<Graphic::SceneRenderer> m_Renderer;
         std::shared_ptr<::Desert::Core::Scene>          m_Scene;
         std::shared_ptr<::Desert::Core::GameplayCamera> m_Camera;
         std::shared_ptr<Graphic::ImageReadback>         m_Albedo; // G-buffer attachment 0, RGBA8 (Albedo.rgb)
-        std::shared_ptr<Graphic::ImageReadback> m_GBufferB; // attachment 1, RGBA16F (Normal.xyz, Roughness.a)
+        std::shared_ptr<Graphic::ImageReadback>
+             m_GBufferB; // attachment 1, RGBA16F (world Normal.xyz, Roughness.a)
         std::shared_ptr<Graphic::ImageReadback> m_Emissive; // attachment 3, RGBA16F (Emissive.rgb, AO.a)
         uint32_t                                m_ReadbackWidth  = 0;
         uint32_t                                m_ReadbackHeight = 0;

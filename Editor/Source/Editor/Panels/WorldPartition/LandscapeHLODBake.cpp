@@ -11,6 +11,9 @@
 #include <Engine/Core/Serialize/StoredAssetForm.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
+#include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
+#include <Engine/Geometry/DynamicMeshSerialization.hpp>
+#include <Engine/Geometry/RenderMeshData.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -22,6 +25,7 @@
 #include <Common/Core/Timestep.hpp>
 
 #include <glm/gtc/packing.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -58,6 +62,9 @@ namespace Desert::Editor
         // AOStrength (1) and MetallicFactor (0) defaults already take the map as it is.
         constexpr std::string_view kORMSlot         = "u_ORMTexture";
         constexpr std::string_view kRoughnessFactor = "RoughnessFactor";
+        // StandardSurface's tangent-space normal map (Intent NormalMap; NormalScale defaults to 1, the baked
+        // normal is the terrain's own, so no parameter).
+        constexpr std::string_view kNormalSlot = "u_NormalTexture";
         // The RGBA16F G-buffer targets: 4 half floats per texel, alpha at byte 6.
         constexpr std::size_t kHalfTexelBytes = 8;
         constexpr std::size_t kHalfAlphaByte  = 6;
@@ -72,6 +79,103 @@ namespace Desert::Editor
         [[nodiscard]] uint8_t UnitToByte( float value )
         {
             return static_cast<uint8_t>( std::clamp( std::lround( value * 255.0f ), 0L, 255L ) );
+        }
+
+        // G-buffer B's xyz: the signed WORLD normal TerrainGBuffer writes (`oGBufferB = vec4(s.N, s.Roughness)`).
+        [[nodiscard]] glm::vec3 HalfNormal( const std::vector<uint8_t>& texels, std::size_t texel )
+        {
+            uint16_t halves[3] = {};
+            std::memcpy( halves, texels.data() + texel * kHalfTexelBytes, sizeof( halves ) );
+            return glm::vec3( glm::unpackHalf1x16( halves[0] ), glm::unpackHalf1x16( halves[1] ),
+                              glm::unpackHalf1x16( halves[2] ) );
+        }
+
+        // The z a stored tangent normal keeps at least: a world normal at or behind the mesh's surface plane
+        // (a slope the coarse HLOD mesh flattens) is tipped back to the hemisphere the decoder reconstructs
+        // (Common/TangentNormal.glslh derives z from x and y).
+        constexpr float kMinTangentZ = 1.0e-3f;
+        constexpr float kFlatEpsilon = 1.0e-6f;
+
+        // THE NORMAL MAP, in the tangent frame the runtime shades the HLOD mesh with. Every render triangle is
+        // rasterised in UV space over the W x H readback (texel (c, r) = UV ((c + 0.5) / W, (r + 0.5) / H): row
+        // 0 is the tile's OriginZ edge, column 0 its OriginX edge, the albedo's own layout), its T, B, N
+        // interpolated barycentrically as the rasteriser interpolates the vertex shader's normalised frame
+        // (Mesh/Surface/Vertex_Static.glslh), and the G-buffer's world normal taken into that frame:
+        // normalize(TBN * n) — what SurfaceTypes.glslh computes from the stored texel — gives the world normal
+        // back. Texels no triangle covers stay flat (0, 0, 1).
+        [[nodiscard]] std::vector<uint8_t> BakeTangentNormals( const ::Desert::Geometry::RenderMeshData& mesh,
+                                                               const std::vector<uint8_t>&               gbufferB,
+                                                               uint32_t width, uint32_t height )
+        {
+            std::vector<uint8_t> out( static_cast<std::size_t>( width ) * height * 4 );
+            for ( std::size_t i = 0; i < out.size(); i += 4 )
+            {
+                out[i + 0] = 128;
+                out[i + 1] = 128;
+                out[i + 2] = 255;
+                out[i + 3] = 255;
+            }
+            const glm::vec2 extent( static_cast<float>( width ), static_cast<float>( height ) );
+            const auto      edge = []( const glm::vec2& a, const glm::vec2& b, const glm::vec2& p )
+            { return ( b.x - a.x ) * ( p.y - a.y ) - ( b.y - a.y ) * ( p.x - a.x ); };
+            for ( const auto& submesh : mesh.Submeshes )
+                for ( uint32_t t = 0; t + 2 < submesh.IndexCount; t += 3 )
+                {
+                    const ::Desert::Vertex* v[3];
+                    for ( int k = 0; k < 3; ++k )
+                        v[k] = &mesh.Vertices[submesh.VertexOffset + mesh.Indices[submesh.IndexOffset + t + k]];
+                    const glm::vec2 p[3] = { v[0]->TexCoord * extent, v[1]->TexCoord * extent,
+                                             v[2]->TexCoord * extent };
+                    const float     area = edge( p[0], p[1], p[2] );
+                    if ( std::abs( area ) < kFlatEpsilon )
+                        continue;
+                    const glm::vec3 vT[3] = { glm::normalize( v[0]->Tangent ), glm::normalize( v[1]->Tangent ),
+                                              glm::normalize( v[2]->Tangent ) };
+                    const glm::vec3 vB[3] = { glm::normalize( v[0]->Bitangent ), glm::normalize( v[1]->Bitangent ),
+                                              glm::normalize( v[2]->Bitangent ) };
+                    const glm::vec3 vN[3] = { glm::normalize( v[0]->Normal ), glm::normalize( v[1]->Normal ),
+                                              glm::normalize( v[2]->Normal ) };
+                    const float     minX  = std::min( { p[0].x, p[1].x, p[2].x } );
+                    const float     maxX  = std::max( { p[0].x, p[1].x, p[2].x } );
+                    const float     minY  = std::min( { p[0].y, p[1].y, p[2].y } );
+                    const float     maxY  = std::max( { p[0].y, p[1].y, p[2].y } );
+                    const long      c0    = std::max( 0L, std::lround( std::floor( minX - 0.5f ) ) );
+                    const long      c1 =
+                         std::min( static_cast<long>( width ) - 1, std::lround( std::ceil( maxX - 0.5f ) ) );
+                    const long r0 = std::max( 0L, std::lround( std::floor( minY - 0.5f ) ) );
+                    const long r1 =
+                         std::min( static_cast<long>( height ) - 1, std::lround( std::ceil( maxY - 0.5f ) ) );
+                    for ( long r = r0; r <= r1; ++r )
+                        for ( long c = c0; c <= c1; ++c )
+                        {
+                            const glm::vec2 q( static_cast<float>( c ) + 0.5f, static_cast<float>( r ) + 0.5f );
+                            // A shared edge's texels belong to both triangles; the frame is continuous there.
+                            const float w0 = edge( p[1], p[2], q ) / area;
+                            const float w1 = edge( p[2], p[0], q ) / area;
+                            const float w2 = 1.0f - w0 - w1;
+                            if ( w0 < -kFlatEpsilon || w1 < -kFlatEpsilon || w2 < -kFlatEpsilon )
+                                continue;
+                            const std::size_t texel = static_cast<std::size_t>( r ) * width + c;
+                            const glm::vec3   world = HalfNormal( gbufferB, texel );
+                            if ( glm::dot( world, world ) < kFlatEpsilon )
+                                continue; // the clear colour: nothing drew here
+                            const glm::mat3 tbn( w0 * vT[0] + w1 * vT[1] + w2 * vT[2],
+                                                 w0 * vB[0] + w1 * vB[1] + w2 * vB[2],
+                                                 w0 * vN[0] + w1 * vN[1] + w2 * vN[2] );
+                            if ( std::abs( glm::determinant( tbn ) ) < kFlatEpsilon )
+                                continue;
+                            glm::vec3 n = glm::inverse( tbn ) * glm::normalize( world );
+                            if ( glm::dot( n, n ) < kFlatEpsilon )
+                                continue;
+                            n = glm::normalize( n );
+                            if ( n.z < kMinTangentZ )
+                                n = glm::normalize( glm::vec3( n.x, n.y, kMinTangentZ ) );
+                            out[texel * 4 + 0] = UnitToByte( n.x * 0.5f + 0.5f );
+                            out[texel * 4 + 1] = UnitToByte( n.y * 0.5f + 0.5f );
+                            out[texel * 4 + 2] = UnitToByte( n.z * 0.5f + 0.5f );
+                        }
+                }
+            return out;
         }
 
         [[nodiscard]] uint8_t LinearToSrgb8( uint8_t linear )
@@ -143,8 +247,8 @@ namespace Desert::Editor
     } // namespace
 
     LandscapeHLODBake::LandscapeHLODBake( std::filesystem::path scenePath, ::Desert::Core::LoadableScene saved,
-                                          std::vector<::Desert::Core::LandscapeHLODTileArea> tiles,
-                                          const Assets::AssetManager*                        assets )
+                                          std::vector<LandscapeHLODBakeTile> tiles,
+                                          const Assets::AssetManager*        assets )
          : m_ScenePath( std::move( scenePath ) ), m_Saved( std::move( saved ) ), m_Tiles( std::move( tiles ) ),
            m_Assets( assets )
     {
@@ -193,7 +297,7 @@ namespace Desert::Editor
     // is the tile's OriginZ edge, column 0 its OriginX edge — the HLOD mesh's UV (0,0) corner.
     void LandscapeHLODBake::FrameTile()
     {
-        const ::Desert::Core::LandscapeHLODTileArea& tile     = m_Tiles[m_Next];
+        const ::Desert::Core::LandscapeHLODTileArea& tile     = m_Tiles[m_Next].Area;
         const float                        longSide = std::max( tile.SizeX, tile.SizeZ );
         const uint32_t                     width =
              std::max( 1u, static_cast<uint32_t>( std::lround( kBakeLongSide * tile.SizeX / longSide ) ) );
@@ -220,7 +324,7 @@ namespace Desert::Editor
                                                        const std::vector<uint8_t>& emissive, uint32_t width,
                                                        uint32_t height )
     {
-        const ::Desert::Core::LandscapeHLODTileArea& tile   = m_Tiles[m_Next];
+        const ::Desert::Core::LandscapeHLODTileArea& tile   = m_Tiles[m_Next].Area;
         const std::size_t                            texels = static_cast<std::size_t>( width ) * height;
         if ( rgba.size() != texels * 4 )
             return Common::MakeError( std::format( "the albedo readback holds {} bytes, expected {}x{} RGBA8",
@@ -255,11 +359,24 @@ namespace Desert::Editor
         auto ormPng = EncodePng( orm, width, height );
         if ( !ormPng )
             return Common::MakeError( ormPng.GetError() );
+        // The normal map is stated in the tangent frame of the render mesh the runtime draws for this tile:
+        // the same conversion ComponentRegistry's StaticMesh load makes from the EditMesh.
+        auto dynamicMesh = ::Desert::Geometry::DynamicMeshFromSerialized( m_Tiles[m_Next].Mesh, "HLOD" );
+        if ( !dynamicMesh )
+            return Common::MakeError( "the tile's HLOD mesh did not load: " + dynamicMesh.GetError() );
+        auto renderMesh = ::Desert::Geometry::ToRenderMesh( dynamicMesh.GetValue() );
+        if ( !renderMesh )
+            return Common::MakeError( "the tile's HLOD mesh has no render form: " + renderMesh.GetError() );
+        auto normalPng =
+             EncodePng( BakeTangentNormals( renderMesh.GetValue(), gbufferB, width, height ), width, height );
+        if ( !normalPng )
+            return Common::MakeError( normalPng.GetError() );
 
         const std::filesystem::path dir      = ::Desert::Core::WorldCells::BuiltHLODDirectory( m_ScenePath );
         const std::string           tileName = std::to_string( static_cast<uint64_t>( tile.Tile ) );
         const std::filesystem::path texFile  = dir / ( "T_" + tileName + "_BaseColor.detex" );
         const std::filesystem::path ormFile  = dir / ( "T_" + tileName + "_ORM.detex" );
+        const std::filesystem::path normalFile = dir / ( "T_" + tileName + "_Normal.detex" );
         const std::filesystem::path matFile  = dir / ( "M_" + tileName + ".demat" );
         std::error_code             ec;
         std::filesystem::create_directories( dir, ec );
@@ -296,6 +413,12 @@ namespace Desert::Editor
                                      ::Desert::Core::Formats::TextureColorSpace::Linear );
         if ( !ormGuid )
             return Common::MakeError( ormGuid.GetError() );
+        auto normalGuid =
+             writeTexture( normalFile, "T_" + tileName + "_Normal.png", std::move( normalPng.GetValue() ),
+                           ::Desert::Core::Formats::TextureIntent::NormalMap,
+                           ::Desert::Core::Formats::TextureColorSpace::Linear );
+        if ( !normalGuid )
+            return Common::MakeError( normalGuid.GetError() );
 
         Assets::MaterialData material;
         material.Header = ExistingMaterialHeader( matFile ); // the GUID survives a re-bake
@@ -311,6 +434,11 @@ namespace Desert::Editor
         ormRef.Guid = ormGuid.GetValue();
         ormRef.Path = Common::AssetHandle::StableKeyForPath( ormFile );
         material.Textures.push_back( std::move( ormRef ) );
+        Assets::MaterialAssetRef normalRef;
+        normalRef.Name = std::string( kNormalSlot );
+        normalRef.Guid = normalGuid.GetValue();
+        normalRef.Path = Common::AssetHandle::StableKeyForPath( normalFile );
+        material.Textures.push_back( std::move( normalRef ) );
         material.Params.push_back(
              Assets::MaterialShaderParam{ std::string( kRoughnessFactor ), glm::vec4( 1.0f ) } );
         material = Assets::StampMaterialHeader( std::move( material ) );
@@ -319,6 +447,7 @@ namespace Desert::Editor
 
         Assets::ContentRegistry::NoteFile( texFile );
         Assets::ContentRegistry::NoteFile( ormFile );
+        Assets::ContentRegistry::NoteFile( normalFile );
         Assets::ContentRegistry::NoteFile( matFile );
         // The HLOD block's slot path is a SCENE-RECORD reference, so it is spelled the way a scene stores a
         // material (StoredFormFor("MaterialAsset") = assets-relative), not as the tagged key the .demat's own
@@ -332,8 +461,9 @@ namespace Desert::Editor
                                  .MaterialGuid = material.Header->Guid,
                                  .MaterialPath = Core::Serialize::RenderStoredForm(
                                       *materialForm, Common::AssetHandle::StableKeyForPath( matFile ) ) } );
-        LOG_INFO( "[Build HLODs] baked tile {0}: {1}x{2} BaseColor + ORM -> {3}, {4}, {5}", tileName, width,
-                  height, texFile.generic_string(), ormFile.generic_string(), matFile.generic_string() );
+        LOG_INFO( "[Build HLODs] baked tile {0}: {1}x{2} BaseColor + ORM + Normal -> {3}, {4}, {5}, {6}", tileName,
+                  width, height, texFile.generic_string(), ormFile.generic_string(), normalFile.generic_string(),
+                  matFile.generic_string() );
         return BOOLSUCCESS;
     }
 
@@ -345,7 +475,7 @@ namespace Desert::Editor
             {
                 if ( !m_Renderer )
                 {
-                    const auto& first = m_Tiles.front();
+                    const auto& first = m_Tiles.front().Area;
                     const float side  = std::max( first.SizeX, first.SizeZ );
                     m_Renderer        = std::make_unique<Graphic::SceneRenderer>(
                          Graphic::ViewExtent{
@@ -424,7 +554,7 @@ namespace Desert::Editor
                                             m_ReadbackWidth, m_ReadbackHeight );
                      !saved )
                 {
-                    Fail( std::format( "tile {}: {}", static_cast<uint64_t>( m_Tiles[m_Next].Tile ),
+                    Fail( std::format( "tile {}: {}", static_cast<uint64_t>( m_Tiles[m_Next].Area.Tile ),
                                        saved.GetError() ) );
                     return true;
                 }

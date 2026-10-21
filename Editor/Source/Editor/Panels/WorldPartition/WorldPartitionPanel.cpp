@@ -438,7 +438,7 @@ namespace Desert::Editor
         const std::span registries( &::Desert::Assets::ContentRegistry::Get(), 1 );
         const ::Desert::Core::HLODBuilders builders = ::Desert::Core::MakeHLODBuilders( registries );
         // Phase 1: the landscape HLODs' areas, from the same request the build makes for each.
-        std::vector<::Desert::Core::LandscapeHLODTileArea> areas;
+        std::vector<LandscapeHLODBakeTile>                 areas;
         decltype( builders.Landscape )                     collect;
         if ( builders.Landscape )
             collect = [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
@@ -446,14 +446,23 @@ namespace Desert::Editor
                 auto area = ::Desert::Core::LandscapeHLODTileAreaOf( request );
                 if ( !area )
                     return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>( area.GetError() );
+                auto mesh = builders.Landscape( request );
+                if ( !mesh )
+                    return mesh;
                 const bool known = std::any_of( areas.begin(), areas.end(),
                                                 [&]( const auto& seen ) {
-                                                    return static_cast<uint64_t>( seen.Tile ) ==
+                                                    return static_cast<uint64_t>( seen.Area.Tile ) ==
                                                            static_cast<uint64_t>( area.GetValue().Tile );
                                                 } );
-                if ( !known )
-                    areas.push_back( area.GetValue() );
-                return builders.Landscape( request );
+                if ( known )
+                    return mesh;
+                // The bake states the normal map in the tangent frame of this very mesh.
+                if ( !mesh.GetValue().EditMesh )
+                    return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>(
+                         std::format( "the landscape HLOD of tile {} carries no mesh",
+                                      static_cast<uint64_t>( area.GetValue().Tile ) ) );
+                areas.push_back( LandscapeHLODBakeTile{ area.GetValue(), *mesh.GetValue().EditMesh } );
+                return mesh;
             };
         if ( auto probe =
                   WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, builders.Mesh, collect );
