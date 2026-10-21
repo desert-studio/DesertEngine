@@ -124,7 +124,7 @@ namespace Desert::Graphic::DistanceField
         // Brings the clipmaps up to @p camera and @p objects. The mesh fields are @p scene's - the one
         // DistanceFieldSceneData of the Core::Scene every view of it shares: this view starts its frame there
         // (@p frame, the engine's absolute frame number, and its @p poolMiB request - Scalability
-        // GlobalIllumination.DistanceFieldPoolMiB), acquires its objects' fields and publishes; then its own
+        // GlobalIllumination.DistanceFieldPoolMiB), looks its objects' fields up in the set the scene decided; then its own
         // update plan and one composite pass per level that has bricks to rewrite.
         [[nodiscard]] Common::ResultStr<FrameField>
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,

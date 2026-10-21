@@ -297,9 +297,15 @@ namespace Desert::Graphic::DistanceField
                                           DistanceFieldSceneData& scene, const uint64_t frame,
                                           const uint32_t poolMiB )
     {
-        // The scene's frame: the first view of it streams the scene's fields, every later view finds them as
+        // The scene's frame: the first view of it decides the scene's resident fields, every later view finds them as
         // that one left them (DistanceFieldSceneData::BeginViewFrame).
-        scene.BeginViewFrame( frame, poolMiB );
+        // The fields of every distance-field primitive of the scene (the list is the scene's, not culled).
+        std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>> fields;
+        fields.reserve( objects.size() );
+        for ( const auto& object : objects )
+            fields.push_back( object.Field );
+        if ( const auto begun = scene.BeginViewFrame( frame, poolMiB, fields ); !begun )
+            return Common::MakeError<FrameField>( begun.GetError() );
         // A re-created pool dropped every resident field: everything this view composited from the old atlas is
         // rewritten.
         if ( m_PoolGeneration != scene.GetPoolGeneration() )
@@ -309,8 +315,8 @@ namespace Desert::Graphic::DistanceField
             m_Tracked.clear();
         }
 
-        // Residency: every object's field in the scene's atlas (its distance from this camera merges into the
-        // scene's next streaming), then its record index and resident mip count.
+        // Each object's record in the frame's resident set (its distance from this camera merges into the
+        // scene's next streaming); an object whose field the set lacks waits for the next frame.
         struct Placed
         {
             const GlobalDistanceFieldObject* Object;
@@ -327,12 +333,11 @@ namespace Desert::Graphic::DistanceField
             // The largest per-axis gap between the camera and the box: the camera-centred clipmap box of that
             // half-extent is the smallest one the object overlaps (UE ComputeSquaredDistanceBetweenAABBs <= 0).
             const glm::vec3 gap   = glm::abs( glm::clamp( camera, bounds.Min, bounds.Max ) - camera );
-            auto            index = scene.Acquire( object.Field, std::max( { gap.x, gap.y, gap.z } ) );
+            const std::optional<uint32_t> index =
+                 scene.Lookup( object.Field, std::max( { gap.x, gap.y, gap.z } ) );
             if ( !index )
-                return Common::MakeError<FrameField>( index.GetError() );
-            if ( !index.GetValue().has_value() )
                 continue;
-            placed.push_back( { &object, *index.GetValue(), bounds, 0 } );
+            placed.push_back( { &object, *index, bounds, 0 } );
         }
         // An object is its field, its transform, how many of the field's mips are resident and the row the object
         // grid lists it under: a mip streaming in or out, or the instance taking another row, recomposites the
@@ -342,8 +347,6 @@ namespace Desert::Graphic::DistanceField
                     ( static_cast<uint64_t>( scene.ResidentMips( p.Object->Field.get() ) ) *
                       0xC2B2AE3D27D4EB4FULL ) ^
                     ( ( static_cast<uint64_t>( p.Object->Row ) + 1u ) * 0x165667B19E3779F9ULL );
-        if ( const auto published = scene.PublishViewFrame(); !published )
-            return Common::MakeError<FrameField>( published.GetError() );
 
         // What changed since the clipmaps were written: objects that left and objects that arrived.
         std::vector<Common::Math::AABB>             changed;
