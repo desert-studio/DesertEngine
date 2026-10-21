@@ -22,7 +22,9 @@
 #include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
+#include <Common/Content/ImportRecord.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
@@ -176,6 +178,32 @@ namespace Desert::Editor
                     }
                 }
                 staged.push_back( { key, target, src } );
+
+                // A whole-file static mesh import (AF4h) has no `.stmesh` of its own and its raw source was just
+                // left out, so the asset the record stands for is staged in its cooked form beside the record
+                // (StageCookedImportedMesh) - the runtime finds the file the registry rows name, and reads it.
+                if ( tree.StripRawMeshSources && Common::Content::IsImportRecord( src ) )
+                {
+                    const fs::path meshAsset = Common::Content::MeshAssetOfImportRecord( src );
+                    const auto     kind =
+                         Assets::Serialization::ReadImportRecordKind( src.parent_path() / src.stem() );
+                    if ( !kind.IsSuccess() )
+                    {
+                        error = kind.GetError();
+                        return false;
+                    }
+                    if ( kind.GetValue() != Common::Content::ContentKind::StaticMesh ||
+                         fs::exists( meshAsset, ec ) )
+                        continue;
+                    const fs::path meshTarget = target.parent_path() / meshAsset.filename();
+                    if ( auto written = StageCookedImportedMesh( src, meshTarget ); !written.IsSuccess() )
+                    {
+                        error = written.GetError();
+                        return false;
+                    }
+                    staged.push_back(
+                         { meshTarget.lexically_relative( cooked ).generic_string(), meshTarget, meshAsset } );
+                }
             }
             return true;
         }

@@ -20,6 +20,7 @@ namespace Desert::Editor
         size_t IconsCached     = 0;
         size_t TexturesCooked  = 0; // platform data built into the DDC this pass
         size_t TexturesCached  = 0; // already cooked from the same source bytes by the same rules
+        size_t MeshesCooked    = 0; // static meshes whose envelope + render data are in the DDC after this pass
         size_t Failures        = 0; // parse/compile/bake failures (each logged where it happened)
         // Artifacts that were produced and then did NOT reach the disk. Counted apart from Failures
         // because they mean something different: a compile failure is content that is already broken
@@ -69,5 +70,14 @@ namespace Desert::Editor
     // (Assets::CookTextureAssetForRuntime: header + Meta + the key record), written at `target` — the
     // asset's own path inside Saved/Cooked/<Platform>.
     Common::BoolResultStr StageCookedTextureAsset( const std::filesystem::path& editorAsset,
+                                                   const std::filesystem::path& target );
+
+    // A PACKAGE CARRIES NO MESH SOURCE. A whole-file static mesh import (AF4h) has no `.stmesh` of its own: its
+    // identity is the import record and its envelope is derived from the raw file, which the package strips.
+    // So the cooked tree gets the envelope itself, written at `target` - the asset path the record stands for
+    // (MeshAssetOfImportRecord) inside Saved/Cooked/<Platform>. The runtime then reads it as a file (no raw
+    // source beside it) and keys its render data exactly as the cook did. Refused when the envelope's GUID is
+    // not the record's.
+    Common::BoolResultStr StageCookedImportedMesh( const std::filesystem::path& importRecord,
                                                    const std::filesystem::path& target );
 } // namespace Desert::Editor

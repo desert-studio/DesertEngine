@@ -12,11 +12,18 @@
 
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/DDCShipRegister.hpp>
+#include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Assets/MeshSourceAsset.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
+#include <Editor/Import/ImportManager.hpp>
+#include <Editor/Import/MeshDeriver.hpp>
 #include <Editor/Import/TextureImporter.hpp>
 
 #include <Common/Content/DerivedDataCache.hpp>
+#include <Common/Content/ImportRecord.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -294,6 +301,60 @@ namespace Desert::Editor
             }
         }
 
+        // THE COOK WRITES THE MESH'S DERIVED DATA (UE: the cooker builds every static mesh's render data, and the
+        // game never sees its source). A packaged game registers no mesh builder, so every static mesh it can
+        // load must already have its imported envelope (kMeshSourceDeriver) and its render data (kMeshDeriver)
+        // in the DDC buckets StageCookedEntries ships - before this, only the meshes an editor session had
+        // happened to draw on the packaging machine had them. The editor's own builders are installed here
+        // (the same two EditorStartup installs), so the packager tool cooks through the importers and not a
+        // copy of them. THE SET is every static mesh asset under the assets root: each `.stmesh` file
+        // (hand-authored, edited import) and the asset each StaticMesh import record stands for (a whole-file
+        // import since AF4h has no file of its own; StageTree stages its cooked envelope beside the record).
+        void CookMeshes( CookStats& stats )
+        {
+            Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
+            Assets::SetMeshSourceBuilder( &Editor::BuildMeshSourceOnMiss );
+
+            std::vector<fs::path> assets;
+            for ( const auto& p :
+                  Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::ASSETS_PATH ) )
+            {
+                if ( p.extension() == ".stmesh" )
+                {
+                    assets.push_back( p );
+                    continue;
+                }
+                if ( !Common::Content::IsImportRecord( p ) )
+                    continue;
+                const fs::path source = p.parent_path() / p.stem(); // base.fbx.deimport -> base.fbx
+                const auto     kind   = Assets::Serialization::ReadImportRecordKind( source );
+                if ( !kind.IsSuccess() )
+                {
+                    LOG_ERROR( "[PackageCook] import record '{}' cannot be read for the mesh cook: {}", p.string(),
+                               kind.GetError() );
+                    ++stats.Failures;
+                    continue;
+                }
+                if ( kind.GetValue() == Common::Content::ContentKind::StaticMesh )
+                    assets.push_back( Common::Content::MeshAssetOfImportRecord( p ) );
+            }
+            std::sort( assets.begin(), assets.end() );
+            assets.erase( std::unique( assets.begin(), assets.end() ), assets.end() );
+
+            for ( const fs::path& asset : assets )
+            {
+                const auto platformData = Assets::LoadMeshPlatformDataKeyed( asset );
+                if ( !platformData.IsSuccess() )
+                {
+                    LOG_ERROR( "[PackageCook] static mesh '{}' was not cooked: {}", asset.string(),
+                               platformData.GetError() );
+                    ++stats.Failures;
+                    continue;
+                }
+                ++stats.MeshesCooked;
+            }
+        }
+
         // Copies the DDC buckets a game reads into the cooked tree under the key the runtime asks for:
         // Saved/Cooked/<Platform>/Cooked/Buckets/... is packed as "Cooked/Buckets/...", which is
         // DDC::PackagedPath of the loose entry — the one lookup a packaged DDC reader falls back to.
@@ -368,13 +429,15 @@ namespace Desert::Editor
         CookFonts( stats );
         CookIcons( stats );
         CookTextures( stats );
+        CookMeshes( stats );
         StageCookedEntries( stats );
 
         LOG_INFO( "[PackageCook] shaders {} compiled / {} cached, fonts {} baked / {} cached, icons {} "
-                  "baked / {} cached, textures {} cooked / {} cached, {} failure(s), {} unwritten",
+                  "baked / {} cached, textures {} cooked / {} cached, static meshes {} cooked, {} failure(s), {} "
+                  "unwritten",
                   stats.ShadersCompiled, stats.ShadersCached, stats.FontsBaked, stats.FontsCached,
-                  stats.IconsBaked, stats.IconsCached, stats.TexturesCooked, stats.TexturesCached, stats.Failures,
-                  stats.StoreFailures );
+                  stats.IconsBaked, stats.IconsCached, stats.TexturesCooked, stats.TexturesCached,
+                  stats.MeshesCooked, stats.Failures, stats.StoreFailures );
         if ( stats.StoreFailures > 0 )
         {
             // Loud on its own line: this one is never normal, and a package built over it ships a
@@ -403,6 +466,32 @@ namespace Desert::Editor
                                                  cooked.GetValue().size() ) );
         if ( !written.IsSuccess() )
             return Common::MakeFormattedError<bool>( "the cooked texture asset '{}' was not written: {}",
+                                                     target.string(), written.GetError() );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr StageCookedImportedMesh( const fs::path& importRecord, const fs::path& target )
+    {
+        const fs::path asset      = Common::Content::MeshAssetOfImportRecord( importRecord );
+        const fs::path source     = importRecord.parent_path() / importRecord.stem();
+        const auto     recordGuid = Assets::Serialization::ReadImportRecordGuid( source );
+        if ( !recordGuid.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "imported mesh '{}' cannot be staged: {}", asset.string(),
+                                                     recordGuid.GetError() );
+        const auto envelope = Assets::LoadMeshSourceAsset( asset );
+        if ( !envelope.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "imported mesh '{}' cannot be staged: {}", asset.string(),
+                                                     envelope.GetError() );
+        if ( envelope.GetValue().Guid != recordGuid.GetValue() )
+            return Common::MakeFormattedError<bool>(
+                 "imported mesh '{}' cannot be staged: its envelope states GUID {} but its import record '{}' "
+                 "states {}",
+                 asset.string(), Common::Content::AssetGuidToText( envelope.GetValue().Guid ),
+                 importRecord.string(), Common::Content::AssetGuidToText( recordGuid.GetValue() ) );
+        std::error_code ec;
+        fs::create_directories( target.parent_path(), ec );
+        if ( auto written = Assets::WriteMeshSourceAssetFile( target, envelope.GetValue() ); !written.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "the cooked mesh asset '{}' was not written: {}",
                                                      target.string(), written.GetError() );
         return Common::MakeSuccess( true );
     }
