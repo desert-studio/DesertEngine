@@ -988,7 +988,8 @@ namespace Desert::Editor::Tools
         // World::Foliage::FoliageCellOf ScatterFoliage files every instance by — never the entity's own position,
         // which still names the cell of the grid the field was cut by before its RuntimeGrid changed. A field
         // whose instances span cells (painted before the world was partitioned) is filed under the cell holding
-        // most of them, lowest (X, Z) on a tie, so the fewest move out; an empty field under the cell it stands in.
+        // most of them, lowest (X, Z) on a tie, so the fewest move out; an empty field under the cell it stands
+        // in.
         World::Foliage::CellCoord CellOfField( const ECS::Entity& field, double cellSize )
         {
             const auto& instances = field.GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
@@ -1231,8 +1232,9 @@ namespace Desert::Editor::Tools
                 if ( wanted == now )
                     continue;
                 if ( !stroke.TouchPlace( gather.Fields[i], now ) )
-                    return Common::MakeFormattedError<bool>( "foliage: field {} was re-filed without being gathered",
-                                                             static_cast<uint64_t>( gather.Fields[i] ) );
+                    return Common::MakeFormattedError<bool>(
+                         "foliage: field {} was re-filed without being gathered",
+                         static_cast<uint64_t>( gather.Fields[i] ) );
                 translation = wanted.Translation;
                 tag         = wanted.Tag;
             }

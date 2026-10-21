@@ -253,10 +253,10 @@ namespace Desert::Editor::Tools
         return m_Readjusted.emplace_back( entity, std::vector<glm::vec3>{} ).second;
     }
 
-    std::vector<FoliageStrokeField>
-    FoliageStroke::Finish( const std::function<const std::vector<glm::mat4>*( const Common::UUID& )>& current,
-                           const std::function<FoliageSelection( const Common::UUID& )>& selected,
-                           const std::function<std::optional<FoliageFieldPlace>( const Common::UUID& )>& place ) const
+    std::vector<FoliageStrokeField> FoliageStroke::Finish(
+         const std::function<const std::vector<glm::mat4>*( const Common::UUID& )>&    current,
+         const std::function<FoliageSelection( const Common::UUID& )>&                 selected,
+         const std::function<std::optional<FoliageFieldPlace>( const Common::UUID& )>& place ) const
     {
         std::vector<FoliageStrokeField> changed;
         for ( const auto& field : m_Touched )
@@ -264,14 +264,14 @@ namespace Desert::Editor::Tools
             const auto* now = current( field.Entity );
             if ( !now )
                 continue;
-            FoliageSelection                 nowSelected = selected ? selected( field.Entity ) : field.SelectedBefore;
+            FoliageSelection nowSelected = selected ? selected( field.Entity ) : field.SelectedBefore;
             std::optional<FoliageFieldPlace> nowPlace;
             if ( field.PlaceBefore.has_value() && place )
                 nowPlace = place( field.Entity );
             const bool moved = nowPlace.has_value() && *nowPlace != *field.PlaceBefore;
             if ( *now != field.Before || nowSelected != field.SelectedBefore || moved )
-                changed.push_back( { field.Entity, field.Before, *now, field.SelectedBefore, std::move( nowSelected ),
-                                     moved ? field.PlaceBefore : std::nullopt,
+                changed.push_back( { field.Entity, field.Before, *now, field.SelectedBefore,
+                                     std::move( nowSelected ), moved ? field.PlaceBefore : std::nullopt,
                                      moved ? nowPlace : std::nullopt } );
         }
         return changed;

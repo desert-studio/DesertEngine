@@ -189,8 +189,8 @@ namespace Desert::Editor::Tools
         /// @p selected its selection now (none given: the selection is not part of this stroke); @p place its
         /// place now, asked only of a field TouchPlace saw (none given: places are not part of this stroke).
         std::vector<FoliageStrokeField>
-        Finish( const std::function<const std::vector<glm::mat4>*( const Common::UUID& )>& current,
-                const std::function<FoliageSelection( const Common::UUID& )>&              selected = {},
+        Finish( const std::function<const std::vector<glm::mat4>*( const Common::UUID& )>&    current,
+                const std::function<FoliageSelection( const Common::UUID& )>&                 selected = {},
                 const std::function<std::optional<FoliageFieldPlace>( const Common::UUID& )>& place = {} ) const;
 
     private:
