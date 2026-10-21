@@ -138,8 +138,10 @@ namespace Desert::Core
                                           "'" + snapshot->SceneName + "' is not saved, so it has no built HLODs" )
                                    : WorldCells::ReadBuiltHLODs( scenePath );
                 if ( !stored )
+                {
                     LOG_ERROR( "[WorldPartition] Play of '{0}' runs WITHOUT HLODs: {1}. Run Build > Build HLODs.",
                                snapshot->SceneName, stored.GetError() );
+                }
                 else
                 {
                     const auto registries = std::span( &Assets::ContentRegistry::Get(), 1 );
