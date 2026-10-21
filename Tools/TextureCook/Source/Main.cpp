@@ -11,7 +11,7 @@
 // lands where the editor would put it: the `.detex` asset beside the source, its platform data in the DDC. The
 // cook is `TextureImporter::Cook` itself, so an up-to-date `.tex` is reported Fresh and not rewritten.
 //
-// `--intent` is what the texture IS (Core::Formats::kTextureIntentNames: Colour, NormalMap, Mask, Data), the
+// `--intent` is what the texture IS (Core::Formats::kTextureIntentNames: Colour, NormalMap, Mask, Data, PackedMasks), the
 // word a material slot gives an image imported for it (TextureImporter::ImportSourceAsset). Written on a FIRST
 // import only — an existing asset keeps its settings, as in the editor. Without it a loose image is
 // Unspecified (sRGB), which is wrong for a normal or data map imported outside a mesh.

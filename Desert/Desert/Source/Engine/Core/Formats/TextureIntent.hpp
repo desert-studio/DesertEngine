@@ -77,12 +77,19 @@ namespace Desert::Core::Formats
         /// map by measurement, and only the author knows which one it is.
         Mask = 3,
 
-        /// PACKED OR NON-VISUAL CHANNELS — an ORM map whose three channels are three unrelated
-        /// quantities, a noise field, a lookup table. NEVER block-compressed: a block format fits a
-        /// SHARED endpoint line through a 4x4 neighbourhood, which is the one assumption packed
-        /// channels break. T1 measured 29.29 dB on this project's noise texture and it was the single
-        /// substitution visible in a rendered frame.
+        /// NON-VISUAL CHANNELS — a noise field, a lookup table, a height field read as a number. NEVER
+        /// block-compressed: a block format fits a SHARED endpoint line through a 4x4 neighbourhood,
+        /// which is the one assumption such channels break. T1 measured 29.29 dB on this project's noise
+        /// texture and it was the single substitution visible in a rendered frame. A packed ORM/ARM
+        /// map is NOT this: it is `PackedMasks`.
         Data = 4,
+
+        /// PACKED LINEAR MASKS — an ORM/ARM map whose channels are occlusion, roughness and metallic
+        /// (UE `TC_Masks`: block-compressed, sRGB off). BC7, stored linear; unlike `Data` the authored
+        /// intent PERMITS a block format, and the cook's quality gates (45 dB, worst texel 32) still
+        /// confirm every encode — a map that fails them is stored uncompressed and says so. Appended,
+        /// so every number above keeps its meaning in the container.
+        PackedMasks = 5,
 
         /// Not an intent. Every real one goes above this line and the count below is derived from it.
         Count
@@ -100,7 +107,7 @@ namespace Desert::Core::Formats
     /// means `Mask` today would mean something else the day an enumerator is inserted. The container
     /// may carry the number because the container is rewritten whenever the enum moves.
     inline constexpr std::string_view kTextureIntentNames[] = {
-         "Unspecified", "Colour", "NormalMap", "Mask", "Data",
+         "Unspecified", "Colour", "NormalMap", "Mask", "Data", "PackedMasks",
     };
     static_assert( sizeof( kTextureIntentNames ) / sizeof( kTextureIntentNames[0] ) == kTextureIntentCount,
                    "every TextureIntent needs a name, and the sentinel needs none" );
@@ -196,6 +203,10 @@ namespace Desert::Core::Formats
                 return BlockPolicy{ BlockPolicyVerdict::Encode, ImageFormat::BC4_UNORM,
                                     "a mask is one channel, and BC4 stores one channel in half a BC7 "
                                     "block" };
+            case TextureIntent::PackedMasks:
+                return BlockPolicy{ BlockPolicyVerdict::Encode, ImageFormat::BC7_UNORM,
+                                    "packed linear masks are UE's TC_Masks: BC7 with sRGB off, the gates "
+                                    "confirming the encode" };
             case TextureIntent::Data:
                 return BlockPolicy{ BlockPolicyVerdict::RefusedByIntent, ImageFormat::Count,
                                     "packed or non-visual channels do not share an endpoint line, which "

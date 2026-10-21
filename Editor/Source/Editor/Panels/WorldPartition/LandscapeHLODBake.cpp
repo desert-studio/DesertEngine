@@ -404,6 +404,18 @@ namespace Desert::Editor
             auto texture = Assets::ReadTextureSourceAssetFile( file );
             if ( !texture )
                 return Common::MakeError<std::string>( texture.GetError() );
+            // THE BAKE AUTHORS THESE SETTINGS. WriteTextureSource keeps an existing asset's settings (the
+            // re-import rule for a person's texture); a baked tile texture has no person behind it, so an
+            // earlier bake's settings (an ORM written as Data before PackedMasks existed) are replaced here,
+            // GUID kept, and the next cook re-runs on the new intent (it is in the cook signature).
+            if ( texture.GetValue().Import.Settings != settings )
+            {
+                Assets::TextureSourceAsset rewritten = texture.ExtractValue();
+                rewritten.Import.Settings            = settings;
+                if ( auto w = Assets::WriteTextureSourceAssetFile( file, rewritten ); !w.IsSuccess() )
+                    return Common::MakeError<std::string>( w.GetError() );
+                return Common::MakeSuccess( Common::Content::AssetGuidToText( rewritten.Guid ) );
+            }
             return Common::MakeSuccess( Common::Content::AssetGuidToText( texture.GetValue().Guid ) );
         };
         auto albedoGuid = writeTexture( texFile, "T_" + tileName + "_BaseColor.png", std::move( png.GetValue() ),
@@ -412,7 +424,7 @@ namespace Desert::Editor
         if ( !albedoGuid )
             return Common::MakeError( albedoGuid.GetError() );
         auto ormGuid = writeTexture( ormFile, "T_" + tileName + "_ORM.png", std::move( ormPng.GetValue() ),
-                                     ::Desert::Core::Formats::TextureIntent::Data,
+                                     ::Desert::Core::Formats::TextureIntent::PackedMasks,
                                      ::Desert::Core::Formats::TextureColorSpace::Linear );
         if ( !ormGuid )
             return Common::MakeError( ormGuid.GetError() );
