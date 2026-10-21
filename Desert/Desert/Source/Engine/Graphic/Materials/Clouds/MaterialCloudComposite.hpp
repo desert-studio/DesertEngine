@@ -26,6 +26,6 @@ namespace Desert::Graphic
 
         // x = ViewFrame::PreExposure: the composite writes the cloud radiance into the scene colour multiplied by
         // it (CloudCompositeUB, set per frame by VolumetricCloudRenderer::DeclareFrameNodes); yzw unused.
-        MPROPERTY( glm::vec4, Exposure, "ExposureTexture", ( glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) ) )
+        MPROPERTY( glm::vec4, Exposure, "Exposure", ( glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) ) )
     };
 } // namespace Desert::Graphic

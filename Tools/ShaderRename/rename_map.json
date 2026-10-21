@@ -214,7 +214,10 @@
         {
           "new": "Exposure",
           "files": [
-            "Editor/Resources/Shaders/Programs/Composite/SceneComposite.shader"
+            "Editor/Resources/Shaders/Programs/Clouds/CloudComposite.shader",
+            "Editor/Resources/Shaders/Programs/Composite/SceneComposite.shader",
+            "Desert/Desert/Source/Engine/Graphic/Materials/Clouds/MaterialCloudComposite.hpp",
+            "Desert/Desert/Source/Engine/Graphic/Materials/PostProcessing/MaterialTonemap.hpp"
           ]
         }
       ]

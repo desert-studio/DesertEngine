@@ -222,6 +222,8 @@ namespace Desert::Graphic
                 {
                     if ( auto texProp = m_MaterialExecutor->GetTexture2DProperty( std::string( prop->GetShaderName() ) ) )
                         texProp->SetImage( static_cast<const Image2D*>( texPtr ), RDG::Access::SampledGraphics );
+                    else
+                        ReportMissingProperty( std::string( prop->GetShaderName() ) );
                 }
             }
             else
@@ -233,6 +235,8 @@ namespace Desert::Graphic
                     prop->CopyValueTo( buf );
                     ub->WriteField( field, buf, prop->GetByteSize() );
                 }
+                else
+                    ReportMissingProperty( std::string( prop->GetShaderName() ) );
             }
 
             prop->MarkClean();
@@ -266,6 +270,8 @@ namespace Desert::Graphic
                              if ( auto texProp = m_MaterialExecutor->GetTexture2DProperty( propName ) )
                                  texProp->SetImage( static_cast<const Image2D*>( val ),
                                                     RDG::Access::SampledGraphics );
+                             else
+                                 ReportMissingProperty( propName );
                          }
                      }
                      else
@@ -275,6 +281,8 @@ namespace Desert::Graphic
                          {
                              ub->WriteField( field, &val, sizeof( T ) );
                          }
+                         else
+                             ReportMissingProperty( propName );
                      }
                  },
                  prop.Value );

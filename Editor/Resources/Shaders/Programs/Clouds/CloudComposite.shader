@@ -85,7 +85,7 @@ Shader "CloudComposite"
 
         Uniform(3) CloudCompositeUB
         {
-            vec4 ExposureTexture; // x = ViewFrame::PreExposure (MaterialCloudComposite::SetExposure), yzw unused
+            vec4 Exposure; // x = ViewFrame::PreExposure (MaterialCloudComposite::SetExposure), yzw unused
         };
 
         // Unreal's coherence threshold: a tenth of the reference distance. Relative rather than absolute
@@ -198,7 +198,7 @@ Shader "CloudComposite"
             // source texel can propagate into. Transmittance is clamped both ways because it multiplies
             // the scene: a value above 1 brightens what is BEHIND the cloud, which reads as a glowing
             // rectangle and is very hard to trace back to a filter.
-            o_Color = vec4(max(cloud.rgb, vec3(0.0)) * ExposureTexture.x, clamp(cloud.a, 0.0, 1.0));
+            o_Color = vec4(max(cloud.rgb, vec3(0.0)) * Exposure.x, clamp(cloud.a, 0.0, 1.0));
         }
     }
 
