@@ -1,0 +1,131 @@
+// Surface cell vertex path: particle RIBBONS (UE: the Niagara ribbon vertex factory, a material's "Used with Niagara
+// Ribbons" usage). A cell of this path exists only in a template that declares `Usage ParticleRibbons`
+// (DShaderParser kSurfaceParticleRibbonPath), and only for the Forward pass: ribbons are drawn by the particle pass
+// (ParticleRenderer::DrawPass) and by nothing else. The fragment half is the sprite's (Pass_ParticleSprite.glslh).
+//
+// Vertexless, on the SAME indirect draw as a sprite row (six vertices per alive particle): alive particle P draws
+// the strip SEGMENT from P to the next OLDER live particle of the emitter (UE: the ribbon links particles in
+// RibbonLinkOrder, by default the spawn order = age); the oldest particle's segment is degenerate. The link is
+// found by a scan of the emitter's pool range for live slots (PoolSlots, binding 13), so the strip needs no sort.
+// The whole emitter is one ribbon (UE: RibbonId unbound). Width = the particle's SpriteSize.x (UE RibbonWidth),
+// colour = its Color, facing = the view (UE FacingMode Screen), U = the particle's relative time (UE Stretch over
+// the ribbon's age), V = 0 / 1 across the width.
+#include <Common/CameraUB.glslh>
+#include <Common/VFXRandom.glslh>
+#include <Common/ParticleDrawLayout.glslh>
+
+// The sprite path's three slots (Vertex_ParticleSprite.glslh) and the pool's bookkeeping (Common/ParticleState.glslh
+// `struct ParticleSlot`: x = Id, y = Alive), read-only.
+layout( std430, binding = 9 ) readonly buffer AttributeFloats
+{
+    float u_DrawFloats[];
+};
+
+layout( std430, binding = 10 ) readonly buffer AliveList
+{
+    uint u_Alive[];
+};
+
+layout( std430, binding = 11 ) readonly buffer DrawLayout
+{
+    ParticleDrawLayout u_DrawLayout;
+};
+
+layout( std430, binding = 13 ) readonly buffer PoolSlots
+{
+    uvec2 u_PoolSlots[];
+};
+
+#include <Common/ParticleDrawRead.glslh>
+
+#include <Common/MaterialTransport.glslh>
+DESERT_SURFACE_VARYINGS( out )
+
+layout( location = 12 ) out flat vec4 v_ParticleColor;
+layout( location = 13 ) out flat vec2 v_ParticleTimeRandom; // x = relative time, y = random
+
+#define RIBBON_NONE 0xFFFFFFFFu
+
+// The live neighbour of range row @p n (age @p age) in link order (age, then row): the next OLDER one when
+// @p older, else the next younger one; RIBBON_NONE at the ribbon's end.
+uint RibbonNeighbour( uint n, float age, bool older )
+{
+    uint  best    = RIBBON_NONE;
+    float bestAge = 0.0;
+    for ( uint m = 0u; m < u_DrawLayout.Range.x; ++m )
+    {
+        if ( m == n || u_PoolSlots[u_DrawLayout.Range.y + m].y == 0u )
+            continue;
+        const float a     = ParticleAge( m );
+        const bool  after = a > age || ( a == age && m > n );
+        if ( after != older )
+            continue;
+        const bool closer = best == RIBBON_NONE ||
+                            ( older ? ( a < bestAge || ( a == bestAge && m < best ) )
+                                    : ( a > bestAge || ( a == bestAge && m > best ) ) );
+        if ( closer )
+        {
+            best    = m;
+            bestAge = a;
+        }
+    }
+    return best;
+}
+
+float RibbonRelativeTime( uint n )
+{
+    const float lifetime = ParticleLifetime( n );
+    return lifetime > 0.0 ? clamp( ParticleAge( n ) / lifetime, 0.0, 1.0 ) : 0.0;
+}
+
+void main()
+{
+    const uint corner = uint( gl_VertexIndex ) % 6u;
+    const uint index  = u_Alive[uint( gl_VertexIndex ) / 6u];
+    const uint n      = ParticleLocalIndex( index );
+    const uint next   = RibbonNeighbour( n, ParticleAge( n ), true );
+
+    // x: -1 = this particle's end of the segment, +1 = the next older particle's; y: the two edges.
+    const vec2 corners[6] = vec2[6]( vec2( -1.0, -1.0 ), vec2( 1.0, -1.0 ), vec2( -1.0, 1.0 ), vec2( 1.0, -1.0 ),
+                                     vec2( 1.0, 1.0 ), vec2( -1.0, 1.0 ) );
+    const vec2 c          = corners[corner];
+    const vec3 facing     = vec3( cameraUB.View[0][2], cameraUB.View[1][2], cameraUB.View[2][2] ); // towards the eye
+    const vec3 viewUp     = vec3( cameraUB.View[0][1], cameraUB.View[1][1], cameraUB.View[2][1] );
+
+    // The end this vertex sits on and its two neighbours along the ribbon: the tangent there spans them, so the
+    // two segments meeting at a particle share its edge vertices (no cracks at the joints).
+    const bool farEnd = c.x > 0.0 && next != RIBBON_NONE;
+    const uint at     = farEnd ? next : n;
+    const uint before = farEnd ? n : RibbonNeighbour( n, ParticleAge( n ), false );
+    const uint after  = farEnd ? RibbonNeighbour( next, ParticleAge( next ), true ) : next;
+
+    const vec3 position = ParticleWorldPosition( at );
+    const vec3 pBefore  = before != RIBBON_NONE ? ParticleWorldPosition( before ) : position;
+    const vec3 pAfter   = after != RIBBON_NONE ? ParticleWorldPosition( after ) : position;
+    vec3       tangent  = pAfter - pBefore;
+    vec3       side     = cross( tangent, facing );
+    side                = dot( side, side ) > 1e-8 ? normalize( side ) : viewUp;
+    tangent             = cross( facing, side );
+
+    const float width    = ParticleSpriteSize( at ).x;
+    const vec4  colour   = ParticleColor( at );
+    // The oldest particle has no segment: all six vertices on one point, nothing rasterised.
+    const vec3  worldPos = next == RIBBON_NONE ? position : position + side * ( c.y * width * 0.5 );
+    const float relative = RibbonRelativeTime( at );
+
+    v_Surface.WorldPosition = worldPos;
+    v_Surface.Normal        = facing;
+    v_Surface.UV0           = vec2( relative, 0.5 - c.y * 0.5 );
+    v_Surface.UV1           = v_Surface.UV0;
+    v_Surface.VertexColor   = colour;
+    v_Surface.TBN           = mat3( tangent, -side, facing );
+    v_Surface.Clip          = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
+    v_Surface.PrevClip      = cameraUB.PrevViewProjection * vec4( worldPos, 1.0 );
+
+    v_ParticleColor      = colour;
+    v_ParticleTimeRandom = vec2( relative, VFXRandomFloat4( uvec4( at + u_DrawLayout.Range.y,
+                                                                   floatBitsToUint( ParticleLifetime( at ) ), 0u,
+                                                                   0u ) ).x );
+
+    gl_Position = cameraUB.JitteredViewProjection * vec4( worldPos, 1.0 );
+}

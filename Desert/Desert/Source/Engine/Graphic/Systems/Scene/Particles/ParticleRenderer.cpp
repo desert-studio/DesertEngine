@@ -58,6 +58,15 @@ namespace Desert::Graphic::System
             return Common::MakeError( "ParticleRenderer: the ParticleSpriteDefault template has no registered "
                                       "ParticleSprite.Forward cell" );
         m_DefaultCell = *cell;
+        const auto ribbon = TemplateCellShader(
+             "ParticleRibbonDefault", MeshVertexPath::ParticleRibbon, MeshPass::Forward,
+             []( std::string_view name ) {
+                 return Runtime::ResourceRegistry::GetShaderService()->GetByName( std::string( name ) ) != nullptr;
+             } );
+        if ( !ribbon )
+            return Common::MakeError( "ParticleRenderer: the ParticleRibbonDefault template has no registered "
+                                      "ParticleRibbon.Forward cell" );
+        m_DefaultRibbonCell = *ribbon;
         return BOOLSUCCESS;
     }
 
@@ -131,17 +140,15 @@ namespace Desert::Graphic::System
             for ( const ParticleFrameRenderer& row : fe.Renderers )
             {
                 EmitterMaterial& material = materials[RendererKey{ fe.Emitter, row.Row }];
-                if ( row.Kind != Assets::Serialization::VFXRendererKind::Sprite )
+                if ( row.Kind == Assets::Serialization::VFXRendererKind::Mesh )
                 {
-                    // Ribbon and Mesh rows need their own vertex factories (VFX-09 next passes): refused aloud,
-                    // once per row, never skipped silently.
+                    // A Mesh row needs its own vertex factory (VFX-09 next pass): refused aloud, once per row,
+                    // never skipped silently. Sprite and Ribbon rows draw through their own vertex paths.
                     if ( !material.KindRefused )
                     {
-                        LOG_ERROR( "[Particles] emitter {}.{} renderer row {} does not draw: {} renderers have no "
-                                   "vertex factory yet",
-                                   fe.EntityId, fe.Emitter, row.Row,
-                                   row.Kind == Assets::Serialization::VFXRendererKind::Ribbon ? "Ribbon"
-                                                                                              : "Mesh" );
+                        LOG_ERROR( "[Particles] emitter {}.{} renderer row {} does not draw: Mesh renderers have "
+                                   "no vertex factory yet",
+                                   fe.EntityId, fe.Emitter, row.Row );
                         material.KindRefused = true;
                     }
                     continue;
@@ -526,36 +533,43 @@ namespace Desert::Graphic::System
                                                                    EmitterMaterial&             material )
     {
         const Common::AssetHandle& handle = row.Material;
-        // A named material draws through its own ParticleSprite.Forward cell (UE: the sprite renderer's material).
+        // The row's vertex factory (UE: the sprite / ribbon renderer's vertex factory) and its engine material.
+        const bool           ribbon = row.Kind == Assets::Serialization::VFXRendererKind::Ribbon;
+        const MeshVertexPath path   = ribbon ? MeshVertexPath::ParticleRibbon : MeshVertexPath::ParticleSprite;
+        const std::string&   engine = ribbon ? m_DefaultRibbonCell : m_DefaultCell;
+        // A named material draws through its own cell of the row's path (UE: the renderer's material).
         if ( handle != Common::AssetHandle::Null() )
         {
             auto*       service = Runtime::ResourceRegistry::GetMaterialService();
-            const auto* cell    = dynamic_cast<const DataDrivenMaterial*>(
-                 service->Get( handle, MeshVertexPath::ParticleSprite, MeshPass::Forward ) );
+            const auto* cell =
+                 dynamic_cast<const DataDrivenMaterial*>( service->Get( handle, path, MeshPass::Forward ) );
             SpriteDraw* sprite = cell != nullptr ? SpriteDrawFor( cell->GetShaderName() ) : nullptr;
             if ( sprite != nullptr )
             {
                 if ( !material.Instance || material.Handle != handle )
                 {
                     material.Handle   = handle;
-                    material.Instance = service->CreateRuntimeInstance( handle, MeshVertexPath::ParticleSprite );
+                    material.Instance = service->CreateRuntimeInstance( handle, path );
                 }
                 return sprite;
             }
             if ( !material.HasRefused || material.Refused != handle )
             {
-                LOG_ERROR( "[Particles] emitter {}.{} renderer row {} draws with ParticleSpriteDefault: its "
-                           "material {} {}",
-                           fe.EntityId, fe.Emitter, row.Row, static_cast<uint64_t>( handle ),
-                           cell == nullptr ? "is missing or its template has no `Usage ParticleSprites` cell"
-                                           : "has a ParticleSprite cell that cannot draw (logged above)" );
+                LOG_ERROR( "[Particles] emitter {}.{} renderer row {} draws with {}: its material {} {}",
+                           fe.EntityId, fe.Emitter, row.Row,
+                           ribbon ? "ParticleRibbonDefault" : "ParticleSpriteDefault",
+                           static_cast<uint64_t>( handle ),
+                           cell == nullptr ? std::format( "is missing or its template has no `Usage {}` cell",
+                                                          ribbon ? "ParticleRibbons" : "ParticleSprites" )
+                                           : std::format( "has a {} cell that cannot draw (logged above)",
+                                                          MeshVertexPathName( path ) ) );
                 material.Refused    = handle;
                 material.HasRefused = true;
             }
         }
         material.Handle   = Common::AssetHandle::Null();
         material.Instance = nullptr; // the default cell's own defaults
-        return SpriteDrawFor( m_DefaultCell );
+        return SpriteDrawFor( engine );
     }
 
     SystemRasterPass ParticleRenderer::DrawPass()
@@ -666,6 +680,13 @@ namespace Desert::Graphic::System
                               .Storage( "DrawLayout", ve.DrawLayoutRef, RDG::Access::StorageRead )
                               .Storage( "AliveList", ve.Sorted ? m_SortedRef : m_Pool.AliveRef,
                                         RDG::Access::StorageRead );
+                    // A ribbon cell also reads which pool slots are alive (Vertex_ParticleRibbon.glslh PoolSlots):
+                    // its strip links each live particle to the next older one of the emitter.
+                    const bool links =
+                         std::any_of( layout->Slots.begin(), layout->Slots.end(),
+                                      []( const RDG::ShaderSlot& slot ) { return slot.Name == "PoolSlots"; } );
+                    if ( links )
+                        block.Storage( "PoolSlots", m_Pool.SlotsRef, RDG::Access::StorageRead );
                     const bool fades = SceneViewDetail::LayoutSamples( *layout, kSceneViewSceneDepthName );
                     if ( fades && depth )
                         block.Texture( kSceneViewSceneDepthName, depth, RDG::Access::SampledGraphics,
@@ -678,7 +699,7 @@ namespace Desert::Graphic::System
                     std::erase_if( others.Slots,
                                    [&route]( const RDG::ShaderSlot& slot )
                                    {
-                                       return slot.Name == kSceneViewSceneDepthName ||
+                                       return slot.Name == kSceneViewSceneDepthName || slot.Name == "PoolSlots" ||
                                               std::find( route.Slots.begin(), route.Slots.end(), slot.Name ) !=
                                                    route.Slots.end();
                                    } );
