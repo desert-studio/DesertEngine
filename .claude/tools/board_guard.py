@@ -21,6 +21,7 @@ State: ~/.claude/board_guard_state.json {pages: {page_id: code}, writes: {code: 
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 
@@ -108,6 +109,31 @@ def running_agent(s, code):
     return None
 
 
+def running_count(s):
+    now = time.time()
+    return sum(1 for aid in s["agents"] if aid not in s["stopped"] and now - s["launched"].get(aid, 0) < RUNNING_MAX_AGE)
+
+
+# Night mode (owner 10-22 «ночью управляй сам агентами, без простоя»): ~/.claude/night_mode holds an epoch
+# end time; `night_mode.sh on [HH:MM]` / `off` write it. While it is in the future, Stop refuses an idle lead.
+NIGHT_FILE = os.path.expanduser("~/.claude/night_mode")
+NIGHT_MIN_AGENTS = 3
+
+
+def night_until():
+    try:
+        with open(NIGHT_FILE) as f:
+            until = float(f.read().strip())
+    except (OSError, ValueError):
+        return 0
+    return until if until > time.time() else 0
+
+
+def landing():
+    """A merge (land_dev.sh) running counts as the working slot it is."""
+    return subprocess.run(["pgrep", "-f", "land_dev.sh"], capture_output=True).returncode == 0
+
+
 def unaccepted(s):
     return sorted(c for c, t in s["pending"].items() if s["writes"].get(c, 0) < t)
 
@@ -153,6 +179,13 @@ def main():
                   ". Приём = карточка: Статус (На проверке/Сделано/В работе), «Кто ведёт», итог и остаток в теле."})
         # Rule 4 is NOT enforced at Stop (owner 10-19: a blocked Stop re-ran the whole lead turn after every
         # hand-in); it is enforced before the next Agent launch, where the check actually changes what runs.
+        night = night_until()
+        if night and not data.get("stop_hook_active"):
+            busy = running_count(s)
+            if busy < NIGHT_MIN_AGENTS and not landing():
+                emit({"decision": "block", "reason": "[board_guard] Ночной режим до " +
+                      time.strftime("%H:%M", time.localtime(night)) + f" (владелец спит): работает агентов {busy} < "
+                      f"{NIGHT_MIN_AGENTS}, слияния нет. Запусти следующую карточку по хвосту HANDOVER — простой = промах."})
         sys.exit(0)
 
     if event == "PostToolUse" and tool.startswith("mcp__notion__"):
