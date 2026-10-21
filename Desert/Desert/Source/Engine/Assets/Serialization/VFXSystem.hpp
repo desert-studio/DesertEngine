@@ -8,6 +8,7 @@
 // drawing — belongs to later cards (VFX-04..08); this file states what an author made and nothing else.
 
 #include <Engine/Animation/KeyInterpolation.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
@@ -34,6 +35,8 @@ namespace Desert::Assets::Serialization
      *
      *   1 - VFX-02: system (Category, Tags, Duration, Loop, Seed, Bounds, UserParams, LocalModules, Emitters),
      *       emitters with lifecycle, the three-group module stack and renderer rows.
+     *   2 - VFX-09: a renderer row states its Material, a Ribbon row its Ribbon settings, a Mesh row its Mesh;
+     *       the header's Dependencies are those rows' assets.
      *
      * An unknown value is refused in both directions; a later layout raises its files through a SceneMigrator
      * step, not through defaults in the reader.
@@ -179,10 +182,52 @@ namespace Desert::Assets::Serialization
         Mesh,
     };
 
+    /// How a ribbon lays its U coordinate along its length (UE ENiagaraRibbonUVDistributionMode).
+    enum class VFXRibbonUVMode
+    {
+        Stretch,        ///< U runs 0..1 over the whole ribbon (UE ScaledUniformly)
+        TileByDistance, ///< U repeats every UVTileDistance centimetres of length (UE TiledOverRibbonLength)
+    };
+
+    /// A Ribbon row's settings (UE UNiagaraRibbonRendererProperties): the emitter's particles joined into strips,
+    /// one strip per ribbon id, its particles linked in age order (oldest at the tail).
+    struct VFXRibbonRendererData
+    {
+        /// "Particles.<attribute>" naming the integer attribute that splits the particles into ribbons (UE
+        /// RibbonIdBinding); empty = the whole emitter is one ribbon.
+        std::string     RibbonIdBinding;
+        float           Width  = 10.0f; ///< centimetres, > 0 (UE RibbonWidth)
+        VFXRibbonUVMode UVMode = VFXRibbonUVMode::Stretch;
+        float UVTileDistance   = 100.0f; ///< centimetres per U repeat, > 0; read when UVMode == TileByDistance
+
+        [[nodiscard]] bool operator==( const VFXRibbonRendererData& ) const = default;
+    };
+
+    /// A Mesh row's settings (UE UNiagaraMeshRendererProperties): every particle draws this static mesh.
+    struct VFXMeshRendererData
+    {
+        AssetGuidRef Mesh;
+        glm::vec3    Scale = glm::vec3( 1.0f ); ///< per-axis, > 0, on top of the particle's own scale
+
+        [[nodiscard]] bool operator==( const VFXMeshRendererData& ) const = default;
+    };
+
+    /**
+     * @brief One renderer of an emitter (UE UNiagaraRendererProperties): the emitter's particles drawn once per
+     *        enabled row.
+     *
+     * Material: Sprite/Ribbon - the material the quads/strips draw with, absent = the engine's particle
+     * material (UE's DefaultSpriteMaterial / DefaultRibbonMaterial); Mesh - an override of the mesh's own
+     * materials, absent = the mesh's. Ribbon is stated exactly when Kind == Ribbon, Mesh exactly when Kind ==
+     * Mesh. Every Material and Mesh GUID is one of the header's Dependencies.
+     */
     struct VFXRendererData
     {
-        VFXRendererKind Kind    = VFXRendererKind::Sprite;
-        bool            Enabled = true;
+        VFXRendererKind                      Kind    = VFXRendererKind::Sprite;
+        bool                                 Enabled = true;
+        std::optional<AssetGuidRef>          Material{};
+        std::optional<VFXRibbonRendererData> Ribbon{};
+        std::optional<VFXMeshRendererData>   Mesh{};
 
         [[nodiscard]] bool operator==( const VFXRendererData& ) const = default;
     };

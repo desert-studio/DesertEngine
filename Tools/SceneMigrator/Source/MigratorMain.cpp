@@ -47,6 +47,7 @@
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Assets/Serialization/FoliageType.hpp>
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/CloudLayout.hpp>
@@ -127,9 +128,10 @@ namespace
     // diffs only in what the save changed. `.dclayout` is not here: it is binary, and has its own pass
     // (IsCloudLayout).
     // `.defoliage` rides with them: its one content step (FOLT 1 -> 2, FO-3) runs in the same loop.
-    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph",   ".decloudtype",
-                                                ".destrings",  ".detheme",  ".derig",
-                                                ".retarget",   ".skeleton", ".defoliage" };
+    // `.dfx` too: its content step (VFXS 1 -> 2, VFX-09) runs in the same loop.
+    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph", ".decloudtype", ".destrings",
+                                                ".detheme",    ".derig",  ".retarget",    ".skeleton",
+                                                ".defoliage",  ".dfx" };
 
     bool IsLayoutOnly( const std::filesystem::path& path )
     {
@@ -360,6 +362,7 @@ namespace
          TextHeaderGate{ ".danimgraph", "ANGR", Desert::Assets::kAnimGraphSchemaVersion },
          TextHeaderGate{ ".skeleton", "SKEL", Desert::Assets::kSkeletonSchemaVersion },
          TextHeaderGate{ ".anim", "ANIM", Desert::Assets::kAnimationSchemaVersion },
+         TextHeaderGate{ ".dfx", "VFXS", Desert::Assets::kVFXSystemSchemaVersion },
     };
 
     const TextHeaderGate* TextHeaderGateFor( const std::filesystem::path& path )
@@ -1439,6 +1442,7 @@ namespace Desert::Migration
 
         int foliageRaised    = 0;
         int cloudTypesRaised = 0;
+        int vfxSystemsRaised = 0;
         int animGraphsRaised = 0;
 
         // ANIM-SKELREF: what the TargetSkeleton step matches a graph, rig or retarget against - every rig's bones,
@@ -1600,6 +1604,30 @@ namespace Desert::Migration
                     continue;
                 }
             }
+            // VFXS 1 -> 2 (VFX-09): renderer rows state their Material / Ribbon / Mesh.
+            if ( path.extension() == Desert::Assets::Serialization::kVFXSystemExtension )
+            {
+                const auto stated = ReadStatedVersion( path, text, "VFXS" );
+                if ( stated && stated.GetValue() == 1u )
+                {
+                    const auto raised = Desert::Migration::MigrateVFXSystemV1ToV2( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — VFXS 1 -> 2: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " VFXS 1 -> "
+                        << Desert::Assets::kVFXSystemSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    ++vfxSystemsRaised;
+                    continue;
+                }
+            }
             if ( path.extension() == Desert::Assets::Serialization::kFoliageTypeExtension )
             {
                 const auto stated = ReadStatedVersion( path, text, "FOLT" );
@@ -1741,7 +1769,8 @@ namespace Desert::Migration
             << texts.size() << " other text asset(s), " << relaid
             << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
             << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << cloudTypesRaised
-            << ( check ? " cloud type(s) would be raised, " : " cloud type(s) raised, " ) << animGraphsRaised
+            << ( check ? " cloud type(s) would be raised, " : " cloud type(s) raised, " ) << vfxSystemsRaised
+            << ( check ? " VFX system(s) would be raised, " : " VFX system(s) raised, " ) << animGraphsRaised
             << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " ) << meshesRaised
             << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
             << " landscape tile(s), " << texturesRaised
@@ -1753,9 +1782,10 @@ namespace Desert::Migration
         failedOut = failed;
         if ( failed > 0 )
             return 1;
-        return ( check && ( changed > 0 || materialsRaised > 0 || prefabsChanged > 0 || relaid > 0 ||
-                            foliageRaised > 0 || cloudTypesRaised > 0 || animGraphsRaised > 0 ||
-                            meshesRaised > 0 || recordsStated > 0 || materialsRenamed > 0 || texturesRaised > 0 ) )
+        return ( check &&
+                 ( changed > 0 || materialsRaised > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ||
+                   cloudTypesRaised > 0 || vfxSystemsRaised > 0 || animGraphsRaised > 0 || meshesRaised > 0 ||
+                   recordsStated > 0 || materialsRenamed > 0 || texturesRaised > 0 ) )
                     ? 1
                     : 0;
     }
