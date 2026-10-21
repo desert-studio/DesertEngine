@@ -46,7 +46,7 @@ namespace Desert::Editor
     {
         Common::UUID Tile; // the tile's record id
         std::string  MaterialGuid;
-        std::string  MaterialPath;
+        std::string  MaterialPath; // as a scene record stores a material slot (assets-relative)
     };
 
     class LandscapeHLODBake

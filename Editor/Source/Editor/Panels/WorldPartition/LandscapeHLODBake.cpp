@@ -8,6 +8,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/SceneRenderCollectors.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/Core/Serialize/StoredAssetForm.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
@@ -248,10 +249,18 @@ namespace Desert::Editor
 
         Assets::ContentRegistry::NoteFile( texFile );
         Assets::ContentRegistry::NoteFile( matFile );
+        // The HLOD block's slot path is a SCENE-RECORD reference, so it is spelled the way a scene stores a
+        // material (StoredFormFor("MaterialAsset") = assets-relative), not as the tagged key the .demat's own
+        // texture slot uses: a tagged key there is re-tagged on load ("assets:assets:...") and the slot stays
+        // empty.
+        const auto materialForm = Core::Serialize::StoredFormFor( "MaterialAsset" );
+        if ( !materialForm )
+            return Common::MakeError( "the material reference has no stored form (StoredAssetForm.cpp)" );
         m_Baked.push_back(
              LandscapeHLODBaked{ .Tile         = tile.Tile,
                                  .MaterialGuid = material.Header->Guid,
-                                 .MaterialPath = Common::AssetHandle::StableKeyForPath( matFile ) } );
+                                 .MaterialPath = Core::Serialize::RenderStoredForm(
+                                      *materialForm, Common::AssetHandle::StableKeyForPath( matFile ) ) } );
         LOG_INFO( "[Build HLODs] baked tile {0}: {1}x{2} BaseColor -> {3}, {4}", tileName, width, height,
                   texFile.generic_string(), matFile.generic_string() );
         return BOOLSUCCESS;
