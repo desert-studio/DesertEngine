@@ -99,6 +99,25 @@ namespace Desert::Graphic::GlobalIllumination
             return { std::format( "SP_DOWNSAMPLE_LOG2={}", std::countr_zero( downsample ) ),
                      std::format( "SP_TRACED_TEXELS={}", tracedTexels ) };
         }
+
+        // A layout-only program's permutation; cooked (ProgramVariants).
+        Core::ShaderVariant LayoutVariant( const uint32_t downsample, const uint32_t tracedTexels )
+        {
+            return Core::ShaderVariant{ .Defines       = ScreenProbeLayoutDefines( downsample, tracedTexels ),
+                                        .ShippedByCook = true };
+        }
+
+        // Trace's permutation: TracerVariant's defines, the leg, then the layout's; cooked (ProgramVariants).
+        Core::ShaderVariant TraceVariant( const Pipeline& pipeline, const std::string_view leg,
+                                          const uint32_t downsample, const uint32_t tracedTexels )
+        {
+            Core::ShaderVariant variant = TracerVariant( pipeline );
+            variant.Defines.emplace_back( leg );
+            for ( std::string& define : ScreenProbeLayoutDefines( downsample, tracedTexels ) )
+                variant.Defines.push_back( std::move( define ) );
+            variant.ShippedByCook = true;
+            return variant;
+        }
     } // namespace
 
     Common::BoolResultStr ScreenProbeGather::Initialize()
@@ -118,7 +137,7 @@ namespace Desert::Graphic::GlobalIllumination
                  "a probe; 4..16 traced texels a side)",
                  downsample, tracedTexels );
         const auto                shaders = Runtime::ResourceRegistry::GetShaderService();
-        const Core::ShaderVariant variant{ .Defines = ScreenProbeLayoutDefines( downsample, tracedTexels ) };
+        const Core::ShaderVariant variant = LayoutVariant( downsample, tracedTexels );
         for ( uint32_t program = 0; program < ProgramCount; ++program )
         {
             if ( program == TraceNearField || program == TraceFarField )
@@ -148,10 +167,7 @@ namespace Desert::Graphic::GlobalIllumination
                                              std::pair{ TraceFarField, kTraceFarFieldDefine } } )
         {
             const std::string   name( kScreenProbeShaderNames[program] );
-            Core::ShaderVariant variant = TracerVariant( pipeline );
-            variant.Defines.emplace_back( leg );
-            for ( std::string& define : ScreenProbeLayoutDefines( m_ProgramDownsample, m_ProgramTracedTexels ) )
-                variant.Defines.push_back( std::move( define ) );
+            const Core::ShaderVariant variant = TraceVariant( pipeline, leg, m_ProgramDownsample, m_ProgramTracedTexels );
             auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, variant );
             if ( !shader )
                 return Common::MakeFormattedError<bool>( "screen probes: shader {} ({}, {}, {}) did not compile",
@@ -170,6 +186,28 @@ namespace Desert::Graphic::GlobalIllumination
         m_TraceProgramDownsample   = m_ProgramDownsample;
         m_TraceProgramTracedTexels = m_ProgramTracedTexels;
         return BOOLSUCCESS;
+    }
+
+    std::vector<ScreenProbeProgramVariant> ScreenProbeGather::ProgramVariants( const uint32_t downsample,
+                                                                             const uint32_t tracedTexels )
+    {
+        std::vector<ScreenProbeProgramVariant> variants;
+        for ( uint32_t program = 0; program < ProgramCount; ++program )
+            if ( program != TraceNearField && program != TraceFarField )
+                variants.push_back( { std::string( kScreenProbeShaderNames[program] ),
+                                      LayoutVariant( downsample, tracedTexels ) } );
+        // The tracer permutations a Pipeline resolves to (GITracing.hpp PipelineFor): in-place hit lighting is
+        // hardware-only.
+        constexpr std::array<Pipeline, 3> kTracers{
+             Pipeline{ .Tracer = Tracer::SoftwareDistanceField, .Hits = HitLighting::SurfaceCache },
+             Pipeline{ .Tracer = Tracer::HardwareRayQuery, .Hits = HitLighting::SurfaceCache },
+             Pipeline{ .Tracer = Tracer::HardwareRayQuery, .Hits = HitLighting::InPlace } };
+        for ( const Pipeline& tracer : kTracers )
+            for ( const auto& [program, leg] : { std::pair{ TraceNearField, kTraceNearFieldDefine },
+                                                 std::pair{ TraceFarField, kTraceFarFieldDefine } } )
+                variants.push_back( { std::string( kScreenProbeShaderNames[program] ),
+                                      TraceVariant( tracer, leg, downsample, tracedTexels ) } );
+        return variants;
     }
 
     Common::BoolResultStr ScreenProbeGather::EnsureImages( const glm::uvec2         extent,

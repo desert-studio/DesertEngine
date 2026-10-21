@@ -63,6 +63,12 @@ namespace Desert::Core
         std::vector<ShaderVirtualSource> VirtualSources{};
         /// Macros defined for the compile, each `NAME` or `NAME=VALUE` (ShaderDefineName / ShaderDefineValue).
         std::vector<std::string> Defines{};
+        /// SHIPPED BY THE COOK: the game packager compiles every instance of this permutation the shipped
+        /// Scalability.json levels can select (ScreenProbeGather::ProgramVariants, PackageCook
+        /// CookShaderVariants, as UE cooks a global shader's permutations), so a packaged game - a mounted pak -
+        /// that misses its artifact REFUSES it by name (ShaderCompiler) instead of compiling it at runtime.
+        /// Policy, not content: not in Hash(), so the key of the artifact the cook wrote is the key asked for.
+        bool ShippedByCook = false;
 
         [[nodiscard]] bool IsDefault() const
         {

@@ -6,6 +6,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderCompiler.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
+#include <Engine/Graphic/GlobalIllumination/ScreenProbeGather.hpp>
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
 #include <Engine/Text/FontCache.hpp>
 #include <Engine/Vector/IconBake.hpp>
@@ -31,11 +32,13 @@
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Settings/Scalability.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <set>
 #include <span>
 #include <string>
 #include <vector>
@@ -115,6 +118,97 @@ namespace Desert::Editor
                             LOG_ERROR( "[PackageCook] {} [{}] compiled but its artifact did not reach {} — "
                                        "the package would ship a shader the runtime must recompile",
                                        file.string(), static_cast<int>( stage ),
+                                       ::Desert::Core::SpirvCachePathForKey( key ).string() );
+                            ++stats.StoreFailures;
+                            continue;
+                        }
+                        ++stats.ShadersCompiled;
+                    }
+                }
+            }
+        }
+
+        // THE PERMUTATIONS THE SHIPPED QUALITY LEVELS SELECT (UE cooks a global shader's permutations). Every
+        // screen-probe layout a Scalability.json level names - {ScreenProbeDownsample, ScreenProbeTracedTexels}
+        // per level - is compiled under each of ScreenProbeGather::ProgramVariants, the list the runtime acquires
+        // from, so a package never compiles one (ShaderVariant::ShippedByCook refuses the miss by name).
+        void CookShaderVariants( bool spirvDebugInfo, bool developerInstruments, CookStats& stats )
+        {
+            namespace Preprocess  = ::Desert::Core::Preprocess;
+            namespace Scalability = ::Common::Scalability;
+
+            const fs::path tableFile = ::Common::Constants::Path::CONFIG_PATH / "Scalability.json";
+            const auto     text      = Common::Utils::FileSystem::ReadFileContent( tableFile );
+            const auto     table     = text ? Scalability::ScalabilityTable::Parse( text.GetValue() )
+                                            : Common::MakeError<Scalability::ScalabilityTable>( text.GetError() );
+            if ( !table )
+            {
+                LOG_ERROR( "[PackageCook] {}: the shader permutations its levels select were not cooked: {}",
+                           tableFile.string(), table.GetError() );
+                ++stats.Failures;
+                return;
+            }
+            std::set<std::pair<uint32_t, uint32_t>> layouts;
+            for ( std::size_t level = 0; level < Scalability::kLevelCount; ++level )
+            {
+                const auto at = static_cast<Scalability::Level>( level );
+                layouts.emplace(
+                     static_cast<uint32_t>( table.GetValue().ValueAt( Scalability::Parameter::ScreenProbeDownsample, at ) ),
+                     static_cast<uint32_t>( table.GetValue().ValueAt( Scalability::Parameter::ScreenProbeTracedTexels, at ) ) );
+            }
+
+            const std::vector<fs::path> programs = PackagedShaderPrograms( developerInstruments );
+            for ( const auto& [downsample, tracedTexels] : layouts )
+            {
+                for ( const auto& [shader, variant] :
+                      Graphic::GlobalIllumination::ScreenProbeGather::ProgramVariants( downsample, tracedTexels ) )
+                {
+                    const auto file = std::ranges::find_if( programs, [&]( const fs::path& p )
+                                                            { return p.stem().string() == shader; } );
+                    if ( file == programs.end() )
+                    {
+                        LOG_ERROR( "[PackageCook] the shipped program {} ({} px, {} texels) is not among the "
+                                   "packaged shaders",
+                                   shader, downsample, tracedTexels );
+                        ++stats.Failures;
+                        continue;
+                    }
+                    const auto content = Common::Utils::FileSystem::ReadFileContent( *file );
+                    if ( !content || content.GetValue().empty() )
+                    {
+                        ++stats.Failures; // the primitive logged a miss; an empty file is CookShaders' failure too
+                        continue;
+                    }
+                    const auto stages =
+                         Preprocess::ShaderPreprocess::PreProcessProgramPass( content.GetValue(), *file, "" );
+                    if ( !stages.IsSuccess() )
+                    {
+                        LOG_ERROR( "[PackageCook] {} ({} px, {} texels) was not cooked: {}", file->string(),
+                                   downsample, tracedTexels, stages.GetError() );
+                        ++stats.Failures;
+                        continue;
+                    }
+                    for ( const auto& [stage, source] : stages.GetValue() )
+                    {
+                        const uint64_t key = ::Desert::Core::ComputeShaderCacheKeyForProfile(
+                             stage, source, *file, spirvDebugInfo, variant );
+                        if ( ::Desert::Core::TryLoadCachedSpirv( key ) )
+                        {
+                            ++stats.ShadersCached;
+                            continue;
+                        }
+                        if ( !::Desert::Core::ShaderCompiler::CompileGLSLToSPIRVForProfile(
+                                   stage, source, file->string(), spirvDebugInfo, variant )
+                                   .IsSuccess() )
+                        {
+                            ++stats.Failures;
+                            continue;
+                        }
+                        if ( !::Desert::Core::TryLoadCachedSpirv( key ) )
+                        {
+                            LOG_ERROR( "[PackageCook] {} [{}] ({} px, {} texels) compiled but its artifact did not "
+                                       "reach {}",
+                                       file->string(), static_cast<int>( stage ), downsample, tracedTexels,
                                        ::Desert::Core::SpirvCachePathForKey( key ).string() );
                             ++stats.StoreFailures;
                             continue;
@@ -465,6 +559,7 @@ namespace Desert::Editor
         std::error_code wipe;
         fs::remove_all( Common::DDC::PlatformCookedDir(), wipe );
         CookShaders( spirvDebugInfo, developerInstruments, stats );
+        CookShaderVariants( spirvDebugInfo, developerInstruments, stats );
         CookFonts( stats );
         CookIcons( stats );
         CookTextures( stats );
