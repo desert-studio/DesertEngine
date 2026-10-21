@@ -312,7 +312,8 @@ namespace Desert::Core
             // The loader's own read (ComponentRegistry's LandscapeTile load): the scene spells the path relative
             // to the project, and FullPath resolves it the same way, so the stand-in and the near tile read the
             // same file.
-            auto decoded = Landscape::ReadLandscapeTileFile( Common::Constants::Path::FullPath( heightFile ) );
+            auto decoded = Landscape::ReadLandscapeTileFile(
+                 Common::Constants::Path::FullPath( Common::AssetHandle::PathForStableKey( heightFile ) ) );
             if ( !decoded )
                 return Common::MakeFormattedError<Result>( "the tile's height file '{}': {}", heightFile,
                                                            decoded.GetError() );
