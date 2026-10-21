@@ -309,11 +309,9 @@ namespace Desert::Core
                      "the tile or its root does not read: {} wants {}, holds {}", issues.front().Path,
                      issues.front().Expected, issues.front().Found );
 
-            // The loader's own read (ComponentRegistry's LandscapeTile load): the scene spells the path relative
-            // to the project, and FullPath resolves it the same way, so the stand-in and the near tile read the
-            // same file.
-            auto decoded = Landscape::ReadLandscapeTileFile(
-                 Common::Constants::Path::FullPath( Common::AssetHandle::PathForStableKey( heightFile ) ) );
+            // The loader's own read (ComponentRegistry's LandscapeTile load): the record's content key, resolved
+            // the same way, so the stand-in and the near tile read the same file.
+            auto decoded = Landscape::ReadLandscapeTileByKey( heightFile );
             if ( !decoded )
                 return Common::MakeFormattedError<Result>( "the tile's height file '{}': {}", heightFile,
                                                            decoded.GetError() );
