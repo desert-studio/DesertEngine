@@ -550,10 +550,11 @@ namespace Desert::Graphic
         textures.Transients.RadianceCacheDepth       = cache.GetValue().Depth;
 
         // The cards' indirect light off this update (the radiosity slot): the frame's relit pages.
-        if ( m_SurfaceCache && m_SurfaceCacheFrame )
+        SurfaceCache::SurfaceCacheRenderer* const surfaceCache = ReadSurfaceCache();
+        if ( surfaceCache != nullptr && m_SurfaceCacheFrame )
         {
             const GlobalIllumination::RadianceCacheFrame& rc = cache.GetValue();
-            if ( const auto lit = m_SurfaceCache->AddIndirectLightingPass(
+            if ( const auto lit = surfaceCache->AddIndirectLightingPass(
                       graph, import, m_SurfaceCacheFrame->Scene, m_SurfaceCacheFrame->Buffers,
                       { .Params      = rc.Params,
                         .Indirection = rc.Indirection,
@@ -900,8 +901,9 @@ namespace Desert::Graphic
         // lists (UE: the object's GPUSceneInstanceIndex). The cache updates after the field in the frame, so these
         // are the last update's rows; a row is stable while its instance lives, and a new one recomposites the
         // object the frame it appears (GlobalDistanceField: the row is part of the object's identity).
-        const std::unordered_map<uint64_t, uint32_t> rows = m_SurfaceCache
-                                                                 ? m_SurfaceCache->GetScene().RowsByPlacement()
+        SurfaceCache::SurfaceCacheRenderer* const   surfaceCache = ReadSurfaceCache();
+        const std::unordered_map<uint64_t, uint32_t> rows = surfaceCache != nullptr
+                                                                 ? surfaceCache->GetScene().RowsByPlacement()
                                                                  : std::unordered_map<uint64_t, uint32_t>{};
         // One object per volume of the mesh's field, each owning the whole field (an aliasing pointer: the
         // volume lives as long as the field it belongs to). A mesh whose field is still being derived (the

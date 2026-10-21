@@ -41,6 +41,13 @@ namespace Desert::Graphic
 #endif // DESERT_DEV_INSTRUMENTS
     }
 
+    SurfaceCache::SurfaceCacheRenderer* SceneRenderer::ReadSurfaceCache() const
+    {
+        SurfaceCache::SurfaceCacheRenderer* const cache =
+             m_SharedSurfaceCache != nullptr ? m_SharedSurfaceCache : m_OwnSurfaceCache.get();
+        return cache != nullptr && cache->IsInitialized() ? cache : nullptr;
+    }
+
     GlobalIllumination::Pipeline SceneRenderer::SurfaceCacheTracer() const
     {
         if ( m_GIPipeline.Traced )
@@ -91,14 +98,15 @@ namespace Desert::Graphic
     {
         if ( m_TracedFrameShared.InstanceSurfaceCacheRows.IsValid() )
             return m_TracedFrameShared.InstanceSurfaceCacheRows;
-        if ( !m_SurfaceCache || !m_RayTracingScene.GetFrame().Built )
+        SurfaceCache::SurfaceCacheRenderer* const cache = ReadSurfaceCache();
+        if ( cache == nullptr || !m_RayTracingScene.GetFrame().Built )
             return {};
         // UE GetMeshCardsIndexFromSceneInstanceIndex: a hit's scene instance -> its cards. Here the TLAS custom
         // index is the primitive's GPU-scene row (RayTracingInstance::CustomIndex), and the surface cache knows
         // an instance by its placement (mesh, world: SurfaceCacheScene::PlacementKey) - the key the global
         // distance field's object grid uses for the same rows. A row with no surface cache instance (a skinned
         // mesh, a landscape tile, a mesh the cache does not hold) reads kNoInstance: the hit is lit in place.
-        const std::unordered_map<uint64_t, uint32_t>           rows = m_SurfaceCache->GetScene().RowsByPlacement();
+        const std::unordered_map<uint64_t, uint32_t>           rows = cache->GetScene().RowsByPlacement();
         const std::span<const RayTracing::RayTracingPrimitive> primitives = m_RayTracingScene.GetPrimitives();
         uint32_t                                               count      = 1u; // a graph buffer cannot be empty
         // A primitive with no GPU-scene row (kNoGpuSceneRow: the GPU-instanced grass) has no entry: its hits read
@@ -137,9 +145,17 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] Surface Cache: no MeshSystem" );
             return;
         }
-        if ( !m_SurfaceCache )
+        // The cache this view reads: the one lent to it (ShareSurfaceCache: a reflection capture's face views share
+        // their capture's), else its own, made on first use; initialised by the first view that brings it up.
+        SurfaceCache::SurfaceCacheRenderer* cache = m_SharedSurfaceCache;
+        if ( cache == nullptr )
         {
-            auto cache = std::make_unique<SurfaceCache::SurfaceCacheRenderer>();
+            if ( !m_OwnSurfaceCache )
+                m_OwnSurfaceCache = std::make_unique<SurfaceCache::SurfaceCacheRenderer>();
+            cache = m_OwnSurfaceCache.get();
+        }
+        if ( !cache->IsInitialized() )
+        {
             if ( const auto initialized = cache->Initialize(); !initialized )
             {
                 // The cards light every traced GI method's hits and the traced reflections' hits.
@@ -148,7 +164,6 @@ namespace Desert::Graphic
                 RefuseProgramMethods( kTracedReflectionMethods, "SurfaceCache", initialized.GetError() );
                 return;
             }
-            m_SurfaceCache = std::move( cache );
         }
         // The cards' direct lighting for this frame's tracer (its shadow rays), asked before anything is
         // recorded. The hardware permutation serves HardwareTraced GI alone: refused, GI walks down to the
@@ -156,7 +171,7 @@ namespace Desert::Graphic
         // other reader - the software-traced GI methods and, whenever GI is not hardware traced, the traced
         // reflections' hits (SurfaceCacheTracer) - so it refuses those too.
         const GlobalIllumination::Pipeline cardTracer = SurfaceCacheTracer();
-        if ( const auto program = m_SurfaceCache->EnsureLightingProgram( cardTracer ); !program )
+        if ( const auto program = cache->EnsureLightingProgram( cardTracer ); !program )
         {
             RefuseProgramMethods( GlobalIllumination::TraceProgramGIMethods( cardTracer, false ),
                                   "SurfaceCacheDirectLighting", program.GetError() );
@@ -166,7 +181,7 @@ namespace Desert::Graphic
         }
         // The machine's budget (Scalability GlobalIllumination group), every frame: a quality change re-cuts it.
         if ( const auto configured =
-                  m_SurfaceCache->Configure( SurfaceCache::MakeSurfaceCacheBudget( m_Quality ) );
+                  cache->Configure( SurfaceCache::MakeSurfaceCacheBudget( m_Quality ) );
              !configured )
         {
             LOG_ERROR( "[SceneRenderer] Surface Cache: {}", configured.GetError() );
@@ -177,7 +192,7 @@ namespace Desert::Graphic
         // cache holds what is off-screen too (a traced ray leaves the frustum). Unjittered ViewFrame position.
         std::vector<SurfaceCache::SceneInstance> instances;
         meshRenderer->GatherSurfaceCacheInstances( instances );
-        SurfaceCache::SceneFrame scene = m_SurfaceCache->GetScene().Update( instances, frame.CameraPosition );
+        SurfaceCache::SceneFrame scene = cache->GetScene().Update( instances, frame.CameraPosition );
 
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };
@@ -190,7 +205,7 @@ namespace Desert::Graphic
             const std::string passName =
                  std::format( "SurfaceCache: Card Capture ({} cards)", scene.Captures.size() );
             const auto targets =
-                 TargetsOf( textures, m_SurfaceCache->GetCaptureBuffer(), "SurfaceCacheCapture", passName );
+                 TargetsOf( textures, cache->GetCaptureBuffer(), "SurfaceCacheCapture", passName );
             if ( !targets || targets->Colors.size() < 4 || !targets->Depth.IsValid() )
             {
                 LOG_ERROR( "[SceneRenderer] Surface Cache: the capture atlas cannot be declared" );
@@ -239,7 +254,7 @@ namespace Desert::Graphic
                                                                                .ShadingWord = targets->Colors[2],
                                                                                .Emissive    = targets->Colors[3],
                                                                                .Depth       = targets->Depth };
-            if ( const auto copied = m_SurfaceCache->AddCopyPass( graph, import, capture, scene ); !copied )
+            if ( const auto copied = cache->AddCopyPass( graph, import, capture, scene ); !copied )
             {
                 LOG_ERROR( "[SceneRenderer] Surface Cache: {}", copied.GetError() );
                 return;
@@ -250,7 +265,7 @@ namespace Desert::Graphic
         // deferred composite read this frame - its scene view inputs (cascades, cloud map, local shadow atlas),
         // the view's light buffers (AddFrameLightGrid), the composite's ShadowUB and cloud values, the frame sun.
         const SurfaceCache::SurfaceCacheRenderer::FrameBuffers records =
-             m_SurfaceCache->UploadRecords( graph, scene );
+             cache->UploadRecords( graph, scene );
         {
             const FrameGraphRefs                                     refs = textures.GraphRefs();
             SurfaceCache::SurfaceCacheRenderer::DirectLightingInputs lighting;
@@ -279,7 +294,7 @@ namespace Desert::Graphic
             lighting.Tracer = MakeTracerFrame( graph, textures, SurfaceCacheTracer() );
             // The traced GI relights the pages' indirect term after its radiance cache update (AddFrameTracedGI).
             lighting.IndirectLighting = RadianceCacheRuns();
-            if ( const auto lit = m_SurfaceCache->AddDirectLightingPass( graph, import, scene, records, lighting );
+            if ( const auto lit = cache->AddDirectLightingPass( graph, import, scene, records, lighting );
                  !lit )
             {
                 LOG_ERROR( "[SceneRenderer] Surface Cache: {}", lit.GetError() );
@@ -311,7 +326,7 @@ namespace Desert::Graphic
         SurfaceCacheFrameRecord record;
         record.Scene   = std::move( scene );
         record.Buffers = records;
-        record.Hits    = m_SurfaceCache->HitReads( import, records );
+        record.Hits    = cache->HitReads( import, records );
         m_SurfaceCacheFrame.emplace( std::move( record ) );
     }
 
@@ -325,7 +340,8 @@ namespace Desert::Graphic
         // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame.
         if ( ( !atlasView && !sceneView && !litView ) || m_RenderPath != Core::RenderPath::Deferred )
             return;
-        if ( !m_SurfaceCache || !m_SurfaceCacheFrame || !target.IsValid() )
+        SurfaceCache::SurfaceCacheRenderer* const cache = ReadSurfaceCache();
+        if ( cache == nullptr || !m_SurfaceCacheFrame || !target.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] Debug: Surface Cache not drawn: {}",
                        !target.IsValid() ? "the frame has no post input"
@@ -336,8 +352,8 @@ namespace Desert::Graphic
         { return textures.Import( image, name ); };
         const SurfaceCacheFrameRecord& record = *m_SurfaceCacheFrame;
         const auto                     drawn =
-             atlasView ? m_SurfaceCache->AddAtlasViewPass( graph, import, target )
-                                           : m_SurfaceCache->AddSceneViewPass( graph, import, target, record.Scene, record.Buffers,
+             atlasView ? cache->AddAtlasViewPass( graph, import, target )
+                                           : cache->AddSceneViewPass( graph, import, target, record.Scene, record.Buffers,
                                                                                litView, frame.ViewProjection, frame.CameraPosition );
         if ( !drawn )
             LOG_ERROR( "[SceneRenderer] Debug: Surface Cache: {}", drawn.GetError() );

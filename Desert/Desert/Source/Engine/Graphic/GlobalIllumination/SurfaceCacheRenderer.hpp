@@ -97,8 +97,15 @@ namespace Desert::Graphic::SurfaceCache
             RDG::TextureRef Depth;
         };
 
-        // Shaders, the copy pipeline and the capture framebuffer.
+        // Shaders, the copy pipeline and the capture framebuffer. A renderer may be made before it is initialised
+        // (a reflection capture makes its faces' one cache with the faces; the first face that brings the cache up
+        // initialises it), so its holders ask IsInitialized rather than whether it exists.
         [[nodiscard]] Common::BoolResultStr Initialize();
+        // The capture framebuffer is the last thing Initialize assigns: true only once everything is.
+        [[nodiscard]] bool IsInitialized() const
+        {
+            return m_CaptureBuffer != nullptr;
+        }
         // The machine's budget; a new atlas side recreates the layers and drops every capture.
         [[nodiscard]] Common::BoolResultStr Configure( const SurfaceCacheBudget& budget );
 

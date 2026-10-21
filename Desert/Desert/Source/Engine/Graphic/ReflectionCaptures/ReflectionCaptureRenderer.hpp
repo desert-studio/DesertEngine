@@ -5,6 +5,7 @@
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
@@ -340,6 +341,14 @@ namespace Desert::Graphic
         // outlive the frames in flight that recorded its passes.
         std::unique_ptr<DistanceField::GlobalDistanceField>                           m_FaceField;
         Assets::FrameRetireQueue<std::unique_ptr<DistanceField::GlobalDistanceField>> m_RetiringFields;
+        // THE FACES' ONE SURFACE CACHE (UE: one Lumen scene per FScene, a view owns no cards): the Lumen scene of
+        // the capture point's cards, lent to each face before its frame (SceneRenderer::ShareSurfaceCache) - one
+        // face renders per engine frame, so the cache is updated once per frame and the cards one face captured
+        // serve the next. Made with the faces (uninitialised until a face brings it up), released with them and
+        // parked like them: its atlases, capture framebuffer and pipelines outlive the frames in flight that
+        // recorded its passes.
+        std::unique_ptr<SurfaceCache::SurfaceCacheRenderer>                           m_FaceSurfaceCache;
+        Assets::FrameRetireQueue<std::unique_ptr<SurfaceCache::SurfaceCacheRenderer>> m_RetiringSurfaceCaches;
 
         ResourceOwnerInstance m_Scene; // see the constructor
 
