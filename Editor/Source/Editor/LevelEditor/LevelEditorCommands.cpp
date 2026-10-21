@@ -125,6 +125,7 @@ namespace Desert::Editor
         m_Commands.Register( "Scene (new views)",
                              [&workspace]( Out& out ) { workspace.AppendNewViewCommands( out ); } );
         m_Commands.Register( "Debug (GPU allocations)", []( Out& out ) { AppendGpuAllocationCommand( out ); } );
+        m_Commands.Register( "Debug (particles)", []( Out& out ) { AppendParticleDebuggerCommand( out ); } );
         m_Commands.Register( "Scene (view layout)",
                              [&workspace]( Out& out ) { workspace.AppendViewLayoutCommands( out ); } );
         m_Commands.Register( "Scene (actions)",

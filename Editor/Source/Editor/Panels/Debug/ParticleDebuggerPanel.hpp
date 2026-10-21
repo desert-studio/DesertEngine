@@ -2,6 +2,8 @@
 
 #include "Editor/Panels/IPanel.hpp"
 
+#include <Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp>
+
 #include <cstdint>
 #include <memory>
 
@@ -19,7 +21,10 @@ namespace Desert::Editor
      * (ParticleWorldGpu::SetDebugRequest): every emitter's live-particle and free counts as the GPU's last compact
      * left them (read back FramesInFlight frames later, no stall, no CPU-side count), and for the emitter selected
      * in the list one page of its alive particles' attributes (pool index + every float component of the compiled
-     * layout). Closing the panel withdraws the request, so the node and its copies cost nothing outside debugging.
+     * layout, then every int component). Closing the panel withdraws the request, so the node and its copies cost
+     * nothing outside debugging. As UE's debugger HUD (FNiagaraDebugHUDSettingsData::ParticlesVariables) the table
+     * shows only the attributes whose name contains the filter text; Freeze holds the page last read (a capture)
+     * while the counts keep updating.
      */
     class ParticleDebuggerPanel final : public IPanel
     {
@@ -38,5 +43,9 @@ namespace Desert::Editor
         uint32_t                   m_Emitter  = 0;
         uint32_t                   m_FirstRow = 0;
         bool                       m_Selected = false;
+        bool                       m_Frozen   = false;
+        char                       m_Filter[64]{};
+        // The page held while frozen (UE: the debugger's captured frame), same emitter as the selection.
+        Graphic::System::ParticleEmitterDebug m_FrozenPage;
     };
 } // namespace Desert::Editor

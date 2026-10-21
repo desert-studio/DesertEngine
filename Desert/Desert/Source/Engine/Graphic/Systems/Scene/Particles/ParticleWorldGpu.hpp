@@ -54,11 +54,13 @@ namespace Desert::Graphic::System
 
     // VFX-16 (UE Niagara Debugger, dev only): ParticleDebugReadback's push constant and its readback's shape. The
     // readback is 4 header uints (alive, free, debug serial, rows written) then per row the pool index and the
-    // emitter's float attribute components; one page is kParticleDebugMaxRows alive particles.
+    // emitter's float attribute components, then its int components (their bits); one page is
+    // kParticleDebugMaxRows alive particles.
     struct ParticleDebugPush
     {
         glm::uvec4 Page;  // x = last compact's slot, y = first alive row, z = rows (0 = counts only), w = float columns
         glm::uvec4 Range; // x = drawn alive half's offset, y = range count, z = pool base, w = debug serial (never 0)
+        glm::uvec4 Columns; // x = int columns; yzw = 0
     };
     constexpr uint32_t kParticleDebugHeaderUints = 4u;
     constexpr uint32_t kParticleDebugMaxRows     = 64u;
@@ -75,7 +77,7 @@ namespace Desert::Graphic::System
     };
 
     // One emitter as the GPU last reported it (read back FramesOld simulated frames after the GPU wrote it; Read =
-    // false until the first copy came back). Columns / RowIndex / Floats only for the requested emitter.
+    // false until the first copy came back). Columns / RowIndex / Floats / Ints only for the requested emitter.
     struct ParticleEmitterDebug
     {
         uint32_t                             EntityId     = 0;
@@ -87,9 +89,11 @@ namespace Desert::Graphic::System
         uint32_t                             FramesOld    = 0;
         bool                                 Read         = false;
         uint32_t                             FloatColumns = 0;
-        std::vector<VFX::VFXAttributeLayout> Columns;  // the compiled layout's attributes (FloatStart / FloatCount)
+        uint32_t                             IntColumns   = 0;
+        std::vector<VFX::VFXAttributeLayout> Columns;  // the compiled layout's attributes (Float/Int Start, Count)
         std::vector<uint32_t>                RowIndex; // pool index per row
         std::vector<float>                   Floats;   // RowIndex.size() x FloatColumns, row-major
+        std::vector<int32_t>                 Ints;     // RowIndex.size() x IntColumns, row-major
     };
 
     // One element of ParticleSimulate's step table (`struct VFXStep`).
