@@ -88,7 +88,7 @@ namespace Desert::Graphic::System
 
     // @p ribbon: the ribbon link order (ParticleSort key 1), finished by the one-thread Ribbon walk.
     [[nodiscard]] inline std::vector<ParticleSortStage> ParticleSortStages( const std::uint32_t length,
-                                                                           const bool          ribbon = false )
+                                                                            const bool          ribbon = false )
     {
         const std::uint32_t block     = length < kParticleSortBlock ? length : kParticleSortBlock;
         const std::uint32_t perThread = ( length + kParticleSortLocalSize - 1 ) / kParticleSortLocalSize;

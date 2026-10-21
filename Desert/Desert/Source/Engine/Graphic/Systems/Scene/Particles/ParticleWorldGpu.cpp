@@ -35,8 +35,8 @@ namespace Desert::Graphic::System
     namespace
     {
         // THE ONE TABLE of the attributes a renderer reads (UE: the sprite renderer's attribute bindings), each
-        // with the one type it reads it as and its lane in ParticleDrawLayoutGpu (Columns0.xyzw, Columns1.xyzw). The
-        // sprite vertex path and the sort read them out of the emitter's columns through
+        // with the one type it reads it as and its lane in ParticleDrawLayoutGpu (Columns0.xyzw, Columns1.xyzw).
+        // The sprite vertex path and the sort read them out of the emitter's columns through
         // Common/ParticleDrawRead.glslh.
         struct DrawnAttribute
         {
@@ -45,9 +45,9 @@ namespace Desert::Graphic::System
             uint32_t          Lane;
         };
         constexpr DrawnAttribute kDrawnAttributes[] = {
-             { "Position", VFX::VFXValueType::Vec3, 0 }, { "SpriteSize", VFX::VFXValueType::Vec2, 1 },
-             { "Color", VFX::VFXValueType::Vec4, 2 },    { "SpriteRotation", VFX::VFXValueType::Float, 3 },
-             { "Age", VFX::VFXValueType::Float, 4 },     { "Lifetime", VFX::VFXValueType::Float, 5 },
+             { "Position", VFX::VFXValueType::Vec3, 0 },     { "SpriteSize", VFX::VFXValueType::Vec2, 1 },
+             { "Color", VFX::VFXValueType::Vec4, 2 },        { "SpriteRotation", VFX::VFXValueType::Float, 3 },
+             { "Age", VFX::VFXValueType::Float, 4 },         { "Lifetime", VFX::VFXValueType::Float, 5 },
              { "RibbonWidth", VFX::VFXValueType::Float, 6 }, { "RibbonLinkOrder", VFX::VFXValueType::Float, 7 },
         };
 
@@ -436,10 +436,10 @@ namespace Desert::Graphic::System
             }
         }
         if ( ribbon != nullptr )
-            layout.Ribbon = glm::vec4(
-                 ribbon->Width,
-                 ribbon->UVMode == Assets::Serialization::VFXRibbonUVMode::TileByDistance ? 1.0f : 0.0f,
-                 ribbon->UVTileDistance, 0.0f );
+            layout.Ribbon =
+                 glm::vec4( ribbon->Width,
+                            ribbon->UVMode == Assets::Serialization::VFXRibbonUVMode::TileByDistance ? 1.0f : 0.0f,
+                            ribbon->UVTileDistance, 0.0f );
         if ( const auto drawn = gpu.DrawLayout->SetData( &layout, kParticleDrawLayoutSize ); !drawn.IsSuccess() )
         {
             LOG_ERROR( "[Particles] emitter {} sits out this tick, its draw layout did not upload: {}", entityId,
@@ -466,9 +466,10 @@ namespace Desert::Graphic::System
             {
                 if ( !row.Ribbon || !row.Ribbon->RibbonIdBinding.empty() )
                 {
-                    LOG_ERROR( "[Particles] emitter {} renderer row {} does not draw: a RibbonIdBinding splits the "
-                               "emitter into several ribbons, and the ribbon order is one per emitter",
-                               entityId, r );
+                    LOG_ERROR(
+                         "[Particles] emitter {} renderer row {} does not draw: a RibbonIdBinding splits the "
+                         "emitter into several ribbons, and the ribbon order is one per emitter",
+                         entityId, r );
                     continue;
                 }
                 if ( *row.Ribbon != *ribbon )

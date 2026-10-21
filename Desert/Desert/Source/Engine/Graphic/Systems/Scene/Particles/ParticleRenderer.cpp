@@ -435,8 +435,9 @@ namespace Desert::Graphic::System
                  { i, blend, gpu.Range.Count, 2u * gpu.Range.Base + half * gpu.Range.Count, half } );
             // A Ribbon row links the particles in RibbonLinkOrder: its own sort, into RibbonOrder.
             const bool ribbon = std::any_of( ve.Frame->Renderers.begin(), ve.Frame->Renderers.end(),
-                                             []( const ParticleFrameRenderer& row )
-                                             { return row.Kind == Assets::Serialization::VFXRendererKind::Ribbon; } );
+                                             []( const ParticleFrameRenderer& row ) {
+                                                 return row.Kind == Assets::Serialization::VFXRendererKind::Ribbon;
+                                             } );
             if ( ribbon )
                 emitters.push_back(
                      { i, blend, gpu.Range.Count, 2u * gpu.Range.Base + half * gpu.Range.Count, half, true } );
@@ -447,7 +448,8 @@ namespace Desert::Graphic::System
 
         const uint64_t aliveBytes              = uint64_t{ 2 } * m_World->Pool().Capacity * sizeof( uint32_t );
         std::tie( m_SortKeysRef, m_SortedRef ) = CreateParticleSortBuffers( graph, plan, aliveBytes );
-        m_RibbonRef = graph.CreateBuffer( RDG::BufferDesc{ aliveBytes * 4u }, "ParticleRibbonOrder" ); // uvec4 each
+        m_RibbonRef =
+             graph.CreateBuffer( RDG::BufferDesc{ aliveBytes * 4u }, "ParticleRibbonOrder" ); // uvec4 each
         // The view depth is along the camera's forward axis from its position (cm): ParticleSortViewOf.
         const ParticleSortView sortView = ParticleSortViewOf( view->InvView );
         const glm::vec4        origin( sortView.Origin, 0.0f );
@@ -456,9 +458,8 @@ namespace Desert::Graphic::System
         {
             ViewEmitter& ve = m_ViewEmitters[range.Emitter];
             ( range.Ribbon ? ve.Ribboned : ve.Sorted ) = true;
-            const ParticleSortBuffers buffers{ ve.FloatsRef,   ve.DrawLayoutRef, m_Pool.AliveRef,
-                                               ve.CountersRef, m_SortKeysRef,    m_SortedRef,
-                                               m_RibbonRef };
+            const ParticleSortBuffers buffers{ ve.FloatsRef,  ve.DrawLayoutRef, m_Pool.AliveRef, ve.CountersRef,
+                                               m_SortKeysRef, m_SortedRef,      m_RibbonRef };
             const std::vector<ParticleSortStage> stages = ParticleSortStages( range.Length, range.Ribbon );
             for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
             {
@@ -711,7 +712,8 @@ namespace Desert::Graphic::System
                     std::erase_if( others.Slots,
                                    [&route]( const RDG::ShaderSlot& slot )
                                    {
-                                       return slot.Name == kSceneViewSceneDepthName || slot.Name == "RibbonOrder" ||
+                                       return slot.Name == kSceneViewSceneDepthName ||
+                                              slot.Name == "RibbonOrder" ||
                                               std::find( route.Slots.begin(), route.Slots.end(), slot.Name ) !=
                                                    route.Slots.end();
                                    } );
