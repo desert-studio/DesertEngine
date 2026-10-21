@@ -1997,7 +1997,10 @@ namespace Desert::Graphic
             // The UI canvas, last before the post chain.
             AddExtensionPoint( graph, textures, RDG::ExtensionPoint::UI, overlay );
 
-            AddFrameJumpFlood( graph, textures );
+            // The outline composites over the post input and hands the tonemap its result: the tonemap reading
+            // the post input directly left the composite's output unread, so no selection was ever outlined.
+            const RDG::TextureRef postSource = postInput.empty() ? RDG::TextureRef{} : postInput.front();
+            const RDG::TextureRef outlined   = AddFrameJumpFlood( graph, textures, postSource );
             AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
             if ( m_BloomEnabled )
             {
@@ -2005,7 +2008,7 @@ namespace Desert::Graphic
             }
             AddFrameLightShafts( graph, textures, postInput, values );
             AddFrameLensFlare( graph, textures, postInput, values );
-            AddFrameTonemap( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+            AddFrameTonemap( graph, textures, outlined.IsValid() ? outlined : postSource );
 
             if ( m_AAMode == Common::Scalability::AntiAliasingMethod::FXAA )
             {

@@ -37,19 +37,20 @@
 
 namespace Desert::Graphic
 {
-    void SceneRenderer::AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures )
+    RDG::TextureRef SceneRenderer::AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures,
+                                                      const RDG::TextureRef scene )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* jfa = UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
-        if ( jfa == nullptr )
-            return;
+        if ( jfa == nullptr || !scene.IsValid() )
+            return {};
         // Whether anything is outlined is known once the mesh draws of this frame are gathered, before the
         // graph is built: it decides which nodes exist.
         jfa->SetOutlineActive(
              // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
              UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->HasOutline() );
         if ( !jfa->Prepare() )
-            return;
+            return {};
         // The seeds live within this graph: transients of the scene's size, created only when a pass writes them.
         // Init writes seed[0]; the steps ping-pong between seed[0] and seed[1].
         RDG::TextureRef seeds[2];
@@ -57,7 +58,7 @@ namespace Desert::Graphic
         {
             const std::optional<RDG::TextureDesc> desc = jfa->GetSeedDesc();
             if ( !desc )
-                return;
+                return {};
             seeds[0] = graph.CreateTexture( *desc, "JumpFlood.Seed0" );
             if ( jfa->RunsSteps() )
                 seeds[1] = graph.CreateTexture( *desc, "JumpFlood.Seed1" );
@@ -97,7 +98,6 @@ namespace Desert::Graphic
         // The composite runs on every frame, outlined or not: it is what hands the scene colour to the tonemap
         // (TonemapRenderer::Inputs::Source is GetOutputImage()). Without Init no seed exists this frame: the
         // composite samples the engine's black texture and passes the scene through (width 0).
-        const RDG::TextureRef scene  = textures.Import( jfa->GetSceneColorImage(), "JumpFlood.Scene" );
         const RDG::TextureRef output = textures.Import( jfa->GetOutputImage(), "Tonemap.Source" );
         const RDG::TextureRef seed   = jfa->RunsInit() ? seeds[jfa->GetFinalSeedIndex()] : textures.System.Black;
         graph.AddPass(
@@ -110,6 +110,7 @@ namespace Desert::Graphic
                  pass.ColorTarget( 0, output, clear );
              },
              [jfa]( RDG::PassContext& context ) -> Common::BoolResultStr { return jfa->RecordFinal( context ); } );
+        return output;
     }
 
     RDG::TextureRef SceneRenderer::PrepareFrameAutoExposure( FrameTextures& textures )
