@@ -25,6 +25,9 @@
 #include "Editor/LevelEditor/ViewportCapture.hpp"
 #include "Editor/LevelEditor/WindowTitles.hpp"
 #include "Editor/Panels/Logs/LogsPanel.hpp"
+#include "Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp"
+#include "Editor/Panels/PropertyEditor/ReflectedFieldText.hpp"
+#include "Editor/Core/CommandHistory.hpp"
 
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -34,10 +37,45 @@
 #include <ImGui/imgui.h>
 #include <ImGui/imgui_internal.h>
 
+#include <charconv>
 #include <format>
 
 namespace Desert::Editor
 {
+    namespace
+    {
+        // Subject::Entity — the entity named by its decimal UUID, in the open scene.
+        Common::ResultStr<ECS::Entity> ControlEntity( ::Desert::Core::Scene& scene, const std::string& id )
+        {
+            std::uint64_t value = 0;
+            const char*   end   = id.data() + id.size();
+            if ( const auto [at, ec] = std::from_chars( id.data(), end, value ); ec != std::errc{} || at != end )
+                return Common::MakeError<ECS::Entity>( std::format(
+                     "'{}' is not an entity UUID (decimal, as 'properties' / the outliner give it)", id ) );
+            const auto ref = scene.FindEntityByID( Common::UUID( value ) );
+            if ( !ref )
+                return Common::MakeError<ECS::Entity>( std::format( "no entity {} in the open scene", id ) );
+            return Common::MakeSuccess( ECS::Entity( ref->get() ) );
+        }
+
+        Common::Json::Object ReflectedRowsToJson( const std::string&                    subject,
+                                                  const std::vector<ReflectedFieldRow>& rows )
+        {
+            Common::Json::Value::Array entries;
+            for ( const ReflectedFieldRow& row : rows )
+            {
+                Common::Json::Object item;
+                item["name"]  = Control::StateDetail::Str( row.Path );
+                item["type"]  = Control::StateDetail::Str( row.Type );
+                item["value"] = Control::StateDetail::Str( row.Text );
+                entries.push_back( Common::Json::Value( item ) );
+            }
+            Common::Json::Object payload;
+            payload["subject"]    = Control::StateDetail::Str( subject );
+            payload["properties"] = Common::Json::Value( entries );
+            return payload;
+        }
+    } // namespace
     // =============================================================================================
     // THE CONTROL CHANNEL
     //
@@ -441,6 +479,31 @@ namespace Desert::Editor
                                                       camera->GetFOV() ) ) );
                 }
 
+                if ( request.Whose == Control::Subject::Entity || request.Whose == Control::Subject::World )
+                {
+                    auto scene = m_Workspace.ActiveScene();
+                    if ( !scene )
+                        return Control::Response::Failure( request.Id, "no scene is open" );
+                    if ( request.Whose == Control::Subject::World )
+                        return Control::Response::Success(
+                             request.Id,
+                             ReflectedRowsToJson(
+                                  "world", DescribeReflectedFields( "SceneSettings", &scene->GetSettings() ) ) );
+                    auto entity = ControlEntity( *scene, request.Entity );
+                    if ( !entity )
+                        return Control::Response::Failure( request.Id, entity.GetError() );
+                    ECS::Entity                    en = entity.GetValue();
+                    std::vector<ReflectedFieldRow> rows;
+                    for ( const ComponentEditorEntry& entry : ComponentWidgetRegistry::Get().Entries() )
+                    {
+                        if ( !entry.DataPtr || entry.ReflectedTypeName.empty() || !entry.Has( en ) )
+                            continue;
+                        auto block = DescribeReflectedFields( entry.ReflectedTypeName, entry.DataPtr( en ) );
+                        rows.insert( rows.end(), block.begin(), block.end() );
+                    }
+                    return Control::Response::Success( request.Id, ReflectedRowsToJson( request.Entity, rows ) );
+                }
+
                 // `m_Documents` here on А6-1's side; О9-2 moved document OWNERSHIP out of the well into
                 // Editor/Core/OpenDocuments.hpp and renamed the member, so the merged line asks the owner.
                 ISubjectDocument* focused = m_Documents.Documents().Find( m_Documents.FocusedDocument() );
@@ -494,6 +557,72 @@ namespace Desert::Editor
                     return Control::Response::Success( request.Id );
                 }
 
+                if ( request.Whose == Control::Subject::Entity || request.Whose == Control::Subject::World )
+                {
+                    // THE DETAILS PANEL'S WRITE (UE Remote Control: a property by path): the reflected field,
+                    // WriteField's admission rules, the same undo record — so it is undoable and dirties the
+                    // scene.
+                    auto scene = m_Workspace.ActiveScene();
+                    if ( !scene )
+                        return Control::Response::Failure( request.Id, "no scene is open" );
+                    const std::size_t dot = request.Property.find( '.' );
+                    if ( dot == std::string::npos )
+                        return Control::Response::Failure(
+                             request.Id, std::format( "'{}' is not <Type>.<Field>; ask 'properties' for the names",
+                                                      request.Property ) );
+                    const std::string typeName  = request.Property.substr( 0, dot );
+                    const std::string fieldPath = request.Property.substr( dot + 1 );
+
+                    if ( request.Whose == Control::Subject::World )
+                    {
+                        if ( typeName != "SceneSettings" )
+                            return Control::Response::Failure(
+                                 request.Id,
+                                 std::format( "the world's properties are SceneSettings.*, not '{}'", typeName ) );
+                        if ( const auto written =
+                                  SetReflectedFieldFromText( &scene->GetSettings(), typeName, fieldPath,
+                                                             request.Text, CommandHistory::Get() );
+                             !written )
+                            return Control::Response::Failure( request.Id, written.GetError() );
+                        return Control::Response::Success( request.Id );
+                    }
+
+                    auto entity = ControlEntity( *scene, request.Entity );
+                    if ( !entity )
+                        return Control::Response::Failure( request.Id, entity.GetError() );
+                    ECS::Entity                 en    = entity.GetValue();
+                    const ComponentEditorEntry* found = nullptr;
+                    for ( const ComponentEditorEntry& entry : ComponentWidgetRegistry::Get().Entries() )
+                        if ( entry.DataPtr && ( entry.ReflectedTypeName == typeName || entry.Name == typeName ) &&
+                             entry.Has( en ) )
+                            found = &entry;
+                    if ( found == nullptr )
+                        return Control::Response::Failure(
+                             request.Id,
+                             std::format( "entity {} has no reflected component '{}'; ask 'properties'",
+                                          request.Entity, typeName ) );
+
+                    // Selected first, as a person editing it in Details has it selected: the undo record
+                    // and the panel's view of the edit are then the ones a hand edit produces.
+                    const Common::UUID entityId( std::stoull( request.Entity ) );
+                    Core::SelectionManager::SetSelected( entityId );
+                    // Only this entity's file is rewritten by the next save (WP17), as from Details.
+                    const CommandHistory::FieldSubject fieldSubject( entityId );
+                    Common::BoolResultStr written = Common::MakeSuccess( true );
+                    const auto            edit    = [&]( void* data )
+                    {
+                        written = SetReflectedFieldFromText( data, found->ReflectedTypeName, fieldPath,
+                                                             request.Text, CommandHistory::Get() );
+                    };
+                    if ( found->EditData )
+                        found->EditData( en, edit );
+                    else
+                        edit( found->DataPtr( en ) );
+                    if ( !written )
+                        return Control::Response::Failure( request.Id, written.GetError() );
+                    return Control::Response::Success( request.Id );
+                }
+
                 // THE FOCUSED DOCUMENT AND NO OTHER. A property named without a document would have to be
                 // searched for across every open window, and the first match would win — which is a
                 // different document from the one the person or the capture is looking at, on any frame
@@ -513,6 +642,15 @@ namespace Desert::Editor
                 {
                     return Control::Response::Failure( request.Id, written.GetError() );
                 }
+                return Control::Response::Success( request.Id );
+            }
+
+            case Control::Op::SaveAs:
+            {
+                // File -> Save's one save path under a new name (SceneFiles::SaveOpenSceneAs); a refusal
+                // names why — an existing file is never overwritten.
+                if ( const auto saved = m_SceneFiles.SaveOpenSceneAs( request.SceneName ); !saved )
+                    return Control::Response::Failure( request.Id, saved.GetError() );
                 return Control::Response::Success( request.Id );
             }
 
