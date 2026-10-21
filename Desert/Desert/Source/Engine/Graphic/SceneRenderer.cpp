@@ -57,6 +57,7 @@ namespace Desert::Graphic
 {
     void SceneRenderer::Init()
     {
+        const ActiveViewScope          viewScope( m_ViewResources ); // a block copy made here is this view's
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         // Init runs on the first scene AND on every scene after it — see the header for the two lifetimes
         // this splits into and the rule that separates them. The timings are logged because the cost of
@@ -213,6 +214,7 @@ namespace Desert::Graphic
         // theirs explicitly after the build, and an explicit claim overrides the ambient one.
         // AND TO THIS VIEW (RT-LEDGER-3): the rows carry the view's instance, and the view's budget
         // (HeldBytes) is those rows measured, not the ViewTargetCensus forecast of them.
+        const ActiveViewScope          viewScope( m_ViewResources ); // a block copy made here is this view's
         const ResourceAttributionScope owned = OpenViewLedgerScope();
 
         // ONE STAGE PER CALL, in the order the systems depend on each other: the post chain is wired to
@@ -720,10 +722,11 @@ namespace Desert::Graphic
             LOG_ERROR( "[Resources] {} closed but {} ledger rows ({} bytes) still carry it: a view member's "
                        "device object outlived the view.",
                        ResourceOwnerInstanceName( Instance ), left.Live, left.Bytes );
-            // Each by kind, claiming owner and size: the row names no object, these find its holder.
+            // Each by name (where its creator recorded one), kind, claiming owner and size: these find its holder.
             for ( const ResourceRowSummary& row : ResourceLedger::RowsOf( Instance ) )
-                LOG_ERROR( "[Resources]   row #{}: {} claimed by {}, {}", row.Id, ResourceKindName( row.Kind ),
-                           ResourceOwnerName( row.Owner ),
+                LOG_ERROR( "[Resources]   row #{}: '{}' {} claimed by {}, {}", row.Id,
+                           row.Name.empty() ? std::string_view( "<unnamed>" ) : std::string_view( row.Name ),
+                           ResourceKindName( row.Kind ), ResourceOwnerName( row.Owner ),
                            row.BytesKnown ? std::format( "{} bytes", row.Bytes ) : std::string( "size unknown" ) );
         }
     }
@@ -766,6 +769,7 @@ namespace Desert::Graphic
         // Every device object this view makes, here and in each entry point that can allocate (Init, the staged
         // build, the three frame phases, Resize, the Ensure* builders), is opened under the view's ledger
         // instance: the view's budget is those rows (HeldBytes), measured, not a forecast (RT-LEDGER-3).
+        const ActiveViewScope          viewScope( m_ViewResources ); // a block copy made here is this view's
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         {
             const std::scoped_lock lock( LiveRenderersMutex() );
@@ -2390,6 +2394,7 @@ namespace Desert::Graphic
 
     bool SceneRenderer::EnsureSSRResources()
     {
+        const ActiveViewScope          viewScope( m_ViewResources ); // a block copy made here is this view's
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( m_SSRResourcesReady )
             return true;
@@ -2446,6 +2451,7 @@ namespace Desert::Graphic
 
     bool SceneRenderer::EnsurePathTracerResources()
     {
+        const ActiveViewScope          viewScope( m_ViewResources ); // a block copy made here is this view's
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( m_PathTracerReady )
             return true;
@@ -2512,6 +2518,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::Resize( const uint32_t width, const uint32_t height )
     {
+        const ActiveViewScope          viewScope( m_ViewResources ); // a block copy made here is this view's
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         // A SIZE THAT NO TARGET CAN BE BUILT AT IS SKIPPED, and `width == 0 && height == 0` was not that
         // test. It let through exactly the sizes the UI actually produces: a collapsed dock panel is 0 on ONE
@@ -2566,6 +2573,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::ResizeRenderTargets( const ViewExtent render )
     {
+        const ActiveViewScope          viewScope( m_ViewResources ); // a block copy made here is this view's
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( !m_TargetFramebuffer || m_RenderExtent == render )
             return;
@@ -2861,6 +2869,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::EnsureTemporalUpscaler( const TemporalMethod method )
     {
+        const ActiveViewScope          viewScope( m_ViewResources ); // a block copy made here is this view's
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         const TemporalMethod held = m_TemporalUpscaler ? m_TemporalUpscaler->Method() : TemporalMethod::None;
         if ( held != method )
