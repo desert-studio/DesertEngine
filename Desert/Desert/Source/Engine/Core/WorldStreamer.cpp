@@ -144,9 +144,10 @@ namespace Desert::Core
             for ( std::size_t unit = plan.AlwaysLoaded.size();
                   hlodLayer != nullptr && unit < Rules::ResidencyUnitCount( plan ); ++unit )
             {
-                auto builtCell = Rules::BuildCellHLOD( *hlodLayer, snapshot->Entities, world,
-                                                       Rules::ResidencyUnitMembers( plan, unit ), customShader,
-                                                       issues, foliageInHLOD, meshBuilder, landscapeBuilder );
+                auto builtCell = Rules::BuildCellHLOD(
+                     *hlodLayer, snapshot->Entities, world, Rules::ResidencyUnitMembers( plan, unit ),
+                     Rules::HLODMinVisibleDistance( *partition, plan, unit ), customShader, issues, foliageInHLOD,
+                     meshBuilder, landscapeBuilder );
                 if ( !builtCell )
                     return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName + "', " +
                                                       Rules::DescribeResidencyUnit( plan, unit ) + ": " +

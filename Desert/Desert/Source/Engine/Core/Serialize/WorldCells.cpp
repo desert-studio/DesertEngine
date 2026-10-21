@@ -561,8 +561,10 @@ namespace Desert::Core::WorldCells
         std::set<std::uint64_t>         hlodIds;
         for ( std::size_t unit = plan.AlwaysLoaded.size(); hlodLayer != nullptr && unit < unitCount; ++unit )
         {
-            auto builtCell = Rules::BuildCellHLOD( *hlodLayer, records, world, members[unit], customShader, issues,
-                                                   foliageInHLOD, meshBuilder, landscape );
+            auto builtCell =
+                 Rules::BuildCellHLOD( *hlodLayer, records, world, members[unit],
+                                       Rules::HLODMinVisibleDistance( *scene.WorldPartition, plan, unit ),
+                                       customShader, issues, foliageInHLOD, meshBuilder, landscape );
             if ( !builtCell )
                 return Common::MakeError<Result>( "'" + scene.SceneName + "', " + index.Units[unit].Name + ": " +
                                                   builtCell.GetError() );
