@@ -267,5 +267,15 @@ namespace Common::Content
     // Mounts on-demand chunk @p name if it is not yet mounted; thread-safe, once. SUCCEEDS DOING NOTHING when
     // no base registered chunks (the editor, loose cooked files): there is nothing to mount and the file is on
     // disk. With a base registered, a name its manifest does not list is a refusal naming it.
+    // A read of a file of chunk @p name refuses while no loaded cell holds the chunk (only a cancelled load reads
+    // so): a chunk mounted with no holder would stay mounted for good.
     BoolResultStr MountChunkOnDemand( std::string_view name );
+
+    // THE CHUNK STAYS MOUNTED WHILE A LOADED CELL OF ITS REGION REMAINS (UE: an IoStore container unmounted when
+    // the last streaming level reading it goes). Each cell load holds its region's chunk from the moment it is
+    // started until its records are unloaded (or the load is cancelled or fails); the last release of a mounted
+    // chunk unmounts it back to on-demand (VFS::ReturnToDeferred), and the next hold + read mounts it anew.
+    // Both succeed doing nothing when no base registered chunks; a release with no hold is a refusal.
+    BoolResultStr HoldChunkOnDemand( std::string_view name );
+    BoolResultStr ReleaseChunkOnDemand( std::string_view name );
 } // namespace Common::Content

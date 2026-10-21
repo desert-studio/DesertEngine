@@ -430,6 +430,10 @@ namespace Common::Content
         // The on-demand chunks the mounted base registered (RegisterOnDemandChunks): name -> archive path.
         std::mutex                                             s_OnDemandLock;
         std::unordered_map<std::string, std::filesystem::path> s_OnDemand;
+        // Loaded cells holding each on-demand chunk, and the chunks mounted now (a hold whose load was cancelled
+        // before it read anything holds a chunk that was never mounted).
+        std::unordered_map<std::string, std::size_t> s_Holds;
+        std::unordered_set<std::string>              s_MountedNow;
     } // namespace
 
     void RegisterOnDemandChunks( const fs::path& baseArchive, std::span<const std::string> names )
@@ -445,18 +449,47 @@ namespace Common::Content
 
     BoolResultStr MountChunkOnDemand( std::string_view name )
     {
-        fs::path archive;
-        {
-            std::lock_guard lock( s_OnDemandLock );
-            if ( s_OnDemand.empty() )
-                return MakeSuccess( true ); // nothing registered: editor or loose cooked files
-            const auto it = s_OnDemand.find( std::string( name ) );
-            if ( it == s_OnDemand.end() )
-                return MakeFormattedError<bool>( "chunk '{}' is not an on-demand chunk of the mounted game",
-                                                 std::string( name ) );
-            archive = it->second;
-        }
-        return Utils::VFS::MountDeferred( archive );
+        // Under the lock for the mount itself, so a release cannot unmount between the mount and its record.
+        std::lock_guard lock( s_OnDemandLock );
+        if ( s_OnDemand.empty() )
+            return MakeSuccess( true ); // nothing registered: editor or loose cooked files
+        const std::string key( name );
+        const auto        it = s_OnDemand.find( key );
+        if ( it == s_OnDemand.end() )
+            return MakeFormattedError<bool>( "chunk '{}' is not an on-demand chunk of the mounted game", key );
+        if ( const auto held = s_Holds.find( key ); held == s_Holds.end() || held->second == 0 )
+            return MakeFormattedError<bool>( "chunk '{}' is read with no loaded cell holding it", key );
+        if ( auto mounted = Utils::VFS::MountDeferred( it->second ); !mounted )
+            return mounted;
+        s_MountedNow.insert( key );
+        return MakeSuccess( true );
+    }
+
+    BoolResultStr HoldChunkOnDemand( std::string_view name )
+    {
+        std::lock_guard lock( s_OnDemandLock );
+        if ( s_OnDemand.empty() )
+            return MakeSuccess( true );
+        const std::string key( name );
+        if ( !s_OnDemand.contains( key ) )
+            return MakeFormattedError<bool>( "chunk '{}' is not an on-demand chunk of the mounted game", key );
+        ++s_Holds[key];
+        return MakeSuccess( true );
+    }
+
+    BoolResultStr ReleaseChunkOnDemand( std::string_view name )
+    {
+        std::lock_guard lock( s_OnDemandLock );
+        if ( s_OnDemand.empty() )
+            return MakeSuccess( true );
+        const std::string key( name );
+        const auto        held = s_Holds.find( key );
+        if ( held == s_Holds.end() || held->second == 0 )
+            return MakeFormattedError<bool>( "chunk '{}' released with no loaded cell holding it", key );
+        if ( --held->second > 0 || !s_MountedNow.contains( key ) )
+            return MakeSuccess( true );
+        s_MountedNow.erase( key );
+        return Utils::VFS::ReturnToDeferred( s_OnDemand.at( key ) );
     }
 
     ResultStr<ChunkedWriteStats>

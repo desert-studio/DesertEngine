@@ -54,6 +54,50 @@ namespace Desert::Core
                 return Common::MakeSuccess( read.ExtractValue() );
             };
         }
+
+        // A cooked world's cells, holding each loaded cell's region chunk while the cell is loaded (WP23): the
+        // chunk unmounts when the last loaded cell of its region goes.
+        class RegionChunkCellSource final : public Rules::WorldCellSource
+        {
+        public:
+            RegionChunkCellSource( std::shared_ptr<const WorldCells::WorldIndex> index, std::string directory,
+                                   RegionChunks regions )
+                 : m_Index( std::move( index ) ), m_Regions( regions ),
+                   m_Cooked( *m_Index, VfsReader( std::move( directory ), std::move( regions ) ) )
+            {
+            }
+
+            [[nodiscard]] Common::ResultStr<std::vector<Assets::EntityData>>
+            UnitRecords( std::size_t unit ) const override
+            {
+                return m_Cooked.UnitRecords( unit );
+            }
+            void HoldUnit( std::size_t unit ) const override
+            {
+                if ( const std::string* chunk = ChunkOf( unit ) )
+                    if ( auto held = Common::Content::HoldChunkOnDemand( *chunk ); !held )
+                        LOG_ERROR( "[WorldPartition] unit {}: {}", unit, held.GetError() );
+            }
+            void ReleaseUnit( std::size_t unit ) const override
+            {
+                if ( const std::string* chunk = ChunkOf( unit ) )
+                    if ( auto released = Common::Content::ReleaseChunkOnDemand( *chunk ); !released )
+                        LOG_ERROR( "[WorldPartition] unit {}: {}", unit, released.GetError() );
+            }
+
+        private:
+            const std::string* ChunkOf( std::size_t unit ) const
+            {
+                if ( !m_Regions || unit >= m_Index->Units.size() )
+                    return nullptr;
+                const auto chunk = m_Regions->find( m_Index->Units[unit].File );
+                return chunk != m_Regions->end() ? &chunk->second : nullptr;
+            }
+
+            std::shared_ptr<const WorldCells::WorldIndex> m_Index;
+            RegionChunks                                  m_Regions;
+            WorldCells::CookedCellSource                  m_Cooked;
+        };
     } // namespace
 
     Common::ResultStr<std::optional<CookedWorldStart>> ReadCookedWorld( const std::string& scenePath )
@@ -240,8 +284,8 @@ namespace Desert::Core
             streamer->m_RecordIds.emplace_back( id );
         streamer->m_Partition = partition;
         streamer->m_Index     = world.Index;
-        streamer->m_Loader    = std::make_unique<WorldCellLoader>( std::make_shared<WorldCells::CookedCellSource>(
-             *world.Index, VfsReader( world.Directory, world.RegionChunkOfFile ) ) );
+        streamer->m_Loader    = std::make_unique<WorldCellLoader>( std::make_shared<RegionChunkCellSource>(
+             world.Index, world.Directory, world.RegionChunkOfFile ) );
         {
             // Every HLOD file is read now, on this thread: HLODs stand in for the whole world from the first
             // frame (their own streaming, UE's HLOD grid, is not this round's).

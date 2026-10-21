@@ -31,8 +31,11 @@ namespace Common::Utils
         std::vector<std::filesystem::path> s_Deferred;
         // Readers (lookups, from JobSystem workers while a cell streams) share; mounting is exclusive.
         std::shared_mutex s_Lock;
-        // Serialises MountDeferred, so two workers asking for one region mount it once.
+        // Serialises MountDeferred and ReturnToDeferred, so two workers asking for one region mount it once.
         std::mutex s_DeferredMount;
+        // The archives MountDeferred took off the deferred list and mounted: the only ones ReturnToDeferred may
+        // take down again (a base or patch pak mounted at start is never unmounted by a streaming world).
+        std::vector<std::filesystem::path> s_MountedOnDemand;
 
         // One absolute, symlink-resolved spelling for an incoming path. weakly_canonical, not
         // lexically_normal alone, because two spellings of ONE directory must compare equal: on macOS
@@ -189,6 +192,29 @@ namespace Common::Utils
             return mounted;
         std::unique_lock lock( s_Lock );
         s_Deferred.erase( std::find( s_Deferred.begin(), s_Deferred.end(), abs ) );
+        s_MountedOnDemand.push_back( abs );
+        return Common::MakeSuccess( true );
+    }
+
+    NO_DISCARD Common::BoolResultStr VFS::ReturnToDeferred( const std::filesystem::path& pakFile )
+    {
+        std::lock_guard             once( s_DeferredMount );
+        const std::filesystem::path abs = CanonicalAbs( pakFile );
+        // Exclusive: a reader inside Resolve holds the shared lock for its whole read, so the reader of this
+        // archive finishes before the archive is destroyed.
+        std::unique_lock lock( s_Lock );
+        const auto       onDemand = std::find( s_MountedOnDemand.begin(), s_MountedOnDemand.end(), abs );
+        if ( onDemand == s_MountedOnDemand.end() )
+            return Common::MakeFormattedError( "{} was not mounted on demand", abs.string() );
+        const auto mount = std::find_if( s_Mounts.begin(), s_Mounts.end(), [&abs]( const Mount& m )
+                                         { return CanonicalAbs( m.Pak->ArchivePath() ) == abs; } );
+        if ( mount == s_Mounts.end() )
+            return Common::MakeFormattedError( "{} is on demand and mounted, yet not on the mount stack",
+                                               abs.string() );
+        s_Mounts.erase( mount );
+        s_MountedOnDemand.erase( onDemand );
+        s_Deferred.push_back( abs );
+        LOG_INFO( "[VFS] Unmounted {} (on demand again)", abs.string() );
         return Common::MakeSuccess( true );
     }
 
@@ -203,6 +229,7 @@ namespace Common::Utils
         std::unique_lock lock( s_Lock );
         s_Mounts.clear();
         s_Deferred.clear();
+        s_MountedOnDemand.clear();
     }
 
     bool VFS::Exists( const std::filesystem::path& path )

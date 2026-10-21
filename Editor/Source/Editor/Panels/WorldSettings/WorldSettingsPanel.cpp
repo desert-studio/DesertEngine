@@ -1,5 +1,6 @@
 #include "WorldSettingsPanel.hpp"
 
+#include <Editor/Core/Commands/WorldPartitionEdit.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
 
@@ -37,6 +38,34 @@ namespace Desert::Editor
         // ranges, enum combos, asset pickers, per-field reset and undo all come from the PROPERTY metadata.
         PropertyEditorBuilder::Draw( &m_Scene->GetSettings(), "SceneSettings", m_AssetManager.get(),
                                      m_UIHelper.get() );
+
+        // UE's World Settings > World Partition: the partition is a property of the world, drawn only on a
+        // partitioned one. One undo entry per drag (before at activation, after at release).
+        if ( m_Scene->GetWorldPartition().has_value() &&
+             Utils::ImGuiUtilities::SectionHeader( "World Partition", true ) )
+        {
+            ::Desert::Core::WorldPartitionSerialized partition = *m_Scene->GetWorldPartition();
+            float size = partition.ChunkRegionSize.value_or( 0.0f );
+            const bool changed = ImGui::DragFloat( "Chunk Region Size (cm)", &size, 100.0f, 0.0f, 1.0e9f, "%.0f",
+                                                   ImGuiSliderFlags_AlwaysClamp );
+            if ( ImGui::IsItemActivated() )
+                m_ChunkRegionBefore = partition;
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Side of the square region whose cells a packaged build ships in one on-demand "
+                                   "content chunk, mounted while a cell of it is loaded. 0 = the world ships in "
+                                   "the base archive." );
+            if ( changed )
+            {
+                partition.ChunkRegionSize = size > 0.0f ? std::optional<float>( size ) : std::nullopt;
+                m_Scene->SetWorldPartition( partition );
+            }
+            if ( ImGui::IsItemDeactivatedAfterEdit() && m_ChunkRegionBefore.has_value() )
+            {
+                CommandHistory::Get().PushCommand( std::make_unique<SetWorldPartitionCommand>(
+                     m_Scene, std::move( m_ChunkRegionBefore ), m_Scene->GetWorldPartition(), "Chunk Region Size" ) );
+                m_ChunkRegionBefore.reset();
+            }
+        }
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Shadow Maps", false ) )
         {

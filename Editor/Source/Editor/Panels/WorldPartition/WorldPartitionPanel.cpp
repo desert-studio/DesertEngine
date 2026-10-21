@@ -12,6 +12,7 @@
 #include "EditorLoadedRegions.hpp"
 
 #include "../../Core/CommandHistory.hpp"
+#include "../../Core/Commands/WorldPartitionEdit.hpp"
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
 
 #include <ranges>
@@ -93,53 +94,6 @@ namespace Desert::Editor
 
         // Below this the legend (five rows in Play) covers the cells; a smaller window scrolls instead.
         constexpr float kMinMapPixels = 240.0f;
-
-        // One history entry for "the world's partition changed": the block before and the block after.
-        //
-        // WEAK, not shared. A history entry that owned the scene would keep a closed world alive for as
-        // long as the undo stack remembered it; ICommand's contract is that an entry whose target is
-        // gone returns false and is discarded, and a weak pointer is how that is DETECTED rather than
-        // assumed. The scene is addressed as a whole object because the partition is a property of the
-        // world itself and has no id of its own.
-        class ConvertToWorldPartitionCommand final : public ICommand
-        {
-        public:
-            ConvertToWorldPartitionCommand( std::weak_ptr<::Desert::Core::Scene>                    scene,
-                                            std::optional<::Desert::Core::WorldPartitionSerialized> before,
-                                            ::Desert::Core::WorldPartitionSerialized                after )
-                 : m_Scene( std::move( scene ) ), m_Before( std::move( before ) ), m_After( std::move( after ) )
-            {
-            }
-
-            [[nodiscard]] std::string GetLabel() const override
-            {
-                return "Convert to World Partition";
-            }
-
-            bool Undo() override
-            {
-                return Apply( m_Before );
-            }
-
-            bool Redo() override
-            {
-                return Apply( m_After );
-            }
-
-        private:
-            bool Apply( const std::optional<::Desert::Core::WorldPartitionSerialized>& partition )
-            {
-                const std::shared_ptr<::Desert::Core::Scene> scene = m_Scene.lock();
-                if ( !scene )
-                    return false;
-                scene->SetWorldPartition( partition );
-                return true;
-            }
-
-            std::weak_ptr<::Desert::Core::Scene>                    m_Scene;
-            std::optional<::Desert::Core::WorldPartitionSerialized> m_Before;
-            ::Desert::Core::WorldPartitionSerialized                m_After;
-        };
     } // namespace
 
     WorldPartitionPanel::WorldPartitionPanel( std::shared_ptr<::Desert::Core::Scene> scene,
@@ -416,7 +370,8 @@ namespace Desert::Editor
         // The entry, not a dirty flag: the editor reads CommandHistory's revision to decide whether the
         // scene has unsaved changes, so pushing IS marking it dirty (EditorLayer.cpp, s_SavedRevision).
         CommandHistory::Get().PushCommand(
-             std::make_unique<ConvertToWorldPartitionCommand>( m_Scene, std::move( before ), after ) );
+             std::make_unique<SetWorldPartitionCommand>( m_Scene, std::move( before ), after,
+                                                        "Convert to World Partition" ) );
         // FO-6: the world's foliage filed by the new grid, one field per type per cell (UE converts a level's
         // InstancedFoliageActor into partitioned ones the same way). Its own undo step, after the conversion's.
         if ( auto filed = Tools::FoliagePaintTool::RepartitionFoliage( *m_Scene ); !filed )

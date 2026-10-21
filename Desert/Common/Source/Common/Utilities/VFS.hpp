@@ -57,8 +57,12 @@ namespace Common::Utils
         // records it; MountDeferred mounts it at the Content tier, once, whichever thread asks first.
         // MountDeferred of a path never deferred and not mounted is a refusal naming it. A patch whose
         // deletions name content of a deferred archive is not refused as orphaned.
+        // ReturnToDeferred is the way back (UE: a chunk container unmounted when no streaming level needs it):
+        // the archive leaves the stack and is on-demand again, so a later MountDeferred mounts it anew. A path
+        // that was never mounted out of the deferred list is a refusal naming it.
         static void                             DeferPak( const std::filesystem::path& pakFile );
         NO_DISCARD static Common::BoolResultStr MountDeferred( const std::filesystem::path& pakFile );
+        NO_DISCARD static Common::BoolResultStr ReturnToDeferred( const std::filesystem::path& pakFile );
         static bool                             IsMounted();
         static void                             Unmount();
 
