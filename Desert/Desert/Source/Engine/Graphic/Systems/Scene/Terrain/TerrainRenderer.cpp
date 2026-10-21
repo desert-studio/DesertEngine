@@ -21,6 +21,7 @@
 #include <chrono>
 #include <cmath>
 #include <optional>
+#include <format>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -407,6 +408,29 @@ namespace Desert::Graphic::System
             m_FrameTints.push_back( tint.value_or( glm::vec4( 1.0f ) ) );
         }
 
+        {
+            // TEMPORARY DIAGNOSTIC (WP-FAR-6B 8f): what the terrain draws this frame, per renderer, on change.
+            static std::unordered_map<const void*, std::string> lastTrace;
+            uint64_t vertices = 0;
+            for ( const FrameDraw& d : m_FrameDraws )
+                vertices += d.VertexCount;
+            const LandscapeTileDraw& l0 = m_Queue.front().Landscape;
+            const glm::vec4          p0( l0.OriginX + static_cast<float>( l0.FirstSampleX ) * l0.SpacingCm, l0.BaseY,
+                                         l0.OriginZ + static_cast<float>( l0.FirstSampleZ ) * l0.SpacingCm, 1.0f );
+            const glm::vec4          clip = frame.ViewProjection * p0;
+            std::string              line = std::format(
+                 "queue {} draws {} verts {} deferred {} cam ({:.0f},{:.0f},{:.0f}) tile0 ({:.0f},{:.0f},{:.0f}) clip "
+                 "({:.3f},{:.3f},{:.6f},{:.3f}) P22 {:.6g} P32 {:.6g} P33 {:.6g}",
+                 m_Queue.size(), m_FrameDraws.size(), vertices, deferred, frame.CameraPosition.x,
+                 frame.CameraPosition.y, frame.CameraPosition.z, p0.x, p0.y, p0.z, clip.x, clip.y, clip.z, clip.w,
+                 frame.Projection[2][2], frame.Projection[3][2], frame.Projection[3][3] );
+            if ( std::string& last = lastTrace[this]; last != line )
+            {
+                LOG_INFO( "[TerrainTrace {}] {}", static_cast<const void*>( this ), line );
+                last = std::move( line );
+            }
+        }
+
         // ── Upload every group's buffers + the shared frame data, still before any draw ─────────────────
         TerrainUB ub{};
         ub.View       = frame.View;
@@ -577,6 +601,18 @@ namespace Desert::Graphic::System
     {
         const auto& gbuffer = m_SceneRenderer->GetGBuffer();
         const auto* camera  = m_SceneRenderer->GetMainCamera();
+        {
+            // TEMPORARY DIAGNOSTIC (WP-FAR-6B 8f): does the G-buffer node record the terrain, per renderer, on change.
+            static std::unordered_map<const void*, std::string> lastGate;
+            std::string line = std::format( "gbuffer {} camera {} pipeline {} draws {} groups {}", gbuffer != nullptr,
+                                            camera != nullptr, m_GBufferPipeline != nullptr, m_FrameDraws.size(),
+                                            m_FrameGroups.size() );
+            if ( std::string& last = lastGate[this]; last != line )
+            {
+                LOG_INFO( "[TerrainGBufferTrace {}] {}", static_cast<const void*>( this ), line );
+                last = std::move( line );
+            }
+        }
         if ( !gbuffer || ( camera == nullptr ) || !m_GBufferPipeline || m_FrameDraws.empty() )
             return BOOLSUCCESS;
 

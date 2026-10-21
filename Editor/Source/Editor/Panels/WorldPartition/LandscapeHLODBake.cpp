@@ -156,7 +156,10 @@ namespace Desert::Editor
         if ( !loaded )
             return Common::MakeError( "the landscape did not load into the bake scene: " + loaded.GetError() );
         m_Camera = std::make_shared<::Desert::Core::GameplayCamera>();
-        m_Camera->SetProjectionType( ::Desert::Core::ProjectionType::Orthographic );
+        // TEMPORARY DIAGNOSTIC (WP-FAR-6B 8f): DESERT_HLOD_BAKE_PERSPECTIVE=1 bakes through a FOV-20 perspective.
+        m_Camera->SetProjectionType( std::getenv( "DESERT_HLOD_BAKE_PERSPECTIVE" ) != nullptr
+                                          ? ::Desert::Core::ProjectionType::Perspective
+                                          : ::Desert::Core::ProjectionType::Orthographic );
         return BOOLSUCCESS;
     }
 
@@ -176,10 +179,14 @@ namespace Desert::Editor
         world[0] = glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f );  // right
         world[1] = glm::vec4( 0.0f, 0.0f, -1.0f, 0.0f ); // up
         world[2] = glm::vec4( 0.0f, 1.0f, 0.0f, 0.0f );  // backward (the camera looks down -Y)
-        world[3] =
-             glm::vec4( tile.OriginX + tile.SizeX * 0.5f, kEyeHeightCm, tile.OriginZ + tile.SizeZ * 0.5f, 1.0f );
+        // TEMPORARY DIAGNOSTIC (WP-FAR-6B 8f): the perspective eye sits where FOV 20 spans the tile's Z side.
+        const bool  perspective = std::getenv( "DESERT_HLOD_BAKE_PERSPECTIVE" ) != nullptr;
+        const float eyeHeight =
+             perspective ? tile.SizeZ * 0.5f / std::tan( glm::radians( 10.0f ) ) : kEyeHeightCm;
+        world[3] = glm::vec4( tile.OriginX + tile.SizeX * 0.5f, eyeHeight, tile.OriginZ + tile.SizeZ * 0.5f, 1.0f );
         m_Camera->SetOrthoSize( tile.SizeZ * 0.5f );
-        m_Camera->SetView( ::Desert::Core::CameraEntityViewOf( world, 45.0f, kNearCm, kFarCm ), width, height,
+        m_Camera->SetView( ::Desert::Core::CameraEntityViewOf( world, perspective ? 20.0f : 45.0f, kNearCm, kFarCm ),
+                           width, height,
                            ::Desert::Core::Camera::kNoSourceEntity );
         m_Scene->PinActiveCamera( m_Camera );
         m_WarmFrames = kWarmFrames;
