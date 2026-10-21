@@ -12,6 +12,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/Selection/FoliagePaint.hpp>
+#include <Editor/Core/Selection/FoliageToolProperties.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Panels/Foliage/FoliagePalette.hpp>
@@ -307,7 +308,8 @@ namespace Desert::Editor::Tools
         {
             Row::BeginPropertyRow( "Brush Size", "The brush radius, cm" );
             ImGui::SetNextItemWidth( -1 );
-            ImGui::SliderFloat( "##BrushSize", &Core::FoliagePaint::BrushRadius(), 50.0f, 6000.0f, "%.0f cm" );
+            ImGui::SliderFloat( "##BrushSize", &Core::FoliagePaint::BrushRadius(), Core::kFoliageBrushSizeMin,
+                                Core::kFoliageBrushSizeMax, "%.0f cm" );
             Row::EndPropertyRow();
             Row::BeginPropertyRow( "Paint Density",
                                    "Share of each type's Density one dab tops up to (UE PaintDensity)" );

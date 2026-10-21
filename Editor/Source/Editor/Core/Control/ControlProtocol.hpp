@@ -184,6 +184,7 @@ namespace Desert::Editor::Control
         Selection, ///< the selected entity's transform (Core/Selection/SelectionTransformProperties.hpp)
         Entity,    ///< one entity's reflected components, addressed by 'entity' (its UUID); values as 'text'
         World,     ///< the open scene's SceneSettings (World Settings); values as 'text'
+        Tool,      ///< the active editor mode's tool settings (Foliage: Core/Selection/FoliageToolProperties.hpp); 'text'
     };
 
     struct SubjectSpec
@@ -195,6 +196,7 @@ namespace Desert::Editor::Control
     inline constexpr SubjectSpec kSubjects[] = {
          { "document", Subject::Document },   { "viewport", Subject::Viewport }, { "modeling", Subject::Modeling },
          { "selection", Subject::Selection }, { "entity", Subject::Entity },     { "world", Subject::World },
+         { "tool", Subject::Tool },
     };
 
     [[nodiscard]] inline std::string KnownSubjectList()
@@ -549,7 +551,7 @@ namespace Desert::Editor::Control
                          "Ask 'properties' for the ones it offers right now." );
                 }
 
-                if ( request.Whose == Subject::Entity || request.Whose == Subject::World )
+                if ( request.Whose == Subject::Entity || request.Whose == Subject::World || request.Whose == Subject::Tool )
                 {
                     // A reflected field takes TEXT, parsed by its own type; absent is refused, "" is a value.
                     if ( !fields.Find( "text" ) )

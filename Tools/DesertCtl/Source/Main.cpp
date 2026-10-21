@@ -54,6 +54,9 @@ namespace
                       "  set <name> <v1[,v2,v3,v4]>    write one of them (the drag a mouse would do)\n"
                       "  properties <uuid|world>       one entity's reflected components (by its UUID) or\n"
                       "                                the open scene's World Settings, as text\n"
+                      "  properties tool / set tool <Name> <text>\n"
+                      "                                the active mode's tool settings (Foliage: BrushSize,\n"
+                      "                                PaintDensity, Tool, ...), as the panel writes them\n"
                       "  set <uuid|world> <Type.Field[.Sub]> <text>\n"
                       "                                write one reflected field as Details would (one undo\n"
                       "                                step); the text is parsed by the field's own type\n"
@@ -154,6 +157,8 @@ namespace
     {
         if ( who == "world" )
             return R"(,"subject":"world")";
+        if ( who == "tool" )
+            return R"(,"subject":"tool")";
         return R"(,"subject":"entity","entity":")" + Escape( who ) + R"(")";
     }
 

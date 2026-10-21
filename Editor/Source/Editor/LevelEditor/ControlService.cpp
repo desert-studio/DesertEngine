@@ -14,6 +14,8 @@
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/Selection/ModelingState.hpp"
 #include "Editor/Core/Selection/ModelingStateProperties.hpp"
+#include "Editor/Core/Selection/FoliageToolProperties.hpp"
+#include "Editor/Core/Selection/ViewportMode.hpp"
 #include "Editor/Core/Selection/SelectionManager.hpp"
 #include "Editor/Core/SubjectEditorRegistry.hpp"
 #include "Editor/Core/SubjectOpenRequest.hpp"
@@ -59,6 +61,17 @@ namespace Desert::Editor
             if ( !ref )
                 return Common::MakeError<ECS::Entity>( std::format( "no entity {} in the open scene", id ) );
             return Common::MakeSuccess( ECS::Entity( ref->get() ) );
+        }
+
+        // Subject::Tool — the tool settings of the active editor mode; only Foliage carries them as rows
+        // (Landscape's are palette entries, group 'Landscape'; Modeling's are subject 'modeling').
+        Common::BoolResultStr ToolSubjectAvailable()
+        {
+            if ( Core::ViewportMode::IsFoliage() )
+                return Common::MakeSuccess( true );
+            return Common::MakeError<bool>(
+                 "subject 'tool' is the active mode's tool settings and Foliage mode is not on; run 'Foliage "
+                 "mode' first (Modeling's values are subject 'modeling', Landscape's are palette entries)" );
         }
 
         Common::Json::Object ReflectedRowsToJson( const std::string&                    subject,
@@ -559,6 +572,16 @@ namespace Desert::Editor
                                                       camera->GetFOV() ) ) );
                 }
 
+                if ( request.Whose == Control::Subject::Tool )
+                {
+                    if ( const auto on = ToolSubjectAvailable(); !on )
+                        return Control::Response::Failure( request.Id, on.GetError() );
+                    std::vector<ReflectedFieldRow> rows;
+                    for ( const Core::FoliageToolRow& row : Core::kFoliageToolRows )
+                        rows.push_back( { std::string( row.Name ), Core::FoliageToolRowType( row ),
+                                          Core::FoliageToolRowText( row ) } );
+                    return Control::Response::Success( request.Id, ReflectedRowsToJson( "tool", rows ) );
+                }
                 if ( request.Whose == Control::Subject::Entity || request.Whose == Control::Subject::World )
                 {
                     auto scene = m_Workspace.ActiveScene();
@@ -628,6 +651,15 @@ namespace Desert::Editor
                     tc.Rotation              = after.GetValue().Rotation;
                     tc.Scale                 = after.GetValue().Scale;
                     Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
+                    return Control::Response::Success( request.Id );
+                }
+                if ( request.Whose == Control::Subject::Tool )
+                {
+                    if ( const auto on = ToolSubjectAvailable(); !on )
+                        return Control::Response::Failure( request.Id, on.GetError() );
+                    if ( const auto written = Core::SetFoliageToolProperty( request.Property, request.Text );
+                         !written )
+                        return Control::Response::Failure( request.Id, written.GetError() );
                     return Control::Response::Success( request.Id );
                 }
                 if ( request.Whose == Control::Subject::Modeling )
