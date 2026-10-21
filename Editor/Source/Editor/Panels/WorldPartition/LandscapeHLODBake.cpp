@@ -97,9 +97,9 @@ namespace Desert::Editor
 
         // Only the landscape (its roots and tiles) enters the bake's scene: anything standing on the ground
         // would otherwise be baked into it (UE renders the landscape proxy alone).
-        void KeepOnlyLandscape( Core::LoadableScene& loaded )
+        void KeepOnlyLandscape( ::Desert::Core::LoadableScene& loaded )
         {
-            namespace Rules     = Core::Rules;
+            namespace Rules     = ::Desert::Core::Rules;
             auto&      entities = loaded.Scene.Entities;
             const auto isLand   = []( const Assets::EntityData& record )
             {
@@ -117,9 +117,9 @@ namespace Desert::Editor
         }
     } // namespace
 
-    LandscapeHLODBake::LandscapeHLODBake( std::filesystem::path scenePath, Core::LoadableScene saved,
-                                          std::vector<Core::LandscapeHLODTileArea> tiles,
-                                          const Assets::AssetManager*              assets )
+    LandscapeHLODBake::LandscapeHLODBake( std::filesystem::path scenePath, ::Desert::Core::LoadableScene saved,
+                                          std::vector<::Desert::Core::LandscapeHLODTileArea> tiles,
+                                          const Assets::AssetManager*                        assets )
          : m_ScenePath( std::move( scenePath ) ), m_Saved( std::move( saved ) ), m_Tiles( std::move( tiles ) ),
            m_Assets( assets )
     {
@@ -146,16 +146,16 @@ namespace Desert::Editor
 
     Common::BoolResultStr LandscapeHLODBake::StartScene()
     {
-        m_Scene = std::make_shared<Core::Scene>( "LandscapeHLODBake", m_Renderer.get() );
+        m_Scene = std::make_shared<::Desert::Core::Scene>( "LandscapeHLODBake", m_Renderer.get() );
         if ( auto inited = m_Scene->Init(); !inited )
             return Common::MakeError( "the bake scene failed to initialise: " + inited.GetError() );
-        auto loaded = Core::SceneSerializer( m_Scene.get(), m_Assets )
+        auto loaded = ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets )
                            .Deserialize( std::move( *m_Saved ), m_ScenePath.generic_string() );
         m_Saved.reset();
         if ( !loaded )
             return Common::MakeError( "the landscape did not load into the bake scene: " + loaded.GetError() );
-        m_Camera = std::make_shared<Core::GameplayCamera>();
-        m_Camera->SetProjectionType( Core::ProjectionType::Orthographic );
+        m_Camera = std::make_shared<::Desert::Core::GameplayCamera>();
+        m_Camera->SetProjectionType( ::Desert::Core::ProjectionType::Orthographic );
         return BOOLSUCCESS;
     }
 
@@ -163,7 +163,7 @@ namespace Desert::Editor
     // is the tile's OriginZ edge, column 0 its OriginX edge — the HLOD mesh's UV (0,0) corner.
     void LandscapeHLODBake::FrameTile()
     {
-        const Core::LandscapeHLODTileArea& tile     = m_Tiles[m_Next];
+        const ::Desert::Core::LandscapeHLODTileArea& tile     = m_Tiles[m_Next];
         const float                        longSide = std::max( tile.SizeX, tile.SizeZ );
         const uint32_t                     width =
              std::max( 1u, static_cast<uint32_t>( std::lround( kBakeLongSide * tile.SizeX / longSide ) ) );
@@ -178,8 +178,8 @@ namespace Desert::Editor
         world[3] =
              glm::vec4( tile.OriginX + tile.SizeX * 0.5f, kEyeHeightCm, tile.OriginZ + tile.SizeZ * 0.5f, 1.0f );
         m_Camera->SetOrthoSize( tile.SizeZ * 0.5f );
-        m_Camera->SetView( Core::CameraEntityViewOf( world, 45.0f, kNearCm, kFarCm ), width, height,
-                           Core::Camera::kNoSourceEntity );
+        m_Camera->SetView( ::Desert::Core::CameraEntityViewOf( world, 45.0f, kNearCm, kFarCm ), width, height,
+                           ::Desert::Core::Camera::kNoSourceEntity );
         m_Scene->PinActiveCamera( m_Camera );
         m_WarmFrames = kWarmFrames;
         m_Phase      = Phase::Frame;
@@ -188,7 +188,7 @@ namespace Desert::Editor
     Common::BoolResultStr LandscapeHLODBake::SaveTile( const std::vector<uint8_t>& rgba, uint32_t width,
                                                        uint32_t height )
     {
-        const Core::LandscapeHLODTileArea& tile = m_Tiles[m_Next];
+        const ::Desert::Core::LandscapeHLODTileArea& tile = m_Tiles[m_Next];
         if ( rgba.size() != static_cast<std::size_t>( width ) * height * 4 )
             return Common::MakeError( std::format( "the albedo readback holds {} bytes, expected {}x{} RGBA8",
                                                    rgba.size(), width, height ) );
@@ -206,7 +206,7 @@ namespace Desert::Editor
         if ( !png )
             return Common::MakeError( png.GetError() );
 
-        const std::filesystem::path dir      = Core::WorldCells::BuiltHLODDirectory( m_ScenePath );
+        const std::filesystem::path dir      = ::Desert::Core::WorldCells::BuiltHLODDirectory( m_ScenePath );
         const std::string           tileName = std::to_string( static_cast<uint64_t>( tile.Tile ) );
         const std::filesystem::path texFile  = dir / ( "T_" + tileName + "_BaseColor.detex" );
         const std::filesystem::path matFile  = dir / ( "M_" + tileName + ".demat" );
@@ -217,8 +217,8 @@ namespace Desert::Editor
                  std::format( "'{}' could not be created: {}", dir.generic_string(), ec.message() ) );
 
         Assets::TextureImportSettings settings;
-        settings.Intent     = Core::Formats::TextureIntent::Colour;
-        settings.ColorSpace = Core::Formats::TextureColorSpace::SRGB;
+        settings.Intent     = ::Desert::Core::Formats::TextureIntent::Colour;
+        settings.ColorSpace = ::Desert::Core::Formats::TextureColorSpace::SRGB;
         const std::string sourceKey =
              Common::AssetHandle::StableKeyForPath( dir / ( "T_" + tileName + "_BaseColor.png" ) );
         auto written = Assets::WriteTextureSource( texFile, Common::Content::ContentKind::Texture, sourceKey,
