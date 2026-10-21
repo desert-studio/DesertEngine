@@ -430,6 +430,10 @@ namespace Desert::Graphic
         // none (SkyboxRenderer::BorrowEnvironment): @p environment is the reading view's, handed before each
         // frame.
         void BorrowEnvironment( std::optional<Environment> environment );
+        // A reflection capture's face views stand at one capture point and read ONE global distance field, their
+        // capture renderer's (DistanceField::GlobalDistanceField: updated once per frame): @p field is lent before
+        // each frame and outlives the frames in flight that read it; null returns the view to its own field.
+        void ShareGlobalDistanceField( DistanceField::GlobalDistanceField* field );
 
         // Procedural sky configuration (from the SkyAtmosphereComponent + the atmosphere sun, via the ECS).
         // sunDir is the direction TOWARD the sun, already normalized; bakeNow is the one-shot request from
@@ -694,8 +698,12 @@ namespace Desert::Graphic
         // (EnsureTemporalUpscaler), so its lazily built pipelines survive frames; it outlives every graph that
         // recorded its node (the graph executes inside OnUpdate). Handed to SceneViewState::BeginFrame.
         std::unique_ptr<ITemporalUpscaler> m_TemporalUpscaler;
-        // The view's global distance field (clipmaps follow this view's camera), made on first use.
-        std::unique_ptr<DistanceField::GlobalDistanceField> m_GlobalDistanceField;
+        // The view's own global distance field (clipmaps follow this view's camera), made on first use - unless
+        // one is lent (ShareGlobalDistanceField): a face view of a reflection capture reads its capture's.
+        std::unique_ptr<DistanceField::GlobalDistanceField> m_OwnGlobalDistanceField;
+        DistanceField::GlobalDistanceField*                 m_SharedGlobalDistanceField = nullptr;
+        // What this view does with the field it reads (its near-field grid, the debug view), made on first use.
+        std::unique_ptr<DistanceField::GlobalDistanceFieldView> m_GlobalDistanceFieldView;
         // The view's world radiance cache (a traced GI method, either tracer; clipmaps follow this view's camera),
         // made on first use.
         std::unique_ptr<GlobalIllumination::WorldRadianceCache> m_RadianceCache;

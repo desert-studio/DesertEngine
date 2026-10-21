@@ -5,8 +5,8 @@
 // resident mips' indirection, the object records and the brick atlas the global distance field is composited from
 // (GlobalDistanceField, DistanceFieldSceneData) - and the view's froxel grid of per-cell object lists a ray looks
 // its near objects up in (Common/MeshSDFGrid.glslh; culled on the GPU,
-// GlobalDistanceField::AddNearFieldCullPasses; read by Common/GITraceDistanceField.glslh, the near-field leg of
-// the software tracer). Produced by GlobalDistanceField::AddUpdatePasses and AddNearFieldCullPasses, carried by
+// GlobalDistanceFieldView::AddNearFieldCullPasses; read by Common/GITraceDistanceField.glslh, the near-field leg of
+// the software tracer). Produced by GlobalDistanceField::AddUpdatePasses and GlobalDistanceFieldView::AddFramePasses, carried by
 // the frame (FrameTransients) to the GI tracer (GlobalIllumination::TracerFrame, DeclareTracerReads).
 
 #include <Engine/Graphic/RDG/RDGResources.hpp>

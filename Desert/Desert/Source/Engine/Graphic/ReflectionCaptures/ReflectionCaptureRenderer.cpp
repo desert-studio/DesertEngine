@@ -355,6 +355,7 @@ namespace Desert::Graphic
 
         const auto& frames = Engine::FrameManager::GetInstance();
         m_RetiringFaces.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+        m_RetiringFields.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
 
         const uint32_t faceSize = ReflectionCaptureFaceSize();
         if ( !std::has_single_bit( faceSize ) )
@@ -449,6 +450,8 @@ namespace Desert::Graphic
                 for ( std::unique_ptr<FaceView>& face : m_Faces )
                     if ( face )
                         m_RetiringFaces.Park( std::move( face ), frames.GetAbsoluteFrameCount() );
+                if ( m_FaceField )
+                    m_RetiringFields.Park( std::move( m_FaceField ), frames.GetAbsoluteFrameCount() );
                 return;
             }
             m_Pending      = static_cast<uint32_t>( next );
@@ -483,6 +486,8 @@ namespace Desert::Graphic
         // The suns the capture started with: the six faces are one lighting instant, and a face view's cascades
         // stay cached (a sun that moves every frame re-renders every face's static cascade every render).
         const SceneRenderer::UpdateInfo info{ timestep, realTimestep, m_PendingSuns };
+        if ( !m_FaceField )
+            m_FaceField = std::make_unique<DistanceField::GlobalDistanceField>();
         if ( !m_Faces[face] )
         {
             m_Faces[face] = std::make_unique<FaceView>();
@@ -497,6 +502,8 @@ namespace Desert::Graphic
         view.View.Aim( capture.CapturePosition, kFaceForward[face], kFaceUp[face], faceSize );
         // The scene's sky light lights the face (UE: a capture reads the scene's sky light and bakes none).
         view.Renderer->BorrowEnvironment( environment );
+        // The capture point's one field (m_FaceField), shared by the six faces.
+        view.Renderer->ShareGlobalDistanceField( m_FaceField.get() );
         if ( const auto begun = view.Renderer->BeginScene( scene, &view.View ); !begun )
         {
             LOG_ERROR( "[ReflectionCaptures] capture {} face {}: the face view did not open: {}", m_Pending, face,

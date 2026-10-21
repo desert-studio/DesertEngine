@@ -219,31 +219,12 @@ namespace Desert::Graphic::DistanceField
     {
         const auto shaders = Runtime::ResourceRegistry::GetShaderService();
         m_CompositeShader  = shaders->GetByName( "GlobalDistanceFieldComposite" );
-        m_ViewShader       = shaders->GetByName( "GlobalDistanceFieldView" );
-        if ( !m_CompositeShader || !m_ViewShader )
-            return Common::MakeFormattedError<bool>( "global distance field: shader {} not found",
-                                                     !m_CompositeShader ? "GlobalDistanceFieldComposite"
-                                                                        : "GlobalDistanceFieldView" );
+        if ( !m_CompositeShader )
+            return Common::MakeError<bool>( "global distance field: shader GlobalDistanceFieldComposite not found" );
         auto pipeline = ComputePipeline::Create(
              { .Shader = m_CompositeShader, .DebugName = "GlobalDistanceFieldComposite" } );
         if ( !pipeline )
             return Common::MakeError<bool>( pipeline.GetError() );
-        m_CompositePipeline = pipeline.GetValue();
-        for ( const auto& [name, shader, cullPipeline] :
-              { std::tuple{ "MeshSDFCullObjects", &m_CullObjectsShader, &m_CullObjectsPipeline },
-                std::tuple{ "MeshSDFCullGrid", &m_CullGridShader, &m_CullGridPipeline },
-                std::tuple{ "MeshSDFCullGridOffsets", &m_CullOffsetsShader, &m_CullOffsetsPipeline },
-                std::tuple{ "MeshSDFCullGridSort", &m_CullSortShader, &m_CullSortPipeline } } )
-        {
-            *shader = shaders->GetByName( name );
-            if ( !*shader )
-                return Common::MakeFormattedError<bool>( "global distance field: shader {} not found", name );
-            auto created = ComputePipeline::Create( { .Shader = *shader, .DebugName = name } );
-            if ( !created )
-                return Common::MakeError<bool>( created.GetError() );
-            *cullPipeline = created.GetValue();
-        }
-
         for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
         {
             const Core::Formats::Image3DSpecification spec{
@@ -288,6 +269,35 @@ namespace Desert::Graphic::DistanceField
              ShaderResources::StorageBuffer::Create( "GDFBrickObjects", 16, kGdfBrickListBinding, false );
         if ( !m_ObjectBuffer || !m_UpdateBrickBuffer || !m_BrickObjectBuffer )
             return Common::MakeError<bool>( "global distance field: a storage buffer could not be created" );
+        // Last: IsInitialized() reads the composite pipeline, so a field is initialised only once everything is.
+        m_CompositePipeline = pipeline.GetValue();
+        return BOOLSUCCESS;
+    }
+
+    GlobalDistanceFieldView::GlobalDistanceFieldView()  = default;
+    GlobalDistanceFieldView::~GlobalDistanceFieldView() = default;
+
+    Common::BoolResultStr GlobalDistanceFieldView::Initialize()
+    {
+        const auto shaders = Runtime::ResourceRegistry::GetShaderService();
+        m_ViewShader       = shaders->GetByName( "GlobalDistanceFieldView" );
+        if ( !m_ViewShader )
+            return Common::MakeError<bool>( "global distance field view: shader GlobalDistanceFieldView not found" );
+        for ( const auto& [name, shader, cullPipeline] :
+              { std::tuple{ "MeshSDFCullObjects", &m_CullObjectsShader, &m_CullObjectsPipeline },
+                std::tuple{ "MeshSDFCullGrid", &m_CullGridShader, &m_CullGridPipeline },
+                std::tuple{ "MeshSDFCullGridOffsets", &m_CullOffsetsShader, &m_CullOffsetsPipeline },
+                std::tuple{ "MeshSDFCullGridSort", &m_CullSortShader, &m_CullSortPipeline } } )
+        {
+            *shader = shaders->GetByName( name );
+            if ( !*shader )
+                return Common::MakeFormattedError<bool>( "global distance field view: shader {} not found", name );
+            auto created = ComputePipeline::Create( { .Shader = *shader, .DebugName = name } );
+            if ( !created )
+                return Common::MakeError<bool>( created.GetError() );
+            *cullPipeline = created.GetValue();
+        }
+
         return BOOLSUCCESS;
     }
 
@@ -297,6 +307,33 @@ namespace Desert::Graphic::DistanceField
                                           DistanceFieldSceneData& scene, const uint64_t engineFrame,
                                           const uint32_t poolMiB )
     {
+        // What this call asks for: the camera and the object list's identity (field, transform, foliage flag and
+        // row of each, in order) - the once-per-frame rule compares it with the frame's update.
+        uint64_t inputs = 0xCBF29CE484222325ULL ^ static_cast<uint64_t>( objects.size() );
+        for ( const auto& object : objects )
+        {
+            inputs = ( inputs ^ GdfObjectKey( object ) ) * 0x100000001B3ULL;
+            inputs = ( inputs ^ ( static_cast<uint64_t>( object.Row ) + 1u ) ) * 0x100000001B3ULL;
+        }
+        if ( m_FrameUpdate && m_FrameUpdate->Frame == engineFrame )
+        {
+            if ( camera != m_FrameUpdate->Camera || inputs != m_FrameUpdate->Objects )
+                return Common::MakeFormattedError<FrameField>(
+                     "global distance field: updated once per frame - frame {} was composited for another camera "
+                     "or object set (its per-frame buffers are what that frame's earlier graph reads)",
+                     engineFrame );
+            // The frame's update already ran: this graph reads the same field, nothing is recorded.
+            FrameField again;
+            for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
+                again.Clipmaps[level] =
+                     import( m_Clipmaps[level], std::format( "GlobalDistanceField.Clipmap{}", level ) );
+            again.ObjectGrid            = import( m_ObjectGrid, "GlobalDistanceField.ObjectGrid" );
+            again.Levels                = m_FrameUpdate->Levels;
+            again.MeshFields.NumObjects = m_FrameUpdate->NumObjects;
+            again.MeshFields.BrickAtlas = import( scene.GetBrickAtlas(), "DistanceField.BrickAtlas" );
+            return Common::MakeSuccess( again );
+        }
+
         // The scene's frame: the first view of it decides the scene's resident fields, every later view finds them as
         // that one left them (DistanceFieldSceneData::BeginViewFrame).
         // The fields of every distance-field primitive of the scene (the list is the scene's, not culled).
@@ -472,23 +509,18 @@ namespace Desert::Graphic::DistanceField
             frame.Clipmaps[level] =
                  import( m_Clipmaps[level], std::format( "GlobalDistanceField.Clipmap{}", level ) );
         frame.ObjectGrid = import( m_ObjectGrid, "GlobalDistanceField.ObjectGrid" );
-        // What the near field's cull and a trace read, every frame: the fields, the objects.
+        // What the near field's cull and a trace read, every frame: the fields, the objects. A view registers the
+        // buffers in its own graph (GlobalDistanceFieldView::AddFramePasses).
         if ( auto r = GdfUpload( *m_ObjectBuffer, objectData, "objects" ); !r )
             return Common::MakeError<FrameField>( r.GetError() );
-        using BufferImport = std::tuple<const std::shared_ptr<ShaderResources::StorageBuffer>*, RDG::ExternalBuffer*,
-                                        const char*>;
-        for ( const auto& [buffer, external, name] :
-              { BufferImport{ &scene.GetAssetBuffer(), &m_AssetImport, "DistanceField.Assets" },
-                BufferImport{ &scene.GetIndirectionBuffer(), &m_IndirectionImport, "DistanceField.Indirection" },
-                BufferImport{ &m_ObjectBuffer, &m_ObjectImport, "DistanceField.Objects" } } )
-            if ( const auto imported = Renderer::ImportBuffer( *buffer, *external ); !imported )
-                return Common::MakeFormattedError<FrameField>( "global distance field: {}: {}", name,
-                                                               imported.GetError() );
-        const RDG::TextureRef atlas  = import( scene.GetBrickAtlas(), "DistanceField.BrickAtlas" );
-        frame.MeshFields.Assets      = graph.RegisterExternal( m_AssetImport, "DistanceField.Assets" );
-        frame.MeshFields.Indirection = graph.RegisterExternal( m_IndirectionImport, "DistanceField.Indirection" );
-        frame.MeshFields.Objects     = graph.RegisterExternal( m_ObjectImport, "DistanceField.Objects" );
-        frame.MeshFields.BrickAtlas  = atlas;
+        const RDG::TextureRef atlas = import( scene.GetBrickAtlas(), "DistanceField.BrickAtlas" );
+        frame.MeshFields.BrickAtlas = atlas;
+        // The frame is updated from here on, also when it has no bricks to rewrite: the object buffer holds it.
+        m_FrameUpdate = FrameUpdate{ .Frame      = engineFrame,
+                                     .Camera     = camera,
+                                     .Objects    = inputs,
+                                     .Levels     = frame.Levels,
+                                     .NumObjects = frame.MeshFields.NumObjects };
         if ( updateBricks.empty() )
             return Common::MakeSuccess( frame );
 
@@ -538,8 +570,39 @@ namespace Desert::Graphic::DistanceField
         return Common::MakeSuccess( frame );
     }
 
-    Common::BoolResultStr GlobalDistanceField::AddNearFieldCullPasses( RDG::Builder& graph, FrameField& field,
-                                                                       const NearFieldView& view )
+    Common::ResultStr<GlobalDistanceField::FrameField>
+    GlobalDistanceFieldView::AddFramePasses( RDG::Builder& graph, GlobalDistanceField& field,
+                                             const GlobalDistanceField::ImportImage&       import,
+                                             const std::vector<GlobalDistanceFieldObject>& objects,
+                                             DistanceFieldSceneData& scene, const uint64_t engineFrame,
+                                             const uint32_t poolMiB, const NearFieldView& view )
+    {
+        auto updated =
+             field.AddUpdatePasses( graph, import, view.CameraPosition, objects, scene, engineFrame, poolMiB );
+        if ( !updated )
+            return Common::MakeError<GlobalDistanceField::FrameField>( updated.GetError() );
+        GlobalDistanceField::FrameField frame = updated.GetValue();
+        // This graph's view of the buffers a trace reads: the scene's records and table, the field's objects.
+        using BufferImport = std::tuple<const std::shared_ptr<ShaderResources::StorageBuffer>*, RDG::ExternalBuffer*,
+                                        const char*>;
+        for ( const auto& [buffer, external, name] :
+              { BufferImport{ &scene.GetAssetBuffer(), &m_AssetImport, "DistanceField.Assets" },
+                BufferImport{ &scene.GetIndirectionBuffer(), &m_IndirectionImport, "DistanceField.Indirection" },
+                BufferImport{ &field.GetObjectBuffer(), &m_ObjectImport, "DistanceField.Objects" } } )
+            if ( const auto imported = Renderer::ImportBuffer( *buffer, *external ); !imported )
+                return Common::MakeFormattedError<GlobalDistanceField::FrameField>( "global distance field: {}: {}",
+                                                                                    name, imported.GetError() );
+        frame.MeshFields.Assets      = graph.RegisterExternal( m_AssetImport, "DistanceField.Assets" );
+        frame.MeshFields.Indirection = graph.RegisterExternal( m_IndirectionImport, "DistanceField.Indirection" );
+        frame.MeshFields.Objects     = graph.RegisterExternal( m_ObjectImport, "DistanceField.Objects" );
+        if ( const auto culled = AddNearFieldCullPasses( graph, frame, view ); !culled )
+            return Common::MakeError<GlobalDistanceField::FrameField>( culled.GetError() );
+        return Common::MakeSuccess( frame );
+    }
+
+    Common::BoolResultStr GlobalDistanceFieldView::AddNearFieldCullPasses( RDG::Builder&                    graph,
+                                                                           GlobalDistanceField::FrameField& field,
+                                                                           const NearFieldView&             view )
     {
         if ( view.Extent.x == 0 || view.Extent.y == 0 )
             return Common::MakeFormattedError<bool>( "near-field grid: the view extent {}x{} is empty",
@@ -715,7 +778,7 @@ namespace Desert::Graphic::DistanceField
         return BOOLSUCCESS;
     }
 
-    void GlobalDistanceField::ReadNearFieldFeedback( const uint32_t slot )
+    void GlobalDistanceFieldView::ReadNearFieldFeedback( const uint32_t slot )
     {
         RDG::ExternalBuffer& readback = m_NearFieldFeedback[slot];
         const uint32_t       stamp    = std::exchange( m_NearFieldFeedbackStamp[slot], 0u );
@@ -752,7 +815,7 @@ namespace Desert::Graphic::DistanceField
              needed, longest, room, m_NearFieldListRoom );
     }
 
-    Common::BoolResultStr GlobalDistanceField::PrepareDebugPipeline( const Core::Formats::ImageFormat format,
+    Common::BoolResultStr GlobalDistanceFieldView::PrepareDebugPipeline( const Core::Formats::ImageFormat format,
                                                                      const uint32_t                   samples )
     {
         const auto key = std::make_pair( static_cast<int>( format ), samples );
@@ -775,10 +838,11 @@ namespace Desert::Graphic::DistanceField
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr GlobalDistanceField::AddDebugViewPass( RDG::Builder& graph, const FrameField& field,
-                                                                 const RDG::TextureRef target,
-                                                                 const RDG::LoadOp&    load,
-                                                                 const glm::mat4&      inverseViewProjection )
+    Common::BoolResultStr GlobalDistanceFieldView::AddDebugViewPass( RDG::Builder&                          graph,
+                                                                     const GlobalDistanceField::FrameField& field,
+                                                                     const RDG::TextureRef                  target,
+                                                                     const RDG::LoadOp&                     load,
+                                                                     const glm::mat4& inverseViewProjection )
     {
         const auto desc = graph.GetTextureDesc( target );
         if ( !desc )

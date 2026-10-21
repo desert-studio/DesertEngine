@@ -2815,6 +2815,11 @@ namespace Desert::Graphic
              ->BorrowEnvironment( std::move( environment ) );
     }
 
+    void SceneRenderer::ShareGlobalDistanceField( DistanceField::GlobalDistanceField* field )
+    {
+        m_SharedGlobalDistanceField = field;
+    }
+
     std::shared_ptr<Image2D> SceneRenderer::GetShadowCascadeCacheImage( uint32_t cascade )
     {
         return UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )

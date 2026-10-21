@@ -867,15 +867,30 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] Global Distance Field: no scene's distance fields (outside BeginScene)" );
             return;
         }
-        if ( !m_GlobalDistanceField )
+        // The field this view reads: the one lent to it (ShareGlobalDistanceField: a reflection capture's face
+        // views share their capture's), else its own, made on first use.
+        DistanceField::GlobalDistanceField* globalField = m_SharedGlobalDistanceField;
+        if ( globalField == nullptr )
         {
-            auto field = std::make_unique<DistanceField::GlobalDistanceField>();
-            if ( const auto initialized = field->Initialize(); !initialized )
+            if ( !m_OwnGlobalDistanceField )
+                m_OwnGlobalDistanceField = std::make_unique<DistanceField::GlobalDistanceField>();
+            globalField = m_OwnGlobalDistanceField.get();
+        }
+        if ( !globalField->IsInitialized() )
+            if ( const auto initialized = globalField->Initialize(); !initialized )
             {
                 LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", initialized.GetError() );
                 return;
             }
-            m_GlobalDistanceField = std::move( field );
+        if ( !m_GlobalDistanceFieldView )
+        {
+            auto view = std::make_unique<DistanceField::GlobalDistanceFieldView>();
+            if ( const auto initialized = view->Initialize(); !initialized )
+            {
+                LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", initialized.GetError() );
+                return;
+            }
+            m_GlobalDistanceFieldView = std::move( view );
         }
 
         // Every static and instanced mesh of the frame that carries a field, whole - the field holds what is
@@ -924,31 +939,25 @@ namespace Desert::Graphic
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };
         // The view's camera (ViewFrame; SceneRenderer.hpp: a pass that reads a camera position takes the
-        // ViewFrame)
-        // - not m_SceneInfo.ActiveCamera's, which would frame the field from another camera than the frame's.
-        const auto field = m_GlobalDistanceField->AddUpdatePasses(
-             graph, import, frame.CameraPosition, objects, *m_FrameDistanceFields,
-             Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(), m_DistanceFieldPoolMiB );
-        if ( !field )
-        {
-            LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", field.GetError() );
-            return;
-        }
-        DistanceField::GlobalDistanceField::FrameField fieldFrame = field.GetValue();
-        // The near field's froxel grid over this view (the GI tracer's first metres).
-        const DistanceField::GlobalDistanceField::NearFieldView nearView{
+        // ViewFrame) - not m_SceneInfo.ActiveCamera's, which would frame the field from another camera than the
+        // frame's. The field is brought up to it (once per frame, whichever view of the field asks first), then
+        // this view's near-field froxel grid (the GI tracer's first metres) is culled over it.
+        const DistanceField::GlobalDistanceFieldView::NearFieldView nearView{
              .ViewProjection    = frame.ViewProjection,
              .InvViewProjection = frame.InvViewProjection,
              .Projection        = frame.Projection,
              .CameraPosition    = frame.CameraPosition,
              .Forward           = -glm::normalize( glm::vec3( frame.InvView[2] ) ),
              .Extent            = glm::uvec2( frame.Split.Render.Width, frame.Split.Render.Height ) };
-        if ( const auto culled = m_GlobalDistanceField->AddNearFieldCullPasses( graph, fieldFrame, nearView );
-             !culled )
+        const auto field = m_GlobalDistanceFieldView->AddFramePasses(
+             graph, *globalField, import, objects, *m_FrameDistanceFields,
+             Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(), m_DistanceFieldPoolMiB, nearView );
+        if ( !field )
         {
-            LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", culled.GetError() );
+            LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", field.GetError() );
             return;
         }
+        const DistanceField::GlobalDistanceField::FrameField& fieldFrame = field.GetValue();
         textures.Transients.GlobalDistanceField           = fieldFrame.Clipmaps;
         textures.Transients.GlobalDistanceFieldLevels     = fieldFrame.Levels;
         textures.Transients.MeshDistanceFields            = fieldFrame.MeshFields;
@@ -1046,7 +1055,7 @@ namespace Desert::Graphic
              m_RenderPath != Core::RenderPath::Deferred )
             return;
         const FrameTransients& t = textures.Transients;
-        if ( !m_GlobalDistanceField || !t.GlobalDistanceField[0].IsValid() || !target.IsValid() )
+        if ( !m_GlobalDistanceFieldView || !t.GlobalDistanceField[0].IsValid() || !target.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field not drawn: {}",
                        !target.IsValid() ? "the frame has no post input"
@@ -1057,7 +1066,7 @@ namespace Desert::Graphic
         field.Clipmaps = t.GlobalDistanceField;
         field.Levels   = t.GlobalDistanceFieldLevels;
         // The view's matrices, unjittered (ViewFrame, as every overlay reads them).
-        if ( const auto drawn = m_GlobalDistanceField->AddDebugViewPass( graph, field, target, EngineClearColor(),
+        if ( const auto drawn = m_GlobalDistanceFieldView->AddDebugViewPass( graph, field, target, EngineClearColor(),
                                                                          frame.InvViewProjection );
              !drawn )
             LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", drawn.GetError() );
