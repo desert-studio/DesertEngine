@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Core/ResultStr.hpp>
+
 // SCENE FILES (UE: FEditorFileUtils — New / Open / Save of the level; UEditorEngine::Map_Load).
 //
 // Which file the open scene is, whether it has unsaved changes, the deferred load and New Scene (serviced
@@ -70,6 +72,11 @@ namespace Desert::Editor
         // THE ONE place the open scene is saved from; true when the scene on disk is now current — a caller
         // about to destroy the in-memory scene MUST branch on it (Editor/Core/SceneSaveRules.hpp).
         [[nodiscard]] bool SaveOpenScene();
+        // UE's "Save Current Level As": the open scene renamed to @p sceneName and written through the SAME
+        // save as SaveOpenScene to <scene dir>/<name>.desce, under a fresh asset GUID; the editor then has
+        // that file open. Refused, naming why, for a name that is not one or a file that already exists —
+        // Save As never overwrites another level.
+        [[nodiscard]] Common::BoolResultStr SaveOpenSceneAs( const std::string& sceneName );
 
         [[nodiscard]] bool HasUnsavedChanges() const;
         // WHICH FILE THE OPEN SCENE IS; empty for a scene never on disk. The editor's, not the scene's: Play ->
@@ -115,6 +122,8 @@ namespace Desert::Editor
         ForgetAssetIdentityUnlessSameFile( const std::string& destination );
         // WHERE Ctrl+S goes: the open file, or — never on disk — one named after the scene.
         [[nodiscard]] Common::Filepath SceneSaveDestination() const;
+        // The body of every save: Save (destination = SceneSaveDestination) and Save As (a new file).
+        [[nodiscard]] bool SaveOpenSceneTo( const Common::Filepath& destination );
 
         void PrepareScenePopup();
         void DrawOpenScenePopup();
