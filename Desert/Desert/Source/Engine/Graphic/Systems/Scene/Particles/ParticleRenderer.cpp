@@ -72,6 +72,7 @@ namespace Desert::Graphic::System
         // Spawn+Update is the emitter's own stack host program (ParticleWorldGpu::ProgramFor).
         for ( const auto& [name, into] : { std::pair{ "ParticleCompact", &m_CompactPipeline },
                                            std::pair{ "ParticleDispatchArgs", &m_ArgsPipeline },
+                                           std::pair{ "ParticleDebugReadback", &m_DebugPipeline },
                                            std::pair{ "ParticleSort", &m_SortPipeline } } )
         {
             auto shader = shaderService->GetByName( name );
@@ -112,6 +113,8 @@ namespace Desert::Graphic::System
         ParticleWorldGpu& world = ParticleWorldGpu::Of( scene.GetVFXWorld() );
         m_World                 = &world;
         m_Simulates             = world.PrepareTick( scene );
+        if ( m_Simulates )
+            world.ReadDebugReadbacks(); // VFX-16: before this frame's node writes the copy it reads
 
         // This view's materials follow the scene's emitters: a destroyed emitter's goes through the allocator's
         // deletion ring with it, so the frame still reading it finishes first.
@@ -294,6 +297,7 @@ namespace Desert::Graphic::System
         {
             ve.Declared = false;
             ve.Sorted   = false;
+            ve.Debugged = false;
         }
         if ( m_World == nullptr || m_ViewEmitters.empty() || !m_World->Pool().Slots )
             return;
@@ -362,12 +366,77 @@ namespace Desert::Graphic::System
                 ve.IntsRef   = graph.RegisterExternal( ve.IntsImport, std::format( "VFXAttributeInts{}", i ) );
                 ve.ParamsRef = graph.RegisterExternal( ve.ParamsImport, std::format( "VFXStackParams{}", i ) );
                 ve.CurvesRef = graph.RegisterExternal( ve.CurvesImport, std::format( "VFXStackCurves{}", i ) );
+                if ( gpu.DebugReadback && m_World->DebugRequest().Enabled )
+                {
+                    const Common::BoolResultStr debug = Renderer::ImportBuffer( gpu.DebugReadback, ve.DebugImport );
+                    if ( debug )
+                    {
+                        ve.DebugRef =
+                             graph.RegisterExternal( ve.DebugImport, std::format( "ParticleDebugReadback{}", i ) );
+                        ve.Debugged = true;
+                    }
+                    else
+                        LOG_ERROR( "[Particles] emitter {} has no debug readback this frame: {}", i, debug.GetError() );
+                }
             }
             ve.CountersRef = graph.RegisterExternal( ve.CountersImport, std::format( "ParticleCounters{}", i ) );
             ve.FloatsRef   = graph.RegisterExternal( ve.FloatsImport, std::format( "VFXAttributeFloats{}", i ) );
             ve.DrawLayoutRef =
                  graph.RegisterExternal( ve.DrawLayoutImport, std::format( "ParticleDrawLayout{}", i ) );
             ve.Declared    = true;
+        }
+    }
+
+    bool ParticleRenderer::RunsDebug( const ViewEmitter& ve ) const
+    {
+        return m_Simulates && ve.Declared && ve.Debugged && m_DebugPipeline != nullptr;
+    }
+
+    bool ParticleRenderer::DebugReadbackRequested() const
+    {
+        return m_Simulates && m_DebugPipeline != nullptr && m_World != nullptr && m_World->DebugRequest().Enabled;
+    }
+
+    Common::BoolResultStr ParticleRenderer::DebugReadback( const RDG::PassContext& context )
+    {
+        uint32_t block = 0;
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !RunsDebug( ve ) )
+                continue;
+            const ParticleEmitterGpu& gpu  = *ve.Frame->Gpu;
+            const uint32_t            half = ve.Frame->StepCount & 1u; // the slot / alive half the last compact filled
+            const uint32_t            rows = m_World->IsDebugTable( gpu ) ? kParticleDebugMaxRows : 0u;
+            const ParticleDebugPush   push{
+                 glm::uvec4( half, m_World->DebugRequest().FirstRow, rows, gpu.FloatColumns ),
+                 glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, gpu.Range.Count, gpu.Range.Base,
+                             m_World->DebugSerial() ) };
+            RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
+            bindings.PushConstants( &push, sizeof( push ) );
+            const Common::BoolResultStr dispatched = Renderer::GetInstance().DispatchCompute(
+                 bindings, *m_DebugPipeline, std::max( 1u, ( rows + kParticleLocalSize - 1 ) / kParticleLocalSize ),
+                 1, 1 );
+            if ( !dispatched )
+                return dispatched;
+        }
+        return BOOLSUCCESS;
+    }
+
+    void ParticleRenderer::DeclareDebugReadbackBindings( RDG::PassBuilder& pass ) const
+    {
+        if ( !m_DebugPipeline )
+            return; // DebugReadback dispatches nothing either
+        const auto& layout = m_DebugLayout.Get( m_DebugPipeline->GetSpecification().Shader );
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !RunsDebug( ve ) )
+                continue; // DebugReadback skips it the same way
+            pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_DebugPipeline ) )
+                 .Storage( "Counters", ve.CountersRef, RDG::Access::StorageRead )
+                 .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageRead )
+                 .Storage( "AttributeFloats", ve.FloatsRef, RDG::Access::StorageRead )
+                 .Storage( "Readback", ve.DebugRef, RDG::Access::StorageWrite )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleDebugPush ) ) );
         }
     }
 

@@ -97,6 +97,14 @@ namespace Desert::Graphic
                  [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return particles->Compact( context, step + 1 ); } );
         }
+        // VFX-16 (UE Niagara Debugger, dev only): the GPU counts and one attribute page, after the last compact (the
+        // graph orders it from the buffers), only while an editor debugger asks.
+        if ( particles->DebugReadbackRequested() )
+            graph.AddPass(
+                 "Particles: Debug Readback", RDG::PassFlags::Compute,
+                 [particles]( RDG::PassBuilder& pass ) { particles->DeclareDebugReadbackBindings( pass ); },
+                 [particles]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return particles->DebugReadback( context ); } );
     }
 
     void SceneRenderer::AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures )

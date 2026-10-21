@@ -15,6 +15,7 @@
 #include "Editor/Panels/Clouds/CloudsPanel.hpp"
 #include "Editor/Panels/Collections/CollectionsPanel.hpp"
 #include "Editor/Panels/Debug/ShaderLibraryPanel.hpp"
+#include "Editor/Panels/Debug/ParticleDebuggerPanel.hpp"
 #include "Editor/Panels/Debug/UIDebuggerPanel.hpp"
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
 #include "Editor/Panels/History/HistoryPanel.hpp"
@@ -51,6 +52,7 @@ namespace Desert::Editor
         panels.Add<Editor::SceneHierarchyPanel>( workspace.ActiveScene(), assetManager );
         panels.Add<Editor::ScenePropertiesPanel>( workspace.ActiveScene(), assetManager, animationLibrary.get() );
         panels.Add<Editor::ShaderLibraryPanel>();
+        panels.Add<Editor::ParticleDebuggerPanel>( workspace.ActiveScene() );
         {
             auto primaryViewport =
                  std::make_unique<Editor::ViewportPanel>( workspace.ActiveScene(), assetManager.get() );
