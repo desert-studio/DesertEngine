@@ -178,8 +178,9 @@ Shader "Terrain"
         // THE FORWARD GROUND IS SHADED AS A FORWARD MESH IS (Mesh/Surface/Pass_Forward.glslh), through the same
         // headers, so the Forward and the Deferred path light one ground the same way: the sun from the scene's
         // DirectionLightsUB with the cascades' shadow, the sun's contact shadow and the cloud layer; the point and
-        // spot lights of the pixel's froxel with their shadows; and the image-based ambient (the sky's irradiance
-        // and prefiltered cubes through the sky look, the split-sum LUT, the reflection captures over the sky).
+        // spot lights (the MegaLights volume under Shadows Stochastic, else the pixel's froxel with their shadows);
+        // and the view's ambient (the radiance cache where the view traces GI, else the sky's cubes through the sky
+        // look; the split-sum LUT; the reflection captures over it) - Mesh/ForwardSceneLighting.glslh.
         // Every block below is written by name by SceneFrameBinding::ApplyTo (TerrainRenderer::PrepareFrame: the
         // Lights, Shadow, Environment and CloudShadow groups this layout declares); every map, the light grid and
         // the captures are the view's scene/view inputs, bound by name by the terrain pass (BindSceneViewInputs).
@@ -227,17 +228,13 @@ Shader "Terrain"
             vec4 Gain;      // rgb = tint * intensity
         }
         skyLook;
-        // The reflection captures (Common/ReflectionEnvironment.glslh), in set 1 as the deferred composite declares
-        // them, so the ground's ambient specular is the captures around it over the sky on both paths.
-        #define DESERT_REFLECTION_CAPTURES
-        #include <Common/ReflectionCaptureGpu.glslh>
-        layout( std430, set = 1, binding = 0 ) readonly buffer ReflectionCapturesUB
-        {
-            uvec4                u_ReflectionCaptureHeader; // x = capture count
-            ReflectionCaptureGpu u_ReflectionCaptures[];
-        };
-        layout( set = 1, binding = 1 ) uniform textureCubeArray u_ReflectionCaptureCubes;
-        #define u_ReflectionCaptureCubes samplerCubeArray(u_ReflectionCaptureCubes, u_LinearClampSampler)
+        // The view's indirect light as every forward pass reads it (Mesh/Surface/ViewIndirect.glslh): the reflection
+        // captures and the view's radiance cache in set 1, as the deferred composite declares them, so the ground's
+        // ambient is the view's estimator with the captures around it on both paths.
+        #include <Mesh/Surface/ViewIndirect.glslh>
+        // The MegaLights translucency volume (Shadows Stochastic): the local lights the forward meshes take from it,
+        // shadowed, in place of the froxel loop (31..34, the reserved scene-read range; bound by name).
+        #include <Common/MegaLightsVolume.glslh>
         // THE ambient, the same text the forward meshes and the deferred composite compile (DesertSampleAmbient).
         #include <Mesh/AmbientIBL.glslh>
         // THE ONE BRDF: every light and the ambient go through the shading model dispatch the forward meshes and the
@@ -249,6 +246,8 @@ Shader "Terrain"
         // the whole AmbientIBL text above takes its sampler-less half (DefaultLit.shadingmodel), leaving this pass
         // without DesertSampleAmbient (as Mesh/Surface/Pass_Forward.glslh orders them).
         #include <Common/ThinGeometryCoverage.glslh>
+        // The local lights and the ambient: the one statement every forward-lit opaque cell shades them with.
+        #include <Mesh/ForwardSceneLighting.glslh>
 
         void main()
         {
@@ -280,18 +279,15 @@ Shader "Terrain"
                                      shadow, 1.0 ), // the ground is not a subsurface receiver
                      surface, payload );
 
-            // The point and spot lights of the pixel's froxel, each with its shadow (Mesh/ForwardLocalLights.glslh).
-            const ForwardLightList lights = ForwardLightListAt( gl_FragCoord.xy, v_WorldPos );
-            for ( uint j = 0u; j < lights.Count; j++ )
-                light += DesertEvaluateShadingModel( SHADING_MODEL_INDEX_DEFAULT_LIT,
-                                                     ForwardLocalLightAt( lights, j, v_WorldPos, N, -1.0 ), surface,
-                                                     payload );
-
-            // The image-based ambient under the layers' occlusion (the ARM maps' AO, the G-buffer's material AO on
-            // the Deferred path), with no indirect bounce (the Forward path has no gather: the same zero
-            // Pass_Forward passes).
-            const vec3 ambient = DesertEvaluateShadingModelAmbient(
-                 SHADING_MODEL_INDEX_DEFAULT_LIT, DesertSampleAmbient( surface, vec3( 0.0 ), s.AO ), surface, payload );
+            // The point and spot lights (the MegaLights volume under Shadows Stochastic, else the pixel's froxel) and
+            // the view's ambient under the layers' occlusion (the ARM maps' AO, the G-buffer's material AO on the
+            // Deferred path), as a forward mesh takes them (Mesh/ForwardSceneLighting.glslh). The ground is no
+            // subsurface receiver.
+            const DesertForwardLocalLighting local = DesertForwardLocalLights(
+                 SHADING_MODEL_INDEX_DEFAULT_LIT, gl_FragCoord.xy, v_WorldPos, N, -1.0, surface, payload );
+            light += local.Light;
+            const vec3 ambient = DesertForwardAmbient( SHADING_MODEL_INDEX_DEFAULT_LIT, surface, local.Indirect, s.AO,
+                                                       gl_FragCoord.xy, payload );
 
             // Stored pre-exposed (ViewFrame::PreExposure), like the deferred composite and the forward mesh pass.
             o_Color   = vec4( ( light + ambient ) * u.Exposure.x, 1.0 );

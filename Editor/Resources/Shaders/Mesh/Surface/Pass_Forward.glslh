@@ -120,6 +120,8 @@ layout( binding = 21 ) uniform CloudShadowUB
 // whole AmbientIBL text above takes its sampler-less half (DefaultLit.shadingmodel), leaving this lighting pass
 // without DesertSampleAmbient.
 #include <Common/ThinGeometryCoverage.glslh>
+// The local lights and the ambient, the one statement every forward-lit opaque cell shades them with.
+#include <Mesh/ForwardSceneLighting.glslh>
 
 #ifdef DESERT_SURFACE_PARALLAX
 // The Pixel Depth Offset only moves the fragment away from the eye: a smaller depth in this reverse-Z view.
@@ -211,30 +213,11 @@ void main()
                                                                   directionLights.directionLights.ColorIntensity.a,
                                                              shadow, transmissionShadow ),
                                              surface, payload );
-    // Point and spot lights under Shadows Stochastic: the MegaLights volume at this point (UE MegaLights'
-    // translucency volume), shadowed by its traced samples - its dominant light through the shading model, the
-    // rest as incident light from every direction, which the ambient's Indirect carries (the volume holds no
-    // surface, so no contact shadow either).
-    vec3 localIndirect = vec3( 0.0 );
-    if ( MegaLightsVolumeOn() )
-    {
-        const MegaLightsVolumeLighting volume = MegaLightsVolumeLightingAt( gl_FragCoord.xy, i.WorldPosition, N );
-        DesertLight                    local;
-        local.L        = volume.L;
-        local.Radiance = volume.Radiance;
-        local.Shadow   = 1.0;
-        light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX, local, surface, payload );
-        localIndirect = volume.Ambient;
-    }
-    else
-    {
-        // Otherwise those of this pixel's froxel, each with its shadow (Mesh/ForwardLocalLights.glslh).
-        const ForwardLightList lights = ForwardLightListAt( gl_FragCoord.xy, i.WorldPosition );
-        for ( uint j = 0u; j < lights.Count; j++ )
-            light += DesertEvaluateShadingModel(
-                 DESERT_SHADING_MODEL_INDEX, ForwardLocalLightAt( lights, j, i.WorldPosition, N, subsurfaceOpacity ),
-                 surface, payload );
-    }
+    // The point and spot lights: the MegaLights volume under Shadows Stochastic, else the pixel's froxel
+    // (Mesh/ForwardSceneLighting.glslh, the statement the forward ground shares).
+    const DesertForwardLocalLighting local = DesertForwardLocalLights(
+         DESERT_SHADING_MODEL_INDEX, gl_FragCoord.xy, i.WorldPosition, N, subsurfaceOpacity, surface, payload );
+    light += local.Light;
 
     // Lighting debug (viewport View Mode -> Lighting): each source a distinct colour, weighted by
     // attenuation * NdotL, mapped through an exposure-like curve so any light reaching the surface shows.
@@ -271,13 +254,10 @@ void main()
         return;
     }
 
-    // Occlusion attenuates only the ambient. The estimator is the view's (the radiance cache where it traces GI,
-    // else the sky), and the reflection captures compose over its specular normalised by its diffuse - the
-    // deferred composite's ambient; the forward path has no screen-space bounce gather: its Indirect is the
-    // MegaLights volume's isotropic local light (zero when the volume is off).
-    const vec3 ambient = DesertEvaluateShadingModelAmbient(
-         DESERT_SHADING_MODEL_INDEX,
-         DesertSampleViewAmbient( surface, localIndirect, s.AmbientOcclusion, gl_FragCoord.xy ), surface, payload );
+    // Occlusion attenuates only the ambient: the view's estimator with the captures over it, its Indirect the
+    // volume's isotropic local light (Mesh/ForwardSceneLighting.glslh).
+    const vec3 ambient = DesertForwardAmbient( DESERT_SHADING_MODEL_INDEX, surface, local.Indirect,
+                                               s.AmbientOcclusion, gl_FragCoord.xy, payload );
     // Stored pre-exposed (ViewFrame::PreExposure), like the deferred composite.
     oColor = vec4( ( light + ambient + s.Emissive ) * cameraUB.PreExposure, 1.0 );
 }
