@@ -182,7 +182,14 @@ namespace Desert::Core
                      !written )
                     return Common::MakeFormattedError( "tile ({}, {}): {}", tile.TileX, tile.TileZ,
                                                        written.GetError() );
-                tile.HeightFile = file.generic_string();
+                // The save relocated the tile's file (a Save As, or a scene whose tiles lived elsewhere): the
+                // entity's record now differs from its file, so it is marked like any other edit — otherwise a
+                // partitioned world skips (and a Debug save refuses) the entity this save itself changed.
+                if ( std::string spelled = file.generic_string(); spelled != tile.HeightFile )
+                {
+                    tile.HeightFile = std::move( spelled );
+                    scene.MarkModified( entity.GetComponent<ECS::UUIDComponent>().UUID );
+                }
             }
             return BOOLSUCCESS;
         }
