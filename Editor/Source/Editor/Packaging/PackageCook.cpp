@@ -308,8 +308,9 @@ namespace Desert::Editor
         // happened to draw on the packaging machine had them. The editor's own builders are installed here
         // (the same two EditorStartup installs), so the packager tool cooks through the importers and not a
         // copy of them. THE SET is every static mesh asset under the assets root: each `.stmesh` file
-        // (hand-authored, edited import) and the asset each StaticMesh import record stands for (a whole-file
-        // import since AF4h has no file of its own; StageTree stages its cooked envelope beside the record).
+        // (hand-authored, edited import, a split import's node mesh) and the asset each whole-file StaticMesh
+        // import record stands for (IsWholeFileMeshImport: since AF4h it has no file of its own; StageTree stages
+        // its cooked envelope beside the record).
         void CookMeshes( CookStats& stats )
         {
             Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
@@ -326,16 +327,15 @@ namespace Desert::Editor
                 }
                 if ( !Common::Content::IsImportRecord( p ) )
                     continue;
-                const fs::path source = p.parent_path() / p.stem(); // base.fbx.deimport -> base.fbx
-                const auto     kind   = Assets::Serialization::ReadImportRecordKind( source );
-                if ( !kind.IsSuccess() )
+                const auto wholeFile = IsWholeFileMeshImport( p );
+                if ( !wholeFile.IsSuccess() )
                 {
                     LOG_ERROR( "[PackageCook] import record '{}' cannot be read for the mesh cook: {}", p.string(),
-                               kind.GetError() );
+                               wholeFile.GetError() );
                     ++stats.Failures;
                     continue;
                 }
-                if ( kind.GetValue() == Common::Content::ContentKind::StaticMesh )
+                if ( wholeFile.GetValue() ) // a split import's node meshes are the `.stmesh` files listed above
                     assets.push_back( Common::Content::MeshAssetOfImportRecord( p ) );
             }
             std::sort( assets.begin(), assets.end() );
@@ -494,5 +494,21 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "the cooked mesh asset '{}' was not written: {}",
                                                      target.string(), written.GetError() );
         return Common::MakeSuccess( true );
+    }
+
+    Common::ResultStr<bool> IsWholeFileMeshImport( const fs::path& importRecord )
+    {
+        const fs::path source = importRecord.parent_path() / importRecord.stem(); // base.fbx.deimport -> base.fbx
+        const auto     kind   = Assets::Serialization::ReadImportRecordKind( source );
+        if ( !kind.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "{}", kind.GetError() );
+        if ( kind.GetValue() != Common::Content::ContentKind::StaticMesh )
+            return Common::MakeSuccess( false );
+        const auto record = Assets::Serialization::ReadImportRecord( source );
+        if ( !record.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "{}", record.GetError() );
+        if ( !record.GetValue().has_value() )
+            return Common::MakeFormattedError<bool>( "'{}' has no import record", source.generic_string() );
+        return Common::MakeSuccess( !record.GetValue()->Nodes.has_value() );
     }
 } // namespace Desert::Editor

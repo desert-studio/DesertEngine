@@ -80,4 +80,10 @@ namespace Desert::Editor
     // not the record's.
     Common::BoolResultStr StageCookedImportedMesh( const std::filesystem::path& importRecord,
                                                    const std::filesystem::path& target );
+
+    // WHETHER AN IMPORT RECORD STANDS FOR ONE WHOLE-FILE STATIC MESH (the asset MeshAssetOfImportRecord names,
+    // with no file of its own). A SPLIT import (ImportRecordData::Nodes, THM1j) has NO combined mesh: its node
+    // meshes are `.stmesh` files beside the source, cooked and staged as files, and the record stands for none.
+    // False for any other kind; an unreadable record is an error, never "not a mesh".
+    Common::ResultStr<bool> IsWholeFileMeshImport( const std::filesystem::path& importRecord );
 } // namespace Desert::Editor

@@ -185,15 +185,14 @@ namespace Desert::Editor
                 if ( tree.StripRawMeshSources && Common::Content::IsImportRecord( src ) )
                 {
                     const fs::path meshAsset = Common::Content::MeshAssetOfImportRecord( src );
-                    const auto     kind =
-                         Assets::Serialization::ReadImportRecordKind( src.parent_path() / src.stem() );
-                    if ( !kind.IsSuccess() )
+                    const auto     wholeFile = IsWholeFileMeshImport( src );
+                    if ( !wholeFile.IsSuccess() )
                     {
-                        error = kind.GetError();
+                        error = wholeFile.GetError();
                         return false;
                     }
-                    if ( kind.GetValue() != Common::Content::ContentKind::StaticMesh ||
-                         fs::exists( meshAsset, ec ) )
+                    // A split import's node meshes are `.stmesh` files, staged as files like any other.
+                    if ( !wholeFile.GetValue() || fs::exists( meshAsset, ec ) )
                         continue;
                     const fs::path meshTarget = target.parent_path() / meshAsset.filename();
                     if ( auto written = StageCookedImportedMesh( src, meshTarget ); !written.IsSuccess() )
