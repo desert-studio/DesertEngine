@@ -143,12 +143,6 @@ namespace Desert::Graphic::System
         return maskFramebuffer ? maskFramebuffer->GetColorAttachmentImage() : nullptr;
     }
 
-    std::shared_ptr<Image2D> JumpFloodOutlineRenderer::GetSceneColorImage() const
-    {
-        const auto sceneFramebuffer = m_TargetFramebuffer.lock();
-        return sceneFramebuffer ? sceneFramebuffer->GetColorAttachmentImage() : nullptr;
-    }
-
     // The mask and the seeds hold per-texel data (coverage, a seed coordinate) that must not be blended between
     // texels, and a neighbour beyond the border must not wrap to the opposite edge: PointClamp.
     void JumpFloodOutlineRenderer::DeclareInitBindings( RDG::PassBuilder& pass, RDG::TextureRef mask ) const
