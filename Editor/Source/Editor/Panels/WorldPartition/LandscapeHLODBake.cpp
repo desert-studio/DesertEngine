@@ -181,13 +181,13 @@ namespace Desert::Editor
         world[2] = glm::vec4( 0.0f, 1.0f, 0.0f, 0.0f );  // backward (the camera looks down -Y)
         // TEMPORARY DIAGNOSTIC (WP-FAR-6B 8f): the perspective eye sits where FOV 20 spans the tile's Z side.
         const bool  perspective = std::getenv( "DESERT_HLOD_BAKE_PERSPECTIVE" ) != nullptr;
-        const float eyeHeight =
-             perspective ? tile.SizeZ * 0.5f / std::tan( glm::radians( 10.0f ) ) : kEyeHeightCm;
-        world[3] = glm::vec4( tile.OriginX + tile.SizeX * 0.5f, eyeHeight, tile.OriginZ + tile.SizeZ * 0.5f, 1.0f );
+        const float eyeHeight = perspective ? tile.SizeZ * 0.5f / std::tan( glm::radians( 10.0f ) ) : kEyeHeightCm;
+        world[3] =
+             glm::vec4( tile.OriginX + tile.SizeX * 0.5f, eyeHeight, tile.OriginZ + tile.SizeZ * 0.5f, 1.0f );
         m_Camera->SetOrthoSize( tile.SizeZ * 0.5f );
-        m_Camera->SetView( ::Desert::Core::CameraEntityViewOf( world, perspective ? 20.0f : 45.0f, kNearCm, kFarCm ),
-                           width, height,
-                           ::Desert::Core::Camera::kNoSourceEntity );
+        m_Camera->SetView(
+             ::Desert::Core::CameraEntityViewOf( world, perspective ? 20.0f : 45.0f, kNearCm, kFarCm ), width,
+             height, ::Desert::Core::Camera::kNoSourceEntity );
         m_Scene->PinActiveCamera( m_Camera );
         m_WarmFrames = kWarmFrames;
         m_Phase      = Phase::Frame;
