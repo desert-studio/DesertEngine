@@ -1055,6 +1055,10 @@ namespace Desert::Graphic::System
         // non-mesh casters (IShadowCaster::LocalShadowSignature) - or nullopt when one of them moves by itself
         // every frame (a skinned mesh, swaying foliage): the cache key of a local view.
         [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const LocalShadowCasterLight& light ) const;
+        // The mesh casters alone in the sphere (@p centre, @p radius cm), or nullopt when one of them moves by itself
+        // every frame: the part of a local view's key the meshes give, and the rain occlusion map's key (the
+        // terrain under it changes only with the box, which RainOcclusionNeedsRecentre redraws on).
+        [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const glm::vec3& centre, float radius ) const;
         // The cache decision of each light given views by UpdateLocalShadows (m_LocalCachePlans): its key from
         // its casters and its views; the views of a light whose key changed (or that has none) go to
         // m_LocalRedraws.

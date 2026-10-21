@@ -118,7 +118,8 @@ namespace Desert::Graphic::System
     {
         std::shared_ptr<Image2D> Weightmap;
         // Bumped by LandscapeECSSystem whenever it rewrites the weightmap's pixels (a paint stroke): the
-        // ray-tracing BLAS of the tile reclassifies its hole cells on a change.
+        // ray-tracing BLAS of the tile reclassifies its hole cells on a change, and a cached local shadow whose
+        // caster discards by the visibility layer keys on it (TerrainRenderer::LocalShadowSignature).
         uint64_t                                                           Revision   = 0;
         uint32_t                                                           LayerCount = 0;
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> Colors{};
@@ -134,10 +135,6 @@ namespace Desert::Graphic::System
         // The tile layer that is its visibility mask (LandscapeWeightChannels::Visibility), -1 for none: the
         // surface and the shadow caster discard where it reaches 0.5 (UE's Landscape Visibility Mask).
         int32_t VisibilityLayer = -1;
-        // The revision of the weightmap's CONTENTS (LandscapeECSSystem: raised on every rewrite). The image is
-        // updated in place, so its address cannot say a stroke changed it; a cached local shadow whose caster
-        // discards by the visibility layer keys on this (TerrainRenderer::LocalShadowSignature).
-        uint64_t Revision = 0u;
     };
 
     // Where one landscape tile sits, in the form the seam needs. The ROOT's origin and the tile's first

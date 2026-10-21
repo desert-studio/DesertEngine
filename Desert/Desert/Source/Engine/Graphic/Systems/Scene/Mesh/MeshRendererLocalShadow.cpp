@@ -63,8 +63,28 @@ namespace Desert::Graphic::System
 
     std::optional<uint64_t> MeshRenderer::LocalCasterSignature( const LocalShadowCasterLight& light ) const
     {
-        const glm::vec3& centre = light.Lod.Origin;
-        const float      radius = light.Reach;
+        const std::optional<uint64_t> meshes = LocalCasterSignature( light.Lod.Origin, light.Reach );
+        if ( !meshes )
+            return std::nullopt;
+        SignatureHash hash;
+        hash.Add( *meshes );
+        // The casters that are not meshes (the terrain), each by its own key of what it draws into the light's
+        // views.
+        for ( const auto& weak : m_ShadowCasters )
+        {
+            const auto caster = weak.lock();
+            if ( !caster )
+                continue;
+            const std::optional<uint64_t> theirs = caster->LocalShadowSignature( light );
+            if ( !theirs )
+                return std::nullopt;
+            hash.Add( *theirs );
+        }
+        return hash.Value;
+    }
+
+    std::optional<uint64_t> MeshRenderer::LocalCasterSignature( const glm::vec3& centre, const float radius ) const
+    {
         SignatureHash hash;
         for ( const auto& rd : m_StaticQueue )
         {
@@ -114,17 +134,6 @@ namespace Desert::Graphic::System
                 hash.Add( ism.Mesh );
                 hash.Add( ism.HiddenSubmeshes );
             }
-        }
-        // The casters that are not meshes (the terrain), each by its own key of what it draws in the sphere.
-        for ( const auto& weak : m_ShadowCasters )
-        {
-            const auto caster = weak.lock();
-            if ( !caster )
-                continue;
-            const std::optional<uint64_t> theirs = caster->LocalShadowSignature( light );
-            if ( !theirs )
-                return std::nullopt;
-            hash.Add( *theirs );
         }
         return hash.Value;
     }
