@@ -20,11 +20,19 @@ namespace Common::Utils
         {
             std::unique_ptr<PakReader> Pak;
             std::filesystem::path      Root; // absolute, normalized
+            MountTier                  Tier = MountTier::Content;
         };
 
         // Mount STACK: later mounts override earlier ones for the same key (base.dpak first, then
         // per-type chunks, then patch paks — the patch wins). Lookups walk it newest-first.
         std::vector<Mount> s_Mounts;
+        // Archives registered to be mounted when first needed (DeferPak), canonical paths. A region chunk of a
+        // world sits here until a cell of it streams in (WP23).
+        std::vector<std::filesystem::path> s_Deferred;
+        // Readers (lookups, from JobSystem workers while a cell streams) share; mounting is exclusive.
+        std::shared_mutex s_Lock;
+        // Serialises MountDeferred, so two workers asking for one region mount it once.
+        std::mutex s_DeferredMount;
 
         // One absolute, symlink-resolved spelling for an incoming path. weakly_canonical, not
         // lexically_normal alone, because two spellings of ONE directory must compare equal: on macOS

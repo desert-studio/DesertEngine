@@ -4,6 +4,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
+#include <Common/Utilities/VFS.hpp>
 
 #include <Common/Json/Json.hpp>
 
@@ -12,6 +13,7 @@
 #include <deque>
 #include <iterator>
 #include <memory>
+#include <mutex>
 #include <unordered_set>
 
 namespace Common::Content
@@ -34,6 +36,9 @@ namespace Common::Content
             std::vector<ChunkRuleJson> Chunks;
             std::vector<std::string>   AlwaysBase;
         };
+
+        // The manifest's mark for a region chunk mounted on demand (WP23).
+        constexpr std::string_view kOnDemandPrefix = "OnDemand ";
 
         // A chunk name becomes part of a FILENAME (ChunkArchivePath), so the characters that would
         // make it name a different file — or no file at all — are refused here rather than producing
@@ -156,6 +161,19 @@ namespace Common::Content
         return m_Unresolved;
     }
 
+    std::optional<std::size_t> ChunkPlan::FileChunk( std::string_view archiveKey ) const
+    {
+        const auto it = m_FileChunk.find( std::string( archiveKey ) );
+        if ( it == m_FileChunk.end() )
+            return std::nullopt;
+        return it->second;
+    }
+
+    bool ChunkPlan::OnDemand( std::size_t chunk ) const
+    {
+        return chunk < m_OnDemand.size() && m_OnDemand[chunk];
+    }
+
     BoolResultStr ValidateChunkScheme( const ChunkScheme& scheme )
     {
         std::vector<std::string_view> names{ BASE_CHUNK_NAME };
@@ -229,13 +247,63 @@ namespace Common::Content
 
     ResultStr<ChunkPlan> BuildChunkPlan( const Utils::AssetRegistry& registry, const ChunkScheme& scheme )
     {
+        return BuildChunkPlan( registry, scheme, {} );
+    }
+
+    ResultStr<ChunkPlan> BuildChunkPlan( const Utils::AssetRegistry& registry, const ChunkScheme& scheme,
+                                         std::span<const RegionChunkGroup> worlds )
+    {
         ChunkPlan plan;
 
         // ── 1. The names, validated before anything is walked ────────────────────────────────────
         if ( const auto valid = ValidateChunkScheme( scheme ); !valid )
             return MakeError<ChunkPlan>( valid.GetError() );
+
+        // Every chunk past the base: its rule (name + roots) and the world group it belongs to (none for a
+        // scheme chunk). A world's chunks are derived, so only the name checks apply to them.
+        constexpr std::size_t kNoGroup = static_cast<std::size_t>( -1 );
+        std::vector<ChunkRule>   rules;
+        std::vector<std::size_t> groupOf{ kNoGroup }; // index-matched to m_Names
+        std::vector<std::size_t> sharedOf;            // per group: its Shared chunk's index
         for ( const ChunkRule& rule : scheme.Chunks )
+        {
             plan.m_Names.push_back( rule.Name );
+            plan.m_OnDemand.push_back( false );
+            groupOf.push_back( kNoGroup );
+            rules.push_back( rule );
+        }
+        auto addWorldChunk = [&]( ChunkRule rule, std::size_t group, bool onDemand ) -> BoolResultStr {
+            if ( !IsNameableChunk( rule.Name ) || rule.Name == BASE_CHUNK_NAME )
+                return MakeFormattedError<bool>( "world chunk name '{}' cannot be a chunk archive name",
+                                                 rule.Name );
+            if ( std::find( plan.m_Names.begin(), plan.m_Names.end(), rule.Name ) != plan.m_Names.end() )
+                return MakeFormattedError<bool>( "two chunks are called '{}'", rule.Name );
+            plan.m_Names.push_back( rule.Name );
+            plan.m_OnDemand.push_back( onDemand );
+            groupOf.push_back( group );
+            rules.push_back( std::move( rule ) );
+            return MakeSuccess( true );
+        };
+        for ( std::size_t group = 0; group < worlds.size(); ++group )
+        {
+            const RegionChunkGroup& world = worlds[group];
+            sharedOf.push_back( plan.m_Names.size() );
+            if ( auto added = addWorldChunk( ChunkRule{ world.Shared, world.SharedRoots }, group, false ); !added )
+                return MakeError<ChunkPlan>( added.GetError() );
+            for ( const ChunkRule& region : world.Regions )
+                if ( auto added = addWorldChunk( region, group, true ); !added )
+                    return MakeError<ChunkPlan>( added.GetError() );
+        }
+        for ( const RegionChunkGroup& world : worlds )
+            for ( const auto& [key, chunkName] : world.Files )
+            {
+                const auto named = std::find( plan.m_Names.begin(), plan.m_Names.end(), chunkName );
+                if ( named == plan.m_Names.end() )
+                    return MakeFormattedError<ChunkPlan>( "world file '{}' is placed in chunk '{}', which no "
+                                                          "world declares",
+                                                          key, chunkName );
+                plan.m_FileChunk[key] = static_cast<std::size_t>( named - plan.m_Names.begin() );
+            }
 
         // ── 2. The closure, per chunk, over the registry's OWN edges ─────────────────────────────
         //
@@ -246,7 +314,7 @@ namespace Common::Content
 
         for ( std::size_t chunk = 1; chunk < plan.m_Names.size(); ++chunk )
         {
-            const ChunkRule& rule = scheme.Chunks[chunk - 1];
+            const ChunkRule& rule = rules[chunk - 1];
 
             std::deque<const Utils::AssetRegistryEntry*> frontier;
             std::unordered_set<std::string>              seen;
@@ -287,11 +355,20 @@ namespace Common::Content
         plan.m_Unresolved.assign( unresolved.begin(), unresolved.end() );
         std::sort( plan.m_Unresolved.begin(), plan.m_Unresolved.end() );
 
-        // ── 3. One chunk each; shared assets fall back to the base ───────────────────────────────
+        // ── 3. One chunk each; shared assets fall back to the base, or to their world's Shared ───
         for ( const auto& [key, chunks] : reachedBy )
         {
             if ( chunks.size() == 1 )
+            {
                 plan.m_Placed[key] = chunks.front();
+                continue;
+            }
+            const std::size_t group = groupOf[chunks.front()];
+            const bool        oneWorld =
+                 group != kNoGroup && std::all_of( chunks.begin(), chunks.end(),
+                                                   [&]( std::size_t c ) { return groupOf[c] == group; } );
+            if ( oneWorld )
+                plan.m_Placed[key] = sharedOf[group];
         }
 
         // ── 4. The pins, applied LAST, because they are the exceptions ───────────────────────────
@@ -315,13 +392,13 @@ namespace Common::Content
     {
         std::string text;
         for ( std::size_t i = 1; i < plan.Names().size(); ++i )
-            text += plan.Names()[i] + "\n";
+            text += ( plan.OnDemand( i ) ? std::string( kOnDemandPrefix ) : std::string() ) + plan.Names()[i] + "\n";
         return text;
     }
 
-    ResultStr<std::vector<std::string>> ParseChunkManifest( std::string_view text )
+    ResultStr<ChunkManifest> ParseChunkManifest( std::string_view text )
     {
-        std::vector<std::string> names;
+        ChunkManifest manifest;
         std::size_t              begin = 0;
         while ( begin < text.size() )
         {
@@ -337,12 +414,49 @@ namespace Common::Content
             begin = end + 1;
             if ( line.empty() )
                 continue;
+            const bool onDemand = line.starts_with( kOnDemandPrefix );
+            if ( onDemand )
+                line.remove_prefix( kOnDemandPrefix.size() );
             if ( !IsNameableChunk( line ) )
-                return MakeFormattedError<std::vector<std::string>>(
+                return MakeFormattedError<ChunkManifest>(
                      "the chunk list names '{}', which cannot be an archive filename", std::string( line ) );
-            names.emplace_back( line );
+            ( onDemand ? manifest.OnDemand : manifest.Mounted ).emplace_back( line );
         }
-        return MakeSuccess( std::move( names ) );
+        return MakeSuccess( std::move( manifest ) );
+    }
+
+    namespace
+    {
+        // The on-demand chunks the mounted base registered (RegisterOnDemandChunks): name -> archive path.
+        std::mutex                                             s_OnDemandLock;
+        std::unordered_map<std::string, std::filesystem::path> s_OnDemand;
+    } // namespace
+
+    void RegisterOnDemandChunks( const fs::path& baseArchive, std::span<const std::string> names )
+    {
+        std::lock_guard lock( s_OnDemandLock );
+        for ( const std::string& name : names )
+        {
+            const fs::path archive = ChunkArchivePath( baseArchive, name );
+            Utils::VFS::DeferPak( archive );
+            s_OnDemand[name] = archive;
+        }
+    }
+
+    BoolResultStr MountChunkOnDemand( std::string_view name )
+    {
+        fs::path archive;
+        {
+            std::lock_guard lock( s_OnDemandLock );
+            if ( s_OnDemand.empty() )
+                return MakeSuccess( true ); // nothing registered: editor or loose cooked files
+            const auto it = s_OnDemand.find( std::string( name ) );
+            if ( it == s_OnDemand.end() )
+                return MakeFormattedError<bool>( "chunk '{}' is not an on-demand chunk of the mounted game",
+                                                 std::string( name ) );
+            archive = it->second;
+        }
+        return Utils::VFS::MountDeferred( archive );
     }
 
     ResultStr<ChunkedWriteStats>
@@ -368,7 +482,7 @@ namespace Common::Content
 
         for ( const auto& [key, source] : files )
         {
-            const std::size_t chunk = plan.ChunkFor( AssetHandle::StableKeyForPath( source ) );
+            const std::size_t chunk = plan.FileChunk( key ).value_or( plan.ChunkFor( AssetHandle::StableKeyForPath( source ) ) );
             if ( !writers[chunk]->AddFile( key, source ) )
                 return MakeFormattedError<ChunkedWriteStats>( "pak write failed for {} into {}", source.string(),
                                                               stats.Archives[chunk].string() );

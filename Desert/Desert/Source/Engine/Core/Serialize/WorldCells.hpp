@@ -63,6 +63,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
@@ -286,6 +287,27 @@ namespace Desert::Core::WorldCells
     // Where a scene's cooked world lives beside it: `Worlds/X.desce` -> `Worlds/X.dwworld/`. One statement of
     // it, for the packager that writes there and the runtime that looks there.
     [[nodiscard]] std::string CookedWorldDirectory( std::string_view scenePath );
+
+    // HOW A PACKAGED BUILD DIVIDES ONE COOKED WORLD INTO CONTENT CHUNKS (WP23; UE: a World Partition cell's
+    // package lands in a chunk the runtime mounts when the cell streams in). Every cell unit's file goes to the
+    // chunk of the square region (side WorldPartition.ChunkRegionSize) holding the CENTRE of the cell's square:
+    // `World_<dir>_R<rx>_<rz>`. The index, the always-loaded file and every HLOD file go to `World_<dir>_Shared`,
+    // which is mounted at start (the streamer decides from the index and draws HLODs of cells it has not
+    // loaded). `Regions` are the region chunk names, sorted; `FileChunk` names the chunk of every file the index
+    // lists, and of the index itself.
+    struct WorldChunkLayout
+    {
+        std::string                        Shared;
+        std::vector<std::string>           Regions;
+        std::map<std::string, std::string> FileChunk;
+    };
+
+    // The layout of @p index's world, cooked into @p worldDirectory (CookedWorldDirectory). nullopt when the world
+    // states no ChunkRegionSize (it ships in the base chunk). Refused: a region size that is not finite and > 0, a
+    // cell unit without its square, a file two units place in different chunks, a file the index lists that no
+    // unit or HLOD names.
+    [[nodiscard]] Common::ResultStr<std::optional<WorldChunkLayout>>
+    ChunkLayoutOf( const WorldIndex& index, std::string_view worldDirectory );
 
     // The world back from its cells: every unit's records in unit order, and the index's scene-wide part.
     // What the round trip is checked with; the records are in unit order, not the source's file order.
