@@ -4,6 +4,7 @@
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
+#include <Engine/Runtime/Services/OnDemandAssets.hpp>
 
 #include <memory>
 #include <string>
@@ -18,7 +19,8 @@ namespace Desert::Runtime
      * from its registry row without reading it. The first frame that draws the field asks here, which requests
      * the read through the AsyncAssetLoader; until it lands the type is pending. The service holds the ASSET,
      * not a copy of its data, so the paint panel's edit — saved and re-read into the same asset — is what the
-     * next frame culls by. The shape of LandscapeLayerInfoService, which does the same for `.delayerinfo`.
+     * next frame culls by. A type an eviction sweep released is read again into the same shell on the next ask
+     * (OnDemandAssets, the rule every type service shares).
      */
     class FoliageTypeService
     {
@@ -36,7 +38,7 @@ namespace Desert::Runtime
         /// The manager the service creates in; null when none is bound.
         [[nodiscard]] std::shared_ptr<Assets::AssetManager> Manager() const
         {
-            return m_Assets.lock();
+            return m_Types.Manager();
         }
 
         /// Stops realizing @p prefabGuid after a failed instantiation, saying why once.
@@ -45,12 +47,9 @@ namespace Desert::Runtime
         void Clear();
 
     private:
-        void Request( const Assets::AssetHandle& handle );
-
-        std::weak_ptr<Assets::AssetManager>                                              m_Assets;
-        std::unordered_map<Assets::AssetHandle, Assets::LoadRequest>                     m_Requests;
-        std::unordered_map<Assets::AssetHandle, Assets::Asset<Assets::FoliageTypeAsset>> m_Ready;
-        std::unordered_map<Assets::AssetHandle, std::string>                             m_Failed;
+        OnDemandAssets<Assets::FoliageTypeAsset> m_Types{
+             Common::Content::ContentKind::FoliageType, "[Foliage] Foliage type",
+             "its fields are drawn without a cull distance", "the field names no foliage type asset" };
         std::unordered_map<std::string, Assets::LoadRequest>                             m_PrefabRequests;
         std::unordered_map<std::string, Assets::Asset<Assets::PrefabAsset>>              m_Prefabs;
         std::unordered_map<std::string, std::string>                                     m_PrefabFailed;
