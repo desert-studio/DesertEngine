@@ -137,6 +137,7 @@
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
+#include <limits>
 #include <map>
 #include <optional>
 #include <span>
@@ -331,15 +332,31 @@ namespace Desert::Core::Rules
     // spill into the next cell. That is not a nicety: WorldGen's ground tile is exactly one cell wide and
     // sits exactly on the edges, and a closed interval would push every tile of a generated world up a
     // level. A zero-width footprint (one point) is in the cell of its minimum.
+    //
+    // AN EDGE WITHIN FLOAT ROUNDING OF A CELL BOUNDARY IS ON THAT BOUNDARY. Footprints are float and are
+    // built by arithmetic: a landscape root at -120 m with 255 quads of 23.529411 cm (a float) puts its
+    // third tile's edge at -0.0002 cm, not 0. Read literally that is a sliver in the cell before, and 0 is
+    // an edge at EVERY level, so the tile fitted no cell and fell to always-loaded (FIELD_Barn: 7 of 16
+    // tiles, a cross along x = 0 and z = 0). The tolerance is a few float epsilons of the edge's own
+    // magnitude, measured in cells — the error a float coordinate of that size carries, nothing coarser:
+    // a real overhang of a millimetre on a 128 m cell is still an overhang.
     [[nodiscard]] inline std::optional<CellCoord> SingleCellHolding( const CellBounds& footprint,
                                                                      double            levelCellSize )
     {
-        // The last cell the footprint touches: the one before its maximum's cell when the maximum lies
-        // exactly on an edge, never before its first cell.
-        const auto last = []( float min, float max, double size )
+        // An edge in cell units, and the float rounding it may carry (in cells too).
+        constexpr double kRoundingEpsilons = 4.0 * static_cast<double>( std::numeric_limits<float>::epsilon() );
+        const auto       rounding          = []( float edge, double size )
+        { return kRoundingEpsilons * std::max( std::fabs( static_cast<double>( edge ) ), size ) / size; };
+
+        // The first cell the footprint touches: a minimum a rounding short of an edge is on it.
+        const auto first = [&]( float min, double size )
+        { return std::floor( static_cast<double>( min ) / size + rounding( min, size ) ); };
+        // The last cell the footprint touches: the one before its maximum's cell when the maximum lies on
+        // an edge (or a rounding past it), never before its first cell.
+        const auto last = [&]( float min, float max, double size )
         {
-            const double low = std::floor( static_cast<double>( min ) / size );
-            return std::max( low, std::ceil( static_cast<double>( max ) / size ) - 1.0 );
+            return std::max( first( min, size ),
+                             std::ceil( static_cast<double>( max ) / size - rounding( max, size ) ) - 1.0 );
         };
 
         // A coordinate whose cell index an int32 cannot hold (a corrupt 1e30, a NaN) fits no cell of this
@@ -350,10 +367,14 @@ namespace Desert::Core::Rules
                 return std::nullopt;
         }
 
-        const CellCoord cell = CellOf( footprint.MinX, footprint.MinZ, levelCellSize );
-        if ( static_cast<double>( cell.X ) != last( footprint.MinX, footprint.MaxX, levelCellSize ) ||
-             static_cast<double>( cell.Z ) != last( footprint.MinZ, footprint.MaxZ, levelCellSize ) )
+        const double firstX = first( footprint.MinX, levelCellSize );
+        const double firstZ = first( footprint.MinZ, levelCellSize );
+        if ( firstX != last( footprint.MinX, footprint.MaxX, levelCellSize ) ||
+             firstZ != last( footprint.MinZ, footprint.MaxZ, levelCellSize ) )
             return std::nullopt;
+        CellCoord cell;
+        cell.X = static_cast<std::int32_t>( firstX );
+        cell.Z = static_cast<std::int32_t>( firstZ );
         return cell;
     }
 
