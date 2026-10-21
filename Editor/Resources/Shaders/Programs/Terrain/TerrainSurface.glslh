@@ -63,8 +63,6 @@
         // (Params2.y > 0); otherwise the binding holds the backend's white fallback.
         // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
         // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
-        // At 40..47: the forward program's lit-pass slots (DirectionLightsUB 14, SpotLightsUB 16, the environment
-        // 17/18/19, the cloud layer 20/21) stay free of the layer inputs.
         Uniform(10) texture2D u_Weightmap;
         Uniform(12) sampler u_WeightmapSampler;
         #define u_Weightmap sampler2D(u_Weightmap, u_WeightmapSampler)
@@ -80,16 +78,20 @@
         // that map (TerrainInstance.InputSlices; -1 = none). Four arrays whatever the input count - the lift
         // from the three inputs sixteen sampled images allowed. Each a separate texture read through its own
         // sampler state `<name>Sampler`, as every bound texture property (VulkanMaterialBackend::ApplyTexture2D).
-        // At 40..47: the forward program's lit-pass slots (DirectionLightsUB 14, SpotLightsUB 16, the environment
-        // 17/18/19, the cloud layer 20/21) stay free of the layer inputs.
-        Uniform(40) texture2DArray u_LayerAlbedo;
-        Uniform(41) texture2DArray u_LayerNormal;
-        Uniform(42) texture2DArray u_LayerARM;
-        Uniform(43) texture2DArray u_LayerHeight;
-        Uniform(44) sampler u_LayerAlbedoSampler;
-        Uniform(45) sampler u_LayerNormalSampler;
-        Uniform(46) sampler u_LayerARMSampler;
-        Uniform(47) sampler u_LayerHeightSampler;
+        // The four arrays sit on the slots below the scene-read range (Core::kSceneReadBindingFirst) that neither
+        // program including this header spends: Terrain.shader holds 0/1/4-12/14/16-22 (its lit-pass blocks and
+        // environment), TerrainGBuffer.shader a subset; 40 and up is the shader-graph window
+        // (Core::kGraphOwnedBindingFirst), which no shipped program may enter. Their sampler states are bound by
+        // name (`<texture>Sampler`, VulkanMaterialBackend::ApplyTexture2D), so they take no number here: the shared
+        // sampler rule numbers them after the program's last binding (Core::kAutoSamplerBinding).
+        Uniform(2) texture2DArray u_LayerAlbedo;
+        Uniform(3) texture2DArray u_LayerNormal;
+        Uniform(13) texture2DArray u_LayerARM;
+        Uniform(15) texture2DArray u_LayerHeight;
+        Uniform sampler u_LayerAlbedoSampler;
+        Uniform sampler u_LayerNormalSampler;
+        Uniform sampler u_LayerARMSampler;
+        Uniform sampler u_LayerHeightSampler;
         #define u_LayerAlbedo sampler2DArray(u_LayerAlbedo, u_LayerAlbedoSampler)
         #define u_LayerNormal sampler2DArray(u_LayerNormal, u_LayerNormalSampler)
         #define u_LayerARM sampler2DArray(u_LayerARM, u_LayerARMSampler)

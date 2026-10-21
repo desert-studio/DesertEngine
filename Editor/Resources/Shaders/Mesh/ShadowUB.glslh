@@ -11,7 +11,7 @@
 // storage block of their own (SurfaceCacheDirectLighting.shader: SurfaceCacheShadowUB), a different block.
 //
 // Read by Mesh/CascadedShadow.glslh, Common/ContactShadow.glslh and Mesh/LocalLightShadow.glslh by these names.
-layout( binding = 7 ) uniform ShadowUB
+Uniform(7) ShadowUB
 {
     mat4 u_LightViewProj[4];  // SceneResources::kMaxCascades
     vec4 u_ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
