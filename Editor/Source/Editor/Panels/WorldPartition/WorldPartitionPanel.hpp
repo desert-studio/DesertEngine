@@ -16,6 +16,7 @@
 //          handed in once, because Play's stop and a streaming error both destroy it from the editor's side.
 
 #include "../IPanel.hpp"
+#include "LandscapeHLODBake.hpp"
 #include "WorldPartitionMap.hpp"
 
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -69,8 +70,15 @@ namespace Desert::Editor
         /// UE's Build > Build HLODs (WP-FAR-6B, lead D1): every cell's HLOD of the world SAVED at the scene's
         /// file (scene + entity files, as WorldCook reads it), built by MakeHLODBuilders and written to
         /// `<Scene>_HLOD/` (WorldCells::WriteBuiltHLODs); read back and checked stale-free. Refused, by name, for
-        /// a scene not opened from a file or a world the build refuses.
+        /// a scene not opened from a file or a world the build refuses. Two phases: this call checks the world
+        /// and starts the landscape tiles' BaseColor bake (LandscapeHLODBake, over the next editor frames);
+        /// TickBuild finishes it — the HLODs are built with each landscape HLOD bound to its baked material,
+        /// written and read back. A world without landscape HLODs is built here at once.
         [[nodiscard]] Common::BoolResultStr BuildHLODs();
+
+        /// Advances a running Build HLODs (its bake) by one editor frame; called every frame by EditorLayer,
+        /// whether the panel's window is open or not.
+        void TickBuild();
 
         /// What a region change asks for: the regions to hold, or the whole world.
         struct RegionRequest
@@ -98,6 +106,9 @@ namespace Desert::Editor
         // The Edit plan of m_Scene: a partitioned world opened from its files is planned over its descriptor
         // index (every entity of the world, loaded or not); any other scene over its serialised form.
         void RebuildEditPlan();
+        // Build HLODs' second phase: build from the saved files (each landscape HLOD bound to its @p baked
+        // material), write, read back.
+        [[nodiscard]] Common::BoolResultStr FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked );
         void DrawMap( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
                       const ::Desert::Core::WorldPartitionSerialized&  partition,
                       const ::Desert::Core::Rules::ResidencyState*     residency,
@@ -106,6 +117,8 @@ namespace Desert::Editor
         std::shared_ptr<::Desert::Core::Scene> m_Scene;
         ::Desert::Assets::AssetManager*        m_Assets;
         StreamerGetter                         m_Streamer;
+        // The landscape BaseColor bake of a running Build HLODs (BuildHLODs -> TickBuild).
+        std::unique_ptr<LandscapeHLODBake> m_Bake;
 
         // Edit: the plan made from the scene, or why there is none ("not partitioned", a parse error).
         std::optional<::Desert::Core::Rules::WorldPartitionPlan> m_EditPlan;

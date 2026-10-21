@@ -14,6 +14,7 @@
 #include "../../Core/CommandHistory.hpp"
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
 
+#include <algorithm>
 #include <ranges>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Camera.hpp>
@@ -408,6 +409,8 @@ namespace Desert::Editor
     Common::BoolResultStr WorldPartitionPanel::BuildHLODs()
     {
         namespace WC = ::Desert::Core::WorldCells;
+        if ( m_Bake )
+            return Common::MakeError( "Build HLODs: a build is already running (its landscape bake)." );
         if ( !m_Scene )
             return Common::MakeError( "Build HLODs: there is no active scene." );
         const auto& baseline = m_Scene->Packages()->BaselinePath();
@@ -434,8 +437,101 @@ namespace Desert::Editor
         const auto      planned = ::Desert::Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
         const std::span registries( &::Desert::Assets::ContentRegistry::Get(), 1 );
         const ::Desert::Core::HLODBuilders builders = ::Desert::Core::MakeHLODBuilders( registries );
-        auto                               built =
-             WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, builders.Mesh, builders.Landscape );
+        // Phase 1: the landscape HLODs' areas, from the same request the build makes for each.
+        std::vector<::Desert::Core::LandscapeHLODTileArea> areas;
+        decltype( builders.Landscape )                     collect;
+        if ( builders.Landscape )
+            collect = [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
+            {
+                auto area = ::Desert::Core::LandscapeHLODTileAreaOf( request );
+                if ( !area )
+                    return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>( area.GetError() );
+                const bool known = std::any_of( areas.begin(), areas.end(),
+                                                [&]( const auto& seen ) {
+                                                    return static_cast<uint64_t>( seen.Tile ) ==
+                                                           static_cast<uint64_t>( area.GetValue().Tile );
+                                                } );
+                if ( !known )
+                    areas.push_back( area.GetValue() );
+                return builders.Landscape( request );
+            };
+        if ( auto probe =
+                  WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, builders.Mesh, collect );
+             !probe )
+            return Common::MakeError( "Build HLODs: " + probe.GetError() );
+        if ( areas.empty() )
+            return FinishBuildHLODs( {} );
+        LOG_INFO( "[Build HLODs] '{0}': baking the BaseColor of {1} landscape tile(s)", m_Scene->GetSceneName(),
+                  areas.size() );
+        ::Desert::Core::LoadableScene saved = std::move( scene.GetValue() );
+        m_Bake = std::make_unique<LandscapeHLODBake>( path, std::move( saved ), std::move( areas ), m_Assets );
+        return BOOLSUCCESS;
+    }
+
+    void WorldPartitionPanel::TickBuild()
+    {
+        if ( !m_Bake || !m_Bake->Tick() )
+            return;
+        const std::unique_ptr<LandscapeHLODBake> bake = std::move( m_Bake );
+        if ( bake->Error() )
+        {
+            LOG_ERROR( "[Build HLODs] the landscape bake was refused: {0}", *bake->Error() );
+            return;
+        }
+        if ( auto done = FinishBuildHLODs( bake->Baked() ); !done )
+            LOG_ERROR( "[Build HLODs] {0}", done.GetError() );
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked )
+    {
+        namespace WC = ::Desert::Core::WorldCells;
+        if ( !m_Scene )
+            return Common::MakeError( "Build HLODs: there is no active scene." );
+        const auto& baseline = m_Scene->Packages()->BaselinePath();
+        if ( !baseline )
+            return Common::MakeError( "Build HLODs: '" + m_Scene->GetSceneName() +
+                                      "' is not saved; save it first (the HLODs are built from its files)" );
+        if ( m_Scene->Packages()->HasUnsavedChanges(
+                  ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets ).LiveEntities() ) )
+            return Common::MakeError( "Build HLODs: '" + m_Scene->GetSceneName() +
+                                      "' has unsaved changes; save the scene first (the HLODs are built from its "
+                                      "files)" );
+        const std::filesystem::path& path = *baseline;
+        // The saved world, read exactly as WorldCook reads it, so the checksums the build stores are the ones
+        // a cook of the same files computes.
+        auto text = ::Desert::Core::ExternalEntities::ReadSceneFileText( path );
+        if ( !text )
+            return Common::MakeError( "Build HLODs: " + text.GetError() );
+        auto scene = ::Desert::Core::ParseLoadableScene( path.string(), text.GetValue() );
+        if ( !scene )
+            return Common::MakeError( "Build HLODs: " + scene.GetError() );
+        auto descriptors = ::Desert::Core::DescriptorIndex::Refresh( path );
+        if ( !descriptors )
+            return Common::MakeError( "Build HLODs: " + descriptors.GetError() );
+        const auto      planned = ::Desert::Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
+        const std::span registries( &::Desert::Assets::ContentRegistry::Get(), 1 );
+        const ::Desert::Core::HLODBuilders builders = ::Desert::Core::MakeHLODBuilders( registries );
+        // Each landscape HLOD bound to the material its tile's bake wrote (UE ULandscapeHLODBuilder). The slot
+        // does not enter HLODBuildChecksum (it hashes the member records), so binding changes no staleness.
+        decltype( builders.Landscape ) landscape;
+        if ( builders.Landscape )
+            landscape = [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
+            {
+                auto mesh = builders.Landscape( request );
+                if ( !mesh )
+                    return mesh;
+                const auto& id = request.Records[request.Tile].id;
+                for ( const LandscapeHLODBaked& tile : baked )
+                    if ( id && static_cast<uint64_t>( tile.Tile ) == static_cast<uint64_t>( *id ) )
+                    {
+                        ::Desert::Assets::StaticMeshComponentSer block = mesh.GetValue();
+                        block.MaterialGuids = std::vector<std::string>{ tile.MaterialGuid };
+                        block.MaterialPaths = std::vector<std::string>{ tile.MaterialPath };
+                        return Common::MakeSuccess( std::move( block ) );
+                    }
+                return mesh;
+            };
+        auto built = WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, builders.Mesh, landscape );
         if ( !built )
             return Common::MakeError( "Build HLODs: " + built.GetError() );
         if ( auto written = WC::WriteBuiltHLODs( path, built.GetValue() ); !written )

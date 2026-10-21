@@ -329,9 +329,12 @@ namespace Desert::Core
         auto input = ReadLandscapeHLODTile( request );
         if ( !input )
             return Common::MakeError<LandscapeHLODTileArea>( input.GetError() );
+        const auto& tileId = request.Records[request.Tile].id;
+        if ( !tileId )
+            return Common::MakeError<LandscapeHLODTileArea>( "landscape HLOD tile record has no id" );
         const LandscapeHLODTileInput& tile = input.GetValue();
         return Common::MakeSuccess( LandscapeHLODTileArea{
-             .Tile    = request.Records[request.Tile].id,
+             .Tile    = *tileId,
              .OriginX = tile.Frame.OriginX,
              .OriginZ = tile.Frame.OriginZ,
              .SizeX   = static_cast<float>( tile.Heights.SamplesX() - 1 ) * tile.Frame.SpacingCm,

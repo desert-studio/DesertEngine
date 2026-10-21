@@ -569,6 +569,9 @@ namespace Desert::Editor
 
         // The one thumbnail pump, gated by the reveal (EditorStartup::TickThumbnails).
         m_Startup.TickThumbnails();
+        // A running Build HLODs advances its landscape bake here, whether its panel is open or not.
+        if ( m_WorldPartitionPanel )
+            m_WorldPartitionPanel->TickBuild();
 
         m_Dock.UpdateContextualPanels();
 
