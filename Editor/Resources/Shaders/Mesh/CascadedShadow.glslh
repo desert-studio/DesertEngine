@@ -7,7 +7,7 @@
 // Why it is a header and not four copies. It WAS four copies, and by the time Д20 measured them two of
 // them had already drifted: Programs/Surface/StaticMeshLit.shader and Programs/Deferred/DeferredLighting.shader
 // carried the cascade CROSS-FADE (sampleCascade + a blend band at the tight cascade's border), while
-// Programs/Surface/SkinnedMeshLit.shader and Programs/Surface/StaticMeshLit_Instanced.shader carried the version
+// Programs/Surface/StandardSurface.shader's Vertex_Skinned cell and Programs/Surface/StaticMeshLit_Instanced.shader carried the version
 // from before that fix and returned the tight cascade's PCF result raw. A skinned character and an
 // instanced prop therefore carried the hard cascade seam the other two had had smoothed away, standing
 // beside a non-instanced static mesh that did not, in the same frame, lit by the same sun, through the

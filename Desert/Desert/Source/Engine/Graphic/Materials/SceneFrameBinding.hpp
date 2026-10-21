@@ -117,7 +117,7 @@ namespace Desert::Graphic
         // be applied at four of the five sites and forgotten at the fifth.
         //
         // It reaches materials of several different shaders (StaticMeshLit, StaticMeshLit_Instanced,
-        // StaticMeshGlass, SkinnedMeshLit, a generated shader-graph shader), which need not declare these
+        // StaticMeshGlass, StandardSurface's Vertex_Skinned cell, a generated shader-graph shader), which need not declare these
         // resources at the same SLOT NUMBERS — every write goes through Material::Get by NAME and every
         // lookup is guarded, which is what makes one applier able to serve all of them AND to cost the
         // ones that declare nothing nothing at all: an unlit graph material, the Unlit shader and the
