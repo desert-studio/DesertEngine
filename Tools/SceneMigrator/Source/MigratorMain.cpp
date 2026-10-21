@@ -1024,7 +1024,8 @@ namespace Desert::Migration
                 out << " canonical text of " << canonical.BlocksRestated << " reflected block(s) ("
                     << canonical.KeysAdded << " key(s) added, " << canonical.ValuesRestated
                     << " value(s) restated, component keys sorted in " << canonical.RecordsRekeyed
-                    << " record(s)), version unchanged";
+                    << " record(s)" << ( canonical.RecordsReordered ? ", records put in id order" : "" )
+                    << "), version unchanged";
             };
 
             // A partitioned world at the head whose records are still INLINE (written by a tool that

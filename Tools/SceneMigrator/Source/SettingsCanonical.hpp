@@ -85,10 +85,11 @@ namespace Desert::Migration
         int                KeysAdded      = 0;
         int                ValuesRestated = 0;
         int                RecordsRekeyed = 0; // records whose component keys were not sorted by key
+        bool RecordsReordered = false; // the records were not in id order (Assets::SortSceneRecordsById)
         std::string        Refused; // non-empty: the first refused block, named; the scene is unchanged
         [[nodiscard]] bool Changed() const
         {
-            return BlocksRestated > 0 || RecordsRekeyed > 0;
+            return BlocksRestated > 0 || RecordsRekeyed > 0 || RecordsReordered;
         }
     };
 
@@ -101,7 +102,8 @@ namespace Desert::Migration
     // THE MIGRATOR'S CANONICAL PASS: Settings and every entity-record block listed in
     // Engine/Core/Serialize/ReflectedComponentBlocks.hpp, each through CanonicaliseReflectedBlock; and the
     // hand-written blocks whose writer is FromStruct of a mirror struct alone (Text), through that struct. Every
-    // record's component keys are then put in key order (SortComponentKeys; counted in RecordsRekeyed).
+    // record's component keys are then put in key order (SortComponentKeys; counted in RecordsRekeyed), and the
+    // records themselves in id order, the order the editor's save writes (Assets::SortSceneRecordsById).
     //
     // NOT COVERED - blocks whose file form is not their reflection alone, written by hand-written
     // serializers in ComponentRegistry.cpp: StaticMesh, SkinnedMesh, InstancedStaticMesh, the material
