@@ -1,0 +1,28 @@
+#ifndef DESERT_LIGHT_SOURCE_SAMPLING_GLSLH
+#define DESERT_LIGHT_SOURCE_SAMPLING_GLSLH
+
+// THE LOCAL LIGHT'S EMITTER SPHERE, SAMPLED (UE SampleSphereLight / UniformSampleCone over SourceRadius): the one
+// sampler of the ray-traced local shadows - MegaLights' visibility (Common/MegaLights.glslh MegaLightsVisibility)
+// and "Shadows: Ray Traced Local" (Programs/Shadows/RayTracedLocalShadow.shader). From a receiver at @p distance cm
+// of the sphere's centre along @p axis (unit, toward the light), a direction uniform in the solid angle the sphere
+// of @p radius cm subtends, from the two uniform numbers @p u (x picks the cone angle, y the azimuth); @p reach is
+// where that ray meets the sphere (the nearer root). Radius 0 (or a receiver on the emitter): the axis itself, the
+// reach the centre's distance.
+vec3 SampleLightSourceSphere(vec3 axis, float distance, float radius, vec2 u, out float reach)
+{
+	reach = distance;
+	if (radius <= 0.0 || distance <= radius)
+		return axis;
+	const float sinMax2 = (radius * radius) / (distance * distance);
+	const float cosMax  = sqrt(max(1.0 - sinMax2, 0.0));
+	const float cosT    = 1.0 - u.x * (1.0 - cosMax);
+	const float sinT    = sqrt(max(1.0 - cosT * cosT, 0.0));
+	const float phi     = 6.28318530718 * u.y;
+	const vec3  up      = abs(axis.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+	const vec3  t       = normalize(cross(up, axis));
+	const vec3  b       = cross(axis, t);
+	reach               = distance * cosT - sqrt(max(radius * radius - distance * distance * sinT * sinT, 0.0));
+	return normalize(t * (cos(phi) * sinT) + b * (sin(phi) * sinT) + axis * cosT);
+}
+
+#endif // DESERT_LIGHT_SOURCE_SAMPLING_GLSLH
