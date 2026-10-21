@@ -595,6 +595,18 @@ namespace Desert::Editor
                 PaintSector( list, m_View, size, origin, sector, 1.0, 1.0, IM_COL32( 255, 255, 255, 200 ), false );
                 PaintSector( list, m_View, size, origin, sector, 1.0 + margin, 1.0 + margin,
                              IM_COL32( 255, 255, 255, 120 ), true );
+                // THE LOOK-AHEAD: the same shape where the source will be, joined by its path; the query wants
+                // every cell the shape passes over between the two.
+                if ( sector.Sweep != glm::dvec2( 0.0 ) )
+                {
+                    auto ahead   = sector;
+                    ahead.Centre = sector.Centre + sector.Sweep;
+                    ahead.Sweep  = glm::dvec2( 0.0 );
+                    PaintSector( list, m_View, size, origin, ahead, 1.0, 1.0, IM_COL32( 120, 200, 255, 200 ), false );
+                    list.AddLine( ToScreen( m_View, size, origin, sector.Centre ),
+                                  ToScreen( m_View, size, origin, ahead.Centre ), IM_COL32( 120, 200, 255, 200 ),
+                                  2.0f );
+                }
             }
             // Where the source faces (UE's view direction): the camera's in Edit, the entity's forward in Play.
             if ( source.Facing )

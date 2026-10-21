@@ -266,6 +266,8 @@ namespace Desert::Core
             source.Facing                = -glm::vec3( world[2] );
             source.Priority              = data.Priority;
             source.UseVelocityForSorting = data.UseVelocityForSorting;
+            source.LookAheadTime         = data.LookAheadTime;
+            source.MaxLookAhead          = data.MaxLookAhead;
             // One shape, always (UE's FStreamingSourceShape on the component): with the defaults it is exactly
             // the circle of the range a source with no shapes loads in.
             Rules::StreamingSourceShape shape;
