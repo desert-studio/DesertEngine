@@ -1,5 +1,6 @@
 #include "ProceduralCharacterFactory.hpp"
 #include "ProceduralCharacterSkeleton.hpp"
+#include "MikkTangents.hpp"
 
 #include <Engine/Animation/ProceduralCharacterAnimations.hpp>
 #include <Engine/Animation/Skeleton.hpp>
@@ -59,11 +60,8 @@ namespace Desert::Geometry
                     Assets::Serialization::SkinnedVertexData v{};
                     v.Position               = c + r * dir;
                     v.Normal                 = glm::normalize( dir );
-                    // The frame follows the UVs: U runs AROUND the axis (s / radial), so the tangent is
-                    // dPos/dU's direction, the circumference; V runs along the axis, so the bitangent,
-                    // cross( N, T ), is the axis. The seam column s == radial is its own vertex (U = 1).
-                    v.Tangent                = -std::sin( a ) * u + std::cos( a ) * w;
-                    v.Bitangent              = glm::cross( v.Normal, v.Tangent );
+                    // U runs AROUND the axis (s / radial), V along it; the seam column s == radial is its
+                    // own vertex (U = 1). The tangent frame is MikkTSpace's, over the finished body.
                     v.TexCoord               = { static_cast<float>( s ) / static_cast<float>( radial ),
                                                  static_cast<float>( ring ) };
                     v.BoneIDs[0]             = bone;
@@ -99,8 +97,6 @@ namespace Desert::Geometry
                     Assets::Serialization::SkinnedVertexData v{};
                     v.Position               = center + radius * n;
                     v.Normal                 = n;
-                    v.Tangent                = glm::vec3( -std::sin( phi ), 0.0f, std::cos( phi ) );
-                    v.Bitangent              = glm::cross( n, v.Tangent );
                     v.TexCoord               = { static_cast<float>( j ) / static_cast<float>( slices ),
                                                  static_cast<float>( i ) / static_cast<float>( stacks ) };
                     v.BoneIDs[0]             = bone;
@@ -200,6 +196,10 @@ namespace Desert::Geometry
             return Common::MakeFormattedError<Result>(
                  "the humanoid's skeleton '{}' has no bone '{}' the body names",
                  HumanoidSkeletonFile().generic_string(), missing );
+
+        // The tangent frame: the engine's one generator over the whole body (indices are body-wide).
+        if ( !ApplyMikkTangents( verts, 0, std::span( indices ) ) )
+            return Common::MakeFormattedError<Result>( "MikkTSpace could not allocate the humanoid's tangent frames" );
 
         // One submesh covering the whole body, bounded by its own vertices.
         Assets::Serialization::SubmeshData sub{};

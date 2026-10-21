@@ -2,6 +2,7 @@
 
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
+#include <Engine/Geometry/MikkTangents.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 
 #include <Common/Core/Math/AABB.hpp>
@@ -16,6 +17,8 @@
 #include <cmath>
 #include <cstdint>
 #include <map>
+#include <new>
+#include <span>
 #include <unordered_map>
 #include <optional>
 #include <vector>
@@ -162,14 +165,20 @@ namespace Desert::Geometry
             std::vector<int>   m_FaceGroup;
         };
 
-        inline uint32_t PushVertex( ShapeMesh& m, const glm::vec3& p, const glm::vec3& n, const glm::vec3& t,
-                                    const glm::vec2& uv )
+        // The engine's one tangent generator over a finished shape (MikkTangents.hpp): PushVertex leaves the
+        // frame zero and every Make* runs this once its triangles are complete. MikkTSpace fails only when it
+        // cannot allocate, and a shape has no error channel but the allocator's.
+        inline void ComputeShapeTangents( ShapeMesh& m )
+        {
+            if ( !ApplyMikkTangents( m.Vertices, 0, std::span( m.Indices ) ) )
+                throw std::bad_alloc();
+        }
+
+        inline uint32_t PushVertex( ShapeMesh& m, const glm::vec3& p, const glm::vec3& n, const glm::vec2& uv )
         {
             Vertex v{};
             v.Position  = p;
             v.Normal    = n;
-            v.Tangent   = t;
-            v.Bitangent = glm::normalize( glm::cross( n, t ) );
             v.TexCoord  = uv;
             m.Vertices.push_back( v );
             return static_cast<uint32_t>( m.Vertices.size() - 1 );
@@ -180,10 +189,9 @@ namespace Desert::Geometry
                              const std::array<glm::vec2, 4>& uv )
         {
             const glm::vec3 n    = glm::normalize( glm::cross( p[1] - p[0], p[3] - p[0] ) );
-            const glm::vec3 t    = glm::normalize( p[1] - p[0] );
             const auto      base = static_cast<uint32_t>( m.Vertices.size() );
             for ( int i = 0; i < 4; ++i )
-                PushVertex( m, p[i], n, t, uv[i] );
+                PushVertex( m, p[i], n, uv[i] );
             m.Indices.push_back( { base + 0, base + 1, base + 2 } );
             m.Indices.push_back( { base + 2, base + 3, base + 0 } );
             m.Groups.push_back( group );
@@ -195,10 +203,9 @@ namespace Desert::Geometry
                                  const std::array<glm::vec2, 3>& uv )
         {
             const glm::vec3 n    = glm::normalize( glm::cross( p[1] - p[0], p[2] - p[0] ) );
-            const glm::vec3 t    = glm::normalize( p[1] - p[0] );
             const auto      base = static_cast<uint32_t>( m.Vertices.size() );
             for ( int i = 0; i < 3; ++i )
-                PushVertex( m, p[i], n, t, uv[i] );
+                PushVertex( m, p[i], n, uv[i] );
             m.Indices.push_back( { base + 0, base + 1, base + 2 } );
             m.Groups.push_back( group );
         }
@@ -212,7 +219,6 @@ namespace Desert::Geometry
                                  const glm::vec3& u, const glm::vec3& v, int nu, int nv )
         {
             const glm::vec3 n    = glm::normalize( glm::cross( u, v ) );
-            const glm::vec3 t    = glm::normalize( u );
             const auto      base = static_cast<uint32_t>( m.Vertices.size() );
             const auto      at   = [&]( int i, int j ) {
                 return base + static_cast<uint32_t>( i ) * static_cast<uint32_t>( nv + 1 ) +
@@ -223,7 +229,7 @@ namespace Desert::Geometry
                 {
                     const float s0 = static_cast<float>( i ) / static_cast<float>( nu );
                     const float t0 = static_cast<float>( j ) / static_cast<float>( nv );
-                    PushVertex( m, origin + u * s0 + v * t0, n, t, glm::vec2( s0, t0 ) );
+                    PushVertex( m, origin + u * s0 + v * t0, n, glm::vec2( s0, t0 ) );
                 }
             for ( int i = 0; i < nu; ++i )
                 for ( int j = 0; j < nv; ++j )
@@ -502,7 +508,7 @@ namespace Desert::Geometry
         // UE's buffers as a ShapeMesh: one output vertex per distinct (vertex, UV element, normal element)
         // corner, so UE's UV and normal seams stay seams after the weld in ShapeToDynamicMesh. Polygroup ids are
         // renumbered densely in order of first use (the partition is UE's; PerShape collapses it to one, as
-        // UAddPrimitiveTool::UpdatePreviewMesh does). Tangents follow +U, as the renderer's normal maps expect.
+        // UAddPrimitiveTool::UpdatePreviewMesh does). Tangents are MikkTSpace's (ComputeShapeTangents).
         inline ShapeMesh ToShapeMesh( const UEShapeBuffers& g, ShapePolygroupMode mode )
         {
             ShapeMesh m;
@@ -510,7 +516,6 @@ namespace Desert::Geometry
             std::unordered_map<uint64_t, uint32_t> corners;
             corners.reserve( g.Triangles.size() * 3 );
             std::map<int, int>     groups;
-            std::vector<glm::vec3> tangents;
             for ( size_t t = 0; t < g.Triangles.size(); ++t )
             {
                 std::array<uint32_t, 3> out{};
@@ -529,7 +534,6 @@ namespace Desert::Geometry
                         v.TexCoord = g.UVs[static_cast<size_t>( key[1] )];
                         v.Normal   = FromUE( glm::dvec3( g.Normals[static_cast<size_t>( key[2] )] ) );
                         m.Vertices.push_back( v );
-                        tangents.emplace_back( 0.0f );
                     }
                     out[static_cast<size_t>( k )] = it->second;
                 }
@@ -538,35 +542,15 @@ namespace Desert::Geometry
                 m.Groups.push_back( mode == ShapePolygroupMode::PerShape
                                          ? 0
                                          : groups.emplace( id, static_cast<int>( groups.size() ) ).first->second );
-
-                const Vertex&   a  = m.Vertices[out[0]];
-                const Vertex&   b  = m.Vertices[out[1]];
-                const Vertex&   c  = m.Vertices[out[2]];
-                const glm::vec3 e1 = b.Position - a.Position;
-                const glm::vec3 e2 = c.Position - a.Position;
-                const glm::vec2 d1 = b.TexCoord - a.TexCoord;
-                const glm::vec2 d2 = c.TexCoord - a.TexCoord;
-                const float     r  = d1.x * d2.y - d2.x * d1.y;
-                if ( std::abs( r ) > 1e-12f )
-                {
-                    const glm::vec3 dPdU = ( e1 * d2.y - e2 * d1.y ) / r;
-                    for ( const uint32_t i : out )
-                        tangents[i] += dPdU;
-                }
             }
             for ( size_t i = 0; i < m.Vertices.size(); ++i )
             {
                 Vertex&   v = m.Vertices[i];
                 glm::vec3 n = v.Normal;
                 n           = glm::length( n ) > 1e-12f ? glm::normalize( n ) : glm::vec3( 0.0f, 1.0f, 0.0f );
-                glm::vec3 t = tangents[i] - n * glm::dot( n, tangents[i] );
-                if ( glm::length( t ) < 1e-8f )
-                    t = glm::cross( n, std::abs( n.y ) < 0.9f ? glm::vec3( 0.0f, 1.0f, 0.0f )
-                                                              : glm::vec3( 1.0f, 0.0f, 0.0f ) );
                 v.Normal    = n;
-                v.Tangent   = glm::normalize( t );
-                v.Bitangent = glm::normalize( glm::cross( n, v.Tangent ) );
             }
+            ComputeShapeTangents( m );
             return m;
         }
 
@@ -1706,6 +1690,7 @@ namespace Desert::Geometry
             Detail::AddTriangle( m, groups.Next( 1 + i ), { base[i], base[( i + 1 ) % 4], apex },
                                  { glm::vec2( 0.0f, 0.0f ), glm::vec2( 1.0f, 0.0f ), glm::vec2( 0.5f, 1.0f ) } );
         }
+        Detail::ComputeShapeTangents( m );
         Detail::ApplyPivot( m, options.Pivot );
         return m;
     }
@@ -1793,10 +1778,9 @@ namespace Desert::Geometry
         inline void AddSmoothQuad( ShapeMesh& m, int group, const std::array<glm::vec3, 4>& p,
                                    const std::array<glm::vec3, 4>& n, const std::array<glm::vec2, 4>& uv )
         {
-            const glm::vec3 t    = glm::normalize( p[1] - p[0] );
             const auto      base = static_cast<uint32_t>( m.Vertices.size() );
             for ( int i = 0; i < 4; ++i )
-                PushVertex( m, p[i], n[i], t, uv[i] );
+                PushVertex( m, p[i], n[i], uv[i] );
             m.Indices.push_back( { base + 0, base + 1, base + 2 } );
             m.Indices.push_back( { base + 2, base + 3, base + 0 } );
             m.Groups.push_back( group );
@@ -1935,6 +1919,7 @@ namespace Desert::Geometry
             across( groups.Next( face++ ), { s, s + 1 }, { s + 1, s + 1 }, 0.0f, 1.0f );
         }
         Detail::CentreOnXZ( m );
+        Detail::ComputeShapeTangents( m );
         Detail::ApplyPivot( m, options.Pivot );
         return m;
     }
