@@ -889,15 +889,49 @@ namespace Desert::Editor::Tools
 
     namespace
     {
-        // FO-6: the grid foliage is filed by - the world's first grid, the one the planner places every
-        // composite by (an instance host names no RuntimeGrid, so it streams on the first grid) - or none for a world that is not partitioned, whose
-        // foliage stays one field per type (UE: one IFA per level).
-        std::optional<double> FoliageCellSize( ::Desert::Core::Scene& scene )
+        // The RuntimeGrid name @p entity states (UE AActor::RuntimeGrid); absent = the world's first grid.
+        std::optional<std::string> RuntimeGridOf( const ECS::Entity& entity )
+        {
+            if ( !entity.HasComponent<ECS::RuntimeGridComponent>() )
+                return std::nullopt;
+            return entity.GetComponent<ECS::RuntimeGridComponent>().Data.Grid;
+        }
+
+        // FO-6 / WP22e: the grid a foliage field is filed by - the runtime grid its entity streams on (UE: the
+        // foliage actor's RuntimeGrid; Rules::GridIndexOf, the planner's own rule), so painted foliage is cut by
+        // the cell of the grid it streams on, not by the world's first grid. Grid = nullopt and CellSize =
+        // nullopt for a world that is not partitioned, whose foliage stays one field per type (UE: one IFA per
+        // level). A grid name the world does not state is an error naming the field - never the first grid.
+        struct FoliageGrid
+        {
+            std::optional<std::size_t> Grid;
+            std::optional<double>      CellSize;
+        };
+        Common::ResultStr<FoliageGrid> FoliageGridOf( ::Desert::Core::Scene& scene, const ECS::Entity& holder )
         {
             const auto& partition = scene.GetWorldPartition();
             if ( !partition.has_value() || partition->Grids.empty() )
-                return std::nullopt;
-            return static_cast<double>( partition->Grids[0].CellSize );
+                return Common::MakeSuccess( FoliageGrid{} );
+            const std::optional<std::string> wanted = RuntimeGridOf( holder );
+            const auto                       grid   = ::Desert::Core::Rules::GridIndexOf( *partition, wanted );
+            if ( !grid.has_value() )
+                return Common::MakeFormattedError<FoliageGrid>(
+                     "foliage: '{}' streams on grid '{}', which this world does not state (World Partition panel, "
+                     "HLOD per grid lists the grids)",
+                     holder.GetComponent<ECS::TagComponent>().Tag, wanted.value_or( std::string() ) );
+            return Common::MakeSuccess(
+                 FoliageGrid{ grid, static_cast<double>( partition->Grids[*grid].CellSize ) } );
+        }
+
+        // Whether @p field is filed on @p grid (FoliageGridOf of the palette row): every field when the world
+        // is not partitioned; a field naming a grid the world lacks is on none.
+        bool OnGrid( ::Desert::Core::Scene& scene, const ECS::Entity& field, const FoliageGrid& grid )
+        {
+            if ( !grid.Grid.has_value() )
+                return true;
+            const auto& partition = scene.GetWorldPartition();
+            return partition.has_value() &&
+                   ::Desert::Core::Rules::GridIndexOf( *partition, RuntimeGridOf( field ) ) == grid.Grid;
         }
 
         bool IsFoliageField( const ECS::Entity& entity )
@@ -961,6 +995,7 @@ namespace Desert::Editor::Tools
         struct CellGather
         {
             ECS::Entity                            Lead; ///< the palette row: what a new cell field copies
+            FoliageGrid                            Grid; ///< the row's grid: the cell every field here is cut by
             std::vector<Common::UUID>              Fields;
             std::vector<World::Foliage::CellCoord> Cells;
             World::Foliage::FoliageGathered        Data;
@@ -976,12 +1011,19 @@ namespace Desert::Editor::Tools
                 return Common::MakeFormattedError<CellGather>( "foliage: palette row {} is not a foliage field",
                                                                static_cast<uint64_t>( row ) );
             CellGather gather;
-            gather.Lead                                            = ref->get();
-            const auto                                    cellSize = FoliageCellSize( scene );
+            gather.Lead      = ref->get();
+            const auto grid  = FoliageGridOf( scene, gather.Lead );
+            if ( !grid )
+                return Common::MakeFormattedError<CellGather>( "{}", grid.GetError() );
+            gather.Grid                                            = grid.GetValue();
+            const auto                                    cellSize = gather.Grid.CellSize;
             std::vector<World::Foliage::FoliageCellField> fields;
             for ( const auto& field :
                   FieldsOfType( scene, gather.Lead.GetComponent<ECS::FoliageComponent>().FoliageType ) )
             {
+                // Another grid's fields of the type are cut by that grid's cell: they are not this row's cells.
+                if ( !OnGrid( scene, field, gather.Grid ) )
+                    continue;
                 World::Foliage::CellCoord cell;
                 if ( cellSize.has_value() )
                 {
@@ -1011,7 +1053,7 @@ namespace Desert::Editor::Tools
         Common::BoolResultStr ScatterCells( ::Desert::Core::Scene& scene, CellGather& gather,
                                             FoliageStroke& stroke )
         {
-            const auto cellSize = FoliageCellSize( scene );
+            const auto cellSize = gather.Grid.CellSize;
             // Two fields filed under one cell (a type replaced into another, a world whose grid changed) meet in
             // the first; the others come back empty. Not partitioned, every field is "the one cell".
             std::vector<World::Foliage::CellCoord>  unique;
@@ -1051,6 +1093,7 @@ namespace Desert::Editor::Tools
                 const auto type    = gather.Lead.GetComponent<ECS::FoliageComponent>().FoliageType;
                 const auto lead    = gather.Lead.GetComponent<ECS::InstancedStaticMeshComponent>();
                 const auto tag     = gather.Lead.GetComponent<ECS::TagComponent>().Tag;
+                const auto onGrid  = RuntimeGridOf( gather.Lead );
                 const bool visible = !gather.Lead.HasComponent<ECS::VisibilityComponent>() ||
                                      gather.Lead.GetComponent<ECS::VisibilityComponent>().Visible;
                 for ( std::size_t i = unique.size(); i < out.size(); ++i )
@@ -1068,6 +1111,9 @@ namespace Desert::Editor::Tools
                     ism.MaterialSlots = lead.MaterialSlots;
                     ism.CastShadows   = lead.CastShadows;
                     ism.CastContactShadow = lead.CastContactShadow;
+                    // The new cell's field streams on the row's grid, the grid its cell was cut by.
+                    if ( onGrid.has_value() )
+                        field.AddComponent<ECS::RuntimeGridComponent>().Data.Grid = *onGrid;
                     if ( !visible )
                         scene.SetVisibleRecursive( field, false );
                     const auto uuid = field.GetComponent<ECS::UUIDComponent>().UUID;
@@ -1182,7 +1228,12 @@ namespace Desert::Editor::Tools
         const LandscapeTileIndex tiles( scene );
         const auto               landscapeSet = scene.GatherRaycastLandscape();
         ProceduralFoliageHost    host;
-        host.CellSize = FoliageCellSize( scene );
+        // The volume's fields stream on the volume's grid and are cut by its cell (WP22e).
+        const std::optional<std::string> volumeGrid = RuntimeGridOf( found->get() );
+        const auto                       grid       = FoliageGridOf( scene, found->get() );
+        if ( !grid )
+            return Common::MakeFormattedError<Result>( "procedural {}", grid.GetError() );
+        host.CellSize = grid.GetValue().CellSize;
         host.Trace    = [&]( const glm::vec3& start, const glm::vec3& end,
                           const FoliageSurfaceFilter& filter ) -> std::optional<FoliageTraceHit>
         {
@@ -1307,6 +1358,8 @@ namespace Desert::Editor::Tools
             ism.MeshHandle         = type->GetMeshHandle();
             ism.InstanceTransforms = fresh.Instances;
             field.AddComponent<ECS::ProceduralFoliageFieldComponent>().Owner = volumeId;
+            if ( volumeGrid.has_value() )
+                field.AddComponent<ECS::RuntimeGridComponent>().Data.Grid = *volumeGrid;
             transaction->Made( field.GetComponent<ECS::UUIDComponent>().UUID );
             return BOOLSUCCESS;
         };
@@ -1325,10 +1378,15 @@ namespace Desert::Editor::Tools
         const auto             ref = scene.FindEntityByID( row );
         if ( !ref || !IsFoliageField( ref->get() ) )
             return all;
-        const auto cellSize = FoliageCellSize( scene );
+        const auto grid = FoliageGridOf( scene, ref->get() );
+        if ( !grid )
+            return all;
+        const auto cellSize = grid.GetValue().CellSize;
         for ( const auto& field :
               FieldsOfType( scene, ref->get().GetComponent<ECS::FoliageComponent>().FoliageType ) )
         {
+            if ( !OnGrid( scene, field, grid.GetValue() ) )
+                continue;
             if ( around.has_value() && cellSize.has_value() &&
                  !World::Foliage::FoliageCellTouchesDisc( CellOfField( field, *cellSize ), *cellSize, around->x,
                                                           around->z, radius ) )

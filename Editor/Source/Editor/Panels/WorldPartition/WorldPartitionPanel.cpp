@@ -354,14 +354,45 @@ namespace Desert::Editor
             return;
         }
 
+        // ── the grid shown (UE's runtime hash grid picker): every grid of the partition reachable ──
+        if ( m_Grid >= partition->Grids.size() )
+        {
+            m_Grid         = 0;
+            m_FocusPending = true;
+        }
+        ImGui::SetNextItemWidth( 140.0f );
+        if ( ImGui::BeginCombo( "Grid", partition->Grids[m_Grid].Name.c_str() ) )
+        {
+            for ( std::size_t g = 0; g < partition->Grids.size(); ++g )
+            {
+                ImGui::PushID( static_cast<int>( g ) );
+                const bool picked = g == m_Grid;
+                if ( ImGui::Selectable( partition->Grids[g].Name.c_str(), picked ) && !picked )
+                {
+                    m_Grid         = g;
+                    m_FocusPending = true;
+                    m_Fitted       = false;
+                }
+                if ( picked )
+                    ImGui::SetItemDefaultFocus();
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        const ::Desert::Core::WorldPartitionGridSerialized& shown = partition->Grids[m_Grid];
+        // A plan without per-grid levels (none planned yet) shows the world's level count.
+        const int gridLevels =
+             m_Grid < plan->GridLevelCount.size() ? plan->GridLevelCount[m_Grid] : plan->LevelCount;
+        const std::size_t gridCells = static_cast<std::size_t>(
+             std::ranges::count( plan->Cells, m_Grid, &::Desert::Core::Rules::PlannedCell::Grid ) );
+        const int maxLevel = std::max( gridLevels - 1, 0 );
+        m_Level            = std::min( m_Level, maxLevel );
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 120.0f );
-        const int maxLevel = std::max( plan->LevelCount - 1, 0 );
         ImGui::SliderInt( "Level", &m_Level, -1, maxLevel, m_Level < 0 ? "all" : "L%d" );
         ImGui::SameLine();
-        ImGui::TextDisabled( "%zu cells, %zu always-loaded, %d level(s), cell %.0f m", plan->Cells.size(),
-                             plan->AlwaysLoaded.size(), plan->LevelCount,
-                             static_cast<double>( partition->Grids[0].CellSize ) / 100.0 );
+        ImGui::TextDisabled( "%zu cells, %zu always-loaded, %d level(s), cell %.0f m", gridCells,
+                             plan->AlwaysLoaded.size(), gridLevels, static_cast<double>( shown.CellSize ) / 100.0 );
 
         DrawMap( *plan, *partition, residency, streamer );
     }
@@ -494,7 +525,9 @@ namespace Desert::Editor
         avail.x             = std::max( avail.x, kMinMapPixels );
         avail.y             = std::max( avail.y, kMinMapPixels );
         const glm::dvec2 size( avail.x, avail.y );
-        const float      cellSize = partition.Grids[0].CellSize;
+        // Only the picked grid is drawn (OnUIRender keeps m_Grid inside partition.Grids).
+        const ::Desert::Core::WorldPartitionGridSerialized& grid     = partition.Grids[m_Grid];
+        const float                                         cellSize = grid.CellSize;
 
         ImGui::InvisibleButton( "##wpmap", avail,
                                 ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
@@ -536,7 +569,7 @@ namespace Desert::Editor
             m_Fitted       = true;
             if ( streamer != nullptr && m_Follow && sourcePos )
                 m_View = Map::Follow( size, { sourcePos->x, sourcePos->z } );
-            else if ( const auto bounds = Map::PlanBounds( plan ) )
+            else if ( const auto bounds = Map::PlanBounds( plan, m_Grid ) )
                 Map::Focus( m_View, size, *bounds );
         }
         if ( streamer != nullptr && m_Follow && sourcePos )
@@ -570,7 +603,7 @@ namespace Desert::Editor
                 const float threshold = io.MouseDragThreshold;
                 if ( io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < threshold * threshold )
                 {
-                    if ( const auto index = Map::CellAt( plan, *m_DragFrom, m_Level ) )
+                    if ( const auto index = Map::CellAt( plan, *m_DragFrom, m_Level, m_Grid ) )
                         m_Selection = plan.Cells[*index].Square;
                     else
                         m_Selection.reset();
@@ -608,7 +641,7 @@ namespace Desert::Editor
         }
 
         // ── cells, coarse levels first ──
-        for ( const std::size_t index : Map::VisibleCells( plan, m_View, size, m_Level ) )
+        for ( const std::size_t index : Map::VisibleCells( plan, m_View, size, m_Level, m_Grid ) )
         {
             const auto&          cell  = plan.Cells[index];
             const Map::CellState state = Map::StateOf( plan, residency, index, m_EditCells );
@@ -643,10 +676,10 @@ namespace Desert::Editor
         for ( const ::Desert::Core::Rules::StreamingSource& source : sources )
         {
             const ImVec2 at     = ToScreen( m_View, size, origin, { source.Position.x, source.Position.z } );
-            const double loadCm = ::Desert::Core::Rules::SourceRadius( source, partition.Grids[0] );
+            const double loadCm = ::Desert::Core::Rules::SourceRadius( source, grid );
             const float  margin = streamer != nullptr ? streamer->Settings().UnloadMargin
                                                       : ::Desert::Core::Rules::ResidencySettings{}.UnloadMargin;
-            for ( const auto& sector : ::Desert::Core::Rules::SourceSectors( source, partition.Grids[0] ) )
+            for ( const auto& sector : ::Desert::Core::Rules::SourceSectors( source, grid ) )
             {
                 PaintSector( list, m_View, size, origin, sector, 1.0, 1.0, IM_COL32( 255, 255, 255, 200 ), false );
                 PaintSector( list, m_View, size, origin, sector, 1.0 + margin, 1.0 + margin,
@@ -668,7 +701,7 @@ namespace Desert::Editor
 
         // ── legend: every state, every cell at the shown level (on screen or not) ──
         {
-            const std::vector<Map::LegendRow> legend = Map::Legend( plan, residency, m_Level, m_EditCells );
+            const std::vector<Map::LegendRow> legend = Map::Legend( plan, residency, m_Level, m_EditCells, m_Grid );
             const float                       h      = ImGui::GetTextLineHeight();
             ImVec2                            row( origin.x + 8.0f, corner.y - 8.0f );
             for ( const Map::LegendRow& entry : std::views::reverse( legend ) )
@@ -686,7 +719,7 @@ namespace Desert::Editor
         {
             const glm::dvec2 world =
                  Map::ScreenToWorld( m_View, size, { io.MousePos.x - origin.x, io.MousePos.y - origin.y } );
-            if ( const auto index = Map::CellAt( plan, world, m_Level ) )
+            if ( const auto index = Map::CellAt( plan, world, m_Level, m_Grid ) )
             {
                 const auto& cell = plan.Cells[*index];
                 ImGui::BeginTooltip();

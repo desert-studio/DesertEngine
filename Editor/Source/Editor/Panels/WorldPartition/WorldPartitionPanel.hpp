@@ -132,6 +132,10 @@ namespace Desert::Editor
         glm::dvec2              m_MapSize{ 0.0 };       // the canvas size the view was last drawn at
         bool                    m_Follow       = true; // Play: keep the streaming source centred (UE's default)
         int                     m_Level        = -1;   // -1 shows every level
+        // The runtime grid the map, the header and the source circles show (index into the partition's Grids):
+        // UE's World Partition editor shows one runtime hash grid at a time; every grid is reachable by the
+        // picker beside the Level slider.
+        std::size_t m_Grid = 0;
         bool                    m_WasPlaying   = false;
     };
 } // namespace Desert::Editor

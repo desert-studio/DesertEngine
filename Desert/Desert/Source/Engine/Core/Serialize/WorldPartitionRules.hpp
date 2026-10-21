@@ -1439,6 +1439,25 @@ namespace Desert::Core::Rules
         return Common::Json::ReportIssues( plan.Issues, std::format( "the world partition plan of '{}'", world ) );
     }
 
+    // THE GRID A RuntimeGrid NAME STREAMS ON (UE AActor::RuntimeGrid), the one rule the planner and every editor
+    // tool that files content by grid (the foliage brush, the procedural volume) read: absent = the world's
+    // first grid, UE's main grid; a name the world does not state = nullopt - never read as the first grid by a
+    // guess (the planner reports it as a MissingReference Issue with the record's path).
+    [[nodiscard]] inline std::optional<std::size_t> GridIndexOf( const WorldPartitionSerialized&   settings,
+                                                                 const std::optional<std::string>& wanted )
+    {
+        if ( settings.Grids.empty() )
+            return std::nullopt;
+        if ( !wanted.has_value() )
+            return std::size_t{ 0 };
+        const auto found = std::find_if( settings.Grids.begin(), settings.Grids.end(),
+                                         [&]( const WorldPartitionGridSerialized& grid )
+                                         { return grid.Name == *wanted; } );
+        if ( found == settings.Grids.end() )
+            return std::nullopt;
+        return static_cast<std::size_t>( found - settings.Grids.begin() );
+    }
+
     // THE PLANNER, over descriptors (an index on disk, EntityDescriptorIndex.hpp, or DescribeEntities of a
     // scene in memory). Record `r` of the plan is descriptor `r`.
     [[nodiscard]] inline WorldPartitionPlan PlanWorldPartition( std::span<const EntityDescriptor> records,
@@ -1669,10 +1688,8 @@ namespace Desert::Core::Rules
             const std::optional<std::string>& wanted = records[held.Anchor].RuntimeGrid;
             if ( !wanted.has_value() )
                 continue;
-            const auto found = std::find_if( settings.Grids.begin(), settings.Grids.end(),
-                                             [&]( const WorldPartitionGridSerialized& grid )
-                                             { return grid.Name == *wanted; } );
-            if ( found == settings.Grids.end() )
+            const std::optional<std::size_t> found = GridIndexOf( settings, wanted );
+            if ( !found.has_value() )
             {
                 plan.Issues.push_back( { std::format( "Entities[{}].{}.Grid", held.Anchor, kRuntimeGridComponent ),
                                          "grid", *wanted, Common::Json::IssueKind::MissingReference } );
@@ -1680,7 +1697,7 @@ namespace Desert::Core::Rules
                     held.Reason = AlwaysLoadedReason::NoGrid;
                 continue;
             }
-            held.Grid = static_cast<std::size_t>( found - settings.Grids.begin() );
+            held.Grid = *found;
         }
 
         // A Streaming Source's Target Grids name the world does not state streams nothing (Rules::TargetsGrid):

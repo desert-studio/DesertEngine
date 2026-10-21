@@ -60,18 +60,23 @@ namespace Desert::Editor::WorldPartitionMap
     // UE's follow-player view in Play: the source at the centre, kFollowExtentCm on the shorter side.
     [[nodiscard]] View Follow( glm::dvec2 screenSize, glm::dvec2 sourceXZ );
 
+    // Every reader below takes @p grid: only the cells of that runtime grid (PlannedCell::Grid, index into
+    // WorldPartitionSerialized::Grids - the panel's grid picker); nullopt = every grid's cells.
+
     // The bounds of every cell of @p plan; nullopt for a plan without cells.
     [[nodiscard]] std::optional<::Desert::Core::Rules::CellBounds>
-    PlanBounds( const ::Desert::Core::Rules::WorldPartitionPlan& plan );
+    PlanBounds( const ::Desert::Core::Rules::WorldPartitionPlan& plan, std::optional<std::size_t> grid = {} );
 
     // Cells of @p plan whose square meets the panel, in PAINT order: coarser levels first, so a finer cell is
     // drawn over the coarse one that contains it. @p level < 0 shows every level.
     [[nodiscard]] std::vector<std::size_t> VisibleCells( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
-                                                         const View& view, glm::dvec2 screenSize, int level );
+                                                         const View& view, glm::dvec2 screenSize, int level,
+                                                         std::optional<std::size_t> grid = {} );
 
     // The finest cell of @p plan under @p world (the one painted on top); nullopt over empty ground.
     [[nodiscard]] std::optional<std::size_t> CellAt( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
-                                                     glm::dvec2 world, int level );
+                                                     glm::dvec2 world, int level,
+                                                     std::optional<std::size_t> grid = {} );
 
     // The ground rectangle a drag on the map spans from @p from to @p to (world X/Z, cm), corners in any order:
     // UE's box selection on the World Partition grid (SWorldPartitionEditorGrid2D, "Load Region from Selection").
@@ -131,7 +136,8 @@ namespace Desert::Editor::WorldPartitionMap
     // cannot make cells vanish from the legend.
     [[nodiscard]] std::vector<LegendRow> Legend( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
                                                  const ::Desert::Core::Rules::ResidencyState* residency, int level,
-                                                 std::span<const CellState> editor = {} );
+                                                 std::span<const CellState> editor = {},
+                                                 std::optional<std::size_t> grid   = {} );
 
     // The streaming source's loading circle and its unload band, in pixels.
     [[nodiscard]] double RadiusPixels( const View& view, double radiusCm );
