@@ -3,6 +3,7 @@
 // one transaction per stroke become an ImGui-driven tool and a CommandHistory entry; Slate becomes ImGui.
 
 #include "LandscapeSculptTool.hpp"
+#include "ViewportPress.hpp"
 
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
@@ -274,7 +275,7 @@ namespace Desert::Editor::Tools
                 World::Landscape::LandscapeRampMove( ramp, RampHit( scene, mouseRay ) );
             return;
         }
-        if ( !hovered || !ImGui::IsMouseClicked( ImGuiMouseButton_Left ) || ImGui::IsAnyItemActive() )
+        if ( !hovered || !ImGui::IsMouseClicked( ImGuiMouseButton_Left ) || WidgetClaimsMouse() )
             return;
         const auto    before = ramp;
         const int32_t picked = World::Landscape::PickLandscapeRampPoint( ramp, mouseRay.Origin, mouseRay.Direction,
@@ -428,7 +429,7 @@ namespace Desert::Editor::Tools
             return;
         }
         m_RampAtPress.reset();
-        const bool pressed = hovered && ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !ImGui::IsAnyItemActive();
+        const bool pressed = hovered && ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !WidgetClaimsMouse();
         if ( !pressed )
         {
             if ( m_Stroke )

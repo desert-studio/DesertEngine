@@ -63,6 +63,7 @@
 // ImGuiContext::WindowsFocusOrder — the editor's one record of where the user has been. See
 // ActiveViewportRule.hpp for why the order is read rather than a focus flag stored.
 #include <imgui_internal.h>
+#include "Tools/ViewportPress.hpp"
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -1978,14 +1979,8 @@ namespace Desert::Editor
         {
             m_FoliageTool.DrawPanel( *m_Scene, m_AssetManager, m_ViewportData.ViewportPos, m_UIHelper.get() );
             // A stroke starts on a press over the viewport and runs until release (one undo step); leaving the
-            // viewport mid-drag does not split it. A press on the scene image (a plain Image, no item) is a click
-            // on the window's void, so ImGui makes the window's own MoveId the active id from the next frame
-            // (UpdateMouseMovingWindowEndFrame) and holds it until release: that id is the viewport holding its
-            // own press, not a widget claiming it. Counting it as "an item is active" ended every stroke after
-            // its first frame, so a drag painted one dab where it was pressed and nothing along the way.
-            const ImGuiID activeId     = ImGui::GetActiveID();
-            const bool    widgetActive = activeId != 0 && activeId != ImGui::GetCurrentWindow()->MoveId;
-            const bool    pressing     = ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !widgetActive &&
+            // viewport mid-drag does not split it (WidgetClaimsMouse: the window's own press is not a widget's).
+            const bool pressing = ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !Tools::WidgetClaimsMouse() &&
                                   ( m_ViewportData.IsHovered || m_FoliageTool.IsStroking() );
             if ( const auto camera = ViewCamera() )
             {
