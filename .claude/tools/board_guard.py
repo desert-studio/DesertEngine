@@ -204,21 +204,22 @@ def main():
         late = unaccepted(s)
         if late:
             deny("сначала приём на доске: агенты сдали, карточки не обновлены — " + ", ".join(late) +
-                 ". notion-update-page: Статус, «Кто ведёт», итог/остаток в теле.")
+                 ". accept.sh, затем по ~/.claude/tools/lead_templates.md §6: update_properties (Статус, «Чем доказано», Токены) + insert_content (итог/остаток).")
         if tool == "Agent" and s["unblock"]:
             deny(unblock_reason(sorted(s["unblock"])))
         if tool == "Agent":
             code = code_from_text(str(tin.get("prompt") or ""))
             if not code:
                 deny("в промпте нет кода задачи («You are agent <КОД>» или /private/tmp/claude-501/<КОД>/BRIEF.md) — "
-                     "без кода карточку не сверить.")
+                     "без кода карточку не сверить. Промпт — шаблон ~/.claude/tools/lead_templates.md §5.")
             alive = running_agent(s, code)
             if alive:
                 deny(f"агент {code} ещё работает ({alive}): второй агент на ту же задачу правит то же дерево и сжигает "
                      "токены впустую (10-20: двойной PT-GLASS, 2,3 млн). Дождись его уведомления или TaskStop, потом запускай.")
             if code not in s["writes"]:
                 deny(f"нет карточки {code} на доске «Задачи»: создай/обнови ДО запуска (Код={code}, Статус «В работе», "
-                     "Ветка, «Кто ведёт»; заголовок «КОД · …»). Владелец 10-09: «почему я каждый раз тебя тыкаю?»")
+                     "Ветка, «Кто ведёт»; заголовок «КОД · …»): notion-search по коду → update_properties по шаблону "
+                     "~/.claude/tools/lead_templates.md §6, без fetch схемы. Владелец 10-09: «почему я каждый раз тебя тыкаю?»")
     sys.exit(0)
 
 

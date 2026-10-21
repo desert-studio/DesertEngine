@@ -388,6 +388,15 @@ def self_check():
         out = subprocess.run([sys.executable, __file__], input=json.dumps({
             "tool_name": "Agent", "hook_event_name": "PreToolUse",
             "tool_input": {"subagent_type": "general-purpose", "prompt": f"brief {fat}"}}), capture_output=True, text=True)
+        for name, case in {
+                "lead runs ledger by hand": {"tool_name": "Bash", "tool_input": {"command": "python3 ~/.claude/tools/ledger.py X fix done a"}},
+                "lead fetches the board schema": {"tool_name": "mcp__notion__notion-fetch",
+                                                  "tool_input": {"id": "collection://386f5e0e-e749-479b-83a7-59e03ef9b8b2"}}}.items():
+            out = subprocess.run([sys.executable, __file__], input=json.dumps(dict(case, hook_event_name="PreToolUse")),
+                                 capture_output=True, text=True)
+            cases[name] = None
+            if '"deny"' not in out.stdout:
+                failed.append(name)
         cases["lead launches a fat brief"] = None
         if '"deny"' not in out.stdout:
             failed.append("lead launches a fat brief")
@@ -416,7 +425,7 @@ def self_check():
             pass
     rules = ", ".join(cases)
     msg = (f"[agent_guard] А Р Х И Т Е К Т У Р А ПЕРВОЙ: решение = как правильно устроено (UE или лучше; где UE архитектурно хуже — сказать владельцу ДО кода, владелец 10-12), не замер/бюджет/урезанный охват "
-           f"(LEAD_PROTOCOL, DEV_CONTRACT §00). ПАУЗЫ НЕТ (владелец 10-05: «кончились токены»): незаконченные задачи обязательны, игра — параллельно; граф рендера не трогать. Бриф = ОДИН результат (хук: ≤ 2 пункта / 900 знаков в «## Сделать»). Статистика: ledger.py + process_event.py на каждый запуск/приём. self-check OK: {len(cases)} known-bad calls refused ({rules})." if not failed else
+           f"(LEAD_PROTOCOL, DEV_CONTRACT §00). ПАУЗЫ НЕТ (владелец 10-05: «кончились токены»): незаконченные задачи обязательны, игра — параллельно; граф рендера не трогать. Бриф = ОДИН результат (хук: ≤ 2 пункта / 900 знаков в «## Сделать»). Запуск/доска — по ~/.claude/tools/lead_templates.md (process_event.py launch на запуск); приём — одним ~/.claude/tools/accept.sh. self-check OK: {len(cases)} known-bad calls refused ({rules})." if not failed else
            f"[agent_guard] SELF-CHECK FAILED — these rules no longer bite: {', '.join(failed)}. "
            f"Restore .claude/tools/agent_guard.py from git history BEFORE launching any agent.")
     emit({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": msg}})
@@ -504,7 +513,7 @@ def main():
         running = lead_running_agents()
         if _dt.date.today() > NO_AGENT_CAP_THROUGH and len(running) >= MAX_WORKING_AGENTS:
             deny(f"[agent_guard] Тимлид: лимит владельца 10-16 — не более {MAX_WORKING_AGENTS} агентов одновременно; идут: "
-                 f"{', '.join(running)}. Дождись сдачи (ledger + process_event done|wip), потом запускай.", data, "lead")
+                 f"{', '.join(running)}. Дождись сдачи (accept.sh), потом запускай.", data, "lead")
     # Owner 10-05 («можно дать гарантию, что не повторится?»): three of four agents that day hit the 60-call cap with
     # 4-6-item briefs (VIDEO-1, MEDIA-3, VIDEO-2a: done 25 % vs 59 % baseline) and the next agent re-read the same files.
     # So a working agent is launched ONLY from a brief file whose «## Сделать» is ONE result: ≤ MAX_BRIEF_ITEMS numbered
@@ -525,6 +534,18 @@ def main():
             deny(f"[agent_guard] Тимлид: погодных агентов ({', '.join(codes)}) не запускать, пока {', '.join(pending)} не в "
                  f"origin/dev — выбор владельца 10-19 «2 и 3 ок». Сначала влей их (land_dev.sh), `git fetch --prune`, потом запускай.",
                  data, "lead")
+    # Owner 10-21 («да давай по пунктам этим», token items 4–6): an acceptance is ONE accept.sh call (ledger + event +
+    # tree + frame digest), not 6–8 hand calls; the board's schema is in lead_templates.md, never fetched again (6k
+    # characters re-read on every later request).
+    if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse":
+        tin = data.get("tool_input") or {}
+        if data.get("tool_name") == "Bash" and re.search(
+                r"python3?\s+\S*ledger\.py\s|python3?\s+\S*process_event\.py\s+(done|wip)\b", tin.get("command", "")):
+            deny("[agent_guard] Тимлид: приём — одним вызовом ~/.claude/tools/accept.sh CODE AGENT_ID KIND OUTCOME TREE "
+                 "[кадры] (ledger + process_event + ветка + кадры; владелец 10-21, пункт 4).", data, "lead")
+        if data.get("tool_name") == "mcp__notion__notion-fetch" and "386f5e0e" in str(tin.get("id") or ""):
+            deny("[agent_guard] Тимлид: схему доски не читать — поля и значения в ~/.claude/tools/lead_templates.md "
+                 "(владелец 10-21, пункт 6). Карточку — notion-search по коду, затем update.", data, "lead")
     if not agent or agent_type == "explore":
         sys.exit(0)  # the lead's own session, or a discovery agent: unrestricted
 
