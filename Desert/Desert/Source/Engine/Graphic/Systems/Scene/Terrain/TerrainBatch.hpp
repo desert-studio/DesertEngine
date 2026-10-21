@@ -118,7 +118,8 @@ namespace Desert::Graphic::System
     {
         std::shared_ptr<Image2D> Weightmap;
         // Bumped by LandscapeECSSystem whenever it rewrites the weightmap's pixels (a paint stroke): the
-        // ray-tracing BLAS of the tile reclassifies its hole cells on a change.
+        // ray-tracing BLAS of the tile reclassifies its hole cells on a change, and a cached local shadow whose
+        // caster discards by the visibility layer keys on it (TerrainRenderer::LocalShadowSignature).
         uint64_t                                                           Revision   = 0;
         uint32_t                                                           LayerCount = 0;
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> Colors{};
@@ -166,8 +167,10 @@ namespace Desert::Graphic::System
     // (ComputeBoundsScreenRadiusSquared), adapted: the UE proxy's LOD0ScreenSize / LOD0DistributionSetting /
     // LODDistributionSetting / LODBlendRange are UE's defaults as constants (no per-landscape override yet),
     // no r.StaticMeshLODDistanceScale, and MaxLOD is the last stride-2^L grid of the tile (LandscapeLod.glslh)
-    // instead of the heightmap's last mip. The whole tile takes ONE continuous LOD, from the main camera,
-    // for every pass — the cascades draw the camera's vertices, so a shadow cannot swim against its caster.
+    // instead of the heightmap's last mip. The whole tile takes ONE continuous LOD per view: the main camera's
+    // for the camera's passes and the cascades (they draw the camera's vertices, so a sun shadow cannot swim
+    // against its caster), and a point/spot light's own, from its position, for that light's views — their
+    // depth is cached, and a camera-chosen LOD would redraw it on every camera move (TerrainRenderer).
     inline constexpr float kLandscapeLod0ScreenSize   = 0.5f;
     inline constexpr float kLandscapeLod0Distribution = 1.25f;
     inline constexpr float kLandscapeLodDistribution  = 3.0f;

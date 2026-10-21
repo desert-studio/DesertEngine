@@ -213,6 +213,10 @@ namespace Desert::Graphic
         // point and spot lights of its froxel. Bound where the layout has the two storage blocks.
         RDG::BufferRef LightGridParams;
         RDG::BufferRef LightGridCells;
+        // The table of the local shadow atlas's views (ViewLightBuffers::ShadowViews) each point/spot row's
+        // shadowView names: read with the atlas wherever a lit pass shades the grid's lights
+        // (Mesh/LocalLightShadow.glslh).
+        RDG::BufferRef LocalShadowViews;
         // "Shadows: Ray Traced Sun": the render-resolution screen shadow mask the trace wrote (R = sun visibility,
         // SceneRenderer::AddFrameRayTracedSunShadow), read by a forward draw's DESERT_SUN_SHADOW_SCREEN_MASK
         // permutation in place of the cascades. Invalid when the sun is not ray traced (nothing then reads it).
@@ -285,6 +289,8 @@ namespace Desert::Graphic
     // The light grid's two blocks (Mesh/LightGrid.glslh): the build shader, the composite, the forward cells.
     inline constexpr std::string_view kLightGridParamsBlockName = "LightGridParamsUB";
     inline constexpr std::string_view kLightGridCellsBlockName  = "LightGridCellsUB";
+    // The local shadow atlas's view table (Mesh/LocalLightShadowView.glslh): the composite, the forward cells.
+    inline constexpr std::string_view kLocalShadowViewsBlockName = "LocalShadowViewsUB";
     // A READER of the world layout's cells (Mesh/LightGrid.glslh, LIGHT_GRID_WORLD_CELLS); the build shader writes
     // either layout through kLightGridCellsBlockName.
     inline constexpr std::string_view kLightGridWorldCellsBlockName = "LightGridWorldCellsUB";
@@ -310,6 +316,7 @@ namespace Desert::Graphic
         inputs.RainOcclusionMap       = t.RainOcclusionMap.IsValid() ? t.RainOcclusionMap : refs.System.White;
         inputs.LightGridParams        = t.Lights.GridParams;
         inputs.LightGridCells         = t.Lights.GridCells;
+        inputs.LocalShadowViews       = t.Lights.ShadowViews;
         inputs.RadianceCacheParams      = t.RadianceCacheParams;
         inputs.RadianceCacheIndirection = t.RadianceCacheIndirection;
         inputs.RadianceCacheProbes      = t.RadianceCacheProbes;
@@ -425,13 +432,14 @@ namespace Desert::Graphic
                                      slot.Kind == RDG::ShaderResourceKind::StorageBuffer;
                           } ) )
             block.Storage( kSceneViewReflectionListName, inputs.ReflectionCaptures, RDG::Access::StorageRead );
-        // The light grid, where the shader reads it. A frame graph without the grid (no AddFrameLightGrid) hands
-        // invalid refs, and a shader that reads the grid then faults its pass by name rather than reading nothing.
-        // The MegaLights volume's block likewise (invalid before AddFrameMegaLightsVolume: a reader faults by
-        // name).
+        // The light grid and the local shadow views its lights name, where the shader reads them. A frame graph
+        // without them (no AddFrameLightGrid) hands invalid refs, and a shader that reads them then faults its
+        // pass by name rather than reading nothing. The MegaLights volume's block likewise (invalid before
+        // AddFrameMegaLightsVolume: a reader faults by name).
         for ( const auto& [name, buffer] :
               { std::pair{ kLightGridParamsBlockName, inputs.LightGridParams },
                 std::pair{ kLightGridCellsBlockName, inputs.LightGridCells },
+                std::pair{ kLocalShadowViewsBlockName, inputs.LocalShadowViews },
                 std::pair{ kMegaLightsVolumeBlockName, inputs.MegaLightsVolume.Params } } )
             if ( SceneViewDetail::LayoutReadsBuffer( layout, name ) )
                 block.Storage( name, buffer, RDG::Access::StorageRead );

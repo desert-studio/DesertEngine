@@ -1,0 +1,74 @@
+#ifndef FORWARD_LOCAL_LIGHTS_GLSLH
+#define FORWARD_LOCAL_LIGHTS_GLSLH
+
+// THE POINT AND SPOT LIGHTS OF A FORWARD SURFACE, with their shadows: one statement for every forward program that
+// shades a pixel with them — the forward mesh cells (Mesh/Surface/Pass_Forward.glslh), the translucent cells
+// (Pass_Forward_Translucent.glslh) and the forward terrain (Programs/Terrain/Terrain.shader). A pixel is shaded by
+// the lights of its froxel of the view's light grid ("LightGrid" compute node, Programs/Deferred/LightGridBuild.shader),
+// each shadowed by Mesh/LocalLightShadow.glslh — the reader the deferred composite uses — so a light lights and
+// shadows a forward surface exactly as it does a G-buffer texel.
+//
+// The includer has included Common/ContactShadow.glslh with its inputs first: the lights' contact shadows are
+// applied with their shadow-map shadows. The bindings below are the light buffers' numbers every lit program
+// shares (LightsMetadata 4, PointLightsUB 6, SpotLightsUB 16: written by name by SceneFrameBinding's Lights group)
+// and the reserved scene-read range's (Core::kLightGridParamsBinding .. kLocalShadowViewsBinding,
+// ShaderGraphBindings.hpp: bound by name from the frame graph, BindSceneViewInputs); the includer keeps them free.
+#include <Mesh/PointLight.glslh>
+#include <Mesh/Spotlight.glslh>
+#include <Mesh/LightsMetadata.glslh>
+
+#include <Mesh/LightGrid.glslh>
+layout( std430, binding = 29 ) readonly buffer LightGridParamsUB
+{
+    LightGridParams lightGrid;
+};
+layout( std430, binding = 30 ) readonly buffer LightGridCellsUB
+{
+    uint lightGridCells[];
+};
+
+// The view's local shadow atlas and the table of its views each light's shadowView names (Graphic/LocalShadows.hpp).
+// The atlas is a separate texture read through the pass's shared point-clamped state (the includer declares
+// u_PointClampSampler, as the deferred composite does), so it costs no sampler of its own in the stage's limit.
+#include <Mesh/LocalLightShadowView.glslh>
+layout( binding = 38 ) uniform texture2D u_LocalShadowAtlas;
+#define u_LocalShadowAtlas sampler2D( u_LocalShadowAtlas, u_PointClampSampler )
+layout( std430, binding = 39 ) readonly buffer LocalShadowViewsUB
+{
+    LocalShadowView localShadowViews[];
+};
+#include <Mesh/LocalLightShadow.glslh>
+
+// The lights of one pixel's froxel, in the order the full loop sums them (points, then spots). An overflowed cell
+// (more lights than its list holds) is shaded by every light: slower, never wrong.
+struct ForwardLightList
+{
+    uint Offset;
+    uint Count;
+    bool Overflowed;
+};
+
+ForwardLightList ForwardLightListAt( vec2 fragCoord, vec3 worldPosition )
+{
+    const uint       cell      = LightGridCellAt( lightGrid, fragCoord, worldPosition );
+    const uint       cellCount = lightGridCells[cell];
+    ForwardLightList list;
+    list.Overflowed = LightGridCellOverflowed( lightGrid, cellCount );
+    list.Offset     = LightGridListOffset( lightGrid, cell );
+    list.Count = list.Overflowed ? lightsMetadata.PointLightCount + lightsMetadata.SpotLightCount : cellCount;
+    return list;
+}
+
+// The list's @p j-th light as a shading model receives it: its radiance at @p worldPosition and its shadow — the
+// shadow map's (a light that casts none has shadowView -1) times its contact shadow (0 length = none).
+// `subsurfaceOpacity`: the receiver's (DesertSubsurfaceOpacity; -1 = not a subsurface model).
+DesertLight ForwardLocalLightAt( ForwardLightList list, uint j, vec3 worldPosition, vec3 N, float subsurfaceOpacity )
+{
+    const uint index = list.Overflowed ? j : lightGridCells[list.Offset + j];
+    if ( index < lightsMetadata.PointLightCount )
+        return DesertShadowedPointLightAt( pointLights[index], worldPosition, N, subsurfaceOpacity );
+    return DesertShadowedSpotLightAt( spotLights[index - lightsMetadata.PointLightCount], worldPosition, N,
+                                      subsurfaceOpacity );
+}
+
+#endif // FORWARD_LOCAL_LIGHTS_GLSLH

@@ -272,12 +272,16 @@ TEST( SkyLookCensus, EveryProgramThatReadsAnEnvironmentCubeAppliesTheLook )
     const std::set<std::string> registered = {
          "Programs/Deferred/DeferredLighting.shader", // the deferred composite's ambient
          "Mesh/Surface/Pass_Forward.glslh", // every surface template's forward cell (StandardSurface, graphs)
-         // a Translucent template's forward cell: the sky's reflection at the glass's grazing edge; its
+         // a Translucent template's forward cell: the environment's reflection at the glass's grazing edge
+         // (AmbientIBL's DesertSampleViewAmbient: the captures over the sky); its
          // instance gets the cube AND the look together from SceneFrameBinding::ApplyTo -> SceneEnvironmentBind
          // (MeshRenderer::RenderGlassManual)
          "Mesh/Surface/Pass_Forward_Translucent.glslh",
          "Programs/Preview/CubemapSphere.shader", // the Details panel's ball beside the sliders
          "Programs/Skybox/Skybox.shader",         // the backdrop
+         // the Forward path's ground: the same ambient as a forward mesh (AmbientIBL), the look from
+         // SceneFrameBinding::ApplyTo -> SceneEnvironmentBind (TerrainRenderer::PrepareFrame)
+         "Programs/Terrain/Terrain.shader",
     };
 
     // The names the engine binds environment cubes under: the IBL pair, the skybox pass's cube, and

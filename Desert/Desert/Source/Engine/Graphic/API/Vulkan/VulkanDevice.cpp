@@ -108,6 +108,17 @@ namespace Desert::Graphic::API::Vulkan
             m_Capabilities.SupportsTimestampQueries  = deviceProperties.limits.timestampComputeAndGraphics == VK_TRUE;
             m_Capabilities.TimestampPeriodNs         = deviceProperties.limits.timestampPeriod;
 
+            // The per-stage descriptor ceilings a shader's bindings are held against (MoltenVK reports
+            // Metal's, far below a desktop driver's): logged so a stage near the limit is seen at start-up.
+            LOG_INFO( "[Vulkan] per-stage limits: samplers {}, sampled images {}, uniform buffers {}, storage "
+                      "buffers {}, storage images {}, resources {}",
+                      deviceProperties.limits.maxPerStageDescriptorSamplers,
+                      deviceProperties.limits.maxPerStageDescriptorSampledImages,
+                      deviceProperties.limits.maxPerStageDescriptorUniformBuffers,
+                      deviceProperties.limits.maxPerStageDescriptorStorageBuffers,
+                      deviceProperties.limits.maxPerStageDescriptorStorageImages,
+                      deviceProperties.limits.maxPerStageResources );
+
             // Float render targets: RGBA32F must be usable as a colour attachment AND blendable, which is
             // what every accumulating screen-space pass (SSR trace/resolve, GI resolve, bloom) relies on.
             {

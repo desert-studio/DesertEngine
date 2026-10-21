@@ -35,7 +35,9 @@
 //
 //     Uniform(a) texture2DArray u_ShadowCascades; // layer c = cascade c
 //     #define u_ShadowCascades sampler2DArray(u_ShadowCascades, u_LinearRepeatSampler) // a shared state of the pass
-//     Uniform(e) ShadowUB {
+//     the view's ShadowUB - by #include <Mesh/ShadowUB.glslh>, its one declaration, or (a storage-block reader
+//     such as the surface-cache cards) a block of these same members:
+//     ShadowUB {
 //         mat4 u_LightViewProj[4];
 //         vec4 u_ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
 //         vec4 u_DebugParams;       // x = show normals (>0.5), y = light debug (>0.5); z,w reserved

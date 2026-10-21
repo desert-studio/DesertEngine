@@ -1094,22 +1094,22 @@ namespace Desert::ECS
 
         // THE POINT LIGHT'S SHADOW (UE: ULightComponent::CastShadows / ShadowBias / ShadowSlopeBias /
         // ShadowResolutionScale). Drawn into the view's local-light shadow atlas (Graphic/LocalShadows.hpp) and
-        // read by the deferred composite. The two biases are in SHADOW-MAP TEXELS at the receiver, not
+        // read by the deferred composite. The two biases are applied by every CASTER of the light's views (the
+        // meshes and the terrain alike, Graphic::LocalCasterBias), in SHADOW-MAP TEXELS at the caster, not
         // centimetres: one texel of a perspective map grows with the distance from the light, so a fixed length
         // would be too much next to the lamp and too little across the room.
         PROPERTY( DisplayName( "Cast Shadows" ), Category( "Shadows" ) )
         bool CastShadows = true;
 
-        PROPERTY(
-             DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
-             Tooltip( "How far a receiver is moved toward the light before its depth is compared, in "
-                      "shadow-map texels at that receiver. Larger hides acne and detaches contact shadows." ) )
+        PROPERTY( DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
+                  Tooltip( "How far every caster's depth is pushed away from the light, in shadow-map texels at "
+                           "that caster. Larger hides acne and detaches contact shadows." ) )
         float ShadowBias = 0.5f;
 
         PROPERTY( DisplayName( "Shadow Slope Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ),
                   Units( "texels" ),
-                  Tooltip( "Extra bias of a receiver the light grazes, in texels per unit of slope (clamped at "
-                           "a slope of 4)." ) )
+                  Tooltip( "Extra bias of a caster the light grazes, in texels per unit of slope (clamped at "
+                           "a slope of 1, 45 degrees - the one clamp every shadow caster has)." ) )
         float ShadowSlopeBias = 0.5f;
 
         PROPERTY( DisplayName( "Shadow Resolution Scale" ), Category( "Shadows" ), Range( 0.125f, 4.0f ),
@@ -1207,22 +1207,22 @@ namespace Desert::ECS
 
         // THE SPOT LIGHT'S SHADOW (UE: ULightComponent::CastShadows / ShadowBias / ShadowSlopeBias /
         // ShadowResolutionScale). Drawn into the view's local-light shadow atlas (Graphic/LocalShadows.hpp) and
-        // read by the deferred composite. The two biases are in SHADOW-MAP TEXELS at the receiver, not
+        // read by the deferred composite. The two biases are applied by every CASTER of the light's views (the
+        // meshes and the terrain alike, Graphic::LocalCasterBias), in SHADOW-MAP TEXELS at the caster, not
         // centimetres: one texel of a perspective map grows with the distance from the light, so a fixed length
         // would be too much next to the lamp and too little across the room.
         PROPERTY( DisplayName( "Cast Shadows" ), Category( "Shadows" ) )
         bool CastShadows = true;
 
-        PROPERTY(
-             DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
-             Tooltip( "How far a receiver is moved toward the light before its depth is compared, in "
-                      "shadow-map texels at that receiver. Larger hides acne and detaches contact shadows." ) )
+        PROPERTY( DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
+                  Tooltip( "How far every caster's depth is pushed away from the light, in shadow-map texels at "
+                           "that caster. Larger hides acne and detaches contact shadows." ) )
         float ShadowBias = 0.5f;
 
         PROPERTY( DisplayName( "Shadow Slope Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ),
                   Units( "texels" ),
-                  Tooltip( "Extra bias of a receiver the light grazes, in texels per unit of slope (clamped at "
-                           "a slope of 4)." ) )
+                  Tooltip( "Extra bias of a caster the light grazes, in texels per unit of slope (clamped at "
+                           "a slope of 1, 45 degrees - the one clamp every shadow caster has)." ) )
         float ShadowSlopeBias = 0.5f;
 
         PROPERTY( DisplayName( "Shadow Resolution Scale" ), Category( "Shadows" ), Range( 0.125f, 4.0f ),
