@@ -3,6 +3,7 @@
 #include "ParticleEmitterRetire.hpp"
 
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 #include <Engine/VFX/VFXCurveLUT.hpp>
@@ -232,6 +233,12 @@ namespace Desert::Graphic::System
         const VFX::VFXWorld& world = scene.GetVFXWorld();
         if ( !m_Claim.Claim( world.GetTickSerial() ) )
             return false; // another view of this scene simulates this tick; this one draws the same pool
+
+        // THE SCENE'S ROWS. The pool, the emitters' buffers and the host programs belong to the scene's VFXWorld,
+        // but this runs inside the simulating view's ledger scope (PrepareTick from the view's particle pass), so
+        // without this they carried that view's instance and outlived its close as the view's rows
+        // (VIEW-CLOSE-LEAK). Nested: the view's scope is restored when this one closes.
+        const ResourceAttributionScope sceneRows( ResourceOwner::SceneRenderer, scene.GetLedgerInstance() );
 
         m_FrameEmitters.clear();
 

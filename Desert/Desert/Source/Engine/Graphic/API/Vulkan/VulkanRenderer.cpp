@@ -37,6 +37,7 @@
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexLayout.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -356,6 +357,9 @@ namespace Desert::Graphic::API::Vulkan
         // per-frame deletion queue, so a command buffer still in flight keeps reading valid memory.
         if ( m_DefaultVertexStreams == nullptr || capacity > m_DefaultVertexStreamsCapacity )
         {
+            // THE RENDERER'S ROW (the device's own, no instance): this grows lazily inside whichever view's ledger
+            // scope drew first, and outlives that view (VIEW-CLOSE-LEAK). A category scope clears that view's instance.
+            const ResourceAttributionScope rendererRows( ResourceOwner::Device );
             std::vector<MeshVertexStreams> defaults( capacity );
             m_DefaultVertexStreams = VertexBuffer::Create(
                  defaults.data(), static_cast<uint32_t>( defaults.size() * sizeof( MeshVertexStreams ) ) );
