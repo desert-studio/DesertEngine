@@ -4,6 +4,7 @@
 #include "Editor/LevelEditor/PlaySession.hpp"
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
 #include <Engine/Core/Application.hpp>
 
@@ -19,19 +20,45 @@ namespace Desert::Editor
 {
     namespace Socket = Common::LocalSocket;
 
-    // ---- THE WIRE: the Debug Adapter Protocol's messages, as plain structs ------------------------------------
-    // Member names are the protocol's own keys (camelCase, `request_seq`), because reflection writes a member's
-    // name as its key. Every request struct reads only the keys the server uses: a client sends more (columns,
-    // source references, presentation hints), and DESERT_JSON_PARTIAL is the one way past them.
+    // ---- THE WIRE: the Debug Adapter Protocol's messages ------------------------------------------------------
+    // Replies are plain structs written through the facade; member names are the protocol's own keys (camelCase,
+    // `request_seq`), because reflection writes a member's name as its key.
+    // A REQUEST is another program's message, not a document this engine owns: the client sends keys the server
+    // never reads (columns, conditions, presentation hints, a source reference). So a request is not read as a
+    // struct (Json::Read refuses an unknown key, which is right for our own files); it is parsed once and walked
+    // through Json::Node, reading exactly the members the server uses. An absent member keeps its default (DAP's
+    // optional arguments), a wrong-typed one is an Issue naming its path ("arguments.frameId: expected ...").
     namespace Dap
     {
+        using Common::Json::Issues;
+        using Common::Json::Kind;
+        using Common::Json::Node;
+
         struct RequestHeader
         {
             int         seq = 0;
             std::string type;
             std::string command;
         };
-        DESERT_JSON_PARTIAL( RequestHeader, "a DAP request, whose arguments its command's own struct reads" )
+
+        RequestHeader ReadHeader( const Node& request, Issues& issues )
+        {
+            RequestHeader header;
+            request.ReadInto( "seq", header.seq, issues );
+            request.ReadInto( "type", header.type, issues );
+            request.ReadInto( "command", header.command, issues );
+            return header;
+        }
+
+        // The request's `arguments` object, or nothing when the request states none (every argument keeps its
+        // default); a non-object `arguments` is an Issue.
+        std::optional<Node> Arguments( const Node& request, Issues& issues )
+        {
+            auto arguments = request.Find( "arguments" );
+            if ( arguments && !arguments->ExpectKind( Kind::Object, issues ) )
+                return std::nullopt;
+            return arguments;
+        }
 
         struct Source
         {
@@ -39,51 +66,48 @@ namespace Desert::Editor
             std::string path;
         };
 
-        struct SourceBreakpoint
-        {
-            int line = 0;
-        };
-
         struct SetBreakpointsArguments
         {
-            Source                        source;
-            std::vector<SourceBreakpoint> breakpoints;
+            std::string      sourcePath;
+            std::vector<int> lines;
         };
-        struct SetBreakpointsRequest
+        SetBreakpointsArguments ReadSetBreakpoints( const Node& request, Issues& issues )
         {
-            SetBreakpointsArguments arguments;
-        };
-        DESERT_JSON_PARTIAL( SetBreakpointsRequest, "a DAP setBreakpoints request (columns, conditions unused)" )
+            SetBreakpointsArguments out;
+            const auto              arguments = Arguments( request, issues );
+            if ( !arguments )
+                return out;
+            if ( const auto source = arguments->Find( "source" );
+                 source && source->ExpectKind( Kind::Object, issues ) )
+                source->ReadInto( "path", out.sourcePath, issues );
+            if ( const auto breakpoints = arguments->Find( "breakpoints" );
+                 breakpoints && breakpoints->ExpectKind( Kind::Array, issues ) )
+                breakpoints->ForEachElement(
+                     [&]( std::size_t, const Node& breakpoint )
+                     {
+                         int line = 0;
+                         breakpoint.ReadInto( "line", line, issues );
+                         out.lines.push_back( line );
+                     } );
+            return out;
+        }
 
-        struct FrameArguments
+        // One integer argument (scopes' frameId, variables' variablesReference); 0 when the request omits it.
+        int ReadIntArgument( const Node& request, std::string_view key, Issues& issues )
         {
-            int frameId = 0;
-        };
-        struct ScopesRequest
-        {
-            FrameArguments arguments;
-        };
-        DESERT_JSON_PARTIAL( ScopesRequest, "a DAP scopes request beyond its frame id" )
+            int value = 0;
+            if ( const auto arguments = Arguments( request, issues ) )
+                arguments->ReadInto( key, value, issues );
+            return value;
+        }
 
-        struct VariablesArguments
+        bool ReadTerminateDebuggee( const Node& request, Issues& issues )
         {
-            int variablesReference = 0;
-        };
-        struct VariablesRequest
-        {
-            VariablesArguments arguments;
-        };
-        DESERT_JSON_PARTIAL( VariablesRequest, "a DAP variables request (filter, paging, format unused)" )
-
-        struct DisconnectArguments
-        {
-            bool terminateDebuggee = false;
-        };
-        struct DisconnectRequest
-        {
-            DisconnectArguments arguments;
-        };
-        DESERT_JSON_PARTIAL( DisconnectRequest, "a DAP disconnect request beyond terminateDebuggee" )
+            bool terminate = false;
+            if ( const auto arguments = Arguments( request, issues ) )
+                arguments->ReadInto( "terminateDebuggee", terminate, issues );
+            return terminate;
+        }
 
         template <typename Body>
         struct Response
@@ -516,25 +540,32 @@ namespace Desert::Editor
 
     void ScriptDebugServer::Dispatch( const std::string& body )
     {
-        const auto header = Common::Json::Read<Dap::RequestHeader>( body );
-        if ( !header.IsSuccess() || header.GetValue().type != "request" )
+        const auto document = Common::Json::Parse( body );
+        if ( !document.IsSuccess() )
         {
-            LOG_WARN( "[ScriptDebug] not a DAP request: {}", header.IsSuccess() ? body : header.GetError() );
+            LOG_WARN( "[ScriptDebug] not a DAP request: {}", document.GetError() );
             return;
         }
-        const int                   seq      = header.GetValue().seq;
-        const std::string&          command  = header.GetValue().command;
+        const Common::Json::Node request = Common::Json::Root( document.GetValue() );
+        Common::Json::Issues     headerIssues;
+        const Dap::RequestHeader header = Dap::ReadHeader( request, headerIssues );
+        if ( !headerIssues.empty() || header.type != "request" )
+        {
+            LOG_WARN( "[ScriptDebug] not a DAP request: {}",
+                      headerIssues.empty() ? body : Common::Json::Describe( headerIssues.front() ) );
+            return;
+        }
+        const int                   seq      = header.seq;
+        const std::string&          command  = header.command;
         Scripting::IScriptDebugger& debugger = Scripting::ScriptDebugger();
 
-        const auto read = [&]<typename Request>( Request& out ) -> bool
+        // A request's arguments read through Node; any Issue refuses the request, naming the member's path.
+        Common::Json::Issues issues;
+        const auto           refused = [&]() -> bool
         {
-            auto parsed = Common::Json::Read<Request>( body );
-            if ( !parsed.IsSuccess() )
-            {
-                Refuse( seq, command, parsed.GetError() );
+            if ( issues.empty() )
                 return false;
-            }
-            out = parsed.ExtractValue();
+            Refuse( seq, command, Common::Json::Describe( issues.front() ) );
             return true;
         };
 
@@ -551,15 +582,12 @@ namespace Desert::Editor
         }
         else if ( command == "setBreakpoints" )
         {
-            Dap::SetBreakpointsRequest request;
-            if ( !read( request ) )
+            const Dap::SetBreakpointsArguments arguments = Dap::ReadSetBreakpoints( request, issues );
+            if ( refused() )
                 return;
-            std::vector<int> lines;
-            for ( const Dap::SourceBreakpoint& breakpoint : request.arguments.breakpoints )
-                lines.push_back( breakpoint.line );
             Dap::BreakpointsBody reply;
             for ( const Scripting::DebugBreakpoint& breakpoint :
-                  debugger.SetBreakpoints( request.arguments.source.path, lines ) )
+                  debugger.SetBreakpoints( arguments.sourcePath, arguments.lines ) )
                 reply.breakpoints.push_back( ToWire( breakpoint ) );
             Respond( seq, command, reply );
         }
@@ -593,23 +621,22 @@ namespace Desert::Editor
         }
         else if ( command == "scopes" )
         {
-            Dap::ScopesRequest request;
-            if ( !read( request ) )
+            const int frameId = Dap::ReadIntArgument( request, "frameId", issues );
+            if ( refused() )
                 return;
             Dap::ScopesBody reply;
-            for ( const Scripting::DebugScope& scope : debugger.Scopes( request.arguments.frameId ) )
+            for ( const Scripting::DebugScope& scope : debugger.Scopes( frameId ) )
                 reply.scopes.push_back(
                      Dap::Scope{ .name = scope.Name, .variablesReference = scope.Reference, .expensive = false } );
             Respond( seq, command, reply );
         }
         else if ( command == "variables" )
         {
-            Dap::VariablesRequest request;
-            if ( !read( request ) )
+            const int reference = Dap::ReadIntArgument( request, "variablesReference", issues );
+            if ( refused() )
                 return;
             Dap::VariablesBody reply;
-            for ( const Scripting::DebugVariable& variable :
-                  debugger.Variables( request.arguments.variablesReference ) )
+            for ( const Scripting::DebugVariable& variable : debugger.Variables( reference ) )
                 reply.variables.push_back( Dap::Variable{ .name               = variable.Name,
                                                           .value              = variable.Value,
                                                           .type               = variable.Type,
@@ -642,11 +669,11 @@ namespace Desert::Editor
         }
         else if ( command == "disconnect" )
         {
-            Dap::DisconnectRequest request;
-            if ( !read( request ) )
+            const bool terminateDebuggee = Dap::ReadTerminateDebuggee( request, issues );
+            if ( refused() )
                 return;
             Respond( seq, command, Dap::NoBody{} );
-            if ( request.arguments.terminateDebuggee )
+            if ( terminateDebuggee )
             {
                 debugger.Abort();
                 m_Play.RequestStop();

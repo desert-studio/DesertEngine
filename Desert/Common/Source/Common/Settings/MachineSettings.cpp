@@ -182,8 +182,9 @@ namespace Common::Settings
         Json::Value ScreenLevels( const Json::Node& levels, std::vector<Rejection>& rejections,
                                   MachineSettings::LevelGroups& unread )
         {
-            const auto* array = std::get_if<Json::Value::Array>( &levels.Raw().variant() );
-            if ( array == nullptr || array->size() != Scalability::kGroupCount )
+            std::size_t elements = 0;
+            levels.ForEachElement( [&]( std::size_t, const Json::Node& ) { ++elements; } );
+            if ( levels.GetKind() != Json::Kind::Array || elements != Scalability::kGroupCount )
                 return levels.Raw();
 
             Json::Value::Array kept;
