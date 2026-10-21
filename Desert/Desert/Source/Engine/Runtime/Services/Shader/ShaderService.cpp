@@ -45,6 +45,27 @@ namespace
         const auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( source );
         return parsed.IsSuccess() && !parsed.GetValue().Meta.ParticleSource.empty();
     }
+
+    /// The one complaint about a registered program that has no compiled stages, for the default program AND
+    /// every named pass ("<Shader>/<Pass>" is a program a renderer asks for by name exactly as it asks for the
+    /// default one). A device refusal is a warning (the same source builds on a device with the feature);
+    /// anything else is an error that names the program, the file and the build's own reason.
+    void ReportUnbuiltProgram( const Desert::Graphic::Shader& shader, const std::filesystem::path& file )
+    {
+        if ( shader.IsCompiled() )
+            return;
+        if ( !shader.GetDeviceRefusal().empty() )
+        {
+            LOG_WARN( "[ShaderService] '{}' is not built for this device: {} ({}).", shader.GetName(),
+                      shader.GetDeviceRefusal(), file.string() );
+            return;
+        }
+        LOG_ERROR( "[ShaderService] '{}' registered but has no compiled stages — every material using it will not "
+                   "draw until it compiles ({}): {}",
+                   shader.GetName(), file.string(),
+                   shader.GetCompileError().empty() ? std::string_view( "the build gave no reason" )
+                                                    : shader.GetCompileError() );
+    }
 } // namespace
 
 namespace Desert::Runtime
@@ -118,17 +139,7 @@ namespace Desert::Runtime
         //   * ComputePipeline::Create              refuses to build, and its caller sees the reason;
         //   * VulkanPipeline::Invalidate           refuses to build, leaving the handle null;
         //   * VulkanRendererAPI::BindGraphicsPipeline  skips every draw through that null handle.
-        if ( !shader->IsCompiled() && !shader->GetDeviceRefusal().empty() )
-        {
-            LOG_WARN( "[ShaderService] '{}' is not built for this device: {} ({}).", shader->GetName(),
-                      shader->GetDeviceRefusal(), shaderAsset->GetMetadata().Filepath.string() );
-        }
-        else if ( !shader->IsCompiled() )
-        {
-            LOG_ERROR( "[ShaderService] '{}' registered but has no compiled stages — every material using "
-                       "it will not draw until it compiles ({}).",
-                       shader->GetName(), shaderAsset->GetMetadata().Filepath.string() );
-        }
+        ReportUnbuiltProgram( *shader, shaderAsset->GetMetadata().Filepath );
 
         // DSL multi-pass shaders: every named pass is its own program, addressable as
         // "<Shader>/<Pass>" (e.g. GetByName("Unlit/Shadow")).
@@ -162,6 +173,8 @@ namespace Desert::Runtime
             auto passShader                      = Graphic::Shader::Create( shaderAsset, {}, passName );
             m_PassShaders[passShader->GetName()] = passShader;
             passShader->ClaimOwnership( Graphic::ResourceOwner::AssetService, shaderAsset->GetMetadata().Handle );
+            // Registered either way, for the default program's reason above, and complained about the same way.
+            ReportUnbuiltProgram( *passShader, shaderAsset->GetMetadata().Filepath );
         }
 
         return BOOLSUCCESS;
