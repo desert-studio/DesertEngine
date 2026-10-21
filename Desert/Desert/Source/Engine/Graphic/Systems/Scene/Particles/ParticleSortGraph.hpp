@@ -41,6 +41,7 @@ namespace Desert::Graphic::System
         std::uint32_t                   Capacity    = 0;
         std::uint32_t                   AliveOffset = 0; // the drawn alive half's first entry in AliveList
         std::uint32_t                   Slot        = 0; // the drawn draw slot (index into Counters)
+        bool Ribbon = false; // the ribbon link order (into RibbonOrder), whatever the blend
     };
 
     // One sorted emitter's share of the view's key buffer.
@@ -51,6 +52,7 @@ namespace Desert::Graphic::System
         std::uint32_t Slot        = 0;
         std::uint32_t KeyBase     = 0;
         std::uint32_t Length      = 0; // ParticleSortLength( Capacity ): the bitonic network's N
+        bool          Ribbon      = false;
     };
 
     struct ParticleSortPlan
@@ -64,18 +66,21 @@ namespace Desert::Graphic::System
         ParticleSortPlan plan;
         for ( const ParticleSortEmitter& emitter : emitters )
         {
-            if ( !ParticleSpritesSort( emitter.Blend ) || emitter.Capacity == 0 )
+            if ( ( !emitter.Ribbon && !ParticleSpritesSort( emitter.Blend ) ) || emitter.Capacity == 0 )
                 continue;
             const std::uint32_t length = ParticleSortLength( emitter.Capacity );
-            plan.Ranges.push_back( { emitter.Emitter, emitter.AliveOffset, emitter.Slot, plan.KeyCount, length } );
+            plan.Ranges.push_back(
+                 { emitter.Emitter, emitter.AliveOffset, emitter.Slot, plan.KeyCount, length, emitter.Ribbon } );
             plan.KeyCount += length;
         }
         return plan;
     }
 
-    [[nodiscard]] inline std::string ParticleSortPassName( const std::uint32_t emitter, const std::uint32_t stage )
+    [[nodiscard]] inline std::string ParticleSortPassName( const std::uint32_t emitter, const std::uint32_t stage,
+                                                           const bool ribbon = false )
     {
-        return std::format( "Particles: Sort {} {}", emitter, stage );
+        return ribbon ? std::format( "Particles: Ribbon Order {} {}", emitter, stage )
+                      : std::format( "Particles: Sort {} {}", emitter, stage );
     }
 
     // The buffers one sort stage binds: the emitter's attribute columns and draw layout (where its particles are),
@@ -88,6 +93,7 @@ namespace Desert::Graphic::System
         RDG::BufferRef Counters; // the emitter's draw slots
         RDG::BufferRef Keys;
         RDG::BufferRef Sorted;
+        RDG::BufferRef Ribbon; // the view's RibbonOrder (uvec4 per alive-list entry)
     };
 
     // The view's transient sort buffers: SortKeys (one uvec2 per key of every sorted emitter) and SortedAlive
@@ -110,7 +116,7 @@ namespace Desert::Graphic::System
                                           RDG::OtherRouteFill fill, const ParticleSortBuffers& buffers,
                                           const ParticleSortStageKind kind )
     {
-        const bool writesSorted = kind == ParticleSortStageKind::Write;
+        const bool writesSorted = kind == ParticleSortStageKind::Write || kind == ParticleSortStageKind::Ribbon;
         pass.Bindings( layout, std::move( fill ) )
              .Storage( "AttributeFloats", buffers.Floats, RDG::Access::StorageRead )
              .Storage( "DrawLayout", buffers.DrawLayout, RDG::Access::StorageRead )
@@ -119,6 +125,7 @@ namespace Desert::Graphic::System
              .Storage( "SortKeys", buffers.Keys,
                        writesSorted ? RDG::Access::StorageRead : RDG::Access::StorageWrite )
              .Storage( "SortedAlive", buffers.Sorted, RDG::Access::StorageWrite )
+             .Storage( "RibbonOrder", buffers.Ribbon, RDG::Access::StorageWrite )
              .PushConstantBytes( kParticleSortPushBytes );
     }
 } // namespace Desert::Graphic::System

@@ -13,6 +13,11 @@ Shader "ParticleSort"
         //   3 MERGE  each group finishes k = u_Step.y for every j < 1024 in shared memory;
         //   4 WRITE  thread t < alive: the sorted index into SortedAlive at the emitter's alive half, so the draw
         //            binds SortedAlive in place of AliveList and its slot (FirstVertex) is unchanged.
+        //   5 RIBBON (u_Step.w = 1 only) one thread walks the emitter's link order and writes RibbonOrder at the
+        //            same offsets: (pool index, length from the head in cm, t / (alive - 1), 1), then a (0, 0, 0, 0)
+        //            terminator when alive < the range count (Mesh/Surface/Vertex_ParticleRibbon.glslh reads it).
+        // u_Step.w picks the key: 0 = the view depth (a translucent sprite emitter, back to front), 1 = the ribbon
+        // link order (UE: the ribbon's sort by RibbonLinkOrder, ParticleRibbonLinkOrder), ascending = head first.
         // Ascending keys = far first (Common/ParticleSortKey.glslh). The stages are separate graph nodes: the graph
         // places the barrier between two writes of the key buffer.
         LocalSize(512, 1, 1);
@@ -55,10 +60,23 @@ Shader "ParticleSort"
             uint u_Sorted[];
         };
 
+        // A ribbon emitter's linked order (stage 5), indexed as AliveList.
+        Buffer(6) RibbonOrder
+        {
+            uvec4 u_Ribbon[];
+        };
+
+        // Float -> uint with the same order (negative values flipped whole, positive ones above them).
+        uint OrderedFloatKey( float f )
+        {
+            const uint u = floatBitsToUint( f );
+            return ( u & 0x80000000u ) != 0u ? ~u : ( u | 0x80000000u );
+        }
+
         PushConstant PushConstants
         {
             uvec4 u_Range;       // x = the alive half's offset in AliveList, y = the draw slot, z = key base, w = N
-            uvec4 u_Step;        // x = stage, y = k, z = j
+            uvec4 u_Step;        // x = stage, y = k, z = j, w = key (0 view depth, 1 ribbon link order)
             vec4  u_ViewOrigin;  // xyz = the view's position (cm)
             vec4  u_ViewForward; // xyz = the view's forward axis (unit)
         };
@@ -98,10 +116,19 @@ Shader "ParticleSort"
                 uvec2 key = uvec2( PARTICLE_SORT_PAD_KEY, 0u );
                 if ( t < alive )
                 {
-                    uint  index = u_Alive[u_Range.x + t];
-                    float depth = dot( ParticleWorldPosition( ParticleLocalIndex( index ) ) - u_ViewOrigin.xyz,
-                                       u_ViewForward.xyz );
-                    key         = uvec2( ParticleSortKey( depth ), index );
+                    uint index = u_Alive[u_Range.x + t];
+                    uint n     = ParticleLocalIndex( index );
+                    if ( u_Step.w == 1u )
+                    {
+                        // Clamped below the pad key, so every live particle sorts before the padding.
+                        key = uvec2( min( OrderedFloatKey( ParticleRibbonLinkOrder( n ) ), PARTICLE_SORT_PAD_KEY - 1u ),
+                                     index );
+                    }
+                    else
+                    {
+                        float depth = dot( ParticleWorldPosition( n ) - u_ViewOrigin.xyz, u_ViewForward.xyz );
+                        key         = uvec2( ParticleSortKey( depth ), index );
+                    }
                 }
                 u_Keys[keyBase + t] = key;
                 return;
@@ -123,6 +150,28 @@ Shader "ParticleSort"
                     u_Keys[keyBase + i] = b;
                     u_Keys[keyBase + l] = a;
                 }
+                return;
+            }
+
+            if ( stage == 5u )
+            {
+                // Serial over the ribbon (one thread): the length from the head is a running sum.
+                if ( t != 0u )
+                    return;
+                float length   = 0.0;
+                vec3  previous = vec3( 0.0 );
+                for ( uint s = 0u; s < alive; ++s )
+                {
+                    uint index    = u_Keys[keyBase + s].y;
+                    vec3 position = ParticleWorldPosition( ParticleLocalIndex( index ) );
+                    if ( s > 0u )
+                        length += distance( previous, position );
+                    previous = position;
+                    float stretch = alive > 1u ? float( s ) / float( alive - 1u ) : 0.0;
+                    u_Ribbon[u_Range.x + s] = uvec4( index, floatBitsToUint( length ), floatBitsToUint( stretch ), 1u );
+                }
+                if ( alive < u_DrawLayout.Range.x )
+                    u_Ribbon[u_Range.x + alive] = uvec4( 0u );
                 return;
             }
 

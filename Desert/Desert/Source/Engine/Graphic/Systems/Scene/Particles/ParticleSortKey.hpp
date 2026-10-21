@@ -71,7 +71,8 @@ namespace Desert::Graphic::System
         Local  = 1,
         Global = 2,
         Merge  = 3,
-        Write  = 4
+        Write  = 4,
+        Ribbon = 5 // the ribbon link order's walk into RibbonOrder (one thread), in place of Write
     };
 
     inline constexpr std::uint32_t kParticleSortBlock     = 1024; // keys a workgroup sorts in shared memory
@@ -85,7 +86,9 @@ namespace Desert::Graphic::System
         std::uint32_t         Groups = 1; // workgroups the stage dispatches
     };
 
-    [[nodiscard]] inline std::vector<ParticleSortStage> ParticleSortStages( const std::uint32_t length )
+    // @p ribbon: the ribbon link order (ParticleSort key 1), finished by the one-thread Ribbon walk.
+    [[nodiscard]] inline std::vector<ParticleSortStage> ParticleSortStages( const std::uint32_t length,
+                                                                           const bool          ribbon = false )
     {
         const std::uint32_t block     = length < kParticleSortBlock ? length : kParticleSortBlock;
         const std::uint32_t perThread = ( length + kParticleSortLocalSize - 1 ) / kParticleSortLocalSize;
@@ -99,7 +102,10 @@ namespace Desert::Graphic::System
                 stages.push_back( { ParticleSortStageKind::Global, k, j, perPair } );
             stages.push_back( { ParticleSortStageKind::Merge, k, 0, length / block } );
         }
-        stages.push_back( { ParticleSortStageKind::Write, 0, 0, perThread } );
+        if ( ribbon )
+            stages.push_back( { ParticleSortStageKind::Ribbon, 0, 0, 1 } );
+        else
+            stages.push_back( { ParticleSortStageKind::Write, 0, 0, perThread } );
         return stages;
     }
 } // namespace Desert::Graphic::System

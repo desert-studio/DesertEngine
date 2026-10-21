@@ -3,27 +3,24 @@
 // (DShaderParser kSurfaceParticleRibbonPath), and only for the Forward pass: ribbons are drawn by the particle pass
 // (ParticleRenderer::DrawPass) and by nothing else. The fragment half is the sprite's (Pass_ParticleSprite.glslh).
 //
-// Vertexless, on the SAME indirect draw as a sprite row (six vertices per alive particle): alive particle P draws
-// the strip SEGMENT from P to the next OLDER live particle of the emitter (UE: the ribbon links particles in
-// RibbonLinkOrder, by default the spawn order = age); the oldest particle's segment is degenerate. The link is
-// found by a scan of the emitter's pool range for live slots (PoolSlots, binding 13), so the strip needs no sort.
-// The whole emitter is one ribbon (UE: RibbonId unbound). Width = the particle's SpriteSize.x (UE RibbonWidth),
-// colour = its Color, facing = the view (UE FacingMode Screen), U = the particle's relative time (UE Stretch over
-// the ribbon's age), V = 0 / 1 across the width.
+// Vertexless, on the SAME indirect draw as a sprite row (six vertices per alive particle): the n-th alive particle
+// of the drawn half draws the strip SEGMENT between the n-th and (n+1)-th particle of the ribbon's LINK ORDER. The
+// order is the GPU's (Programs/Particles/ParticleSort.shader, key 1 = ParticleRibbonLinkOrder ascending; UE: the
+// ribbon's sort by RibbonLinkOrder, default the age, so the youngest is the head): RibbonOrder holds, at the alive
+// list's offsets, (pool index, length from the head, t / (alive - 1), 1) and a zero terminator after the last, so
+// the neighbours are the next entries - no search. The whole emitter is one ribbon (a row with a RibbonIdBinding is
+// refused aloud, ParticleWorldGpu). Width = the row's Width x the particle's RibbonWidth (UE RibbonWidth), colour =
+// its Color, facing = the view (UE FacingMode Screen), U by the row's UV mode: Stretch = 0..1 head to tail (UE
+// ScaledUniformly), TileByDistance = length from the head / UVTileDistance (UE TiledOverRibbonLength); V = 0 / 1
+// across the width.
 #include <Common/CameraUB.glslh>
 #include <Common/VFXRandom.glslh>
 #include <Common/ParticleDrawLayout.glslh>
 
-// The sprite path's three slots (Vertex_ParticleSprite.glslh) and the pool's bookkeeping (Common/ParticleState.glslh
-// `struct ParticleSlot`: x = Id, y = Alive), read-only.
+// The sprite path's attribute and layout slots (Vertex_ParticleSprite.glslh), read-only.
 layout( std430, binding = 9 ) readonly buffer AttributeFloats
 {
     float u_DrawFloats[];
-};
-
-layout( std430, binding = 10 ) readonly buffer AliveList
-{
-    uint u_Alive[];
 };
 
 layout( std430, binding = 11 ) readonly buffer DrawLayout
@@ -31,9 +28,10 @@ layout( std430, binding = 11 ) readonly buffer DrawLayout
     ParticleDrawLayout u_DrawLayout;
 };
 
-layout( std430, binding = 13 ) readonly buffer PoolSlots
+// ParticleSort's stage 5 output (uvec4 per alive-list entry, see the header).
+layout( std430, binding = 13 ) readonly buffer RibbonOrder
 {
-    uvec2 u_PoolSlots[];
+    uvec4 u_Ribbon[];
 };
 
 #include <Common/ParticleDrawRead.glslh>
@@ -46,30 +44,15 @@ layout( location = 13 ) out flat vec2 v_ParticleTimeRandom; // x = relative time
 
 #define RIBBON_NONE 0xFFFFFFFFu
 
-// The live neighbour of range row @p n (age @p age) in link order (age, then row): the next OLDER one when
-// @p older, else the next younger one; RIBBON_NONE at the ribbon's end.
-uint RibbonNeighbour( uint n, float age, bool older )
+// The RibbonOrder entry @p delta links away from entry @p e (t = its place in the ribbon), RIBBON_NONE past an end.
+uint RibbonEntry( uint e, uint t, int delta )
 {
-    uint  best    = RIBBON_NONE;
-    float bestAge = 0.0;
-    for ( uint m = 0u; m < u_DrawLayout.Range.x; ++m )
-    {
-        if ( m == n || u_PoolSlots[u_DrawLayout.Range.y + m].y == 0u )
-            continue;
-        const float a     = ParticleAge( m );
-        const bool  after = a > age || ( a == age && m > n );
-        if ( after != older )
-            continue;
-        const bool closer = best == RIBBON_NONE ||
-                            ( older ? ( a < bestAge || ( a == bestAge && m < best ) )
-                                    : ( a > bestAge || ( a == bestAge && m > best ) ) );
-        if ( closer )
-        {
-            best    = m;
-            bestAge = a;
-        }
-    }
-    return best;
+    if ( delta < 0 && t < uint( -delta ) )
+        return RIBBON_NONE;
+    const uint at = uint( int( e ) + delta );
+    if ( t + uint( max( delta, 0 ) ) >= u_DrawLayout.Range.x || u_Ribbon[at].w == 0u )
+        return RIBBON_NONE;
+    return at;
 }
 
 float RibbonRelativeTime( uint n )
@@ -78,14 +61,23 @@ float RibbonRelativeTime( uint n )
     return lifetime > 0.0 ? clamp( ParticleAge( n ) / lifetime, 0.0, 1.0 ) : 0.0;
 }
 
+float RibbonU( uint e )
+{
+    const uvec4 entry = u_Ribbon[e];
+    return u_DrawLayout.Ribbon.y > 0.5 ? uintBitsToFloat( entry.y ) / u_DrawLayout.Ribbon.z
+                                       : uintBitsToFloat( entry.z );
+}
+
 void main()
 {
     const uint corner = uint( gl_VertexIndex ) % 6u;
-    const uint index  = u_Alive[uint( gl_VertexIndex ) / 6u];
-    const uint n      = ParticleLocalIndex( index );
-    const uint next   = RibbonNeighbour( n, ParticleAge( n ), true );
+    // The drawn alive half starts at 2 Base + h Count (the draw slot's FirstVertex / 6): t = the place in it.
+    const uint e      = uint( gl_VertexIndex ) / 6u;
+    const uint local  = e - 2u * u_DrawLayout.Range.y;
+    const uint t      = local >= u_DrawLayout.Range.x ? local - u_DrawLayout.Range.x : local;
+    const uint next   = RibbonEntry( e, t, 1 );
 
-    // x: -1 = this particle's end of the segment, +1 = the next older particle's; y: the two edges.
+    // x: -1 = this particle's end of the segment, +1 = the next one's; y: the two edges.
     const vec2 corners[6] = vec2[6]( vec2( -1.0, -1.0 ), vec2( 1.0, -1.0 ), vec2( -1.0, 1.0 ), vec2( 1.0, -1.0 ),
                                      vec2( 1.0, 1.0 ), vec2( -1.0, 1.0 ) );
     const vec2 c          = corners[corner];
@@ -94,28 +86,31 @@ void main()
 
     // The end this vertex sits on and its two neighbours along the ribbon: the tangent there spans them, so the
     // two segments meeting at a particle share its edge vertices (no cracks at the joints).
-    const bool farEnd = c.x > 0.0 && next != RIBBON_NONE;
-    const uint at     = farEnd ? next : n;
-    const uint before = farEnd ? n : RibbonNeighbour( n, ParticleAge( n ), false );
-    const uint after  = farEnd ? RibbonNeighbour( next, ParticleAge( next ), true ) : next;
+    const bool farEnd  = c.x > 0.0 && next != RIBBON_NONE;
+    const uint atE     = farEnd ? next : e;
+    const uint beforeE = farEnd ? e : RibbonEntry( e, t, -1 );
+    const uint afterE  = farEnd ? RibbonEntry( e, t, 2 ) : next;
+    const uint at      = ParticleLocalIndex( u_Ribbon[atE].x );
 
     const vec3 position = ParticleWorldPosition( at );
-    const vec3 pBefore  = before != RIBBON_NONE ? ParticleWorldPosition( before ) : position;
-    const vec3 pAfter   = after != RIBBON_NONE ? ParticleWorldPosition( after ) : position;
+    const vec3 pBefore  = beforeE != RIBBON_NONE ? ParticleWorldPosition( ParticleLocalIndex( u_Ribbon[beforeE].x ) )
+                                                 : position;
+    const vec3 pAfter   = afterE != RIBBON_NONE ? ParticleWorldPosition( ParticleLocalIndex( u_Ribbon[afterE].x ) )
+                                                : position;
     vec3       tangent  = pAfter - pBefore;
     vec3       side     = cross( tangent, facing );
     side                = dot( side, side ) > 1e-8 ? normalize( side ) : viewUp;
     tangent             = cross( facing, side );
 
-    const float width    = ParticleSpriteSize( at ).x;
+    const float width    = u_DrawLayout.Ribbon.x * ParticleRibbonWidth( at );
     const vec4  colour   = ParticleColor( at );
-    // The oldest particle has no segment: all six vertices on one point, nothing rasterised.
+    // The tail particle has no segment: all six vertices on one point, nothing rasterised.
     const vec3  worldPos = next == RIBBON_NONE ? position : position + side * ( c.y * width * 0.5 );
     const float relative = RibbonRelativeTime( at );
 
     v_Surface.WorldPosition = worldPos;
     v_Surface.Normal        = facing;
-    v_Surface.UV0           = vec2( relative, 0.5 - c.y * 0.5 );
+    v_Surface.UV0           = vec2( RibbonU( atE ), 0.5 - c.y * 0.5 );
     v_Surface.UV1           = v_Surface.UV0;
     v_Surface.VertexColor   = colour;
     v_Surface.TBN           = mat3( tangent, -side, facing );

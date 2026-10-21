@@ -35,7 +35,7 @@ namespace Desert::Graphic::System
     namespace
     {
         // THE ONE TABLE of the attributes a renderer reads (UE: the sprite renderer's attribute bindings), each
-        // with the one type it reads it as and its lane in ParticleDrawLayoutGpu (Columns0.xyzw, Columns1.xy). The
+        // with the one type it reads it as and its lane in ParticleDrawLayoutGpu (Columns0.xyzw, Columns1.xyzw). The
         // sprite vertex path and the sort read them out of the emitter's columns through
         // Common/ParticleDrawRead.glslh.
         struct DrawnAttribute
@@ -48,6 +48,7 @@ namespace Desert::Graphic::System
              { "Position", VFX::VFXValueType::Vec3, 0 }, { "SpriteSize", VFX::VFXValueType::Vec2, 1 },
              { "Color", VFX::VFXValueType::Vec4, 2 },    { "SpriteRotation", VFX::VFXValueType::Float, 3 },
              { "Age", VFX::VFXValueType::Float, 4 },     { "Lifetime", VFX::VFXValueType::Float, 5 },
+             { "RibbonWidth", VFX::VFXValueType::Float, 6 }, { "RibbonLinkOrder", VFX::VFXValueType::Float, 7 },
         };
 
         // Where the compiled stack put each drawn attribute; an attribute the stack declares with another type is
@@ -421,6 +422,24 @@ namespace Desert::Graphic::System
         ParticleDrawLayoutGpu layout = gpu.DrawColumns;
         layout.Range                 = glm::uvec4( range.Count, range.Base, gpu.Local ? 1u : 0u, 0u );
         layout.EmitterPos            = glm::vec4( worldPos, 0.0f );
+        // The emitter's Ribbon row: its settings ride the layout to the ribbon vertex path. The one ribbon of an
+        // emitter is drawn by the first enabled Ribbon row; another with other settings, or a row splitting the
+        // particles by a RibbonIdBinding, is refused aloud below (one ribbon order per emitter, ParticleSort).
+        const Assets::Serialization::VFXRibbonRendererData* ribbon = nullptr;
+        for ( const Assets::Serialization::VFXRendererData& row : data.Renderers )
+        {
+            if ( row.Enabled && row.Kind == Assets::Serialization::VFXRendererKind::Ribbon && row.Ribbon &&
+                 row.Ribbon->RibbonIdBinding.empty() )
+            {
+                ribbon = &*row.Ribbon;
+                break;
+            }
+        }
+        if ( ribbon != nullptr )
+            layout.Ribbon = glm::vec4(
+                 ribbon->Width,
+                 ribbon->UVMode == Assets::Serialization::VFXRibbonUVMode::TileByDistance ? 1.0f : 0.0f,
+                 ribbon->UVTileDistance, 0.0f );
         if ( const auto drawn = gpu.DrawLayout->SetData( &layout, kParticleDrawLayoutSize ); !drawn.IsSuccess() )
         {
             LOG_ERROR( "[Particles] emitter {} sits out this tick, its draw layout did not upload: {}", entityId,
@@ -443,6 +462,23 @@ namespace Desert::Graphic::System
             const Assets::Serialization::VFXRendererData& row = data.Renderers[r];
             if ( !row.Enabled )
                 continue;
+            if ( row.Kind == Assets::Serialization::VFXRendererKind::Ribbon )
+            {
+                if ( !row.Ribbon || !row.Ribbon->RibbonIdBinding.empty() )
+                {
+                    LOG_ERROR( "[Particles] emitter {} renderer row {} does not draw: a RibbonIdBinding splits the "
+                               "emitter into several ribbons, and the ribbon order is one per emitter",
+                               entityId, r );
+                    continue;
+                }
+                if ( *row.Ribbon != *ribbon )
+                {
+                    LOG_ERROR( "[Particles] emitter {} renderer row {} does not draw: its Ribbon settings differ "
+                               "from the emitter's first Ribbon row, and an emitter draws one ribbon",
+                               entityId, r );
+                    continue;
+                }
+            }
             const auto material = ParticleRendererMaterial( row );
             if ( !material )
             {

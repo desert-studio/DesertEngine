@@ -196,6 +196,7 @@ namespace Desert::Graphic::System
             RDG::BufferRef              ArgsRef;     // written by Dispatch Args, read as IndirectArgs
             bool                        Declared = false;
             bool                        Sorted   = false; // the draw reads m_SortedRef, not AliveList
+            bool                        Ribboned = false; // its ribbon link order is in m_RibbonRef
         };
 
         bool CreatePipelines();
@@ -220,6 +221,7 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache m_SortLayout;
         RDG::BufferRef                   m_SortKeysRef;
         RDG::BufferRef                   m_SortedRef; // this view's SortedAlive, valid while any ve.Sorted
+        RDG::BufferRef                   m_RibbonRef; // this view's RibbonOrder, valid while any ve.Ribboned
         // The shaders' binding layouts, kept between frames (re-derived on a swapped or reloaded shader).
         // Per stack host program (ParticleWorldGpu's, alive with the scene's GPU state).
         mutable std::unordered_map<const ComputePipeline*, ShaderBindingLayoutCache> m_SimLayouts;

@@ -329,6 +329,7 @@ namespace Desert::Graphic::System
         {
             ve.Declared = false;
             ve.Sorted   = false;
+            ve.Ribboned = false;
         }
         if ( m_World == nullptr || m_ViewEmitters.empty() || !m_World->Pool().Slots )
             return;
@@ -432,6 +433,13 @@ namespace Desert::Graphic::System
                  blends != ve.Draws.end() ? blends->Sprite->Blend : ve.Draws.front().Sprite->Blend;
             emitters.push_back(
                  { i, blend, gpu.Range.Count, 2u * gpu.Range.Base + half * gpu.Range.Count, half } );
+            // A Ribbon row links the particles in RibbonLinkOrder: its own sort, into RibbonOrder.
+            const bool ribbon = std::any_of( ve.Frame->Renderers.begin(), ve.Frame->Renderers.end(),
+                                             []( const ParticleFrameRenderer& row )
+                                             { return row.Kind == Assets::Serialization::VFXRendererKind::Ribbon; } );
+            if ( ribbon )
+                emitters.push_back(
+                     { i, blend, gpu.Range.Count, 2u * gpu.Range.Base + half * gpu.Range.Count, half, true } );
         }
         const ParticleSortPlan plan = PlanParticleSort( emitters );
         if ( plan.Ranges.empty() )
@@ -439,6 +447,7 @@ namespace Desert::Graphic::System
 
         const uint64_t aliveBytes              = uint64_t{ 2 } * m_World->Pool().Capacity * sizeof( uint32_t );
         std::tie( m_SortKeysRef, m_SortedRef ) = CreateParticleSortBuffers( graph, plan, aliveBytes );
+        m_RibbonRef = graph.CreateBuffer( RDG::BufferDesc{ aliveBytes * 4u }, "ParticleRibbonOrder" ); // uvec4 each
         // The view depth is along the camera's forward axis from its position (cm): ParticleSortViewOf.
         const ParticleSortView sortView = ParticleSortViewOf( view->InvView );
         const glm::vec4        origin( sortView.Origin, 0.0f );
@@ -446,18 +455,20 @@ namespace Desert::Graphic::System
         for ( const ParticleSortRange& range : plan.Ranges )
         {
             ViewEmitter& ve = m_ViewEmitters[range.Emitter];
-            ve.Sorted       = true;
-            const ParticleSortBuffers            buffers{ ve.FloatsRef,   ve.DrawLayoutRef, m_Pool.AliveRef,
-                                               ve.CountersRef, m_SortKeysRef,    m_SortedRef };
-            const std::vector<ParticleSortStage> stages = ParticleSortStages( range.Length );
+            ( range.Ribbon ? ve.Ribboned : ve.Sorted ) = true;
+            const ParticleSortBuffers buffers{ ve.FloatsRef,   ve.DrawLayoutRef, m_Pool.AliveRef,
+                                               ve.CountersRef, m_SortKeysRef,    m_SortedRef,
+                                               m_RibbonRef };
+            const std::vector<ParticleSortStage> stages = ParticleSortStages( range.Length, range.Ribbon );
             for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
             {
                 const ParticleSortStage stage = stages[s];
                 const ParticleSortPush  push{
                      glm::uvec4( range.AliveOffset, range.Slot, range.KeyBase, range.Length ),
-                     glm::uvec4( static_cast<uint32_t>( stage.Kind ), stage.K, stage.J, 0u ), origin, forward };
+                     glm::uvec4( static_cast<uint32_t>( stage.Kind ), stage.K, stage.J, range.Ribbon ? 1u : 0u ),
+                     origin, forward };
                 graph.AddPass(
-                     ParticleSortPassName( range.Emitter, s ), RDG::PassFlags::Compute,
+                     ParticleSortPassName( range.Emitter, s, range.Ribbon ), RDG::PassFlags::Compute,
                      [this, buffers, stage]( RDG::PassBuilder& pass )
                      {
                          DeclareParticleSortStage(
@@ -677,16 +688,17 @@ namespace Desert::Graphic::System
                     auto block =
                          declared.Bindings( layout, sprite.Material->GetMaterialExecutor()->GetRouteFill() )
                               .Storage( "AttributeFloats", ve.FloatsRef, RDG::Access::StorageRead )
-                              .Storage( "DrawLayout", ve.DrawLayoutRef, RDG::Access::StorageRead )
-                              .Storage( "AliveList", ve.Sorted ? m_SortedRef : m_Pool.AliveRef,
-                                        RDG::Access::StorageRead );
-                    // A ribbon cell also reads which pool slots are alive (Vertex_ParticleRibbon.glslh PoolSlots):
-                    // its strip links each live particle to the next older one of the emitter.
+                              .Storage( "DrawLayout", ve.DrawLayoutRef, RDG::Access::StorageRead );
+                    // A sprite cell reads the alive list; a ribbon cell reads the emitter's link order instead
+                    // (Vertex_ParticleRibbon.glslh RibbonOrder, AddSortPasses), at the same offsets.
                     const bool links =
                          std::any_of( layout->Slots.begin(), layout->Slots.end(),
-                                      []( const RDG::ShaderSlot& slot ) { return slot.Name == "PoolSlots"; } );
-                    if ( links )
-                        block.Storage( "PoolSlots", m_Pool.SlotsRef, RDG::Access::StorageRead );
+                                      []( const RDG::ShaderSlot& slot ) { return slot.Name == "RibbonOrder"; } );
+                    if ( links && ve.Ribboned )
+                        block.Storage( "RibbonOrder", m_RibbonRef, RDG::Access::StorageRead );
+                    else
+                        block.Storage( "AliveList", ve.Sorted ? m_SortedRef : m_Pool.AliveRef,
+                                       RDG::Access::StorageRead );
                     const bool fades = SceneViewDetail::LayoutSamples( *layout, kSceneViewSceneDepthName );
                     if ( fades && depth )
                         block.Texture( kSceneViewSceneDepthName, depth, RDG::Access::SampledGraphics,
@@ -699,7 +711,7 @@ namespace Desert::Graphic::System
                     std::erase_if( others.Slots,
                                    [&route]( const RDG::ShaderSlot& slot )
                                    {
-                                       return slot.Name == kSceneViewSceneDepthName || slot.Name == "PoolSlots" ||
+                                       return slot.Name == kSceneViewSceneDepthName || slot.Name == "RibbonOrder" ||
                                               std::find( route.Slots.begin(), route.Slots.end(), slot.Name ) !=
                                                    route.Slots.end();
                                    } );

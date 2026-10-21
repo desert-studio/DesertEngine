@@ -57,4 +57,18 @@ float ParticleLifetime( uint n )
     return ParticleFloat( n, u_DrawLayout.Columns1.y, 0u, 0.0 );
 }
 
+// UE Particles.RibbonWidth: a factor on the Ribbon row's Width (UE multiplies the bound attribute in the same way).
+float ParticleRibbonWidth( uint n )
+{
+    return ParticleFloat( n, u_DrawLayout.Columns1.z, 0u, 1.0 );
+}
+
+// UE Particles.RibbonLinkOrder: the key a ribbon links its particles by, ascending from the head. Unbound = the
+// age, so the youngest particle is the head and the oldest the tail (UE's default spawn-order link).
+float ParticleRibbonLinkOrder( uint n )
+{
+    return u_DrawLayout.Columns1.w == PARTICLE_ATTR_NONE ? ParticleAge( n )
+                                                        : ParticleFloat( n, u_DrawLayout.Columns1.w, 0u, 0.0 );
+}
+
 #endif // PARTICLE_DRAW_READ_GLSLH
