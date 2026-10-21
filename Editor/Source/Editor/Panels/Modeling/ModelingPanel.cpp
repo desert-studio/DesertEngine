@@ -644,9 +644,9 @@ namespace Desert::Editor
                     row( "Smoothness" );
                     ImGui::SliderFloat( "##SmoothSmoothness", &s.Smoothness, 0.0f, 1.0f, "%.2f",
                                         ImGuiSliderFlags_AlwaysClamp );
-                    row( "Smooth Speed" );
-                    ImGui::SliderFloat( "##SmoothSpeed", &s.SmoothSpeed, 0.0f, 1.0f, "%.2f",
-                                        ImGuiSliderFlags_AlwaysClamp );
+                    row( "Volume Correction" ); // UE UI range 0..1, clamp 0..10
+                    ImGui::SliderFloat( "##SmoothVolumeCorrection", &s.VolumeCorrection, 0.0f, 1.0f, "%.2f cm" );
+                    s.VolumeCorrection = std::clamp( s.VolumeCorrection, 0.0f, 10.0f );
                 }
                 else
                 {
@@ -662,20 +662,35 @@ namespace Desert::Editor
             }
             case MS::Tool::Offset:
             {
-                auto& s      = ms.DeformOffset;
-                int   weight = static_cast<int>( s.WeightType );
+                auto&                 s          = ms.DeformOffset;
+                int                   offsetType = static_cast<int>( s.Type );
+                int                   weight     = static_cast<int>( s.WeightType );
+                constexpr const char* kTypes[]   = { "Iterative", "Implicit" };
+                row( "Offset Type" );
+                if ( ImGui::Combo( "##OffsetType", &offsetType, kTypes, 2 ) )
+                    s.Type = static_cast<Geometry::OffsetType>( offsetType );
                 row( "Distance" );
                 ImGui::DragFloat( "##OffsetDistance", &s.Distance, 0.5f, -10000.0f, 10000.0f, "%.1f cm",
                                   ImGuiSliderFlags_AlwaysClamp );
-                row( "Steps" );
-                ImGui::SliderInt( "##OffsetSteps", &s.Steps, 1, 100, "%d", ImGuiSliderFlags_AlwaysClamp );
-                row( "Smoothing Per Step" );
-                ImGui::SliderFloat( "##OffsetPerStep", &s.SmoothingPerStep, 0.0f, 1.0f, "%.2f",
-                                    ImGuiSliderFlags_AlwaysClamp );
+                if ( s.Type == Geometry::OffsetType::Implicit )
+                {
+                    row( "Smoothness" ); // UE UI range 0..1, clamp 0..100
+                    ImGui::SliderFloat( "##OffsetSmoothness", &s.Smoothness, 0.0f, 1.0f, "%.2f" );
+                    s.Smoothness = std::clamp( s.Smoothness, 0.0f, 100.0f );
+                }
+                else
+                {
+                    row( "Steps" );
+                    ImGui::SliderInt( "##OffsetSteps", &s.Steps, 1, 100, "%d", ImGuiSliderFlags_AlwaysClamp );
+                    row( "Smoothing Per Step" );
+                    ImGui::SliderFloat( "##OffsetPerStep", &s.SmoothingPerStep, 0.0f, 1.0f, "%.2f",
+                                        ImGuiSliderFlags_AlwaysClamp );
+                }
                 row( "Weight Type" );
                 if ( ImGui::Combo( "##OffsetWeight", &weight, kWeights, 2 ) )
                     s.WeightType = static_cast<Geometry::SmoothWeightType>( weight );
-                ImGui::Checkbox( "Offset Boundary##Offset", &s.OffsetBoundary );
+                if ( s.Type == Geometry::OffsetType::Iterative ) // UE: Implicit always holds the boundary
+                    ImGui::Checkbox( "Offset Boundary##Offset", &s.OffsetBoundary );
                 ImGui::Checkbox( "Pin UV Seams##Offset", &s.PinUVSeams );
                 break;
             }

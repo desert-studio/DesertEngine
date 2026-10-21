@@ -12,7 +12,9 @@
 //            heat steps), both on the ClampedCotangent (or uniform) Laplacian; UE's Eigen SimplicialLDLT is our
 //            SparseLDLT (MeshUVSolver.hpp). Pinned vertices are eliminated from the system (their positions
 //            move to the right-hand side) instead of UE's heavily weighted soft constraints, so they hold exactly.
-//            UE's Implicit VolumeCorrection (a normal push against the shrink) is not ported.
+//            Implicit VolumeCorrection pushes each fairing target along the input normal, as UE's NormalOffset.
+//   Offset, Implicit - UE 5.8 DeformationOps/MeshOffsetOps.h FLaplacianOffsetMeshOp: the constrained deformer
+//            (|L x - L p|^2 kept) softly pulled to p + Distance n; open boundary held as UE's interior-only solve.
 // Deviation from UE: the cotan centroid clamps a negative edge weight (an obtuse opposite angle pair) to zero
 // so an explicit step can never push a vertex away from its ring; UE leaves the weight signed and relies on
 // small SmoothAlpha. Rounds run serially (UE ParallelFor) - Modeling Mode recomputes synchronously.
@@ -261,18 +263,18 @@ namespace Desert::Geometry
             return true;
         }
 
-        // UE ComputeSmoothing_BiHarmonic: x = argmin |L x|^2 + (1/s) |x_m - p_m|^2 over the movable x_m, pinned
-        // vertices fixed at p. Normal equations ( L_m^T L_m + I/s ) x_m = p_m / s - L_m^T L_pin p_pin.
-        Common::BoolResultStr ImplicitSmooth( const DynamicMesh3& mesh, const SmoothSettings& settings,
-                                              const std::vector<uint8_t>& movable, std::vector<glm::dvec3>& p )
+        // UE IConstrainedMeshSolver with soft position constraints of one weight w (UE AddConstraint):
+        // x = argmin |L x - d|^2 + w |x_m - t_m|^2 over the movable x_m, pinned vertices fixed at p, where d = 0
+        // (UE ConstructConstrainedMeshSmoother: fairing) or d = L p (UE ConstructConstrainedMeshDeformer: the
+        // input's Laplacian vectors are kept, so detail survives the move). L is taken from the input positions.
+        // Normal equations ( L_m^T L_m + w I ) x_m = w t_m - L_m^T ( L_pin p_pin - d ).
+        Common::BoolResultStr LaplacianFit( const DynamicMesh3& mesh, SmoothWeightType weightType,
+                                            const std::vector<uint8_t>& movable, bool keepLaplacian, double w,
+                                            const std::vector<glm::dvec3>& targets, std::vector<glm::dvec3>& p )
         {
-            const double smoothness = static_cast<double>( settings.Smoothness );
-            const double s          = smoothness * smoothness / 50.0 * static_cast<double>( mesh.VertexCount() );
-            if ( s <= 0.0 )
-                return Common::MakeSuccess( true ); // Smoothness 0: the fairing term has no weight
             int32_t                             count = 0;
             const std::vector<int32_t>          index = CompactMovable( movable, count );
-            const std::vector<LaplacianRow>     rows  = BuildLaplacian( mesh, settings.WeightType, p );
+            const std::vector<LaplacianRow>     rows  = BuildLaplacian( mesh, weightType, p );
             std::vector<SparseMatrixD::Triplet> triplets;
             std::array<std::vector<double>, 3>  rhs;
             for ( auto& r : rhs )
@@ -280,10 +282,14 @@ namespace Desert::Geometry
             for ( const int k : mesh.VertexIndicesItr() )
             {
                 const LaplacianRow& row = rows[static_cast<size_t>( k )];
-                glm::dvec3          pinnedPart( 0.0 ); // L_k,pin p_pin
+                glm::dvec3          fixedPart( 0.0 ); // L_k,pin p_pin - d_k
                 for ( const auto& [j, b] : row )
+                {
                     if ( index[static_cast<size_t>( j )] < 0 )
-                        pinnedPart += b * p[static_cast<size_t>( j )];
+                        fixedPart += b * p[static_cast<size_t>( j )];
+                    if ( keepLaplacian )
+                        fixedPart -= b * p[static_cast<size_t>( j )];
+                }
                 for ( const auto& [i, a] : row )
                 {
                     const int32_t ci = index[static_cast<size_t>( i )];
@@ -293,23 +299,68 @@ namespace Desert::Geometry
                         if ( const int32_t cj = index[static_cast<size_t>( j )]; cj >= 0 )
                             triplets.push_back( { ci, cj, a * b } );
                     for ( int c = 0; c < 3; ++c )
-                        rhs[static_cast<size_t>( c )][static_cast<size_t>( ci )] -= a * pinnedPart[c];
+                        rhs[static_cast<size_t>( c )][static_cast<size_t>( ci )] -= a * fixedPart[c];
                 }
             }
-            const std::vector<glm::dvec3> start = p;
             for ( size_t vid = 0; vid < index.size(); ++vid )
                 if ( const int32_t ci = index[vid]; ci >= 0 )
                 {
-                    triplets.push_back( { ci, ci, 1.0 / s } );
+                    triplets.push_back( { ci, ci, w } );
                     for ( int c = 0; c < 3; ++c )
-                        rhs[static_cast<size_t>( c )][static_cast<size_t>( ci )] += p[vid][c] / s;
+                        rhs[static_cast<size_t>( c )][static_cast<size_t>( ci )] += w * targets[vid][c];
                 }
             if ( !SolveInto( SparseMatrixD( count, count, std::move( triplets ) ), index, count, rhs, p ) )
-                return Common::MakeError<bool>( "Smooth (Implicit): the fairing system is not positive definite" );
-            const double speed = static_cast<double>( settings.SmoothSpeed );
-            for ( size_t vid = 0; vid < index.size(); ++vid )
-                if ( index[vid] >= 0 )
-                    p[vid] = start[vid] + speed * ( p[vid] - start[vid] );
+                return Common::MakeError<bool>( "the Laplacian system is not positive definite" );
+            return Common::MakeSuccess( true );
+        }
+
+        // Vertex normals of the input, before any move (UE GetInitialVtxNormals / BaseNormals).
+        std::vector<glm::dvec3> BaseNormals( const DynamicMesh3& mesh )
+        {
+            std::vector<glm::dvec3> normals( static_cast<size_t>( mesh.MaxVertexID() ), glm::dvec3( 0.0 ) );
+            for ( const int vid : mesh.VertexIndicesItr() )
+                normals[static_cast<size_t>( vid )] = MeshNormals::ComputeVertexNormal( mesh, vid );
+            return normals;
+        }
+
+        // UE FCotanSmoothingOp::Smooth (ComputeSmoothing_BiHarmonic): fairing towards targets p + VolumeCorrection n
+        // with weight 1 / SmoothPower, SmoothPower = Smoothness^2 * VertexCount / 50 (UE USmoothMeshTool).
+        Common::BoolResultStr ImplicitSmooth( const DynamicMesh3& mesh, const SmoothSettings& settings,
+                                              const std::vector<uint8_t>& movable, std::vector<glm::dvec3>& p )
+        {
+            const double smoothness = static_cast<double>( settings.Smoothness );
+            const double s          = smoothness * smoothness / 50.0 * static_cast<double>( mesh.VertexCount() );
+            if ( s < 0.0001 )
+                return Common::MakeSuccess( true ); // UE: SmoothPower < 0.0001 leaves the positions unchanged
+            std::vector<glm::dvec3> targets = p;
+            if ( settings.VolumeCorrection != 0.0f )
+            {
+                const std::vector<glm::dvec3> normals = BaseNormals( mesh );
+                for ( const int vid : mesh.VertexIndicesItr() )
+                    targets[static_cast<size_t>( vid )] +=
+                         static_cast<double>( settings.VolumeCorrection ) * normals[static_cast<size_t>( vid )];
+            }
+            if ( auto fit = LaplacianFit( mesh, settings.WeightType, movable, false, 1.0 / s, targets, p );
+                 !fit.IsSuccess() )
+                return Common::MakeError<bool>( "Smooth (Implicit): " + fit.GetError() );
+            return Common::MakeSuccess( true );
+        }
+
+        // UE FLaplacianOffsetMeshOp::Offset: keep the input's Laplacian vectors, softly pull every vertex to
+        // p + Distance n with weight max( Softness, 0.001 ) / 100, Softness = Smoothness^2 * VertexCount / 50.
+        Common::BoolResultStr ImplicitOffset( const DynamicMesh3& mesh, const OffsetSettings& settings,
+                                              const std::vector<uint8_t>& movable, std::vector<glm::dvec3>& p )
+        {
+            const double smoothness = static_cast<double>( settings.Smoothness );
+            const double softness   = smoothness * smoothness / 50.0 * static_cast<double>( mesh.VertexCount() );
+            const double w          = std::max( softness, 0.001 ) / 100.0;
+            const std::vector<glm::dvec3> normals = BaseNormals( mesh );
+            std::vector<glm::dvec3>       targets = p;
+            for ( const int vid : mesh.VertexIndicesItr() )
+                targets[static_cast<size_t>( vid )] +=
+                     static_cast<double>( settings.Distance ) * normals[static_cast<size_t>( vid )];
+            if ( auto fit = LaplacianFit( mesh, settings.WeightType, movable, true, w, targets, p ); !fit.IsSuccess() )
+                return Common::MakeError<bool>( "Offset (Implicit): " + fit.GetError() );
             return Common::MakeSuccess( true );
         }
 
@@ -372,6 +423,18 @@ namespace Desert::Geometry
         return "Unknown";
     }
 
+    const char* ToString( OffsetType type )
+    {
+        switch ( type )
+        {
+            case OffsetType::Iterative:
+                return "Iterative";
+            case OffsetType::Implicit:
+                return "Implicit";
+        }
+        return "Unknown";
+    }
+
     const char* ToString( SmoothWeightType type )
     {
         switch ( type )
@@ -393,9 +456,9 @@ namespace Desert::Geometry
         if ( !( settings.Smoothness >= 0.0f && settings.Smoothness <= 1.0f ) )
             return Common::MakeError<DeformOutcome>(
                  fmt::format( "Smooth: Smoothness is {}, 0..1 expected", settings.Smoothness ) );
-        if ( !( settings.SmoothSpeed >= 0.0f && settings.SmoothSpeed <= 1.0f ) )
+        if ( !( settings.VolumeCorrection >= 0.0f && settings.VolumeCorrection <= 10.0f ) )
             return Common::MakeError<DeformOutcome>(
-                 fmt::format( "Smooth: SmoothSpeed is {}, 0..1 expected", settings.SmoothSpeed ) );
+                 fmt::format( "Smooth: VolumeCorrection is {}, 0..10 expected", settings.VolumeCorrection ) );
 
         DynamicMesh3               mesh  = input;
         int32_t                    moved = 0, pinned = 0;
@@ -420,8 +483,9 @@ namespace Desert::Geometry
             case SmoothType::Implicit:
                 if ( auto solved = ImplicitSmooth( mesh, settings, movable, p ); !solved.IsSuccess() )
                     return Common::MakeError<DeformOutcome>( solved.GetError() );
-                report = fmt::format( "Implicit {} smoothing, smoothness {:.2f}, speed {:.2f}",
-                                      ToString( settings.WeightType ), settings.Smoothness, settings.SmoothSpeed );
+                report = fmt::format( "Implicit {} smoothing, smoothness {:.2f}, volume correction {:.2f} cm",
+                                      ToString( settings.WeightType ), settings.Smoothness,
+                                      settings.VolumeCorrection );
                 break;
             case SmoothType::Diffusion:
                 if ( auto solved = DiffusionSmooth( mesh, settings, movable, p ); !solved.IsSuccess() )
@@ -442,10 +506,26 @@ namespace Desert::Geometry
         if ( !std::isfinite( settings.Distance ) )
             return Common::MakeError<DeformOutcome>( "Offset: Distance is not a finite number" );
 
-        DynamicMesh3               mesh  = input;
-        int32_t                    moved = 0, pinned = 0;
+        if ( !( settings.Smoothness >= 0.0f && settings.Smoothness <= 100.0f ) )
+            return Common::MakeError<DeformOutcome>(
+                 fmt::format( "Offset: Smoothness is {}, 0..100 expected", settings.Smoothness ) );
+
+        DynamicMesh3 mesh  = input;
+        int32_t      moved = 0, pinned = 0;
+        // UE sets bFixedBoundary for the Implicit operator: its constrained solver only solves interior vertices.
+        const bool                 moveBoundary = settings.Type == OffsetType::Iterative && settings.OffsetBoundary;
         const std::vector<uint8_t> movable =
-             MovableVertices( mesh, settings.OffsetBoundary, settings.PinUVSeams, moved, pinned );
+             MovableVertices( mesh, moveBoundary, settings.PinUVSeams, moved, pinned );
+        if ( settings.Type == OffsetType::Implicit )
+        {
+            std::vector<glm::dvec3> p = Positions( mesh );
+            if ( auto solved = ImplicitOffset( mesh, settings, movable, p ); !solved.IsSuccess() )
+                return Common::MakeError<DeformOutcome>( solved.GetError() );
+            WritePositions( mesh, p );
+            return Finish( std::move( mesh ), "Offset", moved, pinned,
+                           fmt::format( "Implicit offset {:.2f} cm, {} weights, smoothness {:.2f}", settings.Distance,
+                                        ToString( settings.WeightType ), settings.Smoothness ) );
+        }
         const double            stepDistance = static_cast<double>( settings.Distance ) / settings.Steps;
         std::vector<glm::dvec3> p            = Positions( mesh );
         std::vector<glm::dvec3> next         = p;

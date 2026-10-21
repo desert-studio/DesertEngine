@@ -630,6 +630,13 @@ namespace Desert::Editor
                                       MS::Get().DeformSmooth.Type = type;
                                       return PaletteCommandDone();
                                   } } );
+        for ( const Geometry::OffsetType type : { Geometry::OffsetType::Iterative, Geometry::OffsetType::Implicit } )
+            commands.push_back( { "Modeling", std::string( "Offset type: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().DeformOffset.Type = type;
+                                      return PaletteCommandDone();
+                                  } } );
         modelingOnOff( "Modeling", "Smooth: Smooth Boundary",
                        []( MS& ms, bool on ) { ms.DeformSmooth.SmoothBoundary = on; } );
         modelingOnOff( "Modeling", "Smooth: Pin UV Seams",

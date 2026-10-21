@@ -39,7 +39,8 @@ namespace Desert::Geometry
     enum class SmoothType : uint8_t
     {
         Iterative, // explicit: Steps rounds of p <- lerp( p, centroid( one-ring ), SmoothingPerStep ) (Jacobi)
-        Implicit,  // one sparse solve: argmin |L x|^2 + (1/s) |x - p|^2, s = Smoothness^2 * VertexCount / 50
+        Implicit,  // one sparse solve: argmin |L x|^2 + (1/s) |x - (p + VolumeCorrection n)|^2,
+                   // s = Smoothness^2 * VertexCount / 50, n = the input's vertex normal
         Diffusion, // implicit heat flow: Steps backward-Euler solves ( I + SmoothingPerStep * L ) x' = x
     };
     [[nodiscard]] const char* ToString( SmoothType type );
@@ -55,7 +56,10 @@ namespace Desert::Geometry
         float            SmoothingPerStep = 0.8f;  // Iterative / Diffusion: UE SmoothingPerStep, 0..1
         int32_t          Steps            = 10;    // Iterative / Diffusion: UE Steps
         float            Smoothness       = 0.2f;  // Implicit: UE Smoothness, 0..1, non-linear (squared)
-        float            SmoothSpeed      = 1.0f;  // Implicit: fraction of the solved move applied, 0..1
+        float            VolumeCorrection = 0.0f;  // Implicit: UE VolumeCorrection, cm along the input normal
+                                                   // that each fairing target is pushed out, against shrink;
+                                                   // 0..10 (UE ClampMax; UE's SmoothSpeed is a hidden
+                                                   // property its CotanSmoothingOp never reads - not ported)
         bool             SmoothBoundary   = true;  // UE bSmoothBoundary: off pins open-boundary vertices
         bool             PinUVSeams       = false; // UV-seam vertices held, so UV islands keep their outline
 
@@ -64,17 +68,29 @@ namespace Desert::Geometry
     [[nodiscard]] Common::ResultStr<DeformOutcome> Smooth( const DynamicMesh3&   mesh,
                                                            const SmoothSettings& settings );
 
-    // ---- Offset (UE UOffsetMeshTool, Offset Type = Iterative; UIterativeOffsetProperties) ----
-    // Steps rounds of: every movable vertex moves Distance / Steps along its current vertex normal (area- and
+    // UE EOffsetMeshToolOffsetType: which operator UOffsetMeshTool runs.
+    enum class OffsetType : uint8_t
+    {
+        Iterative, // UE FIterativeOffsetMeshOp: Steps rounds of normal move + smoothing
+        Implicit,  // UE FLaplacianOffsetMeshOp: one sparse solve keeping the Laplacian (detail) of the input,
+                   // argmin |L x - L p|^2 + w |x - (p + Distance n)|^2, w = max( Smoothness^2 * VertexCount / 50,
+                   // 0.001 ) / 100; open-boundary vertices held (UE bFixedBoundary)
+    };
+    [[nodiscard]] const char* ToString( OffsetType type );
+
+    // ---- Offset (UE UOffsetMeshTool; UIterativeOffsetProperties / UImplicitOffsetProperties) ----
+    // Iterative: Steps rounds of: every movable vertex moves Distance / Steps along its current vertex normal (area- and
     // angle-weighted, recomputed each round), then one smoothing pass of SmoothingPerStep with WeightType
     // keeps the shell from folding on concave regions. A negative Distance moves inwards.
     struct OffsetSettings
     {
+        OffsetType       Type             = OffsetType::Iterative;
         float            Distance         = 10.0f; // cm, UE OffsetDistance
         int32_t          Steps            = 10;    // UE Steps
-        float            SmoothingPerStep = 0.2f;  // UE SmoothingPerStep, 0..1; 0 = pure offset
+        float            SmoothingPerStep = 0.2f;  // Iterative: UE SmoothingPerStep, 0..1; 0 = pure offset
+        float            Smoothness       = 0.2f;  // Implicit: UE Smoothness, 0..100 (UI 0..1), squared
         SmoothWeightType WeightType       = SmoothWeightType::Uniform;
-        bool             OffsetBoundary   = true; // UE bOffsetBoundaries: off pins open-boundary vertices
+        bool             OffsetBoundary   = true; // Iterative: UE bOffsetBoundaries: off pins open boundary
         bool             PinUVSeams       = false;
 
         bool operator==( const OffsetSettings& ) const = default;
