@@ -528,6 +528,10 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Materials/Material.hpp",
           "Material", "m_RegisteredProperties", Guard::OwnedByThisObject,
           "every entry is the address of an MPROPERTY member of this same object, registered by that member's own registrar sub-object at construction" },
+        { "Desert/Desert/Source/Engine/Graphic/Materials/MaterialExecutor.hpp",
+          "MaterialExecutor", "m_Owner", Guard::ObservedContainsUs,
+          "the owner is the Material whose unique_ptr m_MaterialExecutor holds this executor (set in Material's "
+          "constructor); Material declares a destructor, so it has no implicit move and the address cannot change" },
         { "Desert/Desert/Source/Engine/Graphic/Materials/MaterialInstance.hpp",
           "MaterialInstance", "m_ParentMaterial", Guard::ReboundBeforeEveryUse,
           "the parent CAN die first -- MaterialService::Invalidate graveyards it -- and the guard is the "

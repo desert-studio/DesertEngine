@@ -203,8 +203,11 @@ namespace Desert::Graphic
         void ClaimOwnership( ResourceOwner owner, Common::AssetHandle asset = Common::AssetHandle{} );
 
     protected:
-        // Uploads all dirty TProperty members to the matching FieldProperty/Texture slot.
-        // Exposed as protected so non-instance Bind() overrides (JFA, etc.) can flush manually.
+        // MaterialExecutor::Apply uploads the pending properties at use (UploadRegisteredProperties).
+        friend class MaterialExecutor;
+
+        // Uploads all dirty TProperty members to the matching FieldProperty/Texture slot. Called by Bind and by
+        // MaterialExecutor::Apply (upload at use), so a material drawn without Bind needs no manual flush.
         //
         // It used to hand back the set of uniform buffers it had touched, and all four callers threw
         // that set away -- an out-parameter nobody read, which is a dead parameter by any reading of

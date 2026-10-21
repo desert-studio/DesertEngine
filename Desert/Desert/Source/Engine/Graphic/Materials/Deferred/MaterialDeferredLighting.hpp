@@ -205,13 +205,9 @@ namespace Desert::Graphic
             if ( auto* meta = Get<UniformBufferProperty>( ShaderProtocols::LightsMetadata::Name ) )
                 meta->SetRawData( reinterpret_cast<const std::byte*>( &counts ), sizeof( counts ) );
 
-            UploadRegisteredProperties();
-            // DeferredUB (the MPROPERTYs above) is the only field-filled buffer here. ShadowUB,
-            // CloudShadowUB and LightsMetadata were just written whole, a few lines up, and this loop
-            // used to reach them too: every field of every buffer starts dirty, so on the opening
-            // frames it flushed uninitialised shadow copies straight over the cascade matrices it had
-            // just been given. They decline now — see ShaderResources::BufferFillKind.hpp.
-            FlushFieldFilledUniformBuffers();
+            // DeferredUB (the MPROPERTYs above) is the only field-filled buffer here and is uploaded where the
+            // composite reads it (MaterialExecutor::Apply). ShadowUB, CloudShadowUB and LightsMetadata were just
+            // written whole and are never flushed from field copies -- see ShaderResources::BufferFillKind.hpp.
         }
 
         // Uploads the CSM data into ShadowUB (the cascade maps u_ShadowCascades are a graph texture, bound by
