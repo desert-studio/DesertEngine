@@ -91,6 +91,7 @@
 #include <array>
 #include <format>
 #include "Editor/Import/ImportManager.hpp"
+#include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
 #include "Editor/Splash/SplashControls.hpp"
 #include "Editor/Splash/SplashImage.hpp"
 #include "Editor/Widgets/WindowButtonStyle.hpp"

@@ -242,8 +242,8 @@ namespace Desert::Editor
         if ( auto saved = Assets::WriteMaterialFile( matFile, material ); !saved )
             return Common::MakeError( saved.GetError() );
 
-        Assets::ContentRegistry::Get().NoteFile( texFile );
-        Assets::ContentRegistry::Get().NoteFile( matFile );
+        Assets::ContentRegistry::NoteFile( texFile );
+        Assets::ContentRegistry::NoteFile( matFile );
         m_Baked.push_back(
              LandscapeHLODBaked{ .Tile         = tile.Tile,
                                  .MaterialGuid = material.Header->Guid,
