@@ -1978,8 +1978,14 @@ namespace Desert::Editor
         {
             m_FoliageTool.DrawPanel( *m_Scene, m_AssetManager, m_ViewportData.ViewportPos, m_UIHelper.get() );
             // A stroke starts on a press over the viewport and runs until release (one undo step); leaving the
-            // viewport mid-drag does not split it.
-            const bool pressing = ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !ImGui::IsAnyItemActive() &&
+            // viewport mid-drag does not split it. A press on the scene image (a plain Image, no item) is a click
+            // on the window's void, so ImGui makes the window's own MoveId the active id from the next frame
+            // (UpdateMouseMovingWindowEndFrame) and holds it until release: that id is the viewport holding its
+            // own press, not a widget claiming it. Counting it as "an item is active" ended every stroke after
+            // its first frame, so a drag painted one dab where it was pressed and nothing along the way.
+            const ImGuiID activeId     = ImGui::GetActiveID();
+            const bool    widgetActive = activeId != 0 && activeId != ImGui::GetCurrentWindow()->MoveId;
+            const bool    pressing     = ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !widgetActive &&
                                   ( m_ViewportData.IsHovered || m_FoliageTool.IsStroking() );
             if ( const auto camera = ViewCamera() )
             {
@@ -1996,6 +2002,16 @@ namespace Desert::Editor
                     ::Desert::Core::RaycastHit hover;
                     Core::FoliagePaint::HoverPoint() =
                          m_Scene->Raycast( ray, hover ) ? std::optional<glm::vec3>( hover.Point ) : std::nullopt;
+                }
+                if ( pressing )
+                {
+                    const auto target = Control::PointerInjection::FreshTarget( Control::Subject::Viewport,
+                                                                                ImGui::GetFrameCount() );
+                    LOG_DEBUG( "[Foliage] stroke tick: cursor ({:.1f}, {:.1f}) of viewport {:.0f}x{:.0f} points, "
+                               "image {}x{} px; ray origin ({:.1f}, {:.1f}, {:.1f}) dir ({:.3f}, {:.3f}, {:.3f})",
+                               mx, my, m_ViewportData.Size.x, m_ViewportData.Size.y,
+                               target ? target->ImageWidth : 0u, target ? target->ImageHeight : 0u, ray.Origin.x,
+                               ray.Origin.y, ray.Origin.z, ray.Direction.x, ray.Direction.y, ray.Direction.z );
                 }
                 m_FoliageTool.Update( *m_Scene, m_AssetManager, ray, pressing, ImGui::GetIO().KeyShift );
                 const glm::mat4 viewProjection = camera->GetProjectionMatrix() * camera->GetViewMatrix();
