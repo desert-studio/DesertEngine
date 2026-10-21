@@ -392,12 +392,8 @@ namespace Desert::Core
         // Records sorted by id (scene v25): the file order is then a function of the SET of entities, not
         // of the order they were created or last reparented in, so adding one entity changes only its own
         // lines and the siblingIndex of its later siblings - never the position of every record after it.
-        std::stable_sort( scene.Entities.begin(), scene.Entities.end(),
-                          []( const Assets::EntityData& a, const Assets::EntityData& b )
-                          {
-                              return static_cast<uint64_t>( a.id.value_or( Common::UUID( 0 ) ) ) <
-                                     static_cast<uint64_t>( b.id.value_or( Common::UUID( 0 ) ) );
-                          } );
+        // The one rule the migrator's canonical pass runs too.
+        Assets::SortSceneRecordsById( scene.Entities );
 
         // Scene-wide settings via the generic reflection serializer (no hand-written mirror struct).
         //

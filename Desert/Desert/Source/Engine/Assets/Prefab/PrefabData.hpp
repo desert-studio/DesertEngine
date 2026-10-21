@@ -14,6 +14,7 @@
 
 #include <Common/Json/Json.hpp>
 
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <utility>
@@ -260,6 +261,26 @@ namespace Desert::Assets
         // and would drop it.
         std::optional<std::vector<PrefabOverrideData>> PrefabOverrides;
     };
+
+    // THE SCENE'S RECORD ORDER (scene v25): a .desce lists its records by ascending id, so the file order is a
+    // function of the SET of entities - not of the order they were created, reparented or iterated out of the
+    // registry in - and a save with one edit changes only that edit's lines. Stable, so records without an id
+    // (sorted as 0) keep their relative order. Returns true when anything moved. PURE: the scene saver and the
+    // migrator's canonical pass run this one rule, so a file the migrator wrote is already in the order the
+    // editor writes (SAVE-ENTITY-ORDER: 33 tracked scenes predated the rule and every editor save of one of
+    // them moved records). A .deprefab keeps hierarchy order and is not sorted.
+    inline bool SortSceneRecordsById( std::vector<EntityData>& records )
+    {
+        const auto byId = []( const EntityData& a, const EntityData& b )
+        {
+            return static_cast<uint64_t>( a.id.value_or( Common::UUID( 0 ) ) ) <
+                   static_cast<uint64_t>( b.id.value_or( Common::UUID( 0 ) ) );
+        };
+        if ( std::is_sorted( records.begin(), records.end(), byId ) )
+            return false;
+        std::stable_sort( records.begin(), records.end(), byId );
+        return true;
+    }
 
     // THE INSTANCE ROOT'S TRANSFORM, TAKEN OUT OF ITS OVERRIDES (scene v37, PFX1). A scene record states its
     // instance's root transform itself; the root's override (the one whose Path is @p rootPath) must not state

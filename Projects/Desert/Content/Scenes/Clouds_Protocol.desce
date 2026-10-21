@@ -178,6 +178,16 @@
             }
         },
         {
+            "id": 10723461114232914775,
+            "Tag": "Wind Source",
+            "WindSource": {
+                "Direction": [1.0, 0.0, 0.0],
+                "Speed": 3000.0,
+                "PointWind": false,
+                "Radius": 1000.0
+            }
+        },
+        {
             "id": 18112756911445915931,
             "siblingIndex": 4,
             "Tag": "PostProcessVolume",
@@ -236,16 +246,6 @@
                     "LensFlareStreakAngle": 0.0,
                     "LensFlareChromaShift": 0.15000000596046448
                 }
-            }
-        },
-        {
-            "id": 10723461114232914775,
-            "Tag": "Wind Source",
-            "WindSource": {
-                "Direction": [1.0, 0.0, 0.0],
-                "Speed": 3000.0,
-                "PointWind": false,
-                "Radius": 1000.0
             }
         }
     ],
