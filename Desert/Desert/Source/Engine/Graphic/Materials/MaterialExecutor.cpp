@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
+#include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
 #include <Engine/Core/Formats/MaterialLayout.hpp>
 
@@ -185,6 +186,20 @@ namespace Desert::Graphic
         {
             LOG_ERROR( "MaterialExecutor::Apply: MaterialBackend is null for: {}", m_DebugName );
             return;
+        }
+
+        // 1. The owner's dirty MPROPERTY values into their fields (a no-op after a Bind, which cleaned them).
+        if ( m_Owner )
+            m_Owner->UploadRegisteredProperties();
+
+        // 2. Fields into the active copy. Only buffers that claimed the field route: an unclaimed buffer's fields
+        //    are the constructor's zeros (FieldProperty starts every field dirty), and flushing them would claim
+        //    the route for a buffer someone else fills whole. Idempotent per copy (UpdateFields writes only
+        //    fields newer than the copy's applied version), so a Bind just before costs nothing more here.
+        for ( auto& prop : m_UniformBufferPropertiesStorage )
+        {
+            if ( prop->GetFillKind() == ShaderResources::FillKind::Fields && prop->HasDirtyFields() )
+                prop->UpdateFields();
         }
 
         for ( auto& prop : m_UniformBufferPropertiesStorage )

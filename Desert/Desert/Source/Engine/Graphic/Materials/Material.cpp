@@ -100,6 +100,8 @@ namespace Desert::Graphic
            // shader declares, each of which is itself frames x slots VkBuffers.
            m_Accounting( ResourceOwnership::Take( ResourceKind::Material ) )
     {
+        if ( m_MaterialExecutor )
+            m_MaterialExecutor->SetOwner( this );
         CachePropertyNames();
     }
 
@@ -109,6 +111,8 @@ namespace Desert::Graphic
                 Graphic::MaterialExecutor::Create( std::move( debugName ), shader, parameterSchema ) ),
            m_Accounting( ResourceOwnership::Take( ResourceKind::Material ) )
     {
+        if ( m_MaterialExecutor )
+            m_MaterialExecutor->SetOwner( this );
         CachePropertyNames();
     }
 
@@ -212,6 +216,11 @@ namespace Desert::Graphic
                 {
                     if ( auto texProp = m_MaterialExecutor->GetTexture2DProperty( std::string( prop->GetShaderName() ) ) )
                         texProp->SetImage( static_cast<const Image2D*>( texPtr ), RDG::Access::SampledGraphics );
+                    else
+                        LOG_ERROR(
+                             "[Material] '{}': property '{}' was set but the shader has no texture '{}' -- the "
+                             "value is not uploaded",
+                             m_MaterialExecutor->GetDubugName(), prop->GetName(), prop->GetShaderName() );
                 }
             }
             else
@@ -222,6 +231,12 @@ namespace Desert::Graphic
                     std::byte buf[256] = {};
                     prop->CopyValueTo( buf );
                     ub->WriteField( field, buf, prop->GetByteSize() );
+                }
+                else
+                {
+                    LOG_ERROR( "[Material] '{}': property '{}' was set but no uniform buffer of the shader has a "
+                               "field '{}' -- the value is not uploaded",
+                               m_MaterialExecutor->GetDubugName(), prop->GetName(), prop->GetShaderName() );
                 }
             }
 

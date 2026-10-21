@@ -18,12 +18,8 @@ namespace Desert::Graphic
         SetLightShaftTintIntensity( glm::vec4( params.LightShaftTint, params.LightShaftIntensity ) );
         SetLensFlareTintIntensity( glm::vec4( params.LensFlareTint, params.LensFlareIntensity ) );
         SetInvPreExposure( 1.0f / params.PreExposure );
-
-        UploadRegisteredProperties();
-
-        // EVERY UB with dirty fields (not just the ones touched this frame) so each per-frame-in-flight
-        // copy receives the value — same reason as MaterialJFAFinal (TProperty::Set skips unchanged
-        // values, which would otherwise leave other frame copies uninitialized → flicker).
-        FlushFieldFilledUniformBuffers();
+        // Uploaded where the draw reads them (MaterialExecutor::Apply: dirty MPROPERTYs into their fields, then
+        // every field-filled buffer whose active copy is behind -- each frame-in-flight copy catches up on its
+        // own).
     }
 } // namespace Desert::Graphic

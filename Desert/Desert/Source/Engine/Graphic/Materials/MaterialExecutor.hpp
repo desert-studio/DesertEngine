@@ -15,6 +15,8 @@
 
 namespace Desert::Graphic
 {
+    class Material;
+
     class MaterialExecutor
     {
     public:
@@ -72,7 +74,21 @@ namespace Desert::Graphic
         std::shared_ptr<Texture2DProperty>     GetTexture2DProperty( const std::string& name ) const;
         std::shared_ptr<TextureCubeProperty>   GetTextureCubeProperty( const std::string& name ) const;
 
+        // UPLOAD AT USE (UE: a uniform buffer is created from its parameters when the draw that reads it is set
+        // up, not by a separate step the caller may forget). Before the descriptors are written this uploads what
+        // is still pending: the owning Material's dirty registered properties (MPROPERTY -> their uniform-buffer
+        // fields) and every FIELD-filled uniform buffer whose active (view x frame) copy is behind its fields. A
+        // draw that submits the executor directly (DrawFullscreen / DrawPrimitive / a mesh path) therefore reads
+        // the values set on the material, Bind or no Bind -- CLOUD-PREEXP-BLACK: SetExposure wrote
+        // CloudCompositeUB's property, the composite never called Bind, the UB stayed zero and the clouds were
+        // black. Unclaimed and whole-filled buffers are not touched (their contents are the filler's).
         void                    Apply() const;
+        // The Material this executor is the GPU half of (set once by Material's constructor; null for an
+        // executor created on its own). Its pending properties are what Apply uploads first.
+        void SetOwner( Material* owner )
+        {
+            m_Owner = owner;
+        }
         // RDG-FAULT1. What this material fills for a draw (the other route of a pass's binding block, declared in
         // the pass's SETUP): every property it owns except a storage buffer nothing ever wrote
         // (StorageBufferProperty:: IsWritten - the pass's setup refuses that block) - each one always holds a
@@ -114,6 +130,7 @@ namespace Desert::Graphic
         using PropertyLookup = std::unordered_map<std::string, size_t>;
 
         Common::Memory::Buffer m_PushConstantBuffer;
+        Material*              m_Owner                = nullptr;
         bool                   m_ReportedPushOverflow = false;
 
         // Compact storage
