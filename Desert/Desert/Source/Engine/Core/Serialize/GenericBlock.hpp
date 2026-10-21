@@ -41,9 +41,6 @@
 
 #include <cstddef>
 #include <optional>
-#include <string>
-#include <string_view>
-#include <vector>
 
 namespace Desert::Core::Serialize
 {
@@ -58,53 +55,6 @@ namespace Desert::Core::Serialize
         block.ReadValue( out, issues );
         if ( issues.size() != before )
             return std::nullopt;
-        return out;
-    }
-
-    // A block with one array member that is read ELEMENT BY ELEMENT (SCENE-INT-TRANSFORM): the per-instance
-    // transforms of an instanced mesh are one record per instance, not one value, and a single unreadable
-    // instance must not take the mesh, its materials and the other instances with it. Every member except
-    // `key` is read whole under ReadBlock's rule; each element of `key` is read on its own, and a refused one
-    // leaves an Issue at its own path ("Entities[id=4127].InstancedStaticMesh.InstanceTransforms[17]") and is
-    // left out, while the rest are kept. A `key` that is present but not an array is one Issue and the member
-    // stays absent.
-    template <class T, class E>
-    std::optional<T> ReadBlockByElements( const Common::Json::Node& block, std::string_view key,
-                                          std::optional<std::vector<E>> T::*member, Common::Json::Issues& issues )
-    {
-        const auto* object = std::get_if<Common::Json::Object>( &block.Raw().variant() );
-        if ( object == nullptr )
-            return ReadBlock<T>( block, issues );
-
-        Common::Json::Object head;
-        for ( const auto& [name, value] : *object )
-            if ( name != key )
-                head.insert( name, value );
-        const Common::Json::Value headValue( head );
-        std::optional<T>          out = ReadBlock<T>( Common::Json::Node( headValue, block.Where() ), issues );
-        if ( !out.has_value() )
-            return std::nullopt;
-
-        const std::optional<Common::Json::Node> array = block.Find( key );
-        if ( !array.has_value() )
-            return out;
-        if ( array->GetKind() != Common::Json::Kind::Array )
-        {
-            std::vector<E> whole;
-            array->ReadValue( whole, issues ); // records the wrong kind at the member's path
-            return out;
-        }
-        std::vector<E> elements;
-        array->ForEachElement(
-             [&]( std::size_t, const Common::Json::Node& element )
-             {
-                 E                 value{};
-                 const std::size_t before = issues.size();
-                 element.ReadValue( value, issues );
-                 if ( issues.size() == before )
-                     elements.push_back( value );
-             } );
-        ( *out ).*member = std::move( elements );
         return out;
     }
 } // namespace Desert::Core::Serialize

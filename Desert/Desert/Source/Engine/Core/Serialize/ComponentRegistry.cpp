@@ -1605,8 +1605,7 @@ namespace Desert::Core::Serialize
             s.Deserialize = []( ECS::Entity entity, const Common::Json::Node& g,
                                 const Assets::AssetManager& assetManager, Common::Json::Issues& issues )
             {
-                auto parsed = ReadBlockByElements( g, "InstanceTransforms",
-                                                   &Assets::InstancedStaticMeshComponentSer::InstanceTransforms, issues );
+                auto parsed = ReadBlock<Assets::InstancedStaticMeshComponentSer>( g, issues );
                 if ( !parsed.has_value() )
                     return;
                 const auto& data = parsed.value();
