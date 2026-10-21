@@ -238,8 +238,26 @@ namespace Desert::Editor
             // Every texture asset the package carries gets its platform data into the DDC here; the
             // Texture bucket is then staged like every other (StageCookedEntries), and the game reads it
             // there -- it has no builder, so an entry missing now is a load error in the game.
+            // THE SET IS EVERY TEXTURE ASSET UNDER THE ASSETS ROOT, plus the loose images. The loose roots
+            // (Textures/, Meshes/) are where IMAGES get imported; a texture asset written by a tool rather than
+            // imported from an image — Build HLODs' baked `<world>_HLOD/T_<tile>_BaseColor.detex` beside its
+            // world — lives wherever its owner does, and the package carries it all the same. Listing only the
+            // loose roots shipped those with no platform data unless an editor session had happened to draw
+            // them ("has no platform data under DDC key ..., the package was cooked without it"). Assets only,
+            // never images outside the loose roots: importing an image creates its asset on disk, which a
+            // package cook must not do.
+            std::vector<fs::path> sources = LooseTextureSources();
+            for ( const auto& p :
+                  Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::ASSETS_PATH ) )
+            {
+                if ( p.extension() == Assets::kTextureAssetExtension && Assets::IsTextureSourceAssetFile( p ) )
+                    sources.push_back( p );
+            }
+            std::sort( sources.begin(), sources.end() );
+            sources.erase( std::unique( sources.begin(), sources.end() ), sources.end() );
+
             TextureImporter importer;
-            for ( const fs::path& source : LooseTextureSources() )
+            for ( const fs::path& source : sources )
             {
                 switch ( importer.Cook( source ).Outcome )
                 {
