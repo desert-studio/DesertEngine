@@ -672,7 +672,7 @@ namespace Desert::Migration
         }
 
         int changed = 0;
-        // Materials raised MATL 4 -> 5: a --check with any is pending work.
+        // Materials raised MATL 5 -> 6: a --check with any is pending work.
         int materialsRaised = 0;
         // Mesh files raised (MeshBinary 3/4 -> 5, mesh Source 2 -> 3): a --check with any is pending work.
         int meshesRaised = 0;
@@ -1108,8 +1108,8 @@ namespace Desert::Migration
             ++changed;
         }
 
-        // THE MATERIALS. MATL v4 is raised to v5 (FIELD-GRAIN-b: PatchStrength becomes the clear share of the
-        // sky); anything older is no longer raised (the legacy steps, their material-number register and the
+        // THE MATERIALS. MATL v5 is raised to v6 (SHADER-NAMING: a texture is stored under its parameter name,
+        // not its GLSL spelling); anything older is no longer raised (the legacy steps, their material-number register and the
         // path-derived asset table were retired with LEG1): an older or newer generation FAILS by its number, a
         // current one is only re-laid-out if its text layout is not canonical.
         const auto engineShaders = EngineShaderLocatorsByGuid();
@@ -1129,16 +1129,16 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( stated.GetValue() == 4u )
+            if ( stated.GetValue() == 5u )
             {
-                const auto raised = Desert::Migration::MigrateMaterialV4ToV5( source );
+                const auto raised = Desert::Migration::MigrateMaterialV5ToV6( source );
                 if ( !raised )
                 {
-                    err << "FAIL   " << path.string() << " — MATL 4 -> 5: " << raised.GetError() << "\n";
+                    err << "FAIL   " << path.string() << " — MATL 5 -> 6: " << raised.GetError() << "\n";
                     ++failed;
                     continue;
                 }
-                out << ( check ? "would raise " : "raised " ) << path.string() << " MATL 4 -> "
+                out << ( check ? "would raise " : "raised " ) << path.string() << " MATL 5 -> "
                     << Desert::Assets::kMaterialSchemaVersion << "\n";
                 if ( !check && !WriteText( path, raised.GetValue(), err ) )
                 {

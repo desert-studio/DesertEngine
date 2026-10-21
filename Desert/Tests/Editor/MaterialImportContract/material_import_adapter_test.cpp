@@ -256,7 +256,7 @@ TEST( MaterialImportAdapter, EveryGltfKeyReachesItsPropertyOrSlot )
     ASSERT_EQ( orm->Parts.size(), 2u );
     EXPECT_TRUE( orm->NeedsPacking() );
     const fs::path packed = PackedTexturePath( *orm );
-    EXPECT_EQ( packed.filename().string(), "mr+occ_ORMTexture.detex" );
+    EXPECT_EQ( packed.filename().string(), "mr+occ_OrmTexture.detex" );
     const auto wrote = PackTextureChannels( *orm, packed );
     ASSERT_TRUE( wrote.IsSuccess() ) << wrote.GetError();
 

@@ -3,11 +3,9 @@
         "Kind": "Material",
         "Guid": "f3364a91ebcb413d9b85098c064492be",
         "Versions": {
-            "MATL": 5
+            "MATL": 6
         },
-        "Dependencies": [
-            "2ca20b839c0f4b64a386aa77417e945f"
-        ]
+        "Dependencies": ["2ca20b839c0f4b64a386aa77417e945f"]
     },
     "Shader": {
         "Guid": "2ca20b839c0f4b64a386aa77417e945f",
@@ -16,12 +14,9 @@
     "Params": [
         {
             "Name": "AlbedoColor",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ]
+            "Value": [1.0, 1.0, 1.0, 1.0]
         }
-    ]
+    ],
+    "Textures": [],
+    "CloudAssets": []
 }

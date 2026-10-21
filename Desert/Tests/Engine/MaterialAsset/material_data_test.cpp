@@ -189,7 +189,7 @@ TEST( MaterialFormatV3, AVersion2FileIsRefusedByNameAndPointsAtTheMigrator )
 TEST( MaterialFormatV3, ASlotGuidTheHeaderDoesNotStateOrAPathWithoutAGuidIsRefused )
 {
     const std::string head = R"({"Header":{"Kind":"Material","Guid":"3cac456286293463b516718906b23e28",)"
-                             R"("Versions":{"MATL":5},"Dependencies":[)";
+                             R"("Versions":{"MATL":6},"Dependencies":[)";
     const std::string slot = R"("Params":[],"Textures":[],)"
                              R"("CloudAssets":[{"Name":"CloudType1","Guid":"45d579b03cc0d0a8df2e4cb025d6bea5",)"
                              R"("Path":"assets:Clouds/Types/Cu.decloudtype"}]})";
