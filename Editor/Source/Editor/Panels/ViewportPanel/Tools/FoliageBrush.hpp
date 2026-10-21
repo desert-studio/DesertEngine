@@ -27,6 +27,7 @@
 #include <functional>
 #include <optional>
 #include <span>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -132,14 +133,26 @@ namespace Desert::Editor::Tools
     /// FFoliageInfo::SelectedIndices).
     using FoliageSelection = std::vector<uint32_t>;
 
-    /// One field's instances and selection before and after a stroke.
+    /// Where a cell field stands and what it is called: a repartition re-files a field under the cell its
+    /// instances lie in (a field whose grid changed), so its entity moves to that cell and its name follows.
+    struct FoliageFieldPlace
+    {
+        glm::vec3   Translation{ 0.0f };
+        std::string Tag;
+
+        bool operator==( const FoliageFieldPlace& ) const = default;
+    };
+
+    /// One field's instances and selection before and after a stroke, and its place when the stroke re-filed it.
     struct FoliageStrokeField
     {
-        Common::UUID           Entity;
-        std::vector<glm::mat4> Before;
-        std::vector<glm::mat4> After;
-        FoliageSelection       SelectedBefore;
-        FoliageSelection       SelectedAfter;
+        Common::UUID                     Entity;
+        std::vector<glm::mat4>           Before;
+        std::vector<glm::mat4>           After;
+        FoliageSelection                 SelectedBefore;
+        FoliageSelection                 SelectedAfter;
+        std::optional<FoliageFieldPlace> PlaceBefore; ///< none: the stroke never moved or renamed the field
+        std::optional<FoliageFieldPlace> PlaceAfter;
     };
 
     /**
@@ -163,16 +176,22 @@ namespace Desert::Editor::Tools
         void Touch( const Common::UUID& entity, const std::vector<glm::mat4>& current,
                     const FoliageSelection& selected = {} );
 
+        /// Remembers @p current as the field's place at press, the first time the stroke re-files it (the
+        /// field was touched before: a field is gathered before it is written). False when it never was.
+        [[nodiscard]] bool TouchPlace( const Common::UUID& entity, const FoliageFieldPlace& current );
+
         /// The instance origins Reapply already readjusted in this stroke, per field (UE FOLIAGE_Readjusted: a
         /// dab passing over an instance twice must not re-roll it twice).
         std::vector<glm::vec3>& Readjusted( const Common::UUID& entity );
 
         /// The touched fields whose instances or selection differ from press, in the order first touched.
         /// @p current answers a field's instances now, or null when the field is gone (it is then left out);
-        /// @p selected its selection now (none given: the selection is not part of this stroke).
+        /// @p selected its selection now (none given: the selection is not part of this stroke); @p place its
+        /// place now, asked only of a field TouchPlace saw (none given: places are not part of this stroke).
         std::vector<FoliageStrokeField>
         Finish( const std::function<const std::vector<glm::mat4>*( const Common::UUID& )>& current,
-                const std::function<FoliageSelection( const Common::UUID& )>&              selected = {} ) const;
+                const std::function<FoliageSelection( const Common::UUID& )>&              selected = {},
+                const std::function<std::optional<FoliageFieldPlace>( const Common::UUID& )>& place = {} ) const;
 
     private:
         FoliageRandom                                                m_Random;

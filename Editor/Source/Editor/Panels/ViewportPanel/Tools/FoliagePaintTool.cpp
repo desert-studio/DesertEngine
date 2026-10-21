@@ -39,9 +39,13 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <format>
 #include <functional>
 #include <optional>
 #include <limits>
+#include <map>
+#include <regex>
+#include <string>
 #include <unordered_map>
 #include <string_view>
 #include <unordered_set>
@@ -841,6 +845,11 @@ namespace Desert::Editor::Tools
                          before ? field.Before : field.After;
                     Core::FoliagePaint::Selection()[field.Entity] =
                          before ? field.SelectedBefore : field.SelectedAfter;
+                    if ( const auto& place = before ? field.PlaceBefore : field.PlaceAfter; place.has_value() )
+                    {
+                        ref->get().GetComponent<ECS::TransformComponent>().Translation = place->Translation;
+                        ref->get().GetComponent<ECS::TagComponent>().Tag               = place->Tag;
+                    }
                 }
                 return all;
             }
@@ -975,13 +984,47 @@ namespace Desert::Editor::Tools
             return fields;
         }
 
-        // The cell a field is filed under: the cell its entity stands in (World::Foliage::FoliageCellAnchor puts
-        // a cell field at its cell's centre). A field made before the world was partitioned stands where it was
-        // made; RepartitionFoliage moves its instances out and leaves it the field of that one cell.
+        // The cell a field is filed under: the cell its instances lie in, cut by the same
+        // World::Foliage::FoliageCellOf ScatterFoliage files every instance by — never the entity's own position,
+        // which still names the cell of the grid the field was cut by before its RuntimeGrid changed. A field
+        // whose instances span cells (painted before the world was partitioned) is filed under the cell holding
+        // most of them, lowest (X, Z) on a tie, so the fewest move out; an empty field under the cell it stands in.
         World::Foliage::CellCoord CellOfField( const ECS::Entity& field, double cellSize )
         {
-            const auto& at = field.GetComponent<ECS::TransformComponent>().Translation;
-            return ::Desert::Core::Rules::CellOf( at.x, at.z, cellSize );
+            const auto& instances = field.GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+            if ( instances.empty() )
+            {
+                const auto& at = field.GetComponent<ECS::TransformComponent>().Translation;
+                return ::Desert::Core::Rules::CellOf( at.x, at.z, cellSize );
+            }
+            std::map<std::pair<int32_t, int32_t>, std::size_t> counts;
+            for ( const auto& instance : instances )
+            {
+                const auto cell = World::Foliage::FoliageCellOf( instance, cellSize );
+                ++counts[{ cell.X, cell.Z }];
+            }
+            auto best = counts.begin();
+            for ( auto it = counts.begin(); it != counts.end(); ++it )
+                if ( it->second > best->second )
+                    best = it;
+            return World::Foliage::CellCoord{ best->first.first, best->first.second };
+        }
+
+        // The name the tool gives a cell's field: the type's row name and the cell, "<row>_<X>_<Z>".
+        std::string CellFieldTag( const std::string& base, const World::Foliage::CellCoord& cell )
+        {
+            return std::format( "{}_{}_{}", base, cell.X, cell.Z );
+        }
+
+        // @p tag without the "_<X>_<Z>" CellFieldTag appended, or none when it carries no cell (a palette row the
+        // user named).
+        std::optional<std::string> CellFieldBase( const std::string& tag )
+        {
+            static const std::regex cellSuffix( R"(^(.*)_-?[0-9]+_-?[0-9]+$)" );
+            std::smatch             match;
+            if ( !std::regex_match( tag, match, cellSuffix ) )
+                return std::nullopt;
+            return match[1].str();
         }
 
         struct BrushDisc
@@ -1125,15 +1168,15 @@ namespace Desert::Editor::Tools
                 // Read before creating: a new entity may move the registry's storage under a reference.
                 const auto type    = gather.Lead.GetComponent<ECS::FoliageComponent>().FoliageType;
                 const auto lead    = gather.Lead.GetComponent<ECS::InstancedStaticMeshComponent>();
-                const auto tag     = gather.Lead.GetComponent<ECS::TagComponent>().Tag;
+                const auto& leadTag = gather.Lead.GetComponent<ECS::TagComponent>().Tag;
+                const auto  tag     = CellFieldBase( leadTag ).value_or( leadTag );
                 const auto onGrid  = RuntimeGridOf( gather.Lead );
                 const bool visible = !gather.Lead.HasComponent<ECS::VisibilityComponent>() ||
                                      gather.Lead.GetComponent<ECS::VisibilityComponent>().Visible;
                 for ( std::size_t i = unique.size(); i < out.size(); ++i )
                 {
                     const auto& cell  = out[i].Cell;
-                    auto&       field = scene.CreateNewEntity( tag + "_" + std::to_string( cell.X ) + "_" +
-                                                               std::to_string( cell.Z ) );
+                    auto&       field = scene.CreateNewEntity( CellFieldTag( tag, cell ) );
                     // NOLINTNEXTLINE(bugprone-unchecked-optional-access) cellSize is set: only a scatter adds
                     // fields
                     field.GetComponent<ECS::TransformComponent>().Translation =
@@ -1172,6 +1215,26 @@ namespace Desert::Editor::Tools
                 }
                 instances = std::move( out[*slotOf[i]].Instances );
                 selected  = std::move( out[*slotOf[i]].Selected );
+                if ( !cellSize.has_value() )
+                    continue;
+                // The field is now its cell's (a field whose grid changed was filed by its instances): its entity
+                // moves into that cell (FoliageCells.hpp, THE INVARIANT) and a cell field's name follows the cell.
+                const auto& cell        = out[*slotOf[i]].Cell;
+                auto&       translation = ref->get().GetComponent<ECS::TransformComponent>().Translation;
+                auto&       tag         = ref->get().GetComponent<ECS::TagComponent>().Tag;
+                const FoliageFieldPlace now{ translation, tag };
+                FoliageFieldPlace       wanted = now;
+                if ( ::Desert::Core::Rules::CellOf( translation.x, translation.z, *cellSize ) != cell )
+                    wanted.Translation = World::Foliage::FoliageCellAnchor( cell, *cellSize );
+                if ( const auto base = CellFieldBase( tag ); base.has_value() )
+                    wanted.Tag = CellFieldTag( *base, cell );
+                if ( wanted == now )
+                    continue;
+                if ( !stroke.TouchPlace( gather.Fields[i], now ) )
+                    return Common::MakeFormattedError<bool>( "foliage: field {} was re-filed without being gathered",
+                                                             static_cast<uint64_t>( gather.Fields[i] ) );
+                translation = wanted.Translation;
+                tag         = wanted.Tag;
             }
 
             return BOOLSUCCESS;
@@ -1202,7 +1265,15 @@ namespace Desert::Editor::Tools
                          return nullptr;
                      return &ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
                  },
-                 []( const Common::UUID& uuid ) { return Core::FoliagePaint::SelectionOf( uuid ); } );
+                 []( const Common::UUID& uuid ) { return Core::FoliagePaint::SelectionOf( uuid ); },
+                 [&]( const Common::UUID& uuid ) -> std::optional<FoliageFieldPlace>
+                 {
+                     const auto ref = scene.FindEntityByID( uuid );
+                     if ( !ref )
+                         return std::nullopt;
+                     return FoliageFieldPlace{ ref->get().GetComponent<ECS::TransformComponent>().Translation,
+                                               ref->get().GetComponent<ECS::TagComponent>().Tag };
+                 } );
         }
 
         // Every field of every type in @p rows (palette rows), on every grid, gathered whole and filed back by the
@@ -1678,15 +1749,7 @@ namespace Desert::Editor::Tools
     {
         if ( !m_Stroke )
             return;
-        auto fields = m_Stroke->Finish(
-             [&]( const Common::UUID& uuid ) -> const std::vector<glm::mat4>*
-             {
-                 const auto ref = scene.FindEntityByID( uuid );
-                 if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
-                     return nullptr;
-                 return &ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
-             },
-             []( const Common::UUID& uuid ) { return Core::FoliagePaint::SelectionOf( uuid ); } );
+        auto fields = FinishStroke( scene, *m_Stroke );
         if ( !fields.empty() )
             CommandHistory::Get().PushCommand( std::make_unique<FoliageStrokeCommand>(
                  scene, std::move( fields ), std::string( "Foliage " ) + Core::FoliageToolName( m_StrokeTool ) ) );
@@ -1827,15 +1890,7 @@ namespace Desert::Editor::Tools
                 rows.push_back( uuid );
         if ( auto filed = RepartitionRows( scene, rows, stroke ); !filed )
             return filed;
-        auto fields = stroke.Finish(
-             [&]( const Common::UUID& uuid ) -> const std::vector<glm::mat4>*
-             {
-                 const auto ref = scene.FindEntityByID( uuid );
-                 if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
-                     return nullptr;
-                 return &ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
-             },
-             []( const Common::UUID& uuid ) { return Core::FoliagePaint::SelectionOf( uuid ); } );
+        auto fields = FinishStroke( scene, stroke );
         if ( !fields.empty() )
             CommandHistory::Get().PushCommand(
                  std::make_unique<FoliageStrokeCommand>( scene, std::move( fields ), "Foliage " + label ) );
@@ -1861,15 +1916,7 @@ namespace Desert::Editor::Tools
         }
         if ( total == 0 )
             return Common::MakeError( "foliage " + label + ": there is no instance to select" );
-        auto fields = stroke.Finish(
-             [&]( const Common::UUID& uuid ) -> const std::vector<glm::mat4>*
-             {
-                 const auto ref = scene.FindEntityByID( uuid );
-                 if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
-                     return nullptr;
-                 return &ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
-             },
-             []( const Common::UUID& uuid ) { return Core::FoliagePaint::SelectionOf( uuid ); } );
+        auto fields = FinishStroke( scene, stroke );
         if ( !fields.empty() )
             CommandHistory::Get().PushCommand(
                  std::make_unique<FoliageStrokeCommand>( scene, std::move( fields ), "Foliage " + label ) );
@@ -1953,15 +2000,7 @@ namespace Desert::Editor::Tools
         }
         if ( auto filed = RepartitionRows( scene, Core::FoliagePaint::ActiveTypes(), stroke ); !filed )
             return filed;
-        auto fields = stroke.Finish(
-             [&]( const Common::UUID& uuid ) -> const std::vector<glm::mat4>*
-             {
-                 const auto ref = scene.FindEntityByID( uuid );
-                 if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
-                     return nullptr;
-                 return &ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
-             },
-             []( const Common::UUID& uuid ) { return Core::FoliagePaint::SelectionOf( uuid ); } );
+        auto fields = FinishStroke( scene, stroke );
         if ( !fields.empty() )
             CommandHistory::Get().PushCommand(
                  std::make_unique<FoliageStrokeCommand>( scene, std::move( fields ), "Foliage Fill" ) );
