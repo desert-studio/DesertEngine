@@ -1052,10 +1052,16 @@ namespace Desert::Core::WorldCells
                                      std::span<const std::size_t>        members,
                                      const WorldPartitionSerialized&     partition )
     {
+        // THE ONE FORM A MEMBER IS HASHED IN (Build HLODs, CookWorld and Play all come here). The record minus
+        // `siblingIndex`: that is the outliner's sort key, not content - the scene saver writes its own sparse
+        // keys while Play's snapshot (SerializeToJson) numbers the same order densely, so hashing it made every
+        // saved HLOD "stale" in Play. Nothing an HLOD is built from reads it.
         std::string text;
         for ( const std::size_t member : members )
         {
-            text += Common::Json::Write( records[member] );
+            Assets::EntityData canonical = records[member];
+            canonical.siblingIndex.reset();
+            text += Common::Json::Write( canonical );
             text += '\n';
         }
         text += Common::Json::Write( partition );

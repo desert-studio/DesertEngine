@@ -341,7 +341,8 @@ namespace Desert::Core::WorldCells
         std::vector<CookedFile> Files; // the per-cell record files (CellPayload, kind WorldCell); not the index
     };
 
-    // What an HLOD is built from: the cell's records (Json::Write of each member, in member order) and the
+    // What an HLOD is built from: the cell's records (Json::Write of each member without its outliner sort key
+    // `siblingIndex`, in member order; the one form Build, Cook and Play hash) and the
     // world's partition block (grids and HLOD layers). Crc32c.
     [[nodiscard]] std::uint32_t HLODBuildChecksum( std::span<const Assets::EntityData> records,
                                                    std::span<const std::size_t>        members,
