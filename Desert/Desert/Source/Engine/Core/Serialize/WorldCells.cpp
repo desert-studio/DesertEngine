@@ -7,6 +7,7 @@
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/Crc32c.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
 #include <Common/Json/Document.hpp>
@@ -21,6 +22,7 @@
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <tuple>
 #include <set>
 #include <unordered_map>
@@ -975,5 +977,299 @@ namespace Desert::Core::WorldCells
         for ( auto& [id, text] : keyed )
             out.push_back( std::move( text ) );
         return out;
+    }
+    // ── Built HLODs ──────────────────────────────────────────────────────────────────────────────
+
+    namespace
+    {
+        // What a build and a staleness check plan alike: the plan from the descriptors, the members and name of
+        // every unit, the records by id. Refusals are CookWorld's, worded the same.
+        struct HLODPlan
+        {
+            Rules::WorldPartitionPlan                     Plan;
+            std::unordered_map<Common::UUID, std::size_t> ById;
+            std::vector<std::vector<std::size_t>>         Members;
+            std::vector<std::string>                      Names;
+        };
+
+        Common::ResultStr<HLODPlan> PlanHLODs( const SceneSerialized&                        scene,
+                                               std::span<const Rules::EntityDescriptor>      descriptors,
+                                               std::span<const Common::Utils::AssetRegistry> registries )
+        {
+            if ( !scene.WorldPartition.has_value() )
+                return Common::MakeError<HLODPlan>( "'" + scene.SceneName +
+                                                    "' states no WorldPartition block, so it has no cells" );
+            const auto& records = scene.Entities;
+            HLODPlan    out;
+            for ( std::size_t record = 0; record < records.size(); ++record )
+            {
+                if ( !records[record].id.has_value() || records[record].id->IsNull() )
+                    return Common::MakeError<HLODPlan>( std::format( "record {} ('{}') of '{}' has no id", record,
+                                                                     records[record].Tag.value_or( "" ),
+                                                                     scene.SceneName ) );
+                if ( !out.ById.emplace( *records[record].id, record ).second )
+                    return Common::MakeError<HLODPlan>(
+                         std::format( "record {} of '{}' has id {}, which another record already has", record,
+                                      scene.SceneName, static_cast<std::uint64_t>( *records[record].id ) ) );
+            }
+            if ( descriptors.size() != records.size() )
+                return Common::MakeError<HLODPlan>( std::format(
+                     "'{}' has {} records and {} descriptors; the descriptor index is not this world's",
+                     scene.SceneName, records.size(), descriptors.size() ) );
+            for ( std::size_t record = 0; record < records.size(); ++record )
+                if ( descriptors[record].Id != static_cast<std::uint64_t>( *records[record].id ) )
+                    return Common::MakeError<HLODPlan>( std::format(
+                         "record {} of '{}' is entity {} but its descriptor is another; the descriptor index is "
+                         "stale",
+                         record, scene.SceneName, static_cast<std::uint64_t>( *records[record].id ) ) );
+            out.Plan = Rules::PlanWorldPartition( descriptors, *scene.WorldPartition, BoundsFrom( registries ) );
+            const std::size_t unitCount = Rules::ResidencyUnitCount( out.Plan );
+            for ( std::size_t unit = 0; unit < unitCount; ++unit )
+            {
+                out.Members.push_back( Rules::ResidencyUnitMembers( out.Plan, unit ) );
+                out.Names.push_back( Rules::DescribeResidencyUnit( out.Plan, unit ) );
+            }
+            return Common::MakeSuccess( std::move( out ) );
+        }
+
+        // "HLOD_<cell file stem>.dhlod".
+        std::string BuiltHLODFileName( const Rules::PlannedCell& cell )
+        {
+            const std::string cellFile = CellFileName( cell );
+            return "HLOD_" + cellFile.substr( 0, cellFile.size() - kCellExtension.size() ) +
+                   std::string( kBuiltHLODExtension );
+        }
+    } // namespace
+
+    std::uint32_t HLODBuildChecksum( std::span<const Assets::EntityData> records,
+                                     std::span<const std::size_t>        members,
+                                     const WorldPartitionSerialized&     partition )
+    {
+        std::string text;
+        for ( const std::size_t member : members )
+        {
+            text += Common::Json::Write( records[member] );
+            text += '\n';
+        }
+        text += Common::Json::Write( partition );
+        return Common::Utils::Crc32c( text.data(), text.size() );
+    }
+
+    Common::ResultStr<BuiltHLODs> BuildWorldHLODs( const SceneSerialized&                        scene,
+                                                   std::span<const Rules::EntityDescriptor>      descriptors,
+                                                   std::span<const Common::Utils::AssetRegistry> registries,
+                                                   const Rules::HLODMeshBuilder&                 meshBuilder,
+                                                   const Rules::LandscapeHLODBuilder&            landscape )
+    {
+        using Result = BuiltHLODs;
+        auto planned = PlanHLODs( scene, descriptors, registries );
+        if ( !planned )
+            return Common::MakeError<Result>( planned.GetError() );
+        const HLODPlan& hp = planned.GetValue();
+        if ( auto layers = Rules::ValidateHLODLayers( *scene.WorldPartition ); !layers )
+            return Common::MakeError<Result>( "'" + scene.SceneName + "': " + layers.GetError() );
+        const HLODLayerSerialized* const hlodLayer = Rules::CellHLODLayer( *scene.WorldPartition );
+        if ( hlodLayer == nullptr )
+            return Common::MakeError<Result>( "'" + scene.SceneName +
+                                              "' has no default HLOD layer, so its cells have no HLODs to build" );
+
+        const auto&                     records       = scene.Entities;
+        Common::Json::Issues            issues        = hp.Plan.Issues;
+        const std::vector<glm::mat4>    world         = Rules::Detail::ComposeWorld( records, hp.ById );
+        const Rules::CustomShaderSource customShader  = CustomShaderFrom( registries );
+        const Rules::FoliageHLODSource  foliageInHLOD = FoliageInHLODFrom( registries );
+        std::set<std::uint64_t>         hlodIds;
+        BuiltHLODs                      out;
+        out.Index.SceneName = scene.SceneName;
+        for ( std::size_t unit = hp.Plan.AlwaysLoaded.size(); unit < hp.Members.size(); ++unit )
+        {
+            const Rules::PlannedCell& cell = hp.Plan.Cells.at( unit - hp.Plan.AlwaysLoaded.size() );
+            BuiltHLODCell             row;
+            row.Unit      = hp.Names[unit];
+            row.BuiltFrom = HLODBuildChecksum( records, hp.Members[unit], *scene.WorldPartition );
+            auto builtCell =
+                 Rules::BuildCellHLOD( *hlodLayer, records, world, hp.Members[unit],
+                                       Rules::HLODMinVisibleDistance( *scene.WorldPartition, hp.Plan, unit ),
+                                       customShader, issues, foliageInHLOD, meshBuilder, landscape );
+            if ( !builtCell )
+                return Common::MakeError<Result>( "'" + scene.SceneName + "', " + row.Unit + ": " +
+                                                  builtCell.GetError() );
+            const Rules::InstancingHLOD built = builtCell.ExtractValue();
+            row.Instances                     = built.Instances;
+            for ( const Rules::HLODNotInstanced& missing : built.NotInstanced )
+                row.NotInstanced.push_back(
+                     { static_cast<std::uint64_t>( *records[missing.Record].id ), missing.Reason } );
+            if ( !built.Batches.empty() )
+            {
+                // The records keep the ids a cook gives them (named by the cooked HLOD file), so a stored HLOD
+                // packed by the cook is the same world as one built by it.
+                const std::string cookedName = HLODFileName( CellFileName( cell ) );
+                const std::string name       = BuiltHLODFileName( cell );
+                CellPayload       payload;
+                payload.World = scene.SceneName;
+                payload.Units.push_back( "HLOD " + row.Unit );
+                std::set<std::uint64_t> sources;
+                for ( std::size_t batch = 0; batch < built.Batches.size(); ++batch )
+                {
+                    const Common::UUID id = Rules::HLODRecordId( scene.SceneName, cookedName, batch );
+                    if ( id.IsNull() || hp.ById.contains( id ) ||
+                         !hlodIds.insert( static_cast<std::uint64_t>( id ) ).second )
+                        return Common::MakeError<Result>( std::format(
+                             "the HLOD id {} of batch {} in '{}' is null or already taken; rename the world",
+                             static_cast<std::uint64_t>( id ), batch, name ) );
+                    row.Ids.push_back( static_cast<std::uint64_t>( id ) );
+                    payload.Records.push_back( Rules::HLODRecord( built.Batches[batch], id, batch ) );
+                    for ( const std::size_t source : built.Batches[batch].Sources )
+                        sources.insert( static_cast<std::uint64_t>( *records[source].id ) );
+                }
+                for ( const std::size_t member : hp.Members[unit] )
+                    if ( sources.contains( static_cast<std::uint64_t>( *records[member].id ) ) )
+                        row.Sources.push_back( static_cast<std::uint64_t>( *records[member].id ) );
+                auto wrapped =
+                     Wrap( CC::ContentKind::WorldCell, scene.SceneName, name, Common::Json::Write( payload ) );
+                if ( !wrapped )
+                    return Common::MakeError<Result>( wrapped.GetError() );
+                out.Files.push_back( { name, wrapped.ExtractValue() } );
+                row.File = name;
+            }
+            out.Index.Cells.push_back( std::move( row ) );
+        }
+        Common::Json::ReportIssues( issues, scene.SceneName );
+        return Common::MakeSuccess( std::move( out ) );
+    }
+
+    std::filesystem::path BuiltHLODDirectory( const std::filesystem::path& scenePath )
+    {
+        return scenePath.parent_path() / ( scenePath.stem().string() + "_HLOD" );
+    }
+
+    Common::BoolResultStr WriteBuiltHLODs( const std::filesystem::path& scenePath, const BuiltHLODs& built )
+    {
+        namespace fs        = std::filesystem;
+        const fs::path  dir = BuiltHLODDirectory( scenePath );
+        std::error_code ec;
+        fs::create_directories( dir, ec );
+        if ( ec )
+            return Common::MakeError( "Build HLODs: cannot create '" + dir.string() + "': " + ec.message() );
+        auto wrappedIndex = Wrap( CC::ContentKind::WorldIndex, built.Index.SceneName, kBuiltHLODIndexName,
+                                  Common::Json::Write( built.Index ) );
+        if ( !wrappedIndex )
+            return Common::MakeError( wrappedIndex.GetError() );
+        std::set<std::string> kept{ std::string( kBuiltHLODIndexName ) };
+        const auto            write = [&]( const std::string& name, const std::vector<unsigned char>& bytes )
+        {
+            kept.insert( name );
+            return Common::Utils::FileSystem::WriteBytesToFileAtomic(
+                 dir / name, std::as_bytes( std::span( bytes.data(), bytes.size() ) ) );
+        };
+        for ( const CookedFile& file : built.Files )
+            if ( auto written = write( file.Name, file.Bytes ); !written )
+                return Common::MakeError( "Build HLODs: '" + ( dir / file.Name ).string() +
+                                          "': " + written.GetError() );
+        // The index last: a build cut short leaves the previous index, whose checksums name what it built.
+        if ( auto written = write( std::string( kBuiltHLODIndexName ), wrappedIndex.GetValue() ); !written )
+            return Common::MakeError( "Build HLODs: '" + ( dir / kBuiltHLODIndexName ).string() +
+                                      "': " + written.GetError() );
+        for ( const fs::directory_entry& entry : fs::directory_iterator( dir, ec ) )
+            if ( entry.is_regular_file() && entry.path().extension() == kBuiltHLODExtension &&
+                 !kept.contains( entry.path().filename().string() ) )
+                fs::remove( entry.path(), ec );
+        return BOOLSUCCESS;
+    }
+
+    Common::ResultStr<StoredHLODs> ReadBuiltHLODs( const std::filesystem::path& scenePath )
+    {
+        const std::filesystem::path dir = BuiltHLODDirectory( scenePath );
+        auto bytes = Common::Utils::FileSystem::ReadByteFileContent( dir / kBuiltHLODIndexName );
+        if ( !bytes )
+            return Common::MakeError<StoredHLODs>( "'" + scenePath.stem().string() + "' has no built HLODs (" +
+                                                   dir.string() + "); run Build > Build HLODs" );
+        auto payload = Unwrap( kBuiltHLODIndexName, CC::ContentKind::WorldIndex, bytes.GetValue() );
+        if ( !payload )
+            return Common::MakeError<StoredHLODs>( payload.GetError() + "; run Build > Build HLODs again" );
+        auto parsed = Common::Json::Read<BuiltHLODIndex>( payload.GetValue() );
+        if ( !parsed )
+            return Common::MakeError<StoredHLODs>( "'" + ( dir / kBuiltHLODIndexName ).string() +
+                                                   "' is not a readable HLOD index: " + parsed.GetError() );
+        StoredHLODs stored;
+        stored.Index  = parsed.ExtractValue();
+        stored.Reader = [dir]( std::string_view name ) -> Common::ResultStr<std::vector<unsigned char>>
+        {
+            auto read = Common::Utils::FileSystem::ReadByteFileContent( dir / std::string( name ) );
+            if ( !read )
+                return Common::MakeError<std::vector<unsigned char>>( read.GetError() );
+            return Common::MakeSuccess( read.ExtractValue() );
+        };
+        return Common::MakeSuccess( std::move( stored ) );
+    }
+
+    StoredHLODs StoredFrom( BuiltHLODs built )
+    {
+        auto        files = std::make_shared<std::vector<CookedFile>>( std::move( built.Files ) );
+        StoredHLODs stored;
+        stored.Index  = std::move( built.Index );
+        stored.Reader = [files]( std::string_view name ) -> Common::ResultStr<std::vector<unsigned char>>
+        {
+            for ( const CookedFile& file : *files )
+                if ( file.Name == name )
+                    return Common::MakeSuccess( file.Bytes );
+            return Common::MakeError<std::vector<unsigned char>>( "no built HLOD file '" + std::string( name ) +
+                                                                  "'" );
+        };
+        return stored;
+    }
+
+    Common::ResultStr<std::vector<Assets::EntityData>> StoredCellRecords( const StoredHLODs&   stored,
+                                                                          const BuiltHLODCell& cell )
+    {
+        using Result = std::vector<Assets::EntityData>;
+        if ( !cell.File.has_value() )
+            return Common::MakeSuccess( Result{} );
+        const std::string& name  = *cell.File;
+        auto               bytes = stored.Reader( name );
+        if ( !bytes )
+            return Common::MakeError<Result>( bytes.GetError() );
+        auto payload = Unwrap( name, CC::ContentKind::WorldCell, bytes.GetValue() );
+        if ( !payload )
+            return Common::MakeError<Result>( payload.GetError() );
+        auto parsed = Common::Json::Read<CellPayload>( payload.GetValue() );
+        if ( !parsed )
+            return Common::MakeError<Result>( "'" + name + "' is not a readable HLOD file: " + parsed.GetError() );
+        CellPayload file = parsed.ExtractValue();
+        if ( file.Units != std::vector<std::string>{ "HLOD " + cell.Unit } )
+            return Common::MakeError<Result>( "'" + name + "' is not the HLOD of " + cell.Unit );
+        if ( file.Records.size() != cell.Ids.size() )
+            return Common::MakeError<Result>( std::format( "'{}' holds {} record(s) and the index lists {}", name,
+                                                           file.Records.size(), cell.Ids.size() ) );
+        for ( std::size_t record = 0; record < cell.Ids.size(); ++record )
+            if ( !file.Records[record].id.has_value() ||
+                 static_cast<std::uint64_t>( *file.Records[record].id ) != cell.Ids[record] )
+                return Common::MakeError<Result>(
+                     std::format( "record {} of '{}' is not the one the index lists", record, name ) );
+        return Common::MakeSuccess( std::move( file.Records ) );
+    }
+
+    Common::ResultStr<std::vector<std::string>>
+    StaleHLODCells( const BuiltHLODIndex& index, const SceneSerialized& scene,
+                    std::span<const Rules::EntityDescriptor>      descriptors,
+                    std::span<const Common::Utils::AssetRegistry> registries )
+    {
+        auto planned = PlanHLODs( scene, descriptors, registries );
+        if ( !planned )
+            return Common::MakeError<std::vector<std::string>>( planned.GetError() );
+        const HLODPlan&                                       hp = planned.GetValue();
+        std::unordered_map<std::string, const BuiltHLODCell*> rows;
+        for ( const BuiltHLODCell& row : index.Cells )
+            rows.emplace( row.Unit, &row );
+        std::vector<std::string> stale;
+        for ( std::size_t unit = hp.Plan.AlwaysLoaded.size(); unit < hp.Members.size(); ++unit )
+        {
+            const auto row = rows.find( hp.Names[unit] );
+            if ( row == rows.end() ||
+                 row->second->BuiltFrom !=
+                      HLODBuildChecksum( scene.Entities, hp.Members[unit], *scene.WorldPartition ) )
+                stale.push_back( hp.Names[unit] );
+        }
+        return Common::MakeSuccess( std::move( stale ) );
     }
 } // namespace Desert::Core::WorldCells

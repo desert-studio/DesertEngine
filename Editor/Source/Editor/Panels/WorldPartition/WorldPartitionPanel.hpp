@@ -66,6 +66,12 @@ namespace Desert::Editor
         /// the button and the command palette both show the same sentence.
         [[nodiscard]] Common::BoolResultStr ConvertSceneToWorldPartition();
 
+        /// UE's Build > Build HLODs (WP-FAR-6B, lead D1): every cell's HLOD of the world SAVED at the scene's
+        /// file (scene + entity files, as WorldCook reads it), built by MakeHLODBuilders and written to
+        /// `<Scene>_HLOD/` (WorldCells::WriteBuiltHLODs); read back and checked stale-free. Refused, by name, for
+        /// a scene not opened from a file or a world the build refuses.
+        [[nodiscard]] Common::BoolResultStr BuildHLODs();
+
         /// What a region change asks for: the regions to hold, or the whole world.
         struct RegionRequest
         {
