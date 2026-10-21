@@ -265,7 +265,8 @@ namespace Desert::Core
             World::Landscape::LandscapeFrame    Frame;
         };
 
-        Common::ResultStr<LandscapeHLODTileInput> ReadLandscapeHLODTile( const Rules::LandscapeHLODRequest& request )
+        Common::ResultStr<LandscapeHLODTileInput>
+        ReadLandscapeHLODTile( const Rules::LandscapeHLODRequest& request )
         {
             using Result        = LandscapeHLODTileInput;
             namespace Landscape = World::Landscape;
@@ -279,8 +280,9 @@ namespace Desert::Core
             Common::UUID rootId;
             if ( !Rules::Detail::ReadReference( *tileBlock, "Landscape", rootId, issues ) || rootId.IsNull() )
                 return Common::MakeError<Result>( "the tile names no landscape root" );
-            const auto root = std::find_if( request.Records.begin(), request.Records.end(),
-                                            [&]( const Assets::EntityData& record ) { return record.id == rootId; } );
+            const auto root =
+                 std::find_if( request.Records.begin(), request.Records.end(),
+                               [&]( const Assets::EntityData& record ) { return record.id == rootId; } );
             if ( root == request.Records.end() )
                 return Common::MakeFormattedError<Result>( "the tile's landscape root {} is not in the world",
                                                            static_cast<std::uint64_t>( rootId ) );
@@ -303,13 +305,13 @@ namespace Desert::Core
             tileBlock->ReadInto( "TileZ", tileZ, issues );
             tileBlock->ReadInto( "HeightFile", heightFile, issues );
             if ( !issues.empty() )
-                return Common::MakeFormattedError<Result>( "the tile or its root does not read: {} wants {}, holds {}",
-                                                           issues.front().Path, issues.front().Expected,
-                                                           issues.front().Found );
+                return Common::MakeFormattedError<Result>(
+                     "the tile or its root does not read: {} wants {}, holds {}", issues.front().Path,
+                     issues.front().Expected, issues.front().Found );
 
-            // The loader's own read (ComponentRegistry's LandscapeTile load): the scene spells the path relative to
-            // the project, and FullPath resolves it the same way, so the stand-in and the near tile read the same
-            // file.
+            // The loader's own read (ComponentRegistry's LandscapeTile load): the scene spells the path relative
+            // to the project, and FullPath resolves it the same way, so the stand-in and the near tile read the
+            // same file.
             auto decoded = Landscape::ReadLandscapeTileFile( Common::Constants::Path::FullPath( heightFile ) );
             if ( !decoded )
                 return Common::MakeFormattedError<Result>( "the tile's height file '{}': {}", heightFile,
@@ -342,7 +344,7 @@ namespace Desert::Core
     {
         using Result        = Assets::StaticMeshComponentSer;
         namespace Landscape = World::Landscape;
-        auto input = ReadLandscapeHLODTile( request );
+        auto input          = ReadLandscapeHLODTile( request );
         if ( !input )
             return Common::MakeError<Result>( input.GetError() );
         const LandscapeHLODTileInput        tile    = input.ExtractValue();
