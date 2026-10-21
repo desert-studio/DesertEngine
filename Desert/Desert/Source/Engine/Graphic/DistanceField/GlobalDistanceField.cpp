@@ -212,11 +212,13 @@ namespace Desert::Graphic::DistanceField
         return bricks;
     }
 
-    GlobalDistanceField::GlobalDistanceField()  = default;
+    GlobalDistanceField::GlobalDistanceField( const ResourceOwnerInstance owner ) : m_LedgerInstance( owner ) {}
     GlobalDistanceField::~GlobalDistanceField() = default;
 
     Common::BoolResultStr GlobalDistanceField::Initialize()
     {
+        // The owner's rows, whichever view's scope is open (a capture's field is the scene's, not its first face's).
+        const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
         const auto shaders = Runtime::ResourceRegistry::GetShaderService();
         m_CompositeShader  = shaders->GetByName( "GlobalDistanceFieldComposite" );
         if ( !m_CompositeShader )
@@ -307,6 +309,8 @@ namespace Desert::Graphic::DistanceField
                                           DistanceFieldSceneData& scene, const uint64_t engineFrame,
                                           const uint32_t poolMiB )
     {
+        // The owner's rows: the per-frame buffers grow on upload (GdfUpload) inside the asking view's scope.
+        const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
         // What this call asks for: the camera and the object list's identity (field, transform, foliage flag and
         // row of each, in order) - the once-per-frame rule compares it with the frame's update.
         uint64_t inputs = 0xCBF29CE484222325ULL ^ static_cast<uint64_t>( objects.size() );

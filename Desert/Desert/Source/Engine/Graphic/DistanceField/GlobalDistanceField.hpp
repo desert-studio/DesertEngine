@@ -24,6 +24,7 @@
 #include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include <glm/glm.hpp>
@@ -107,7 +108,11 @@ namespace Desert::Graphic::DistanceField
     class GlobalDistanceField
     {
     public:
-        GlobalDistanceField();
+        // @p owner: the ledger instance whose rows the field's GPU objects are - the view's own (SceneRenderer's
+        // m_LedgerView) or, for a reflection capture's shared field, the scene's (Scene::GetLedgerInstance).
+        // Initialize and AddUpdatePasses open its scope: they run inside whichever view's scope asked first
+        // (VIEW-CLOSE-LEAK).
+        explicit GlobalDistanceField( ResourceOwnerInstance owner );
         ~GlobalDistanceField();
         GlobalDistanceField( const GlobalDistanceField& )            = delete;
         GlobalDistanceField& operator=( const GlobalDistanceField& ) = delete;
@@ -160,6 +165,7 @@ namespace Desert::Graphic::DistanceField
             uint32_t           Count = 0;
         };
 
+        ResourceOwnerInstance                                               m_LedgerInstance; // see the constructor
         std::array<std::shared_ptr<Image3D>, kGlobalDistanceFieldClipmaps>  m_Clipmaps;
         std::shared_ptr<Image3D>                                            m_ObjectGrid;
         std::array<std::optional<glm::ivec3>, kGlobalDistanceFieldClipmaps> m_ValidCentre;

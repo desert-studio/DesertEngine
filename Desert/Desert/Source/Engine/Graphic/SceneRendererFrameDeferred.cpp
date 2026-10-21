@@ -873,7 +873,7 @@ namespace Desert::Graphic
         if ( globalField == nullptr )
         {
             if ( !m_OwnGlobalDistanceField )
-                m_OwnGlobalDistanceField = std::make_unique<DistanceField::GlobalDistanceField>();
+                m_OwnGlobalDistanceField = std::make_unique<DistanceField::GlobalDistanceField>( m_LedgerView.Instance );
             globalField = m_OwnGlobalDistanceField.get();
         }
         if ( !globalField->IsInitialized() )

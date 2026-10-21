@@ -487,7 +487,7 @@ namespace Desert::Graphic
         // stay cached (a sun that moves every frame re-renders every face's static cascade every render).
         const SceneRenderer::UpdateInfo info{ timestep, realTimestep, m_PendingSuns };
         if ( !m_FaceField )
-            m_FaceField = std::make_unique<DistanceField::GlobalDistanceField>();
+            m_FaceField = std::make_unique<DistanceField::GlobalDistanceField>( m_Scene ); // the scene's rows
         if ( !m_Faces[face] )
         {
             m_Faces[face] = std::make_unique<FaceView>();
