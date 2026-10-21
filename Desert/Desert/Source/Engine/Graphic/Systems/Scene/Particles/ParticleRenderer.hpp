@@ -119,6 +119,14 @@ namespace Desert::Graphic::System
         // key is the view depth), whether or not it claimed the simulation. Call after ImportFrameBuffers.
         void AddSortPasses( RDG::Builder& graph );
 
+        // VFX-16 (UE Niagara Debugger, dev only): whether an editor debugger asked for this tick's readback (the
+        // node is added only then, in the simulating view), and the node "Particles: Debug Readback": one
+        // ParticleDebugReadback dispatch per declared emitter after its last compact, copying its GPU alive / free
+        // counts and, for the requested emitter, one page of its alive particles' attributes into its readback.
+        [[nodiscard]] bool                  DebugReadbackRequested() const;
+        [[nodiscard]] Common::BoolResultStr DebugReadback( const RDG::PassContext& context );
+        void                                DeclareDebugReadbackBindings( RDG::PassBuilder& pass ) const;
+
     private:
         // One sprite draw per material cell shader in this view: the cell's own DataDrivenMaterial (its descriptor
         // sets from the cell's reflection; the camera block and the Materials rows are written once per frame,
@@ -183,6 +191,9 @@ namespace Desert::Graphic::System
             RDG::BufferRef              StepsRef;
             RDG::BufferRef              CountersRef; // read by ParticlePass as IndirectArgs
             RDG::BufferRef              ArgsRef;     // written by Dispatch Args, read as IndirectArgs
+            RDG::ExternalBuffer         DebugImport; // VFX-16: the debugger's readback (simulating view only)
+            RDG::BufferRef              DebugRef;
+            bool                        Debugged = false;
             bool                        Declared = false;
             bool                        Sorted   = false; // the draw reads m_SortedRef, not AliveList
         };
@@ -195,6 +206,8 @@ namespace Desert::Graphic::System
         bool RunsStep( const ViewEmitter& ve, uint32_t step ) const;
         // Whether compact @p compact's node dispatches @p ve (compacts 0..StepCount of a declared emitter).
         bool RunsCompact( const ViewEmitter& ve, uint32_t compact ) const;
+        // Whether the Debug Readback node dispatches @p ve.
+        bool RunsDebug( const ViewEmitter& ve ) const;
         // The sprite draw of @p cellShader in this view, built on first use (null = refused, said once by name).
         SpriteDraw* SpriteDrawFor( const std::string& cellShader );
         // The sprite draw emitter @p entityId draws with this frame (its material @p handle's ParticleSprite cell,
@@ -204,6 +217,7 @@ namespace Desert::Graphic::System
 
         std::shared_ptr<ComputePipeline> m_CompactPipeline;
         std::shared_ptr<ComputePipeline> m_ArgsPipeline;
+        std::shared_ptr<ComputePipeline> m_DebugPipeline;
         std::shared_ptr<ComputePipeline> m_SortPipeline;
         mutable ShaderBindingLayoutCache m_SortLayout;
         RDG::BufferRef                   m_SortKeysRef;
@@ -213,6 +227,7 @@ namespace Desert::Graphic::System
         mutable std::unordered_map<const ComputePipeline*, ShaderBindingLayoutCache> m_SimLayouts;
         mutable ShaderBindingLayoutCache                                             m_CompactLayout;
         mutable ShaderBindingLayoutCache                                             m_ArgsLayout;
+        mutable ShaderBindingLayoutCache                                             m_DebugLayout;
 
         // The ParticleSpriteDefault template's ParticleSprite.Forward cell (Initialize refuses without it).
         std::string m_DefaultCell;
