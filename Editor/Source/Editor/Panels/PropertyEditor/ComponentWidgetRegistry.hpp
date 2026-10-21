@@ -77,6 +77,11 @@ namespace Desert::Editor
         // simply not having them.
         std::string                          ReflectedTypeName;
         std::function<void*( ECS::Entity& )> DataPtr;
+
+        // REFLECTED components with a PostEditChangeProperty (`postEdit` below): runs `edit` on the data block
+        // and then postEdit(before, after), as the Details draw does — the control channel's `set` comes here so
+        // a written field re-states its dependants. Empty = none; DataPtr is then the whole route.
+        std::function<void( ECS::Entity&, const std::function<void( void* )>& )> EditData;
     };
 
     // The registered name of the cloud layer's component editor. Stated ONCE because it now has two
@@ -148,6 +153,14 @@ namespace Desert::Editor
         e.Add               = []( ECS::Entity& en ) { en.AddComponent<ComponentT>(); };
         e.Remove            = []( ECS::Entity& en ) { en.RemoveComponent<ComponentT>(); };
         e.DataPtr = [member]( ECS::Entity& en ) -> void* { return &( en.GetComponent<ComponentT>().*member ); };
+        if ( postEdit )
+            e.EditData = [member, postEdit]( ECS::Entity& en, const std::function<void( void* )>& edit )
+            {
+                DataT&      data   = en.GetComponent<ComponentT>().*member;
+                const DataT before = data;
+                edit( &data );
+                postEdit( before, data );
+            };
         e.Draw              = [member, dataTypeName, postEdit]( ECS::Entity& en, ::Desert::Core::Scene* scene,
                                                    const ComponentEditContext& ctx )
         {

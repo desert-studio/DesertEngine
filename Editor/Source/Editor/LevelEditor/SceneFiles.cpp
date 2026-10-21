@@ -182,7 +182,42 @@ namespace Desert::Editor
 
     bool SceneFiles::SaveOpenScene()
     {
-        const Common::Filepath destination    = SceneSaveDestination();
+        return SaveOpenSceneTo( SceneSaveDestination() );
+    }
+
+    Common::BoolResultStr SceneFiles::SaveOpenSceneAs( const std::string& sceneName )
+    {
+        if ( sceneName.empty() || sceneName.find_first_of( "/\\.:" ) != std::string::npos )
+            return Common::MakeError<bool>( std::format(
+                 "'{}' is not a scene name: a name is one file name without a folder, a dot or an extension.",
+                 sceneName ) );
+
+        // The rule's own fallback for a scene with no file yet — the scene directory + the name — so a
+        // Save As lands exactly where File -> Save would put a new scene of that name.
+        const Common::Filepath destination{ Editor::Core::Rules::SceneSaveDestination(
+             "", sceneName, Common::Constants::Path::SCENE_PATH.generic_string(),
+             Common::Constants::Extensions::SCENE_EXTENSION ) };
+        if ( std::filesystem::exists( destination ) )
+            return Common::MakeError<bool>(
+                 std::format( "'{}' already exists. Save As writes a NEW level and never overwrites another "
+                              "one: choose another name, or open that scene.",
+                              destination.string() ) );
+
+        const std::string previousName = m_Workspace.ActiveScene()->GetSceneName();
+        m_Workspace.ActiveScene()->SetSceneName( sceneName );
+        (void)SaveOpenSceneTo( destination );
+        // m_OpenScenePath moves to the destination exactly when the save landed (MarkSceneSaved).
+        if ( m_OpenScenePath != destination )
+        {
+            m_Workspace.ActiveScene()->SetSceneName( previousName );
+            return Common::MakeError<bool>( std::format(
+                 "the scene was NOT saved as '{}'; the log line above says why.", destination.string() ) );
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    bool SceneFiles::SaveOpenSceneTo( const Common::Filepath& destination )
+    {
         const auto             previousHeader = ForgetAssetIdentityUnlessSameFile( destination.generic_string() );
         const auto             verdict        = Editor::Core::Rules::DecideAfterSceneSave(
              m_Workspace.ActiveScene()->Serialize( m_Assets.get(), destination ),
