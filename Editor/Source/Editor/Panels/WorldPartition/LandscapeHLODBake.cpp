@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <format>
 #include <fstream>
 #include <iterator>
@@ -147,7 +148,7 @@ namespace Desert::Editor
     Common::BoolResultStr LandscapeHLODBake::StartScene()
     {
         m_Scene = std::make_shared<::Desert::Core::Scene>( "LandscapeHLODBake", m_Renderer.get() );
-        if ( auto inited = m_Scene->Init(); !inited )
+        if ( auto inited = m_Scene->Init( ::Desert::Core::Scene::InitPurpose::Offscreen ); !inited )
             return Common::MakeError( "the bake scene failed to initialise: " + inited.GetError() );
         auto loaded = ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets )
                            .Deserialize( std::move( *m_Saved ), m_ScenePath.generic_string() );
@@ -194,6 +195,18 @@ namespace Desert::Editor
                                                    rgba.size(), width, height ) );
         // The G-buffer albedo is LINEAR (TerrainGBuffer writes Albedo * Tint into an RGBA8 UNORM target); the
         // texture is stated sRGB, as every authored BaseColor is.
+        {
+            // TEMPORARY DIAGNOSTIC (WP-FAR-6B 8d): the readback's channel range.
+            uint8_t lo = 255, hi = 0;
+            for ( std::size_t i = 0; i < rgba.size(); i += 4 )
+                for ( std::size_t c = 0; c < 3; ++c )
+                {
+                    lo = std::min( lo, rgba[i + c] );
+                    hi = std::max( hi, rgba[i + c] );
+                }
+            LOG_INFO( "[Build HLODs] bake readback {0}x{1}: rgb min {2} max {3} (final image: {4})", width, height,
+                      lo, hi, std::getenv( "DESERT_HLOD_BAKE_READ_FINAL" ) != nullptr );
+        }
         std::vector<uint8_t> srgb( rgba.size() );
         for ( std::size_t i = 0; i < rgba.size(); i += 4 )
         {
@@ -290,7 +303,11 @@ namespace Desert::Editor
                 }
                 // The previous frame's render is on the queue; the copy is recorded behind it (no wait).
                 const auto& gbuffer = m_Renderer->GetGBuffer();
-                const auto  albedo  = gbuffer ? gbuffer->GetColorAttachmentImage( 0 ) : nullptr;
+                // TEMPORARY DIAGNOSTIC (WP-FAR-6B 8d, remove once the bake is not black): read the FINAL lit
+                // image instead of the G-buffer albedo — black there too = camera/landscape/render never ran.
+                const bool readFinal = std::getenv( "DESERT_HLOD_BAKE_READ_FINAL" ) != nullptr;
+                const auto albedo    = readFinal ? m_Scene->GetFinalImage()
+                                                 : ( gbuffer ? gbuffer->GetColorAttachmentImage( 0 ) : nullptr );
                 if ( !albedo )
                 {
                     Fail( "the bake renderer has no G-buffer albedo (is the scene's rendering path Deferred?)" );
