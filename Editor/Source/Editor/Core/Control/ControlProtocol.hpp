@@ -70,7 +70,8 @@ namespace Desert::Editor::Control
         Quit,         ///< end the session with an exit status
         Drag,         ///< press, move and release the mouse over a subject's image, through ImGui's input
         Input,
-        SaveAs, ///< save the open scene under a NEW name, through File -> Save's one save path (UE "Save Current Level As")
+        SaveAs, ///< save the open scene under a NEW name, through File -> Save's one save path (UE "Save Current
+                ///< Level As")
     };
 
     /**
