@@ -104,6 +104,16 @@ namespace Desert::Core
         return saved == m_SavedRevision.end() || saved->second != CurrentOf( Bits( id ) );
     }
 
+    bool EntityPackages::HasUnsavedChanges( std::span<const LiveEntity> live ) const
+    {
+        if ( !m_BaselinePath )
+            return true;
+        // The save plan of the baseline's own files: with the path matching, a whole save is only planned for an
+        // edit no record can name or a gone entity no record states - both unsaved changes.
+        const PackageSavePlan plan = Plan( *m_BaselinePath, live, true );
+        return plan.Whole || !plan.Changed.empty() || !plan.Removed.empty();
+    }
+
     PackageSavePlan EntityPackages::Plan( const std::filesystem::path& scenePath, std::span<const LiveEntity> live,
                                           bool partitioned ) const
     {

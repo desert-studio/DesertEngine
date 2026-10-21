@@ -57,7 +57,7 @@ namespace Desert::Migration
     // THE WORLD PARTITION BLOCK THIS TOOL READS: the engine's Core::WorldPartitionSerialized PLUS the v50..v66
     // world-wide DefaultHLODLayer, frozen here. v67 moved the layer onto each grid (Core::
     // WorldPartitionGridSerialized::HLODLayer), and the read is strict, so an older file's key needs a member to
-    // land in. Read, never written: MigrateGridHLODLayerV66ToV67 moves it onto the grids and clears it, and rfl
+    // land in. Read, never written: MigrateGridHLODLayerV67ToV68 moves it onto the grids and clears it, and rfl
     // omits an empty optional, so the block this tool writes is the block the engine reads.
     struct WorldPartitionSerialized
     {
@@ -375,12 +375,22 @@ namespace Desert::Migration
     //       none of them gains a member (MigrateGridNamesV65ToV66). Scenes only: a prefab has no WorldPartition.
     inline constexpr int kSceneVersionGridNames = 66;
 
-    //  67 - THE HLOD LAYER IS A GRID'S (WP22c). UE states HLOD setup per runtime partition
+    //  67 - A LANDSCAPE TILE'S HeightFile IS A CONTENT KEY (WP-FAR-6B). The record names its height file as
+    //       "assets:<dir>/<scene>_Landscape/<id>.dlht" (Common::AssetHandle::StableKeyForPath, UE's /Game/...
+    //       package path), not as the project-relative folder ("Content/..."): a package mounts the assets root
+    //       under its own name, so only the key resolves there, and the load refuses any other spelling
+    //       (World::Landscape::ReadLandscapeTileByKey). The old spelling is relative to the PROJECT; the step
+    //       finds the project by the .deproj above the scene and measures against its AssetsRoot. A spelling
+    //       that is not under it is refused, naming the entity (MigrateLandscapeHeightKeysV66ToV67). Scenes
+    //       only: a landscape tile is a scene's.
+    inline constexpr int kSceneVersionLandscapeHeightKeys = 67;
+
+    //  68 - THE HLOD LAYER IS A GRID'S (WP22c). UE states HLOD setup per runtime partition
     //       (FRuntimePartitionDesc::HLODSetups), so WorldPartitionGridSerialized gains HLODLayer and the world's
-    //       DefaultHLODLayer is gone. A v66 world built every cell's HLOD with its DefaultHLODLayer, whatever the
+    //       DefaultHLODLayer is gone. A v67 world built every cell's HLOD with its DefaultHLODLayer, whatever the
     //       grid, so every grid that states no layer is given that one; a world that stated none gives none
-    //       (its cells had no HLOD and still have none) (MigrateGridHLODLayerV66ToV67). Scenes only.
-    inline constexpr int kSceneVersionGridHLODLayer = 67;
+    //       (its cells had no HLOD and still have none) (MigrateGridHLODLayerV67ToV68). Scenes only.
+    inline constexpr int kSceneVersionGridHLODLayer = 68;
 
     static_assert( kSceneVersionGridHLODLayer == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
@@ -730,9 +740,22 @@ namespace Desert::Migration
     // Names every unnamed grid of a partitioned world (kSceneVersionGridNames); how many it named.
     std::size_t MigrateGridNamesV65ToV66( SceneSerialized& scene );
 
+    // What MigrateLandscapeHeightKeysV66ToV67 did to one scene.
+    struct LandscapeHeightKeysReport
+    {
+        std::size_t              Keyed = 0; // LandscapeTile.HeightFile spellings re-stated as content keys
+        std::vector<std::string> Refused;   // a spelling with no project, or not under its assets root
+    };
+
+    // Re-states every LandscapeTile.HeightFile that is not an "assets:" key - a path relative to the project
+    // that holds @p sourceFile (the nearest .deproj above it) - as the key of that file under the project's
+    // AssetsRoot (kSceneVersionLandscapeHeightKeys), in the record and in every prefab override.
+    LandscapeHeightKeysReport MigrateLandscapeHeightKeysV66ToV67( std::vector<Assets::EntityData>& entities,
+                                                                  const std::filesystem::path&     sourceFile );
+
     // Moves a partitioned world's DefaultHLODLayer onto every grid that states no HLODLayer and clears it
     // (kSceneVersionGridHLODLayer); how many grids were given the layer.
-    std::size_t MigrateGridHLODLayerV66ToV67( SceneSerialized& scene );
+    std::size_t MigrateGridHLODLayerV67ToV68( SceneSerialized& scene );
 
     // What MigrateSceneDependenciesV51ToV52 did to one scene.
     struct SceneDependenciesReport
@@ -992,6 +1015,8 @@ namespace Desert::Migration
         bool HLODLayerStated  = false; // a partitioned world was given the Instancing layer
         bool        GridNamesRaised = false; // below kSceneVersionGridNames
         std::size_t GridsNamed      = 0;     // grids given a name
+        bool                      LandscapeHeightKeysRaised = false; // below kSceneVersionLandscapeHeightKeys
+        LandscapeHeightKeysReport LandscapeHeightKeys;
         bool        GridHLODLayerRaised = false; // below kSceneVersionGridHLODLayer
         std::size_t GridsGivenHLODLayer = 0;     // grids given the world's former DefaultHLODLayer
 
@@ -1037,7 +1062,7 @@ namespace Desert::Migration
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
                    RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
-                   GridNamesRaised || GridHLODLayerRaised;
+                   GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised;
         }
     };
 

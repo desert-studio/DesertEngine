@@ -208,6 +208,8 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/Tools/WorldGen/Source",
             "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source",
             "%{_MAIN_SCRIPT_DIR}/Tools/WorldCook/Source",
+            -- WorldCookMain.cpp opens its --project through the tools' shared ToolProject.hpp.
+            "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
             "%{_MAIN_SCRIPT_DIR}/Tools/DesertHeaderTool/Source",
             -- ReflectedFunctions: the generated registration includes its fixture as <Fixture/...>.
             "%{_MAIN_SCRIPT_DIR}/Desert/Tests/Tools/ReflectedFunctions",

@@ -103,10 +103,11 @@ namespace Desert::Core
     // MigrateGIMethodLadderV63ToV64). v65 (RENDER-LOOK round 05): the display transfer is the sRGB OETF and
     // PostProcessSettings lost Gamma (Tools/SceneMigrator, MigrateDisplayTransferV64ToV65). v66 (WP22): a World
     // Partition grid states its Name (what a RuntimeGrid block names) and Priority (Tools/SceneMigrator,
-    // MigrateGridNamesV65ToV66). v67 (WP22c): the HLOD layer is stated per GRID (UE
-    // FRuntimePartitionDesc::HLODSetups), not once for the world - the world's DefaultHLODLayer moved onto
-    // every grid (Tools/SceneMigrator, MigrateGridHLODLayerV66ToV67).
-    inline constexpr int kSceneVersion = 67;
+    // MigrateGridNamesV65ToV66). v67 (WP-FAR-6B): a landscape tile's HeightFile is a content key ("assets:...")
+    // (Tools/SceneMigrator, MigrateLandscapeHeightKeysV66ToV67). v68 (WP22c): the HLOD layer is stated per GRID
+    // (UE FRuntimePartitionDesc::HLODSetups), not once for the world - the world's DefaultHLODLayer moved onto
+    // every grid (Tools/SceneMigrator, MigrateGridHLODLayerV67ToV68).
+    inline constexpr int kSceneVersion = 68;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <string_view>
 
 namespace Desert::World::Landscape
 {
@@ -51,4 +52,16 @@ namespace Desert::World::Landscape
     /// Reads and decodes @p path — from disk, else from the mounted paks. The error names the file and, for a
     /// blob that is there but wrong, the reason DecodeLandscapeTile gave.
     Common::ResultStr<LandscapeTileData> ReadLandscapeTileFile( const std::filesystem::path& path );
+
+    /**
+     * @brief Reads the tile a scene record names: @p heightFile is the record's CONTENT KEY
+     *        (`assets:<dir>/<scene>_Landscape/<id>.dlht`, UE's /Game/... package path), resolved through the
+     *        mounted assets root so the same record reads in the editor and in a package.
+     *
+     * Any other spelling is refused by name, not resolved as a path: the stored project-relative form
+     * ("Content/...") was migrated by the scene migrator's v67 step, and a package mounts the assets root
+     * under its own name, so a path spelling would read in the editor and silently miss in the package.
+     * The one read for the tile load (ComponentRegistry) and the HLOD stand-in (HLODMeshBuilder).
+     */
+    Common::ResultStr<LandscapeTileData> ReadLandscapeTileByKey( std::string_view heightFile );
 } // namespace Desert::World::Landscape

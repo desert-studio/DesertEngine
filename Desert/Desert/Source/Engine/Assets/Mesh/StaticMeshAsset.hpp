@@ -21,6 +21,11 @@ namespace Desert::Assets
         // as UE builds each section with its material's bTwoSided) - so it is derived here, where the manager
         // can load them, and not in LoadFromFile.
         void ResolveDependencies( AssetManager& manager ) override;
+        // THE COOK'S CALL (UE: the cooker derives every saved mesh's distance field and cards before it writes
+        // the package): the same derivation ResolveDependencies queues, run NOW on this thread - a DDC hit, or a
+        // build through the registered builders that Puts the entry the packaged game will ask for. An error
+        // names what could not be had (a material's sidedness, the cards, the field). Needs a loaded payload.
+        [[nodiscard]] Common::BoolResultStr DeriveDistanceFieldAndCardsNow( AssetManager& manager ) const;
         // True once ResolveDependencies ran on the current payload (whatever it concluded): an asset read by the
         // async loader (Load, never EnsureLoaded) is resolved by its consumer exactly once.
         [[nodiscard]] bool AreDependenciesResolved() const

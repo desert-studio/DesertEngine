@@ -4,6 +4,7 @@
 #include "MeshBinaryHeader.hpp"
 
 #include <Common/Utilities/Crc32c.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
 #include <algorithm>
@@ -13,6 +14,7 @@
 #include <istream>
 #include <limits>
 #include <random>
+#include <sstream>
 
 namespace Common::Content
 {
@@ -738,9 +740,21 @@ namespace Common::Content
                                                                    const AssetHeaderReadContext& context )
     {
         using Out = std::optional<AssetHeader>;
-        std::ifstream in( file, std::ios::binary );
-        if ( !in )
-            return MakeFormattedError<Out>( "asset header: cannot open '{}'", file.string() );
+        // THROUGH THE FILE LAYER (disk + mounted paks): a packaged game's assets live in its archive, and a
+        // disk-only open gave every packed mesh a path-derived handle while the cooked registry stated its
+        // GUID's ("loaded as handle ..., but its header GUID folds to ..."). Disk first (a stream, no
+        // whole-file read); an archive entry is read whole into memory.
+        std::ifstream      onDisk( file, std::ios::binary );
+        std::istringstream packed;
+        if ( !onDisk )
+        {
+            auto bytes = Utils::FileSystem::ReadFileContent( file );
+            if ( !bytes.IsSuccess() )
+                return MakeFormattedError<Out>( "asset header: cannot open '{}': {}", file.string(),
+                                                bytes.GetError() );
+            packed.str( bytes.ExtractValue() );
+        }
+        std::istream& in = onDisk ? static_cast<std::istream&>( onDisk ) : static_cast<std::istream&>( packed );
         std::array<std::byte, ASSET_HEADER_SNIFF_BYTES> leading{};
         in.read( reinterpret_cast<char*>( leading.data() ), static_cast<std::streamsize>( leading.size() ) );
         const auto sniffed =

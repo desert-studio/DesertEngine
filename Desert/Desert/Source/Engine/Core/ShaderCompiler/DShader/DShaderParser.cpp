@@ -490,8 +490,9 @@ namespace Desert::Core::Preprocess
                          intent == ::Desert::Core::Formats::TextureIntent::Unspecified )
                     {
                         err = { c.Line,
-                                std::format( "Intent({}) on '{}': expected Colour, NormalMap, Mask or Data", word,
-                                             param.Name ) };
+                                std::format(
+                                     "Intent({}) on '{}': expected Colour, NormalMap, Mask, Data or PackedMasks",
+                                     word, param.Name ) };
                         return false;
                     }
                     param.SlotIntent = intent;
@@ -1792,6 +1793,20 @@ namespace Desert::Core::Preprocess
             return out;
         }
 
+        // Whether @p content names @p identifier as a whole word (not as part of a longer identifier).
+        bool NamesIdentifier( const std::string_view content, const std::string_view identifier )
+        {
+            for ( size_t found = content.find( identifier ); found != std::string_view::npos;
+                  found        = content.find( identifier, found + 1 ) )
+            {
+                const size_t end = found + identifier.size();
+                if ( ( found == 0 || !IsIdentChar( content[found - 1] ) ) &&
+                     ( end >= content.size() || !IsIdentChar( content[end] ) ) )
+                    return true;
+            }
+            return false;
+        }
+
         // One stage of one surface CELL. The vertex stage is the path's engine header alone (a surface
         // function does not move vertices yet); the fragment stage is the author's surface function between
         // the shared types and the pass's engine header, which owns main(). `#line` puts glslang's errors in
@@ -1849,13 +1864,16 @@ namespace Desert::Core::Preprocess
             {
                 bool              readsWorld = false;
                 const std::string lowered    = LowerWorldParameterReads( surface.Content, readsWorld );
+                const bool fades = particle && NamesIdentifier( surface.Content, kSurfaceDepthFadeFunction );
                 code.Content =
                      // Only a stage that evaluates the surface fetches material textures: it alone declares the
                      // biased fetch (Mesh/Surface/SurfaceTypes.glslh SurfaceSampleMaterial) and the camera block.
                      // The world's parameters are declared only into a cell whose surface reads one: reflection
                      // keeps a declared buffer, and every other surface must not ask its renderer to bind it.
-                     std::format( "{}{}#define {} 1\n#include <{}>\n{}{}#line {}\n{}\n{}#include <{}>\n", defines,
-                                  weatherDefines, kSurfaceSamplesMaterialDefine, kSurfaceTypesInclude,
+                     std::format( "{}{}{}#define {} 1\n#include <{}>\n{}{}#line {}\n{}\n{}#include <{}>\n",
+                                  defines, weatherDefines,
+                                  fades ? std::format( "#define {} 1\n", kSurfaceDepthFadeDefine ) : std::string(),
+                                  kSurfaceSamplesMaterialDefine, kSurfaceTypesInclude,
                                   readsWorld || wets ? std::format( "#include <{}>\n", kWorldParametersInclude )
                                                      : std::string(),
                                   heightFunctions, surface.StartLine > 0 ? surface.StartLine - 1 : 0, lowered,

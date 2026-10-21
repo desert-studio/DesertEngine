@@ -24,12 +24,13 @@
 //     new rule: `AttachmentSystem` already takes exactly that path for a target it cannot find, and
 //     `SocketAttachmentComponent::Target` is a `UUID` with a `Null()` for the purpose.
 //
-// ── A WIDE COMPOSITE GOES UP A LEVEL; THE CELL DOES NOT GROW (owner decision O1, 2026-09-23) ──────
+// ── A WIDE COMPOSITE GOES UP A LEVEL (owner decision O1, 2026-09-23; placement WP-FAR-6B 9g) ──────
 //
 // The grid has LEVELS. Level L is the same grid with cells CellSize·2^L wide, aligned on the origin, so
-// every level-L edge is also an edge of every level below it. A composite is put, whole, on the LOWEST
-// level at which its footprint lies inside exactly ONE cell; a composite that no level can hold that way
-// goes to the ALWAYS-LOADED set. The level is derived from the footprint and is never authored.
+// every level-L edge is also an edge of every level below it. A composite goes, whole, to the LOWEST
+// level whose cell is at least as wide as its footprint's larger side, and in that level to the cell its
+// footprint's CENTRE falls in. A composite wider than the top level can be goes to the ALWAYS-LOADED set.
+// The level is derived from the footprint and is never authored.
 //
 // This replaces WP1's growing cell, and the reason is what growth cost: a cell grown to reach one wide
 // thing dragged EVERY small thing in that cell out to the wide thing's loading distance. A level moves
@@ -37,12 +38,15 @@
 // FSquare2DGridHelper::GetPartitionedActors (UE:Engine/Source/Runtime/Engine/Private/WorldPartition/
 // RuntimeSpatialHash/RuntimeSpatialHashGridHelper.cpp:211-262), not its letter:
 //
-//   * UE's top level is ONE cell centred on the origin and as wide as the world, so nothing spatial ever
-//     misses it. Ours stays aligned on the origin to the top, so the top level has up to four cells and a
-//     composite straddling X = 0 or Z = 0 fits no level. That composite is ALWAYS-LOADED, which is what
-//     UE's world-sized top cell amounts to anyway — a cell containing every camera position there is.
+//   * Placement is UE's: the level by the footprint's SIZE, the cell by its CENTRE (FSquare2DGridHelper::
+//     GetCellCoords on the bounds' centre). A footprint therefore may reach past its cell's square by at
+//     most half its own extent, so a cell's STREAMING bounds (`PlannedCell::Bounds`) are its square grown by
+//     half the widest extent placed on its level: the loading range is measured to what the cell holds,
+//     not to its square. Before 9g a composite had to fit one origin-aligned cell whole, so everything
+//     straddling X = 0 or Z = 0 was always-loaded — on a world centred on the origin, almost everything.
 //   * UE sizes the level count from the world bounds; so does this: the top level is the first whose
-//     cell reaches the furthest footprint from the origin (`WorldPartitionPlan::LevelCount`).
+//     cell reaches the furthest footprint from the origin (`WorldPartitionPlan::LevelCount`), and never
+//     less than the level the widest composite needs.
 //
 // What WP1 called `MaxGrowth` is now `WorldPartitionPlan::MaxLevel`: the level the worst composite was
 // promoted to, and which composite it is.
@@ -134,6 +138,7 @@
 #include <functional>
 #include <initializer_list>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <optional>
 #include <span>
@@ -328,15 +333,31 @@ namespace Desert::Core::Rules
     // spill into the next cell. That is not a nicety: WorldGen's ground tile is exactly one cell wide and
     // sits exactly on the edges, and a closed interval would push every tile of a generated world up a
     // level. A zero-width footprint (one point) is in the cell of its minimum.
+    //
+    // AN EDGE WITHIN FLOAT ROUNDING OF A CELL BOUNDARY IS ON THAT BOUNDARY. Footprints are float and are
+    // built by arithmetic: a landscape root at -120 m with 255 quads of 23.529411 cm (a float) puts its
+    // third tile's edge at -0.0002 cm, not 0. Read literally that is a sliver in the cell before, and 0 is
+    // an edge at EVERY level, so the tile fitted no cell and fell to always-loaded (FIELD_Barn: 7 of 16
+    // tiles, a cross along x = 0 and z = 0). The tolerance is a few float epsilons of the edge's own
+    // magnitude, measured in cells — the error a float coordinate of that size carries, nothing coarser:
+    // a real overhang of a millimetre on a 128 m cell is still an overhang.
     [[nodiscard]] inline std::optional<CellCoord> SingleCellHolding( const CellBounds& footprint,
                                                                      double            levelCellSize )
     {
-        // The last cell the footprint touches: the one before its maximum's cell when the maximum lies
-        // exactly on an edge, never before its first cell.
-        const auto last = []( float min, float max, double size )
+        // An edge in cell units, and the float rounding it may carry (in cells too).
+        constexpr double kRoundingEpsilons = 4.0 * static_cast<double>( std::numeric_limits<float>::epsilon() );
+        const auto       rounding          = []( float edge, double size )
+        { return kRoundingEpsilons * std::max( std::fabs( static_cast<double>( edge ) ), size ) / size; };
+
+        // The first cell the footprint touches: a minimum a rounding short of an edge is on it.
+        const auto first = [&]( float min, double size )
+        { return std::floor( static_cast<double>( min ) / size + rounding( min, size ) ); };
+        // The last cell the footprint touches: the one before its maximum's cell when the maximum lies on
+        // an edge (or a rounding past it), never before its first cell.
+        const auto last = [&]( float min, float max, double size )
         {
-            const double low = std::floor( static_cast<double>( min ) / size );
-            return std::max( low, std::ceil( static_cast<double>( max ) / size ) - 1.0 );
+            return std::max( first( min, size ),
+                             std::ceil( static_cast<double>( max ) / size - rounding( max, size ) ) - 1.0 );
         };
 
         // A coordinate whose cell index an int32 cannot hold (a corrupt 1e30, a NaN) fits no cell of this
@@ -347,10 +368,14 @@ namespace Desert::Core::Rules
                 return std::nullopt;
         }
 
-        const CellCoord cell = CellOf( footprint.MinX, footprint.MinZ, levelCellSize );
-        if ( static_cast<double>( cell.X ) != last( footprint.MinX, footprint.MaxX, levelCellSize ) ||
-             static_cast<double>( cell.Z ) != last( footprint.MinZ, footprint.MaxZ, levelCellSize ) )
+        const double firstX = first( footprint.MinX, levelCellSize );
+        const double firstZ = first( footprint.MinZ, levelCellSize );
+        if ( firstX != last( footprint.MinX, footprint.MaxX, levelCellSize ) ||
+             firstZ != last( footprint.MinZ, footprint.MaxZ, levelCellSize ) )
             return std::nullopt;
+        CellCoord cell;
+        cell.X = static_cast<std::int32_t>( firstX );
+        cell.Z = static_cast<std::int32_t>( firstZ );
         return cell;
     }
 
@@ -361,7 +386,7 @@ namespace Desert::Core::Rules
         None,      // it is in a cell
         Author,    // a member carries the `AlwaysLoaded` marker
         Component, // a member carries a component `kComponentLoading` classifies Global
-        NoFit,     // no level has one cell holding its footprint (it straddles X = 0 or Z = 0)
+        NoFit,     // its footprint is wider than the top level a grid can have, or not a finite rectangle
         NoGrid,    // the world states no usable grid: no `Grids` entry, or a CellSize <= 0
     };
 
@@ -382,14 +407,17 @@ namespace Desert::Core::Rules
         std::size_t        Grid    = 0; // index into WorldPartitionSerialized::Grids (UE: the actor's RuntimeGrid)
     };
 
-    // ONE CELL OF ONE LEVEL THAT HOLDS SOMETHING. `Square` is the cell's own square at its level: a cell
-    // never grows, so everything it holds lies inside it — the suite asserts exactly that over the corpus.
+    // ONE CELL OF ONE LEVEL THAT HOLDS SOMETHING. `Square` is the cell's own square at its level and holds
+    // the CENTRE of everything the cell holds. `Bounds` is the square grown on every side by half the widest
+    // footprint placed on that level of that grid (UE's loose cell bounds), so every footprint the cell
+    // holds lies inside it: the loading range is measured to `Bounds`.
     struct PlannedCell
     {
         std::size_t              Grid  = 0; // index into WorldPartitionSerialized::Grids
         int                      Level = 0;
         CellCoord                Cell;
         CellBounds               Square;
+        CellBounds               Bounds;
         std::vector<std::size_t> Composites; // indices into WorldPartitionPlan::Composites
     };
 
@@ -1373,9 +1401,11 @@ namespace Desert::Core::Rules
     //      global member makes the whole composite global — the composite is never divided, and a
     //      camera parented to a character keeps the character with it.
     //
-    //   4. THE LEVEL COUNT, from the furthest footprint of a composite that still has to be placed.
+    //   4. THE LEVEL COUNT, from the furthest footprint of a composite that still has to be placed, and
+    //      the widest one.
     //
-    //   5. PLACEMENT: the lowest level with one cell holding the footprint, else always-loaded (NoFit).
+    //   5. PLACEMENT: the lowest level whose cell is as wide as the footprint, the cell of its centre;
+    //      wider than any level can be: always-loaded (NoFit).
     //
     // `bounds` answers for the one extent that lives in other files, a mesh asset's (AssetBoundsSource);
     // left empty, every mesh-asset record is its position and is counted as such.
@@ -1753,7 +1783,14 @@ namespace Desert::Core::Rules
         // sun at 10 km does not widen any grid. The cap keeps a corrupt coordinate (1e30) from asking for a
         // level past what an int32 cell index can express at level 0; a footprint beyond it is NoFit.
         constexpr int       kMaxLevels = 31;
+        // A footprint's larger side: what its level is chosen by. Not finite = no level can hold it.
+        const auto extentOf = []( const CellBounds& box )
+        {
+            return std::max( static_cast<double>( box.MaxX ) - static_cast<double>( box.MinX ),
+                             static_cast<double>( box.MaxZ ) - static_cast<double>( box.MinZ ) );
+        };
         std::vector<double> furthest( settings.Grids.size(), 0.0 );
+        std::vector<double> widest( settings.Grids.size(), 0.0 );
         for ( const PlannedComposite& group : plan.Composites )
         {
             if ( group.Reason != AlwaysLoadedReason::None || !group.Footprint.has_value() )
@@ -1763,18 +1800,22 @@ namespace Desert::Core::Rules
                                                  std::fabs( static_cast<double>( box.MaxX ) ),
                                                  std::fabs( static_cast<double>( box.MinZ ) ),
                                                  std::fabs( static_cast<double>( box.MaxZ ) ) } );
+            const double extent    = extentOf( box );
+            if ( std::isfinite( extent ) )
+                widest[group.Grid] = std::max( widest[group.Grid], extent );
         }
         for ( std::size_t gridIndex = 0; gridIndex < settings.Grids.size(); ++gridIndex )
         {
             const float cellSize = settings.Grids[gridIndex].CellSize;
             int         levels   = 1;
-            while ( levels < kMaxLevels && LevelCellSize( cellSize, levels - 1 ) < furthest[gridIndex] )
+            while ( levels < kMaxLevels && ( LevelCellSize( cellSize, levels - 1 ) < furthest[gridIndex] ||
+                                             LevelCellSize( cellSize, levels - 1 ) < widest[gridIndex] ) )
                 ++levels;
             plan.GridLevelCount[gridIndex] = levels;
             plan.LevelCount                = std::max( plan.LevelCount, levels );
         }
 
-        // ── 5. Placement: the lowest level of ITS grid with ONE cell holding the whole footprint ──────
+        // ── 5. Placement (UE FSquare2DGridHelper): the level by the footprint's size, the cell by its centre ──
         for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
         {
             PlannedComposite& held = plan.Composites[group];
@@ -1791,17 +1832,28 @@ namespace Desert::Core::Rules
             const CellBounds footprint = *held.Footprint;
             const float      cellSize  = settings.Grids[held.Grid].CellSize;
 
+            // The lowest level whose cell is at least as wide as the footprint's larger side; the cell of the
+            // footprint's centre in it. A centre whose cell index an int32 cannot hold (a corrupt 1e30, a
+            // NaN) is not converted - that conversion is undefined behaviour - and the composite is NoFit.
+            const double extent = extentOf( footprint );
+            const double centreX =
+                 ( static_cast<double>( footprint.MinX ) + static_cast<double>( footprint.MaxX ) ) * 0.5;
+            const double centreZ =
+                 ( static_cast<double>( footprint.MinZ ) + static_cast<double>( footprint.MaxZ ) ) * 0.5;
             bool placed = false;
-            for ( int level = 0; level < plan.GridLevelCount[held.Grid]; ++level )
+            for ( int level = 0; std::isfinite( extent ) && level < plan.GridLevelCount[held.Grid]; ++level )
             {
-                const auto cell = SingleCellHolding( footprint, LevelCellSize( cellSize, level ) );
-                if ( cell.has_value() )
-                {
-                    held.Level = level;
-                    held.Cell  = *cell;
-                    placed     = true;
+                const double size = LevelCellSize( cellSize, level );
+                if ( size < extent )
+                    continue;
+                if ( !( std::fabs( centreX / size ) < 2147483647.0 ) ||
+                     !( std::fabs( centreZ / size ) < 2147483647.0 ) )
                     break;
-                }
+                held.Level = level;
+                held.Cell  = CellCoord{ static_cast<std::int32_t>( std::floor( centreX / size ) ),
+                                       static_cast<std::int32_t>( std::floor( centreZ / size ) ) };
+                placed     = true;
+                break;
             }
             if ( !placed )
             {
@@ -1825,6 +1877,14 @@ namespace Desert::Core::Rules
             if ( held.Reason == AlwaysLoadedReason::None && held.Footprint.has_value() )
                 cells[std::make_tuple( held.Grid, held.Level, held.Cell.X, held.Cell.Z )].push_back( group );
         }
+        // Half the widest footprint each (grid, level) holds: how far past its square a cell of it may reach.
+        std::map<std::pair<std::size_t, int>, double> reach;
+        for ( const auto& [key, composites] : cells )
+        {
+            double& margin = reach[std::make_pair( std::get<0>( key ), std::get<1>( key ) )];
+            for ( const std::size_t group : composites )
+                margin = std::max( margin, extentOf( *plan.Composites[group].Footprint ) * 0.5 );
+        }
         for ( auto& [key, composites] : cells )
         {
             PlannedCell cell;
@@ -1833,6 +1893,11 @@ namespace Desert::Core::Rules
             cell.Cell.X     = std::get<2>( key );
             cell.Cell.Z     = std::get<3>( key );
             cell.Square     = GridSquareOf( cell.Cell, LevelCellSize( settings.Grids[cell.Grid].CellSize, cell.Level ) );
+            const double margin = reach.at( std::make_pair( cell.Grid, cell.Level ) );
+            cell.Bounds     = CellBounds{ static_cast<float>( static_cast<double>( cell.Square.MinX ) - margin ),
+                                      static_cast<float>( static_cast<double>( cell.Square.MinZ ) - margin ),
+                                      static_cast<float>( static_cast<double>( cell.Square.MaxX ) + margin ),
+                                      static_cast<float>( static_cast<double>( cell.Square.MaxZ ) + margin ) };
             cell.Composites = std::move( composites );
             plan.Cells.push_back( std::move( cell ) );
         }

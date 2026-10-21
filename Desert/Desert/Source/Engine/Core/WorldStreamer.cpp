@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <format>
+#include <set>
 #include <chrono>
 #include <cmath>
 #include <unordered_map>
@@ -83,6 +84,7 @@ namespace Desert::Core
 
     Common::ResultStr<std::unique_ptr<WorldStreamer>>
     WorldStreamer::Begin( Scene& scene, Assets::AssetManager& assets, const std::string& snapshotJson,
+                          const std::filesystem::path&            scenePath,
                           std::span<const Rules::StreamingSource> instruments )
     {
         using Result       = std::unique_ptr<WorldStreamer>;
@@ -118,63 +120,76 @@ namespace Desert::Core
         streamer->m_Loader     = std::make_unique<WorldCellLoader>(
              std::make_shared<Rules::MemoryCellSource>( streamer->Executor().Plan(), snapshot->Entities ) );
         {
-            // The HLODs the cook would write, built from the snapshot by the same builder: editor Play shows
-            // what a cooked game shows while a cell is away.
+            // THE SAVED HLODs (WP-FAR-6B D1; UE: PIE shows what Build HLODs saved): Play reads them and never
+            // builds them. Missing or stale is a logged error naming the scene and the step; Play goes on without
+            // the HLODs concerned.
             const Rules::WorldPartitionPlan&              plan = streamer->Executor().Plan();
             std::unordered_map<Common::UUID, std::size_t> byId;
             for ( std::size_t record = 0; record < snapshot->Entities.size(); ++record )
                 byId.emplace( streamer->m_RecordIds[record], record );
-            const std::vector<glm::mat4>      world = Rules::Detail::ComposeWorld( snapshot->Entities, byId );
-            Common::Json::Issues              issues;
             std::vector<CellHLOD>             hlods;
             std::vector<Rules::HLODExclusion> holes;
-            // The editor's registry is the one the cook reads, so Play excludes what the cook excludes.
-            const Rules::CustomShaderSource customShader =
-                 WorldCells::CustomShaderFrom( std::span( &Assets::ContentRegistry::Get(), 1 ) );
-            const Rules::FoliageHLODSource foliageInHLOD =
-                 WorldCells::FoliageInHLODFrom( std::span( &Assets::ContentRegistry::Get(), 1 ) );
-            // The same layers and the same mesh builder the cook uses (WP-FAR-7, WP22c), over the editor's registry.
             if ( auto layers = Rules::ValidateHLODLayers( *partition ); !layers )
                 return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
                                                   "': " + layers.GetError() );
-            const Rules::HLODMeshBuilder     meshBuilder =
-                 MakeHLODMeshBuilder( std::span( &Assets::ContentRegistry::Get(), 1 ) );
-            // The landscape HLOD (WP-FAR-6): every tile of a cell stands in as a mesh of its own heights.
-            const Rules::LandscapeHLODBuilder landscapeBuilder = MakeLandscapeHLODBuilder();
-            for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < Rules::ResidencyUnitCount( plan ); ++unit )
+            if ( Rules::AnyGridHLODLayer( *partition ) )
             {
-                // The layer is the cell's GRID's (WP22c): a grid that states none gives its cells no HLOD.
-                const HLODLayerSerialized* const hlodLayer = Rules::GridHLODLayer(
-                     *partition, partition->Grids.at( plan.Cells.at( unit - plan.AlwaysLoaded.size() ).Grid ) );
-                if ( hlodLayer == nullptr )
-                    continue;
-                auto builtCell = Rules::BuildCellHLOD( *hlodLayer, snapshot->Entities, world,
-                                                       Rules::ResidencyUnitMembers( plan, unit ), customShader,
-                                                       issues, foliageInHLOD, meshBuilder, landscapeBuilder );
-                if ( !builtCell )
-                    return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName + "', " +
-                                                      Rules::DescribeResidencyUnit( plan, unit ) + ": " +
-                                                      builtCell.GetError() );
-                const Rules::InstancingHLOD built = builtCell.ExtractValue();
-                for ( const Rules::HLODNotInstanced& missing : built.NotInstanced )
-                    holes.push_back( missing.Reason );
-                if ( built.Batches.empty() )
-                    continue;
-                CellHLOD          hlod{ unit, {} };
-                const std::string name = "HLOD " + Rules::DescribeResidencyUnit( plan, unit );
-                for ( std::size_t batch = 0; batch < built.Batches.size(); ++batch )
+                auto stored = scenePath.empty()
+                                   ? Common::MakeError<WorldCells::StoredHLODs>(
+                                          "'" + snapshot->SceneName + "' is not saved, so it has no built HLODs" )
+                                   : WorldCells::ReadBuiltHLODs( scenePath );
+                if ( !stored )
                 {
-                    const Common::UUID id = Rules::HLODRecordId( snapshot->SceneName, name, batch );
-                    if ( id.IsNull() || byId.contains( id ) )
-                        return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
-                                                          "': the id of batch " + std::to_string( batch ) +
-                                                          " of " + name +
-                                                          " is null or a record's; rename the world" );
-                    hlod.Records.push_back( Rules::HLODRecord( built.Batches[batch], id, batch ) );
+                    LOG_ERROR( "[WorldPartition] Play of '{0}' runs WITHOUT HLODs: {1}. Run Build > Build HLODs.",
+                               snapshot->SceneName, stored.GetError() );
                 }
-                hlods.push_back( std::move( hlod ) );
+                else
+                {
+                    const auto registries = std::span( &Assets::ContentRegistry::Get(), 1 );
+                    const std::vector<Rules::EntityDescriptor> descriptors =
+                         Rules::DescribeEntities( snapshot->Entities );
+                    auto stale =
+                         WorldCells::StaleHLODCells( stored.GetValue().Index, *snapshot, descriptors, registries );
+                    if ( !stale )
+                        return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
+                                                          "': " + stale.GetError() );
+                    const std::set<std::string> staleUnits( stale.GetValue().begin(), stale.GetValue().end() );
+                    std::unordered_map<std::string, const WorldCells::BuiltHLODCell*> rows;
+                    for ( const WorldCells::BuiltHLODCell& row : stored.GetValue().Index.Cells )
+                        rows.emplace( row.Unit, &row );
+                    for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < Rules::ResidencyUnitCount( plan );
+                          ++unit )
+                    {
+                        const std::string name = Rules::DescribeResidencyUnit( plan, unit );
+                        const auto        row  = rows.find( name );
+                        if ( staleUnits.contains( name ) || row == rows.end() )
+                        {
+                            LOG_ERROR(
+                                 "[WorldPartition] Play of '{0}': the saved HLOD of {1} is missing or stale, "
+                                 "so that cell has none. Run Build > Build HLODs.",
+                                 snapshot->SceneName, name );
+                            continue;
+                        }
+                        for ( const WorldCells::IndexNotInstanced& missing : row->second->NotInstanced )
+                            holes.push_back( missing.Reason );
+                        auto records = WorldCells::StoredCellRecords( stored.GetValue(), *row->second );
+                        if ( !records )
+                            return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
+                                                              "', " + name + ": " + records.GetError() );
+                        if ( records.GetValue().empty() )
+                            continue;
+                        for ( const Assets::EntityData& record : records.GetValue() )
+                            if ( byId.contains( *record.id ) )
+                                return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
+                                                                  "': an HLOD record of " + name +
+                                                                  " has a record's id; rename the world" );
+                        hlods.push_back( CellHLOD{ unit, records.ExtractValue() } );
+                    }
+                    LOG_INFO( "[WorldPartition] Play of '{0}': {1} saved HLOD(s) from {2}, {3} stale cell(s)",
+                              snapshot->SceneName, hlods.size(),
+                              WorldCells::BuiltHLODDirectory( scenePath ).string(), staleUnits.size() );
+                }
             }
-            Common::Json::ReportIssues( issues, "the HLODs of the Play snapshot" );
             if ( auto begun = streamer->BeginHLODs( std::move( hlods ), holes ); !begun )
                 return Common::MakeError<Result>( begun.GetError() );
         }

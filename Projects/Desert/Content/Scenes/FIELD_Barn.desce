@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "9f6174036d8b88429df5ff712f042697",
         "Versions": {
-            "SCNE": 67,
+            "SCNE": 68,
             "UNIT": 1
         },
         "Dependencies": [
@@ -269,7 +269,7 @@
                 "Landscape": "8180000000000005",
                 "TileX": 0,
                 "TileZ": 0,
-                "HeightFile": "Content/Scenes/FIELD_Barn_Landscape/8180000000000100.dlht"
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000100.dlht"
             }
         },
         {
@@ -283,7 +283,7 @@
                 "Landscape": "8180000000000005",
                 "TileX": 1,
                 "TileZ": 0,
-                "HeightFile": "Content/Scenes/FIELD_Barn_Landscape/8180000000000101.dlht"
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000101.dlht"
             }
         },
         {
@@ -297,7 +297,7 @@
                 "Landscape": "8180000000000005",
                 "TileX": 2,
                 "TileZ": 0,
-                "HeightFile": "Content/Scenes/FIELD_Barn_Landscape/8180000000000102.dlht"
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000102.dlht"
             }
         },
         {
@@ -311,7 +311,7 @@
                 "Landscape": "8180000000000005",
                 "TileX": 3,
                 "TileZ": 0,
-                "HeightFile": "Content/Scenes/FIELD_Barn_Landscape/8180000000000103.dlht"
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000103.dlht"
             }
         },
         {
@@ -325,7 +325,7 @@
                 "Landscape": "8180000000000005",
                 "TileX": 0,
                 "TileZ": 1,
-                "HeightFile": "Content/Scenes/FIELD_Barn_Landscape/8180000000000104.dlht"
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000104.dlht"
             }
         },
         {
@@ -339,7 +339,7 @@
                 "Landscape": "8180000000000005",
                 "TileX": 1,
                 "TileZ": 1,
-                "HeightFile": "Content/Scenes/FIELD_Barn_Landscape/8180000000000105.dlht"
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000105.dlht"
             }
         },
         {
@@ -353,7 +353,7 @@
                 "Landscape": "8180000000000005",
                 "TileX": 2,
                 "TileZ": 1,
-                "HeightFile": "Content/Scenes/FIELD_Barn_Landscape/8180000000000106.dlht"
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000106.dlht"
             }
         },
         {
@@ -367,7 +367,7 @@
                 "Landscape": "8180000000000005",
                 "TileX": 3,
                 "TileZ": 1,
-                "HeightFile": "Content/Scenes/FIELD_Barn_Landscape/8180000000000107.dlht"
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000107.dlht"
             }
         },
         {
@@ -381,7 +381,7 @@
                 "Landscape": "8180000000000005",
                 "TileX": 0,
                 "TileZ": 2,
-                "HeightFile": "Content/Scenes/FIELD_Barn_Landscape/8180000000000108.dlht"
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000108.dlht"
             }
         },
         {
@@ -395,7 +395,7 @@
                 "Landscape": "8180000000000005",
                 "TileX": 1,
                 "TileZ": 2,
-                "HeightFile": "Content/Scenes/FIELD_Barn_Landscape/8180000000000109.dlht"
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000109.dlht"
             }
         },
         {
@@ -409,7 +409,7 @@
                 "Landscape": "8180000000000005",
                 "TileX": 2,
                 "TileZ": 2,
-                "HeightFile": "Content/Scenes/FIELD_Barn_Landscape/8180000000000110.dlht"
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000110.dlht"
             }
         },
         {
@@ -423,7 +423,7 @@
                 "Landscape": "8180000000000005",
                 "TileX": 3,
                 "TileZ": 2,
-                "HeightFile": "Content/Scenes/FIELD_Barn_Landscape/8180000000000111.dlht"
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000111.dlht"
             }
         },
         {
@@ -437,7 +437,7 @@
                 "Landscape": "8180000000000005",
                 "TileX": 0,
                 "TileZ": 3,
-                "HeightFile": "Content/Scenes/FIELD_Barn_Landscape/8180000000000112.dlht"
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000112.dlht"
             }
         },
         {
@@ -451,7 +451,7 @@
                 "Landscape": "8180000000000005",
                 "TileX": 1,
                 "TileZ": 3,
-                "HeightFile": "Content/Scenes/FIELD_Barn_Landscape/8180000000000113.dlht"
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000113.dlht"
             }
         },
         {
@@ -465,7 +465,7 @@
                 "Landscape": "8180000000000005",
                 "TileX": 2,
                 "TileZ": 3,
-                "HeightFile": "Content/Scenes/FIELD_Barn_Landscape/8180000000000114.dlht"
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000114.dlht"
             }
         },
         {
@@ -479,7 +479,7 @@
                 "Landscape": "8180000000000005",
                 "TileX": 3,
                 "TileZ": 3,
-                "HeightFile": "Content/Scenes/FIELD_Barn_Landscape/8180000000000115.dlht"
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000115.dlht"
             }
         },
         {

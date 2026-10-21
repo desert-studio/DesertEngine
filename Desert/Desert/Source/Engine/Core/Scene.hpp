@@ -164,7 +164,16 @@ namespace Desert::Core
         // Walks the ECS ONCE and then records one set of GPU passes per view.
         [[nodiscard]] Common::BoolResultStr OnUpdate( const Common::Timestep& ts );
 
-        [[nodiscard]] Common::BoolResultStr Init();
+        // WHAT AN INIT ANNOUNCES. A World scene replaces what the editor or game shows, so its Init asks for an
+        // asset-eviction sweep (the answer to "what is still needed" changed). An Offscreen scene (a bake, a
+        // capture) is drawn BESIDE the live world and changes nothing it needs: its Init asks for no sweep —
+        // one it asked for dropped the live scene's built meshes and materials (Build HLODs, WP-FAR-6B 8d).
+        enum class InitPurpose : uint8_t
+        {
+            World,
+            Offscreen
+        };
+        [[nodiscard]] Common::BoolResultStr Init( InitPurpose purpose = InitPurpose::World );
 
         // Has Init() ever run on this scene? Asked by a caller that DEFERRED the first Init and now has
         // to know whether the deferred one actually happened — a scene load can refuse the file and

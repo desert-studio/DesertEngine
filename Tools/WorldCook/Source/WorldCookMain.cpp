@@ -1,8 +1,11 @@
 #include "WorldCookMain.hpp"
 
+#include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
+
+#include <ToolProject.hpp>
 
 #include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -22,14 +25,21 @@ namespace Desert::WorldCook
 
         std::string Usage()
         {
-            return "usage: WorldCook <source.desce> --out <directory> (--registry <file.dreg>... | --no-registry) "
-                   "[--verify]";
+            return "usage: WorldCook <source.desce> --out <directory> (--project <file.deproj> | --no-project) "
+                   "(--registry <file.dreg>... | --no-registry) [--verify]\n"
+                   "  --project      open this project first, as GamePackager does: the source's content paths\n"
+                   "                 (landscape tiles, meshes) resolve under its folder, and the cook's log goes "
+                   "to\n"
+                   "                 its Saved/Logs\n"
+                   "  --no-project   cook a world that names no project content (primitives only)";
         }
 
         struct Options
         {
             fs::path              Source;
             fs::path              Out;
+            std::string           Project; // the .deproj as typed; empty with --no-project
+            bool                  NoProject = false;
             std::vector<fs::path> Registries;
             bool                  NoRegistry = false;
             bool                  Verify     = false;
@@ -47,18 +57,26 @@ namespace Desert::WorldCook
                         return Common::MakeError<std::string>( std::string( flag ) + " needs a value" );
                     return Common::MakeSuccess( args[++at] );
                 };
-                if ( arg == "--out" || arg == "--registry" )
+                if ( arg == "--out" || arg == "--registry" || arg == "--project" )
                 {
                     auto value = takeOne( arg.c_str() );
                     if ( !value )
                         return Common::MakeError<Options>( value.GetError() );
                     if ( arg == "--out" )
                         options.Out = value.GetValue();
+                    else if ( arg == "--project" )
+                    {
+                        if ( !options.Project.empty() )
+                            return Common::MakeError<Options>( "a second --project; one project per run" );
+                        options.Project = value.GetValue();
+                    }
                     else
                         options.Registries.emplace_back( value.GetValue() );
                 }
                 else if ( arg == "--no-registry" )
                     options.NoRegistry = true;
+                else if ( arg == "--no-project" )
+                    options.NoProject = true;
                 else if ( arg == "--verify" )
                     options.Verify = true;
                 else if ( !arg.empty() && arg[0] == '-' )
@@ -74,6 +92,11 @@ namespace Desert::WorldCook
             // That is a legitimate cook (a world of primitives needs none), but it is CHOSEN, never defaulted.
             if ( options.Registries.empty() == !options.NoRegistry )
                 return Common::MakeError<Options>( "state exactly one of --registry <file>... or --no-registry" );
+            // Without a project a content path in the source (a landscape's tiles, a mesh) has nothing to resolve
+            // under, and the cook stops at the first one. Opening one is likewise CHOSEN, never defaulted.
+            if ( options.Project.empty() == !options.NoProject )
+                return Common::MakeError<Options>(
+                     "state exactly one of --project <file.deproj> or --no-project" );
             return Common::MakeSuccess( std::move( options ) );
         }
 
@@ -92,6 +115,19 @@ namespace Desert::WorldCook
             return 2;
         }
         const Options options = parsed.ExtractValue();
+
+        // The project is open before anything of the world is read: the same call GamePackager and TextureCook
+        // make (Tools/Shared/ToolProject.hpp), so the cook resolves content exactly as the packager does.
+        if ( !options.Project.empty() )
+        {
+            const Tools::OpenedToolProject opened = Tools::OpenToolProject( options.Project, {} );
+            if ( !opened.Refused.empty() )
+            {
+                err << "WorldCook: " << opened.Refused << "\n";
+                return 3;
+            }
+            out << "WorldCook: project " << opened.Descriptor.string() << "\n";
+        }
 
         const auto started = std::chrono::steady_clock::now();
         auto       text    = Core::ExternalEntities::ReadSceneFileText( options.Source );
@@ -131,10 +167,18 @@ namespace Desert::WorldCook
         out << "WorldCook: descriptors " << descriptors.GetValue().Described << " described, "
             << descriptors.GetValue().Reused << " reused, " << descriptors.GetValue().Dropped << " dropped\n";
         const auto planned = Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
-        auto       cooked  = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries );
+        // The same mesh and landscape HLOD builders editor Play and the packager use (WP-FAR-6/7): a cooked
+        // world's stand-ins do not depend on which cook built them.
+        // The HLODs are the ones Build HLODs saved beside the scene (WP-FAR-6B D1): packed here, never built.
+        auto hlods = Core::WorldCells::ReadBuiltHLODs( options.Source );
+        if ( hlods )
+            out << "WorldCook: built HLODs " << Core::WorldCells::BuiltHLODDirectory( options.Source ).string()
+                << ": " << hlods.GetValue().Index.Cells.size() << " cell row(s)\n";
+        auto cooked = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries,
+                                                   hlods ? &hlods.GetValue() : nullptr );
         if ( !cooked )
         {
-            err << "WorldCook: " << cooked.GetError() << "\n";
+            err << "WorldCook: " << cooked.GetError() << ( hlods ? "" : " (" + hlods.GetError() + ")" ) << "\n";
             return 4;
         }
         const double cookMs = MsSince( cookStart );

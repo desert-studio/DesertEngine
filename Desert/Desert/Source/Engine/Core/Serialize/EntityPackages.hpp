@@ -92,6 +92,9 @@ namespace Desert::Core
         void Baseline( const std::filesystem::path& scenePath, std::span<const LiveEntity> live );
 
         [[nodiscard]] bool IsDirty( Common::UUID id ) const;
+        // The scene of `live` differs from the files of its baseline (or has none): what a save of it to the
+        // baseline would write or remove is not nothing. UE's "the level has unsaved changes".
+        [[nodiscard]] bool HasUnsavedChanges( std::span<const LiveEntity> live ) const;
 
         // The files the baseline was taken from (the scene's open or last save), if any: the world on disk an
         // editor region loads from (WP19, EditorRegions.hpp).

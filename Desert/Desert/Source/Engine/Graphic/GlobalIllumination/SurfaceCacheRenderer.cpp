@@ -462,7 +462,7 @@ namespace Desert::Graphic::SurfaceCache
                       .Storage( "SurfaceLightingPages", relit, RDG::Access::StorageRead )
                       .Storage( ShaderProtocols::PointLight::Name, inputs.Lights.Point, RDG::Access::StorageRead )
                       .Storage( ShaderProtocols::SpotLight::Name, inputs.Lights.Spot, RDG::Access::StorageRead )
-                      .Storage( System::kLocalShadowViewsBlockName, inputs.Lights.ShadowViews,
+                      .Storage( kLocalShadowViewsBlockName, inputs.Lights.ShadowViews,
                                 RDG::Access::StorageRead )
                       .Storage( "SurfaceCacheShadowUB", shadow, RDG::Access::StorageRead )
                       .Storage( "SurfaceCacheCloudShadowUB", cloud, RDG::Access::StorageRead )

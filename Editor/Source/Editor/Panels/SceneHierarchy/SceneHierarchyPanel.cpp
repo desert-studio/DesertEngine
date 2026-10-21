@@ -447,25 +447,15 @@ namespace Desert::Editor
                 deleteEntity = true;
 
             // The padlock gutter is a 16px target; the menu is how you find the feature at all, and how a
-            // whole selection is locked in one go. Both spellings call the same recursive setter.
+            // whole selection is locked in one go. Both spellings call the same recorded edit
+            // (Commands::SetLocked).
             if ( ImGui::Selectable( locked ? ICON_MDI_LOCK_OPEN_OUTLINE " Unlock"
                                            : ICON_MDI_LOCK " Lock (no picking, no gizmo)" ) )
             {
-                auto& reg = *entity.GetRegistry();
                 if ( Core::SelectionManager::Count() > 1 && Core::SelectionManager::IsSelected( UUID ) )
-                {
-                    for ( const auto& id : Core::SelectionManager::GetSelection() )
-                        if ( auto ref = m_Scene->FindEntityByID( id ) )
-                        {
-                            ECS::SetLockedRecursive( reg, ref->get().GetHandle(), !locked );
-                            m_Scene->MarkModifiedSubtree( ref->get() );
-                        }
-                }
+                    Commands::SetLocked( Core::SelectionManager::GetSelection(), !locked );
                 else
-                {
-                    ECS::SetLockedRecursive( reg, entity.GetHandle(), !locked );
-                    m_Scene->MarkModifiedSubtree( entity );
-                }
+                    Commands::SetLocked( { UUID }, !locked );
             }
 
             ImGui::Separator();
@@ -563,10 +553,7 @@ namespace Desert::Editor
         ImGui::TextUnformatted( locked ? ICON_MDI_LOCK : ICON_MDI_LOCK_OPEN_OUTLINE );
         ImGui::PopStyleColor();
         if ( ImGui::IsItemClicked() )
-        {
-            ECS::SetLockedRecursive( *entity.GetRegistry(), entity.GetHandle(), !locked );
-            m_Scene->MarkModifiedSubtree( entity );
-        }
+            Commands::SetLocked( { entity.GetComponent<ECS::UUIDComponent>().UUID }, !locked );
         if ( ImGui::IsItemHovered() )
             ImGui::SetTooltip( locked ? "Unlock (allow picking and gizmo edits)"
                                       : "Lock (refuse picking and gizmo edits)" );

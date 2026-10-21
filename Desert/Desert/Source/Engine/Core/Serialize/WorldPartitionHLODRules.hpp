@@ -392,6 +392,15 @@ namespace Desert::Core::Rules
         return grid.HLODLayer.has_value() ? FindHLODLayer( partition, *grid.HLODLayer ) : nullptr;
     }
 
+    // Whether any grid of the world states an HLOD layer, i.e. whether any cell has an HLOD to build or load.
+    [[nodiscard]] inline bool AnyGridHLODLayer( const WorldPartitionSerialized& partition )
+    {
+        for ( const WorldPartitionGridSerialized& grid : partition.Grids )
+            if ( GridHLODLayer( partition, grid ) != nullptr )
+                return true;
+        return false;
+    }
+
     // WHAT A MESH LAYER HANDS THE GEOMETRY BUILDER: the instanced parts the Instancing pass already chose (so a
     // merged HLOD leaves out exactly what an instanced one would, for the same named reasons), each an ISM
     // block naming its mesh and materials with WORLD instance matrices. The builder merges every instance into
@@ -417,15 +426,19 @@ namespace Desert::Core::Rules
     // is not batched with the cell's meshes; it gets its own HLOD component, a mesh of the proxy's heights at a
     // reduced LOD, so the far terrain is never a hole. Here the tile record (index @p Tile into @p Records, @p
     // World its composed matrices) is answered with a StaticMesh block whose EditMesh is the tile in WORLD space.
-    // The layer's triangle share applies as it does to a merged mesh: Instancing and MeshMerge keep every sample
-    // (UE's MeshMerge keeps LOD0), MeshSimplify keeps about `TrianglePercent` of the quads by a regular sample
-    // stride - a heightfield is simplified by skipping samples (UE picks a landscape LOD), not by edge collapses.
+    // THE RESOLUTION IS THE LANDSCAPE LOD THE HLOD IS SEEN AT, on every layer type (WP-FAR-6B): UE's
+    // ComputeRequiredLandscapeLOD (AutomaticLOD policy) projects the tile's bounding sphere from
+    // `MinVisibleDistance` - the nearest the HLOD is ever drawn, FHLODBuildContext::MinVisibleDistance, which is
+    // the source cell's grid LoadingRange - and keeps the first landscape LOD whose screen size the tile no longer
+    // exceeds. A heightfield is simplified by skipping samples (a landscape LOD), not by the layer's edge
+    // collapses, so SimplifyTrianglePercent does not apply to it (UE: the landscape builder ignores the layer's
+    // mesh settings too).
     struct LandscapeHLODRequest
     {
         std::span<const Assets::EntityData> Records;
         std::span<const glm::mat4>          World;
-        std::size_t                         Tile            = kNoRecord;
-        float                               TrianglePercent = 1.0f;
+        std::size_t                         Tile               = kNoRecord;
+        float                               MinVisibleDistance = 0.0f; // cm
     };
     // The geometry side (it reads the tile's height file), given to the rules as HLODMeshBuilder is. AN EMPTY
     // BUILDER IS A STATED CONDITION: every landscape tile then stays a named LandscapeTile hole. An error (the
@@ -433,14 +446,15 @@ namespace Desert::Core::Rules
     using LandscapeHLODBuilder =
          std::function<Common::ResultStr<Assets::StaticMeshComponentSer>( const LandscapeHLODRequest& request )>;
 
-    // THE HLOD OF ONE CELL BY ITS LAYER. Instancing: BuildInstancingHLOD. MeshMerge / MeshSimplify: the same
-    // pass chooses the parts and the holes, then every batch that casts shadows becomes one built mesh and every
-    // batch that does not becomes another (a merged mesh has one CastShadows), each standing in for the union
-    // of its batches' sources. Refused when a mesh layer has no builder or the builder refuses.
+    // THE HLOD OF ONE CELL BY ITS LAYER, seen from @p minVisibleDistance on (the cell's grid LoadingRange,
+    // HLODMinVisibleDistance; it picks the landscape tiles' LOD). Instancing: BuildInstancingHLOD. MeshMerge /
+    // MeshSimplify: the same pass chooses the parts and the holes, then every batch that casts shadows becomes one
+    // built mesh and every batch that does not becomes another (a merged mesh has one CastShadows), each standing
+    // in for the union of its batches' sources. Refused when a mesh layer has no builder or the builder refuses.
     [[nodiscard]] inline Common::ResultStr<InstancingHLOD>
     BuildCellHLOD( const HLODLayerSerialized& layer, std::span<const Assets::EntityData> records,
                    std::span<const glm::mat4> world, std::span<const std::size_t> members,
-                   const CustomShaderSource& customShader, Common::Json::Issues& issues,
+                   float minVisibleDistance, const CustomShaderSource& customShader, Common::Json::Issues& issues,
                    const FoliageHLODSource& foliage, const HLODMeshBuilder& meshBuilder,
                    const LandscapeHLODBuilder& landscape = {} )
     {
@@ -462,9 +476,7 @@ namespace Desert::Core::Rules
                 request.Records         = records;
                 request.World           = world;
                 request.Tile            = missing.Record;
-                request.TrianglePercent = layer.Type == HLODLayerType::MeshSimplify
-                                               ? layer.SimplifyTrianglePercent.value_or( 1.0f )
-                                               : 1.0f;
+                request.MinVisibleDistance = minVisibleDistance;
                 auto built              = landscape( request );
                 if ( !built )
                     return Common::MakeError<InstancingHLOD>(

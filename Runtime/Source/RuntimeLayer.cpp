@@ -342,7 +342,8 @@ namespace Desert::Player
                                  return world.has_value()
                                              ? Core::WorldStreamer::BeginCooked( *m_Scene, *m_AssetManager,
                                                                                  std::move( *world ) )
-                                             : Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, sceneJson );
+                                             : Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, sceneJson,
+                                                                           std::filesystem::path( scenePath ) );
                              } );
             if ( !streamer )
                 return Common::MakeError( streamer.GetError() );
@@ -659,9 +660,10 @@ namespace Desert::Player
         {
             return Common::MakeFormattedError<bool>( "Play refused for '{}': {}", path, began.GetError() );
         }
-        auto streamer = world.has_value()
-                             ? Core::WorldStreamer::BeginCooked( *m_Scene, *m_AssetManager, std::move( *world ) )
-                             : Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, json );
+        auto streamer =
+             world.has_value()
+                  ? Core::WorldStreamer::BeginCooked( *m_Scene, *m_AssetManager, std::move( *world ) )
+                  : Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, json, std::filesystem::path( path ) );
         if ( !streamer )
         {
             return Common::MakeFormattedError<bool>( "Scene switch could not stream the world: {}",

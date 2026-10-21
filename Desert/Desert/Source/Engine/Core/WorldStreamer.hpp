@@ -93,6 +93,8 @@ namespace Desert::Core
         // (see THE SOURCES) plus @p instruments; the pawn must already be spawned (Core::BeginPlay first).
         [[nodiscard]] static Common::ResultStr<std::unique_ptr<WorldStreamer>>
         Begin( Scene& scene, Assets::AssetManager& assets, const std::string& snapshotJson,
+               const std::filesystem::path& scenePath, // the saved scene (its built HLODs); empty = unsaved
+
                std::span<const Rules::StreamingSource> instruments = {} );
 
         // Starts streaming @p scene, whose entities are exactly @p world's always-loaded records right now (the
