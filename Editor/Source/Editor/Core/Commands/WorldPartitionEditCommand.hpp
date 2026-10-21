@@ -10,10 +10,8 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
+#include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
-#include <algorithm>
-#include <cmath>
-#include <format>
 #include <memory>
 #include <optional>
 #include <string>
@@ -70,33 +68,6 @@ namespace Desert::Editor
         ::Desert::Core::WorldPartitionSerialized                m_After;
     };
 
-    // THE GRIDS A WORLD MAY STATE - what Rules::PlanWorldPartition (step 4a) refuses as unusable, refused at the
-    // edit instead of after it: at least one grid, every grid named once, a positive finite cell size; plus a
-    // positive finite loading range (a range of 0 would make a grid that never streams anything in).
-    [[nodiscard]] inline Common::BoolResultStr
-    ValidateRuntimeGrids( const ::Desert::Core::WorldPartitionSerialized& partition )
-    {
-        if ( partition.Grids.empty() )
-            return Common::MakeError<bool>( std::string( "a partitioned world needs at least one runtime grid" ) );
-        for ( std::size_t g = 0; g < partition.Grids.size(); ++g )
-        {
-            const ::Desert::Core::WorldPartitionGridSerialized& grid = partition.Grids[g];
-            if ( grid.Name.empty() )
-                return Common::MakeError<bool>( std::format( "grid {} has no name", g ) );
-            if ( std::any_of( partition.Grids.begin(), partition.Grids.begin() + static_cast<std::ptrdiff_t>( g ),
-                              [&]( const ::Desert::Core::WorldPartitionGridSerialized& other )
-                              { return other.Name == grid.Name; } ) )
-                return Common::MakeError<bool>( std::format( "two grids are named '{}'", grid.Name ) );
-            if ( !( grid.CellSize > 0.0f ) || !std::isfinite( grid.CellSize ) )
-                return Common::MakeError<bool>( std::format( "grid '{}': the cell size must be positive, not {}",
-                                                             grid.Name, grid.CellSize ) );
-            if ( !( grid.LoadingRange > 0.0f ) || !std::isfinite( grid.LoadingRange ) )
-                return Common::MakeError<bool>( std::format(
-                     "grid '{}': the loading range must be positive, not {}", grid.Name, grid.LoadingRange ) );
-        }
-        return Common::MakeSuccess( true );
-    }
-
     // One edit of the block: refused whole (nothing written, nothing recorded) or applied and recorded as ONE
     // history entry. An edit that changes nothing records nothing and answers false.
     [[nodiscard]] inline Common::BoolResultStr
@@ -108,8 +79,11 @@ namespace Desert::Editor
         std::optional<::Desert::Core::WorldPartitionSerialized> before = scene->GetWorldPartition();
         if ( before == after )
             return Common::MakeSuccess( false );
-        if ( auto grids = ValidateRuntimeGrids( after ); !grids )
-            return grids;
+        // Refused by the planner's own rule (Rules::CheckRuntimeGrids), named by its first Issue.
+        if ( const ::Desert::Core::Rules::RuntimeGridsCheck grids =
+                  ::Desert::Core::Rules::CheckRuntimeGrids( after );
+             !grids.Issues.empty() )
+            return Common::MakeError<bool>( Common::Json::Describe( grids.Issues.front() ) );
         if ( auto layers = ::Desert::Core::Rules::ValidateHLODLayers( after ); !layers )
             return layers;
         scene->SetWorldPartition( after );
