@@ -81,7 +81,7 @@ namespace Desert::Graphic::System
                  {
                      if ( const auto caster = weak.lock() )
                      {
-                         if ( auto cast = caster->RecordShadowCascade(
+                         if ( auto cast = caster->RecordShadowView(
                                    context, view, firstBlock, m_CascadeCasterVP[view], m_CascadeCasterBias[view] );
                               !cast.IsSuccess() )
                              return cast;
@@ -104,7 +104,7 @@ namespace Desert::Graphic::System
             {
                 if ( const auto caster = weak.lock(); caster && caster->CastsShadowThisFrame() )
                 {
-                    const uint32_t declaredBlocks = caster->DeclareShadowCascade( declared, view );
+                    const uint32_t declaredBlocks = caster->DeclareShadowView( declared, view );
                     m_RainOcclusionCasters.emplace_back( weak, nextBlock );
                     nextBlock += declaredBlocks;
                 }

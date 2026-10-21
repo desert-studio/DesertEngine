@@ -18,12 +18,14 @@
         {
             mat4 View;
             mat4 Projection;
-            vec4 SunDir;     // xyz = normalized light direction (scene directional light)
-            vec4 SunColor;   // rgb = color, a = intensity
             // TAA1: the view's UNJITTERED matrices of this frame and the previous one (Graphic::ViewFrame
             // ViewProjection / PrevViewProjection), for the velocity both terrain programs write.
             mat4 ViewProjection;
             mat4 PrevViewProjection;
+            // The JITTERED one, which the scene depth was rasterised with: the contact shadows' march
+            // (Common/ContactShadow.glslh, the forward program's point and spot lights).
+            mat4 JitteredViewProjection;
+            mat4 InvJitteredViewProjection; // its inverse: the march's world positions (CONTACT_SHADOW_INV_VP)
             vec4 Exposure;   // x = ViewFrame::PreExposure (the forward program's scene-colour write), yzw unused
         }
         u;
@@ -76,14 +78,20 @@
         // that map (TerrainInstance.InputSlices; -1 = none). Four arrays whatever the input count - the lift
         // from the three inputs sixteen sampled images allowed. Each a separate texture read through its own
         // sampler state `<name>Sampler`, as every bound texture property (VulkanMaterialBackend::ApplyTexture2D).
-        Uniform(13) texture2DArray u_LayerAlbedo;
-        Uniform(14) texture2DArray u_LayerNormal;
-        Uniform(15) texture2DArray u_LayerARM;
-        Uniform(16) texture2DArray u_LayerHeight;
-        Uniform(17) sampler u_LayerAlbedoSampler;
-        Uniform(18) sampler u_LayerNormalSampler;
-        Uniform(19) sampler u_LayerARMSampler;
-        Uniform(20) sampler u_LayerHeightSampler;
+        // The four arrays sit on the slots below the scene-read range (Core::kSceneReadBindingFirst) that neither
+        // program including this header spends: Terrain.shader holds 0/1/4-12/14/16-22 (its lit-pass blocks and
+        // environment), TerrainGBuffer.shader a subset; 40 and up is the shader-graph window
+        // (Core::kGraphOwnedBindingFirst), which no shipped program may enter. Their sampler states are bound by
+        // name (`<texture>Sampler`, VulkanMaterialBackend::ApplyTexture2D), so they take no number here: the shared
+        // sampler rule numbers them after the program's last binding (Core::kAutoSamplerBinding).
+        Uniform(2) texture2DArray u_LayerAlbedo;
+        Uniform(3) texture2DArray u_LayerNormal;
+        Uniform(13) texture2DArray u_LayerARM;
+        Uniform(15) texture2DArray u_LayerHeight;
+        Uniform sampler u_LayerAlbedoSampler;
+        Uniform sampler u_LayerNormalSampler;
+        Uniform sampler u_LayerARMSampler;
+        Uniform sampler u_LayerHeightSampler;
         #define u_LayerAlbedo sampler2DArray(u_LayerAlbedo, u_LayerAlbedoSampler)
         #define u_LayerNormal sampler2DArray(u_LayerNormal, u_LayerNormalSampler)
         #define u_LayerARM sampler2DArray(u_LayerARM, u_LayerARMSampler)

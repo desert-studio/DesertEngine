@@ -67,9 +67,6 @@ namespace Desert::Graphic::System
         LightGridParamsPayload Grid;
     };
 
-    // The block name of the local shadow view table in the composite shader (Mesh/LocalLightShadow.glslh).
-    inline constexpr std::string_view kLocalShadowViewsBlockName = "LocalShadowViewsUB";
-
     // Deferred lighting + G-buffer debug pass. Fullscreen: reads the scene renderer's MRT G-buffer and writes
     // the shaded (or debug) result into the scene target framebuffer, which the post chain then tonemaps.
     // Runs in the manual chain (like Tonemap), only when RenderPath == Deferred.
@@ -364,8 +361,7 @@ namespace Desert::Graphic::System
                      .Texture( "u_MegaLightsSpecular", inputs.MegaLightsSpecular, kRead, kWhole );
             else
                 block.Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
-                     .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
-                     .Storage( kLocalShadowViewsBlockName, lights.ShadowViews, RDG::Access::StorageRead );
+                     .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead );
             if ( m_Active == kScreenMaskSunProgram || m_Active == kMegaLightsProgram )
                 block.Texture( "u_ScreenShadowMask", inputs.SunShadowMask, kRead, kWhole );
             if ( layout )

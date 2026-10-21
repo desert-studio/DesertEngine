@@ -202,7 +202,10 @@ namespace Desert::Graphic
         float Distribution = 1.0f;
     };
 
-    // UE's r.Shadow.ShadowMaxSlopeScaleDepthBias: the slope term stops growing at 45 degrees (tan = 1).
+    // THE slope clamp of every shadow caster - the cascades (ComputeCascadeCasterBias) and the point/spot views
+    // (LocalShadows.hpp LocalCasterBias) alike: UE's r.Shadow.ShadowMaxSlopeScaleDepthBias (default 1), which
+    // FProjectedShadowInfo::UpdateShaderDepthBias hands every projected shadow, whole-scene and per-light. The
+    // slope term stops growing at 45 degrees (tan = 1).
     inline constexpr float kShadowMaxSlope = 1.0f;
 
     // One cascade's bias as the CASTER applies it (the receiver applies none; its normal offset is separate).
@@ -211,7 +214,7 @@ namespace Desert::Graphic
     //                caster's VERTEX stage adds SlopeBias * min(tan, SlopeClamp) to its clip depth
     //                (Common/ShadowCasterBias.glslh, as UE's ShadowDepthVertexShader.usf), so the slope term is
     //                slope centimetres * tan(angle) in that depth's units and no fragment writes a depth.
-    //   SlopeClamp - the tangent where the slope term stops: kShadowMaxSlope.
+    //   SlopeClamp - the tangent where the slope term stops: kShadowMaxSlope, for every caster.
     struct CascadeCasterBias
     {
         float DepthBias  = 0.0f;
@@ -232,13 +235,18 @@ namespace Desert::Graphic
                  .SlopeClamp = kShadowMaxSlope };
     }
 
-    // The matrix a CASTER draws a cascade with: the receivers' matrix with its depth pushed back by the
-    // constant bias. The projection is orthographic (w = 1), so a translation of clip z is exactly a
-    // constant shift of the written depth - every caster (mesh cells, the terrain, any IShadowCaster)
-    // gets the constant bias through the matrix it already takes, and none can be left without it.
+    // The matrix a CASTER draws a shadow view with: the receivers' matrix with its clip z pushed back by the
+    // constant bias, clip.z += depthBias (times the world point's w, 1). Every caster (mesh cells, the terrain,
+    // any IShadowCaster) gets the constant bias through the matrix it already takes, and none can be left
+    // without it. In a cascade (orthographic, clip w = 1) that is exactly a constant shift of the written depth.
+    // In a local light's view (standard-Z perspective, LocalCasterBias) the same constant clip shift lengthens
+    // the linear depth by a share of it, depth * depthBias * (f - n) / (n f): a bias that grows with the
+    // distance from the light as one texel of that map does.
     [[nodiscard]] inline glm::mat4 CasterViewProj( const glm::mat4& viewProj, const float depthBias )
     {
-        return glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 0.0f, depthBias ) ) * viewProj;
+        glm::mat4 caster = viewProj;
+        caster[3][2] += depthBias;
+        return caster;
     }
 
     struct CascadeSetup

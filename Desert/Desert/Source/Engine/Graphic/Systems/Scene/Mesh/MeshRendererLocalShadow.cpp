@@ -61,6 +61,28 @@ namespace Desert::Graphic::System
         return true;
     }
 
+    std::optional<uint64_t> MeshRenderer::LocalCasterSignature( const LocalShadowCasterLight& light ) const
+    {
+        const std::optional<uint64_t> meshes = LocalCasterSignature( light.Lod.Origin, light.Reach );
+        if ( !meshes )
+            return std::nullopt;
+        SignatureHash hash;
+        hash.Add( *meshes );
+        // The casters that are not meshes (the terrain), each by its own key of what it draws into the light's
+        // views.
+        for ( const auto& weak : m_ShadowCasters )
+        {
+            const auto caster = weak.lock();
+            if ( !caster )
+                continue;
+            const std::optional<uint64_t> theirs = caster->LocalShadowSignature( light );
+            if ( !theirs )
+                return std::nullopt;
+            hash.Add( *theirs );
+        }
+        return hash.Value;
+    }
+
     std::optional<uint64_t> MeshRenderer::LocalCasterSignature( const glm::vec3& centre, const float radius ) const
     {
         SignatureHash hash;
@@ -126,6 +148,7 @@ namespace Desert::Graphic::System
         // was given below.
         m_LocalShadowRows.clear();
         m_LocalRedraws.clear();
+        m_LocalCachePlans.clear();
         for ( auto& point : points )
         {
             point.ShadowView   = kNoLocalShadowView;
@@ -262,7 +285,8 @@ namespace Desert::Graphic::System
             light->LastFrame        = frame;
             const uint32_t tileSize = light->Tiles[0].Size;
 
-            const auto firstRow = static_cast<uint32_t>( m_LocalShadowRows.size() );
+            const auto firstRow    = static_cast<uint32_t>( m_LocalShadowRows.size() );
+            float      spotTanHalf = 0.0f;
             if ( request.Spot )
             {
                 auto&       spot      = spots[request.Index];
@@ -276,6 +300,7 @@ namespace Desert::Graphic::System
                 m_LocalShadowRows.push_back( LocalShadowRow( vp, light->Tiles[0], atlasSide, nearPlane, farPlane,
                                                              tanHalf, *request.Settings ) );
                 spot.ShadowView = static_cast<int32_t>( firstRow );
+                spotTanHalf     = tanHalf;
             }
             else
             {
@@ -293,40 +318,37 @@ namespace Desert::Graphic::System
                 point.ShadowView = static_cast<int32_t>( firstRow );
             }
 
-            // The caster side of each view: its matrix and its caster materials. No caster bias — a local
-            // view's bias is the receiver's, in texels at the receiver (Mesh/LocalLightShadow.glslh).
+            // The caster side of each view: its matrix, its bias and its caster materials. The bias is the
+            // light's (Shadow Bias / Shadow Slope Bias, in texels at the caster) and every caster of the view
+            // takes it, the meshes through CameraUB and the terrain through its push (LocalCasterBias); the
+            // receiver adds only its normal offset (Mesh/LocalLightShadow.glslh).
             for ( uint32_t v = 0; v < viewCount; ++v )
             {
-                const uint32_t view       = kMaxShadowCascades + firstRow + v;
-                m_CascadeCasterVP[view]   = m_LocalShadowRows[firstRow + v].ViewProj;
-                m_CascadeCasterBias[view] = CascadeCasterBias{};
+                const uint32_t                view = kMaxShadowCascades + firstRow + v;
+                const LocalShadowViewPayload& row  = m_LocalShadowRows[firstRow + v];
+                m_CascadeCasterBias[view] =
+                     LocalCasterBias( row.Params.x, row.Params.y, row.Params.z, *request.Settings );
+                m_CascadeCasterVP[view] = CasterViewProj( row.ViewProj, m_CascadeCasterBias[view].DepthBias );
                 EnsureShadowViewMaterials( view );
             }
 
-            // THE CACHE (UE: a stationary light's shadow depth is kept until something in its reach moves). The
-            // tiles are valid for this view when they hold its views of the light and its casters - a caster that
-            // moves by itself holds only in the frame it was drawn - and, for a primary view, when a primary view
-            // drew them (a caster's LOD is the drawing camera's: a face's draw is provisional).
-            const glm::vec3 centre = request.Spot ? spots[request.Index].Position : points[request.Index].Position;
+            // THE CACHE is decided when the views' nodes are added (PlanLocalShadowCache): where the light
+            // reaches. Its casters' level of detail is chosen from the light (LocalShadowCasterLight): from its
+            // position, through the projection its views draw with.
             const float     reach  = request.Spot ? spots[request.Index].Range : points[request.Index].Radius;
-            const std::optional<uint64_t> casters = LocalCasterSignature( centre, reach );
-            SignatureHash                 views;
-            AddViews( views, &m_LocalShadowRows[firstRow], viewCount );
-            const bool valid =
-                 light->Drawn && light->Views == views.Value &&
-                 ( casters.has_value() ? light->Casters == casters
-                                       : !light->Casters.has_value() && light->DrawnFrame == frame ) &&
-                 ( light->DrawnByPrimary || !primary );
-            if ( !valid )
-            {
-                light->Drawn          = true;
-                light->Views          = views.Value;
-                light->Casters        = casters;
-                light->DrawnFrame     = frame;
-                light->DrawnByPrimary = primary;
-                for ( uint32_t v = 0; v < viewCount; ++v )
-                    m_LocalRedraws.push_back( { kMaxShadowCascades + firstRow + v, light->Tiles[v] } );
-            }
+            const glm::vec3 origin = request.Spot ? spots[request.Index].Position : points[request.Index].Position;
+            const float     viewTan  = request.Spot ? spotTanHalf : GuardedTanHalf( 1.0f, tileSize );
+            const float     viewNear = LocalShadowNear( reach );
+            m_LocalCachePlans.push_back(
+                 { .Light   = request.Key,
+                   .Caster  = { .FirstView = kMaxShadowCascades + firstRow,
+                                .ViewCount = viewCount,
+                                .Reach     = reach,
+                                .Lod       = Geometry::LODView{
+                                     origin, glm::perspective( 2.0f * std::atan( viewTan ), 1.0f, viewNear,
+                                                                     std::max( reach, viewNear * 2.0f ) ) } },
+                   .Frame   = frame,
+                   .Primary = primary } );
         }
 
         // Said once per change, not per frame: which lights the budget left without a shadow.
@@ -342,12 +364,53 @@ namespace Desert::Graphic::System
         }
     }
 
+    void MeshRenderer::PlanLocalShadowCache()
+    {
+        // THE CACHE (UE: a stationary light's shadow depth is kept until something in its reach changes): the
+        // key is every caster in its reach, the meshes' and the non-mesh casters' (resolved by now), and its
+        // views.
+        // The views' tiles are valid when they hold these views of the light and its casters - a caster that moves
+        // by itself holds only in the frame it was drawn - and, for a primary view, when a primary view drew them (a
+        // caster's LOD is the drawing camera's: a face's draw is provisional).
+        m_LocalRedraws.clear();
+        LocalShadowCache* const cache = m_SceneRenderer->GetFrameLocalShadows();
+        for ( const LocalShadowCachePlan& plan : m_LocalCachePlans )
+        {
+            LocalShadowCache::Light* const light = cache != nullptr ? cache->Find( plan.Light ) : nullptr;
+            if ( light == nullptr )
+                continue; // its tiles went with a shadow rebudget since UpdateLocalShadows: no view to draw
+            const std::optional<uint64_t> casters = LocalCasterSignature( plan.Caster );
+            SignatureHash                 views;
+            AddViews( views, &m_LocalShadowRows[plan.Caster.FirstView - kMaxShadowCascades], plan.Caster.ViewCount );
+            // The casters' bias is drawn into the depth: a changed Shadow Bias redraws the views.
+            for ( uint32_t v = 0; v < plan.Caster.ViewCount; ++v )
+                views.Add( m_CascadeCasterBias[plan.Caster.FirstView + v] );
+            const bool valid =
+                 light->Drawn && light->Views == views.Value &&
+                 ( casters.has_value() ? light->Casters == casters
+                                       : !light->Casters.has_value() && light->DrawnFrame == plan.Frame ) &&
+                 ( light->DrawnByPrimary || !plan.Primary );
+            if ( !valid )
+            {
+                light->Drawn          = true;
+                light->Views          = views.Value;
+                light->Casters        = casters;
+                light->DrawnFrame     = plan.Frame;
+                light->DrawnByPrimary = plan.Primary;
+                for ( uint32_t v = 0; v < plan.Caster.ViewCount; ++v )
+                    m_LocalRedraws.push_back( { plan.Caster.FirstView + v, light->Tiles[v] } );
+            }
+        }
+        m_LocalCachePlans.clear();
+    }
+
     std::vector<SystemRasterPass> MeshRenderer::LocalShadowPasses()
     {
         std::vector<SystemRasterPass> passes;
         const LocalShadowCache* const cache = m_SceneRenderer->GetFrameLocalShadows();
         if ( !m_ShadowPipeline || cache == nullptr || !cache->GetAtlas() )
             return passes;
+        PlanLocalShadowCache();
         const std::shared_ptr<Framebuffer> atlas = cache->GetAtlas();
         for ( const LocalShadowRedraw& redraw : m_LocalRedraws )
         {
@@ -366,14 +429,42 @@ namespace Desert::Graphic::System
                                                  tile.Size, tile.Size );
                      renderer.ClearRegion( *atlas, static_cast<int32_t>( tile.X ), static_cast<int32_t>( tile.Y ),
                                            tile.Size, tile.Size, glm::vec4( 1.0f ), 1.0f );
-                     return m_LocalDraws[slot].Record( context );
+                     if ( auto drawn = m_LocalDraws[slot].Record( context ); !drawn.IsSuccess() )
+                         return drawn;
+                     // The casters that are not meshes (the terrain), into THIS pass (IShadowCaster): the ones
+                     // the Declare declared, each through its own blocks, with the view's caster matrix.
+                     const uint32_t view = kMaxShadowCascades + slot;
+                     for ( const auto& [weak, firstBlock] : m_LocalCasters[slot] )
+                     {
+                         const auto caster = weak.lock();
+                         if ( !caster )
+                             continue; // gone since the setup: its draws went with it
+                         if ( auto cast = caster->RecordShadowView(
+                                   context, view, firstBlock, m_CascadeCasterVP[view], m_CascadeCasterBias[view] );
+                              !cast.IsSuccess() )
+                             return cast;
+                     }
+                     return BOOLSUCCESS;
                  },
                  .TargetFramebuffer = atlas };
             pass.Declare = [this, view, slot]( RenderPassDeclaration& declared, const FrameGraphRefs& )
             {
                 m_LocalDraws[slot].Clear();
+                m_LocalCasters[slot].clear();
                 BuildShadowCascadeDraws( view, m_LocalDraws[slot] );
                 m_LocalDraws[slot].Declare( declared, std::nullopt );
+
+                // The non-mesh casters declare their blocks after the list's (IShadowCaster::DeclareShadowView).
+                uint32_t nextBlock = m_LocalDraws[slot].BlockCount();
+                for ( const auto& weak : m_ShadowCasters )
+                {
+                    if ( const auto caster = weak.lock() )
+                    {
+                        const uint32_t declaredBlocks = caster->DeclareShadowView( declared, view );
+                        m_LocalCasters[slot].emplace_back( weak, nextBlock );
+                        nextBlock += declaredBlocks;
+                    }
+                }
                 // The skin cache's streams its skinned casters fetch (BuildShadowCascadeDraws pushes each draw's
                 // address, the masked ones read it from their row); written by the scene's skin step.
                 for ( const RDG::BufferRef& streams : m_SkinCacheReads )
