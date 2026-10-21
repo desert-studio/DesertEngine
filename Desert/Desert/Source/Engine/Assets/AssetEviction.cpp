@@ -2,6 +2,9 @@
 
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
+#include <Engine/Assets/FoliageTypeAsset.hpp>
+#include <Engine/Assets/LandscapeGrassTypeAsset.hpp>
+#include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
@@ -10,6 +13,7 @@
 #include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 
 namespace Desert::Assets
 {
@@ -108,6 +112,50 @@ namespace Desert::Assets
         {
             if ( cloudType->IsReadyForUse() )
                 visit( cloudType->GetNoiseVolume(), "a reachable cloud type cuts its edge from it" );
+        }
+
+        // THE LANDSCAPE'S GRASS AND THE FOLIAGE TYPES (JFA-OUTLINE-MISSING). A layer info is a root (a landscape
+        // paints with it) but nothing marked what it grows: the first sweep after the scene's own - the editor's
+        // ThumbnailPreview scene initialising on a selection - released the grass types and their blade
+        // materials, and every grass instance vanished from the frame and from the shadows with nothing in
+        // the log. The references are GUID text in the files, so the handle is HandleForGuid of it, as the
+        // assets' own accessors resolve it.
+        const auto visitGuid = [&visit]( const std::string& text, const std::string& why )
+        {
+            if ( text.empty() )
+                return;
+            const auto guid = Common::Content::AssetGuidFromText( text );
+            if ( !guid || guid.GetValue().IsNull() )
+                return;
+            visit( Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) ),
+                   why );
+        };
+        if ( const auto layer = manager.ProbeByHandle<LandscapeLayerInfoAsset>( handle ) )
+        {
+            if ( layer->IsReadyForUse() )
+                for ( const AssetGuidRef& grass : layer->GetData().GrassTypes )
+                    visitGuid( grass.Guid, "a reachable landscape layer grows it" );
+        }
+        if ( const auto grassType = manager.ProbeByHandle<LandscapeGrassTypeAsset>( handle ) )
+        {
+            if ( grassType->IsReadyForUse() )
+            {
+                for ( const auto& variety : grassType->GetData().GrassVarieties )
+                {
+                    if ( variety.Mesh )
+                        visitGuid( variety.Mesh->Guid, "a reachable grass type draws it" );
+                    if ( variety.Material )
+                        visitGuid( variety.Material->Guid, "a reachable grass type shades its blades with it" );
+                }
+            }
+        }
+        if ( const auto foliageType = manager.ProbeByHandle<FoliageTypeAsset>( handle ) )
+        {
+            if ( foliageType->IsReadyForUse() )
+            {
+                visitGuid( foliageType->GetData().Mesh.Guid, "a reachable foliage type draws it" );
+                visitGuid( foliageType->GetData().Prefab.Guid, "a reachable foliage type spawns it" );
+            }
         }
     }
 
