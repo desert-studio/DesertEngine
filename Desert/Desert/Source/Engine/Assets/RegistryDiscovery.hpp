@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Utilities/FileSystem.hpp>
 #include <Common/Content/ImportRecord.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
@@ -50,8 +51,9 @@ namespace Desert::Assets
 
         const std::string guid =
              row->Guid ? Common::Content::AssetGuidToText( *row->Guid ) : std::string( "<none>" );
-        std::error_code ec;
-        if ( !std::filesystem::exists( row->Path, ec ) && !Common::Content::ImportRecordStandingFor( row->Path ) )
+        // Through the file layer (disk + mounted paks): a packaged game's assets live in its archive, not loose.
+        if ( !Common::Utils::FileSystem::Exists( row->Path ) &&
+             !Common::Content::ImportRecordStandingFor( row->Path ) )
             return Common::MakeFormattedError<Asset<AssetType>>(
                  "{} '{}' (GUID {}, handle {}) is in the content registry but the file is not on disk",
                  Common::Content::KindName( kind ), row->Path.generic_string(), guid,
