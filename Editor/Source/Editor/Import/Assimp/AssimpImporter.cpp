@@ -338,20 +338,18 @@ namespace Desert::Editor
             if ( sum <= 0.0f )
                 continue;
             m /= sum;
-            const glm::mat3 r      = glm::mat3( m );
-            const glm::mat3 normal = glm::transpose( glm::inverse( r ) );
-            const auto      unit   = []( const glm::vec3& d )
-            { return glm::length( d ) > 0.0f ? glm::normalize( d ) : d; };
+            const Geometry::SurfaceFrameTransform frame( ( glm::mat3( m ) ) );
+            const glm::vec3                       restNormal = v.Normal;
             v.Position  = glm::vec3( m * glm::vec4( v.Position, 1.0f ) );
-            v.Normal    = unit( normal * v.Normal );
-            v.Tangent   = unit( r * v.Tangent );
-            v.Bitangent = unit( r * v.Bitangent );
+            v.Normal    = frame.Normal( v.Normal );
+            v.Tangent   = frame.UnitDirection( v.Tangent );
+            v.Bitangent = frame.UnitDirection( v.Bitangent );
             for ( auto& morph : mesh.MorphTargets )
             {
                 if ( vi < morph.DeltaPositions.size() )
-                    morph.DeltaPositions[vi] = r * morph.DeltaPositions[vi];
+                    morph.DeltaPositions[vi] = frame.Direction( morph.DeltaPositions[vi] );
                 if ( vi < morph.DeltaNormals.size() )
-                    morph.DeltaNormals[vi] = normal * morph.DeltaNormals[vi];
+                    morph.DeltaNormals[vi] = frame.NormalDelta( restNormal, morph.DeltaNormals[vi] );
             }
         }
         for ( std::size_t i = 0; i < n; ++i )
@@ -682,10 +680,10 @@ namespace Desert::Editor
             if ( !skinnedVertices )
             {
                 // -------- STATIC -------- (bake the node world transform so orientation/placement match the
-                // DCC tool; normals use the 3x3 part, renormalized to survive any scale. Tangents are generated
-                // over the baked vertices below.)
-                const glm::mat4 world     = placement.World;
-                const glm::mat3 normalMat = glm::mat3( world );
+                // DCC tool; normals go by the inverse transpose, so they stay perpendicular to the surface under
+                // non-uniform scale. Tangents are generated over the baked vertices below.)
+                const glm::mat4                       world = placement.World;
+                const Geometry::SurfaceFrameTransform frame( ( glm::mat3( world ) ) );
 
                 for ( uint32_t i = 0; i < mesh->mNumVertices; ++i )
                 {
@@ -696,8 +694,8 @@ namespace Desert::Editor
                     v.Position = { p.x, p.y, p.z };
 
                     if ( mesh->HasNormals() )
-                        v.Normal = glm::normalize(
-                             normalMat * glm::vec3( mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z ) );
+                        v.Normal = frame.Normal(
+                             glm::vec3( mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z ) );
 
                     if ( mesh->HasTextureCoords( 0 ) )
                         v.TexCoord = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
@@ -711,10 +709,8 @@ namespace Desert::Editor
                 // -------- RIGID (a mesh in the bone hierarchy) -------- the node's global transform puts the
                 // vertices where the bind pose draws them, the same rest space BakeBindPose takes the skinned
                 // vertices to; one bone, full weight.
-                const glm::mat4 world      = placement.World;
-                const glm::mat3 normalMat  = glm::transpose( glm::inverse( glm::mat3( world ) ) );
-                const auto      unit       = []( const glm::vec3& d )
-                { return glm::length( d ) > 0.0f ? glm::normalize( d ) : d; };
+                const glm::mat4                       world = placement.World;
+                const Geometry::SurfaceFrameTransform frame( ( glm::mat3( world ) ) );
 
                 rigidVertices.resize( meshData.SkinnedVertices.size(), 0 );
                 for ( uint32_t i = 0; i < mesh->mNumVertices; ++i )
@@ -723,8 +719,8 @@ namespace Desert::Editor
                     v.Position = glm::vec3( world * glm::vec4( mesh->mVertices[i].x, mesh->mVertices[i].y,
                                                                mesh->mVertices[i].z, 1.0f ) );
                     if ( mesh->HasNormals() )
-                        v.Normal = unit( normalMat * glm::vec3( mesh->mNormals[i].x, mesh->mNormals[i].y,
-                                                                mesh->mNormals[i].z ) );
+                        v.Normal = frame.Normal(
+                             glm::vec3( mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z ) );
                     if ( mesh->HasTextureCoords( 0 ) )
                         v.TexCoord = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
                     v.BoneIDs[0]     = *rigidBone;
@@ -839,19 +835,26 @@ namespace Desert::Editor
                 if ( hasNorm )
                     mc.DeltaNorm.resize( mesh->mNumVertices );
 
-                const glm::mat3 dirMat = meshHasBones ? glm::mat3( 1.0f ) : glm::mat3( placement.World );
+                // A static mesh's deltas take the node transform its vertices were baked with; a skinned one's
+                // stay in mesh space and BakeBindPose carries them with the vertices.
+                const Geometry::SurfaceFrameTransform frame( meshHasBones ? glm::mat3( 1.0f )
+                                                                          : glm::mat3( placement.World ) );
                 for ( uint32_t i = 0; i < mesh->mNumVertices; ++i )
                 {
                     const glm::vec3 dp( anim->mVertices[i].x - mesh->mVertices[i].x,
                                         anim->mVertices[i].y - mesh->mVertices[i].y,
                                         anim->mVertices[i].z - mesh->mVertices[i].z );
-                    mc.DeltaPos[i] = dirMat * dp;
+                    mc.DeltaPos[i] = frame.Direction( dp );
                     if ( hasNorm )
                     {
                         const glm::vec3 dn( anim->mNormals[i].x - mesh->mNormals[i].x,
                                             anim->mNormals[i].y - mesh->mNormals[i].y,
                                             anim->mNormals[i].z - mesh->mNormals[i].z );
-                        mc.DeltaNorm[i] = dirMat * dn;
+                        mc.DeltaNorm[i] = meshHasBones
+                                               ? dn
+                                               : frame.NormalDelta( glm::vec3( mesh->mNormals[i].x, mesh->mNormals[i].y,
+                                                                               mesh->mNormals[i].z ),
+                                                                    dn );
                     }
                 }
                 morphContribs.push_back( std::move( mc ) );
@@ -904,66 +907,31 @@ namespace Desert::Editor
             // can be sampled on such a mesh.
             if ( mesh->HasTextureCoords( 0 ) && mesh->mNumFaces > 0 )
             {
-                const size_t           first = submesh.VertexOffset;
-                const size_t           count = mesh->mNumVertices;
-                std::vector<glm::vec3> positions( count );
-                std::vector<glm::vec3> normals( count );
-                std::vector<glm::vec2> uvs( count );
-                const auto             gather = [&]( const auto& vertices )
-                {
-                    for ( size_t i = 0; i < count; ++i )
-                    {
-                        positions[i] = vertices[first + i].Position;
-                        normals[i]   = vertices[first + i].Normal;
-                        uvs[i]       = vertices[first + i].TexCoord;
-                    }
-                };
-                if ( skinnedVertices )
-                    gather( meshData.SkinnedVertices );
-                else
-                    gather( meshData.StaticVertices );
-
-                const size_t            firstTriangle = meshData.Indices.size() - mesh->mNumFaces;
-                std::vector<glm::uvec3> triangles( mesh->mNumFaces );
-                for ( size_t f = 0; f < triangles.size(); ++f )
-                {
-                    const IndexData& tri = meshData.Indices[firstTriangle + f];
-                    triangles[f]         = glm::uvec3( tri.V1, tri.V2, tri.V3 );
-                }
-
-                Geometry::IndexedMikkTangents frames;
+                const size_t first         = submesh.VertexOffset;
+                const size_t firstTriangle = meshData.Indices.size() - mesh->mNumFaces;
+                const auto   triangles     = std::span( meshData.Indices ).subspan( firstTriangle );
                 // MikkTSpace fails only when its working set cannot be allocated.
-                if ( !Geometry::ComputeIndexedMikkTangents( positions, normals, uvs, triangles, frames ) )
+                const auto sourceVertex = skinnedVertices
+                                               ? Geometry::ApplyMikkTangents( meshData.SkinnedVertices, first, triangles )
+                                               : Geometry::ApplyMikkTangents( meshData.StaticVertices, first, triangles );
+                if ( !sourceVertex )
                     throw std::bad_alloc();
 
                 const auto follow = [&]( auto& values, size_t offset )
                 {
                     using Value = typename std::decay_t<decltype( values )>::value_type;
                     std::vector<Value> remapped;
-                    remapped.reserve( frames.SourceVertex.size() );
-                    for ( const uint32_t source : frames.SourceVertex )
+                    remapped.reserve( sourceVertex->size() );
+                    for ( const uint32_t source : *sourceVertex )
                         remapped.push_back( values[offset + source] );
                     values.resize( offset );
                     values.insert( values.end(), remapped.begin(), remapped.end() );
                 };
-                const auto writeFrames = [&]( auto& vertices )
-                {
-                    follow( vertices, first );
-                    for ( size_t k = 0; k < frames.SourceVertex.size(); ++k )
-                    {
-                        vertices[first + k].Tangent   = frames.Tangents[k];
-                        vertices[first + k].Bitangent = frames.Bitangents[k];
-                    }
-                };
-                if ( skinnedVertices )
-                    writeFrames( meshData.SkinnedVertices );
-                else
-                    writeFrames( meshData.StaticVertices );
                 if ( streams.Colors )
                     follow( meshData.Colors, first );
                 if ( streams.UV1 )
                     follow( meshData.UV1, first );
-                if ( skinnedVertices && rigidVertices.size() >= first + count )
+                if ( skinnedVertices && rigidVertices.size() >= first + mesh->mNumVertices )
                     follow( rigidVertices, first );
                 for ( size_t m = firstMorph; m < morphContribs.size(); ++m )
                 {
@@ -971,10 +939,7 @@ namespace Desert::Editor
                     if ( !morphContribs[m].DeltaNorm.empty() )
                         follow( morphContribs[m].DeltaNorm, 0 );
                 }
-                for ( size_t f = 0; f < triangles.size(); ++f )
-                    meshData.Indices[firstTriangle + f] = { frames.Triangles[f].x, frames.Triangles[f].y,
-                                                            frames.Triangles[f].z };
-                submesh.VertexCount = static_cast<uint32_t>( frames.SourceVertex.size() );
+                submesh.VertexCount = static_cast<uint32_t>( sourceVertex->size() );
             }
 
             meshData.Submeshes.push_back( submesh );
