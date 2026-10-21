@@ -1857,6 +1857,19 @@ namespace Desert::Graphic
                 AddFrameGlass( graph, textures, sceneCopy, meshRenderer, frontLayer );
             }
         }
+        else
+        {
+            // FORWARD: the base pass drew the opaque scene (its translucent objects are the glass node's alone,
+            // MeshRenderer's opaque buckets skip them), so the glass composites over it through the same route
+            // as Deferred - the scene copy it refracts, then the glass node. No screen trace runs on this path:
+            // the copy is no scene history, and there is no front layer (the glass reads "the sky alone").
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
+            auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            auto* copy         = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
+            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+            const RDG::TextureRef sceneCopy = AddFrameSceneCopy( graph, textures, sceneColor(), copy, {}, {} );
+            AddFrameGlass( graph, textures, sceneCopy, meshRenderer, FrameFrontLayer{} );
+        }
 
         AddFrameSceneDepthResolve( graph, textures );
         AddFrameSkyAtmosphereLuts( graph, textures );
