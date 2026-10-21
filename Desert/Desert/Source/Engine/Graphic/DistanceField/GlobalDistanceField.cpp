@@ -294,7 +294,7 @@ namespace Desert::Graphic::DistanceField
     Common::ResultStr<GlobalDistanceField::FrameField>
     GlobalDistanceField::AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
                                           const std::vector<GlobalDistanceFieldObject>& objects,
-                                          DistanceFieldSceneData& scene, const uint64_t frame,
+                                          DistanceFieldSceneData& scene, const uint64_t engineFrame,
                                           const uint32_t poolMiB )
     {
         // The scene's frame: the first view of it decides the scene's resident fields, every later view finds them as
@@ -304,7 +304,7 @@ namespace Desert::Graphic::DistanceField
         fields.reserve( objects.size() );
         for ( const auto& object : objects )
             fields.push_back( object.Field );
-        if ( const auto begun = scene.BeginViewFrame( frame, poolMiB, fields ); !begun )
+        if ( const auto begun = scene.BeginViewFrame( engineFrame, poolMiB, fields ); !begun )
             return Common::MakeError<FrameField>( begun.GetError() );
         // A re-created pool dropped every resident field: everything this view composited from the old atlas is
         // rewritten.

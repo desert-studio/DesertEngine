@@ -129,7 +129,7 @@ namespace Desert::Graphic::DistanceField
         [[nodiscard]] Common::ResultStr<FrameField>
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
                          const std::vector<GlobalDistanceFieldObject>& objects, DistanceFieldSceneData& scene,
-                         uint64_t frame, uint32_t poolMiB );
+                         uint64_t engineFrame, uint32_t poolMiB );
 
         // The view a near-field grid is culled for: its unjittered matrices, its camera, its extent in pixels.
         struct NearFieldView
