@@ -168,6 +168,12 @@ namespace Desert::Graphic::System
             m_DistantLightPipeline      = makeCompute( "SkyDistantLight" );
         }
 
+        // The procedural sky is optional (no shader, no pipeline): only a built one has parameters to check.
+        if ( m_ProceduralPipeline )
+            if ( const auto valid = m_ProceduralLayout.Validate( m_ProceduralPipeline->GetSpecification().Shader,
+                                                                 SkyboxProceduralShaderParameters::kAll );
+                 !valid )
+                return valid;
         return BOOLSUCCESS;
     }
 
@@ -1005,12 +1011,12 @@ namespace Desert::Graphic::System
             declared
                  .Bindings( m_ProceduralLayout.Get( m_ProceduralPipeline->GetSpecification().Shader ),
                             executor->GetRouteFill() )
-                 .Texture( "TransmittanceLutTexture",
+                 .Texture( SkyboxProceduralShaderParameters::TransmittanceLutTexture,
                            refs.Transients.SkyTransmittanceLut.IsValid() ? refs.Transients.SkyTransmittanceLut
                                                                          : white,
                            RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                 .Texture( "SkyViewLutTexture",
+                 .Sampler( SkyboxProceduralShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                 .Texture( SkyboxProceduralShaderParameters::SkyViewLutTexture,
                            refs.Transients.SkyViewLut.IsValid() ? refs.Transients.SkyViewLut : white,
                            RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
             m_SkyDraw = { .Pipeline = m_ProceduralPipeline.get(), .Executor = executor };

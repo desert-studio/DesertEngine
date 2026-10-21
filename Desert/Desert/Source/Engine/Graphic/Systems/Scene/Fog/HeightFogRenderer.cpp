@@ -45,6 +45,12 @@ namespace Desert::Graphic::System
         if ( !m_ParamsBuffer )
             return Common::MakeError( "HeightFogRenderer: could not create the fog parameter buffer" );
 
+        if ( const auto valid = m_FogLayout.Validate( m_FogPipeline->GetShader(), HeightFogFogShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_ApplyLayout.Validate( m_ApplyPipeline->GetShader(), HeightFogApplyShaderParameters::kAll );
+             !valid )
+            return valid;
         return BOOLSUCCESS;
     }
 
@@ -222,13 +228,13 @@ namespace Desert::Graphic::System
         auto block = fog.Access.Bindings( m_FogLayout.Get( m_FogPipeline->GetShader() ),
                                           Renderer::GetPipelineRouteFill( *m_FogPipeline ) );
         block.PushConstantBytes( static_cast<uint32_t>( sizeof( FogPush ) ) );
-        block.Storage( "FogApplyTexture", fogImage, RDG::Access::StorageWrite )
-             .Texture( "SceneDepthTexture", depth, RDG::Access::SampledCompute, "SceneDepth.Compute" )
-             .Sampler( "GlobalFilterSampler", GlobalTextureFilterSampler() )
-             .Texture( "AerialPerspectiveTexture", aerialPerspective, RDG::Access::SampledCompute,
+        block.Storage( HeightFogFogShaderParameters::FogApplyTexture, fogImage, RDG::Access::StorageWrite )
+             .Texture( HeightFogFogShaderParameters::SceneDepthTexture, depth, RDG::Access::SampledCompute, "SceneDepth.Compute" )
+             .Sampler( HeightFogFogShaderParameters::GlobalFilterSampler, GlobalTextureFilterSampler() )
+             .Texture( HeightFogFogShaderParameters::AerialPerspectiveTexture, aerialPerspective, RDG::Access::SampledCompute,
                        apActive ? "Sky.AerialPerspectiveLut" : "HeightFog.AerialPerspectiveFallback" )
-             .Sampler( "LinearRepeatSampler", VolumeSampler() )
-             .Texture( "DistantSkyLightTexture", distantSkyLight, RDG::Access::SampledCompute,
+             .Sampler( HeightFogFogShaderParameters::LinearRepeatSampler, VolumeSampler() )
+             .Texture( HeightFogFogShaderParameters::DistantSkyLightTexture, distantSkyLight, RDG::Access::SampledCompute,
                        atmosphere.DistantSkyLight ? "Sky.DistantLight" : "HeightFog.DistantSkyLightFallback" );
         fog.Record = [this, push, fogWidth, fogHeight]( RDG::PassContext& context,
                                                         const FrameGraphRefs& ) -> Common::BoolResultStr
@@ -277,9 +283,9 @@ namespace Desert::Graphic::System
                 return;
             }
             declared.Bindings( m_ApplyLayout.Get( m_ApplyPipeline->GetShader() ), RDG::OtherRouteFill{} )
-                 .Texture( "FogApplyTexture", refs.Transients.HeightFog, RDG::Access::SampledGraphics,
+                 .Texture( HeightFogApplyShaderParameters::FogApplyTexture, refs.Transients.HeightFog, RDG::Access::SampledGraphics,
                            RDG::SubresourceRange::All() )
-                 .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                 .Sampler( HeightFogApplyShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
         };
 
         return config;

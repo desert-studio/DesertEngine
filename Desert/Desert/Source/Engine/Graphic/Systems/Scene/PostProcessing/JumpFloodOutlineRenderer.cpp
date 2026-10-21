@@ -46,6 +46,15 @@ namespace Desert::Graphic::System
 
         m_MaterialFinal = std::make_unique<MaterialJFAFinal>();
 
+        if ( const auto valid = m_InitLayout.Validate( m_InitPipeline->GetSpecification().Shader, JumpFloodOutlineInitShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_StepLayout.Validate( m_StepPipeline->GetSpecification().Shader, JumpFloodOutlineStepShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_FinalLayout.Validate( m_FinalPipeline->GetSpecification().Shader, JumpFloodOutlineFinalShaderParameters::kAll );
+             !valid )
+            return valid;
         return BOOLSUCCESS;
     }
 
@@ -157,8 +166,8 @@ namespace Desert::Graphic::System
             return; // RecordInit refuses by name
         // No material: the other route fills nothing.
         pass.Bindings( m_InitLayout.Get( m_InitPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
-             .Texture( "StencilTexture", mask, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-             .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
+             .Texture( JumpFloodOutlineInitShaderParameters::StencilTexture, mask, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Sampler( JumpFloodOutlineInitShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
     }
 
     Common::BoolResultStr JumpFloodOutlineRenderer::RecordInit( const RDG::PassContext& context )
@@ -174,8 +183,8 @@ namespace Desert::Graphic::System
         if ( !m_StepPipeline )
             return; // RecordStep refuses by name
         pass.Bindings( m_StepLayout.Get( m_StepPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
-             .Texture( "SeedMapTexture", source, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-             .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
+             .Texture( JumpFloodOutlineStepShaderParameters::SeedMapTexture, source, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Sampler( JumpFloodOutlineStepShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( int32_t ) ) );
     }
 
@@ -206,10 +215,10 @@ namespace Desert::Graphic::System
             return; // RecordFinal refuses by name
         pass.Bindings( m_FinalLayout.Get( m_FinalPipeline->GetSpecification().Shader ),
                        m_MaterialFinal->GetMaterialExecutor()->GetRouteFill() )
-             .Texture( "JumpFloodTexture", seed, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-             .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
-             .Texture( "SceneColorTexture", scene, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-             .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
+             .Texture( JumpFloodOutlineFinalShaderParameters::JumpFloodTexture, seed, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Sampler( JumpFloodOutlineFinalShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+             .Texture( JumpFloodOutlineFinalShaderParameters::SceneColorTexture, scene, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Sampler( JumpFloodOutlineFinalShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() );
     }
 
     Common::BoolResultStr JumpFloodOutlineRenderer::RecordFinal( const RDG::PassContext& context )

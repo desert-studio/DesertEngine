@@ -48,6 +48,12 @@ namespace Desert::Graphic::System
     {
         if ( !CreatePipelines() )
             return Common::MakeError( "LightShaftRenderer: failed to create compute pipelines" );
+        if ( const auto valid = m_MaskLayout.Validate( m_MaskPipeline->GetSpecification().Shader, LightShaftMaskShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_BlurLayout.Validate( m_BlurPipeline->GetSpecification().Shader, LightShaftBlurShaderParameters::kAll );
+             !valid )
+            return valid;
         return BOOLSUCCESS;
     }
 
@@ -98,9 +104,9 @@ namespace Desert::Graphic::System
             return; // RecordMask refuses by name
         pass.Bindings( m_MaskLayout.Get( m_MaskPipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_MaskPipeline ) )
-             .Texture( "SceneColorTexture", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-             .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-             .Storage( "ShaftMaskTexture", mask, RDG::Access::StorageWrite, 0 )
+             .Texture( LightShaftMaskShaderParameters::SceneColorTexture, sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Sampler( LightShaftMaskShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+             .Storage( LightShaftMaskShaderParameters::ShaftMaskTexture, mask, RDG::Access::StorageWrite, 0 )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( MaskPush ) ) );
     }
 
@@ -126,9 +132,9 @@ namespace Desert::Graphic::System
             return; // RecordBlur refuses by name
         pass.Bindings( m_BlurLayout.Get( m_BlurPipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_BlurPipeline ) )
-             .Texture( "ShaftMaskTexture", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-             .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-             .Storage( "BlurredShaftsTexture", target, RDG::Access::StorageWrite, 0 )
+             .Texture( LightShaftBlurShaderParameters::ShaftMaskTexture, source, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Sampler( LightShaftBlurShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+             .Storage( LightShaftBlurShaderParameters::BlurredShaftsTexture, target, RDG::Access::StorageWrite, 0 )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( BlurPush ) ) );
     }
 

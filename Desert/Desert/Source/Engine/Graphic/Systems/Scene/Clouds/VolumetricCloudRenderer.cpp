@@ -182,6 +182,9 @@ namespace Desert::Graphic::System
                                       "parameter buffer for the shadow map" );
 
         m_CompositeMaterial = std::make_unique<MaterialCloudComposite>();
+        if ( const auto valid = m_CompositeLayout.Validate( m_CompositePipeline->GetSpecification().Shader, VolumetricCloudCompositeShaderParameters::kAll );
+             !valid )
+            return valid;
         return BOOLSUCCESS;
     }
 
@@ -2135,9 +2138,9 @@ namespace Desert::Graphic::System
             declared
                  .Bindings( m_CompositeLayout.Get( m_CompositePipeline->GetSpecification().Shader ),
                             executor.GetRouteFill() )
-                 .Texture( "CloudScatterTexture", scatter, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                 .Texture( "CloudGuideTexture", guide, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
+                 .Texture( VolumetricCloudCompositeShaderParameters::CloudScatterTexture, scatter, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( VolumetricCloudCompositeShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
+                 .Texture( VolumetricCloudCompositeShaderParameters::CloudGuideTexture, guide, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
         };
 
         return config;

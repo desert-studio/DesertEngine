@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -88,6 +89,34 @@ namespace Desert::Graphic::RDG
         // A ray-queried scene: @p tlas is the buffer an acceleration-structure build wrote (RayTracingSceneFrame::
         // Tlas); declared AccelStructRead, bound as the acceleration structure it stores.
         BindingBlockBuilder& AccelerationStructure( std::string_view shaderName, BufferRef tlas );
+        // The same calls through a pass's parameter struct (RDGShaderParameters.hpp): the member's kind admits
+        // only its own call, and its name is the struct's spelling.
+        BindingBlockBuilder& Texture( TextureParameter parameter, TextureRef texture, Access declared,
+                                      SubresourceRange range )
+        {
+            return Texture( parameter.Name, texture, declared, range );
+        }
+        BindingBlockBuilder& Sampler( SamplerParameter parameter, SamplerDesc sampler )
+        {
+            return Sampler( parameter.Name, sampler );
+        }
+        BindingBlockBuilder& Storage( StorageTextureParameter parameter, TextureRef texture, Access declared,
+                                      uint32_t mip = 0 )
+        {
+            return Storage( parameter.Name, texture, declared, mip );
+        }
+        BindingBlockBuilder& Uniform( UniformBufferParameter parameter, BufferRef buffer )
+        {
+            return Uniform( parameter.Name, buffer );
+        }
+        BindingBlockBuilder& Storage( StorageBufferParameter parameter, BufferRef buffer, Access declared )
+        {
+            return Storage( parameter.Name, buffer, declared );
+        }
+        BindingBlockBuilder& AccelerationStructure( AccelerationStructureParameter parameter, BufferRef tlas )
+        {
+            return AccelerationStructure( parameter.Name, tlas );
+        }
         // The size the exec's PassBindings::PushConstants will give; 0 = none.
         BindingBlockBuilder& PushConstantBytes( uint32_t bytes );
 

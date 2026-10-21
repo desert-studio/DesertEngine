@@ -27,6 +27,15 @@
 
 namespace Desert::Graphic::System
 {
+    // The Procedural shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct SkyboxProceduralShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, TransmittanceLutTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, SkyViewLutTexture );
+        static constexpr std::array kAll{ RDG::Erase( TransmittanceLutTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( SkyViewLutTexture ) };
+    };
+
     class SkyboxRenderer final : public RenderSystem
     {
     public:

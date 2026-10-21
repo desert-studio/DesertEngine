@@ -27,6 +27,32 @@ namespace Desert::Graphic::System
     //
     // The output framebuffer is what the tonemap stage consumes. When the outline is disabled the
     // Final pass simply passes the scene color through (see JFA_Final.glsl.frag).
+    // The Init shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct JumpFloodOutlineInitShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, StencilTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        static constexpr std::array kAll{ RDG::Erase( StencilTexture ), RDG::Erase( PointClampSampler ) };
+    };
+
+    // The Step shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct JumpFloodOutlineStepShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SeedMapTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        static constexpr std::array kAll{ RDG::Erase( SeedMapTexture ), RDG::Erase( PointClampSampler ) };
+    };
+
+    // The Final shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct JumpFloodOutlineFinalShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, JumpFloodTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        static constexpr std::array kAll{ RDG::Erase( JumpFloodTexture ), RDG::Erase( PointClampSampler ), RDG::Erase( SceneColorTexture ), RDG::Erase( LinearClampSampler ) };
+    };
+
     class JumpFloodOutlineRenderer final : public RenderSystem
     {
     public:

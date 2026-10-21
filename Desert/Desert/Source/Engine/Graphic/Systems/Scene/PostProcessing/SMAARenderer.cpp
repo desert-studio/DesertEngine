@@ -82,6 +82,15 @@ namespace Desert::Graphic::System
 
         LoadLUTs();
 
+        if ( const auto valid = m_EdgesLayout.Validate( m_EdgesPipeline->GetSpecification().Shader, SMAAEdgesShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_WeightsLayout.Validate( m_WeightsPipeline->GetSpecification().Shader, SMAAWeightsShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_BlendLayout.Validate( m_BlendPipeline->GetSpecification().Shader, SMAABlendShaderParameters::kAll );
+             !valid )
+            return valid;
         return BOOLSUCCESS;
     }
 
@@ -160,8 +169,8 @@ namespace Desert::Graphic::System
         if ( !m_EdgesPipeline )
             return; // RecordEdges refuses by name
         pass.Bindings( m_EdgesLayout.Get( m_EdgesPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
-             .Texture( "ColorTexture", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-             .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
+             .Texture( SMAAEdgesShaderParameters::ColorTexture, input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Sampler( SMAAEdgesShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() );
     }
 
     Common::BoolResultStr SMAARenderer::RecordEdges( const RDG::PassContext& context )
@@ -178,10 +187,10 @@ namespace Desert::Graphic::System
         if ( !m_WeightsPipeline )
             return; // RecordWeights refuses by name
         pass.Bindings( m_WeightsLayout.Get( m_WeightsPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
-             .Texture( "EdgesTexture", edges, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-             .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-             .Texture( "AreaTexture", area, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-             .Texture( "SearchTexture", search, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
+             .Texture( SMAAWeightsShaderParameters::EdgesTexture, edges, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Sampler( SMAAWeightsShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+             .Texture( SMAAWeightsShaderParameters::AreaTexture, area, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Texture( SMAAWeightsShaderParameters::SearchTexture, search, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
     }
 
     Common::BoolResultStr SMAARenderer::RecordWeights( const RDG::PassContext& context )
@@ -199,11 +208,11 @@ namespace Desert::Graphic::System
         if ( !m_BlendPipeline )
             return; // RecordBlend refuses by name
         pass.Bindings( m_BlendLayout.Get( m_BlendPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
-             .Texture( "ColorTexture", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-             .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-             .Texture( "BlendTexture", weights, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-             .Texture( "EdgesTexture", edges, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-             .Texture( "AreaTexture", area, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
+             .Texture( SMAABlendShaderParameters::ColorTexture, input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Sampler( SMAABlendShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+             .Texture( SMAABlendShaderParameters::BlendTexture, weights, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Texture( SMAABlendShaderParameters::EdgesTexture, edges, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Texture( SMAABlendShaderParameters::AreaTexture, area, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
     }
 
     Common::BoolResultStr SMAARenderer::RecordBlend( const RDG::PassContext& context )

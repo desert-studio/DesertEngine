@@ -18,6 +18,33 @@ namespace Desert::Graphic::System
     // luminance with percentile clipping (rejects bright/dark outliers) and temporally adapts a 1x1
     // luminance image that tonemap turns into exposure. Replaces the old 8x8-grid fragment pass. Runs in
     // the explicit post-process chain (before tonemap), outside any render pass.
+    // The Clear shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct AutoExposureClearShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, Histogram );
+        static constexpr std::array kAll{ RDG::Erase( Histogram ) };
+    };
+
+    // The Histogram shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct AutoExposureHistogramShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Histogram );
+        static constexpr std::array kAll{ RDG::Erase( SceneColorTexture ), RDG::Erase( PointClampSampler ), RDG::Erase( Histogram ) };
+    };
+
+    // The Average shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct AutoExposureAverageShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, Histogram );
+        DESERT_SHADER_PARAMETER( Texture, PreviousLuminanceTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, OutLuminanceTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Readback );
+        static constexpr std::array kAll{ RDG::Erase( Histogram ), RDG::Erase( PreviousLuminanceTexture ), RDG::Erase( PointClampSampler ), RDG::Erase( OutLuminanceTexture ), RDG::Erase( Readback ) };
+    };
+
     class AutoExposureRenderer final : public RenderSystem
     {
     public:

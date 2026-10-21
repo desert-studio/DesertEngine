@@ -24,6 +24,24 @@ namespace Desert::Graphic::System
     // The parameters are the SUN LIGHT's, not a scene setting: DirectionalLightData's Light Shafts
     // category (UE parity), carried here by the ProceduralSkyCommand alongside the sun direction —
     // shafts without a sun to cast them are not a thing.
+    // The Mask shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct LightShaftMaskShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, ShaftMaskTexture );
+        static constexpr std::array kAll{ RDG::Erase( SceneColorTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( ShaftMaskTexture ) };
+    };
+
+    // The Blur shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct LightShaftBlurShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, ShaftMaskTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, BlurredShaftsTexture );
+        static constexpr std::array kAll{ RDG::Erase( ShaftMaskTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( BlurredShaftsTexture ) };
+    };
+
     class LightShaftRenderer final : public RenderSystem
     {
     public:

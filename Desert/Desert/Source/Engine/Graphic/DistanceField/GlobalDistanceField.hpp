@@ -96,6 +96,23 @@ namespace Desert::Graphic::DistanceField
                                                              const glm::ivec3& centre, float voxelSize,
                                                              const std::vector<Common::Math::AABB>& dirty );
 
+    // The Composite shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct GlobalDistanceFieldCompositeShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, DistanceFieldBrickAtlasTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, ClipmapTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, ObjectGridTexture );
+        static constexpr std::array kAll{ RDG::Erase( DistanceFieldBrickAtlasTexture ), RDG::Erase( LinearRepeatSampler ), RDG::Erase( ClipmapTexture ), RDG::Erase( ObjectGridTexture ) };
+    };
+
+    // The View shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct GlobalDistanceFieldViewShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        static constexpr std::array kAll{ RDG::Erase( LinearRepeatSampler ) };
+    };
+
     class GlobalDistanceField
     {
     public:

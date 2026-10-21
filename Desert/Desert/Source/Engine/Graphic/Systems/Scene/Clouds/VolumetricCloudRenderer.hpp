@@ -93,6 +93,15 @@ namespace Desert::Graphic::System
      * because the editor builds a SceneRenderer for every asset thumbnail and every mesh preview, and
      * none of them has a sky.
      */
+    // The Composite shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct VolumetricCloudCompositeShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, CloudScatterTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( Texture, CloudGuideTexture );
+        static constexpr std::array kAll{ RDG::Erase( CloudScatterTexture ), RDG::Erase( LinearRepeatSampler ), RDG::Erase( CloudGuideTexture ) };
+    };
+
     class VolumetricCloudRenderer final : public RenderSystem
     {
     public:

@@ -46,6 +46,12 @@ namespace Desert::Graphic::System
         if ( !CreatePipelines() )
             return Common::MakeError( "BloomRenderer: failed to create compute pipelines" );
 
+        if ( const auto valid = m_DownsampleLayout.Validate( m_DownsamplePipeline->GetSpecification().Shader, BloomDownsampleShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_UpsampleLayout.Validate( m_UpsamplePipeline->GetSpecification().Shader, BloomUpsampleShaderParameters::kAll );
+             !valid )
+            return valid;
         return BOOLSUCCESS;
     }
 
@@ -98,14 +104,14 @@ namespace Desert::Graphic::System
         auto block = pass.Bindings( m_DownsampleLayout.Get( m_DownsamplePipeline->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_DownsamplePipeline ) );
         if ( mip == 0 )
-            block.Texture( "SourceMipTexture", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+            block.Texture( BloomDownsampleShaderParameters::SourceMipTexture, sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         else
-            block.Texture( "SourceMipTexture", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
-        block.Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-             .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
-             .Texture( "AdaptedLuminanceTexture", adaptedLuminance, RDG::Access::SampledCompute,
+            block.Texture( BloomDownsampleShaderParameters::SourceMipTexture, chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
+        block.Sampler( BloomDownsampleShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+             .Sampler( BloomDownsampleShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+             .Texture( BloomDownsampleShaderParameters::AdaptedLuminanceTexture, adaptedLuminance, RDG::Access::SampledCompute,
                        RDG::SubresourceRange::All() );
-        block.Storage( "DestinationMipTexture", chain, RDG::Access::StorageWrite, mip )
+        block.Storage( BloomDownsampleShaderParameters::DestinationMipTexture, chain, RDG::Access::StorageWrite, mip )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( DownsamplePush ) ) );
     }
 
@@ -152,9 +158,9 @@ namespace Desert::Graphic::System
             return; // RecordUpsample refuses both by name
         pass.Bindings( m_UpsampleLayout.Get( m_UpsamplePipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_UpsamplePipeline ) )
-             .Texture( "SourceMipTexture", chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ) )
-             .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-             .Storage( "DestinationMipTexture", chain, RDG::Access::StorageWrite, mip - 1 )
+             .Texture( BloomUpsampleShaderParameters::SourceMipTexture, chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ) )
+             .Sampler( BloomUpsampleShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+             .Storage( BloomUpsampleShaderParameters::DestinationMipTexture, chain, RDG::Access::StorageWrite, mip - 1 )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( UpsamplePush ) ) );
     }
 

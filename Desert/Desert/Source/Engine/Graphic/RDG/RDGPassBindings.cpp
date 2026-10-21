@@ -300,6 +300,25 @@ namespace Desert::Graphic::RDG
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr ValidateShaderParameters( const ShaderBindingLayout&      layout,
+                                                    std::span<const ShaderParameter> parameters )
+    {
+        constexpr std::string_view kMissingFormat = "parameter '{}' is not a resource of shader '{}'";
+        constexpr std::string_view kKindFormat    = "parameter '{}' is a {} in shader '{}', declared as a {}";
+        for ( const ShaderParameter& parameter : parameters )
+        {
+            const auto slot = std::find_if( layout.Slots.begin(), layout.Slots.end(),
+                                            [&]( const ShaderSlot& s ) { return s.Name == parameter.Name; } );
+            if ( slot == layout.Slots.end() )
+                return Common::MakeError( std::format( kMissingFormat, parameter.Name, layout.ShaderName ) );
+            if ( slot->Kind != parameter.Kind )
+                return Common::MakeError( std::format( kKindFormat, parameter.Name,
+                                                       GetShaderResourceKindName( slot->Kind ), layout.ShaderName,
+                                                       GetShaderResourceKindName( parameter.Kind ) ) );
+        }
+        return Common::MakeSuccess( true );
+    }
+
     BindingBlockBuilder PassBuilder::Bindings( ShaderBindingLayout layout, OtherRouteFill other )
     {
         return Bindings( std::make_shared<const ShaderBindingLayout>( std::move( layout ) ), std::move( other ) );

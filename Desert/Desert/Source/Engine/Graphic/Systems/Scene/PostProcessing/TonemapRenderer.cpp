@@ -42,6 +42,9 @@ namespace Desert::Graphic::System
 
         m_MaterialTonemap = std::make_unique<MaterialTonemap>();
 
+        if ( const auto valid = m_BindingLayout.Validate( m_Pipeline->GetSpecification().Shader, TonemapShaderParameters::kAll );
+             !valid )
+            return valid;
         return BOOLSUCCESS;
     }
 
@@ -61,17 +64,17 @@ namespace Desert::Graphic::System
         // (RenderGraphCompile TwoBlockEntriesReadingOneImageInOneState...).
         pass.Bindings( m_BindingLayout.Get( m_Pipeline->GetSpecification().Shader ),
                        m_MaterialTonemap->GetMaterialExecutor()->GetRouteFill() )
-             .Texture( "GeometryTexture", inputs.Source, RDG::Access::SampledGraphics,
+             .Texture( TonemapShaderParameters::GeometryTexture, inputs.Source, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::All() )
-             .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-             .Texture( "AverageLuminanceTexture", inputs.AvgLuminance, RDG::Access::SampledGraphics,
+             .Sampler( TonemapShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
+             .Texture( TonemapShaderParameters::AverageLuminanceTexture, inputs.AvgLuminance, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::All() )
-             .Texture( "BloomTexture", inputs.Bloom, RDG::Access::SampledGraphics,
+             .Texture( TonemapShaderParameters::BloomTexture, inputs.Bloom, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::Mip( 0 ) )
-             .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-             .Texture( "LightShaftTexture", inputs.LightShafts, RDG::Access::SampledGraphics,
+             .Sampler( TonemapShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+             .Texture( TonemapShaderParameters::LightShaftTexture, inputs.LightShafts, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::Mip( 0 ) )
-             .Texture( "LensFlareTexture", inputs.LensFlare, RDG::Access::SampledGraphics,
+             .Texture( TonemapShaderParameters::LensFlareTexture, inputs.LensFlare, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::Mip( 0 ) );
     }
 

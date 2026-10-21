@@ -292,6 +292,12 @@ namespace Desert::Graphic::DistanceField
         if ( !m_AssetBuffer || !m_IndirectionBuffer || !m_ObjectBuffer || !m_UpdateBrickBuffer ||
              !m_BrickObjectBuffer )
             return Common::MakeError<bool>( "global distance field: a storage buffer could not be created" );
+        if ( const auto valid = m_CompositeLayout.Validate( m_CompositeShader, GlobalDistanceFieldCompositeShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_ViewLayout.Validate( m_ViewShader, GlobalDistanceFieldViewShaderParameters::kAll );
+             !valid )
+            return valid;
         return BOOLSUCCESS;
     }
 
@@ -522,11 +528,11 @@ namespace Desert::Graphic::DistanceField
                      pipeline->SetStorageBuffer( kGdfBrickListBinding, m_BrickObjectBuffer.get() );
                      pass.Bindings( m_CompositeLayout.Get( m_CompositeShader ),
                                     Renderer::GetPipelineRouteFill( *pipeline ) )
-                          .Texture( "DistanceFieldBrickAtlasTexture", atlas, RDG::Access::SampledCompute,
+                          .Texture( GlobalDistanceFieldCompositeShaderParameters::DistanceFieldBrickAtlasTexture, atlas, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                          .Storage( "ClipmapTexture", clipmap, RDG::Access::StorageWrite )
-                          .Storage( "ObjectGridTexture", grid, RDG::Access::StorageWrite )
+                          .Sampler( GlobalDistanceFieldCompositeShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
+                          .Storage( GlobalDistanceFieldCompositeShaderParameters::ClipmapTexture, clipmap, RDG::Access::StorageWrite )
+                          .Storage( GlobalDistanceFieldCompositeShaderParameters::ObjectGridTexture, grid, RDG::Access::StorageWrite )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( GdfCompositePush ) ) );
                  },
                  [pipeline, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -821,7 +827,7 @@ namespace Desert::Graphic::DistanceField
                  for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
                      block.Texture( std::format( "u_GlobalDistanceField{}", level ), field.Clipmaps[level],
                                     RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                          .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
+                          .Sampler( GlobalDistanceFieldViewShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() );
                  block.PushConstantBytes( static_cast<uint32_t>( sizeof( GdfViewPush ) ) );
                  pass.ColorTarget( 0, target, load );
              },
