@@ -1406,7 +1406,7 @@ namespace Desert::Core::Preprocess
                    "layout(std430, binding = $1) writeonly buffer" },
                  { KwBuffer, std::regex( R"(\bBuffer\s*\(\s*(\d+)\s*\))" ),
                    "layout(std430, binding = $1) buffer" },
-                 { KwLocalSize, std::regex( R"(\bLocalSize\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\))" ),
+                 { KwLocalSize, std::regex( R"(\bLocalSize\s*\(\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*\))" ),
                    "layout(local_size_x = $1, local_size_y = $2, local_size_z = $3) in" },
                  { KwPushConstant, std::regex( R"(\bPushConstant\b)" ), "layout(push_constant) uniform" },
             };
