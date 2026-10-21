@@ -122,7 +122,7 @@ Shader "DeferredLighting"
         const vec3 Fdielectric = vec3(0.04); // base reflectance for dielectrics (matches Lit.glsl.frag)
 
         // The ambient model itself, shared verbatim with StaticMeshLit / StaticMeshLit_Instanced /
-        // SkinnedMeshLit. Included after the three bindings above because it names them.
+        // StandardSurface's Vertex_Skinned cell. Included after the three bindings above because it names them.
         // The reflection captures (Common/ReflectionEnvironment.glslh): the per-capture records and their cube array,
         // bound by the Composite node as scene view inputs (SceneViewInputs::ReflectionCaptures / ...Cubes).
         // SET 1, bindings 0 and 1, so the set-0 table (pinned by name in ShaderCacheKey) keeps its free slots for the

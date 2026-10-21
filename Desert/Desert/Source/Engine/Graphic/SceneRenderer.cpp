@@ -903,7 +903,7 @@ namespace Desert::Graphic
         // why turning it on in the default Deferred path did nothing at all.
         //
         // LightingDebug is the per-light attribution view, and it is a BRANCH IN THE Lit MESH SHADERS
-        // (u_DebugParams.y, StaticMeshLit / StaticMeshLit_Instanced / SkinnedMeshLit). The deferred
+        // (u_DebugParams.y, StaticMeshLit / StaticMeshLit_Instanced / StandardSurface's Vertex_Skinned cell). The deferred
         // lighting pass writes `DebugParams = vec4(0)` unconditionally — MaterialDeferredLighting's
         // UploadShadow — so the flag reaches no shader on that path. Forty-six of this repository's
         // forty-nine scenes state Deferred and the struct's default is Deferred, so WITHOUT this line the
