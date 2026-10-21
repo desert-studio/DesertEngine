@@ -266,16 +266,17 @@ namespace Common::Scalability
         PathTracingMaxBounces,      // bounces after the camera ray's hit, 0..64 (UE r.PathTracing.MaxBounces)
         PathTracingSamplesPerPixel, // paths per pixel after which the view stops tracing, 1..65536 (UE
                                     // r.PathTracing.SamplesPerPixel: the image is converged and kept)
-        // GI SoftwareTraced / ProbeVolume costs still fixed in code that another task owns (ScreenProbeGather,
-        // WorldRadianceCache: FOLIAGE-LOOK-7). Reserved with their per-level values; each gains its reader there.
+        // GI SoftwareTraced / HardwareTraced screen probe costs still compile-time constants of ScreenProbeGather
+        // (C++ ScreenProbeLayout and the shaders' SP_DOWNSAMPLE / SP_RES). Reserved with their per-level values;
+        // each gains its reader when the gather takes them per view.
         ScreenProbeDownsample,   // screen pixels per probe side (UE r.Lumen.ScreenProbeGather.DownsampleFactor;
                                  // today ScreenProbeGather::kDownsample = SP_DOWNSAMPLE = 16)
         ScreenProbeTracedTexels, // traced octahedral texels per probe side (UE
                                  // r.Lumen.ScreenProbeGather.TracingOctahedronResolution; today kTracedTexels
                                  // = SP_RES = 8)
         IrradianceFieldProbesPerFrame, // ProbeVolume's radiance-cache probes traced per frame (UE
-                                       // r.Lumen.IrradianceFieldGather.NumProbesToTraceBudget; today
-                                       // RadianceCache::MakeRadianceCacheInputs scales ProbesPerFrame by 200/300)
+                                       // r.Lumen.IrradianceFieldGather.NumProbesToTraceBudget), read by
+                                       // RadianceCache::MakeRadianceCacheInputs for GIMethod::ProbeVolume
         ReflectionsHitLighting,        // 0/1: HardwareTraced reflections run hit lighting - the ray
                                        // tracing pipeline with each hit surface's own material (UE
                                        // r.Lumen.Reflections.HardwareRayTracing.LightingMode = hit lighting)

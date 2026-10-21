@@ -232,7 +232,8 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> RadianceCache::MakeRadianceCacheInputs (probe texels per side)" },
              { P::RadianceCacheProbesPerFrame, G::GlobalIllumination,
                "GlobalIllumination.RadianceCacheProbesPerFrame", 10, 2000, CL::None,
-               "SceneRenderer::BeginScene -> RadianceCache::MakeRadianceCacheInputs (probes traced per frame)" },
+               "SceneRenderer::BeginScene -> RadianceCache::MakeRadianceCacheInputs (screen probes' probes traced "
+               "per frame)" },
              { P::HitLightingAllowed, G::GlobalIllumination, "GlobalIllumination.HitLighting", 0, 1, CL::None,
                "SceneRenderer::BeginScene -> GlobalIllumination::PipelineFor (hardware-traced hits lit in "
                "place)" },
@@ -248,7 +249,9 @@ namespace Common::Scalability
              { P::ScreenProbeTracedTexels, G::GlobalIllumination, "GlobalIllumination.ScreenProbeTracedTexels", 4,
                16, CL::None, std::nullopt },
              { P::IrradianceFieldProbesPerFrame, G::GlobalIllumination,
-               "GlobalIllumination.IrradianceFieldProbesPerFrame", 10, 2000, CL::None, std::nullopt },
+               "GlobalIllumination.IrradianceFieldProbesPerFrame", 10, 2000, CL::None,
+               "SceneRenderer::BeginScene -> RadianceCache::MakeRadianceCacheInputs (ProbeVolume's probes traced "
+               "per frame)" },
              { P::ReflectionsHitLighting, G::Reflections, "Reflections.HitLighting", 0, 1, CL::None,
                "SceneRenderer::ReflectionsTracer -> SSR.shader \"HitLighting\" ray generation "
                "(Renderer::TraceRays)" },
