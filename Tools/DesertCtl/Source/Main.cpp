@@ -58,6 +58,8 @@ namespace
                       "  drag <x,y> <x,y> [steps]      press, move and release the left mouse over the\n"
                       "                                subject's image (pixels), through ImGui's input\n"
                       "  quit [code]                   end the session with that exit status\n"
+                      "  save-as <name>                save the open scene as a NEW level <name> (File ->\n"
+                      "                                Save's path; refused if that file already exists)\n"
                       "\n"
                       "  --wait <seconds>  wait for the socket to appear before connecting; an editor\n"
                       "                    takes a few seconds to boot, and a client that raced it used\n"
@@ -355,6 +357,15 @@ static int RunTool( int argc, char** argv )
         }
         request = R"({"id":1,"op":"run","group":")" + Escape( rest[1] ) + R"(","label":")" + Escape( rest[2] ) +
                   R"("})";
+    }
+    else if ( operation == "save-as" )
+    {
+        if ( rest.size() < 2 )
+        {
+            std::fprintf( stderr, "desertctl: save-as needs the scene's new name.\n" );
+            return kNoEditor;
+        }
+        request = R"({"id":1,"op":"save-as","name":")" + Escape( rest[1] ) + R"("})";
     }
     else if ( operation == "properties" )
     {

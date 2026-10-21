@@ -70,6 +70,7 @@ namespace Desert::Editor::Control
         Quit,         ///< end the session with an exit status
         Drag,         ///< press, move and release the mouse over a subject's image, through ImGui's input
         Input,
+        SaveAs, ///< save the open scene under a NEW name, through File -> Save's one save path (UE "Save Current Level As")
     };
 
     /**
@@ -123,6 +124,7 @@ namespace Desert::Editor::Control
          { "quit", Op::Quit, RequiresReady::No },
          { "drag", Op::Drag, RequiresReady::Yes },
          { "input", Op::Input, RequiresReady::Yes },
+         { "save-as", Op::SaveAs, RequiresReady::Yes },
     };
 
     /// The table's answer for one operation. Yes for anything not in the table at all — an operation this
@@ -228,6 +230,9 @@ namespace Desert::Editor::Control
         /// than padded to four: a float given three numbers is a client that meant a different property,
         /// and the document refuses it instead of writing something that looks accepted.
         std::vector<float> Value;
+
+        /// Op::SaveAs — the scene's new name; the file is <scene dir>/<name with spaces as _>.desce.
+        std::string SceneName;
 
         /// Op::ShotWindow / Op::ShotViewport — where the PNG goes.
         std::string Path;
@@ -561,6 +566,17 @@ namespace Desert::Editor::Control
                 break;
             }
 
+            case Op::SaveAs:
+            {
+                request.SceneName = ReadString( fields, "name" );
+                if ( request.SceneName.empty() )
+                {
+                    return Common::MakeError<Request>(
+                         "'save-as' needs the scene's new 'name'. A Save As with no name would be File -> Save "
+                         "under another word." );
+                }
+                break;
+            }
             case Op::ShotWindow:
             case Op::ShotViewport:
             {

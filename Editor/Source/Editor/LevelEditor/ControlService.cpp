@@ -516,6 +516,15 @@ namespace Desert::Editor
                 return Control::Response::Success( request.Id );
             }
 
+            case Control::Op::SaveAs:
+            {
+                // File -> Save's one save path under a new name (SceneFiles::SaveOpenSceneAs); a refusal
+                // names why — an existing file is never overwritten.
+                if ( const auto saved = m_SceneFiles.SaveOpenSceneAs( request.SceneName ); !saved )
+                    return Control::Response::Failure( request.Id, saved.GetError() );
+                return Control::Response::Success( request.Id );
+            }
+
             case Control::Op::State:
             {
                 if ( const auto valid = Control::ValidateSections( request.Sections ); !valid )
