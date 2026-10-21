@@ -225,7 +225,8 @@ namespace Desert::Graphic::System
             debug.Name         = gpu.DebugName;
             debug.Capacity     = gpu.Range.Count;
             debug.FloatColumns = gpu.FloatColumns;
-            const uint32_t stride = 1u + gpu.FloatColumns;
+            debug.IntColumns   = gpu.IntColumns;
+            const uint32_t stride = 1u + gpu.FloatColumns + gpu.IntColumns;
             const uint32_t words  = kParticleDebugHeaderUints + kParticleDebugMaxRows * stride;
             if ( !gpu.DebugReadback )
             {
@@ -254,12 +255,15 @@ namespace Desert::Graphic::System
                     debug.Columns       = gpu.DebugColumns;
                     debug.RowIndex.reserve( rows );
                     debug.Floats.reserve( std::size_t{ rows } * gpu.FloatColumns );
+                    debug.Ints.reserve( std::size_t{ rows } * gpu.IntColumns );
                     for ( uint32_t r = 0; r < rows; ++r )
                     {
                         const uint32_t base = kParticleDebugHeaderUints + r * stride;
                         debug.RowIndex.push_back( data[base] );
                         for ( uint32_t c = 0; c < gpu.FloatColumns; ++c )
                             debug.Floats.push_back( std::bit_cast<float>( data[base + 1u + c] ) );
+                        for ( uint32_t c = 0; c < gpu.IntColumns; ++c )
+                            debug.Ints.push_back( std::bit_cast<int32_t>( data[base + 1u + gpu.FloatColumns + c] ) );
                     }
                 }
             }

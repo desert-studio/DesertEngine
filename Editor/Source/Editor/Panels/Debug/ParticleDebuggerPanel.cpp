@@ -5,6 +5,8 @@
 #include <Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp>
 
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace Desert::Editor
 {
@@ -24,6 +26,7 @@ namespace Desert::Editor
         m_Scene    = scene;
         m_Selected = false;
         m_FirstRow = 0;
+        m_Frozen   = false;
     }
 
     void ParticleDebuggerPanel::SendRequest( const bool enabled ) const
@@ -80,6 +83,7 @@ namespace Desert::Editor
                     m_EntityId = e.EntityId;
                     m_Emitter  = e.Emitter;
                     m_FirstRow = 0;
+                    m_Frozen   = false; // a frozen page belongs to the previous selection
                 }
                 ImGui::TableNextColumn();
                 ImGui::Text( "%u", e.Emitter );
@@ -103,46 +107,75 @@ namespace Desert::Editor
 
         if ( selected == nullptr )
         {
+            m_Frozen = false;
             ImGui::TextUnformatted( "Select an emitter for its particle attribute table." );
             ImGui::End();
             return;
         }
         ImGui::Separator();
-        ImGui::Text( "Attributes of '%s' - alive rows %u..%u of %u (read %u frame(s) after the GPU wrote them)",
-                     selected->Name.c_str(), m_FirstRow,
-                     m_FirstRow + static_cast<uint32_t>( selected->RowIndex.size() ), selected->Alive,
-                     selected->FramesOld );
+        // Freeze holds the page last read (UE's captured frame) - the counts above keep updating.
+        if ( ImGui::Checkbox( "Freeze", &m_Frozen ) && m_Frozen )
+            m_FrozenPage = *selected;
+        const ParticleEmitterDebug& page = m_Frozen ? m_FrozenPage : *selected;
+        ImGui::SameLine();
+        ImGui::Text( "Attributes of '%s' - alive rows %u..%u of %u (read %u frame(s) after the GPU wrote them)%s",
+                     page.Name.c_str(), m_FirstRow, m_FirstRow + static_cast<uint32_t>( page.RowIndex.size() ),
+                     page.Alive, page.FramesOld, m_Frozen ? " - frozen" : "" );
+        ImGui::BeginDisabled( m_Frozen );
         if ( ImGui::Button( "< Page" ) && m_FirstRow >= kParticleDebugMaxRows )
             m_FirstRow -= kParticleDebugMaxRows;
         ImGui::SameLine();
-        if ( ImGui::Button( "Page >" ) && m_FirstRow + kParticleDebugMaxRows < selected->Alive )
+        if ( ImGui::Button( "Page >" ) && m_FirstRow + kParticleDebugMaxRows < page.Alive )
             m_FirstRow += kParticleDebugMaxRows;
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth( 200.0f );
+        ImGui::InputTextWithHint( "##filter", "attribute filter", m_Filter, sizeof( m_Filter ) );
 
-        const uint32_t columns = selected->FloatColumns;
-        if ( columns > 0 && ImGui::BeginTable( "##attributes", static_cast<int>( columns ) + 1,
-                                               ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                                                    ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY ) )
+        // One table column per component, named after its attribute (Position.x, Color.a, ...): the float
+        // components, then the int ones; an attribute whose name does not contain the filter is left out.
+        struct Column
+        {
+            std::string Name;
+            bool        Int   = false;
+            uint32_t    Index = 0; // the component in Floats / Ints
+        };
+        std::vector<Column>    shown;
+        const std::string_view filter( m_Filter );
+        for ( const bool ints : { false, true } )
+            for ( const auto& attribute : page.Columns )
+            {
+                if ( !filter.empty() && attribute.Name.find( filter ) == std::string::npos )
+                    continue;
+                const uint32_t count = ints ? attribute.IntCount : attribute.FloatCount;
+                const uint32_t start = ints ? attribute.IntStart : attribute.FloatStart;
+                const uint32_t limit = ints ? page.IntColumns : page.FloatColumns;
+                for ( uint32_t c = 0; c < count && start + c < limit; ++c )
+                    shown.push_back( { count == 1 ? attribute.Name
+                                                  : attribute.Name + "." + std::string( 1, "xyzw"[c & 3u] ),
+                                       ints, start + c } );
+            }
+
+        if ( !shown.empty() && ImGui::BeginTable( "##attributes", static_cast<int>( shown.size() ) + 1,
+                                                  ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                                       ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY ) )
         {
             ImGui::TableSetupColumn( "Pool index" );
-            // One table column per float component, named after its attribute (Position.x, Color.a, ...).
-            std::vector<std::string> names( columns );
-            for ( const auto& attribute : selected->Columns )
-                for ( uint32_t c = 0; c < attribute.FloatCount && attribute.FloatStart + c < columns; ++c )
-                    names[attribute.FloatStart + c] =
-                         attribute.FloatCount == 1 ? attribute.Name
-                                                   : attribute.Name + "." + std::string( 1, "xyzw"[c & 3u] );
-            for ( const std::string& name : names )
-                ImGui::TableSetupColumn( name.c_str() );
+            for ( const Column& column : shown )
+                ImGui::TableSetupColumn( column.Name.c_str() );
             ImGui::TableHeadersRow();
-            for ( std::size_t r = 0; r < selected->RowIndex.size(); ++r )
+            for ( std::size_t r = 0; r < page.RowIndex.size(); ++r )
             {
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::Text( "%u", selected->RowIndex[r] );
-                for ( uint32_t c = 0; c < columns; ++c )
+                ImGui::Text( "%u", page.RowIndex[r] );
+                for ( const Column& column : shown )
                 {
                     ImGui::TableNextColumn();
-                    ImGui::Text( "%.3f", selected->Floats[r * columns + c] );
+                    if ( column.Int )
+                        ImGui::Text( "%d", page.Ints[r * page.IntColumns + column.Index] );
+                    else
+                        ImGui::Text( "%.3f", page.Floats[r * page.FloatColumns + column.Index] );
                 }
             }
             ImGui::EndTable();

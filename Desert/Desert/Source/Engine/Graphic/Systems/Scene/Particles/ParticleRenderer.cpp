@@ -410,7 +410,8 @@ namespace Desert::Graphic::System
             const ParticleDebugPush   push{
                  glm::uvec4( half, m_World->DebugRequest().FirstRow, rows, gpu.FloatColumns ),
                  glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, gpu.Range.Count, gpu.Range.Base,
-                             m_World->DebugSerial() ) };
+                             m_World->DebugSerial() ),
+                 glm::uvec4( gpu.IntColumns, 0u, 0u, 0u ) };
             RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
             bindings.PushConstants( &push, sizeof( push ) );
             const Common::BoolResultStr dispatched = Renderer::GetInstance().DispatchCompute(
@@ -435,6 +436,7 @@ namespace Desert::Graphic::System
                  .Storage( "Counters", ve.CountersRef, RDG::Access::StorageRead )
                  .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageRead )
                  .Storage( "AttributeFloats", ve.FloatsRef, RDG::Access::StorageRead )
+                 .Storage( "AttributeInts", ve.IntsRef, RDG::Access::StorageRead )
                  .Storage( "Readback", ve.DebugRef, RDG::Access::StorageWrite )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleDebugPush ) ) );
         }

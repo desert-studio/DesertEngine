@@ -5,7 +5,9 @@
 //   header (4 uints): alive count and free count of the last compact's slot (u_Page.x), the debug frame serial
 //                     (u_Range.w, never 0), the rows this page wrote;
 //   rows: per alive-list entry u_Page.y + t (t < u_Page.z, t < alive - first): the pool index, then the emitter's
-//         u_Page.w float attribute components (SoA column c at c * range count + local index).
+//         u_Page.w float attribute components, then the u_Columns.x int components as their bits (SoA column c
+//         at c * range count + local index, local index = pool index - pool base: ParticleDrawRead.glslh's
+//         ParticleLocalIndex over ParticleDrawLayout's Range, the layout ParticleSimulate writes).
 // The CPU reads the copy FramesInFlight frames later (StorageBuffer::ReadBack, the fence has finished it): no stall.
 Shader "ParticleDebugReadback"
 {
@@ -30,7 +32,12 @@ Shader "ParticleDebugReadback"
             float u_Floats[];
         };
 
-        Buffer(3) Readback
+        ReadBuffer(3) AttributeInts
+        {
+            int u_Ints[];
+        };
+
+        Buffer(4) Readback
         {
             uint u_Out[];
         };
@@ -39,6 +46,7 @@ Shader "ParticleDebugReadback"
         {
             uvec4 u_Page;  // x = the last compact's slot, y = first alive row, z = rows (0 = counts only), w = float columns
             uvec4 u_Range; // x = the drawn alive half's offset in AliveList, y = range count, z = pool base, w = serial
+            uvec4 u_Columns; // x = int columns; yzw = 0
         };
 
         void main()
@@ -58,11 +66,13 @@ Shader "ParticleDebugReadback"
                 return;
             uint index  = u_Alive[u_Range.x + first + t];
             uint local  = index - u_Range.z;
-            uint stride = 1u + u_Page.w;
+            uint stride = 1u + u_Page.w + u_Columns.x;
             uint base   = 4u + t * stride;
             u_Out[base] = index;
             for ( uint c = 0u; c < u_Page.w; ++c )
                 u_Out[base + 1u + c] = floatBitsToUint( u_Floats[c * u_Range.y + local] );
+            for ( uint c = 0u; c < u_Columns.x; ++c )
+                u_Out[base + 1u + u_Page.w + c] = uint( u_Ints[c * u_Range.y + local] );
         }
     }
 }
