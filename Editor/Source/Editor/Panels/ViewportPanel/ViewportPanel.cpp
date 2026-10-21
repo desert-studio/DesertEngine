@@ -1804,12 +1804,15 @@ namespace Desert::Editor
         }
 
         // Render scene
-        m_UIHelper->Image( m_Scene->GetFinalImage( ViewIndex() ),
-                           { m_ViewportData.Size.x, m_ViewportData.Size.y } );
-        Control::PointerInjection::PublishTarget( Control::Subject::Viewport,
-                                                  { ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y,
-                                                    ImGui::GetItemRectSize().x, ImGui::GetItemRectSize().y,
-                                                    ImGui::GetWindowViewport()->ID, ImGui::GetFrameCount() } );
+        const auto finalImage = m_Scene->GetFinalImage( ViewIndex() );
+        m_UIHelper->Image( finalImage, { m_ViewportData.Size.x, m_ViewportData.Size.y } );
+        // The image's own pixel size travels with the rect: shot-viewport writes this image, so a drag aimed
+        // in its pixels maps back through it, not through the display's framebuffer scale.
+        Control::PointerInjection::PublishTarget(
+             Control::Subject::Viewport,
+             { ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y, ImGui::GetItemRectSize().x,
+               ImGui::GetItemRectSize().y, ImGui::GetWindowViewport()->ID, ImGui::GetFrameCount(),
+               finalImage ? finalImage->GetWidth() : 0u, finalImage ? finalImage->GetHeight() : 0u } );
 
         // UI Preview vs Design. Preview: publish the viewport pointer/keyboard so the EditorUIPass drives the
         // canvas with real input (buttons interactive) and SKIP the authoring overlays/handles. Design: the

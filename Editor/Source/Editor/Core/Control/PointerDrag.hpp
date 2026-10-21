@@ -31,16 +31,22 @@ namespace Desert::Editor::Control
         bool Press = false;
     };
 
-    /// Where a target's image sits on screen this frame, in ImGui points, and which platform viewport
-    /// holds it. Published by the panel that draws the image; `Frame` is ImGui's frame count at that time.
+    /// Where a target's image sits on screen this frame, in ImGui points, which platform viewport holds it,
+    /// and how many PIXELS that image has (the render target a shot of this subject writes). Published by the
+    /// panel that draws the image; `Frame` is ImGui's frame count at that time. The pixel size is the
+    /// panel's to state because only the panel knows what it renders at: the level viewport and the
+    /// animation preview render one pixel per point, so the display's framebuffer scale says nothing about
+    /// their images (dividing by it put a drag aimed at x 800 on x 400 on a Retina display).
     struct PointerTargetRect
     {
-        float    X          = 0.0f;
-        float    Y          = 0.0f;
-        float    Width      = 0.0f;
-        float    Height     = 0.0f;
-        uint32_t ViewportId = 0;
-        int32_t  Frame      = -1;
+        float    X           = 0.0f;
+        float    Y           = 0.0f;
+        float    Width       = 0.0f;
+        float    Height      = 0.0f;
+        uint32_t ViewportId  = 0;
+        int32_t  Frame       = -1;
+        uint32_t ImageWidth  = 0;
+        uint32_t ImageHeight = 0;
     };
 
     class PointerDrag
@@ -50,24 +56,24 @@ namespace Desert::Editor::Control
         /// The step count a drag request that states none is played with (Request::Steps absent).
         static constexpr uint32_t kDefaultSteps = 8;
 
-        /// @p from / @p to are in the target's image PIXELS (what shot-viewport writes); @p pixelsPerPoint
-        /// converts them to ImGui points (the framebuffer scale, 2 on a Retina display).
+        /// @p from / @p to are in the target's image PIXELS (what shot-viewport writes); the target's own
+        /// image size over its on-screen size converts them to ImGui points.
         [[nodiscard]] static Common::ResultStr<PointerDrag> Plan( const PointerTargetRect&    target,
                                                                   const std::array<float, 4>& fromTo,
-                                                                  uint32_t steps, float pixelsPerPoint )
+                                                                  uint32_t                    steps )
         {
             if ( steps == 0 || steps > kMaxSteps )
                 return Common::MakeFormattedError<PointerDrag>(
                      "a drag takes 1..{} steps, not {}: zero would press and release on one spot, and "
                      "more would hold the channel for seconds.",
                      kMaxSteps, steps );
-            if ( target.Width <= 0.0f || target.Height <= 0.0f || pixelsPerPoint <= 0.0f )
+            if ( target.Width <= 0.0f || target.Height <= 0.0f || target.ImageWidth == 0 || target.ImageHeight == 0 )
                 return Common::MakeFormattedError<PointerDrag>(
-                     "the target's image is {}x{} points at {} pixels per point; there is nothing to drag on.",
-                     target.Width, target.Height, pixelsPerPoint );
+                     "the target's image is {}x{} pixels drawn over {}x{} points; there is nothing to drag on.",
+                     target.ImageWidth, target.ImageHeight, target.Width, target.Height );
 
-            const float widthPx  = target.Width * pixelsPerPoint;
-            const float heightPx = target.Height * pixelsPerPoint;
+            const float widthPx  = static_cast<float>( target.ImageWidth );
+            const float heightPx = static_cast<float>( target.ImageHeight );
             for ( std::size_t i = 0; i < 4; ++i )
             {
                 const float limit = ( i % 2 == 0 ) ? widthPx : heightPx;
@@ -78,11 +84,13 @@ namespace Desert::Editor::Control
                          i / 2 == 0 ? "from" : "to", fromTo[i / 2 * 2], fromTo[i / 2 * 2 + 1], widthPx, heightPx );
             }
 
+            const float pointsPerPixelX = target.Width / widthPx;
+            const float pointsPerPixelY = target.Height / heightPx;
             PointerDrag drag;
-            drag.m_FromX      = target.X + fromTo[0] / pixelsPerPoint;
-            drag.m_FromY      = target.Y + fromTo[1] / pixelsPerPoint;
-            drag.m_ToX        = target.X + fromTo[2] / pixelsPerPoint;
-            drag.m_ToY        = target.Y + fromTo[3] / pixelsPerPoint;
+            drag.m_FromX      = target.X + fromTo[0] * pointsPerPixelX;
+            drag.m_FromY      = target.Y + fromTo[1] * pointsPerPixelY;
+            drag.m_ToX        = target.X + fromTo[2] * pointsPerPixelX;
+            drag.m_ToY        = target.Y + fromTo[3] * pointsPerPixelY;
             drag.m_Steps      = steps;
             drag.m_ViewportId = target.ViewportId;
             return Common::MakeSuccess( drag );
