@@ -203,6 +203,21 @@ namespace Desert::Graphic
             std::optional<Streamline::DlssOptions> m_Options;
             ResourceOwnership                      m_Memory; // the feature's VRAM as Streamline estimates it
         };
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct DLSSRRGuidesShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( Texture, GBufferAlbedoTexture );
+            DESERT_SHADER_PARAMETER( Texture, GBufferNormalTexture );
+            DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+            DESERT_SHADER_PARAMETER( Texture, BrdfLutTexture );
+            DESERT_SHADER_PARAMETER( Texture, ReflectionRayTexture );
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+            DESERT_SHADER_PARAMETER( StorageTexture, DiffuseAlbedoTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, SpecularAlbedoTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, SpecularHitDistanceTexture );
+        };
+
     } // namespace
 
     struct DLSSUpscaler::GuidesPipeline
@@ -358,20 +373,24 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( GuidesLayout(), RDG::OtherRouteFill{} )
-                      .Texture( "GBufferAlbedoTexture", inputs.GBufferAlbedo, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Texture( "GBufferNormalTexture", inputs.GBufferNormal, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Texture( "GBufferDepthTexture", inputs.SceneDepth, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Texture( "BrdfLutTexture", inputs.BrdfLut, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Texture( "ReflectionRayTexture", ray, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                      .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                      .Storage( "DiffuseAlbedoTexture", guides.DiffuseAlbedo, RDG::Access::StorageWrite, 0 )
-                      .Storage( "SpecularAlbedoTexture", guides.SpecularAlbedo, RDG::Access::StorageWrite, 0 )
-                      .Storage( "SpecularHitDistanceTexture", guides.SpecularHitDistance, RDG::Access::StorageWrite, 0 )
+                      .Texture( DLSSRRGuidesShaderParameters::GBufferAlbedoTexture, inputs.GBufferAlbedo,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( DLSSRRGuidesShaderParameters::GBufferNormalTexture, inputs.GBufferNormal,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( DLSSRRGuidesShaderParameters::GBufferDepthTexture, inputs.SceneDepth,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( DLSSRRGuidesShaderParameters::BrdfLutTexture, inputs.BrdfLut,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( DLSSRRGuidesShaderParameters::ReflectionRayTexture, ray,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( DLSSRRGuidesShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                      .Sampler( DLSSRRGuidesShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                      .Storage( DLSSRRGuidesShaderParameters::DiffuseAlbedoTexture, guides.DiffuseAlbedo,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( DLSSRRGuidesShaderParameters::SpecularAlbedoTexture, guides.SpecularAlbedo,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( DLSSRRGuidesShaderParameters::SpecularHitDistanceTexture,
+                                guides.SpecularHitDistance, RDG::Access::StorageWrite, 0 )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( GuidesPush ) ) );
              },
              [holder, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr

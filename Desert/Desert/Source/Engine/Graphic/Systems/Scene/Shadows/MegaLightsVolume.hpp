@@ -41,6 +41,16 @@
 // once at a size and extracted, as MegaLightsRenderer's.
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MegaLightsVolumeShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( UniformBuffer, MegaLightsVolumeViewUB );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( AccelerationStructure, SceneTlas );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RayTracingGeometryRecords );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RayTracingMaterialRecords );
+    };
+
     // The most traced samples a froxel takes per frame: the shader's MEGALIGHTS_VOLUME_MAX_SAMPLES
     // (Scalability 1..4).
     inline constexpr uint32_t kMegaLightsVolumeMaxSamples = 4;
@@ -205,15 +215,18 @@ namespace Desert::Graphic::System
                  {
                      auto block =
                           pass.Bindings( m_Layout.Get( m_Shader ), Renderer::GetPipelineRouteFill( *m_Pipeline ) );
-                     block.Uniform( "MegaLightsVolumeViewUB", view )
-                          .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                     block.Uniform( MegaLightsVolumeShaderParameters::MegaLightsVolumeViewUB, view )
+                          .Sampler( MegaLightsVolumeShaderParameters::LinearClampSampler,
+                                    RDG::SamplerDesc::LinearClamp() )
                           .Storage( ShaderProtocols::PointLight::Name, in.Lights.Point, RDG::Access::StorageRead )
                           .Storage( ShaderProtocols::SpotLight::Name, in.Lights.Spot, RDG::Access::StorageRead )
                           .Storage( kLightGridParamsBlockName, in.Lights.GridParams, RDG::Access::StorageRead )
                           .Storage( kLightGridCellsBlockName, in.Lights.GridCells, RDG::Access::StorageRead )
-                          .AccelerationStructure( "SceneTlas", in.Tlas )
-                          .Storage( "RayTracingGeometryRecords", in.Metadata.Geometry, RDG::Access::StorageRead )
-                          .Storage( "RayTracingMaterialRecords", in.Metadata.Materials, RDG::Access::StorageRead );
+                          .AccelerationStructure( MegaLightsVolumeShaderParameters::SceneTlas, in.Tlas )
+                          .Storage( MegaLightsVolumeShaderParameters::RayTracingGeometryRecords,
+                                    in.Metadata.Geometry, RDG::Access::StorageRead )
+                          .Storage( MegaLightsVolumeShaderParameters::RayTracingMaterialRecords,
+                                    in.Metadata.Materials, RDG::Access::StorageRead );
                      for ( std::size_t channel = 0; channel < 3; ++channel )
                          block.Texture( kHistoryInputNames[channel], history[channel], RDG::Access::SampledCompute,
                                         RDG::SubresourceRange::All() )

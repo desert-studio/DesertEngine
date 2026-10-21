@@ -29,6 +29,14 @@
 namespace Desert::Graphic::System
 {
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SSRFrontLayerShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, FrontLayerNormalTexture );
+        DESERT_SHADER_PARAMETER( Texture, FrontLayerDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
     struct SSRTraceShaderParameters
     {
         DESERT_SHADER_PARAMETER( Texture, GBufferNormalTexture );
@@ -566,12 +574,11 @@ namespace Desert::Graphic::System
         {
             if ( frontLayer == nullptr )
                 return;
-            block
-                 .Texture( "FrontLayerNormalTexture", frontLayer->Normal, RDG::Access::SampledCompute,
-                           RDG::SubresourceRange::All() )
-                 .Texture( "FrontLayerDepthTexture", frontLayer->Depth, RDG::Access::SampledCompute,
-                           RDG::SubresourceRange::All() )
-                 .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
+            block.Texture( SSRFrontLayerShaderParameters::FrontLayerNormalTexture, frontLayer->Normal,
+                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Texture( SSRFrontLayerShaderParameters::FrontLayerDepthTexture, frontLayer->Depth,
+                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Sampler( SSRFrontLayerShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
         }
 
         // The traced permutation's reads (SSR.shader DESERT_REFLECTIONS_TRACED), by the names its includes

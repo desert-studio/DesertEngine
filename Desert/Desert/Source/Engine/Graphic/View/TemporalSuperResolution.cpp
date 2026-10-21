@@ -96,6 +96,139 @@ namespace Desert::Graphic
             return std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
                  .ShaderName = shader, .Slots = std::move( slots ), .PushConstantBytes = 0 } );
         }
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct TSRClearPrevTexturesShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, TSRParamsBuffer );
+            DESERT_SHADER_PARAMETER( StorageBuffer, TSRPrevAtomicBuffer );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct TSRDilateVelocityShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, TSRParamsBuffer );
+            DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
+            DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( StorageTexture, DilatedVelocityTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, ClosestDepthTexture );
+            DESERT_SHADER_PARAMETER( StorageBuffer, TSRPrevAtomicBuffer );
+            DESERT_SHADER_PARAMETER( StorageTexture, ReprojectionJacobianTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, ReprojectionBoundaryTexture );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct TSRDecimateHistoryShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, TSRParamsBuffer );
+            DESERT_SHADER_PARAMETER( Texture, DilatedVelocityTexture );
+            DESERT_SHADER_PARAMETER( Texture, ClosestDepthTexture );
+            DESERT_SHADER_PARAMETER( StorageBuffer, TSRPrevAtomicBuffer );
+            DESERT_SHADER_PARAMETER( Texture, PreviousGuideTexture );
+            DESERT_SHADER_PARAMETER( Texture, PreviousMoireTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, ReprojectedGuideTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, ReprojectedMoireTexture );
+            DESERT_SHADER_PARAMETER( Texture, ResurrectionGuideTexture );
+            DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( Texture, ExposureTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, ResurrectedGuideTexture );
+            DESERT_SHADER_PARAMETER( Texture, PreviousCoverageTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, ReprojectedCoverageTexture );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct TSRDetectThinGeometryShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, TSRParamsBuffer );
+            DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
+            DESERT_SHADER_PARAMETER( Texture, ThinGeometryCoverageTexture );
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( Texture, ReprojectedCoverageTexture );
+            DESERT_SHADER_PARAMETER( Texture, ReprojectionBoundaryTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, ThinGeometryTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, CoverageOutTexture );
+            DESERT_SHADER_PARAMETER( Texture, FlickeringLumaTexture );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct TSRRejectShadingShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, TSRParamsBuffer );
+            DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+            DESERT_SHADER_PARAMETER( Texture, ExposureTexture );
+            DESERT_SHADER_PARAMETER( Texture, ReprojectedGuideTexture );
+            DESERT_SHADER_PARAMETER( Texture, ReprojectedMoireTexture );
+            DESERT_SHADER_PARAMETER( Texture, ResurrectedGuideTexture );
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( StorageTexture, HistoryRejectionTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, GuideOutTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, MoireOutTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, AntiAliasInputTexture );
+            DESERT_SHADER_PARAMETER( Texture, ThinGeometryTexture );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct TSRSpatialAntiAliasingShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, TSRParamsBuffer );
+            DESERT_SHADER_PARAMETER( Texture, AntiAliasInputTexture );
+            DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+            DESERT_SHADER_PARAMETER( StorageTexture, AntiAliasingTexture );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct TSRUpdateHistoryShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, TSRParamsBuffer );
+            DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+            DESERT_SHADER_PARAMETER( Texture, ExposureTexture );
+            DESERT_SHADER_PARAMETER( Texture, ResponsiveAaTexture );
+            DESERT_SHADER_PARAMETER( Texture, DilatedVelocityTexture );
+            DESERT_SHADER_PARAMETER( Texture, HistoryRejectionTexture );
+            DESERT_SHADER_PARAMETER( Texture, AntiAliasingTexture );
+            DESERT_SHADER_PARAMETER( Texture, PreviousHistoryTexture );
+            DESERT_SHADER_PARAMETER( Texture, ClosestDepthTexture );
+            DESERT_SHADER_PARAMETER( Texture, ReprojectionJacobianTexture );
+            DESERT_SHADER_PARAMETER( Texture, ReprojectionBoundaryTexture );
+            DESERT_SHADER_PARAMETER( Texture, ResurrectionHistoryTexture );
+            DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( StorageTexture, HistoryOutTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, OutputTexture );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct TSRResolveHistoryShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, TSRParamsBuffer );
+            DESERT_SHADER_PARAMETER( Texture, ExposureTexture );
+            DESERT_SHADER_PARAMETER( Texture, CurrentHistoryTexture );
+            DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( StorageTexture, OutputTexture );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct TSRResurrectionRecordShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, TSRParamsBuffer );
+            DESERT_SHADER_PARAMETER( Texture, ExposureTexture );
+            DESERT_SHADER_PARAMETER( Texture, PersistentSourceTexture );
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( StorageTexture, DestinationColorTexture );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct TSRMeasureFlickeringLumaShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, TSRParamsBuffer );
+            DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+            DESERT_SHADER_PARAMETER( Texture, ExposureTexture );
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( StorageTexture, FlickeringLumaTexture );
+        };
+
     } // namespace
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrClearPrevTexturesLayout()
@@ -644,8 +777,10 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( TsrClearPrevTexturesLayout(), RDG::OtherRouteFill{} )
-                      .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                      .Storage( "TSRPrevAtomicBuffer", prevAtomic, RDG::Access::StorageWrite );
+                      .Storage( TSRClearPrevTexturesShaderParameters::TSRParamsBuffer, buffer,
+                                RDG::Access::StorageRead )
+                      .Storage( TSRClearPrevTexturesShaderParameters::TSRPrevAtomicBuffer, prevAtomic,
+                                RDG::Access::StorageWrite );
              },
              dispatch( kClearPrevTextures, "", render ) );
 
@@ -654,15 +789,22 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( TsrDilateVelocityLayout(), RDG::OtherRouteFill{} )
-                      .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                      .Texture( "SceneDepthTexture", inputs.SceneDepth, sampled, all )
-                      .Texture( "VelocityTexture", inputs.Velocity, sampled, all )
-                      .Sampler( "PointClampSampler", point )
-                      .Storage( "DilatedVelocityTexture", dilatedVelocity, RDG::Access::StorageWrite, 0 )
-                      .Storage( "ClosestDepthTexture", closestDepth, RDG::Access::StorageWrite, 0 )
-                      .Storage( "TSRPrevAtomicBuffer", prevAtomic, RDG::Access::StorageWrite )
-                      .Storage( "ReprojectionJacobianTexture", reprojJacobian, RDG::Access::StorageWrite, 0 )
-                      .Storage( "ReprojectionBoundaryTexture", reprojBoundary, RDG::Access::StorageWrite, 0 );
+                      .Storage( TSRDilateVelocityShaderParameters::TSRParamsBuffer, buffer,
+                                RDG::Access::StorageRead )
+                      .Texture( TSRDilateVelocityShaderParameters::SceneDepthTexture, inputs.SceneDepth, sampled,
+                                all )
+                      .Texture( TSRDilateVelocityShaderParameters::VelocityTexture, inputs.Velocity, sampled, all )
+                      .Sampler( TSRDilateVelocityShaderParameters::PointClampSampler, point )
+                      .Storage( TSRDilateVelocityShaderParameters::DilatedVelocityTexture, dilatedVelocity,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( TSRDilateVelocityShaderParameters::ClosestDepthTexture, closestDepth,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( TSRDilateVelocityShaderParameters::TSRPrevAtomicBuffer, prevAtomic,
+                                RDG::Access::StorageWrite )
+                      .Storage( TSRDilateVelocityShaderParameters::ReprojectionJacobianTexture, reprojJacobian,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( TSRDilateVelocityShaderParameters::ReprojectionBoundaryTexture, reprojBoundary,
+                                RDG::Access::StorageWrite, 0 );
              },
              dispatch( kDilateVelocity, "", render ) );
 
@@ -672,22 +814,37 @@ namespace Desert::Graphic
              {
                  RDG::BindingBlockBuilder bindings =
                       pass.Bindings( TsrDecimateHistoryLayout( quality.ThinGeometryDetection ), RDG::OtherRouteFill{} );
-                 bindings.Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                      .Texture( "DilatedVelocityTexture", dilatedVelocity, sampled, all )
-                      .Texture( "ClosestDepthTexture", closestDepth, sampled, all )
-                      .Storage( "TSRPrevAtomicBuffer", prevAtomic, RDG::Access::StorageRead )
-                      .Texture( "PreviousGuideTexture", guide.Previous, sampled, all )
-                      .Texture( "PreviousMoireTexture", moire.Previous, sampled, all )
-                      .Storage( "ReprojectedGuideTexture", reprojectedGuide, RDG::Access::StorageWrite, 0 )
-                      .Storage( "ReprojectedMoireTexture", reprojectedMoire, RDG::Access::StorageWrite, 0 )
-                      .Texture( "ResurrectionGuideTexture", resurrectionGuide, sampled, all )
-                      .Sampler( "LinearClampSampler", linear )
-                      .Sampler( "PointClampSampler", point )
-                      .Texture( "ExposureTexture", inputs.Exposure, sampled, all )
-                      .Storage( "ResurrectedGuideTexture", resurrectedGuide, RDG::Access::StorageWrite, 0 );
+                 bindings
+                      .Storage( TSRDecimateHistoryShaderParameters::TSRParamsBuffer, buffer,
+                                RDG::Access::StorageRead )
+                      .Texture( TSRDecimateHistoryShaderParameters::DilatedVelocityTexture, dilatedVelocity,
+                                sampled, all )
+                      .Texture( TSRDecimateHistoryShaderParameters::ClosestDepthTexture, closestDepth, sampled,
+                                all )
+                      .Storage( TSRDecimateHistoryShaderParameters::TSRPrevAtomicBuffer, prevAtomic,
+                                RDG::Access::StorageRead )
+                      .Texture( TSRDecimateHistoryShaderParameters::PreviousGuideTexture, guide.Previous, sampled,
+                                all )
+                      .Texture( TSRDecimateHistoryShaderParameters::PreviousMoireTexture, moire.Previous, sampled,
+                                all )
+                      .Storage( TSRDecimateHistoryShaderParameters::ReprojectedGuideTexture, reprojectedGuide,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( TSRDecimateHistoryShaderParameters::ReprojectedMoireTexture, reprojectedMoire,
+                                RDG::Access::StorageWrite, 0 )
+                      .Texture( TSRDecimateHistoryShaderParameters::ResurrectionGuideTexture, resurrectionGuide,
+                                sampled, all )
+                      .Sampler( TSRDecimateHistoryShaderParameters::LinearClampSampler, linear )
+                      .Sampler( TSRDecimateHistoryShaderParameters::PointClampSampler, point )
+                      .Texture( TSRDecimateHistoryShaderParameters::ExposureTexture, inputs.Exposure, sampled,
+                                all )
+                      .Storage( TSRDecimateHistoryShaderParameters::ResurrectedGuideTexture, resurrectedGuide,
+                                RDG::Access::StorageWrite, 0 );
                  if ( quality.ThinGeometryDetection )
-                     bindings.Texture( "PreviousCoverageTexture", coverage.Previous, sampled, all )
-                          .Storage( "ReprojectedCoverageTexture", reprojectedCoverage, RDG::Access::StorageWrite, 0 );
+                     bindings
+                          .Texture( TSRDecimateHistoryShaderParameters::PreviousCoverageTexture, coverage.Previous,
+                                    sampled, all )
+                          .Storage( TSRDecimateHistoryShaderParameters::ReprojectedCoverageTexture,
+                                    reprojectedCoverage, RDG::Access::StorageWrite, 0 );
              },
              dispatch( kDecimateHistory, decimateDefines, render ) );
 
@@ -699,16 +856,25 @@ namespace Desert::Graphic
                  {
                      RDG::BindingBlockBuilder bindings =
                           pass.Bindings( TsrDetectThinGeometryLayout( intensityLines ), RDG::OtherRouteFill{} );
-                     bindings.Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                          .Texture( "SceneDepthTexture", inputs.SceneDepth, sampled, all )
-                          .Texture( "ThinGeometryCoverageTexture", inputs.ThinGeometryCoverage, sampled, all )
-                          .Sampler( "PointClampSampler", point )
-                          .Texture( "ReprojectedCoverageTexture", reprojectedCoverage, sampled, all )
-                          .Texture( "ReprojectionBoundaryTexture", reprojBoundary, sampled, all )
-                          .Storage( "ThinGeometryTexture", thinGeometry, RDG::Access::StorageWrite, 0 )
-                          .Storage( "CoverageOutTexture", coverage.Current, RDG::Access::StorageWrite, 0 );
+                     bindings
+                          .Storage( TSRDetectThinGeometryShaderParameters::TSRParamsBuffer, buffer,
+                                    RDG::Access::StorageRead )
+                          .Texture( TSRDetectThinGeometryShaderParameters::SceneDepthTexture, inputs.SceneDepth,
+                                    sampled, all )
+                          .Texture( TSRDetectThinGeometryShaderParameters::ThinGeometryCoverageTexture,
+                                    inputs.ThinGeometryCoverage, sampled, all )
+                          .Sampler( TSRDetectThinGeometryShaderParameters::PointClampSampler, point )
+                          .Texture( TSRDetectThinGeometryShaderParameters::ReprojectedCoverageTexture,
+                                    reprojectedCoverage, sampled, all )
+                          .Texture( TSRDetectThinGeometryShaderParameters::ReprojectionBoundaryTexture,
+                                    reprojBoundary, sampled, all )
+                          .Storage( TSRDetectThinGeometryShaderParameters::ThinGeometryTexture, thinGeometry,
+                                    RDG::Access::StorageWrite, 0 )
+                          .Storage( TSRDetectThinGeometryShaderParameters::CoverageOutTexture, coverage.Current,
+                                    RDG::Access::StorageWrite, 0 );
                      if ( intensityLines )
-                         bindings.Texture( "FlickeringLumaTexture", inputs.OpaqueLuma, sampled, all );
+                         bindings.Texture( TSRDetectThinGeometryShaderParameters::FlickeringLumaTexture,
+                                           inputs.OpaqueLuma, sampled, all );
                  },
                  dispatch( kDetectThinGeometry, thinGeometryDefines, render, kThinGeometryTileOutput ) );
 
@@ -718,19 +884,30 @@ namespace Desert::Graphic
              {
                  RDG::BindingBlockBuilder bindings =
                       pass.Bindings( TsrRejectShadingLayout( quality.ThinGeometryDetection ), RDG::OtherRouteFill{} );
-                 bindings.Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                      .Texture( "SceneColorTexture", inputs.SceneColor, sampled, all )
-                      .Texture( "ExposureTexture", inputs.Exposure, sampled, all )
-                      .Texture( "ReprojectedGuideTexture", reprojectedGuide, sampled, all )
-                      .Texture( "ReprojectedMoireTexture", reprojectedMoire, sampled, all )
-                      .Texture( "ResurrectedGuideTexture", resurrectedGuide, sampled, all )
-                      .Sampler( "PointClampSampler", point )
-                      .Storage( "HistoryRejectionTexture", historyRejection, RDG::Access::StorageWrite, 0 )
-                      .Storage( "GuideOutTexture", guide.Current, RDG::Access::StorageWrite, 0 )
-                      .Storage( "MoireOutTexture", moire.Current, RDG::Access::StorageWrite, 0 )
-                      .Storage( "AntiAliasInputTexture", antiAliasInput, RDG::Access::StorageWrite, 0 );
+                 bindings
+                      .Storage( TSRRejectShadingShaderParameters::TSRParamsBuffer, buffer,
+                                RDG::Access::StorageRead )
+                      .Texture( TSRRejectShadingShaderParameters::SceneColorTexture, inputs.SceneColor, sampled,
+                                all )
+                      .Texture( TSRRejectShadingShaderParameters::ExposureTexture, inputs.Exposure, sampled, all )
+                      .Texture( TSRRejectShadingShaderParameters::ReprojectedGuideTexture, reprojectedGuide,
+                                sampled, all )
+                      .Texture( TSRRejectShadingShaderParameters::ReprojectedMoireTexture, reprojectedMoire,
+                                sampled, all )
+                      .Texture( TSRRejectShadingShaderParameters::ResurrectedGuideTexture, resurrectedGuide,
+                                sampled, all )
+                      .Sampler( TSRRejectShadingShaderParameters::PointClampSampler, point )
+                      .Storage( TSRRejectShadingShaderParameters::HistoryRejectionTexture, historyRejection,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( TSRRejectShadingShaderParameters::GuideOutTexture, guide.Current,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( TSRRejectShadingShaderParameters::MoireOutTexture, moire.Current,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( TSRRejectShadingShaderParameters::AntiAliasInputTexture, antiAliasInput,
+                                RDG::Access::StorageWrite, 0 );
                  if ( quality.ThinGeometryDetection )
-                     bindings.Texture( "ThinGeometryTexture", thinGeometry, sampled, all );
+                     bindings.Texture( TSRRejectShadingShaderParameters::ThinGeometryTexture, thinGeometry,
+                                       sampled, all );
              },
              dispatch( kRejectShading, rejectDefines, render,
                        quality.ThinGeometryDetection ? kRejectShadingThinGeometryTile : kRejectShadingTile ) );
@@ -742,10 +919,13 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( TsrSpatialAntiAliasingLayout(), RDG::OtherRouteFill{} )
-                      .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                      .Texture( "AntiAliasInputTexture", antiAliasInput, sampled, all )
-                      .Sampler( "LinearClampSampler", linear )
-                      .Storage( "AntiAliasingTexture", antiAliasing, RDG::Access::StorageWrite, 0 );
+                      .Storage( TSRSpatialAntiAliasingShaderParameters::TSRParamsBuffer, buffer,
+                                RDG::Access::StorageRead )
+                      .Texture( TSRSpatialAntiAliasingShaderParameters::AntiAliasInputTexture, antiAliasInput,
+                                sampled, all )
+                      .Sampler( TSRSpatialAntiAliasingShaderParameters::LinearClampSampler, linear )
+                      .Storage( TSRSpatialAntiAliasingShaderParameters::AntiAliasingTexture, antiAliasing,
+                                RDG::Access::StorageWrite, 0 );
              },
              dispatch( kSpatialAntiAliasing, spatialDefines, render ) );
 
@@ -755,23 +935,35 @@ namespace Desert::Graphic
              {
                  RDG::BindingBlockBuilder bindings =
                       pass.Bindings( TsrUpdateHistoryLayout( historyIsOutput ), RDG::OtherRouteFill{} );
-                 bindings.Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                      .Texture( "SceneColorTexture", inputs.SceneColor, sampled, all )
-                      .Texture( "ExposureTexture", inputs.Exposure, sampled, all )
-                      .Texture( "ResponsiveAaTexture", inputs.ResponsiveAA, sampled, all )
-                      .Texture( "DilatedVelocityTexture", dilatedVelocity, sampled, all )
-                      .Texture( "HistoryRejectionTexture", historyRejection, sampled, all )
-                      .Texture( "AntiAliasingTexture", antiAliasing, sampled, all )
-                      .Texture( "PreviousHistoryTexture", color.Previous, sampled, all )
-                      .Texture( "ClosestDepthTexture", closestDepth, sampled, all )
-                      .Texture( "ReprojectionJacobianTexture", reprojJacobian, sampled, all )
-                      .Texture( "ReprojectionBoundaryTexture", reprojBoundary, sampled, all )
-                      .Texture( "ResurrectionHistoryTexture", resurrectionColor, sampled, all )
-                      .Sampler( "LinearClampSampler", linear )
-                      .Sampler( "PointClampSampler", point )
-                      .Storage( "HistoryOutTexture", color.Current, RDG::Access::StorageWrite, 0 );
+                 bindings
+                      .Storage( TSRUpdateHistoryShaderParameters::TSRParamsBuffer, buffer,
+                                RDG::Access::StorageRead )
+                      .Texture( TSRUpdateHistoryShaderParameters::SceneColorTexture, inputs.SceneColor, sampled,
+                                all )
+                      .Texture( TSRUpdateHistoryShaderParameters::ExposureTexture, inputs.Exposure, sampled, all )
+                      .Texture( TSRUpdateHistoryShaderParameters::ResponsiveAaTexture, inputs.ResponsiveAA,
+                                sampled, all )
+                      .Texture( TSRUpdateHistoryShaderParameters::DilatedVelocityTexture, dilatedVelocity, sampled,
+                                all )
+                      .Texture( TSRUpdateHistoryShaderParameters::HistoryRejectionTexture, historyRejection,
+                                sampled, all )
+                      .Texture( TSRUpdateHistoryShaderParameters::AntiAliasingTexture, antiAliasing, sampled, all )
+                      .Texture( TSRUpdateHistoryShaderParameters::PreviousHistoryTexture, color.Previous, sampled,
+                                all )
+                      .Texture( TSRUpdateHistoryShaderParameters::ClosestDepthTexture, closestDepth, sampled, all )
+                      .Texture( TSRUpdateHistoryShaderParameters::ReprojectionJacobianTexture, reprojJacobian,
+                                sampled, all )
+                      .Texture( TSRUpdateHistoryShaderParameters::ReprojectionBoundaryTexture, reprojBoundary,
+                                sampled, all )
+                      .Texture( TSRUpdateHistoryShaderParameters::ResurrectionHistoryTexture, resurrectionColor,
+                                sampled, all )
+                      .Sampler( TSRUpdateHistoryShaderParameters::LinearClampSampler, linear )
+                      .Sampler( TSRUpdateHistoryShaderParameters::PointClampSampler, point )
+                      .Storage( TSRUpdateHistoryShaderParameters::HistoryOutTexture, color.Current,
+                                RDG::Access::StorageWrite, 0 );
                  if ( historyIsOutput )
-                     bindings.Storage( "OutputTexture", sceneColorOutput, RDG::Access::StorageWrite, 0 );
+                     bindings.Storage( TSRUpdateHistoryShaderParameters::OutputTexture, sceneColorOutput,
+                                       RDG::Access::StorageWrite, 0 );
              },
              dispatch( kUpdateHistory, updateDefines, history ) );
 
@@ -781,12 +973,16 @@ namespace Desert::Graphic
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( TsrResolveHistoryLayout(), RDG::OtherRouteFill{} )
-                          .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                          .Texture( "ExposureTexture", inputs.Exposure, sampled, all )
-                          .Texture( "CurrentHistoryTexture", color.Current, sampled, all )
-                          .Sampler( "LinearClampSampler", linear )
-                          .Sampler( "PointClampSampler", point )
-                          .Storage( "OutputTexture", sceneColorOutput, RDG::Access::StorageWrite, 0 );
+                          .Storage( TSRResolveHistoryShaderParameters::TSRParamsBuffer, buffer,
+                                    RDG::Access::StorageRead )
+                          .Texture( TSRResolveHistoryShaderParameters::ExposureTexture, inputs.Exposure, sampled,
+                                    all )
+                          .Texture( TSRResolveHistoryShaderParameters::CurrentHistoryTexture, color.Current,
+                                    sampled, all )
+                          .Sampler( TSRResolveHistoryShaderParameters::LinearClampSampler, linear )
+                          .Sampler( TSRResolveHistoryShaderParameters::PointClampSampler, point )
+                          .Storage( TSRResolveHistoryShaderParameters::OutputTexture, sceneColorOutput,
+                                    RDG::Access::StorageWrite, 0 );
                  },
                  dispatch( kResolveHistory, "", output ) );
 
@@ -801,11 +997,15 @@ namespace Desert::Graphic
                      [&]( RDG::PassBuilder& pass )
                      {
                          pass.Bindings( TsrRecordPersistentFrameLayout(), RDG::OtherRouteFill{} )
-                              .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                              .Texture( "ExposureTexture", inputs.Exposure, sampled, all )
-                              .Texture( "PersistentSourceTexture", source, sampled, all )
-                              .Sampler( "PointClampSampler", point )
-                              .Storage( "DestinationColorTexture", destination, RDG::Access::StorageWrite, 0 );
+                              .Storage( TSRResurrectionRecordShaderParameters::TSRParamsBuffer, buffer,
+                                        RDG::Access::StorageRead )
+                              .Texture( TSRResurrectionRecordShaderParameters::ExposureTexture, inputs.Exposure,
+                                        sampled, all )
+                              .Texture( TSRResurrectionRecordShaderParameters::PersistentSourceTexture, source,
+                                        sampled, all )
+                              .Sampler( TSRResurrectionRecordShaderParameters::PointClampSampler, point )
+                              .Storage( TSRResurrectionRecordShaderParameters::DestinationColorTexture,
+                                        destination, RDG::Access::StorageWrite, 0 );
                      },
                      dispatch( kRecordPersistent, std::format( "TSR_RECORD_GUIDE={}", guideVariant ), extent ) );
             };
@@ -859,13 +1059,16 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( TsrMeasureFlickeringLumaLayout(), RDG::OtherRouteFill{} )
-                      .Storage( "TSRParamsBuffer", buffer, RDG::Access::StorageRead )
-                      .Texture( "SceneColorTexture", inputs.SceneColor, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Texture( "ExposureTexture", inputs.Exposure, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Storage( "FlickeringLumaTexture", luma, RDG::Access::StorageWrite, 0 );
+                      .Storage( TSRMeasureFlickeringLumaShaderParameters::TSRParamsBuffer, buffer,
+                                RDG::Access::StorageRead )
+                      .Texture( TSRMeasureFlickeringLumaShaderParameters::SceneColorTexture, inputs.SceneColor,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( TSRMeasureFlickeringLumaShaderParameters::ExposureTexture, inputs.Exposure,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( TSRMeasureFlickeringLumaShaderParameters::PointClampSampler,
+                                RDG::SamplerDesc::PointClamp() )
+                      .Storage( TSRMeasureFlickeringLumaShaderParameters::FlickeringLumaTexture, luma,
+                                RDG::Access::StorageWrite, 0 );
              },
              [this, render]( RDG::PassContext& context ) -> Common::BoolResultStr
              {

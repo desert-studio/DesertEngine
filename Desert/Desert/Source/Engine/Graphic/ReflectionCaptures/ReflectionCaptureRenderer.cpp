@@ -47,6 +47,21 @@ namespace
         DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
         DESERT_SHADER_PARAMETER( StorageTexture, DestinationCubeTexture );
     };
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ReflectionCaptureBlendShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, CubesTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ReflectionCaptureDiffuseShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, EnvironmentIrradianceTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ReflectionCaptureDiffusePointsUB );
+        DESERT_SHADER_PARAMETER( StorageTexture, CubesTexture );
+    };
+
 } // namespace
 
 namespace Desert::Graphic
@@ -805,7 +820,8 @@ namespace Desert::Graphic
                      // Read-modify-write of this mip: the staging layers are read, the live ones written.
                      pass.Bindings( m_BlendLayout.Get( m_Blend->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_Blend ) )
-                          .Storage( "CubesTexture", array, RDG::Access::StorageWrite, mip )
+                          .Storage( ReflectionCaptureBlendShaderParameters::CubesTexture, array,
+                                    RDG::Access::StorageWrite, mip )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( BlendPush ) ) );
                  },
                  [pipeline = m_Blend, push, mip,
@@ -879,11 +895,15 @@ namespace Desert::Graphic
                  const auto            all = RDG::SubresourceRange::All();
                  pass.Bindings( m_DiffuseLayout.Get( m_Diffuse->GetSpecification().Shader ),
                                 Renderer::GetPipelineRouteFill( *m_Diffuse ) )
-                      .Texture( "EnvironmentIrradianceTexture", sky, kS, all )
-                      .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                      .Storage( "ReflectionCaptureDiffusePointsUB", pointsBuffer, kR )
+                      .Texture( ReflectionCaptureDiffuseShaderParameters::EnvironmentIrradianceTexture, sky, kS,
+                                all )
+                      .Sampler( ReflectionCaptureDiffuseShaderParameters::LinearClampSampler,
+                                RDG::SamplerDesc::LinearClamp() )
+                      .Storage( ReflectionCaptureDiffuseShaderParameters::ReflectionCaptureDiffusePointsUB,
+                                pointsBuffer, kR )
                       // Read-modify-write of the last mip: its rgb is the roughest radiance and stays.
-                      .Storage( "CubesTexture", array, RDG::Access::StorageWrite, lastMip )
+                      .Storage( ReflectionCaptureDiffuseShaderParameters::CubesTexture, array,
+                                RDG::Access::StorageWrite, lastMip )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( DiffusePush ) ) );
              },
              [pipeline = m_Diffuse, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr

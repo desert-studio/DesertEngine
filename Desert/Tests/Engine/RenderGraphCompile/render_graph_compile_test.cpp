@@ -3983,7 +3983,9 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
              "SampledCompute,",
              ".Texture(VolumetricCloudShaderParameters::CloudAerialPerspectiveTexture,aerialPerspective,RDG::"
              "Access::SampledCompute,",
-             R"(.Texture("CloudSunTransmittanceLutTexture",sunTransmittanceLut,RDG::Access::SampledCompute,)",
+             ".Texture(VolumetricCloudShaderParameters::CloudSunTransmittanceLutTexture,sunTransmittanceLut,RDG::"
+             "Access::"
+             "SampledCompute,",
              // The trace pair: block entries of the march (written) and of the resolve (sampled).
              ".Storage(VolumetricCloudShaderParameters::CloudScatterTexture,trace,RDG::Access::StorageWrite)",
              ".Texture(VolumetricCloudShaderParameters::CloudTraceTexture,trace,RDG::Access::SampledCompute",
