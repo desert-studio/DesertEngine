@@ -4,6 +4,8 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <glm/mat4x4.hpp>
+
 #include <cstdint>
 #include <string>
 
@@ -97,4 +99,44 @@ namespace Desert::Geometry
     };
     [[nodiscard]] Common::ResultStr<DeformOutcome> Offset( const DynamicMesh3&   mesh,
                                                            const OffsetSettings& settings );
+    // UE ENonlinearOperationType: the space deformer UMeshSpaceDeformerTool (Warp) runs.
+    enum class WarpOperation : uint8_t
+    {
+        Bend,  // UE FBendMeshOp: the [Lower, Upper] slab along the frame's Z bends into an arc of BendDegrees
+        Twist, // UE FTwistMeshOp: rotation about the frame's Z growing linearly to TwistDegrees across the slab
+        Flare, // UE FFlareMeshOp: the frame's X / Y scaled by 1 + FlarePercent * profile( t ) across the slab
+    };
+    [[nodiscard]] const char* ToString( WarpOperation operation );
+
+    // UE EFlareProfileType (the tool's names; the op's SinFlare / SinSqrFlare / LinearFlare).
+    enum class FlareProfile : uint8_t
+    {
+        SinMode,    // sin( pi t )
+        SinSquared, // sin^2( pi t )
+        Triangle,   // 2t up to the middle, 2(1 - t) after it
+    };
+    [[nodiscard]] const char* ToString( FlareProfile profile );
+
+    // ---- Warp (UE UMeshSpaceDeformerTool / UMeshSpaceDeformerToolProperties, ops SpaceDeformerOps/*) ----
+    // Every vertex is taken into the deformer's frame (the tool's gizmo), deformed there along the frame's Z
+    // between LowerBound and UpperBound (cm, measured from the frame origin), and taken back. The frame is
+    // passed as objectToGizmo: the mesh's object space to the gizmo frame, i.e. inverse( gizmo world ) *
+    // entity world, as UE's FMeshSpaceDeformerOp composes it - so a scaled entity deforms in world proportions.
+    struct WarpSettings
+    {
+        WarpOperation Operation        = WarpOperation::Bend;
+        float         UpperBound       = 100.0f;  // UE UpperBoundsInterval, >= 0
+        float         LowerBound       = -100.0f; // UE LowerBoundsInterval, <= 0
+        float         BendDegrees      = 90.0f;   // UE BendDegrees, -3600..3600
+        float         TwistDegrees     = 180.0f;  // UE TwistDegrees, -3600..3600
+        FlareProfile  Profile          = FlareProfile::SinMode;
+        float         FlarePercentY    = 100.0f; // UE FlarePercentY, -1000..2000
+        float         FlarePercentX    = 100.0f; // UE FlarePercentX, read when LockXAndYFlaring is off
+        bool          LockXAndYFlaring = true;   // UE bLockXAndYFlaring: X flares by FlarePercentY too
+        bool          LockBottom       = false;  // UE bLockBottom (Bend / Twist): the slab's bottom stays put
+
+        bool operator==( const WarpSettings& ) const = default;
+    };
+    [[nodiscard]] Common::ResultStr<DeformOutcome> Warp( const DynamicMesh3& mesh, const WarpSettings& settings,
+                                                         const glm::dmat4& objectToGizmo );
 } // namespace Desert::Geometry

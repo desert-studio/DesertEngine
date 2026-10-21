@@ -38,6 +38,12 @@ namespace Desert::Editor::Tools
         // have placed its gizmo through another one's projection and dragged the wrong direction.
         void RenderObject( ::Desert::Core::Scene& scene, const std::shared_ptr<::Desert::Core::Camera>& camera,
                            const glm::vec2& viewportPos, const glm::vec2& viewportSize );
+        // A tool's own frame (UE's combined translate + rotate gizmo on a tool's transform proxy, e.g. Warp's
+        // deformer): edits @p frame in place, in its local space. No undo - the frame is tool state. True on a
+        // frame the drag changed it.
+        bool RenderFrame( const char* site, glm::mat4& frame,
+                          const std::shared_ptr<::Desert::Core::Camera>& camera, const glm::vec2& viewportPos,
+                          const glm::vec2& viewportSize );
         // Bone gizmo (Skeleton Edit mode) — edits the selected bone's LocalBindTransform.
         void RenderBone( ::Desert::Core::Scene& scene, const std::shared_ptr<::Desert::Core::Camera>& camera,
                          const glm::vec2& viewportPos, const glm::vec2& viewportSize );

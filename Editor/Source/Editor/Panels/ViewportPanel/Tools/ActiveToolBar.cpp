@@ -39,6 +39,8 @@ namespace Desert::Editor::Tools
                 return { ICON_MDI_BLUR, "Smooth", true };
             case T::Offset:
                 return { ICON_MDI_ARROW_EXPAND_ALL, "Offset", true };
+            case T::Warp:
+                return { ICON_MDI_ROTATE_ORBIT, "Warp", true };
         }
         return {};
     }

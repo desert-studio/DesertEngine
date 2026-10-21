@@ -140,7 +140,8 @@ namespace Desert::Editor
             else if ( ms.ActiveTool == MS::Tool::AutoUV || ms.ActiveTool == MS::Tool::UVProject ||
                       ms.ActiveTool == MS::Tool::UVUnwrap || ms.ActiveTool == MS::Tool::UVLayout )
                 m_Category = static_cast<int>( Palette::UVs );
-            else if ( ms.ActiveTool == MS::Tool::Smooth || ms.ActiveTool == MS::Tool::Offset )
+            else if ( ms.ActiveTool == MS::Tool::Smooth || ms.ActiveTool == MS::Tool::Offset ||
+                      ms.ActiveTool == MS::Tool::Warp )
                 m_Category = static_cast<int>( Palette::Deform );
         }
 
@@ -594,9 +595,10 @@ namespace Desert::Editor
             const char* Name;
             MS::Tool    Tool;
         };
-        constexpr std::array<DeformToolEntry, 2> kDeformTools = {
+        constexpr std::array<DeformToolEntry, 3> kDeformTools = {
              { { ICON_MDI_BLUR, "Smooth", MS::Tool::Smooth },
-               { ICON_MDI_ARROW_EXPAND_ALL, "Offset", MS::Tool::Offset } } };
+               { ICON_MDI_ARROW_EXPAND_ALL, "Offset", MS::Tool::Offset },
+               { ICON_MDI_ROTATE_ORBIT, "Warp", MS::Tool::Warp } } };
         for ( size_t i = 0; i < kDeformTools.size(); ++i )
         {
             const bool on = ms.ActiveTool == kDeformTools[i].Tool;
@@ -692,6 +694,56 @@ namespace Desert::Editor
                 if ( s.Type == Geometry::OffsetType::Iterative ) // UE: Implicit always holds the boundary
                     ImGui::Checkbox( "Offset Boundary##Offset", &s.OffsetBoundary );
                 ImGui::Checkbox( "Pin UV Seams##Offset", &s.PinUVSeams );
+                break;
+            }
+            case MS::Tool::Warp:
+            {
+                // UE UMeshSpaceDeformerToolProperties, its ranges and EditConditions.
+                auto&                 s      = ms.DeformWarp;
+                int                   op     = static_cast<int>( s.Operation );
+                constexpr const char* kOps[] = { "Bend", "Twist", "Flare" };
+                row( "Operation Type" );
+                if ( ImGui::Combo( "##WarpOperation", &op, kOps, 3 ) )
+                    s.Operation = static_cast<Geometry::WarpOperation>( op );
+                row( "Upper Bound" );
+                ImGui::DragFloat( "##WarpUpper", &s.UpperBound, 0.5f, 0.0f, 100000.0f, "%.1f cm",
+                                  ImGuiSliderFlags_AlwaysClamp );
+                row( "Lower Bound" );
+                ImGui::DragFloat( "##WarpLower", &s.LowerBound, 0.5f, -100000.0f, 0.0f, "%.1f cm",
+                                  ImGuiSliderFlags_AlwaysClamp );
+                if ( s.Operation == Geometry::WarpOperation::Bend )
+                {
+                    row( "Bend Degrees" );
+                    ImGui::SliderFloat( "##WarpBend", &s.BendDegrees, -360.0f, 360.0f, "%.1f" );
+                    s.BendDegrees = std::clamp( s.BendDegrees, -3600.0f, 3600.0f );
+                }
+                else if ( s.Operation == Geometry::WarpOperation::Twist )
+                {
+                    row( "Twist Degrees" );
+                    ImGui::SliderFloat( "##WarpTwist", &s.TwistDegrees, -360.0f, 360.0f, "%.1f" );
+                    s.TwistDegrees = std::clamp( s.TwistDegrees, -3600.0f, 3600.0f );
+                }
+                else
+                {
+                    int                   profile    = static_cast<int>( s.Profile );
+                    constexpr const char* kProfile[] = { "Sin Mode", "Sin Squared", "Triangle" };
+                    row( "Flare Profile Type" );
+                    if ( ImGui::Combo( "##WarpProfile", &profile, kProfile, 3 ) )
+                        s.Profile = static_cast<Geometry::FlareProfile>( profile );
+                    row( "Flare Percent Y" );
+                    ImGui::SliderFloat( "##WarpFlareY", &s.FlarePercentY, -100.0f, 200.0f, "%.0f %%" );
+                    s.FlarePercentY = std::clamp( s.FlarePercentY, -1000.0f, 2000.0f );
+                    ImGui::Checkbox( "Lock X and Y Flaring##Warp", &s.LockXAndYFlaring );
+                    if ( !s.LockXAndYFlaring )
+                    {
+                        row( "Flare Percent X" );
+                        ImGui::SliderFloat( "##WarpFlareX", &s.FlarePercentX, -100.0f, 200.0f, "%.0f %%" );
+                        s.FlarePercentX = std::clamp( s.FlarePercentX, -1000.0f, 2000.0f );
+                    }
+                }
+                if ( s.Operation != Geometry::WarpOperation::Flare )
+                    ImGui::Checkbox( "Lock Bottom##Warp", &s.LockBottom );
+                ImGui::TextDisabled( "The viewport gizmo is the deformer's frame: Z is the axis." );
                 break;
             }
             default:

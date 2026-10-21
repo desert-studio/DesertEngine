@@ -597,9 +597,9 @@ namespace Desert::Editor
                                       Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                       return PaletteCommandDone();
                                   } } );
-        // UE's Deform palette: Smooth and Offset (DeformTool), committed the same way as the UV tools.
+        // UE's Deform palette: Smooth, Offset and Warp (DeformTool), committed the same way as the UV tools.
         for ( const auto& [name, tool] : std::initializer_list<std::pair<const char*, MS::Tool>>{
-                   { "Smooth", MS::Tool::Smooth }, { "Offset", MS::Tool::Offset } } )
+                   { "Smooth", MS::Tool::Smooth }, { "Offset", MS::Tool::Offset }, { "Warp", MS::Tool::Warp } } )
             commands.push_back( { "Modeling", std::string( "Deform tool: " ) + name, [tool]
                                   {
                                       MS::Get().ActiveTool = tool;
@@ -637,6 +637,25 @@ namespace Desert::Editor
                                       MS::Get().DeformOffset.Type = type;
                                       return PaletteCommandDone();
                                   } } );
+        for ( const Geometry::WarpOperation op :
+              { Geometry::WarpOperation::Bend, Geometry::WarpOperation::Twist, Geometry::WarpOperation::Flare } )
+            commands.push_back( { "Modeling", std::string( "Warp operation: " ) + Geometry::ToString( op ), [op]
+                                  {
+                                      MS::Get().DeformWarp.Operation = op;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::FlareProfile profile :
+              { Geometry::FlareProfile::SinMode, Geometry::FlareProfile::SinSquared,
+                Geometry::FlareProfile::Triangle } )
+            commands.push_back( { "Modeling",
+                                  std::string( "Warp flare profile: " ) + Geometry::ToString( profile ), [profile]
+                                  {
+                                      MS::Get().DeformWarp.Profile = profile;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Modeling", "Warp: Lock Bottom", []( MS& ms, bool on ) { ms.DeformWarp.LockBottom = on; } );
+        modelingOnOff( "Modeling", "Warp: Lock X and Y Flaring",
+                       []( MS& ms, bool on ) { ms.DeformWarp.LockXAndYFlaring = on; } );
         modelingOnOff( "Modeling", "Smooth: Smooth Boundary",
                        []( MS& ms, bool on ) { ms.DeformSmooth.SmoothBoundary = on; } );
         modelingOnOff( "Modeling", "Smooth: Pin UV Seams",

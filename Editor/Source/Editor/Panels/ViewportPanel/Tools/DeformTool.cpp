@@ -29,9 +29,49 @@ namespace Desert::Editor::Tools
                     return "Smooth";
                 case MS::Tool::Offset:
                     return "Offset";
+                case MS::Tool::Warp:
+                    return "Warp";
                 default:
                     return "?";
             }
+        }
+
+        glm::mat4 WorldOf( ::Desert::Core::Scene& scene, const Common::UUID& id )
+        {
+            auto ref = scene.FindEntityByID( id );
+            return ref ? ref->get().GetWorldTransform() : glm::mat4( 1.0f );
+        }
+
+        // UE UMeshSpaceDeformerTool::Setup: the gizmo on the mesh's bounds centre, its Z (the deformation axis)
+        // along the longest side after the entity's scale, the bounds +-half that length, turned with the
+        // entity. UE prefers its up axis Z on a tie; ours is Y, so Y wins ties here, then Z, then X - the same
+        // cyclic frames UE builds (Z major: X,Y,Z; Y major: Z,X,Y; X major: Y,Z,X), re-ordered for Y-up.
+        void PlaceWarpGizmo( const Geometry::DynamicMesh3& mesh, const glm::mat4& world, MS& ms )
+        {
+            const auto      box = mesh.GetBounds();
+            const glm::vec3 lo = glm::vec3( box.Min ), hi = glm::vec3( box.Max );
+            const bool      empty  = !( lo.x <= hi.x );
+            const glm::vec3 centre = empty ? glm::vec3( 0.0f ) : 0.5f * ( lo + hi );
+            const glm::vec3 scale( glm::length( glm::vec3( world[0] ) ), glm::length( glm::vec3( world[1] ) ),
+                                   glm::length( glm::vec3( world[2] ) ) );
+            const glm::vec3 dims = empty ? glm::vec3( 0.0f ) : ( hi - lo ) * scale;
+            glm::mat3       rotation( 1.0f );
+            for ( int c = 0; c < 3; ++c )
+                if ( scale[c] > 0.0f )
+                    rotation[c] = glm::vec3( world[c] ) / scale[c];
+            const glm::vec3 X( 1, 0, 0 ), Y( 0, 1, 0 ), Z( 0, 0, 1 );
+            glm::vec3       ax, ay, az;
+            float           major;
+            if ( dims.y >= dims.x && dims.y >= dims.z )
+                ax = Z, ay = X, az = Y, major = dims.y;
+            else if ( dims.z >= dims.x )
+                ax = X, ay = Y, az = Z, major = dims.z;
+            else
+                ax = Y, ay = Z, az = X, major = dims.x;
+            ms.WarpGizmo = glm::mat4( glm::vec4( rotation * ax, 0.0f ), glm::vec4( rotation * ay, 0.0f ),
+                                      glm::vec4( rotation * az, 0.0f ), world * glm::vec4( centre, 1.0f ) );
+            ms.DeformWarp.UpperBound = 0.5f * major;
+            ms.DeformWarp.LowerBound = -0.5f * major;
         }
 
         ECS::StaticMeshComponent* MeshOf( ::Desert::Core::Scene& scene, const Common::UUID& id )
@@ -45,7 +85,7 @@ namespace Desert::Editor::Tools
 
     bool DeformTool::IsDeformTool( MS::Tool tool )
     {
-        return tool == MS::Tool::Smooth || tool == MS::Tool::Offset;
+        return tool == MS::Tool::Smooth || tool == MS::Tool::Offset || tool == MS::Tool::Warp;
     }
 
     void DeformTool::Update( ::Desert::Core::Scene& scene )
@@ -112,6 +152,8 @@ namespace Desert::Editor::Tools
         }
         m_Session =
              Session{ ms.ActiveTool, *selected, target.GetValue().Mesh, target.GetValue().Committed, nullptr };
+        if ( ms.ActiveTool == MS::Tool::Warp )
+            PlaceWarpGizmo( *m_Session->Input, WorldOf( scene, *selected ), ms );
         Recompute( scene, ms );
     }
 
@@ -119,10 +161,23 @@ namespace Desert::Editor::Tools
     {
         m_Smooth                                             = ms.DeformSmooth;
         m_Offset                                             = ms.DeformOffset;
+        m_Warp                                               = ms.DeformWarp;
+        m_WarpGizmo                                          = ms.WarpGizmo;
         const Geometry::DynamicMesh3&              input     = *m_Session->Input;
-        Common::ResultStr<Geometry::DeformOutcome> out       = m_Session->Tool == MS::Tool::Smooth
-                                                                    ? Geometry::Smooth( input, ms.DeformSmooth )
-                                                                    : Geometry::Offset( input, ms.DeformOffset );
+        Common::ResultStr<Geometry::DeformOutcome> out       = [&]
+        {
+            switch ( m_Session->Tool )
+            {
+                case MS::Tool::Smooth:
+                    return Geometry::Smooth( input, ms.DeformSmooth );
+                case MS::Tool::Offset:
+                    return Geometry::Offset( input, ms.DeformOffset );
+                default: // Warp: object space -> the gizmo's frame, as UE's FMeshSpaceDeformerOp::ObjectToGizmo
+                    return Geometry::Warp( input, ms.DeformWarp,
+                                           glm::inverse( glm::dmat4( ms.WarpGizmo ) ) *
+                                                glm::dmat4( WorldOf( scene, m_Session->Entity ) ) );
+            }
+        }();
         ECS::StaticMeshComponent*                  component = MeshOf( scene, m_Session->Entity );
         if ( !out.IsSuccess() )
         {
@@ -196,6 +251,8 @@ namespace Desert::Editor::Tools
                 return !( ms.DeformSmooth == m_Smooth );
             case MS::Tool::Offset:
                 return !( ms.DeformOffset == m_Offset );
+            case MS::Tool::Warp:
+                return !( ms.DeformWarp == m_Warp ) || ms.WarpGizmo != m_WarpGizmo;
             default:
                 return false;
         }

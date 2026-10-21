@@ -15,7 +15,8 @@ namespace Desert::Core
 
 namespace Desert::Editor::Tools
 {
-    // Modeling Mode -> Deform: Smooth and Offset (UE's USmoothMeshTool and UOffsetMeshTool, Iterative type;
+    // Modeling Mode -> Deform: Smooth, Offset and Warp (UE's USmoothMeshTool, UOffsetMeshTool and
+    // UMeshSpaceDeformerTool, whose frame is the viewport gizmo on ModelingState::WarpGizmo;
     // operators in Geometry/MeshDeformOperations.hpp). The same session as UE's base-mesh-processing tools and
     // our UVTool:
     //   - start: the tool target (GetToolTargetMesh) is the input, and what the component holds is the "before";
@@ -31,6 +32,11 @@ namespace Desert::Editor::Tools
         void Update( ::Desert::Core::Scene& scene );
 
         [[nodiscard]] static bool IsDeformTool( Core::ModelingState::Tool tool );
+        // Warp is previewing: the viewport draws its frame gizmo (ModelingState::WarpGizmo).
+        [[nodiscard]] bool HasWarpSession() const
+        {
+            return m_Session.has_value() && m_Session->Tool == Core::ModelingState::Tool::Warp;
+        }
 
     private:
         struct Session
@@ -52,5 +58,7 @@ namespace Desert::Editor::Tools
         // The settings the preview was computed with.
         Geometry::SmoothSettings m_Smooth;
         Geometry::OffsetSettings m_Offset;
+        Geometry::WarpSettings   m_Warp;
+        glm::mat4                m_WarpGizmo{ 1.0f };
     };
 } // namespace Desert::Editor::Tools

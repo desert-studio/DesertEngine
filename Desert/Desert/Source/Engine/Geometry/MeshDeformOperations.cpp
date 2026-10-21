@@ -15,6 +15,11 @@
 //            Implicit VolumeCorrection pushes each fairing target along the input normal, as UE's NormalOffset.
 //   Offset, Implicit - UE 5.8 DeformationOps/MeshOffsetOps.h FLaplacianOffsetMeshOp: the constrained deformer
 //            (|L x - L p|^2 kept) softly pulled to p + Distance n; open boundary held as UE's interior-only solve.
+//   Warp - UE 5.8 ModelingOperators/MeshSpaceDeformerOps (FMeshSpaceDeformerOp ObjectToGizmo, FBendMeshOp after
+//            Barr's "Global and Local Deformations of Solid Primitives" in the y-up gizmo space, FTwistMeshOp,
+//            FFlareMeshOp); UE transforms the normal overlay analytically, here normals are recomputed in Finish
+//            like the other Deform operators. A zero-length slab (Upper == Lower) is refused for Twist / Flare,
+//            where UE divides by it.
 // Deviation from UE: the cotan centroid clamps a negative edge weight (an obtuse opposite angle pair) to zero
 // so an explicit step can never push a vertex away from its ring; UE leaves the weight signed and relies on
 // small SmoothAlpha. Rounds run serially (UE ParallelFor) - Modeling Mode recomputes synchronously.
@@ -555,5 +560,155 @@ namespace Desert::Geometry
                        fmt::format( "offset {:.2f} cm in {} steps, {} smoothing {:.2f} per step",
                                     settings.Distance, settings.Steps, ToString( settings.WeightType ),
                                     settings.SmoothingPerStep ) );
+    }
+    const char* ToString( WarpOperation operation )
+    {
+        switch ( operation )
+        {
+            case WarpOperation::Bend:
+                return "Bend";
+            case WarpOperation::Twist:
+                return "Twist";
+            case WarpOperation::Flare:
+                return "Flare";
+        }
+        return "?";
+    }
+
+    const char* ToString( FlareProfile profile )
+    {
+        switch ( profile )
+        {
+            case FlareProfile::SinMode:
+                return "Sin Mode";
+            case FlareProfile::SinSquared:
+                return "Sin Squared";
+            case FlareProfile::Triangle:
+                return "Triangle";
+        }
+        return "?";
+    }
+
+    Common::ResultStr<DeformOutcome> Warp( const DynamicMesh3& input, const WarpSettings& settings,
+                                           const glm::dmat4& objectToGizmo )
+    {
+        if ( input.TriangleCount() == 0 )
+            return Common::MakeError<DeformOutcome>( "Warp: the mesh has no triangles" );
+        if ( !( settings.UpperBound >= 0.0f ) || !( settings.LowerBound <= 0.0f ) ||
+             !std::isfinite( settings.UpperBound ) || !std::isfinite( settings.LowerBound ) )
+            return Common::MakeError<DeformOutcome>(
+                 fmt::format( "Warp: bounds are {} / {} cm; Upper >= 0 and Lower <= 0 expected",
+                              settings.UpperBound, settings.LowerBound ) );
+        const float degrees =
+             settings.Operation == WarpOperation::Bend ? settings.BendDegrees : settings.TwistDegrees;
+        if ( settings.Operation != WarpOperation::Flare && !( std::abs( degrees ) <= 3600.0f ) )
+            return Common::MakeError<DeformOutcome>( fmt::format( "Warp: {} degrees is {}, -3600..3600 expected",
+                                                                  ToString( settings.Operation ), degrees ) );
+        const double flareY = settings.FlarePercentY / 100.0;
+        const double flareX =
+             ( settings.LockXAndYFlaring ? settings.FlarePercentY : settings.FlarePercentX ) / 100.0;
+        if ( settings.Operation == WarpOperation::Flare &&
+             !( flareX >= -10.0 && flareX <= 20.0 && flareY >= -10.0 && flareY <= 20.0 ) )
+            return Common::MakeError<DeformOutcome>( "Warp: Flare percent outside -1000..2000" );
+        const double zMin = settings.LowerBound, zMax = settings.UpperBound;
+        if ( settings.Operation != WarpOperation::Bend && zMax - zMin <= 0.0 )
+            return Common::MakeError<DeformOutcome>( fmt::format(
+                 "Warp: {} needs Upper > Lower (both bounds are 0)", ToString( settings.Operation ) ) );
+
+        // UE FBendMeshOp works in a y-up copy of the gizmo frame: (x, y, z) -> (x, z, -y).
+        glm::dmat4 toYUp( 0.0 );
+        toYUp[0][0]           = 1.0;  // column 0 = image of x
+        toYUp[1][2]           = -1.0; // y -> -z
+        toYUp[2][1]           = 1.0;  // z -> y
+        toYUp[3][3]           = 1.0;
+        const glm::dmat4 toOp = settings.Operation == WarpOperation::Bend ? toYUp * objectToGizmo : objectToGizmo;
+        if ( std::abs( glm::determinant( toOp ) ) < 1e-4 )
+            return Common::MakeError<DeformOutcome>(
+                 "Warp: the gizmo frame is singular for this mesh's transform" );
+        const glm::dmat4 fromOp = glm::inverse( toOp );
+
+        constexpr double        kPi  = 3.14159265358979323846;
+        DynamicMesh3            mesh = input;
+        std::vector<glm::dvec3> p    = Positions( mesh );
+        std::string             report;
+        if ( settings.Operation == WarpOperation::Bend )
+        {
+            const double totalAngle = -static_cast<double>( settings.BendDegrees ) * kPi / 180.0;
+            if ( std::abs( totalAngle ) >= 1e-8 ) // UE: no bend asked, the mesh is returned as is
+            {
+                const double yMin = zMin, yMax = zMax, bentLength = yMax - yMin;
+                const bool   sharp = bentLength == 0.0;
+                const double y0    = settings.LockBottom ? yMin : 0.0;
+                const double k     = sharp ? 1.0 : totalAngle / bentLength;
+                const double ik    = 1.0 / k; // the arc's radius: the rotation centre's z
+                for ( const int vid : mesh.VertexIndicesItr() )
+                {
+                    glm::dvec4   g     = toOp * glm::dvec4( p[static_cast<size_t>( vid )], 1.0 );
+                    const double yHat  = std::clamp( g.y, yMin, yMax );
+                    const double theta = sharp && g.y > y0 ? totalAngle : k * ( yHat - y0 );
+                    const double s0 = std::sin( theta ), c0 = std::cos( theta );
+                    const double zRel = g.z - ik;
+                    double       y    = -s0 * zRel + y0;
+                    double       z    = c0 * zRel + ik;
+                    if ( g.y > yMax || g.y < yMin ) // beyond the slab: carried along the arc's end tangent
+                    {
+                        const double yDiff = g.y - ( g.y > yMax ? yMax : yMin );
+                        y += c0 * yDiff;
+                        z += s0 * yDiff;
+                    }
+                    g.y                           = y;
+                    g.z                           = z;
+                    p[static_cast<size_t>( vid )] = glm::dvec3( fromOp * g );
+                }
+            }
+            report = fmt::format( "Bend {:.1f} deg over [{:.1f}, {:.1f}] cm{}", settings.BendDegrees, zMin, zMax,
+                                  settings.LockBottom ? ", bottom locked" : "" );
+        }
+        else
+        {
+            const double theta = static_cast<double>( settings.TwistDegrees ) * kPi / 180.0;
+            for ( const int vid : mesh.VertexIndicesItr() )
+            {
+                glm::dvec4   g = toOp * glm::dvec4( p[static_cast<size_t>( vid )], 1.0 );
+                const double t = std::clamp( ( g.z - zMin ) / ( zMax - zMin ), 0.0, 1.0 );
+                if ( settings.Operation == WarpOperation::Twist )
+                {
+                    const double angle = theta * ( t - ( settings.LockBottom ? 0.0 : 0.5 ) );
+                    const double c0 = std::cos( angle ), s0 = std::sin( angle );
+                    const double x = c0 * g.x - s0 * g.y;
+                    const double y = s0 * g.x + c0 * g.y;
+                    g.x            = x;
+                    g.y            = y;
+                }
+                else
+                {
+                    double profile = 0.0;
+                    switch ( settings.Profile )
+                    {
+                        case FlareProfile::Triangle:
+                            profile = t < 0.5 ? 2.0 * t : 2.0 * ( 1.0 - t );
+                            break;
+                        case FlareProfile::SinMode:
+                            profile = std::sin( kPi * t );
+                            break;
+                        case FlareProfile::SinSquared:
+                            profile = std::sin( kPi * t ) * std::sin( kPi * t );
+                            break;
+                    }
+                    g.x *= 1.0 + flareX * profile;
+                    g.y *= 1.0 + flareY * profile;
+                }
+                p[static_cast<size_t>( vid )] = glm::dvec3( fromOp * g );
+            }
+            report =
+                 settings.Operation == WarpOperation::Twist
+                      ? fmt::format( "Twist {:.1f} deg over [{:.1f}, {:.1f}] cm{}", settings.TwistDegrees, zMin,
+                                     zMax, settings.LockBottom ? ", bottom locked" : "" )
+                      : fmt::format( "Flare {} X {:.0f}% Y {:.0f}% over [{:.1f}, {:.1f}] cm",
+                                     ToString( settings.Profile ), flareX * 100.0, flareY * 100.0, zMin, zMax );
+        }
+        WritePositions( mesh, p );
+        const int32_t moved = mesh.VertexCount();
+        return Finish( std::move( mesh ), "Warp", moved, 0, std::move( report ) );
     }
 } // namespace Desert::Geometry

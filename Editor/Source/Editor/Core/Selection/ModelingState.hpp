@@ -2,6 +2,8 @@
 
 #include <string>
 
+#include <glm/mat4x4.hpp>
+
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Editor/Core/Selection/MeshBooleanTool.hpp>
@@ -38,6 +40,7 @@ namespace Desert::Editor::Core
             // UE's Deform palette (DeformTool): previews on the selected mesh and commits on Accept.
             Smooth,
             Offset,
+            Warp, // UE's UMeshSpaceDeformerTool: Bend / Twist / Flare in the frame of its gizmo
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
@@ -307,6 +310,11 @@ namespace Desert::Editor::Core
         // sets; the tool previews the selected mesh with them and recomputes whenever they change.
         Geometry::SmoothSettings DeformSmooth;
         Geometry::OffsetSettings DeformOffset;
+        // Warp (UE UMeshSpaceDeformerTool): its operation settings and its gizmo - a rigid world frame whose Z is
+        // the deformation axis and whose origin the bounds are measured from. The tool places it on the mesh's
+        // bounds centre with Z along the longest side when it starts (UE Setup), then the viewport gizmo moves it.
+        Geometry::WarpSettings DeformWarp;
+        glm::mat4              WarpGizmo{ 1.0f };
         // What the active Deform tool's preview did (its report), or why there is none - the panel shows it.
         std::string DeformStatus;
 

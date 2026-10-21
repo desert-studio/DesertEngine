@@ -2048,6 +2048,10 @@ namespace Desert::Editor
                 // Before CubeGrid: while a UV or Deform tool is active its Accept / Cancel requests are its own.
                 m_UVTool.Update( *m_Scene );
                 m_DeformTool.Update( *m_Scene );
+                // Warp's frame: UE's transform gizmo on the deformer (UMeshSpaceDeformerTool TransformProxy).
+                if ( m_DeformTool.HasWarpSession() )
+                    m_Gizmo.RenderFrame( "WarpFrame", Core::ModelingState::Get().WarpGizmo, ViewCamera(),
+                                         m_ViewportData.ViewportPos, m_ViewportData.Size );
                 m_CubeGridTool.Update( *m_Scene, Core::ModelingState::Get().CubeGridAimCentre ? centreRay : ray,
                                        viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                        m_ViewportData.IsHovered );
@@ -2561,6 +2565,7 @@ namespace Desert::Editor
             case T::UVLayout:
             case T::Smooth:
             case T::Offset:
+            case T::Warp:
                 return Tools::ToolCursor::None; // the UV and Deform tools take no click
         }
         return Tools::ToolCursor::None;

@@ -40,7 +40,7 @@ namespace Desert::Editor::Core
     };
 
     // clang-format off
-    inline constexpr std::array<ModelingStateRow, 94> kModelingStateRows = { {
+    inline constexpr std::array<ModelingStateRow, 103> kModelingStateRows = { {
          { "CubeGrid.GridFrameOrigin",  "Grid Frame Origin",  "CubeGrid", 3, false, -1.0e6f, 1.0e6f,
            []( ModelingState& s ) { return &s.GridOrigin.x; }, nullptr },
          { "CubeGrid.GridFrameOrientation", "Grid Frame Orientation", "CubeGrid", 3, false, -180.0f, 180.0f,
@@ -232,6 +232,24 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.DeformOffset.SmoothingPerStep; }, nullptr },
          { "Offset.Smoothness",         "Smoothness",         "Offset", 1, false, 0.0f, 100.0f,
            []( ModelingState& s ) { return &s.DeformOffset.Smoothness; }, nullptr },
+         { "Warp.UpperBound",           "Upper Bound",        "Warp", 1, false, 0.0f, 100000.0f,
+           []( ModelingState& s ) { return &s.DeformWarp.UpperBound; }, nullptr },
+         { "Warp.LowerBound",           "Lower Bound",        "Warp", 1, false, -100000.0f, 0.0f,
+           []( ModelingState& s ) { return &s.DeformWarp.LowerBound; }, nullptr },
+         { "Warp.BendDegrees",          "Bend Degrees",       "Warp", 1, false, -3600.0f, 3600.0f,
+           []( ModelingState& s ) { return &s.DeformWarp.BendDegrees; }, nullptr },
+         { "Warp.TwistDegrees",         "Twist Degrees",      "Warp", 1, false, -3600.0f, 3600.0f,
+           []( ModelingState& s ) { return &s.DeformWarp.TwistDegrees; }, nullptr },
+         { "Warp.FlarePercentY",        "Flare Percent Y",    "Warp", 1, false, -1000.0f, 2000.0f,
+           []( ModelingState& s ) { return &s.DeformWarp.FlarePercentY; }, nullptr },
+         { "Warp.FlarePercentX",        "Flare Percent X",    "Warp", 1, false, -1000.0f, 2000.0f,
+           []( ModelingState& s ) { return &s.DeformWarp.FlarePercentX; }, nullptr },
+         { "Warp.GizmoX",               "Gizmo X",            "Warp", 1, false, -1.0e7f, 1.0e7f,
+           []( ModelingState& s ) { return &s.WarpGizmo[3].x; }, nullptr },
+         { "Warp.GizmoY",               "Gizmo Y",            "Warp", 1, false, -1.0e7f, 1.0e7f,
+           []( ModelingState& s ) { return &s.WarpGizmo[3].y; }, nullptr },
+         { "Warp.GizmoZ",               "Gizmo Z",            "Warp", 1, false, -1.0e7f, 1.0e7f,
+           []( ModelingState& s ) { return &s.WarpGizmo[3].z; }, nullptr },
     } };
     // clang-format on
 
