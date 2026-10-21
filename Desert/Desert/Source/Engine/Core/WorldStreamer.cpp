@@ -8,6 +8,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 
+#include <Common/Content/ContentChunks.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Common/Json/Json.hpp>
@@ -15,6 +16,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <map>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -29,14 +31,23 @@ namespace Desert::Core
         }
 
         // A cooked file's bytes through the VFS, so a pak and a loose directory read the same way. Called on
-        // JobSystem workers; a pak read opens its own stream (PakFile.cpp), so it is safe there.
-        WorldCells::FileReader VfsReader( std::string directory )
+        // JobSystem workers; a pak read opens its own stream (PakFile.cpp), so it is safe there. A file the
+        // packager shipped in an on-demand region chunk (WP23) mounts that chunk first — once, thread-safe; with
+        // no chunks registered (editor, loose cooked files) the mount does nothing.
+        using RegionChunks = std::shared_ptr<const std::map<std::string, std::string>>;
+        WorldCells::FileReader VfsReader( std::string directory, RegionChunks regions )
         {
-            return [directory = std::move( directory )](
+            return [directory = std::move( directory ), regions = std::move( regions )](
                         std::string_view name ) -> Common::ResultStr<std::vector<unsigned char>>
             {
                 const std::string path = directory + std::string( name );
-                auto              read = Common::Utils::FileSystem::ReadByteFileContent( path );
+                if ( regions )
+                    if ( const auto chunk = regions->find( std::string( name ) ); chunk != regions->end() )
+                        if ( auto mounted = Common::Content::MountChunkOnDemand( chunk->second ); !mounted )
+                            return Common::MakeError<std::vector<unsigned char>>( "cooked world file '" + path +
+                                                                                  "' (chunk '" + chunk->second +
+                                                                                  "'): " + mounted.GetError() );
+                auto read = Common::Utils::FileSystem::ReadByteFileContent( path );
                 if ( !read )
                     return Common::MakeError<std::vector<unsigned char>>( "cooked world file '" + path +
                                                                           "': " + read.GetError() );
@@ -54,14 +65,27 @@ namespace Desert::Core
         if ( !Common::Utils::FileSystem::Exists( indexPath ) )
             return Common::MakeSuccess( Result() );
 
-        const WorldCells::FileReader reader = VfsReader( world.Directory );
-        auto                         bytes  = reader( WorldCells::kIndexFileName );
+        // The index ships in the world's Shared chunk, mounted at start: read before any region is known.
+        auto bytes = VfsReader( world.Directory, nullptr )( WorldCells::kIndexFileName );
         if ( !bytes )
             return Common::MakeError<Result>( bytes.GetError() );
         auto index = WorldCells::ReadWorldIndex( indexPath, bytes.GetValue() );
         if ( !index )
             return Common::MakeError<Result>( index.GetError() );
         world.Index = std::make_shared<WorldCells::WorldIndex>( index.ExtractValue() );
+
+        auto layout = WorldCells::ChunkLayoutOf( *world.Index, world.Directory );
+        if ( !layout )
+            return Common::MakeError<Result>( indexPath + ": " + layout.GetError() );
+        if ( layout.GetValue().has_value() )
+        {
+            auto regions = std::make_shared<std::map<std::string, std::string>>();
+            for ( const auto& [file, chunk] : layout.GetValue()->FileChunk )
+                if ( chunk != layout.GetValue()->Shared )
+                    regions->emplace( file, chunk );
+            world.RegionChunkOfFile = std::move( regions );
+        }
+        const WorldCells::FileReader reader = VfsReader( world.Directory, world.RegionChunkOfFile );
 
         auto indexed = WorldCells::PlanFromIndex( *world.Index );
         if ( !indexed )
@@ -216,12 +240,12 @@ namespace Desert::Core
             streamer->m_RecordIds.emplace_back( id );
         streamer->m_Partition = partition;
         streamer->m_Index     = world.Index;
-        streamer->m_Loader    = std::make_unique<WorldCellLoader>(
-             std::make_shared<WorldCells::CookedCellSource>( *world.Index, VfsReader( world.Directory ) ) );
+        streamer->m_Loader    = std::make_unique<WorldCellLoader>( std::make_shared<WorldCells::CookedCellSource>(
+             *world.Index, VfsReader( world.Directory, world.RegionChunkOfFile ) ) );
         {
             // Every HLOD file is read now, on this thread: HLODs stand in for the whole world from the first
             // frame (their own streaming, UE's HLOD grid, is not this round's).
-            const WorldCells::FileReader      reader = VfsReader( world.Directory );
+            const WorldCells::FileReader      reader = VfsReader( world.Directory, world.RegionChunkOfFile );
             std::vector<CellHLOD>             hlods;
             std::vector<Rules::HLODExclusion> holes;
             for ( std::size_t hlod = 0; hlod < world.Index->HLODs.size(); ++hlod )
