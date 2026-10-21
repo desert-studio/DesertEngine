@@ -7,6 +7,7 @@
 #include <Editor/Core/Selection/MeshBooleanTool.hpp>
 #include <Engine/Geometry/DynamicMeshUVOperations.hpp>
 #include <Engine/Geometry/DynamicMeshXformOperations.hpp>
+#include <Engine/Geometry/MeshDeformOperations.hpp>
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
@@ -34,6 +35,9 @@ namespace Desert::Editor::Core
             UVProject,
             UVUnwrap,
             UVLayout,
+            // UE's Deform palette (DeformTool): previews on the selected mesh and commits on Accept.
+            Smooth,
+            Offset,
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
@@ -298,6 +302,13 @@ namespace Desert::Editor::Core
         Geometry::UVLayoutSettings  UVLayout;
         // What the active UV tool's preview did (its report), or why there is none - the panel shows it.
         std::string UVStatus;
+
+        // Deform palette (DeformTool, Geometry/MeshDeformOperations.hpp): UE's Smooth and Offset tools' property
+        // sets; the tool previews the selected mesh with them and recomputes whenever they change.
+        Geometry::SmoothSettings DeformSmooth;
+        Geometry::OffsetSettings DeformOffset;
+        // What the active Deform tool's preview did (its report), or why there is none - the panel shows it.
+        std::string DeformStatus;
 
         // Create tool: the shape a click places (the palette places it at the viewport centre directly,
         // ViewportPanel::PlaceShapeInActiveViewport, so its refusal reaches the command's result).

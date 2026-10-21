@@ -85,6 +85,7 @@ namespace Desert::Editor
             Create,
             PolyModel,
             TriModel,
+            Deform,
             Transform,
             UVs,
             Collision,
@@ -94,11 +95,12 @@ namespace Desert::Editor
             const char* Icon;
             const char* Name;
         };
-        constexpr std::array<PaletteEntry, 8> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
+        constexpr std::array<PaletteEntry, 9> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
                                                               { ICON_MDI_SHAPE_PLUS, "Shapes" },
                                                               { ICON_MDI_PLUS_BOX_OUTLINE, "Create" },
                                                               { ICON_MDI_VECTOR_SQUARE, "PolyModel" },
                                                               { ICON_MDI_VECTOR_TRIANGLE, "TriModel" },
+                                                              { ICON_MDI_BLUR, "Deform" },
                                                               { ICON_MDI_ARROW_ALL, "Transform" },
                                                               { ICON_MDI_CHECKERBOARD, "UVs" },
                                                               { ICON_MDI_SHIELD_OUTLINE, "Collision" } } };
@@ -138,13 +140,15 @@ namespace Desert::Editor
             else if ( ms.ActiveTool == MS::Tool::AutoUV || ms.ActiveTool == MS::Tool::UVProject ||
                       ms.ActiveTool == MS::Tool::UVUnwrap || ms.ActiveTool == MS::Tool::UVLayout )
                 m_Category = static_cast<int>( Palette::UVs );
+            else if ( ms.ActiveTool == MS::Tool::Smooth || ms.ActiveTool == MS::Tool::Offset )
+                m_Category = static_cast<int>( Palette::Deform );
         }
 
         ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 6.0f, 6.0f ) );
         ImGui::PushStyleVar( ImGuiStyleVar_FramePadding, ImVec2( 8.0f, 6.0f ) );
 
         // --- Left category rail: only the palettes something of ours lives in ---
-        // UE's other palettes (Deform, MeshOps, VoxOps, Attributes, Baking, Volumes, LODs) are absent, not
+        // UE's other palettes (MeshOps, VoxOps, Attributes, Baking, Volumes, LODs) are absent, not
         // greyed out, until each has a tool behind it: a category that opens onto "not implemented" is a button
         // that does nothing (owner's decision: hide empty tabs until their tools exist).
         ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( 6.0f, 8.0f ) );
@@ -186,6 +190,9 @@ namespace Desert::Editor
                 break;
             case Palette::TriModel:
                 DrawTriModelPalette();
+                break;
+            case Palette::Deform:
+                DrawDeformPalette();
                 break;
             case Palette::Transform:
                 DrawTransformPalette();
@@ -569,6 +576,99 @@ namespace Desert::Editor
         if ( ImGui::Checkbox( "Split by polygroups", &byGroups ) )
             ms.XformSplit =
                  byGroups ? Geometry::SplitMethod::PolyGroups : Geometry::SplitMethod::ConnectedComponents;
+    }
+
+    // UE's Deform palette: Smooth and Offset (UE's USmoothMeshTool / UOffsetMeshTool, Iterative type). Each is a
+    // tool on the selected mesh (DeformTool): the viewport previews it with the settings below, recomputed on
+    // every change, and the tool bar's Accept (one undo step) / Cancel (the mesh as it was) end it. The fields are
+    // UE's UIterativeSmoothProperties / UIterativeOffsetProperties with their ranges.
+    void ModelingPanel::DrawDeformPalette()
+    {
+        using MS          = Core::ModelingState;
+        auto&        ms   = MS::Get();
+        const ImVec4 sel  = ThemeManager::GetSelectedColor();
+        const float  half = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
+        struct DeformToolEntry
+        {
+            const char* Icon;
+            const char* Name;
+            MS::Tool    Tool;
+        };
+        constexpr std::array<DeformToolEntry, 2> kDeformTools = {
+             { { ICON_MDI_BLUR, "Smooth", MS::Tool::Smooth },
+               { ICON_MDI_ARROW_EXPAND_ALL, "Offset", MS::Tool::Offset } } };
+        for ( size_t i = 0; i < kDeformTools.size(); ++i )
+        {
+            const bool on = ms.ActiveTool == kDeformTools[i].Tool;
+            if ( on )
+                ImGui::PushStyleColor( ImGuiCol_Button, sel );
+            if ( i % 2 == 1 )
+                ImGui::SameLine();
+            char deformToolLabel[64];
+            std::snprintf( deformToolLabel, sizeof( deformToolLabel ), "%s  %s", kDeformTools[i].Icon,
+                           kDeformTools[i].Name );
+            if ( ImGui::Button( deformToolLabel, ImVec2( half, 26.0f ) ) )
+            {
+                ms.ActiveTool = kDeformTools[i].Tool;
+                Core::ViewportMode::Set( Core::EditorMode::Modeling );
+            }
+            if ( on )
+                ImGui::PopStyleColor();
+        }
+        ImGui::Separator();
+
+        const auto row = []( const char* label )
+        {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted( label );
+            ImGui::SameLine( 150.0f );
+            ImGui::SetNextItemWidth( -1.0f );
+        };
+        constexpr const char* kWeights[] = { "Uniform", "Cotan" };
+        switch ( ms.ActiveTool )
+        {
+            case MS::Tool::Smooth:
+            {
+                auto& s      = ms.DeformSmooth;
+                int   weight = static_cast<int>( s.WeightType );
+                row( "Weight Type" );
+                if ( ImGui::Combo( "##SmoothWeight", &weight, kWeights, 2 ) )
+                    s.WeightType = static_cast<Geometry::SmoothWeightType>( weight );
+                row( "Smoothing Per Step" );
+                ImGui::SliderFloat( "##SmoothPerStep", &s.SmoothingPerStep, 0.0f, 1.0f, "%.2f",
+                                    ImGuiSliderFlags_AlwaysClamp );
+                row( "Steps" );
+                ImGui::SliderInt( "##SmoothSteps", &s.Steps, 0, 100, "%d", ImGuiSliderFlags_AlwaysClamp );
+                ImGui::Checkbox( "Smooth Boundary##Smooth", &s.SmoothBoundary );
+                ImGui::Checkbox( "Pin UV Seams##Smooth", &s.PinUVSeams );
+                break;
+            }
+            case MS::Tool::Offset:
+            {
+                auto& s      = ms.DeformOffset;
+                int   weight = static_cast<int>( s.WeightType );
+                row( "Distance" );
+                ImGui::DragFloat( "##OffsetDistance", &s.Distance, 0.5f, -10000.0f, 10000.0f, "%.1f cm",
+                                  ImGuiSliderFlags_AlwaysClamp );
+                row( "Steps" );
+                ImGui::SliderInt( "##OffsetSteps", &s.Steps, 1, 100, "%d", ImGuiSliderFlags_AlwaysClamp );
+                row( "Smoothing Per Step" );
+                ImGui::SliderFloat( "##OffsetPerStep", &s.SmoothingPerStep, 0.0f, 1.0f, "%.2f",
+                                    ImGuiSliderFlags_AlwaysClamp );
+                row( "Weight Type" );
+                if ( ImGui::Combo( "##OffsetWeight", &weight, kWeights, 2 ) )
+                    s.WeightType = static_cast<Geometry::SmoothWeightType>( weight );
+                ImGui::Checkbox( "Offset Boundary##Offset", &s.OffsetBoundary );
+                ImGui::Checkbox( "Pin UV Seams##Offset", &s.PinUVSeams );
+                break;
+            }
+            default:
+                ImGui::TextDisabled( "Pick a Deform tool above; it works on the selected mesh." );
+                return;
+        }
+        ImGui::Separator();
+        ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+        ImGui::TextDisabled( "Accept / Cancel: bottom of the viewport" );
     }
 
     // UE's UVs palette: AutoUV, Project, Unwrap (UE's Recompute UVs) and Layout. Each is a tool on the selected

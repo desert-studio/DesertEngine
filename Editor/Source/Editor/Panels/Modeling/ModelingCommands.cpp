@@ -597,6 +597,39 @@ namespace Desert::Editor
                                       Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                       return PaletteCommandDone();
                                   } } );
+        // UE's Deform palette: Smooth and Offset (DeformTool), committed the same way as the UV tools.
+        for ( const auto& [name, tool] : std::initializer_list<std::pair<const char*, MS::Tool>>{
+                   { "Smooth", MS::Tool::Smooth }, { "Offset", MS::Tool::Offset } } )
+            commands.push_back( { "Modeling", std::string( "Deform tool: " ) + name, [tool]
+                                  {
+                                      MS::Get().ActiveTool = tool;
+                                      Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::SmoothWeightType type :
+              { Geometry::SmoothWeightType::Uniform, Geometry::SmoothWeightType::Cotan } )
+        {
+            commands.push_back( { "Modeling", std::string( "Smooth weight type: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().DeformSmooth.WeightType = type;
+                                      return PaletteCommandDone();
+                                  } } );
+            commands.push_back( { "Modeling", std::string( "Offset weight type: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().DeformOffset.WeightType = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        }
+        modelingOnOff( "Modeling", "Smooth: Smooth Boundary",
+                       []( MS& ms, bool on ) { ms.DeformSmooth.SmoothBoundary = on; } );
+        modelingOnOff( "Modeling", "Smooth: Pin UV Seams",
+                       []( MS& ms, bool on ) { ms.DeformSmooth.PinUVSeams = on; } );
+        modelingOnOff( "Modeling", "Offset: Offset Boundary",
+                       []( MS& ms, bool on ) { ms.DeformOffset.OffsetBoundary = on; } );
+        modelingOnOff( "Modeling", "Offset: Pin UV Seams",
+                       []( MS& ms, bool on ) { ms.DeformOffset.PinUVSeams = on; } );
         modelingOnOff( "Modeling", "AutoUV: Respect PolyGroups",
                        []( MS& ms, bool on ) { ms.UVAuto.RespectPolygroups = on; } );
         modelingOnOff( "Modeling", "AutoUV: Auto Align", []( MS& ms, bool on ) { ms.UVAuto.AutoAlign = on; } );
