@@ -11,6 +11,7 @@
 #include <Common/Core/Core.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Utilities/VFS.hpp>
 
 #include <chrono>
 #include <filesystem>
@@ -88,6 +89,20 @@ namespace Desert::Core
         {
             CountShaderCacheHit();
             return Common::MakeSuccess( std::move( *cached ) );
+        }
+
+        // A COOKED PERMUTATION IS NEVER COMPILED BY A PACKAGE (ShaderVariant::ShippedByCook). The cook compiled
+        // every one the shipped quality levels can select, so a miss here is a package cooked from other sources
+        // or other levels - refused by name, not paid for as a silent runtime compile.
+        if ( variant.ShippedByCook && ::Common::Utils::VFS::IsMounted() )
+        {
+            std::string defines;
+            for ( const std::string& define : variant.Defines )
+                defines += ( defines.empty() ? "" : " " ) + define;
+            return Common::MakeFormattedError<std::vector<uint32_t>>(
+                 "{} (stage {}): the permutation [{}] is not in the package - the cook ships every one the shipped "
+                 "Scalability.json levels select (PackageCook CookShaderVariants), and a package does not compile it",
+                 shaderPath, static_cast<int>( stage ), defines );
         }
 
         // ONE COMPILE PER KEY IN FLIGHT. Without debug info the key does not name the file, so the same stage

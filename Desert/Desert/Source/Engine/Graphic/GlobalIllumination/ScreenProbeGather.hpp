@@ -160,6 +160,16 @@ namespace Desert::Graphic::GlobalIllumination
                tracedTexels >= 4u && tracedTexels <= 16u;
     }
 
+    // ONE PROGRAM OF THE GATHER UNDER ONE PERMUTATION - what EnsureLayoutPrograms / EnsureTraceProgram acquire
+    // and what the game packager cooks (PackageCook CookShaderVariants), both from ScreenProbeGather::
+    // ProgramVariants, so the cook cannot ship a different set than the runtime asks for (UE: a global shader's
+    // permutations are cooked by the same ShouldCompilePermutation the runtime is served from).
+    struct ScreenProbeProgramVariant
+    {
+        std::string         Shader; // the registered program name (Programs/GlobalIllumination/<Shader>.shader)
+        Core::ShaderVariant Variant;
+    };
+
     // @p adaptivePercent: adaptive probes per uniform probe, percent (Scalability
     // GlobalIllumination.AdaptiveProbeAllocationPercent, UE AdaptiveProbeAllocationFraction x 100);
     // @p downsample / @p tracedTexels: ScreenProbeLayoutSupported; @p maxImageDimension: the device's
@@ -294,6 +304,13 @@ namespace Desert::Graphic::GlobalIllumination
         // view asks for it first and refuses the GI method of that tracer by name when it does not build
         // (SceneRenderer::AddFrameTracedGI); AddPasses asks again (cached).
         [[nodiscard]] Common::BoolResultStr EnsureTraceProgram( const Pipeline& pipeline );
+
+        // Every program variant the gather can acquire under the layout @p downsample / @p tracedTexels
+        // (ScreenProbeLayoutSupported): the layout-only programs, and Trace's near- and far-field legs under each
+        // tracer permutation a Pipeline resolves to (software + surface cache, hardware + surface cache, hardware
+        // + in-place hit lighting). Each is ShaderVariant::ShippedByCook.
+        [[nodiscard]] static std::vector<ScreenProbeProgramVariant> ProgramVariants( uint32_t downsample,
+                                                                                   uint32_t tracedTexels );
 
         // The gather of one frame, its passes added to @p graph after the radiance cache's update. @p history:
         // the view's (SceneViewState::ScreenProbeGather), read and written by the temporal filter.
