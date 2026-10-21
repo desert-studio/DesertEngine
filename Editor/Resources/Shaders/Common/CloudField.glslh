@@ -248,12 +248,15 @@ struct CloudFieldParams
 
 // THE BODY CARVE (CLOUD-LOOK, Schneider/Nubis 2015 `remap(perlin, -(1 - worleyFbm), 1, 0, 1)`). Both erosion
 // octaves are head-sized or finer, so the modelling volume's ellipsoid lumps kept their outlines: a cluster read
-// as a rosette of balls (shots/before z). The same volume read at a QUARTER of the tile's frequency (4 km on the
-// shipped 1 km tile, a whole number of tiles per period: no seam) is a Perlin-Worley field larger than a cluster;
-// remapping the profile by it moves each lump's iso-surface by a different amount across the body, which is what
-// breaks the ellipse. CLOUD_BODY_CARVE_DEPTH is the deepest share of the profile it may remove.
-#define CLOUD_BODY_CARVE_RATIO 0.25f
-#define CLOUD_BODY_CARVE_DEPTH 0.6f
+// as a rosette of balls (shots/before z). The same volume read at HALF the tile's frequency (2 km on the shipped
+// 1 km tile, two tiles per period: no seam, as with CLOUD_DETAIL_LF_RATIO) is a Perlin-Worley field whose cells are
+// the size of a large cumulus core; remapping the profile by it moves each lump's iso-surface by a different amount
+// across the body, which is what breaks the ellipse. A QUARTER (4 km) was tried first (CLOUD-LOOK p2): its cells are
+// larger than the big cumulus, so the whole body moved by one amount and kept its stacked balls.
+// CLOUD_BODY_CARVE_DEPTH is the deepest share of the profile it may remove. 0.6 deleted every small lump whose peak
+// profile sat under it and the right-hand cluster fell into crumbs (p2 shots/after m); 0.4 keeps them.
+#define CLOUD_BODY_CARVE_RATIO 0.5f
+#define CLOUD_BODY_CARVE_DEPTH 0.4f
 
 // ---------------------------------------------------------------------------------------------------
 // THE EDGE SHARPENING — the exponent the eroded density is raised to (Nubis Cubed, SIGGRAPH 2023, the
