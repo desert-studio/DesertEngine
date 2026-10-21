@@ -25,7 +25,6 @@
 #include <Common/Core/Timestep.hpp>
 
 #include <glm/gtc/packing.hpp>
-#include <glm/gtc/matrix_inverse.hpp>
 
 #include <algorithm>
 #include <cmath>
