@@ -52,7 +52,9 @@ directionLights;
 // of these, bound by the pass with the inputs (Graphic::BindSceneViewInputs). One combined sampler per input cost a
 // sampler descriptor each; the cell now holds two (and Mesh/Surface/SurfaceTypes.glslh's numbered point-clamped
 // one). 13 and 14 were the cascades 1..3, which are one array now.
-layout( binding = 13 ) uniform sampler u_LinearRepeatSampler;
+// The repeat state is numbered by the program build (`Uniform sampler`, ShaderMapBuild AssignSharedSamplerBindings):
+// a fixed 13 collided with the grass blade path's GrassBladeShape (Vertex_GrassBlade.glslh) in GrassBlade.Forward.
+Uniform sampler u_LinearRepeatSampler;
 layout( binding = 14 ) uniform sampler u_LinearClampSampler;
 // THE MEGALIGHTS TRANSLUCENCY VOLUME (Shadows Stochastic): on, the local lights come from it, shadowed, in place of
 // the light-grid loop below; off, its block says so and the loop runs.
