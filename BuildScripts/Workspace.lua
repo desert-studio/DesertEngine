@@ -170,3 +170,29 @@ workspace "Desert"
     -- project that compiled entt without it would disagree about that object's layout with every project
     -- that did. It must be all of them or none.
     defines { "ENTT_USE_ATOMIC" }
+
+-- A PRECOMPILED HEADER BELONGS TO THE TREE THAT BUILT IT (CCACHE-PCH). Every agent tree builds through ONE ccache
+-- whose base_dir is the folder above all trees, so a compile's key holds only tree-relative paths and an object is
+-- reused from whichever tree compiled it first. A .gch cannot be reused that way: clang writes the ABSOLUTE path
+-- of every header it read into it (111 times `DesertEngine-<tree>/` in DesertFoliage's), and validates and dedupes
+-- headers by that path. Handed another tree's .gch, a TU reads its own tree's pch.hpp -- forced by
+-- `-include pch.hpp` -- as a second, different file: `#pragma once` does not fire, and every definition in it is
+-- a redefinition (2026-10-20, GHN given FWP's: "redefinition of kEarlyLineCapacity"), or the other tree's headers
+-- changed since and clang refuses the PCH ("modified since the precompiled header was built").
+-- So the .gch rule alone puts the absolute path of its header into ccache's key, through ccache's `namespace`
+-- (ccache >= 4.8, added to the hash of each compilation): one tree's .gch is still reused by that tree's next
+-- build, never by another tree's. Every other compile keeps the shared, tree-free key. A TU compiled against the
+-- PCH hashes the .gch's bytes, which hold the tree's paths, so its object is per-tree as well -- the price of the
+-- PCH not being relocatable (clang relocates only under -relocatable-pch + -isysroot, i.e. the SDK root).
+-- A target-specific exported variable reaches only that rule's recipe; GNU make 3.81 (/usr/bin/make) and 4.4 both
+-- honour it. Without ccache the variable is unread.
+-- The gmake module is loaded only for gmake actions; vs2022 (Windows) has no premake.modules.gmake.
+if premake.modules.gmake then
+    premake.override(premake.modules.gmake.cpp, "pchRules", function(base, cfg, toolset)
+        base(cfg, toolset)
+        _p('ifneq (,$(PCH))')
+        _p('$(GCH): export CCACHE_NAMESPACE = pch:$(abspath $(PCH))')
+        _p('endif')
+        _p('')
+    end)
+end
