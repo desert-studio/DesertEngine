@@ -64,6 +64,9 @@ namespace Desert::ShaderResources::API::Vulkan
                                                         ? Desert::Graphic::ResourceKind::StorageBuffer
                                                         : Desert::Graphic::ResourceKind::UniformBuffer;
         auto copy       = std::make_unique<MappedBufferCopy>( buffer, allocated.GetValue(), size, kind );
+        // The row carries the buffer's name ("<block>-StorageBuffer-<view>-Frame<i>"): a view that closes with
+        // rows left names the block AND the ViewResources its copy was filed under (SceneRenderer::LedgerView).
+        copy->m_Ledger.RecordName( debugName );
         copy->m_Mapping = allocator->MapMemory( copy->m_Allocation );
 
         // A COPY THAT DID NOT MAP IS THE SAME FAILURE AS ONE THAT DID NOT ALLOCATE: every write to it would
