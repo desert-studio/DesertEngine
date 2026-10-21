@@ -71,9 +71,9 @@
 //
 // The world's cells are not walked. For each source and each level, the cells whose squares can touch
 // the source's circle are enumerated (the bounding box, in cell coordinates, of the circle swept along its
-// look-ahead) and looked up in the plan by binary search — `WorldPartitionPlan::Cells` is sorted by (level, X, Z), which is the
-// index. A level whose enumeration would be larger than the cells it actually holds (a huge RangeScale,
-// or a level with a handful of cells) is scanned instead, so the cost is the smaller of the two, and
+// look-ahead) and looked up in the plan by binary search — `WorldPartitionPlan::Cells` is sorted by (level, X, Z),
+// which is the index. A level whose enumeration would be larger than the cells it actually holds (a huge
+// RangeScale, or a level with a handful of cells) is scanned instead, so the cost is the smaller of the two, and
 // `CellsExamined` states it.
 
 #include <Common/Core/ResultStr.hpp>
@@ -217,7 +217,7 @@ namespace Desert::Core::Rules
              source.UseVelocityForSorting ? Detail::Ground( source.Velocity ) : glm::dvec2( 0.0 );
         const auto heading = [&]( const glm::dvec2& axis )
         { return Detail::UnitOrZero( ( faces ? axis : glm::dvec2( 0.0 ) ) + velocity ); };
-        glm::dvec2 sweep = Detail::Ground( source.Velocity ) * static_cast<double>( source.LookAheadTime );
+        glm::dvec2   sweep       = Detail::Ground( source.Velocity ) * static_cast<double>( source.LookAheadTime );
         const double sweepLength = std::sqrt( sweep.x * sweep.x + sweep.y * sweep.y );
         if ( sweepLength > static_cast<double>( source.MaxLookAhead ) )
             sweep = sweepLength > 0.0 ? sweep * ( static_cast<double>( source.MaxLookAhead ) / sweepLength )
@@ -467,8 +467,9 @@ namespace Desert::Core::Rules
             // A reflex slice is everything but the convex wedge behind it, i.e. the union of the two half-planes
             // outside that wedge's sides: the nearer of the region's two parts.
             const auto [a, b] = WedgeNormals( -sector.Axis, 180.0 - half );
-            return std::min( DistanceToConvexPolygon( sector.Centre, ClipToHalfPlane( region, sector.Centre, -a ) ),
-                             DistanceToConvexPolygon( sector.Centre, ClipToHalfPlane( region, sector.Centre, -b ) ) );
+            return std::min(
+                 DistanceToConvexPolygon( sector.Centre, ClipToHalfPlane( region, sector.Centre, -a ) ),
+                 DistanceToConvexPolygon( sector.Centre, ClipToHalfPlane( region, sector.Centre, -b ) ) );
         }
     } // namespace Detail
 
@@ -668,9 +669,9 @@ namespace Desert::Core::Rules
                                 // THE LOOK-AHEAD: a cell reached only along the sweep is ordered by its plain
                                 // distance to where the source is.
                                 const double distance =
-                                     here <= radius ? here
-                                                    : DistanceToCellSquare( sector.Centre.x, sector.Centre.y,
-                                                                            coord, size );
+                                     here <= radius
+                                          ? here
+                                          : DistanceToCellSquare( sector.Centre.x, sector.Centre.y, coord, size );
                                 hits.push_back( WantedCell{ cellIndex, distance, sourceIndex, priority,
                                                             distance * HeadingWeight( sector, coord, size ),
                                                         grid.Priority } );

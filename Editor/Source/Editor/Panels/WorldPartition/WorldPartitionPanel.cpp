@@ -602,7 +602,8 @@ namespace Desert::Editor
                     auto ahead   = sector;
                     ahead.Centre = sector.Centre + sector.Sweep;
                     ahead.Sweep  = glm::dvec2( 0.0 );
-                    PaintSector( list, m_View, size, origin, ahead, 1.0, 1.0, IM_COL32( 120, 200, 255, 200 ), false );
+                    PaintSector( list, m_View, size, origin, ahead, 1.0, 1.0, IM_COL32( 120, 200, 255, 200 ),
+                                 false );
                     list.AddLine( ToScreen( m_View, size, origin, sector.Centre ),
                                   ToScreen( m_View, size, origin, ahead.Centre ), IM_COL32( 120, 200, 255, 200 ),
                                   2.0f );
