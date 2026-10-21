@@ -1432,6 +1432,8 @@ namespace Desert::Graphic
         // diffuse and rough specular and the composite applies no SSAO to it; off, SSAO does — one AO source
         // either way.
         bool m_ScreenProbeShortRangeAO = true;
+        uint32_t m_ScreenProbeDownsample   = 16; // Scalability GlobalIllumination.ScreenProbeDownsample
+        uint32_t m_ScreenProbeTracedTexels = 8;  // Scalability GlobalIllumination.ScreenProbeTracedTexels
         // Contact-shadow ray steps (Scalability: Shadows.ContactShadowSteps; 0 = the march is skipped for every
         // light) and the sun's contact shadow (ViewShadowSettings, from the elected sun), taken each BeginScene
         // and handed to the deferred composite (Common/ContactShadow.glslh).

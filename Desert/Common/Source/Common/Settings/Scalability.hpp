@@ -266,14 +266,13 @@ namespace Common::Scalability
         PathTracingMaxBounces,      // bounces after the camera ray's hit, 0..64 (UE r.PathTracing.MaxBounces)
         PathTracingSamplesPerPixel, // paths per pixel after which the view stops tracing, 1..65536 (UE
                                     // r.PathTracing.SamplesPerPixel: the image is converged and kept)
-        // GI SoftwareTraced / HardwareTraced screen probe costs still compile-time constants of ScreenProbeGather
-        // (C++ ScreenProbeLayout and the shaders' SP_DOWNSAMPLE / SP_RES). Reserved with their per-level values;
-        // each gains its reader when the gather takes them per view.
-        ScreenProbeDownsample,   // screen pixels per probe side (UE r.Lumen.ScreenProbeGather.DownsampleFactor;
-                                 // today ScreenProbeGather::kDownsample = SP_DOWNSAMPLE = 16)
-        ScreenProbeTracedTexels, // traced octahedral texels per probe side (UE
-                                 // r.Lumen.ScreenProbeGather.TracingOctahedronResolution; today kTracedTexels
-                                 // = SP_RES = 8)
+        // GI SoftwareTraced / HardwareTraced screen probe layout, read by SceneRenderer::BeginScene into
+        // ScreenProbeGatherInputs: the gather compiles its programs under it (ScreenProbeLayout, the shaders'
+        // SP_DOWNSAMPLE_LOG2 / SP_TRACED_TEXELS permutation) and resizes its atlases on a change.
+        ScreenProbeDownsample,   // screen pixels per probe side, 8 / 16 / 32 / 64 (UE
+                                 // r.Lumen.ScreenProbeGather.DownsampleFactor)
+        ScreenProbeTracedTexels, // traced octahedral texels per probe side, 4..16 (UE
+                                 // r.Lumen.ScreenProbeGather.TracingOctahedronResolution)
         IrradianceFieldProbesPerFrame, // ProbeVolume's radiance-cache probes traced per frame (UE
                                        // r.Lumen.IrradianceFieldGather.NumProbesToTraceBudget), read by
                                        // RadianceCache::MakeRadianceCacheInputs for GIMethod::ProbeVolume
