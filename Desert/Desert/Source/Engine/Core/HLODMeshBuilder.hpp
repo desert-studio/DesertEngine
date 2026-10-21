@@ -53,4 +53,21 @@ namespace Desert::Core
     // read, the height file is missing or does not decode, the tile does not match its root's size.
     [[nodiscard]] Common::ResultStr<Assets::StaticMeshComponentSer>
     BuildLandscapeHLODMesh( const Rules::LandscapeHLODRequest& request );
+
+    // THE GROUND RECTANGLE A LANDSCAPE HLOD COVERS, in world centimetres on X/Z: sample (0, 0) of the tile at
+    // (OriginX, OriginZ), the last sample at (OriginX + SizeX, OriginZ + SizeZ). BuildLandscapeHLODMesh gives
+    // vertex (x, z) the TexCoord (x / (SamplesX - 1), z / (SamplesZ - 1)), so a texture baked top-down over
+    // exactly this rectangle (texel row 0 at OriginZ, column 0 at OriginX) maps 1:1 onto the stand-in - the
+    // editor's Build HLODs bakes the tile's landscape material into it (UE ULandscapeHLODBuilder). Read from
+    // the same tile and frame the mesh is built from; refused for the same reasons.
+    struct LandscapeHLODTileArea
+    {
+        Common::UUID Tile; // the tile's record id (LandscapeHLODRequest::Records[Tile].id)
+        float        OriginX = 0.0f;
+        float        OriginZ = 0.0f;
+        float        SizeX   = 0.0f;
+        float        SizeZ   = 0.0f;
+    };
+    [[nodiscard]] Common::ResultStr<LandscapeHLODTileArea>
+    LandscapeHLODTileAreaOf( const Rules::LandscapeHLODRequest& request );
 } // namespace Desert::Core

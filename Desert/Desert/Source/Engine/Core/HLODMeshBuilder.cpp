@@ -255,60 +255,99 @@ namespace Desert::Core
         return Common::MakeSuccess( std::move( block ) );
     }
 
+    namespace
+    {
+        // The tile a landscape HLOD request names, read once for both its mesh and its baked material's area:
+        // the decoded heights and the frame they are laid out by (the root record's composed world position).
+        struct LandscapeHLODTileInput
+        {
+            World::Landscape::LandscapeTileData Heights;
+            World::Landscape::LandscapeFrame    Frame;
+        };
+
+        Common::ResultStr<LandscapeHLODTileInput> ReadLandscapeHLODTile( const Rules::LandscapeHLODRequest& request )
+        {
+            using Result        = LandscapeHLODTileInput;
+            namespace Landscape = World::Landscape;
+            if ( request.Tile >= request.Records.size() || request.World.size() != request.Records.size() )
+                return Common::MakeError<Result>( "the landscape tile request names no record of its records" );
+            const Assets::EntityData& tile = request.Records[request.Tile];
+            Common::Json::Issues      issues;
+            const auto tileBlock = Rules::Detail::BlockOf( tile, Rules::kLandscapeTileComponent, issues );
+            if ( !tileBlock.has_value() )
+                return Common::MakeError<Result>( "the record has no readable LandscapeTile block" );
+            Common::UUID rootId;
+            if ( !Rules::Detail::ReadReference( *tileBlock, "Landscape", rootId, issues ) || rootId.IsNull() )
+                return Common::MakeError<Result>( "the tile names no landscape root" );
+            const auto root = std::find_if( request.Records.begin(), request.Records.end(),
+                                            [&]( const Assets::EntityData& record ) { return record.id == rootId; } );
+            if ( root == request.Records.end() )
+                return Common::MakeFormattedError<Result>( "the tile's landscape root {} is not in the world",
+                                                           static_cast<std::uint64_t>( rootId ) );
+            const std::size_t rootIndex = static_cast<std::size_t>( root - request.Records.begin() );
+            const auto        rootBlock = Rules::Detail::BlockOf( *root, Rules::kLandscapeRootComponent, issues );
+            if ( !rootBlock.has_value() )
+                return Common::MakeError<Result>( "the tile's root has no readable Landscape block" );
+
+            Landscape::LandscapeRoot frameRoot;
+            frameRoot.Origin = glm::vec3( request.World[rootIndex][3] );
+            rootBlock->ReadInto( "QuadsPerTile", frameRoot.QuadsPerTile, issues );
+            rootBlock->ReadInto( "SpacingCm", frameRoot.SpacingCm, issues );
+            rootBlock->ReadInto( "ZScale", frameRoot.ZScale, issues );
+            if ( auto valid = Landscape::ValidateLandscapeRoot( frameRoot ); !valid )
+                return Common::MakeError<Result>( "the tile's root: " + valid.GetError() );
+            std::int32_t tileX = 0;
+            std::int32_t tileZ = 0;
+            std::string  heightFile;
+            tileBlock->ReadInto( "TileX", tileX, issues );
+            tileBlock->ReadInto( "TileZ", tileZ, issues );
+            tileBlock->ReadInto( "HeightFile", heightFile, issues );
+            if ( !issues.empty() )
+                return Common::MakeFormattedError<Result>( "the tile or its root does not read: {} wants {}, holds {}",
+                                                           issues.front().Path, issues.front().Expected,
+                                                           issues.front().Found );
+
+            // The loader's own read (ComponentRegistry's LandscapeTile load): the scene spells the path relative to
+            // the project, and FullPath resolves it the same way, so the stand-in and the near tile read the same
+            // file.
+            auto decoded = Landscape::ReadLandscapeTileFile( Common::Constants::Path::FullPath( heightFile ) );
+            if ( !decoded )
+                return Common::MakeFormattedError<Result>( "the tile's height file '{}': {}", heightFile,
+                                                           decoded.GetError() );
+            Landscape::LandscapeTileData heights = decoded.ExtractValue();
+            if ( auto matches = Landscape::CheckTileMatchesRoot( heights, frameRoot ); !matches )
+                return Common::MakeError<Result>( matches.GetError() );
+            const Landscape::LandscapeFrame frame = Landscape::LandscapeTileFrame( frameRoot, tileX, tileZ );
+            return Common::MakeSuccess( Result{ std::move( heights ), frame } );
+        }
+    } // namespace
+
+    Common::ResultStr<LandscapeHLODTileArea> LandscapeHLODTileAreaOf( const Rules::LandscapeHLODRequest& request )
+    {
+        auto input = ReadLandscapeHLODTile( request );
+        if ( !input )
+            return Common::MakeError<LandscapeHLODTileArea>( input.GetError() );
+        const LandscapeHLODTileInput& tile = input.GetValue();
+        return Common::MakeSuccess( LandscapeHLODTileArea{
+             .Tile    = request.Records[request.Tile].id,
+             .OriginX = tile.Frame.OriginX,
+             .OriginZ = tile.Frame.OriginZ,
+             .SizeX   = static_cast<float>( tile.Heights.SamplesX() - 1 ) * tile.Frame.SpacingCm,
+             .SizeZ   = static_cast<float>( tile.Heights.SamplesZ() - 1 ) * tile.Frame.SpacingCm,
+        } );
+    }
+
     Common::ResultStr<Assets::StaticMeshComponentSer>
     BuildLandscapeHLODMesh( const Rules::LandscapeHLODRequest& request )
     {
         using Result        = Assets::StaticMeshComponentSer;
         namespace Landscape = World::Landscape;
-        if ( request.Tile >= request.Records.size() || request.World.size() != request.Records.size() )
-            return Common::MakeError<Result>( "the landscape tile request names no record of its records" );
-        const Assets::EntityData& tile = request.Records[request.Tile];
-        Common::Json::Issues      issues;
-        const auto tileBlock = Rules::Detail::BlockOf( tile, Rules::kLandscapeTileComponent, issues );
-        if ( !tileBlock.has_value() )
-            return Common::MakeError<Result>( "the record has no readable LandscapeTile block" );
-        Common::UUID rootId;
-        if ( !Rules::Detail::ReadReference( *tileBlock, "Landscape", rootId, issues ) || rootId.IsNull() )
-            return Common::MakeError<Result>( "the tile names no landscape root" );
-        const auto root = std::find_if( request.Records.begin(), request.Records.end(),
-                                        [&]( const Assets::EntityData& record ) { return record.id == rootId; } );
-        if ( root == request.Records.end() )
-            return Common::MakeFormattedError<Result>( "the tile's landscape root {} is not in the world",
-                                                       static_cast<std::uint64_t>( rootId ) );
-        const std::size_t rootIndex = static_cast<std::size_t>( root - request.Records.begin() );
-        const auto        rootBlock = Rules::Detail::BlockOf( *root, Rules::kLandscapeRootComponent, issues );
-        if ( !rootBlock.has_value() )
-            return Common::MakeError<Result>( "the tile's root has no readable Landscape block" );
-
-        Landscape::LandscapeRoot frameRoot;
-        frameRoot.Origin = glm::vec3( request.World[rootIndex][3] );
-        rootBlock->ReadInto( "QuadsPerTile", frameRoot.QuadsPerTile, issues );
-        rootBlock->ReadInto( "SpacingCm", frameRoot.SpacingCm, issues );
-        rootBlock->ReadInto( "ZScale", frameRoot.ZScale, issues );
-        if ( auto valid = Landscape::ValidateLandscapeRoot( frameRoot ); !valid )
-            return Common::MakeError<Result>( "the tile's root: " + valid.GetError() );
-        std::int32_t tileX = 0;
-        std::int32_t tileZ = 0;
-        std::string  heightFile;
-        tileBlock->ReadInto( "TileX", tileX, issues );
-        tileBlock->ReadInto( "TileZ", tileZ, issues );
-        tileBlock->ReadInto( "HeightFile", heightFile, issues );
-        if ( !issues.empty() )
-            return Common::MakeFormattedError<Result>( "the tile or its root does not read: {} wants {}, holds {}",
-                                                       issues.front().Path, issues.front().Expected,
-                                                       issues.front().Found );
-
-        // The loader's own read (ComponentRegistry's LandscapeTile load): the scene spells the path relative to
-        // the project, and FullPath resolves it the same way, so the stand-in and the near tile read the same
-        // file.
-        auto decoded = Landscape::ReadLandscapeTileFile( Common::Constants::Path::FullPath( heightFile ) );
-        if ( !decoded )
-            return Common::MakeFormattedError<Result>( "the tile's height file '{}': {}", heightFile,
-                                                       decoded.GetError() );
-        const Landscape::LandscapeTileData heights = decoded.ExtractValue();
-        if ( auto matches = Landscape::CheckTileMatchesRoot( heights, frameRoot ); !matches )
-            return Common::MakeError<Result>( matches.GetError() );
-        const Landscape::LandscapeFrame frame = Landscape::LandscapeTileFrame( frameRoot, tileX, tileZ );
+        auto input = ReadLandscapeHLODTile( request );
+        if ( !input )
+            return Common::MakeError<Result>( input.GetError() );
+        const LandscapeHLODTileInput        tile    = input.ExtractValue();
+        const Landscape::LandscapeTileData& heights = tile.Heights;
+        const Landscape::LandscapeFrame&    frame   = tile.Frame;
 
         // The visibility layer, when the tile has one: its holes are not drawn by the terrain either.
         const std::vector<std::uint8_t>* visibility = nullptr;
