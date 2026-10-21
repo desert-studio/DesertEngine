@@ -109,7 +109,7 @@
             },
             "VolumetricCloud": {
                 "Enabled": true,
-                "Material": "Materials/M_Clouds_Demo_Clouds.demat",
+                "Material": "assets:Materials/M_Clouds_Demo_Clouds.demat",
                 "PlanetRadius": 6360.0,
                 "LayerAltitudeOffset": 0.0,
                 "MaxViewDistance": 6000000.0,
@@ -172,7 +172,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4000.0, 20.0, 4000.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_CheckerFloor.demat"],
+                "MaterialPaths": ["assets:Materials/M_CheckerFloor.demat"],
                 "MaterialGuids": ["45d579b03cc0d0a8df2e4cb025d6bea5"],
                 "Primitive": "Cube"
             }

@@ -233,7 +233,7 @@
             ],
             "StaticMesh": {
                 "MaterialPaths": [
-                    "Materials/Starter_Ground.demat"
+                    "assets:Materials/Starter_Ground.demat"
                 ],
                 "MaterialGuids": [
                     "b33524f57b8f411039fb457c1c34be51"
@@ -377,7 +377,7 @@
             ],
             "StaticMesh": {
                 "MaterialPaths": [
-                    "Materials/M_Metal_R0.demat"
+                    "assets:Materials/M_Metal_R0.demat"
                 ],
                 "MaterialGuids": [
                     "582f0def2b00efe8f1018b02af8340dd"
@@ -406,7 +406,7 @@
             ],
             "StaticMesh": {
                 "MaterialPaths": [
-                    "Materials/Starter_Prop.demat"
+                    "assets:Materials/Starter_Prop.demat"
                 ],
                 "MaterialGuids": [
                     "f6f923426f71eb4a270b1db46ebceeff"
@@ -435,7 +435,7 @@
             ],
             "StaticMesh": {
                 "MaterialPaths": [
-                    "Materials/Starter_Emissive.demat"
+                    "assets:Materials/Starter_Emissive.demat"
                 ],
                 "MaterialGuids": [
                     "b272c29047a884c02a065b782ae62ea5"
@@ -464,7 +464,7 @@
             ],
             "StaticMesh": {
                 "MaterialPaths": [
-                    "Materials/Starter_Prop.demat"
+                    "assets:Materials/Starter_Prop.demat"
                 ],
                 "MaterialGuids": [
                     "f6f923426f71eb4a270b1db46ebceeff"

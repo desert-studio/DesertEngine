@@ -144,7 +144,7 @@
                 ]
             },
             "LandscapeMaterial": {
-                "Material": "Materials/M_G3_TerrainChecker.demat"
+                "Material": "assets:Materials/M_G3_TerrainChecker.demat"
             }
         },
         {
@@ -176,7 +176,7 @@
                 ]
             },
             "LandscapeMaterial": {
-                "Material": "Materials/M_G3_TerrainPlain.demat"
+                "Material": "assets:Materials/M_G3_TerrainPlain.demat"
             }
         },
         {

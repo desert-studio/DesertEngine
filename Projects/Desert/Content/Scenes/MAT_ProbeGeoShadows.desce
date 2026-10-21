@@ -18,7 +18,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_GraphMatch.demat"],
+                "MaterialPaths": ["assets:Materials/CB_GraphMatch.demat"],
                 "MaterialGuids": ["f4263dfdcb77af201c6050be35f5394f"],
                 "Primitive": "Sphere"
             }
@@ -31,7 +31,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/MP_LitConst.demat"],
+                "MaterialPaths": ["assets:Materials/MP_LitConst.demat"],
                 "MaterialGuids": ["5fd4737b3cc218b5bc0ecceccd3664ca"],
                 "Primitive": "Sphere"
             }
@@ -44,7 +44,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [6.0, 0.15000000596046448, 1.2000000476837158],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialPaths": ["assets:Materials/CB_White.demat"],
                 "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
@@ -162,7 +162,7 @@
             },
             "VolumetricCloud": {
                 "Enabled": false,
-                "Material": "Materials/M_Shader_Graph_Geometry_Shadow_Probe_Clouds.demat",
+                "Material": "assets:Materials/M_Shader_Graph_Geometry_Shadow_Probe_Clouds.demat",
                 "PlanetRadius": 6360.0,
                 "LayerAltitudeOffset": 0.0,
                 "MaxViewDistance": 6000000.0,
@@ -286,7 +286,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [400.0, 0.20000000298023224, 400.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_CheckerFloor.demat"],
+                "MaterialPaths": ["assets:Materials/M_CheckerFloor.demat"],
                 "MaterialGuids": ["45d579b03cc0d0a8df2e4cb025d6bea5"],
                 "Primitive": "Cube"
             }

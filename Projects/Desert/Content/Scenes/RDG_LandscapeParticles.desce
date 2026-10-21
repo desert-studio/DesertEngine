@@ -160,7 +160,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "VFX": {
-                "System": "VFX/RDG_LandscapeParticles_7310021749900001.dfx",
+                "System": "assets:VFX/RDG_LandscapeParticles_7310021749900001.dfx",
                 "AutoActivate": true
             }
         },
@@ -172,7 +172,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "VFX": {
-                "System": "VFX/RDG_LandscapeParticles_7310021749900002.dfx",
+                "System": "assets:VFX/RDG_LandscapeParticles_7310021749900002.dfx",
                 "AutoActivate": true
             }
         },

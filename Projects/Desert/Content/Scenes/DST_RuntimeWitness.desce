@@ -138,7 +138,7 @@
                 "CollisionProfile": "BlockAll"
             },
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialPaths": ["assets:Materials/CB_White.demat"],
                 "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
@@ -157,7 +157,7 @@
                 "ImpactRadius": 60.0,
                 "ImpactShells": 3,
                 "ImpactSitesPerShell": 10,
-                "InteriorMaterial": "Materials/CB_Red.demat",
+                "InteriorMaterial": "assets:Materials/CB_Red.demat",
                 "DamageThreshold": [50000.0, 50000.0],
                 "AnchoredNodes": [],
                 "DensityKgPerCm3": 0.002400000113993883,
@@ -173,7 +173,7 @@
                 "CollisionEventMinImpulse": 1000.0
             },
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
                 "Primitive": "Cube"
             }
@@ -192,7 +192,7 @@
                 "ImpactRadius": 60.0,
                 "ImpactShells": 3,
                 "ImpactSitesPerShell": 10,
-                "InteriorMaterial": "Materials/CB_Red.demat",
+                "InteriorMaterial": "assets:Materials/CB_Red.demat",
                 "DamageThreshold": [50000.0, 50000.0],
                 "AnchoredNodes": [],
                 "DensityKgPerCm3": 0.002400000113993883,
@@ -208,7 +208,7 @@
                 "CollisionEventMinImpulse": 1000.0
             },
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
                 "Primitive": "Cube"
             }
@@ -227,7 +227,7 @@
                 "ImpactRadius": 60.0,
                 "ImpactShells": 3,
                 "ImpactSitesPerShell": 10,
-                "InteriorMaterial": "Materials/CB_Red.demat",
+                "InteriorMaterial": "assets:Materials/CB_Red.demat",
                 "DamageThreshold": [50000.0, 50000.0],
                 "AnchoredNodes": [],
                 "DensityKgPerCm3": 0.002400000113993883,
@@ -243,7 +243,7 @@
                 "CollisionEventMinImpulse": 1000.0
             },
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
                 "Primitive": "Cube"
             }

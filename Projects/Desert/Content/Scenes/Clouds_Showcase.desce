@@ -18,7 +18,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4000.0, 0.20000000298023224, 4000.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Ground.demat"],
+                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
                 "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
                 "Primitive": "Cube"
             }
@@ -98,7 +98,7 @@
             },
             "VolumetricCloud": {
                 "Enabled": true,
-                "Material": "Materials/M_Clouds_Showcase_Clouds.demat",
+                "Material": "assets:Materials/M_Clouds_Showcase_Clouds.demat",
                 "PlanetRadius": 6360.0,
                 "LayerAltitudeOffset": 0.0,
                 "MaxViewDistance": 6000000.0,
@@ -171,7 +171,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [6.0, 6.0, 6.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Ground.demat"],
+                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
                 "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
                 "Primitive": "Cube"
             }
@@ -184,7 +184,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [15.0, 15.0, 15.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Ground.demat"],
+                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
                 "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
                 "Primitive": "Cube"
             }
@@ -197,7 +197,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [27.0, 27.0, 27.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Ground.demat"],
+                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
                 "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
                 "Primitive": "Cube"
             }
@@ -210,7 +210,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [42.0, 42.0, 42.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Ground.demat"],
+                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
                 "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
                 "Primitive": "Cube"
             }
@@ -223,7 +223,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [57.0, 57.0, 57.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Ground.demat"],
+                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
                 "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
                 "Primitive": "Cube"
             }

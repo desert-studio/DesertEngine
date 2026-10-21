@@ -131,7 +131,7 @@
                 ]
             },
             "VFX": {
-                "System": "VFX/Particle_Local-Space_Probe_2001.dfx",
+                "System": "assets:VFX/Particle_Local-Space_Probe_2001.dfx",
                 "AutoActivate": true
             }
         },

@@ -186,7 +186,7 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "Materials/UI_RadialWipe.demat",
+                "Material": "assets:Materials/UI_RadialWipe.demat",
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -246,7 +246,7 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "Materials/UI_RadialWipe.demat",
+                "Material": "assets:Materials/UI_RadialWipe.demat",
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -366,7 +366,7 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "Materials/CB_Orange.demat",
+                "Material": "assets:Materials/CB_Orange.demat",
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,

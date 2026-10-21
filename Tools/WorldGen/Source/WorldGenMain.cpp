@@ -125,19 +125,32 @@ namespace Desert::WorldGen
         // the build that loads the body (AssetHeaderReadContext::RecordOnly - this tool links Common only).
         const Common::Content::AssetHeaderReadContext kRecordOnly{ {}, true };
 
+        // THE ONE SPELLING OF A CONTENT REFERENCE: "assets:<path under the assets root>" (Common::AssetHandle::
+        // StableKeyForPath, UE's /Game/... package path). Every asset this tool reads or writes into a scene is
+        // named so - a bare root-relative spelling is refused, naming the reference, never joined to a guessed root.
+        constexpr std::string_view kAssetsScheme = "assets:";
+
+        Common::ResultStr<std::filesystem::path> AssetsKeyFile( const std::filesystem::path& assetsRoot,
+                                                                const std::string& key, const std::string& where )
+        {
+            if ( !key.starts_with( kAssetsScheme ) || key.size() == kAssetsScheme.size() )
+                return Common::MakeError<std::filesystem::path>(
+                     where + " names '" + key + "', not an assets: path - the generator cannot resolve it" );
+            return Common::MakeSuccess( ( assetsRoot / key.substr( kAssetsScheme.size() ) ).lexically_normal() );
+        }
+
         // A texture slot's file, resolved and checked against the GUID the slot states.
         Common::BoolResultStr CheckTextureSlot( const std::filesystem::path& assetsRoot,
                                                 const std::string& material, const TextureSlotIdentity& slot )
         {
-            constexpr std::string_view kAssetsScheme = "assets:";
-            const std::string          where         = "material '" + material + "' slot '" + slot.Name + "'";
+            const std::string where = "material '" + material + "' slot '" + slot.Name + "'";
             // An UNBOUND slot states neither (the shader samples its default); half a reference is a defect.
             if ( slot.Path.empty() && slot.Guid.empty() )
                 return Common::MakeSuccess( true );
-            if ( !slot.Path.starts_with( kAssetsScheme ) )
-                return Common::MakeError<bool>( where + " names '" + slot.Path +
-                                                "', not an assets: path - the generator cannot resolve it" );
-            const auto file   = assetsRoot / slot.Path.substr( kAssetsScheme.size() );
+            const auto resolved = AssetsKeyFile( assetsRoot, slot.Path, where );
+            if ( !resolved )
+                return Common::MakeError<bool>( resolved.GetError() );
+            const auto& file   = resolved.GetValue();
             const auto header = Common::Content::ReadAssetHeader( file, kRecordOnly );
             if ( !header )
                 return Common::MakeError<bool>( where + " texture '" + file.generic_string() +
@@ -155,7 +168,10 @@ namespace Desert::WorldGen
         Common::ResultStr<MaterialRef> LoadMaterial( const std::filesystem::path& assetsRoot,
                                                      const std::string&           relative )
         {
-            const auto text = Common::Utils::FileSystem::ReadFileContent( assetsRoot / relative );
+            const auto file = AssetsKeyFile( assetsRoot, relative, "material" );
+            if ( !file )
+                return Common::MakeError<MaterialRef>( file.GetError() );
+            const auto text = Common::Utils::FileSystem::ReadFileContent( file.GetValue() );
             if ( !text.IsSuccess() )
                 return Common::MakeError<MaterialRef>( "material '" + relative + "': " + text.GetError() );
 
@@ -192,12 +208,12 @@ namespace Desert::WorldGen
         // function and not a constant inside the generator precisely so that the day textured materials
         // exist, this list grows and the world is regenerated, with no change to the generator.
         constexpr const char* kBuildingMaterials[] = {
-             "Materials/CB_White.demat",
-             "Materials/CB_Orange.demat",
-             "Materials/CB_Green.demat",
-             "Materials/CB_Red.demat",
+             "assets:Materials/CB_White.demat",
+             "assets:Materials/CB_Orange.demat",
+             "assets:Materials/CB_Green.demat",
+             "assets:Materials/CB_Red.demat",
         };
-        constexpr const char* kGroundMaterial = "Materials/M_CheckerFloor.demat";
+        constexpr const char* kGroundMaterial = "assets:Materials/M_CheckerFloor.demat";
 
         // A mesh file, read for what a scene must state about it: its header GUID (SCNE 28), its kind, and the
         // bounds it states (to seat it on the ground). Two on-disk forms are tracked and both are read here: an
@@ -205,10 +221,13 @@ namespace Desert::WorldGen
         // (`DESTMESH` v3, bounds in its header - the Cooked/Meshes/*.skmesh probes). Kind and GUID come from
         // ReadAssetHeader, which sniffs both - the same entry point the registry cook reads identity through.
         // Every failure names the file: no asset is a refusal, never a stand-in.
-        Common::ResultStr<MeshRef> LoadMesh( const std::filesystem::path& projectRoot, const std::string& relative,
+        Common::ResultStr<MeshRef> LoadMesh( const std::filesystem::path& assetsRoot, const std::string& relative,
                                              bool skinned )
         {
-            const auto        file   = projectRoot / relative;
+            const auto resolved = AssetsKeyFile( assetsRoot, relative, "mesh" );
+            if ( !resolved )
+                return Common::MakeError<MeshRef>( resolved.GetError() );
+            const auto&       file   = resolved.GetValue();
             const std::string where  = "mesh '" + relative + "' (" + file.generic_string() + ")";
             const auto        header = Common::Content::ReadAssetHeader( file, kRecordOnly );
             if ( !header )
@@ -321,7 +340,7 @@ namespace Desert::WorldGen
             std::vector<PropTheme> themes;
             for ( const auto& row : list.GetValue().Props )
             {
-                auto mesh = LoadMesh( projectRoot, row.Mesh, row.Skinned );
+                auto mesh = LoadMesh( assetsRoot, row.Mesh, row.Skinned );
                 if ( !mesh )
                     return Common::MakeError<std::vector<PropTheme>>( mesh.GetError() );
                 auto material = LoadMaterial( assetsRoot, row.Material );

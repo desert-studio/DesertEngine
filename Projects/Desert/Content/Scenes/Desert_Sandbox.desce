@@ -63,7 +63,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Prop.demat"],
+                "MaterialPaths": ["assets:Materials/Starter_Prop.demat"],
                 "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
                 "Primitive": "Cube"
             }
@@ -76,7 +76,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_Dielectric_R0.demat"],
+                "MaterialPaths": ["assets:Materials/M_Dielectric_R0.demat"],
                 "MaterialGuids": ["f19593762f19be4d47cadcb269c4e878"],
                 "Primitive": "Sphere"
             }
@@ -89,7 +89,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_Dielectric_R20.demat"],
+                "MaterialPaths": ["assets:Materials/M_Dielectric_R20.demat"],
                 "MaterialGuids": ["731f4f827c7b881bed18f470df8653e8"],
                 "Primitive": "Sphere"
             }
@@ -133,7 +133,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_Metal_R40.demat"],
+                "MaterialPaths": ["assets:Materials/M_Metal_R40.demat"],
                 "MaterialGuids": ["6336872c8642f7daeea018f4449c1529"],
                 "Primitive": "Sphere"
             }
@@ -146,7 +146,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [24.0, 0.20000000298023224, 24.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Ground.demat"],
+                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
                 "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
                 "Primitive": "Cube"
             }
@@ -294,7 +294,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_Dielectric_R80.demat"],
+                "MaterialPaths": ["assets:Materials/M_Dielectric_R80.demat"],
                 "MaterialGuids": ["a849328dedac15852ea59eb6cc7e4176"],
                 "Primitive": "Sphere"
             }
@@ -307,7 +307,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Emissive.demat"],
+                "MaterialPaths": ["assets:Materials/Starter_Emissive.demat"],
                 "MaterialGuids": ["b272c29047a884c02a065b782ae62ea5"],
                 "Primitive": "Cube"
             }
@@ -320,7 +320,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.6000000238418579, 1.5, 0.6000000238418579],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Prop.demat"],
+                "MaterialPaths": ["assets:Materials/Starter_Prop.demat"],
                 "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
                 "Primitive": "Capsule"
             }
@@ -333,7 +333,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_Metal_R60.demat"],
+                "MaterialPaths": ["assets:Materials/M_Metal_R60.demat"],
                 "MaterialGuids": ["d85d458cca28da444ac2939074e0b757"],
                 "Primitive": "Sphere"
             }
@@ -346,7 +346,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_Metal_R0.demat"],
+                "MaterialPaths": ["assets:Materials/M_Metal_R0.demat"],
                 "MaterialGuids": ["582f0def2b00efe8f1018b02af8340dd"],
                 "Primitive": "Sphere"
             }
@@ -399,7 +399,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_Metal_R100.demat"],
+                "MaterialPaths": ["assets:Materials/M_Metal_R100.demat"],
                 "MaterialGuids": ["88204c80060d80e7ebf5173d38f05fae"],
                 "Primitive": "Sphere"
             }
@@ -412,7 +412,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_Dielectric_R100.demat"],
+                "MaterialPaths": ["assets:Materials/M_Dielectric_R100.demat"],
                 "MaterialGuids": ["b15fb21e65ca9e9e574fd69d1aa31877"],
                 "Primitive": "Sphere"
             }
@@ -425,7 +425,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_Metal_R20.demat"],
+                "MaterialPaths": ["assets:Materials/M_Metal_R20.demat"],
                 "MaterialGuids": ["1d329766c5c4c2d83fcfdafc37df272b"],
                 "Primitive": "Sphere"
             }
@@ -438,7 +438,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_Metal_R80.demat"],
+                "MaterialPaths": ["assets:Materials/M_Metal_R80.demat"],
                 "MaterialGuids": ["e71ff67b2d1649e6d2787be69933b7d5"],
                 "Primitive": "Sphere"
             }
@@ -451,7 +451,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_Dielectric_R40.demat"],
+                "MaterialPaths": ["assets:Materials/M_Dielectric_R40.demat"],
                 "MaterialGuids": ["1ff7bf41d54b6c595b934944215d82aa"],
                 "Primitive": "Sphere"
             }
@@ -464,7 +464,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.550000011920929, 0.550000011920929, 0.550000011920929],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_Dielectric_R60.demat"],
+                "MaterialPaths": ["assets:Materials/M_Dielectric_R60.demat"],
                 "MaterialGuids": ["d27106039e9adb87a41069d7ce898854"],
                 "Primitive": "Sphere"
             }
@@ -477,7 +477,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Glass.demat"],
+                "MaterialPaths": ["assets:Materials/Starter_Glass.demat"],
                 "MaterialGuids": ["02a74d5bec4236c300fc86c6c13a97a8"],
                 "Primitive": "Sphere"
             }
@@ -490,7 +490,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.6000000238418579, 1.5, 0.6000000238418579],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Prop.demat"],
+                "MaterialPaths": ["assets:Materials/Starter_Prop.demat"],
                 "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
                 "Primitive": "Cylinder"
             }

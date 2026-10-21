@@ -18,7 +18,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.10000000149011612, 5.0, 30.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Green.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Green.demat"],
                 "MaterialGuids": ["91bde2ac45c15dd230d961a447b6fba7"],
                 "Primitive": "Cube"
             }
@@ -23749,7 +23749,7 @@
             },
             "VolumetricCloud": {
                 "Enabled": false,
-                "Material": "Materials/M_Graph_Batch_Stress__1024_cubes__one_graph_material__Clouds.demat",
+                "Material": "assets:Materials/M_Graph_Batch_Stress__1024_cubes__one_graph_material__Clouds.demat",
                 "PlanetRadius": 6360.0,
                 "LayerAltitudeOffset": 0.0,
                 "MaxViewDistance": 6000000.0,

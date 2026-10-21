@@ -123,7 +123,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [2.4000000953674316, 2.4000000953674316, 0.019999999552965164],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialPaths": ["assets:Materials/CB_White.demat"],
                 "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
@@ -136,7 +136,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.7000000476837158, 1.7000000476837158, 0.019999999552965164],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Red.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Red.demat"],
                 "MaterialGuids": ["e04d99eaf3ddd30e0184e38e5c3bcc57"],
                 "Primitive": "Cube"
             }
@@ -149,7 +149,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [2400.0, 2400.0, 20.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialPaths": ["assets:Materials/CB_White.demat"],
                 "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
@@ -162,7 +162,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1700.0, 1700.0, 20.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Red.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Red.demat"],
                 "MaterialGuids": ["e04d99eaf3ddd30e0184e38e5c3bcc57"],
                 "Primitive": "Cube"
             }

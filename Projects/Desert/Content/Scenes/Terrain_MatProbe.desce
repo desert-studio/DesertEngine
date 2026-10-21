@@ -144,7 +144,7 @@
                 ]
             },
             "LandscapeMaterial": {
-                "Material": "Materials/M_TerrainProbe.demat"
+                "Material": "assets:Materials/M_TerrainProbe.demat"
             }
         },
         {

@@ -36,7 +36,7 @@ namespace Desert::WorldGen
     // time the editor saves it, which breaks the round-trip identity above.
     struct MaterialRef
     {
-        std::string Path; // e.g. "Materials/CB_White.demat", relative to the assets root
+        std::string Path; // e.g. "assets:Materials/CB_White.demat" - the content key, written into the scene as is
         std::string Guid; // the material's header GUID as text - what a scene's MaterialGuids states (SCNE 27)
     };
 

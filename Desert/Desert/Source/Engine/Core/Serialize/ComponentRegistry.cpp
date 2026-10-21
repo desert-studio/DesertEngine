@@ -106,6 +106,26 @@ namespace Desert::Core::Serialize
             return key.empty() ? std::string() : Common::AssetHandle::PathForStableKey( key ).generic_string();
         }
 
+        // A STORED CONTENT REFERENCE EXPANDED TO THE FILE IT NAMES. The one spelling is the root-tagged key
+        // ("assets:Materials/M.demat", Common::AssetHandle::StableKeyForPath; UE's /Game/... package path),
+        // expanded by its exact inverse; an absolute path names a file genuinely outside the project and is
+        // taken as given. The bare root-relative spelling ("Materials/M.demat") that used to be joined to
+        // ASSETS_PATH here is GONE: the corpus was restated in the key form (PATH1), and a bare string is
+        // refused, naming it, rather than resolved against a root the reader guesses.
+        std::filesystem::path FileForStoredReference( const std::string& stored, const std::string& type )
+        {
+            if ( Common::AssetHandle::IsProjectRelativeKey( stored ) )
+                return Common::AssetHandle::PathForStableKey( stored );
+            const std::filesystem::path named( stored );
+            if ( named.is_absolute() )
+                return named.lexically_normal();
+            LOG_ERROR( "[Scene] '{0}' reference '{1}' is neither a content key (\"{2}:<path>\") nor an absolute "
+                       "path, so it names no file: the slot loads unset. Re-point the slot, or restate the "
+                       "reference as \"{2}:{1}\" if it is relative to the assets root.",
+                       type, stored, Common::AssetHandle::AssetsTag() );
+            return {};
+        }
+
         // `ToGeneric`/`FromGeneric` STOOD HERE and are gone: they are `WriteBlock`/`ReadBlock` in
         // Engine/Core/Serialize/GenericBlock.hpp now, which that header explains. Two things changed
         // with the move and both are the point — the read takes `rfl::DefaultIfMissing`, so a block
@@ -781,26 +801,11 @@ namespace Desert::Core::Serialize
             }
             if ( type == "MaterialAsset" )
             {
-                // BOTH FORMS ARE ACCEPTED, on the terms the cloud branches below state: a file written
-                // by ToPath above (or by the v7 -> v8 migration) carries a path relative to the assets
-                // root, because a material ships with the project; a material an artist points at
-                // outside the project carries an absolute one. Joining the relative form to the root
-                // HERE means it happens exactly once.
-                //
-                // THE JOIN IS THE EXPANSION OF A REFERENCE AND NOT A LOOKUP FIX — it used to be both,
-                // and that half is now retired. `FindByPath` compared filepaths VERBATIM while
-                // `CreateAsset` deduplicated on the spelling-independent stable key, so a scene naming a
-                // preloaded material by any other spelling missed and went the create-and-register way
-                // round; this join was one of three hand-written detours around that. The registry
-                // answers both questions the same way now (Desert/Tests/Engine/AssetPathIdentity). What
-                // the join still does, and must: an identity is derived RELATIVE TO THE CONTENT ROOTS, so
-                // a bare `Materials/M.demat` would otherwise be resolved against the process's working
-                // directory, land under no root, and be a different asset from the same file under the
-                // assets root. Deleting it would break the reference this branch exists to read.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                // The stored reference is the content key (or an absolute path outside the project), expanded
+                // ONCE, here, by FileForStoredReference; the bare assets-relative spelling is refused (PATH1).
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
 
                 // FIND, ELSE CREATE, THEN REGISTER — and the "then" is outside both branches on purpose.
                 // Registering only what this parse CREATED is the defect this shape retires; see
@@ -847,11 +852,9 @@ namespace Desert::Core::Serialize
             // deletion rather than an oversight.
             if ( type == "CloudModellingVolumeAsset" )
             {
-                // Both forms accepted, for the reason the cloud type's branch gives above.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
 
                 auto a = mgr.FindByPath<Assets::CloudModellingVolumeAsset>( full );
                 if ( !a )
@@ -876,11 +879,9 @@ namespace Desert::Core::Serialize
             }
             if ( type == "ControlRigAsset" )
             {
-                // Both forms accepted, for the reason the branches above give.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
 
                 auto a = mgr.FindByPath<Assets::ControlRigAsset>( full );
                 if ( !a )
@@ -910,11 +911,9 @@ namespace Desert::Core::Serialize
             }
             if ( type == "RetargetAsset" )
             {
-                // Both forms accepted, for the reason the branches above give.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
 
                 auto a = mgr.FindByPath<Assets::RetargetAsset>( full );
                 if ( !a )
@@ -946,10 +945,9 @@ namespace Desert::Core::Serialize
             {
                 // The locator half of a procedural volume's type list {Guid, Path}: ResolveGuidRef reaches it
                 // only when the GUID's registry row did not, and checks the file found here IS that type.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
                 auto a = mgr.FindByPath<Assets::FoliageTypeAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::FoliageTypeAsset>( full, /*loadAfterCreate=*/false );
@@ -961,10 +959,9 @@ namespace Desert::Core::Serialize
                 // cloud body's reason above: FractureService reads the `.dfrac` when Play asks for it, and the
                 // asset's constructor adopts the handle its envelope GUID names, so the service's registry row
                 // and this handle are one identity.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
                 auto a = mgr.FindByPath<Assets::FractureAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::FractureAsset>( full, /*loadAfterCreate=*/false );
@@ -975,10 +972,9 @@ namespace Desert::Core::Serialize
                 // A water body's wave set (WaterBodyData::WaterWaves). Announced, not read, as the fracture
                 // above: WaterWavesService reads the `.dwaves` when Play gathers the bodies, and the asset's
                 // constructor adopts the handle its header GUID names.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
                 auto a = mgr.FindByPath<Assets::WaterWavesAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::WaterWavesAsset>( full, /*loadAfterCreate=*/false );
@@ -989,10 +985,9 @@ namespace Desert::Core::Serialize
                 // The scene's world parameter collection (SceneSettings::WorldParameters). Announced, not read, as
                 // the fracture above: WorldParametersService reads the `.dworldparams` when the world's instance
                 // adopts it, and the asset's constructor adopts the handle its header GUID names.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
                 auto a = mgr.FindByPath<Assets::WorldParametersAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::WorldParametersAsset>( full, /*loadAfterCreate=*/false );
@@ -1002,10 +997,9 @@ namespace Desert::Core::Serialize
             {
                 // A weather zone's preset (ECS::WeatherZoneData::Preset). Announced, not read, as the collection
                 // above: WeatherPresetService reads the `.dweatherpreset` when the world's weather first needs it.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
                 auto a = mgr.FindByPath<Assets::WeatherPresetAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::WeatherPresetAsset>( full, /*loadAfterCreate=*/false );
@@ -1016,10 +1010,9 @@ namespace Desert::Core::Serialize
                 // A ragdoll's physics asset (RagdollData::PhysicsAsset). Announced, not read, as the fracture
                 // above: PhysicsAssetService reads the `.dephysasset` when Play asks for it, and the asset's
                 // constructor adopts the handle its envelope GUID names.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
                 auto a = mgr.FindByPath<Assets::PhysicsAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::PhysicsAsset>( full, /*loadAfterCreate=*/false );
@@ -1030,10 +1023,10 @@ namespace Desert::Core::Serialize
                 // The locator half of the Audio Source's {Guid, Path}: the `.desound` the path names states
                 // the GUID, and ResolveGuidRef checks it is the one the scene states. Nothing is loaded: the
                 // audio file is streamed when a voice starts.
-                const std::filesystem::path named( path );
-                const auto                  sound = Assets::SoundAsset::ReadFile(
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal() );
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
+                const auto sound = Assets::SoundAsset::ReadFile( full );
                 if ( !sound )
                 {
                     LOG_ERROR( "[Audio] {}", sound.GetError() );
@@ -1046,10 +1039,9 @@ namespace Desert::Core::Serialize
                 // A VFX component's `.dfx` system. Announced, not read, as the wave set above: VFXSystemService
                 // requests the read from the registry row on the first tick that asks for it, and the asset's
                 // constructor adopts the handle its header GUID names, so the row and this shell agree.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
                 auto a = mgr.FindByPath<Assets::VFXSystemAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::VFXSystemAsset>( full, /*loadAfterCreate=*/false );
@@ -1059,19 +1051,16 @@ namespace Desert::Core::Serialize
             {
                 // The locator half of the Default Pawn's {Guid, Path}: ResolveGuidRef reaches it only when
                 // the GUID's registry row did not, and checks the file found here IS that prefab.
-                const std::filesystem::path named( path );
-                return LoadScenePrefab(
-                     m, named.is_absolute()
-                             ? named
-                             : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal() );
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
+                return LoadScenePrefab( m, full );
             }
             if ( type == "AnimGraphAsset" )
             {
-                // Both forms accepted, for the reason the branches above give.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
 
                 auto a = mgr.FindByPath<Assets::AnimGraphAsset>( full );
                 if ( !a )
@@ -1100,11 +1089,9 @@ namespace Desert::Core::Serialize
             }
             if ( type == "UIThemeAsset" )
             {
-                // Both forms accepted, for the reason the branches above give.
-                const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
 
                 auto a = mgr.FindByPath<Assets::UIThemeAsset>( full );
                 if ( !a )
@@ -1246,14 +1233,8 @@ namespace Desert::Core::Serialize
                 if ( key.empty() )
                     return 0;
                 // Loaded through the locator half above (FromPath's PrefabAsset branch), which owns the one
-                // mutable view of the manager: FromPath resolves a relative locator against the assets root,
-                // so the row's path is handed over relative to that root and round-trips to itself.
-                const std::filesystem::path full = Common::AssetHandle::PathForStableKey( key );
-                const std::filesystem::path relative =
-                     full.lexically_relative( Common::Constants::Path::ASSETS_PATH );
-                if ( relative.empty() )
-                    return 0;
-                return fromPath( relative.generic_string(), type ) == guid ? guid : 0;
+                // mutable view of the manager: the row's key IS the stored spelling, handed over as is.
+                return fromPath( key, type ) == guid ? guid : 0;
             }
             if ( type == "FoliageTypeAsset" )
             {
@@ -1264,12 +1245,7 @@ namespace Desert::Core::Serialize
                 const std::string key = Assets::ContentRegistry::KeyForHandle( guid );
                 if ( key.empty() )
                     return 0;
-                const std::filesystem::path full = Common::AssetHandle::PathForStableKey( key );
-                const std::filesystem::path relative =
-                     full.lexically_relative( Common::Constants::Path::ASSETS_PATH );
-                if ( relative.empty() )
-                    return 0;
-                return fromPath( relative.generic_string(), type ) == guid ? guid : 0;
+                return fromPath( key, type ) == guid ? guid : 0;
             }
             if ( type == "SoundAsset" )
             {
