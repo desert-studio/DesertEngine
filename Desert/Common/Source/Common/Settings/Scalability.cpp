@@ -245,9 +245,13 @@ namespace Common::Scalability
                CL::None,
                "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (paths per pixel until it stops)" },
              { P::ScreenProbeDownsample, G::GlobalIllumination, "GlobalIllumination.ScreenProbeDownsample", 8, 64,
-               CL::None, std::nullopt },
+               CL::None,
+               "SceneRenderer::BeginScene -> GlobalIllumination::ScreenProbeGather (pixels a uniform probe side: "
+               "the SP_DOWNSAMPLE permutation, 8 / 16 / 32 / 64)" },
              { P::ScreenProbeTracedTexels, G::GlobalIllumination, "GlobalIllumination.ScreenProbeTracedTexels", 4,
-               16, CL::None, std::nullopt },
+               16, CL::None,
+               "SceneRenderer::BeginScene -> GlobalIllumination::ScreenProbeGather (traced texels a probe side: "
+               "the SP_RES permutation)" },
              { P::IrradianceFieldProbesPerFrame, G::GlobalIllumination,
                "GlobalIllumination.IrradianceFieldProbesPerFrame", 10, 2000, CL::None,
                "SceneRenderer::BeginScene -> RadianceCache::MakeRadianceCacheInputs (ProbeVolume's probes traced "

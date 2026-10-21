@@ -9,8 +9,12 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdint>
+#include <string>
+#include <vector>
 #include <memory>
 
 // THE SCREEN PROBE GATHER (GI-FINAL-GATHER) — the final gather of the traced GI methods, ported from UE Lumen's
@@ -113,21 +117,33 @@ namespace Desert::Graphic::GlobalIllumination
     // The probe layout of an extent (pure; Common/ScreenProbes.glslh computes the same on the GPU).
     struct ScreenProbeLayout
     {
-        static constexpr uint32_t kDownsample     = 16; // UE r.Lumen.ScreenProbeGather.DownsampleFactor
-        static constexpr uint32_t kLevels         = 3;  // uniform 16 px + adaptive 8 px + adaptive 4 px
-        // The adaptive positions one uniform tile holds: 2x2 - 1 at 8 px and 4x4 - 2x2 at 4 px (the positions of
-        // a coarser level are skipped, UE `any((DispatchThreadId.xy & 0x1) != 0)`).
-        static constexpr uint32_t kAdaptivePerTile = 3 + 12;
-        static constexpr uint32_t kTracedTexels   = 8;  // UE r.Lumen.ScreenProbeGather.TracingOctahedronResolution
-        static constexpr uint32_t kAtlasProbesRow = 128;
+        // The narrowest atlas row, in probes; MakeScreenProbeLayout widens it until the atlas height fits the
+        // device's image limit (AtlasProbesRow).
+        static constexpr uint32_t kMinAtlasProbesRow = 128;
         static constexpr uint32_t kSHCoefficients  = 9;
+        static constexpr uint32_t kMaxLevels       = 5; // 64 px: uniform + adaptive 32, 16, 8, 4
+
+        // UE r.Lumen.ScreenProbeGather.DownsampleFactor (Scalability GlobalIllumination.ScreenProbeDownsample):
+        // 8, 16, 32 or 64 pixels a uniform probe side; the shaders' SP_DOWNSAMPLE (ScreenProbeLayoutDefines).
+        uint32_t Downsample = 16;
+        // Uniform + adaptive levels down to 4 px (UE AdaptiveProbeMinDownsampleFactor 4): log2(Downsample) - 1.
+        uint32_t Levels = 3;
+        // The adaptive positions one uniform tile holds, the coarser levels' skipped (UE
+        // `any((DispatchThreadId.xy & 0x1) != 0)`): (Downsample / 4)² - 1, 15 at 16 px.
+        uint32_t AdaptivePerTile = 15;
+        // UE r.Lumen.ScreenProbeGather.TracingOctahedronResolution (Scalability
+        // GlobalIllumination.ScreenProbeTracedTexels), 4..16: the shaders' SP_RES.
+        uint32_t TracedTexels = 8;
 
         glm::uvec2 Grid{ 0u }; // level-0 tiles
         uint32_t   UniformProbes  = 0;
         uint32_t   AdaptiveProbes = 0; // the budget
         // 1 (the adaptive count) + the uniform grid + per uniform tile: one adaptive count per adaptive level and
-        // kAdaptivePerTile adaptive probe slots (Common/ScreenProbes.glslh SPTileHeader / SPTileSlot).
+        // AdaptivePerTile adaptive probe slots (Common/ScreenProbes.glslh SPTileHeader / SPTileSlot).
         uint32_t   IndexEntries   = 0;
+        // Probes a traced / filtered atlas row (the shaders' screenProbeParams.atlas.x) and the rows: at least
+        // kMinAtlasProbesRow, widened so AtlasRows * (TracedTexels + 2) fits the device's 2D image limit.
+        uint32_t   AtlasProbesRow = kMinAtlasProbesRow;
         uint32_t   AtlasRows      = 0;
 
         [[nodiscard]] uint32_t Probes() const
@@ -136,34 +152,76 @@ namespace Desert::Graphic::GlobalIllumination
         }
     };
 
+    // Whether @p downsample / @p tracedTexels are a layout the shaders compile (SP_DOWNSAMPLE_LOG2 3..6,
+    // SP_TRACED_TEXELS 4..16 in Common/ScreenProbes.glslh).
+    [[nodiscard]] constexpr bool ScreenProbeLayoutSupported( const uint32_t downsample, const uint32_t tracedTexels )
+    {
+        return ( downsample == 8u || downsample == 16u || downsample == 32u || downsample == 64u ) &&
+               tracedTexels >= 4u && tracedTexels <= 16u;
+    }
+
     // @p adaptivePercent: adaptive probes per uniform probe, percent (Scalability
-    // GlobalIllumination.AdaptiveProbeAllocationPercent, UE AdaptiveProbeAllocationFraction x 100).
+    // GlobalIllumination.AdaptiveProbeAllocationPercent, UE AdaptiveProbeAllocationFraction x 100);
+    // @p downsample / @p tracedTexels: ScreenProbeLayoutSupported; @p maxImageDimension: the device's
+    // maxImageDimension2D (DeviceCapabilities::MaxTexture2DSize), which bounds both atlas sides.
+    //
+    // THE IMAGE-LIMIT CLAMP. The widest atlas texel a probe takes is the filtered one, side = TracedTexels + 2, so
+    // the atlas holds at most C = (maxImageDimension / side)² probes. The row is widened first:
+    // AtlasProbesRow = max(kMinAtlasProbesRow, ceil(Probes / (maxImageDimension / side))), capped at
+    // maxImageDimension / side. If the probes still exceed C, the ADAPTIVE budget is clamped to C - UniformProbes
+    // (the layout permutation, i.e. Downsample / TracedTexels the programs are compiled under, is never changed);
+    // a uniform grid alone over C is a layout the device cannot hold: AtlasRows = 0, ScreenProbeLayoutFits false,
+    // ScreenProbeGather::AddPasses refuses it with the numbers.
     [[nodiscard]] inline ScreenProbeLayout MakeScreenProbeLayout( const glm::uvec2 extent,
-                                                                  const uint32_t   adaptivePercent )
+                                                                  const uint32_t   adaptivePercent,
+                                                                  const uint32_t   downsample,
+                                                                  const uint32_t   tracedTexels,
+                                                                  const uint32_t   maxImageDimension )
     {
         ScreenProbeLayout layout;
+        layout.Downsample = downsample;
+        layout.Levels     = static_cast<uint32_t>( std::countr_zero( downsample ) ) - 1u;
+        layout.AdaptivePerTile = ( downsample / 4u ) * ( downsample / 4u ) - 1u;
+        layout.TracedTexels    = tracedTexels;
         const auto        grid = [extent]( const uint32_t spacing )
         { return glm::uvec2( ( extent.x + spacing - 1u ) / spacing, ( extent.y + spacing - 1u ) / spacing ); };
-        layout.Grid           = grid( ScreenProbeLayout::kDownsample );
+        layout.Grid           = grid( downsample );
         layout.UniformProbes  = layout.Grid.x * layout.Grid.y;
         layout.AdaptiveProbes = layout.UniformProbes * adaptivePercent / 100u;
-        layout.IndexEntries   = 1u + layout.UniformProbes * ( 1u + ( ScreenProbeLayout::kLevels - 1u ) +
-                                                            ScreenProbeLayout::kAdaptivePerTile );
-        layout.AtlasRows =
-             ( layout.Probes() + ScreenProbeLayout::kAtlasProbesRow - 1u ) / ScreenProbeLayout::kAtlasProbesRow;
+        layout.IndexEntries   = 1u + layout.UniformProbes * ( 1u + ( layout.Levels - 1u ) + layout.AdaptivePerTile );
+        const uint32_t side    = tracedTexels + 2u;
+        const uint32_t maxSide = maxImageDimension / side; // probes along one atlas side
+        const uint64_t capacity = static_cast<uint64_t>( maxSide ) * maxSide;
+        if ( layout.UniformProbes > capacity )
+        {
+            layout.AtlasRows = 0; // ScreenProbeLayoutFits false
+            return layout;
+        }
+        if ( layout.Probes() > capacity )
+            layout.AdaptiveProbes = static_cast<uint32_t>( capacity ) - layout.UniformProbes;
+        const uint32_t probes = layout.Probes();
+        layout.AtlasProbesRow =
+             std::min( maxSide, std::max( ScreenProbeLayout::kMinAtlasProbesRow, ( probes + maxSide - 1u ) / maxSide ) );
+        layout.AtlasRows = ( probes + layout.AtlasProbesRow - 1u ) / layout.AtlasProbesRow;
         return layout;
+    }
+
+    // Whether MakeScreenProbeLayout found an atlas the device holds (its uniform grid fits the image limit).
+    [[nodiscard]] inline bool ScreenProbeLayoutFits( const ScreenProbeLayout& layout )
+    {
+        return layout.AtlasRows != 0u;
     }
 
     // The probes' pixel offset inside their tiles in frame @p frameIndex (UE GetScreenTileJitter:
     // Hammersley16(TemporalIndex % 8, 8) * DownsampleFactor) — every level's grid is shifted by it, so over eight
     // frames the probes visit eight positions of each tile and the integrate's history gathers them.
-    [[nodiscard]] inline glm::uvec2 ScreenProbeJitter( const uint32_t frameIndex )
+    [[nodiscard]] inline glm::uvec2 ScreenProbeJitter( const uint32_t frameIndex, const uint32_t downsample )
     {
         const uint32_t i        = frameIndex % 8u;
         uint32_t       reversed = 0u; // the 3-bit reversal of i: Hammersley's radical inverse over 8 samples
         for ( uint32_t bit = 0; bit < 3u; ++bit )
             reversed |= ( ( i >> bit ) & 1u ) << ( 2u - bit );
-        return glm::uvec2( i, reversed ) * ( ScreenProbeLayout::kDownsample / 8u );
+        return glm::uvec2( i, reversed ) * ( downsample / 8u );
     }
 
     // This frame's graph resources the gather reads.
@@ -185,6 +243,8 @@ namespace Desert::Graphic::GlobalIllumination
         RadianceCacheFrame RadianceCache;
         glm::uvec2         Extent{ 0u };
         uint32_t AdaptiveProbePercent = 0; // Scalability GlobalIllumination.AdaptiveProbeAllocationPercent
+        uint32_t Downsample   = 16; // Scalability GlobalIllumination.ScreenProbeDownsample (ScreenProbeLayout)
+        uint32_t TracedTexels = 8;  // Scalability GlobalIllumination.ScreenProbeTracedTexels (ScreenProbeLayout)
         bool     ShortRangeAO = true; // Scalability GlobalIllumination.ShortRangeAO: the ShortRangeAO pass runs
         glm::mat4          PrevViewProjection{ 1.0f }; // unjittered
         glm::vec3          PrevCameraPosition{ 0.0f };
@@ -259,17 +319,26 @@ namespace Desert::Graphic::GlobalIllumination
         };
 
         [[nodiscard]] Common::BoolResultStr EnsureImages( glm::uvec2 extent, const ScreenProbeLayout& layout );
+        // Every program under the layout permutation of @p downsample / @p tracedTexels (rebuilt on a change;
+        // the trace legs re-acquired by EnsureTraceProgram).
+        [[nodiscard]] Common::BoolResultStr EnsureLayoutPrograms( uint32_t downsample, uint32_t tracedTexels );
 
         std::array<std::shared_ptr<Shader>, ProgramCount>          m_Shaders;
         std::array<std::shared_ptr<ComputePipeline>, ProgramCount> m_Pipelines;
         mutable std::array<ShaderBindingLayoutCache, ProgramCount> m_Layouts;
         Pipeline                                                   m_TraceProgramFor{};
+        uint32_t m_ProgramDownsample   = 0; // the layout the programs are compiled under (0 = none yet)
+        uint32_t m_ProgramTracedTexels = 0;
+        uint32_t m_TraceProgramDownsample   = 0; // the layout the trace legs are compiled under
+        uint32_t m_TraceProgramTracedTexels = 0;
 
         std::shared_ptr<Image2D>                m_Traced;   // SP_RES² texels per probe
         std::shared_ptr<Image2D>                m_Filtered; // (SP_RES + 2)² per probe
         std::shared_ptr<Image2D>                m_ShortRangeAO; // xyz = bent normal, w = AO, the G-buffer's extent
         glm::uvec2                              m_Extent{ 0u };
         uint32_t                                m_AtlasRows  = 0;
+        uint32_t                                m_AtlasProbesRow    = 0;
+        uint32_t                                m_ImageTracedTexels = 0;
         uint32_t                                m_FrameIndex = 0;
     };
 } // namespace Desert::Graphic::GlobalIllumination
