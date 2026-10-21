@@ -57,9 +57,9 @@ include "Tools/LatticePeak/"
 include "Tools/AssetClosure/"
 -- AssetRegistryTool writes the file both hosts now boot from, and checks it in CI (T2.4/T2.7).
 include "Tools/AssetRegistryTool/"
--- GamePackager is the PLAYER's artifact with no editor in the loop: it compiles its four Editor
--- translation units into itself and links the engine libraries, never the Editor project, so the
--- Shipping leg that builds Runtime builds no editor for it (see Tools/GamePackager/premake5.lua).
+-- GamePackager is the PLAYER's artifact with no editor UI in the loop: it links the editor's library
+-- (EditorCore, as an ordinary archive: the cook and the importers it reaches) and the engine libraries,
+-- never the Editor executable (see Tools/GamePackager/premake5.lua).
 include "Tools/GamePackager/"
 -- WorldCook links the engine libraries the same way, for the HLOD builders its cook shares with Play and the
 -- packager (see Tools/WorldCook/premake5.lua).

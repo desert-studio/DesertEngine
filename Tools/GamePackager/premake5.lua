@@ -1,18 +1,21 @@
 -- GamePackager — the player's artifact, built with no editor UI and no GPU.
 --
--- THE ENGINE IS LINKED, NOT COPIED. The packer and its cook are four editor translation units (below); what they
--- call is the engine, linked as every engine user links it: one library per module through
--- DesertModuleLibs.Link() (BuildScripts/DesertModuleLibs.lua), so the archives carry their own closure and the
--- linker takes only the members the packager reaches.
+-- THE ENGINE AND THE EDITOR'S COOK ARE LINKED, NOT COPIED. What the packer calls is the engine, linked as every
+-- engine user links it: one library per module through DesertModuleLibs.Link() (BuildScripts/DesertModuleLibs.lua),
+-- so the archives carry their own closure and the linker takes only the members the packager reaches. The packer
+-- itself and its cook (Editor/Packaging/GamePackager.cpp, PackageCook.cpp) and everything they call in the editor
+-- (the texture importer, the mesh builders: Editor/Import/MeshDeriver.cpp BuildMeshPlatformData,
+-- Editor/Import/ImportManager.cpp BuildMeshSourceOnMiss and the importers behind it) come from the editor's
+-- library, EditorCore, linked as an ordinary archive — NOT whole-archive, as the Editor executable links it: the
+-- component editors' static registrars are not reached, so their members (and the UI they draw) stay out.
 --
--- It used to compile a hand-kept list of ~30 engine sources instead, "a copy of" the PackagedContent suite's
--- premake. BUILD1 folded that suite into the Editor runner, which links the whole engine, so nothing held the
--- list to the code any more: when the packaged cook started building HLODs with the engine's builders
--- (Engine/Core/HLODMeshBuilder.cpp: MakeHLODMeshBuilder, MakeLandscapeHLODBuilder - WP-FAR-6/7) the list did not
--- grow and the tool stopped linking.
+-- It used to compile hand-kept lists instead: ~30 engine sources (they stopped linking when the cook started
+-- building HLODs with Engine/Core/HLODMeshBuilder.cpp - WP-FAR-6/7), then four editor sources (they stopped
+-- linking when the cook started deriving every static mesh with MeshDeriver/ImportManager - WP-FAR-6B pass 9n).
+-- A list does not grow with the code it names; a library does.
 --
--- The editor half is compiled here, not taken from EditorCore: the Shipping CI leg builds Runtime + this tool
--- and no editor, and linking EditorCore would compile the whole editor into that leg for four files.
+-- The price: a build of this tool builds EditorCore, so the Shipping leg (Runtime + this tool) compiles the editor
+-- library too. Correct closure over a shorter leg — the cook IS editor code.
 --
 -- No VkDevice is ever created: the Vulkan loader is on the link line because shaderc sits beside it in the
 -- SDK and the engine archives hold the renderer, not because packaging touches a GPU.
@@ -25,11 +28,6 @@ project "GamePackager"
 
     files {
         "Source/**.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Packaging/GamePackager.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Packaging/PackageCook.cpp",
-        -- THE TEXTURE COOK (PK1): the editor's importer and the .dds source decoder it calls (bcdec inside).
-        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureImporter.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/DdsSource.cpp",
     }
 
     includedirs {
@@ -84,8 +82,14 @@ project "GamePackager"
 
     filter {}
 
-    -- What the engine archives use, as Runtime/premake5.lua names it, plus OpenEXRCore for the texture import.
+    -- What EditorCore's reached members and the engine archives use, as the Editor names it.
     links {
+        -- The packer, its cook and the importers they call (header above); first, so gmake resolves it before what
+        -- it uses. The third-party libraries after it are the ones the reached importer members use.
+        "EditorCore",
+        "Assimp", -- the mesh importer behind BuildMeshSourceOnMiss (BuildScripts/ThirdParty/Assimp.lua)
+        "ImGui",
+        "ImGuiNodeEditor",
         "GLFW",
         "Optick",
         "MeshOptimizer",
@@ -98,6 +102,10 @@ project "GamePackager"
     -- The engine, one library per module, then the prebuilt archives (Vulkan, shaderc, SPIRV-Cross,
     -- reflect-cpp) per configuration, Shipping included.
     DesertModuleLibs.Link()
+    -- EditorCore is compiled with dlib when the sources are present (Editor/premake5.lua); its archive then names it.
+    if os.isdir( _MAIN_SCRIPT_DIR .. "/ThirdParty/dlib" ) then
+        links { "Dlib" }
+    end
 
     -- gmake does not link a static library's dependencies transitively (Visual Studio does, through the
     -- project references): the executable names what the engine libraries use, as the Editor does.
