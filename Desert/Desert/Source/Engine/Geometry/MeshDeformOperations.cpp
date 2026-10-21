@@ -7,7 +7,7 @@
 //            Iterative): Steps rounds of StepDistance = Distance / Steps along the current vertex normals,
 //            each followed by a smoothing round of SmoothingPerStep; boundaries held unless bOffsetBoundaries.
 //   Smooth, Implicit / Diffusion - UE 5.8 SmoothingOps/CotanSmoothingOp.cpp (ComputeSmoothing_BiHarmonic: the
-//            least-squares fairing |L x|^2 + w |x - p|^2, UE's normalisation SmoothPower = Smoothness^2 / 50 *
+//            least-squares fairing |L x|^2 + w^2 |x - p|^2, UE's normalisation SmoothPower = Smoothness^2 / 50 *
 //            VertexCount) and IterativeSmoothingOp Smooth_Implicit (ComputeSmoothing_Diffusion: backward-Euler
 //            heat steps), both on the ClampedCotangent (or uniform) Laplacian; UE's Eigen SimplicialLDLT is our
 //            SparseLDLT (MeshUVSolver.hpp). Pinned vertices are eliminated from the system (their positions
@@ -264,10 +264,11 @@ namespace Desert::Geometry
         }
 
         // UE IConstrainedMeshSolver with soft position constraints of one weight w (UE AddConstraint):
-        // x = argmin |L x - d|^2 + w |x_m - t_m|^2 over the movable x_m, pinned vertices fixed at p, where d = 0
+        // x = argmin |L x - d|^2 + w^2 |x_m - t_m|^2 over the movable x_m, pinned vertices fixed at p, where d = 0
         // (UE ConstructConstrainedMeshSmoother: fairing) or d = L p (UE ConstructConstrainedMeshDeformer: the
         // input's Laplacian vectors are kept, so detail survives the move). L is taken from the input positions.
-        // Normal equations ( L_m^T L_m + w I ) x_m = w t_m - L_m^T ( L_pin p_pin - d ).
+        // The weight enters SQUARED, as UE FConstrainedSolver::SetConstraintWeights ("the soft constrained system
+        // uses the square of the weight"). Normal equations ( L_m^T L_m + w^2 I ) x_m = w^2 t_m - L_m^T ( L_pin p_pin - d ).
         Common::BoolResultStr LaplacianFit( const DynamicMesh3& mesh, SmoothWeightType weightType,
                                             const std::vector<uint8_t>& movable, bool keepLaplacian, double w,
                                             const std::vector<glm::dvec3>& targets, std::vector<glm::dvec3>& p )
@@ -302,12 +303,13 @@ namespace Desert::Geometry
                         rhs[static_cast<size_t>( c )][static_cast<size_t>( ci )] -= a * fixedPart[c];
                 }
             }
+            const double weightSquared = w * w;
             for ( size_t vid = 0; vid < index.size(); ++vid )
                 if ( const int32_t ci = index[vid]; ci >= 0 )
                 {
-                    triplets.push_back( { ci, ci, w } );
+                    triplets.push_back( { ci, ci, weightSquared } );
                     for ( int c = 0; c < 3; ++c )
-                        rhs[static_cast<size_t>( c )][static_cast<size_t>( ci )] += w * targets[vid][c];
+                        rhs[static_cast<size_t>( c )][static_cast<size_t>( ci )] += weightSquared * targets[vid][c];
                 }
             if ( !SolveInto( SparseMatrixD( count, count, std::move( triplets ) ), index, count, rhs, p ) )
                 return Common::MakeError<bool>( "the Laplacian system is not positive definite" );
