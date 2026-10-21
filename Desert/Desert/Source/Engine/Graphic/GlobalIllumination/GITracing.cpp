@@ -68,8 +68,8 @@ namespace Desert::Graphic::GlobalIllumination
         {
             case Tracer::SoftwareDistanceField:
                 for ( uint32_t level = 0; level < frame.GlobalDistanceField.size(); ++level )
-                    block.Texture( kGlobalDistanceFieldClipmapTextures[level], frame.GlobalDistanceField[level],
-                                   sampled, RDG::SubresourceRange::All() )
+                    block.Texture( DistanceField::kGlobalDistanceFieldClipmapTextures[level],
+                                   frame.GlobalDistanceField[level], sampled, RDG::SubresourceRange::All() )
                          .Sampler( GITracingShaderParameters::LinearRepeatSampler,
                                    RDG::SamplerDesc::LinearRepeat() );
                 block.Storage( GITracingShaderParameters::GITracerSoftwareUB, frame.GlobalDistanceFieldLevels,

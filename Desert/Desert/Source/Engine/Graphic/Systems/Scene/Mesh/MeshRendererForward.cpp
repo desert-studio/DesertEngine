@@ -917,7 +917,7 @@ namespace Desert::Graphic::System
         const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
         for ( auto& [state, cellRows] : rows )
         {
-            if ( auto* sb = state->Material->Get<StorageBufferProperty>( "Materials" ) )
+            if ( auto* sb = state->Material->Get<StorageBufferProperty>( kMaterialRowBlock ) )
                 sb->SetRawData( cellRows.data(), static_cast<uint32_t>( cellRows.size() * sizeof( glm::vec4 ) ) );
             frameState.ApplyTo( state->Instance.get() );
         }

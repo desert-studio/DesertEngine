@@ -1050,7 +1050,7 @@ namespace Desert::Graphic::System
             auto* instMat = m_ShadowInstancedMaterial[c].get();
             instMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
                                      m_CascadeCasterBias[c], m_ParallaxQuality );
-            if ( auto* sb = instMat->Get<StorageBufferProperty>( "InstanceTransforms" ) )
+            if ( auto* sb = instMat->Get<StorageBufferProperty>( kInstanceTransformsBlock ) )
                 sb->SetRawData( instTransforms.data(),
                                 static_cast<uint32_t>( instTransforms.size() * sizeof( glm::mat4 ) ) );
             for ( const auto& b : batches )
@@ -1078,7 +1078,7 @@ namespace Desert::Graphic::System
             auto& set = *m_ScratchMaskedSets[i];
             WriteLightCamera( *set.Caster, glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
                               m_CascadeCasterBias[c], m_ParallaxQuality );
-            if ( auto* sb = set.Caster->Get<StorageBufferProperty>( "Materials" ) )
+            if ( auto* sb = set.Caster->Get<StorageBufferProperty>( kMaterialRowBlock ) )
             {
                 sb->SetRawData( set.Rows.data(), static_cast<uint32_t>( set.Rows.size() * sizeof( glm::vec4 ) ) );
             }

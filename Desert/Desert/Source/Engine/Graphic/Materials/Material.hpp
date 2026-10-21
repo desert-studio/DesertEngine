@@ -34,6 +34,10 @@ namespace Desert::Graphic
 
     // The material row block (Core::Formats::kMaterialRowBlockName) as the parameter Material::Get takes.
     inline constexpr RDG::StorageBufferParameter kMaterialRowBlock{ Core::Formats::kMaterialRowBlockName };
+    // The instanced cells' per-instance blocks (Mesh/*Instanced shaders): the transforms and the grass blade
+    // shape.
+    inline constexpr RDG::StorageBufferParameter kInstanceTransformsBlock{ "InstanceTransforms" };
+    inline constexpr RDG::StorageBufferParameter kGrassBladeShapeBlock{ "GrassBladeShape" };
 
     // The bits of the push field PrimitiveFlags (Common/MaterialTransport.glslh, DESERT_PRIMITIVE_FLAG_*): what a
     // G-buffer draw carries about its primitive into the shading word. A set bit is the NON-default, so a draw

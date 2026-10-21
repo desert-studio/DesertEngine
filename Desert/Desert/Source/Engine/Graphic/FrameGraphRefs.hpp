@@ -294,7 +294,7 @@ namespace Desert::Graphic
          "MegaLightsVolumeRTexture", "MegaLightsVolumeGTexture", "MegaLightsVolumeBTexture" };
     // The same names as the parameters a block binds them through (RDGShaderParameters.hpp): the string spelling
     // above stays the one source, these are its binding form.
-    inline constexpr RDG::TextureParameter       kSceneViewShadowCascades{ kSceneViewShadowCascadesName };
+    inline constexpr RDG::TextureParameter       kSceneViewShadowCascadesTexture{ kSceneViewShadowCascadesName };
     inline constexpr RDG::TextureParameter       kSceneViewEnvIrradiance{ kSceneViewEnvIrradianceName };
     inline constexpr RDG::TextureParameter       kSceneViewEnvSpecular{ kSceneViewEnvSpecularName };
     inline constexpr RDG::TextureParameter       kSceneViewBrdfLut{ kSceneViewBrdfLutName };
@@ -393,7 +393,8 @@ namespace Desert::Graphic
             constexpr RDG::SamplerParameter kClamp{ "LinearClampSampler" };
             constexpr RDG::SamplerParameter kPoint{ "PointClampSampler" };
             if ( inputs.ShadowCascades.IsValid() )
-                bind( kSceneViewShadowCascades, inputs.ShadowCascades, kRepeat, RDG::SamplerDesc::LinearRepeat() );
+                bind( kSceneViewShadowCascadesTexture, inputs.ShadowCascades, kRepeat,
+                      RDG::SamplerDesc::LinearRepeat() );
             bind( kSceneViewEnvIrradiance, inputs.EnvIrradiance, kClamp, RDG::SamplerDesc::LinearClamp() );
             bind( kSceneViewEnvSpecular, inputs.EnvSpecular, kClamp, RDG::SamplerDesc::LinearClamp() );
             bind( kSceneViewBrdfLut, inputs.BrdfLut, kClamp, RDG::SamplerDesc::LinearClamp() );

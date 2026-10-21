@@ -29,10 +29,10 @@ namespace Desert::Graphic::System
         // The producer's buffers into the cell: the instances, and a blade's shape (MeshPathOwnBinding).
         void BindGpuInstancedBuffers( DataDrivenMaterial& cell, const MeshRenderer::GpuInstancedRenderData& gpu )
         {
-            if ( auto* sb = cell.Get<StorageBufferProperty>( "InstanceTransforms" ) )
+            if ( auto* sb = cell.Get<StorageBufferProperty>( kInstanceTransformsBlock ) )
                 sb->SetBuffer( gpu.Instances );
             if ( gpu.Path == MeshVertexPath::GrassBlade )
-                if ( auto* sb = cell.Get<StorageBufferProperty>( "GrassBladeShape" ) )
+                if ( auto* sb = cell.Get<StorageBufferProperty>( kGrassBladeShapeBlock ) )
                     sb->SetBuffer( gpu.BladeShape );
         }
     } // namespace
@@ -78,7 +78,7 @@ namespace Desert::Graphic::System
             BindGpuInstancedBuffers( *cell, gpu );
             std::vector<glm::vec4> rows;
             const uint32_t         row = AppendRow( rows, EffectiveRow( parent, gpu.Material.get() ) );
-            if ( auto* sb = cell->Get<StorageBufferProperty>( "Materials" ) )
+            if ( auto* sb = cell->Get<StorageBufferProperty>( kMaterialRowBlock ) )
                 sb->SetRawData( rows.data(), static_cast<uint32_t>( rows.size() * sizeof( glm::vec4 ) ) );
             frameState.ApplyTo( instance.get() );
             cell->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced vertex stage
@@ -135,7 +135,7 @@ namespace Desert::Graphic::System
             BindGpuInstancedBuffers( *caster, gpu );
             std::vector<glm::vec4> rows;
             const uint32_t         row = AppendRow( rows, EffectiveRow( parent, gpu.Material.get() ) );
-            if ( auto* sb = caster->Get<StorageBufferProperty>( "Materials" ) )
+            if ( auto* sb = caster->Get<StorageBufferProperty>( kMaterialRowBlock ) )
                 sb->SetRawData( rows.data(), static_cast<uint32_t>( rows.size() * sizeof( glm::vec4 ) ) );
 
             list.Add( { .Pipeline          = pipeline,

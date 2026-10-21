@@ -42,21 +42,21 @@
 // frames recorded before the rebuild may still be reading them on the GPU, and the graph pool frees a leased
 // buffer as soon as the last reference drops (VulkanRdgPool::BeginFrame).
 namespace Desert::Graphic::RayTracing
-     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
-     struct EmissiveLightsBuildShaderParameters
 {
-    DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveSegmentsUB );
-    DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveTrianglesUB );
-    DESERT_SHADER_PARAMETER( StorageBuffer, EmissivePowerUB );
-}; // namespace Desert::Graphic::RayTracing
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct EmissiveLightsBuildShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveSegmentsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveTrianglesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissivePowerUB );
+    };
 
-// The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
-struct EmissiveLightsReduceShaderParameters
-{
-    DESERT_SHADER_PARAMETER( StorageBuffer, EmissivePowerUB );
-};
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct EmissiveLightsReduceShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissivePowerUB );
+    };
 
-{
     inline constexpr std::string_view kEmissiveSegmentsName          = "EmissiveLights.Segments";
     inline constexpr std::string_view kEmissiveLookupName            = "EmissiveLights.Lookup";
     inline constexpr std::string_view kEmissiveTrianglesName         = "EmissiveLights.Triangles";

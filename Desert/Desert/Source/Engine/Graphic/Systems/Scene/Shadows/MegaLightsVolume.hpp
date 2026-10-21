@@ -218,19 +218,21 @@ namespace Desert::Graphic::System
                      block.Uniform( MegaLightsVolumeShaderParameters::MegaLightsVolumeViewUB, view )
                           .Sampler( MegaLightsVolumeShaderParameters::LinearClampSampler,
                                     RDG::SamplerDesc::LinearClamp() )
-                          .Storage( ShaderProtocols::PointLight::Name, in.Lights.Point, RDG::Access::StorageRead )
-                          .Storage( ShaderProtocols::SpotLight::Name, in.Lights.Spot, RDG::Access::StorageRead )
-                          .Storage( kLightGridParamsBlockName, in.Lights.GridParams, RDG::Access::StorageRead )
-                          .Storage( kLightGridCellsBlockName, in.Lights.GridCells, RDG::Access::StorageRead )
+                          .Storage( ShaderProtocols::PointLight::Parameter, in.Lights.Point,
+                                    RDG::Access::StorageRead )
+                          .Storage( ShaderProtocols::SpotLight::Parameter, in.Lights.Spot,
+                                    RDG::Access::StorageRead )
+                          .Storage( kLightGridParamsBlock, in.Lights.GridParams, RDG::Access::StorageRead )
+                          .Storage( kLightGridCellsBlock, in.Lights.GridCells, RDG::Access::StorageRead )
                           .AccelerationStructure( MegaLightsVolumeShaderParameters::SceneTlas, in.Tlas )
                           .Storage( MegaLightsVolumeShaderParameters::RayTracingGeometryRecords,
                                     in.Metadata.Geometry, RDG::Access::StorageRead )
                           .Storage( MegaLightsVolumeShaderParameters::RayTracingMaterialRecords,
                                     in.Metadata.Materials, RDG::Access::StorageRead );
                      for ( std::size_t channel = 0; channel < 3; ++channel )
-                         block.Texture( kHistoryInputNames[channel], history[channel], RDG::Access::SampledCompute,
+                         block.Texture( kHistoryInputs[channel], history[channel], RDG::Access::SampledCompute,
                                         RDG::SubresourceRange::All() )
-                              .Storage( kOutputNames[channel], written[channel], RDG::Access::StorageWrite );
+                              .Storage( kOutputs[channel], written[channel], RDG::Access::StorageWrite );
                  },
                  [this, size, stamped,
                   index = frame.FrameIndex]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -250,9 +252,12 @@ namespace Desert::Graphic::System
     private:
         static constexpr std::string_view                kShaderName        = "MegaLightsVolume";
         static constexpr std::string_view                kPassName          = "MegaLights: Volume";
-        static constexpr std::array<std::string_view, 3> kHistoryInputNames = { "HistoryRTexture", "HistoryGTexture",
-                                                                                "HistoryBTexture" };
-        static constexpr std::array<std::string_view, 3> kOutputNames       = { "OutRTexture", "OutGTexture", "OutBTexture" };
+        static constexpr std::array<RDG::TextureParameter, 3> kHistoryInputs     = {
+             RDG::TextureParameter( "HistoryRTexture" ), RDG::TextureParameter( "HistoryGTexture" ),
+             RDG::TextureParameter( "HistoryBTexture" ) };
+        static constexpr std::array<RDG::StorageTextureParameter, 3> kOutputs = {
+             RDG::StorageTextureParameter( "OutRTexture" ), RDG::StorageTextureParameter( "OutGTexture" ),
+             RDG::StorageTextureParameter( "OutBTexture" ) };
         // The two history slots' graph names (static: the graph keeps a view of each while it builds).
         static constexpr std::array<std::array<std::string_view, 3>, 2> kSlotNames = {
              { { "MegaLights.Volume0.R", "MegaLights.Volume0.G", "MegaLights.Volume0.B" },
