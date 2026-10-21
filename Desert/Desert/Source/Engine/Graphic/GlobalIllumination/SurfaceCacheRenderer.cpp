@@ -15,6 +15,7 @@
 #include <cstring>
 #include <format>
 #include <span>
+#include <utility>
 
 namespace Desert::Graphic::SurfaceCache
 {
@@ -173,6 +174,36 @@ namespace Desert::Graphic::SurfaceCache
         }
         m_AtlasSize = budget.AtlasSize;
         return BOOLSUCCESS;
+    }
+
+    Common::ResultStr<SurfaceCacheRenderer::SceneUpdate>
+    SurfaceCacheRenderer::UpdateScene( const std::vector<SceneInstance>& instances, const glm::vec3& camera,
+                                       const uint64_t engineFrame )
+    {
+        // What this call asks for: the camera and the instance list's identity (key, placement, surface and
+        // capture readiness of each, in order) - the once-per-frame rule compares it with the frame's update.
+        uint64_t inputs = 0xCBF29CE484222325ULL ^ static_cast<uint64_t>( instances.size() );
+        for ( const auto& instance : instances )
+        {
+            inputs = ( inputs ^ instance.Key ) * 0x100000001B3ULL;
+            inputs = ( inputs ^ SurfaceCacheScene::PlacementKey( instance.Mesh, instance.World ) ) * 0x100000001B3ULL;
+            inputs = ( inputs ^ instance.SurfaceKey ) * 0x100000001B3ULL;
+            inputs = ( inputs ^ ( instance.CaptureReady ? 1ULL : 0ULL ) ) * 0x100000001B3ULL;
+        }
+        if ( m_FrameUpdate && m_FrameUpdate->Frame == engineFrame )
+        {
+            if ( camera != m_FrameUpdate->Camera || inputs != m_FrameUpdate->Instances )
+                return Common::MakeFormattedError<SceneUpdate>(
+                     "surface cache: updated once per frame - frame {} was updated for another camera or instance "
+                     "set (its captures and relit pages are what that frame's earlier graph writes and reads)",
+                     engineFrame );
+            // The frame's update already ran: this graph reads the same cache, nothing is updated.
+            return Common::MakeSuccess( SceneUpdate{ .Scene = m_FrameUpdate->Scene, .Updated = false } );
+        }
+
+        SceneFrame scene = m_Scene.Update( instances, camera );
+        m_FrameUpdate    = FrameUpdate{ .Frame = engineFrame, .Camera = camera, .Instances = inputs, .Scene = scene };
+        return Common::MakeSuccess( SceneUpdate{ .Scene = std::move( scene ), .Updated = true } );
     }
 
     Common::BoolResultStr SurfaceCacheRenderer::AddCopyPass( RDG::Builder& graph, const ImportImage& import,

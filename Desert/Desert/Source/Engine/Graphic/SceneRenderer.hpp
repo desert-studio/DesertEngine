@@ -728,6 +728,9 @@ namespace Desert::Graphic
             SurfaceCache::SceneFrame                         Scene;
             SurfaceCache::SurfaceCacheRenderer::FrameBuffers Buffers;
             GlobalIllumination::SurfaceCacheFrame            Hits;
+            // This view's call updated the cache this frame (SurfaceCacheRenderer::UpdateScene): it records the
+            // passes that write the atlases; false - a lent cache another view updated this frame - only reads.
+            bool Updated = false;
         };
         std::optional<SurfaceCacheFrameRecord> m_SurfaceCacheFrame;
         // The traced GI's records of this frame that the traced reflections read too: the GI frame record and the
