@@ -1450,9 +1450,9 @@ namespace Desert::Core::Rules
             return std::nullopt;
         if ( !wanted.has_value() )
             return std::size_t{ 0 };
-        const auto found = std::find_if( settings.Grids.begin(), settings.Grids.end(),
-                                         [&]( const WorldPartitionGridSerialized& grid )
-                                         { return grid.Name == *wanted; } );
+        const auto found =
+             std::find_if( settings.Grids.begin(), settings.Grids.end(),
+                           [&]( const WorldPartitionGridSerialized& grid ) { return grid.Name == *wanted; } );
         if ( found == settings.Grids.end() )
             return std::nullopt;
         return static_cast<std::size_t>( found - settings.Grids.begin() );

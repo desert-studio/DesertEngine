@@ -1011,8 +1011,8 @@ namespace Desert::Editor::Tools
                 return Common::MakeFormattedError<CellGather>( "foliage: palette row {} is not a foliage field",
                                                                static_cast<uint64_t>( row ) );
             CellGather gather;
-            gather.Lead      = ref->get();
-            const auto grid  = FoliageGridOf( scene, gather.Lead );
+            gather.Lead     = ref->get();
+            const auto grid = FoliageGridOf( scene, gather.Lead );
             if ( !grid )
                 return Common::MakeFormattedError<CellGather>( "{}", grid.GetError() );
             gather.Grid                                            = grid.GetValue();

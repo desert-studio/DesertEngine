@@ -392,7 +392,8 @@ namespace Desert::Editor
         ImGui::SliderInt( "Level", &m_Level, -1, maxLevel, m_Level < 0 ? "all" : "L%d" );
         ImGui::SameLine();
         ImGui::TextDisabled( "%zu cells, %zu always-loaded, %d level(s), cell %.0f m", gridCells,
-                             plan->AlwaysLoaded.size(), gridLevels, static_cast<double>( shown.CellSize ) / 100.0 );
+                             plan->AlwaysLoaded.size(), gridLevels,
+                             static_cast<double>( shown.CellSize ) / 100.0 );
 
         DrawMap( *plan, *partition, residency, streamer );
     }
@@ -701,7 +702,8 @@ namespace Desert::Editor
 
         // ── legend: every state, every cell at the shown level (on screen or not) ──
         {
-            const std::vector<Map::LegendRow> legend = Map::Legend( plan, residency, m_Level, m_EditCells, m_Grid );
+            const std::vector<Map::LegendRow> legend =
+                 Map::Legend( plan, residency, m_Level, m_EditCells, m_Grid );
             const float                       h      = ImGui::GetTextLineHeight();
             ImVec2                            row( origin.x + 8.0f, corner.y - 8.0f );
             for ( const Map::LegendRow& entry : std::views::reverse( legend ) )

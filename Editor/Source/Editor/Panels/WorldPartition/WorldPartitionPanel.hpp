@@ -135,7 +135,7 @@ namespace Desert::Editor
         // The runtime grid the map, the header and the source circles show (index into the partition's Grids):
         // UE's World Partition editor shows one runtime hash grid at a time; every grid is reachable by the
         // picker beside the Level slider.
-        std::size_t m_Grid = 0;
+        std::size_t             m_Grid         = 0;
         bool                    m_WasPlaying   = false;
     };
 } // namespace Desert::Editor
