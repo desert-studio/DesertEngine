@@ -271,6 +271,14 @@ namespace Desert::Graphic::System
         }
         void ReadDebugReadbacks();
 
+        // Counts are read back while the panel's request is enabled or the world's debugger shows the viewport
+        // overview (VFXDebugSettings::Overview, taken at PrepareTick); the attribute table only for the request.
+        [[nodiscard]] bool DebugReading() const
+        {
+            return m_DebugRequest.Enabled || m_DebugCounts;
+        }
+        void FillDebugStats( VFX::VFXDebugStats& stats ) const override;
+
     private:
         // Grows the pool to hold @p particles (recreating it: every emitter restarts); false when it failed.
         bool EnsurePoolCapacity( uint32_t particles );
@@ -297,5 +305,6 @@ namespace Desert::Graphic::System
         ParticleDebugRequest                                           m_DebugRequest;
         std::vector<ParticleEmitterDebug>                              m_Debug;
         uint32_t                                                       m_DebugSerial = 0;
+        bool                                                           m_DebugCounts = false;
     };
 } // namespace Desert::Graphic::System

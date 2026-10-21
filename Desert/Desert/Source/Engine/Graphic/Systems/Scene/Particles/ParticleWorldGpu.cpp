@@ -209,10 +209,26 @@ namespace Desert::Graphic::System
         gpu.NeedsReset = true;
     }
 
+    void ParticleWorldGpu::FillDebugStats( VFX::VFXDebugStats& stats ) const
+    {
+        stats.GpuCounts = DebugReading();
+        for ( VFX::VFXSystemDebugStats& system : stats.Systems )
+            for ( VFX::VFXEmitterDebugStats& emitter : system.Emitters )
+                for ( const ParticleEmitterDebug& read : m_Debug )
+                    if ( read.EntityId == system.EntityId && read.Emitter == emitter.Emitter )
+                    {
+                        emitter.GpuRead   = read.Read;
+                        emitter.Alive     = read.Alive;
+                        emitter.Free      = read.Free;
+                        emitter.FramesOld = read.FramesOld;
+                        break;
+                    }
+    }
+
     void ParticleWorldGpu::ReadDebugReadbacks()
     {
         m_Debug.clear();
-        if ( !m_DebugRequest.Enabled )
+        if ( !DebugReading() )
             return;
         m_DebugSerial = m_DebugSerial == 0xFFFFFFFFu ? 1u : m_DebugSerial + 1u; // 0 = a copy never written
         m_Debug.reserve( m_FrameEmitters.size() );
@@ -301,6 +317,7 @@ namespace Desert::Graphic::System
     bool ParticleWorldGpu::PrepareTick( const ::Desert::Core::Scene& scene )
     {
         const VFX::VFXWorld& world = scene.GetVFXWorld();
+        m_DebugCounts              = world.GetDebugSettings().Overview;
         if ( !m_Claim.Claim( world.GetTickSerial() ) )
             return false; // another view of this scene simulates this tick; this one draws the same pool
 

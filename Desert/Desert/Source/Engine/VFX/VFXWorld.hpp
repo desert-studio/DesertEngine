@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -69,7 +70,10 @@ namespace Desert::VFX
         std::vector<VFXSpawnPlan>                                   Plans;
         std::vector<bool>                                           Runs; // enabled and its plan compiled
         std::vector<EmitterInstance>                                Emitters;
-        bool                                                        Seen = false;
+        // The entity and its world transform at the last Tick (VFX-16: the debugger's rows and bounds).
+        entt::entity Entity    = entt::null;
+        glm::mat4    Transform = glm::mat4( 1.0f );
+        bool         Seen      = false;
     };
 
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, std::uint32_t stepCount,
@@ -83,10 +87,60 @@ namespace Desert::VFX
     // The render side of a world's effects (UE: FScene::FXSystem - the scene's GPU particle state), made by the
     // renderer on first use (Graphic ParticleWorldGpu) and owned by the world, so every view of the scene shares
     // it. Engine/VFX does not know what is in it.
+    // VFX-16 (UE Niagara Debugger, dev only): ONE answer to "what is the effects world doing" for every debug
+    // view (the Particle Debugger panel, the viewport overview, the bounds draw). The CPU part is this world's
+    // last Tick; the GPU part (Alive / Free, GpuRead) is what the world's WorldGpuState last read back, FramesOld
+    // simulated frames after the GPU wrote it, and only while a debugger asks for counts (GpuCounts).
+    struct VFXEmitterDebugStats
+    {
+        std::uint32_t         Emitter = 0;
+        std::string           Name;
+        bool                  Runs     = false; // enabled, compiled and the component auto-activates
+        std::uint32_t         Capacity = 0;     // the emitter's pool size (0 = disabled)
+        std::uint32_t         Steps    = 0;     // fixed steps of the last Tick
+        std::uint32_t         Spawned  = 0;     // ids reserved by the last Tick's steps (rate, bursts, channel)
+        std::uint32_t         NextId   = 0;     // ids handed out since the last reset
+        VFXChannelSpawnReport Channel;          // the last Tick's Spawn from Channel report
+        std::uint64_t         ChannelOverflowTotal = 0;
+        bool                  GpuRead              = false;
+        std::uint32_t         Alive                = 0;
+        std::uint32_t         Free                 = 0;
+        std::uint32_t         FramesOld            = 0;
+    };
+    struct VFXSystemDebugStats
+    {
+        std::uint64_t                     EntityUuid = 0;
+        std::uint32_t                     EntityId   = 0; // the entt entity, as the renderer keys systems
+        glm::mat4                         Transform  = glm::mat4( 1.0f );
+        Assets::Serialization::VFXBounds  Bounds;         // the system's fixed local bounds, cm
+        std::vector<VFXEmitterDebugStats> Emitters;
+    };
+    struct VFXDebugStats
+    {
+        std::uint64_t                    TickSerial = 0;
+        std::uint64_t                    Step       = 0; // fixed steps since the last reset
+        bool                             Frozen     = false;
+        bool                             GpuCounts  = false; // the GPU columns are being read back
+        std::vector<VFXSystemDebugStats> Systems;            // ordered by EntityUuid
+    };
+
+    // What the editor's debugger asks of the world (UE Niagara Debugger: playback Pause / Step, the overview HUD,
+    // "show bounds"). Frozen: Tick runs no fixed step except the ones StepFrozen asked for (one each), so the
+    // simulation - and every view of it - holds one frame, its particles and attributes readable.
+    struct VFXDebugSettings
+    {
+        bool Frozen     = false;
+        bool Overview   = false;
+        bool DrawBounds = false;
+    };
+
     class WorldGpuState
     {
     public:
         virtual ~WorldGpuState() = default;
+
+        // The render side's columns of @p stats (GpuCounts, and per emitter GpuRead / Alive / Free / FramesOld).
+        virtual void FillDebugStats( VFXDebugStats& stats ) const = 0;
     };
 
     // The instances are VFXComponents' systems, keyed by entity UUID (one EmitterInstance per emitter); their GPU
@@ -126,6 +180,25 @@ namespace Desert::VFX
         }
         [[nodiscard]] const SystemInstance* FindSystem( std::uint64_t entityUuid ) const;
 
+        // VFX-16 debugger (see VFXDebugSettings / VFXDebugStats).
+        [[nodiscard]] const VFXDebugSettings& GetDebugSettings() const
+        {
+            return m_DebugSettings;
+        }
+        void SetDebugSettings( const VFXDebugSettings& settings )
+        {
+            m_DebugSettings = settings;
+            if ( !settings.Frozen )
+                m_FrozenSteps = 0;
+        }
+        // While frozen: the next Tick runs exactly one fixed step (UE's debugger Step).
+        void StepFrozen()
+        {
+            if ( m_DebugSettings.Frozen )
+                ++m_FrozenSteps;
+        }
+        [[nodiscard]] VFXDebugStats GetDebugStats() const;
+
         // The scene's data channels (VFX-10): gameplay registers channels and writes entries here (C++ Write,
         // Lua VFX.writeChannel); the next Tick spawns from them and clears them.
         [[nodiscard]] VFXDataChannels& GetDataChannels()
@@ -164,5 +237,7 @@ namespace Desert::VFX
         std::uint64_t                                      m_TickSerial     = 0;
         VFXDataChannels                                    m_Channels;
         mutable std::unique_ptr<WorldGpuState>             m_GpuState;
+        VFXDebugSettings                                   m_DebugSettings;
+        std::uint32_t                                      m_FrozenSteps = 0;
     };
 } // namespace Desert::VFX
