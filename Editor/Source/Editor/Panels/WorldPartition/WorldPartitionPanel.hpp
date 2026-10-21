@@ -80,6 +80,7 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr LoadRegion( const RegionRequest& request );
         // One combo per grid: the layer its cells' HLOD is built with (UE FRuntimePartitionDesc::HLODSetups);
         // undoable.
+        void DrawRuntimeGrids();
         void DrawGridHLODLayers();
         /// The panel's Load Region button: the rectangle selected on the map. Refused by name when nothing is
         /// selected; otherwise LoadRegion. The palette offers it beside Unload All / Load All.
@@ -121,6 +122,7 @@ namespace Desert::Editor
         std::optional<::Desert::Core::Rules::CellBounds> m_Selection;
         std::optional<glm::dvec2>                        m_DragFrom;
         std::string                                      m_RegionStatus;
+        std::string                                      m_GridEditStatus; ///< the last Runtime grids refusal
         // Whether the Edit plan is the world on disk (its descriptor index) rather than the scene in memory.
         bool m_PlanFromIndex = false;
         // Edit over the index: what the editor holds of each cell of m_EditPlan (empty otherwise).

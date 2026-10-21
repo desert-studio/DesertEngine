@@ -4,6 +4,7 @@
 #include "Editor/Core/Commands/CommandRegistry.hpp"
 #include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
+#include "Editor/Core/Commands/WorldPartitionEditCommand.hpp"
 #include "Editor/Core/Control/ControlDispatch.hpp"
 #include "Editor/Core/Control/InputInjection.hpp"
 #include "Editor/Core/Control/PointerDrag.hpp"
@@ -38,6 +39,8 @@
 #include <ImGui/imgui_internal.h>
 
 #include <charconv>
+#include <Common/Json/Json.hpp>
+#include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <format>
 
 namespace Desert::Editor
@@ -74,6 +77,83 @@ namespace Desert::Editor
             payload["subject"]    = Control::StateDetail::Str( subject );
             payload["properties"] = Common::Json::Value( entries );
             return payload;
+        }
+
+        // THE WORLD'S PARTITION AS ROWS: the whole block as JSON, then each grid's fields by the grid's name.
+        void AppendWorldPartitionRows( const ::Desert::Core::Scene& scene, std::vector<ReflectedFieldRow>& rows )
+        {
+            const auto& partition = scene.GetWorldPartition();
+            if ( !partition )
+                return;
+            rows.push_back( { "WorldPartition", "json", Common::Json::Write( *partition ) } );
+            for ( const ::Desert::Core::WorldPartitionGridSerialized& grid : partition->Grids )
+            {
+                const std::string at = "WorldPartition.Grids." + grid.Name + ".";
+                rows.push_back( { at + "Name", "string", grid.Name } );
+                rows.push_back( { at + "CellSize", "float", std::format( "{}", grid.CellSize ) } );
+                rows.push_back( { at + "LoadingRange", "float", std::format( "{}", grid.LoadingRange ) } );
+                rows.push_back( { at + "Priority", "int", std::format( "{}", grid.Priority ) } );
+                rows.push_back( { at + "HLODLayer", "string", grid.HLODLayer.value_or( "" ) } );
+            }
+        }
+
+        // `set world WorldPartition <json>` (the whole block) or `set world WorldPartition.Grids.<Name>.<Field>
+        // <text>`: the block after the edit, committed through the panel's own EditWorldPartition (one undo step).
+        Common::BoolResultStr SetWorldPartitionProperty( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                         const std::string& property, const std::string& text )
+        {
+            ::Desert::Core::WorldPartitionSerialized after;
+            if ( property == "WorldPartition" )
+            {
+                auto parsed = Common::Json::Read<::Desert::Core::WorldPartitionSerialized>( text );
+                if ( !parsed )
+                    return Common::MakeError<bool>( "WorldPartition: " + parsed.GetError() );
+                after = std::move( parsed.GetValue() );
+            }
+            else
+            {
+                constexpr std::string_view kGrids  = "WorldPartition.Grids.";
+                const auto&                current = scene->GetWorldPartition();
+                if ( !current )
+                    return Common::MakeError<bool>( std::string(
+                         "the world is not partitioned; set 'WorldPartition' to the whole block first" ) );
+                const std::size_t dot = property.rfind( '.' );
+                if ( !property.starts_with( kGrids ) || dot < kGrids.size() )
+                    return Common::MakeError<bool>( std::format(
+                         "'{}' is not WorldPartition or WorldPartition.Grids.<Name>.<Field>", property ) );
+                const std::string name  = property.substr( kGrids.size(), dot - kGrids.size() );
+                const std::string field = property.substr( dot + 1 );
+                after                   = *current;
+                const auto index = ::Desert::Core::Rules::GridIndexOf( after, std::optional<std::string>( name ) );
+                if ( !index )
+                    return Common::MakeError<bool>( std::format( "the world states no grid '{}'", name ) );
+                ::Desert::Core::WorldPartitionGridSerialized& grid = after.Grids[*index];
+                try
+                {
+                    std::size_t used = 0;
+                    if ( field == "Name" )
+                        grid.Name = text;
+                    else if ( field == "HLODLayer" )
+                        grid.HLODLayer = text.empty() ? std::nullopt : std::optional<std::string>( text );
+                    else if ( field == "CellSize" )
+                        grid.CellSize = std::stof( text, &used );
+                    else if ( field == "LoadingRange" )
+                        grid.LoadingRange = std::stof( text, &used );
+                    else if ( field == "Priority" )
+                        grid.Priority = std::stoi( text, &used );
+                    else
+                        return Common::MakeError<bool>( std::format(
+                             "a grid's fields are Name, CellSize, LoadingRange, Priority, HLODLayer; not '{}'",
+                             field ) );
+                    if ( used != 0 && used != text.size() )
+                        throw std::invalid_argument( text );
+                }
+                catch ( const std::exception& )
+                {
+                    return Common::MakeError<bool>( std::format( "'{}' is not a value for {}", text, property ) );
+                }
+            }
+            return EditWorldPartition( scene, std::format( "Set {}", property ), std::move( after ) );
         }
     } // namespace
     // =============================================================================================
@@ -485,10 +565,12 @@ namespace Desert::Editor
                     if ( !scene )
                         return Control::Response::Failure( request.Id, "no scene is open" );
                     if ( request.Whose == Control::Subject::World )
-                        return Control::Response::Success(
-                             request.Id,
-                             ReflectedRowsToJson(
-                                  "world", DescribeReflectedFields( "SceneSettings", &scene->GetSettings() ) ) );
+                    {
+                        std::vector<ReflectedFieldRow> rows =
+                             DescribeReflectedFields( "SceneSettings", &scene->GetSettings() );
+                        AppendWorldPartitionRows( *scene, rows );
+                        return Control::Response::Success( request.Id, ReflectedRowsToJson( "world", rows ) );
+                    }
                     auto entity = ControlEntity( *scene, request.Entity );
                     if ( !entity )
                         return Control::Response::Failure( request.Id, entity.GetError() );
@@ -565,6 +647,15 @@ namespace Desert::Editor
                     auto scene = m_Workspace.ActiveScene();
                     if ( !scene )
                         return Control::Response::Failure( request.Id, "no scene is open" );
+                    if ( request.Whose == Control::Subject::World &&
+                         request.Property.starts_with( "WorldPartition" ) )
+                    {
+                        if ( const auto edited =
+                                  SetWorldPartitionProperty( scene, request.Property, request.Text );
+                             !edited )
+                            return Control::Response::Failure( request.Id, edited.GetError() );
+                        return Control::Response::Success( request.Id );
+                    }
                     const std::size_t dot = request.Property.find( '.' );
                     if ( dot == std::string::npos )
                         return Control::Response::Failure(
@@ -645,6 +736,30 @@ namespace Desert::Editor
                 return Control::Response::Success( request.Id );
             }
 
+            case Control::Op::AddComponent:
+            {
+                // DETAILS' ADD COMPONENT (UE: the Details panel's +Add): selected first, as a person adding it
+                // has the entity selected, then the menu's own undoable add.
+                auto scene = m_Workspace.ActiveScene();
+                if ( !scene )
+                    return Control::Response::Failure( request.Id, "no scene is open" );
+                auto entity = ControlEntity( *scene, request.Entity );
+                if ( !entity )
+                    return Control::Response::Failure( request.Id, entity.GetError() );
+                ECS::Entity                 en    = entity.GetValue();
+                const ComponentEditorEntry* found = nullptr;
+                for ( const ComponentEditorEntry& entry : ComponentWidgetRegistry::Get().Entries() )
+                    if ( entry.Name == request.Component || entry.ReflectedTypeName == request.Component )
+                        found = &entry;
+                if ( found == nullptr )
+                    return Control::Response::Failure(
+                         request.Id,
+                         std::format( "no component '{}' in the Add Component menu", request.Component ) );
+                Core::SelectionManager::SetSelected( Common::UUID( std::stoull( request.Entity ) ) );
+                if ( const auto added = AddComponentUndoable( en, *found ); !added )
+                    return Control::Response::Failure( request.Id, added.GetError() );
+                return Control::Response::Success( request.Id );
+            }
             case Control::Op::SaveAs:
             {
                 // File -> Save's one save path under a new name (SceneFiles::SaveOpenSceneAs); a refusal

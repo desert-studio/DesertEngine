@@ -12,6 +12,7 @@
 #include "EditorLoadedRegions.hpp"
 
 #include "../../Core/CommandHistory.hpp"
+#include <Editor/Core/Commands/WorldPartitionEditCommand.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
 
 #include <ranges>
@@ -26,7 +27,9 @@
 #include <ImGui/imgui.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
+#include <cstdio>
 #include <format>
 #include <numbers>
 #include <span>
@@ -94,55 +97,6 @@ namespace Desert::Editor
         // Below this the legend (five rows in Play) covers the cells; a smaller window scrolls instead.
         constexpr float kMinMapPixels = 240.0f;
 
-        // One history entry for "the world's partition changed": the block before and the block after.
-        //
-        // WEAK, not shared. A history entry that owned the scene would keep a closed world alive for as
-        // long as the undo stack remembered it; ICommand's contract is that an entry whose target is
-        // gone returns false and is discarded, and a weak pointer is how that is DETECTED rather than
-        // assumed. The scene is addressed as a whole object because the partition is a property of the
-        // world itself and has no id of its own. One class for every edit of the block (the conversion, a
-        // grid's HLOD layer): what differs between them is only the label the history shows.
-        class WorldPartitionEditCommand final : public ICommand
-        {
-        public:
-            WorldPartitionEditCommand( std::string label, std::weak_ptr<::Desert::Core::Scene> scene,
-                                       std::optional<::Desert::Core::WorldPartitionSerialized> before,
-                                       ::Desert::Core::WorldPartitionSerialized                after )
-                 : m_Label( std::move( label ) ), m_Scene( std::move( scene ) ), m_Before( std::move( before ) ),
-                   m_After( std::move( after ) )
-            {
-            }
-
-            [[nodiscard]] std::string GetLabel() const override
-            {
-                return m_Label;
-            }
-
-            bool Undo() override
-            {
-                return Apply( m_Before );
-            }
-
-            bool Redo() override
-            {
-                return Apply( m_After );
-            }
-
-        private:
-            bool Apply( const std::optional<::Desert::Core::WorldPartitionSerialized>& partition )
-            {
-                const std::shared_ptr<::Desert::Core::Scene> scene = m_Scene.lock();
-                if ( !scene )
-                    return false;
-                scene->SetWorldPartition( partition );
-                return true;
-            }
-
-            std::string                                             m_Label;
-            std::weak_ptr<::Desert::Core::Scene>                    m_Scene;
-            std::optional<::Desert::Core::WorldPartitionSerialized> m_Before;
-            ::Desert::Core::WorldPartitionSerialized                m_After;
-        };
     } // namespace
 
     WorldPartitionPanel::WorldPartitionPanel( std::shared_ptr<::Desert::Core::Scene> scene,
@@ -345,7 +299,10 @@ namespace Desert::Editor
 
         // ── HLOD per grid (Edit, a partitioned world) ──
         if ( !playing && m_Scene && m_Scene->GetWorldPartition().has_value() )
+        {
+            DrawRuntimeGrids();
             DrawGridHLODLayers();
+        }
 
         if ( plan == nullptr || partition->Grids.empty() )
         {
@@ -445,6 +402,101 @@ namespace Desert::Editor
             }
             ImGui::PopID();
         }
+    }
+
+    // UE World Settings -> Runtime Partitions -> Grids (FSpatialHashRuntimeGrid): the world's grids as a table,
+    // added, removed and edited here. Every commit (Enter in a cell, a button) is ONE history entry through
+    // EditWorldPartition, which refuses what the planner would refuse. Sizes are world units (centimetres).
+    void WorldPartitionPanel::DrawRuntimeGrids()
+    {
+        if ( !ImGui::CollapsingHeader( "Runtime grids" ) )
+            return;
+        const ::Desert::Core::WorldPartitionSerialized          current = *m_Scene->GetWorldPartition();
+        std::optional<::Desert::Core::WorldPartitionSerialized> after;
+        std::string                                             label;
+        if ( ImGui::BeginTable( "##runtimegrids", 5,
+                                ImGuiTableFlags_Borders | ImGuiTableFlags_SizingStretchProp ) )
+        {
+            ImGui::TableSetupColumn( "Name" );
+            ImGui::TableSetupColumn( "Cell size (cm)" );
+            ImGui::TableSetupColumn( "Loading range (cm)" );
+            ImGui::TableSetupColumn( "Priority" );
+            ImGui::TableSetupColumn( "" );
+            ImGui::TableHeadersRow();
+            constexpr ImGuiInputTextFlags kCommit = ImGuiInputTextFlags_EnterReturnsTrue;
+            for ( std::size_t g = 0; g < current.Grids.size(); ++g )
+            {
+                const ::Desert::Core::WorldPartitionGridSerialized& grid = current.Grids[g];
+                ImGui::PushID( static_cast<int>( g ) );
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                char name[128];
+                std::snprintf( name, sizeof( name ), "%s", grid.Name.c_str() );
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::InputText( "##name", name, sizeof( name ), kCommit ) && grid.Name != name )
+                {
+                    after                = current;
+                    after->Grids[g].Name = name;
+                    label                = std::format( "Rename grid {} to {}", grid.Name, name );
+                }
+                ImGui::TableNextColumn();
+                float cell = grid.CellSize;
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::InputFloat( "##cell", &cell, 0.0f, 0.0f, "%.0f", kCommit ) && cell != grid.CellSize )
+                {
+                    after                    = current;
+                    after->Grids[g].CellSize = cell;
+                    label                    = std::format( "Set cell size of grid {}", grid.Name );
+                }
+                ImGui::TableNextColumn();
+                float range = grid.LoadingRange;
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::InputFloat( "##range", &range, 0.0f, 0.0f, "%.0f", kCommit ) &&
+                     range != grid.LoadingRange )
+                {
+                    after                        = current;
+                    after->Grids[g].LoadingRange = range;
+                    label                        = std::format( "Set loading range of grid {}", grid.Name );
+                }
+                ImGui::TableNextColumn();
+                int priority = grid.Priority;
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::InputInt( "##priority", &priority, 0, 0, kCommit ) && priority != grid.Priority )
+                {
+                    after                    = current;
+                    after->Grids[g].Priority = priority;
+                    label                    = std::format( "Set priority of grid {}", grid.Name );
+                }
+                ImGui::TableNextColumn();
+                if ( ImGui::SmallButton( "Remove" ) )
+                {
+                    after = current;
+                    after->Grids.erase( after->Grids.begin() + static_cast<std::ptrdiff_t>( g ) );
+                    label = std::format( "Remove grid {}", grid.Name );
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        if ( ImGui::Button( "Add grid" ) )
+        {
+            after = current;
+            // UE's new grid: the main grid's defaults (128 m cell, 256 m range), a name no grid states.
+            ::Desert::Core::WorldPartitionGridSerialized grid;
+            std::size_t                                  n = after->Grids.size() + 1;
+            do
+                grid.Name = std::format( "Grid{}", n++ );
+            while ( ::Desert::Core::Rules::GridIndexOf( *after, grid.Name ).has_value() );
+            label = std::format( "Add grid {}", grid.Name );
+            after->Grids.push_back( std::move( grid ) );
+        }
+        if ( after )
+        {
+            const auto edited = EditWorldPartition( m_Scene, std::move( label ), std::move( *after ) );
+            m_GridEditStatus  = edited ? std::string() : edited.GetError();
+        }
+        if ( !m_GridEditStatus.empty() )
+            ImGui::TextWrapped( "%s", m_GridEditStatus.c_str() );
     }
 
     Common::BoolResultStr WorldPartitionPanel::LoadSelectedRegion()

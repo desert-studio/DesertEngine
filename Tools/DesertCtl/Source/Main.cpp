@@ -63,6 +63,10 @@ namespace
                       "  drag <x,y> <x,y> [steps]      press, move and release the left mouse over the\n"
                       "                                subject's image (pixels), through ImGui's input\n"
                       "  quit [code]                   end the session with that exit status\n"
+                      "  add-component <uuid> <Type>   add a component as Details' Add Component does (one\n"
+                      "                                undo step); Type = its Details or reflected name\n"
+                      "  set world WorldPartition <json> | set world WorldPartition.Grids.<Name>.<Field> <text>\n"
+                      "                                edit the world's runtime grids (one undo step)\n"
                       "  save-as <name>                save the open scene as a NEW level <name> (File ->\n"
                       "                                Save's path; refused if that file already exists)\n"
                       "\n"
@@ -380,6 +384,16 @@ static int RunTool( int argc, char** argv )
             return kNoEditor;
         }
         request = R"({"id":1,"op":"save-as","name":")" + Escape( rest[1] ) + R"("})";
+    }
+    else if ( operation == "add-component" )
+    {
+        if ( rest.size() != 3 )
+        {
+            std::fprintf( stderr, "desertctl: add-component needs <uuid> <Type>.\n" );
+            return kNoEditor;
+        }
+        request = R"({"id":1,"op":"add-component","entity":")" + Escape( rest[1] ) + R"(","component":")" +
+                  Escape( rest[2] ) + R"("})";
     }
     else if ( operation == "properties" && rest.size() == 2 )
     {
