@@ -367,7 +367,7 @@ namespace Desert::Migration
             }
         }
 
-        report.RecordsRekeyed  = SortComponentKeys( canonical.Entities );
+        report.RecordsRekeyed   = SortComponentKeys( canonical.Entities );
         report.RecordsReordered = Assets::SortSceneRecordsById( canonical.Entities );
 
         scene = std::move( canonical );

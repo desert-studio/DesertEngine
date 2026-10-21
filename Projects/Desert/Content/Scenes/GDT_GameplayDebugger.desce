@@ -170,6 +170,22 @@
             }
         },
         {
+            "id": 7300100200300400501,
+            "siblingIndex": 26,
+            "Tag": "GameplayDebuggerDemo",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Script": {
+                "Scripts": [
+                    {
+                        "ScriptKey": "assets:Scripts/Examples/GameplayDebuggerDemo.lua",
+                        "Props": []
+                    }
+                ]
+            }
+        },
+        {
             "id": 7437228965709132698,
             "siblingIndex": 16,
             "Tag": "EmissiveCube",
@@ -520,22 +536,6 @@
                     "LensFlareStreakAngle": 0.0,
                     "LensFlareChromaShift": 0.15000000596046448
                 }
-            }
-        },
-        {
-            "id": 7300100200300400501,
-            "siblingIndex": 26,
-            "Tag": "GameplayDebuggerDemo",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "Script": {
-                "Scripts": [
-                    {
-                        "ScriptKey": "assets:Scripts/Examples/GameplayDebuggerDemo.lua",
-                        "Props": []
-                    }
-                ]
             }
         }
     ],

@@ -85,7 +85,7 @@ namespace Desert::Migration
         int                KeysAdded      = 0;
         int                ValuesRestated = 0;
         int                RecordsRekeyed = 0; // records whose component keys were not sorted by key
-        bool RecordsReordered = false; // the records were not in id order (Assets::SortSceneRecordsById)
+        bool RecordsReordered = false;         // the records were not in id order (Assets::SortSceneRecordsById)
         std::string        Refused; // non-empty: the first refused block, named; the scene is unchanged
         [[nodiscard]] bool Changed() const
         {
