@@ -83,7 +83,9 @@ namespace Desert::Graphic
         // materials (SceneViewInputs::RainOcclusionMap through BindSceneViewInputs).
         if ( Reads( groups, SceneRead::RainOcclusion ) )
         {
-            if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kRainOcclusionBlock ) )
+            // Find: the RainOcclusion group is entered by RainOcclusionMapTexture as well, so a reader of the map
+            // alone has no block.
+            if ( auto* ub = material->Find<UniformBufferProperty>( SceneResources::kRainOcclusionBlock ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &RainOcclusion ), sizeof( RainOcclusion ) );
         }
     }

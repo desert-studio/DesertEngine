@@ -78,7 +78,8 @@ namespace Desert::Graphic::System
             BindGpuInstancedBuffers( *cell, gpu );
             std::vector<glm::vec4> rows;
             const uint32_t         row = AppendRow( rows, EffectiveRow( parent, gpu.Material.get() ) );
-            if ( auto* sb = cell->Get<StorageBufferProperty>( kMaterialRowBlock ) )
+            // Find: a surface template with no parameters declares no Materials row block.
+            if ( auto* sb = cell->Find<StorageBufferProperty>( kMaterialRowBlock ) )
                 sb->SetRawData( rows.data(), static_cast<uint32_t>( rows.size() * sizeof( glm::vec4 ) ) );
             frameState.ApplyTo( instance.get() );
             cell->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced vertex stage
@@ -135,7 +136,8 @@ namespace Desert::Graphic::System
             BindGpuInstancedBuffers( *caster, gpu );
             std::vector<glm::vec4> rows;
             const uint32_t         row = AppendRow( rows, EffectiveRow( parent, gpu.Material.get() ) );
-            if ( auto* sb = caster->Get<StorageBufferProperty>( kMaterialRowBlock ) )
+            // Find: a masked caster whose surface has no parameters (or whose mask reads none) declares no row block.
+            if ( auto* sb = caster->Find<StorageBufferProperty>( kMaterialRowBlock ) )
                 sb->SetRawData( rows.data(), static_cast<uint32_t>( rows.size() * sizeof( glm::vec4 ) ) );
 
             list.Add( { .Pipeline          = pipeline,

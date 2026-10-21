@@ -46,7 +46,9 @@ namespace Desert::Graphic
 
         const CloudShadowUniforms data = CloudShadowPackUniforms( cloudShadow );
 
-        if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kCloudShadowBlock ) )
+        // Find: the CloudShadow group is entered by CloudShadowMapTexture as well, and this applier is handed
+        // materials of several shaders (see @param material), so the block is optional by design.
+        if ( auto* ub = material->Find<UniformBufferProperty>( SceneResources::kCloudShadowBlock ) )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
     }
 } // namespace Desert::Graphic

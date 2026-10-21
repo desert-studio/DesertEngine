@@ -458,7 +458,8 @@ namespace Desert::Graphic::System
             frameState.ApplyTo( material );
             if ( rows.Bytes.empty() )
                 continue; // a shader with no parameters declares no Materials block to fill
-            if ( auto* sb = material->Get<StorageBufferProperty>( kMaterialRowBlock ) )
+            // Find: the block can still be absent with rows to write (every field of it dead in the template).
+            if ( auto* sb = material->Find<StorageBufferProperty>( kMaterialRowBlock ) )
                 sb->SetRawData( rows.Bytes.data(),
                                 static_cast<uint32_t>( rows.Bytes.size() * sizeof( glm::vec4 ) ) );
         }
@@ -808,7 +809,8 @@ namespace Desert::Graphic::System
         const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
         for ( auto& [state, cellRows] : rows )
         {
-            if ( auto* sb = state->Material->Get<StorageBufferProperty>( MeshForwardShaderParameters::Materials ) )
+            // Find: a translucent surface template with no parameters declares no Materials row block.
+            if ( auto* sb = state->Material->Find<StorageBufferProperty>( MeshForwardShaderParameters::Materials ) )
             {
                 sb->SetRawData( cellRows.data(), static_cast<uint32_t>( cellRows.size() * sizeof( glm::vec4 ) ) );
             }
@@ -917,7 +919,8 @@ namespace Desert::Graphic::System
         const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
         for ( auto& [state, cellRows] : rows )
         {
-            if ( auto* sb = state->Material->Get<StorageBufferProperty>( kMaterialRowBlock ) )
+            // Find: a front-layer surface template with no parameters declares no Materials row block.
+            if ( auto* sb = state->Material->Find<StorageBufferProperty>( kMaterialRowBlock ) )
                 sb->SetRawData( cellRows.data(), static_cast<uint32_t>( cellRows.size() * sizeof( glm::vec4 ) ) );
             frameState.ApplyTo( state->Instance.get() );
         }
@@ -1430,7 +1433,8 @@ namespace Desert::Graphic::System
                 AppendRow( gpuMaterials, row );
             }
 
-            if ( auto* sb = drawMat->Get<StorageBufferProperty>( MeshForwardShaderParameters::Materials ) )
+            // Find: a surface template with no parameters declares no Materials row block.
+            if ( auto* sb = drawMat->Find<StorageBufferProperty>( MeshForwardShaderParameters::Materials ) )
                 sb->SetRawData( gpuMaterials.data(),
                                 static_cast<uint32_t>( gpuMaterials.size() * sizeof( glm::vec4 ) ) );
 
@@ -1615,7 +1619,9 @@ namespace Desert::Graphic::System
                           set.Mat->Get<StorageBufferProperty>( MeshForwardShaderParameters::InstanceTransforms ) )
                     sb->SetRawData( set.Transforms.data(),
                                     static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
-                if ( auto* sb = set.Mat->Get<StorageBufferProperty>( MeshForwardShaderParameters::Materials ) )
+                // Find (InstanceTransforms above stays Get: every instanced cell reads it): a surface template with
+                // no parameters declares no Materials row block.
+                if ( auto* sb = set.Mat->Find<StorageBufferProperty>( MeshForwardShaderParameters::Materials ) )
                     sb->SetRawData( set.Materials.data(),
                                     static_cast<uint32_t>( set.Materials.size() * sizeof( glm::vec4 ) ) );
 
@@ -1772,7 +1778,8 @@ namespace Desert::Graphic::System
 
             // At FINAL size before any draw is recorded, so the descriptor points at the buffer the draws will
             // actually read (a later grow reallocates it).
-            if ( auto* sb = mat->Get<StorageBufferProperty>( MeshForwardShaderParameters::Materials ) )
+            // Find: a surface template with no parameters declares no Materials row block.
+            if ( auto* sb = mat->Find<StorageBufferProperty>( MeshForwardShaderParameters::Materials ) )
                 sb->SetRawData( gpuMaterials.data(),
                                 static_cast<uint32_t>( gpuMaterials.size() * sizeof( glm::vec4 ) ) );
 

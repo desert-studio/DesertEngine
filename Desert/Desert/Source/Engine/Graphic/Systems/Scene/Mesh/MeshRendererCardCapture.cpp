@@ -374,9 +374,10 @@ namespace Desert::Graphic::System
                     AppendRow( rows, EffectiveRow( section.Surface, section.Instance ) );
                 }
 
+                // Find: a surface template with no parameters (or every row field dead) declares no row block.
                 if ( !rows.empty() )
                     if ( auto* sb =
-                              material->Get<StorageBufferProperty>( MeshCardCaptureShaderParameters::Materials ) )
+                              material->Find<StorageBufferProperty>( MeshCardCaptureShaderParameters::Materials ) )
                         sb->SetRawData( rows.data(), static_cast<uint32_t>( rows.size() * sizeof( glm::vec4 ) ) );
                 // An instance's one transform (the instanced cell reads its world from InstanceTransforms).
                 if ( path == MeshVertexPath::Instanced )
