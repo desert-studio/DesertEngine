@@ -16,8 +16,10 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace Desert::Graphic
 {
@@ -109,7 +111,25 @@ namespace Desert::Graphic::SurfaceCache
         // The machine's budget; a new atlas side recreates the layers and drops every capture.
         [[nodiscard]] Common::BoolResultStr Configure( const SurfaceCacheBudget& budget );
 
-        [[nodiscard]] SurfaceCacheScene& GetScene()
+        // What a view's frame of the cache works from: the scene's records (SurfaceCacheScene::Update) and whether
+        // this call updated the cache - true: the view records the frame's capture, copy, direct and indirect
+        // lighting into its graph; false: the frame's update already ran in an earlier graph, the view uploads
+        // the same records and reads the same atlases, recording nothing that writes them.
+        struct SceneUpdate
+        {
+            SceneFrame Scene;
+            bool       Updated = false;
+        };
+        // Brings the scene up to @p instances at @p camera, once per @p engineFrame (UPDATED AT MOST ONCE PER
+        // ENGINE FRAME, as GlobalDistanceField::AddUpdatePasses): the first call of a frame updates the scene and
+        // its caller records the passes that write the atlases; a later one in the same frame for the same camera
+        // and instances hands back the same records with Updated false; a later one for another camera or
+        // instance set is refused - the scene picked one frame's captures and relit pages, and a second update in
+        // the frame would capture and relight over what the frame's earlier graph reads.
+        [[nodiscard]] Common::ResultStr<SceneUpdate> UpdateScene( const std::vector<SceneInstance>& instances,
+                                                                  const glm::vec3& camera, uint64_t engineFrame );
+        // The scene's tables (rows by placement, the row of an instance). Its frame update is UpdateScene's.
+        [[nodiscard]] const SurfaceCacheScene& GetScene() const
         {
             return m_Scene;
         }
@@ -168,7 +188,18 @@ namespace Desert::Graphic::SurfaceCache
                       const std::shared_ptr<Shader>& shader, Core::Formats::ImageFormat format, uint32_t samples,
                       bool depth, std::string_view name );
 
-        SurfaceCacheScene                                                     m_Scene;
+        SurfaceCacheScene m_Scene;
+        // THE FRAME'S UPDATE (once per frame): the engine frame it ran in, what it was asked for (the camera and
+        // the identity of the instance list: key, placement, surface and capture readiness of each, in order),
+        // and the records a later call of that frame hands back without updating anything.
+        struct FrameUpdate
+        {
+            uint64_t   Frame = 0;
+            glm::vec3  Camera{ 0.0f };
+            uint64_t   Instances = 0;
+            SceneFrame Scene;
+        };
+        std::optional<FrameUpdate> m_FrameUpdate;
         uint32_t                                                              m_AtlasSize = 0;
         std::array<std::shared_ptr<Image2D>, kCapturedLayers.size()>          m_Layers;
         std::array<std::shared_ptr<Image2D>, 3>                               m_LitLayers;

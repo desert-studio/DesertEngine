@@ -549,9 +549,10 @@ namespace Desert::Graphic
         textures.Transients.RadianceCacheIrradiance  = cache.GetValue().Irradiance;
         textures.Transients.RadianceCacheDepth       = cache.GetValue().Depth;
 
-        // The cards' indirect light off this update (the radiosity slot): the frame's relit pages.
+        // The cards' indirect light off this update (the radiosity slot): the frame's relit pages - by the view
+        // that updated the cache this frame (a lent cache already updated this frame is read, not relit).
         SurfaceCache::SurfaceCacheRenderer* const surfaceCache = ReadSurfaceCache();
-        if ( surfaceCache != nullptr && m_SurfaceCacheFrame )
+        if ( surfaceCache != nullptr && m_SurfaceCacheFrame && m_SurfaceCacheFrame->Updated )
         {
             const GlobalIllumination::RadianceCacheFrame& rc = cache.GetValue();
             if ( const auto lit = surfaceCache->AddIndirectLightingPass(

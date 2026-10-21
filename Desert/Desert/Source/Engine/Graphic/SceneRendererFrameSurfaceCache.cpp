@@ -3,6 +3,7 @@
 // frame, before the traced GI whose hits read it (GIHitRadiance) - and the three view modes that show it.
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Assets/MeshCardRepresentation.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp>
@@ -190,9 +191,21 @@ namespace Desert::Graphic
 
         // THE LUMEN SCENE: every static, instanced, generic and skinned mesh of the frame with cards, whole - the
         // cache holds what is off-screen too (a traced ray leaves the frustum). Unjittered ViewFrame position.
+        // Updated at most once per engine frame (SurfaceCacheRenderer::UpdateScene): a lent cache another view
+        // already updated this frame is read - its records uploaded into this graph, its atlases imported - and
+        // nothing that writes the atlases (capture, copy, direct and indirect lighting) is recorded again.
         std::vector<SurfaceCache::SceneInstance> instances;
         meshRenderer->GatherSurfaceCacheInstances( instances );
-        SurfaceCache::SceneFrame scene = cache->GetScene().Update( instances, frame.CameraPosition );
+        auto update = cache->UpdateScene( instances, frame.CameraPosition,
+                                          Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+        if ( !update )
+        {
+            LOG_ERROR( "[SceneRenderer] Surface Cache: {}", update.GetError() );
+            return;
+        }
+        SurfaceCache::SurfaceCacheRenderer::SceneUpdate taken   = update.ExtractValue();
+        const bool                                      updated = taken.Updated;
+        SurfaceCache::SceneFrame                        scene   = std::move( taken.Scene );
 
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };
@@ -200,7 +213,7 @@ namespace Desert::Graphic
         // THE CAPTURE: the cards picked this frame, each drawn by MeshRenderer into its rectangle of the capture
         // atlas through its surface's own view-pass G-buffer cell (albedo, normal, emissive; reversed-Z depth
         // cleared to 0).
-        if ( !scene.Captures.empty() )
+        if ( updated && !scene.Captures.empty() )
         {
             const std::string passName =
                  std::format( "SurfaceCache: Card Capture ({} cards)", scene.Captures.size() );
@@ -266,6 +279,7 @@ namespace Desert::Graphic
         // the view's light buffers (AddFrameLightGrid), the composite's ShadowUB and cloud values, the frame sun.
         const SurfaceCache::SurfaceCacheRenderer::FrameBuffers records =
              cache->UploadRecords( graph, scene );
+        if ( updated )
         {
             const FrameGraphRefs                                     refs = textures.GraphRefs();
             SurfaceCache::SurfaceCacheRenderer::DirectLightingInputs lighting;
@@ -327,6 +341,7 @@ namespace Desert::Graphic
         record.Scene   = std::move( scene );
         record.Buffers = records;
         record.Hits    = cache->HitReads( import, records );
+        record.Updated = updated;
         m_SurfaceCacheFrame.emplace( std::move( record ) );
     }
 
