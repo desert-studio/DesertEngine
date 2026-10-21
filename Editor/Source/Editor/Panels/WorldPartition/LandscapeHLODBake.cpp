@@ -21,8 +21,11 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Timestep.hpp>
 
+#include <glm/gtc/packing.hpp>
+
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <format>
 #include <fstream>
 #include <iterator>
@@ -50,6 +53,26 @@ namespace Desert::Editor
         constexpr std::string_view kSurfaceShaderGuid = "4f1cac6af403a010c792d835dd6f7d44";
         constexpr std::string_view kSurfaceShaderPath = "engine:Shaders/Programs/Surface/StandardSurface.shader";
         constexpr std::string_view kAlbedoSlot        = "u_AlbedoTexture";
+        // SurfaceResolveORM (Common/SurfaceInputs.glslh) reads r = AO, g = Roughness, b = Metallic and MULTIPLIES
+        // roughness by RoughnessFactor (schema default 0.5): the baked roughness is the terrain's own, so 1.
+        // AOStrength (1) and MetallicFactor (0) defaults already take the map as it is.
+        constexpr std::string_view kORMSlot         = "u_ORMTexture";
+        constexpr std::string_view kRoughnessFactor = "RoughnessFactor";
+        // The RGBA16F G-buffer targets: 4 half floats per texel, alpha at byte 6.
+        constexpr std::size_t kHalfTexelBytes = 8;
+        constexpr std::size_t kHalfAlphaByte  = 6;
+
+        [[nodiscard]] float HalfAlpha( const std::vector<uint8_t>& texels, std::size_t texel )
+        {
+            uint16_t half = 0;
+            std::memcpy( &half, texels.data() + texel * kHalfTexelBytes + kHalfAlphaByte, sizeof( half ) );
+            return glm::unpackHalf1x16( half );
+        }
+
+        [[nodiscard]] uint8_t UnitToByte( float value )
+        {
+            return static_cast<uint8_t>( std::clamp( std::lround( value * 255.0f ), 0L, 255L ) );
+        }
 
         [[nodiscard]] uint8_t LinearToSrgb8( uint8_t linear )
         {
@@ -132,7 +155,9 @@ namespace Desert::Editor
 
     LandscapeHLODBake::~LandscapeHLODBake()
     {
-        m_Readback.reset();
+        m_Albedo.reset();
+        m_GBufferB.reset();
+        m_Emissive.reset();
         if ( !m_Renderer )
             return;
         Graphic::Renderer::GetInstance().WaitDeviceIdle();
@@ -190,13 +215,20 @@ namespace Desert::Editor
         m_Phase      = Phase::Frame;
     }
 
-    Common::BoolResultStr LandscapeHLODBake::SaveTile( const std::vector<uint8_t>& rgba, uint32_t width,
+    Common::BoolResultStr LandscapeHLODBake::SaveTile( const std::vector<uint8_t>& rgba,
+                                                       const std::vector<uint8_t>& gbufferB,
+                                                       const std::vector<uint8_t>& emissive, uint32_t width,
                                                        uint32_t height )
     {
-        const ::Desert::Core::LandscapeHLODTileArea& tile = m_Tiles[m_Next];
-        if ( rgba.size() != static_cast<std::size_t>( width ) * height * 4 )
+        const ::Desert::Core::LandscapeHLODTileArea& tile   = m_Tiles[m_Next];
+        const std::size_t                            texels = static_cast<std::size_t>( width ) * height;
+        if ( rgba.size() != texels * 4 )
             return Common::MakeError( std::format( "the albedo readback holds {} bytes, expected {}x{} RGBA8",
                                                    rgba.size(), width, height ) );
+        if ( gbufferB.size() != texels * kHalfTexelBytes || emissive.size() != texels * kHalfTexelBytes )
+            return Common::MakeError(
+                 std::format( "the G-buffer B / emissive readbacks hold {} / {} bytes, expected {}x{} RGBA16F",
+                              gbufferB.size(), emissive.size(), width, height ) );
         // The G-buffer albedo is LINEAR (TerrainGBuffer writes Albedo * Tint into an RGBA8 UNORM target); the
         // texture is stated sRGB, as every authored BaseColor is.
         std::vector<uint8_t> srgb( rgba.size() );
@@ -210,10 +242,24 @@ namespace Desert::Editor
         auto png = EncodePng( srgb, width, height );
         if ( !png )
             return Common::MakeError( png.GetError() );
+        // ORM in the albedo's row order: r = material AO (Emissive.a), g = roughness (B.a), b = metallic 0 (the
+        // terrain writes none, TerrainGBuffer.shader).
+        std::vector<uint8_t> orm( texels * 4 );
+        for ( std::size_t i = 0; i < texels; ++i )
+        {
+            orm[i * 4 + 0] = UnitToByte( HalfAlpha( emissive, i ) );
+            orm[i * 4 + 1] = UnitToByte( HalfAlpha( gbufferB, i ) );
+            orm[i * 4 + 2] = 0;
+            orm[i * 4 + 3] = 255;
+        }
+        auto ormPng = EncodePng( orm, width, height );
+        if ( !ormPng )
+            return Common::MakeError( ormPng.GetError() );
 
         const std::filesystem::path dir      = ::Desert::Core::WorldCells::BuiltHLODDirectory( m_ScenePath );
         const std::string           tileName = std::to_string( static_cast<uint64_t>( tile.Tile ) );
         const std::filesystem::path texFile  = dir / ( "T_" + tileName + "_BaseColor.detex" );
+        const std::filesystem::path ormFile  = dir / ( "T_" + tileName + "_ORM.detex" );
         const std::filesystem::path matFile  = dir / ( "M_" + tileName + ".demat" );
         std::error_code             ec;
         std::filesystem::create_directories( dir, ec );
@@ -221,18 +267,35 @@ namespace Desert::Editor
             return Common::MakeError(
                  std::format( "'{}' could not be created: {}", dir.generic_string(), ec.message() ) );
 
-        Assets::TextureImportSettings settings;
-        settings.Intent     = ::Desert::Core::Formats::TextureIntent::Colour;
-        settings.ColorSpace = ::Desert::Core::Formats::TextureColorSpace::SRGB;
-        const std::string sourceKey =
-             Common::AssetHandle::StableKeyForPath( dir / ( "T_" + tileName + "_BaseColor.png" ) );
-        auto written = Assets::WriteTextureSource( texFile, Common::Content::ContentKind::Texture, sourceKey,
-                                                   std::move( png.GetValue() ), settings );
-        if ( !written )
-            return Common::MakeError( written.GetError() );
-        auto texture = Assets::ReadTextureSourceAssetFile( texFile );
-        if ( !texture )
-            return Common::MakeError( texture.GetError() );
+        // Writes one baked texture and answers the GUID its header states.
+        const auto writeTexture =
+             [&]( const std::filesystem::path& file, const std::string& sourceName, std::vector<std::byte> encoded,
+                  ::Desert::Core::Formats::TextureIntent     intent,
+                  ::Desert::Core::Formats::TextureColorSpace colorSpace ) -> Common::ResultStr<std::string>
+        {
+            Assets::TextureImportSettings settings;
+            settings.Intent             = intent;
+            settings.ColorSpace         = colorSpace;
+            const std::string sourceKey = Common::AssetHandle::StableKeyForPath( dir / sourceName );
+            auto written = Assets::WriteTextureSource( file, Common::Content::ContentKind::Texture, sourceKey,
+                                                       std::move( encoded ), settings );
+            if ( !written )
+                return Common::MakeError<std::string>( written.GetError() );
+            auto texture = Assets::ReadTextureSourceAssetFile( file );
+            if ( !texture )
+                return Common::MakeError<std::string>( texture.GetError() );
+            return Common::MakeSuccess( Common::Content::AssetGuidToText( texture.GetValue().Guid ) );
+        };
+        auto albedoGuid = writeTexture( texFile, "T_" + tileName + "_BaseColor.png", std::move( png.GetValue() ),
+                                        ::Desert::Core::Formats::TextureIntent::Colour,
+                                        ::Desert::Core::Formats::TextureColorSpace::SRGB );
+        if ( !albedoGuid )
+            return Common::MakeError( albedoGuid.GetError() );
+        auto ormGuid = writeTexture( ormFile, "T_" + tileName + "_ORM.png", std::move( ormPng.GetValue() ),
+                                     ::Desert::Core::Formats::TextureIntent::Data,
+                                     ::Desert::Core::Formats::TextureColorSpace::Linear );
+        if ( !ormGuid )
+            return Common::MakeError( ormGuid.GetError() );
 
         Assets::MaterialData material;
         material.Header = ExistingMaterialHeader( matFile ); // the GUID survives a re-bake
@@ -240,14 +303,22 @@ namespace Desert::Editor
              Assets::AssetGuidRef{ std::string( kSurfaceShaderGuid ), std::string( kSurfaceShaderPath ) };
         Assets::MaterialAssetRef albedo;
         albedo.Name = std::string( kAlbedoSlot );
-        albedo.Guid = Common::Content::AssetGuidToText( texture.GetValue().Guid );
+        albedo.Guid = albedoGuid.GetValue();
         albedo.Path = Common::AssetHandle::StableKeyForPath( texFile );
         material.Textures.push_back( std::move( albedo ) );
+        Assets::MaterialAssetRef ormRef;
+        ormRef.Name = std::string( kORMSlot );
+        ormRef.Guid = ormGuid.GetValue();
+        ormRef.Path = Common::AssetHandle::StableKeyForPath( ormFile );
+        material.Textures.push_back( std::move( ormRef ) );
+        material.Params.push_back(
+             Assets::MaterialShaderParam{ std::string( kRoughnessFactor ), glm::vec4( 1.0f ) } );
         material = Assets::StampMaterialHeader( std::move( material ) );
         if ( auto saved = Assets::WriteMaterialFile( matFile, material ); !saved )
             return Common::MakeError( saved.GetError() );
 
         Assets::ContentRegistry::NoteFile( texFile );
+        Assets::ContentRegistry::NoteFile( ormFile );
         Assets::ContentRegistry::NoteFile( matFile );
         // The HLOD block's slot path is a SCENE-RECORD reference, so it is spelled the way a scene stores a
         // material (StoredFormFor("MaterialAsset") = assets-relative), not as the tagged key the .demat's own
@@ -261,8 +332,8 @@ namespace Desert::Editor
                                  .MaterialGuid = material.Header->Guid,
                                  .MaterialPath = Core::Serialize::RenderStoredForm(
                                       *materialForm, Common::AssetHandle::StableKeyForPath( matFile ) ) } );
-        LOG_INFO( "[Build HLODs] baked tile {0}: {1}x{2} BaseColor -> {3}, {4}", tileName, width, height,
-                  texFile.generic_string(), matFile.generic_string() );
+        LOG_INFO( "[Build HLODs] baked tile {0}: {1}x{2} BaseColor + ORM -> {3}, {4}, {5}", tileName, width,
+                  height, texFile.generic_string(), ormFile.generic_string(), matFile.generic_string() );
         return BOOLSUCCESS;
     }
 
@@ -302,20 +373,32 @@ namespace Desert::Editor
                     return false;
                 }
                 // The previous frame's render is on the queue; the copy is recorded behind it (no wait).
-                const auto& gbuffer = m_Renderer->GetGBuffer();
-                const auto  albedo  = gbuffer ? gbuffer->GetColorAttachmentImage( 0 ) : nullptr;
-                if ( !albedo )
+                // Attachments in TerrainGBuffer.shader's Out() order: 0 albedo, 1 normal + roughness, 3 emissive
+                // + material AO.
+                const auto& gbuffer  = m_Renderer->GetGBuffer();
+                const auto  albedo   = gbuffer ? gbuffer->GetColorAttachmentImage( 0 ) : nullptr;
+                const auto  bTarget  = gbuffer ? gbuffer->GetColorAttachmentImage( 1 ) : nullptr;
+                const auto  emissive = gbuffer ? gbuffer->GetColorAttachmentImage( 3 ) : nullptr;
+                if ( !albedo || !bTarget || !emissive )
                 {
-                    Fail( "the bake renderer has no G-buffer albedo (is the scene's rendering path Deferred?)" );
+                    Fail( "the bake renderer has no G-buffer albedo / B / emissive target (is the scene's "
+                          "rendering "
+                          "path Deferred?)" );
                     return true;
                 }
-                auto readback = albedo->BeginReadbackRGBA8();
-                if ( !readback )
+                auto albedoCopy   = albedo->BeginReadbackRGBA8();
+                auto bCopy        = bTarget->BeginReadbackBytes();
+                auto emissiveCopy = emissive->BeginReadbackBytes();
+                if ( !albedoCopy || !bCopy || !emissiveCopy )
                 {
-                    Fail( "the albedo readback was refused: " + readback.GetError() );
+                    Fail( "a G-buffer readback was refused: " +
+                          ( !albedoCopy ? albedoCopy.GetError()
+                                        : ( !bCopy ? bCopy.GetError() : emissiveCopy.GetError() ) ) );
                     return true;
                 }
-                m_Readback       = readback.GetValue();
+                m_Albedo         = albedoCopy.GetValue();
+                m_GBufferB       = bCopy.GetValue();
+                m_Emissive       = emissiveCopy.GetValue();
                 m_ReadbackWidth  = albedo->GetWidth();
                 m_ReadbackHeight = albedo->GetHeight();
                 m_Phase          = Phase::Readback;
@@ -323,16 +406,23 @@ namespace Desert::Editor
             }
             case Phase::Readback:
             {
-                if ( !m_Readback->IsComplete() )
+                if ( !m_Albedo->IsComplete() || !m_GBufferB->IsComplete() || !m_Emissive->IsComplete() )
                     return false;
-                auto pixels = m_Readback->ReadRGBA8();
-                m_Readback.reset();
-                if ( !pixels )
+                auto pixels = m_Albedo->ReadRGBA8();
+                auto bBytes = m_GBufferB->ReadBytes();
+                auto eBytes = m_Emissive->ReadBytes();
+                m_Albedo.reset();
+                m_GBufferB.reset();
+                m_Emissive.reset();
+                if ( !pixels || !bBytes || !eBytes )
                 {
-                    Fail( "the albedo readback failed: " + pixels.GetError() );
+                    Fail( "a G-buffer readback failed: " +
+                          ( !pixels ? pixels.GetError() : ( !bBytes ? bBytes.GetError() : eBytes.GetError() ) ) );
                     return true;
                 }
-                if ( auto saved = SaveTile( pixels.GetValue(), m_ReadbackWidth, m_ReadbackHeight ); !saved )
+                if ( auto saved = SaveTile( pixels.GetValue(), bBytes.GetValue(), eBytes.GetValue(),
+                                            m_ReadbackWidth, m_ReadbackHeight );
+                     !saved )
                 {
                     Fail( std::format( "tile {}: {}", static_cast<uint64_t>( m_Tiles[m_Next].Tile ),
                                        saved.GetError() ) );

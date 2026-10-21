@@ -5,7 +5,9 @@
 // camera that frames exactly the X/Z rectangle a landscape HLOD's UVs span
 // (::Desert::Core::LandscapeHLODTileAreaOf), and the G-buffer's albedo — the material's BaseColor before any
 // light, not the lit and tonemapped picture — is read back and saved beside the built HLODs as
-// `T_<tile>_BaseColor.detex` and the material that binds it, `M_<tile>.demat`. The capture is recorded into the
+// `T_<tile>_BaseColor.detex`; the G-buffer's roughness (B.a) and material AO (Emissive.a) are read back with it
+// and saved as `T_<tile>_ORM.detex` (UE's landscape HLOD bakes roughness too), and the material that binds both,
+// `M_<tile>.demat`. The capture is recorded into the
 // editor's own frames (as AssetThumbnailRenderer's is), so a bake runs over several frames: Tick() once per editor
 // frame until it answers true.
 
@@ -79,13 +81,16 @@ namespace Desert::Editor
         {
             Build,    // the renderer is built a stage per frame
             Frame,    // the current tile is framed; warm-up frames are recorded
-            Readback, // the albedo copy is in flight
+            Readback, // the albedo, G-buffer B and emissive copies are in flight
             Done,
         };
 
         [[nodiscard]] Common::BoolResultStr StartScene();
         void                                FrameTile();
-        [[nodiscard]] Common::BoolResultStr SaveTile( const std::vector<uint8_t>& rgba, uint32_t width,
+        // @p rgba: the albedo, RGBA8. @p gbufferB / @p emissive: the RGBA16F targets' own texels (8 bytes each).
+        [[nodiscard]] Common::BoolResultStr SaveTile( const std::vector<uint8_t>& rgba,
+                                                      const std::vector<uint8_t>& gbufferB,
+                                                      const std::vector<uint8_t>& emissive, uint32_t width,
                                                       uint32_t height );
         void                                Fail( std::string error );
 
@@ -97,7 +102,9 @@ namespace Desert::Editor
         std::unique_ptr<Graphic::SceneRenderer> m_Renderer;
         std::shared_ptr<::Desert::Core::Scene>          m_Scene;
         std::shared_ptr<::Desert::Core::GameplayCamera> m_Camera;
-        std::shared_ptr<Graphic::ImageReadback> m_Readback;
+        std::shared_ptr<Graphic::ImageReadback>         m_Albedo; // G-buffer attachment 0, RGBA8 (Albedo.rgb)
+        std::shared_ptr<Graphic::ImageReadback> m_GBufferB; // attachment 1, RGBA16F (Normal.xyz, Roughness.a)
+        std::shared_ptr<Graphic::ImageReadback> m_Emissive; // attachment 3, RGBA16F (Emissive.rgb, AO.a)
         uint32_t                                m_ReadbackWidth  = 0;
         uint32_t                                m_ReadbackHeight = 0;
         Phase                                   m_Phase          = Phase::Build;
