@@ -28,6 +28,7 @@
 #include <Mesh/PointLight.glslh> // binding 6
 #include <Mesh/Spotlight.glslh>  // binding 16
 #include <Mesh/MegaLightsDemodulation.glslh>
+#include <Common/LightSourceSampling.glslh>
 
 // The most reservoirs a pixel keeps (MegaLights.hpp kMegaLightsMaxSamplesPerPixel; Scalability
 // Shadows.MegaLightsSamplesPerPixel 1..4). The reservoir textures stack the layers vertically: layer k of sample
@@ -345,22 +346,15 @@ float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 	if (distance <= max(2.0 * bias, radius))
 		return 1.0; // on or inside the emitter
 	const vec3 axis = toLight / distance;
-	vec3       dir  = axis;
-	float      reach = distance;
+	// Common/LightSourceSampling.glslh: the cone angle first, then the azimuth (two draws of the sample's stream).
+	vec2 u = vec2(0.0);
 	if (radius > 0.0)
 	{
-		const float sinMax2 = (radius * radius) / (distance * distance);
-		const float cosMax  = sqrt(max(1.0 - sinMax2, 0.0));
-		const float cosT    = 1.0 - MegaLightsRandom(random) * (1.0 - cosMax);
-		const float sinT    = sqrt(max(1.0 - cosT * cosT, 0.0));
-		const float phi     = 6.28318530718 * MegaLightsRandom(random);
-		const vec3  up      = abs(axis.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
-		const vec3  t       = normalize(cross(up, axis));
-		const vec3  b       = cross(axis, t);
-		dir                 = normalize(t * (cos(phi) * sinT) + b * (sin(phi) * sinT) + axis * cosT);
-		// Where the ray meets the sphere (the nearer root).
-		reach = distance * cosT - sqrt(max(radius * radius - distance * distance * sinT * sinT, 0.0));
+		u.x = MegaLightsRandom(random);
+		u.y = MegaLightsRandom(random);
 	}
+	float      reach = distance;
+	const vec3 dir   = SampleLightSourceSphere(axis, distance, radius, u, reach);
 	const float contact =
 	     ContactShadowFactor(p.Position, p.N, dir, MegaLightsLightContactShadow(light), p.SubsurfaceOpacity);
 	if (contact <= 0.0)
