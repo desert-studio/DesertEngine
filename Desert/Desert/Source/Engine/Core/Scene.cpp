@@ -423,7 +423,7 @@ namespace Desert::Core
         scenes.erase( std::remove( scenes.begin(), scenes.end(), this ), scenes.end() );
     }
 
-    NO_DISCARD Common::BoolResultStr Scene::Init()
+    NO_DISCARD Common::BoolResultStr Scene::Init( InitPurpose purpose )
     {
         for ( auto& view : m_Views.All() )
             view.Renderer->Init();
@@ -453,7 +453,8 @@ namespace Desert::Core
         // release nothing — which is exactly how "evict on scene change" quietly does nothing. The frame
         // loop runs it at the start of the next frame, by which time the old scene is gone and no command
         // buffer is open. See Assets/AssetEviction.hpp.
-        Assets::AssetEvictionSchedule::Request( "scene '" + m_SceneName + "' was initialised" );
+        if ( purpose == InitPurpose::World )
+            Assets::AssetEvictionSchedule::Request( "scene '" + m_SceneName + "' was initialised" );
 
         return BOOLSUCCESS;
     }

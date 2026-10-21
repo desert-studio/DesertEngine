@@ -177,10 +177,7 @@ namespace Desert::Editor
             ImGui::TextUnformatted( locked ? ICON_MDI_LOCK : ICON_MDI_LOCK_OPEN_OUTLINE );
             ImGui::PopStyleColor();
             if ( ImGui::IsItemClicked() )
-            {
-                ECS::SetLockedRecursive( *selectedEntity.GetRegistry(), selectedEntity.GetHandle(), !locked );
-                m_Scene->MarkModifiedSubtree( selectedEntity );
-            }
+                Commands::SetLocked( { selectedEntity.GetComponent<ECS::UUIDComponent>().UUID }, !locked );
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( locked ? "Locked: the viewport will not pick this and the gizmo will not "
                                             "move it. Click to unlock."

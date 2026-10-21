@@ -490,8 +490,9 @@ namespace Desert::Core::Preprocess
                          intent == ::Desert::Core::Formats::TextureIntent::Unspecified )
                     {
                         err = { c.Line,
-                                std::format( "Intent({}) on '{}': expected Colour, NormalMap, Mask or Data", word,
-                                             param.Name ) };
+                                std::format(
+                                     "Intent({}) on '{}': expected Colour, NormalMap, Mask, Data or PackedMasks",
+                                     word, param.Name ) };
                         return false;
                     }
                     param.SlotIntent = intent;

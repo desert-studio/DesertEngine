@@ -28,6 +28,8 @@ namespace Desert::Core::Rules
 {
     // The one label the button and the command palette both show, so the two cannot drift apart.
     inline constexpr std::string_view kConvertToWorldPartitionLabel = "Convert scene to World Partition";
+    // UE's Build > Build HLODs: the step that builds every cell's HLOD and saves it beside the world.
+    inline constexpr std::string_view kBuildHLODsLabel = "Build HLODs";
 
     /// The partition an UNPARTITIONED world gets: exactly one grid, at the format's own defaults
     /// (WorldPartitionGridSerialized — 128 m cells, 256 m loading range, in centimetres).

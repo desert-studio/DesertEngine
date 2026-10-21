@@ -115,7 +115,9 @@ namespace Desert::Editor
                 // LOCKING ONE IS TOO, and by the paragraph directly above it has to be here. The padlock
                 // in the Outliner's gutter and the row's context menu are both a MOUSE, and the lock's
                 // whole subject is what the viewport will and will not let you touch — so a channel that
-                // cannot set it cannot check it either. Same recursive setter both of those call.
+                // cannot set it cannot check it either. Same recorded edit both of those call
+                // (Commands::SetLocked): until it was one, this closure toggled the lock without marking the
+                // subtree modified and a partitioned save refused the scene.
                 {
                     // Captures the UUID and re-resolves at RUN time, exactly as Delete above does, rather
                     // than holding a Scene* and an entt handle from build time. The list is rebuilt per
@@ -124,13 +126,9 @@ namespace Desert::Editor
                     // finds nothing needs no argument at all. Asked through the shared predicate, so this
                     // label cannot disagree with the padlock the Outliner draws for the same entity.
                     const bool locked = ECS::IsLocked( MainScene()->GetRegistry(), entity.GetHandle() );
-                    commands.push_back( { "Entity", ( locked ? "Unlock " : "Lock " ) + name, [this, uuid, locked]
+                    commands.push_back( { "Entity", ( locked ? "Unlock " : "Lock " ) + name, [uuid, locked]
                                           {
-                                              if ( !MainScene() )
-                                                  return PaletteCommandDone();
-                                              if ( auto ref = MainScene()->FindEntityByID( uuid ) )
-                                                  ECS::SetLockedRecursive( MainScene()->GetRegistry(),
-                                                                           ref->get().GetHandle(), !locked );
+                                              Commands::SetLocked( { uuid }, !locked );
                                               return PaletteCommandDone();
                                           } } );
                 }

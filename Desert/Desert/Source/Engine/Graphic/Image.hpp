@@ -159,6 +159,15 @@ namespace Desert::Graphic
                  "Image2D::BeginReadbackRGBA8 not supported by this backend" );
         }
 
+        /// The same split readback, converting nothing: ImageReadback::ReadBytes() answers the image's own texels
+        /// (an RGBA16F target's half floats, tightly packed, row 0 first), and ReadRGBA8() refuses. What a bake
+        /// of a float G-buffer target needs — roughness and occlusion are not colours an 8-bit pack may clamp.
+        NO_DISCARD virtual Common::ResultStr<std::shared_ptr<ImageReadback>> BeginReadbackBytes()
+        {
+            return Common::MakeError<std::shared_ptr<ImageReadback>>(
+                 "Image2D::BeginReadbackBytes not supported by this backend" );
+        }
+
         // Re-uploads tightly-packed pixel data into the EXISTING GPU image without recreating it — the
         // image (and any descriptor sets bound to its pointer) stays valid, so this is the safe, churn-free
         // way to stream changing content (video frames) every frame. `data` must match the image's format

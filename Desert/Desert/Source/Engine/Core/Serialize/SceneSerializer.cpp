@@ -1,4 +1,5 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Common/Core/AssetHandle.hpp>
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Common/Core/Constants.hpp>
@@ -182,7 +183,20 @@ namespace Desert::Core
                      !written )
                     return Common::MakeFormattedError( "tile ({}, {}): {}", tile.TileX, tile.TileZ,
                                                        written.GetError() );
-                tile.HeightFile = file.generic_string();
+                // The save relocated the tile's file (a Save As, or a scene whose tiles lived elsewhere): the
+                // entity's record now differs from its file, so it is marked like any other edit — otherwise a
+                // partitioned world skips (and a Debug save refuses) the entity this save itself changed.
+                //
+                // Stored as a CONTENT KEY ("assets:<dir>/<scene>_Landscape/<id>.dlht", UE's /Game/... package
+                // path), not as the editor's project-relative folder: a package mounts the assets root under its
+                // own name, so only the key resolves there (AssetHandle::PathForStableKey on the read side).
+                if ( std::string spelled =
+                          Common::AssetHandle::StableKeyForPath( Common::Constants::Path::FullPath( file ) );
+                     spelled != tile.HeightFile )
+                {
+                    tile.HeightFile = std::move( spelled );
+                    scene.MarkModified( entity.GetComponent<ECS::UUIDComponent>().UUID );
+                }
             }
             return BOOLSUCCESS;
         }
