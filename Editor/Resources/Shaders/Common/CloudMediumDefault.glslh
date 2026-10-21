@@ -146,23 +146,13 @@ float CloudDefaultDensity( CloudFieldParams params, CloudFieldSample field, vec3
     // so the unbounded version turns "erosion off" into a NaN density for every sample in the body. See
     // the note on CLOUD_MATERIAL_FACTOR_MAX: on every value either producer can legally carry, this bound
     // is the identity.
-    float erosionStrength = clamp( params.DetailStrength * CLOUD_MATERIAL_FACTOR( field.DetailFactor ), 0.0f, 1.0f );
-    float erosion         = detailField * erosionStrength;
-
-    // THE BODY CARVE COMES FIRST (CLOUD_BODY_CARVE_RATIO): the lump field is reshaped at the scale of a whole
-    // cluster before the value erosion cuts heads into it. Perlin-Worley as Schneider builds it — the wispy
-    // (Perlin-Worley) channel dilated by the billowy (Worley) one — and remapped INTO the profile, so a core
-    // already near one survives and only the outline moves. It rides the species' own erosion strength: a
-    // lenticular that is not eroded is not carved either, and a strength of zero still returns the profile.
-    vec4  bodyNoise   = CLOUD_SAMPLE_NOISE( field.NoiseSlot, detailPos * CLOUD_BODY_CARVE_RATIO );
-    float perlinWorley = clamp( CloudRemap( bodyNoise.x, -( 1.0f - bodyNoise.z ), 1.0f, 0.0f, 1.0f ), 0.0f, 1.0f );
-    float bodyCarve    = ( 1.0f - perlinWorley ) * CLOUD_BODY_CARVE_DEPTH * erosionStrength;
-    float profile      = clamp( CloudRemap( field.Profile, bodyCarve, 1.0f, 0.0f, 1.0f ), 0.0f, 1.0f );
+    float erosion =
+        detailField * clamp( params.DetailStrength * CLOUD_MATERIAL_FACTOR( field.DetailFactor ), 0.0f, 1.0f );
 
     // THEN THE EDGE IS SHARPENED (CLOUD_EDGE_SHARPEN): the eroded surface becomes a surface rather than a
     // gradient hundreds of metres deep. Zero stays zero, so a strength of zero still returns the profile's
     // own silhouette, only with a hard edge.
-    float density = pow( max( CloudRemap( profile, erosion, 1.0f, 0.0f, 1.0f ), 0.0f ), CLOUD_EDGE_SHARPEN );
+    float density = pow( CloudRemap( field.Profile, erosion, 1.0f, 0.0f, 1.0f ), CLOUD_EDGE_SHARPEN );
 
     return clamp( density * field.DensityScale, 0.0f, 1.0f );
 }

@@ -78,6 +78,21 @@ namespace Desert::Assets
         /// the coarse octave is clamped to [-1, 1], the range the bake's boxes are grown by.
         constexpr float kCloudShapeBillowAtTop = 1.0f;
 
+        /// THE LOBE OCTAVE (CLOUD-LOOK p4): a signed Perlin-Worley at this share of the silhouette noise's
+        /// cell — 0.6 km at the shipped 3 km placement cell, against lumps about 0.7 km across — that both
+        /// grows and carves every lump at its OWN scale, splitting its ellipsoid into sub-lobes with clefts
+        /// between them, as Unreal's/Nubis's base Perlin-Worley shapes a cloud before any erosion. The coarse
+        /// octave (1.2 km) is larger than a lump, so it only moved each ellipsoid as a whole, and the
+        /// cauliflower octave only grows heads OUT of it: neither could cut into a lump, and a cluster of six
+        /// smooth ellipsoids read as stacked balls (shots/before m, h). Carving the profile in the shader
+        /// instead (CLOUD-LOOK p2/p3) could not reach a lump's core (`remap(profile, carve, 1)` keeps profile 1)
+        /// and crumbled the small lumps, so the cut is made here, in the distance, where a core is not special.
+        constexpr float kCloudShapeLobeCellOfShape = 0.5f;
+
+        /// The lobe octave's strength in the lump's shape reach, the same at every height: the flanks are
+        /// where the balls showed, and the floor's flat cut is applied after the join and does not move.
+        constexpr float kCloudShapeLobeStrength = 0.8f;
+
         /// How many blend radii past the nearest lump a lump may be before it is dropped from the join.
         ///
         /// FOURTEEN, AND THE NUMBER IS A QUANTISATION ARGUMENT rather than a feel. A dropped lump's term
@@ -2038,7 +2053,23 @@ namespace Desert::Assets
             // at the top, as the coarse octave's growth does. Rising from nothing, every lump's sides kept the
             // smooth ellipsoid and the silhouette read as a cotton ball with heads only on its cap.
             const float headReach = kCloudShapeNoiseAtBase + ( 1.0f - kCloudShapeNoiseAtBase ) * height;
-            return std::clamp( coarse - kCloudShapeBillowAtTop * headReach * headGrowth, -1.0f, 1.0f );
+
+            // THE LOBE OCTAVE (kCloudShapeLobeCellOfShape), signed about the same median as the coarse one.
+            const float lobeCells =
+                 std::max( std::round( params.RegionSizeKm / ( kCloudShapeLobeCellOfShape * cellKm ) ), 1.0f );
+            const glm::vec3 lobeLattice = pointKm * ( lobeCells / params.RegionSizeKm );
+            const uint32_t  lobeSeed    = HashCombine( seed, 0x3u );
+            const float     lobePerlin  = std::clamp(
+                 0.5f + CloudShapeNoiseGlsl::CloudPerlinPeriodic( lobeLattice, lobeCells, lobeSeed ), 0.0f, 1.0f );
+            const float lobeBillow =
+                 CloudShapeNoiseGlsl::CloudAlligator01( lobeLattice, lobeCells, HashCombine( lobeSeed, 0x1u ) );
+            const float lobePw = lobeBillow + ( 1.0f - lobeBillow ) * lobePerlin;
+            const float lobe = std::clamp( ( kCloudShapeNoiseMedian - lobePw ) / ( 1.0f - kCloudShapeNoiseMedian ),
+                                           -1.0f, 1.0f );
+
+            return std::clamp( coarse + kCloudShapeLobeStrength * lobe -
+                                    kCloudShapeBillowAtTop * headReach * headGrowth,
+                               -1.0f, 1.0f );
         }
     } // namespace
 
