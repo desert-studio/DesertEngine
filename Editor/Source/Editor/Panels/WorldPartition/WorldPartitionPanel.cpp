@@ -414,6 +414,11 @@ namespace Desert::Editor
         if ( !baseline )
             return Common::MakeError( "Build HLODs: '" + m_Scene->GetSceneName() +
                                       "' is not saved; save it first (the HLODs are built from its files)" );
+        if ( m_Scene->Packages()->HasUnsavedChanges(
+                  ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets ).LiveEntities() ) )
+            return Common::MakeError( "Build HLODs: '" + m_Scene->GetSceneName() +
+                                      "' has unsaved changes; save the scene first (the HLODs are built from its "
+                                      "files)" );
         const std::filesystem::path& path = *baseline;
         // The saved world, read exactly as WorldCook reads it, so the checksums the build stores are the ones
         // a cook of the same files computes.

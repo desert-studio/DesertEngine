@@ -135,6 +135,10 @@ namespace Desert::Editor
                 }
                 if ( IsLeftOutOfPackage( src, developerInstruments ) )
                     continue;
+                // A saved HLOD (Build HLODs) is editor input: it ships only as the cooked HLOD cell the world
+                // cook wraps it in, as UE ships the cooked HLOD actors and never the builder's output.
+                if ( src.extension() == ::Desert::Core::WorldCells::kBuiltHLODExtension )
+                    continue;
                 const std::string key = keyPrefix + "/" + rel.generic_string();
                 // A registry left on the disk from before the registry built itself (AF9) is not staged:
                 // the one the pak carries is written from this process's gather, under the same key, and a
