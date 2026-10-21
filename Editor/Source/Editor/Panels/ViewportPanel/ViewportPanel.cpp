@@ -2559,7 +2559,9 @@ namespace Desert::Editor
             case T::UVProject:
             case T::UVUnwrap:
             case T::UVLayout:
-                return Tools::ToolCursor::None; // the UV tools take no click
+            case T::Smooth:
+            case T::Offset:
+                return Tools::ToolCursor::None; // the UV and Deform tools take no click
         }
         return Tools::ToolCursor::None;
     }
