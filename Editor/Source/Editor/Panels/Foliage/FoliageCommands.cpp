@@ -147,6 +147,15 @@ namespace Desert::Editor
                                       return PaletteCommandOutcome( false, "no entity is selected" );
                                   return Tools::FoliagePaintTool::FillEntity( *scene, *assets, *selected );
                               } } );
+        commands.push_back( { "Foliage", "Repartition foliage", [&scene]() -> Common::BoolResultStr
+                              {
+                                  if ( !scene )
+                                      return PaletteCommandOutcome( false, "no scene" );
+                                  if ( !scene->GetWorldPartition().has_value() )
+                                      return PaletteCommandOutcome(
+                                           false, "the world is not partitioned: there are no cells to file by" );
+                                  return Tools::FoliagePaintTool::RepartitionFoliage( *scene );
+                              } } );
         commands.push_back( { "Foliage", "Select no instances", [&scene]() -> Common::BoolResultStr
                               {
                                   if ( !scene )

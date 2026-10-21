@@ -643,6 +643,12 @@ namespace Desert::Editor::Tools
             ImGui::SameLine();
             if ( ImGui::Button( ICON_MDI_CONTENT_SAVE_ALL " Save Preset", ImVec2( -1, 0 ) ) && manager )
                 Report( SavePreset( scene, *manager, Core::FoliagePaint::PresetName() ) );
+            // WP22-REST: every field of every type filed again by the cell of its own grid (one undo step) -
+            // after a grid's CellSize changed, the fields still carry the old cut. Only a partitioned world has
+            // cells to file by.
+            if ( scene.GetWorldPartition().has_value() &&
+                 ImGui::Button( ICON_MDI_GRID " Repartition foliage", ImVec2( -1, 0 ) ) )
+                Report( RepartitionFoliage( scene ) );
         }
 
         // ----- Details of the type being edited (UE: the palette's details panel) ---------------------------
