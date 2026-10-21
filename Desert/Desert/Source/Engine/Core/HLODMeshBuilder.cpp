@@ -6,6 +6,7 @@
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
 #include <Engine/Geometry/MeshAssetArrays.hpp>
 #include <Engine/Geometry/MeshSimplifyOperation.hpp>
+#include <Engine/Geometry/MikkTangents.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
@@ -14,8 +15,6 @@
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/AssetHandle.hpp>
-
-#include <glm/gtc/matrix_inverse.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -102,14 +101,14 @@ namespace Desert::Core
                 // Submesh-local indices made global, and the submesh's own transform baked, as the draw applies
                 // it.
                 const auto      base         = static_cast<uint32_t>( source.Vertices.size() );
-                const glm::mat3 normalMatrix = glm::inverseTranspose( glm::mat3( submesh.Transform ) );
+                const Geometry::SurfaceFrameTransform frame( glm::mat3( submesh.Transform ) );
                 for ( uint32_t v = 0; v < submesh.VertexCount; ++v )
                 {
                     Desert::Vertex vertex = mesh.Vertices.at( submesh.VertexOffset + v );
                     vertex.Position       = glm::vec3( submesh.Transform * glm::vec4( vertex.Position, 1.0f ) );
-                    vertex.Normal         = glm::normalize( normalMatrix * vertex.Normal );
-                    vertex.Tangent        = glm::normalize( glm::mat3( submesh.Transform ) * vertex.Tangent );
-                    vertex.Bitangent      = glm::normalize( glm::mat3( submesh.Transform ) * vertex.Bitangent );
+                    vertex.Normal         = frame.Normal( vertex.Normal );
+                    vertex.Tangent        = frame.UnitDirection( vertex.Tangent );
+                    vertex.Bitangent      = frame.UnitDirection( vertex.Bitangent );
                     source.Vertices.push_back( vertex );
                 }
                 std::vector<Desert::Index>& section = source.Sections.emplace_back();
@@ -169,7 +168,7 @@ namespace Desert::Core
                     glm::mat4 world;
                     std::memcpy( &world[0][0], flat.data(), sizeof( float ) * 16 );
                     const glm::mat3 linear       = glm::mat3( world );
-                    const glm::mat3 normalMatrix = glm::inverseTranspose( linear );
+                    const Geometry::SurfaceFrameTransform frame( linear );
                     // A mirroring instance flips the winding; swap two corners so the face keeps facing out.
                     const bool                   mirrored = glm::determinant( linear ) < 0.0f;
                     std::vector<Desert::Vertex>& vertices = sectionVertices[slot];
@@ -185,9 +184,9 @@ namespace Desert::Core
                             {
                                 Desert::Vertex vertex = mesh.Vertices.at( corner );
                                 vertex.Position       = glm::vec3( world * glm::vec4( vertex.Position, 1.0f ) );
-                                vertex.Normal         = glm::normalize( normalMatrix * vertex.Normal );
-                                vertex.Tangent        = glm::normalize( linear * vertex.Tangent );
-                                vertex.Bitangent      = glm::normalize( linear * vertex.Bitangent );
+                                vertex.Normal         = frame.Normal( vertex.Normal );
+                                vertex.Tangent        = frame.UnitDirection( vertex.Tangent );
+                                vertex.Bitangent      = frame.UnitDirection( vertex.Bitangent );
                                 vertices.push_back( vertex );
                             }
                             corner = where->second;
@@ -429,9 +428,8 @@ namespace Desert::Core
             vertex.Position =
                  glm::vec3( frame.OriginX + ( static_cast<float>( x ) * frame.SpacingCm ), heightAt( x, z ),
                             frame.OriginZ + ( static_cast<float>( z ) * frame.SpacingCm ) );
+            // The heightfield's normal; the tangent frame is MikkTSpace's, built once the triangles exist.
             vertex.Normal    = glm::normalize( glm::vec3( -dX, 1.0f, -dZ ) );
-            vertex.Tangent   = glm::normalize( glm::vec3( 1.0f, dX, 0.0f ) );
-            vertex.Bitangent = glm::normalize( glm::cross( vertex.Normal, vertex.Tangent ) );
             vertex.TexCoord  = glm::vec2( static_cast<float>( x ) / static_cast<float>( samplesX - 1 ),
                                           static_cast<float>( z ) / static_cast<float>( samplesZ - 1 ) );
             slot             = static_cast<std::int64_t>( render.Vertices.size() );
@@ -486,6 +484,8 @@ namespace Desert::Core
             }
         if ( render.Indices.empty() )
             return Common::MakeError<Result>( "the tile is all hole; it draws nothing and needs no HLOD" );
+        if ( !Geometry::ApplyMikkTangents( render.Vertices, 0, std::span<Desert::Index>( render.Indices ) ) )
+            return Common::MakeError<Result>( "MikkTSpace could not allocate the tile mesh's tangent frames" );
         Desert::Submesh submesh{};
         submesh.Name        = "Landscape";
         submesh.VertexCount = static_cast<std::uint32_t>( render.Vertices.size() );

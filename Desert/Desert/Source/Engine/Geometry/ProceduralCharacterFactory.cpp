@@ -199,7 +199,7 @@ namespace Desert::Geometry
 
         // The tangent frame: the engine's one generator over the whole body (indices are body-wide).
         if ( !ApplyMikkTangents( verts, 0, std::span( indices ) ) )
-            return Common::MakeFormattedError<Result>( "MikkTSpace could not allocate the humanoid's tangent frames" );
+            return Common::MakeError<Result>( "MikkTSpace could not allocate the humanoid's tangent frames" );
 
         // One submesh covering the whole body, bounded by its own vertices.
         Assets::Serialization::SubmeshData sub{};
