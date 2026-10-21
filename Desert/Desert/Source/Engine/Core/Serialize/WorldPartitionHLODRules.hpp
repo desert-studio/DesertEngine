@@ -335,7 +335,7 @@ namespace Desert::Core::Rules
 
     // Refused, by name: a layer without a name or named twice, a ParentLayer that names no layer or itself or
     // closes a loop, a SimplifyTrianglePercent missing on MeshSimplify, outside (0, 1], or stated on another
-    // type, and a DefaultHLODLayer that names no layer.
+    // type, and a grid whose HLODLayer names no layer.
     [[nodiscard]] inline Common::BoolResultStr ValidateHLODLayers( const WorldPartitionSerialized& partition )
     {
         const std::vector<HLODLayerSerialized>  none;
@@ -377,19 +377,28 @@ namespace Desert::Core::Rules
                 at = parent;
             }
         }
-        if ( partition.DefaultHLODLayer.has_value() &&
-             FindHLODLayer( partition, *partition.DefaultHLODLayer ) == nullptr )
-            return Common::MakeError<bool>( "DefaultHLODLayer '" + *partition.DefaultHLODLayer +
-                                            "' is no layer of this world's HLODLayers" );
+        for ( const WorldPartitionGridSerialized& grid : partition.Grids )
+            if ( grid.HLODLayer.has_value() && FindHLODLayer( partition, *grid.HLODLayer ) == nullptr )
+                return Common::MakeError<bool>( "grid '" + grid.Name + "' names HLODLayer '" + *grid.HLODLayer +
+                                                "', which is no layer of this world's HLODLayers" );
         return Common::MakeSuccess( true );
     }
 
-    // The layer a cell's HLOD is built with: the world's DefaultHLODLayer, null when it states none (cells then
-    // have no HLOD). Call after ValidateHLODLayers.
-    [[nodiscard]] inline const HLODLayerSerialized* CellHLODLayer( const WorldPartitionSerialized& partition )
+    // The layer a cell's HLOD is built with: its GRID's HLODLayer (UE FRuntimePartitionDesc::HLODSetups), null
+    // when the grid states none (that grid's cells then have no HLOD). Call after ValidateHLODLayers.
+    [[nodiscard]] inline const HLODLayerSerialized* GridHLODLayer( const WorldPartitionSerialized&     partition,
+                                                                   const WorldPartitionGridSerialized& grid )
     {
-        return partition.DefaultHLODLayer.has_value() ? FindHLODLayer( partition, *partition.DefaultHLODLayer )
-                                                      : nullptr;
+        return grid.HLODLayer.has_value() ? FindHLODLayer( partition, *grid.HLODLayer ) : nullptr;
+    }
+
+    // Whether any grid of the world states an HLOD layer, i.e. whether any cell has an HLOD to build or load.
+    [[nodiscard]] inline bool AnyGridHLODLayer( const WorldPartitionSerialized& partition )
+    {
+        for ( const WorldPartitionGridSerialized& grid : partition.Grids )
+            if ( GridHLODLayer( partition, grid ) != nullptr )
+                return true;
+        return false;
     }
 
     // WHAT A MESH LAYER HANDS THE GEOMETRY BUILDER: the instanced parts the Instancing pass already chose (so a

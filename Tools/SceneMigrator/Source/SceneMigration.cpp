@@ -4298,7 +4298,12 @@ namespace Desert::Migration
         if ( !scene.WorldPartition.has_value() || scene.WorldPartition->HLODLayers.has_value() ||
              scene.WorldPartition->DefaultHLODLayer.has_value() )
             return false;
-        Core::Rules::StateInstancingHLODLayer( *scene.WorldPartition );
+        // The v50 shape, frozen: the Instancing layer stated as the WORLD's default (v67 moves it onto the grids).
+        Core::HLODLayerSerialized layer;
+        layer.Name                           = std::string( Core::Rules::kInstancingHLODLayerName );
+        layer.Type                           = Core::HLODLayerType::Instancing;
+        scene.WorldPartition->HLODLayers     = std::vector<Core::HLODLayerSerialized>{ std::move( layer ) };
+        scene.WorldPartition->DefaultHLODLayer = std::string( Core::Rules::kInstancingHLODLayerName );
         return true;
     }
 
@@ -4316,6 +4321,22 @@ namespace Desert::Migration
             ++named;
         }
         return named;
+    }
+
+    std::size_t MigrateGridHLODLayerV67ToV68( SceneSerialized& scene )
+    {
+        if ( !scene.WorldPartition.has_value() || !scene.WorldPartition->DefaultHLODLayer.has_value() )
+            return 0;
+        std::size_t given = 0;
+        for ( Core::WorldPartitionGridSerialized& grid : scene.WorldPartition->Grids )
+        {
+            if ( grid.HLODLayer.has_value() )
+                continue;
+            grid.HLODLayer = *scene.WorldPartition->DefaultHLODLayer;
+            ++given;
+        }
+        scene.WorldPartition->DefaultHLODLayer = std::nullopt;
+        return given;
     }
 
     LandscapeHeightKeysReport MigrateLandscapeHeightKeysV66ToV67( std::vector<Assets::EntityData>& entities,
@@ -4568,6 +4589,11 @@ namespace Desert::Migration
                 report.Refused = RefusedWhole( scene.SceneName, report.LandscapeHeightKeys.Refused );
                 return report;
             }
+        }
+        if ( statedSceneVersion < kSceneVersionGridHLODLayer )
+        {
+            report.GridHLODLayerRaised = true;
+            report.GridsGivenHLODLayer = MigrateGridHLODLayerV67ToV68( scene );
         }
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently

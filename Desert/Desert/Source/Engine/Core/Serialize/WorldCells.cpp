@@ -414,7 +414,7 @@ namespace Desert::Core::WorldCells
                                               "' states no WorldPartition block, so it has no cells to cook" );
         if ( auto layers = Rules::ValidateHLODLayers( *scene.WorldPartition ); !layers )
             return Common::MakeError<Result>( "'" + scene.SceneName + "': " + layers.GetError() );
-        const HLODLayerSerialized* const hlodLayer = Rules::CellHLODLayer( *scene.WorldPartition );
+        const bool anyHLODLayer = Rules::AnyGridHLODLayer( *scene.WorldPartition );
 
         const auto&                                   records = scene.Entities;
         std::unordered_map<Common::UUID, std::size_t> byId;
@@ -445,9 +445,11 @@ namespace Desert::Core::WorldCells
                                   record, scene.SceneName, static_cast<std::uint64_t>( *records[record].id ) ) );
         const Rules::WorldPartitionPlan plan =
              Rules::PlanWorldPartition( descriptors, *scene.WorldPartition, BoundsFrom( registries ) );
-        // Values of the wrong type were read as the loader reads them (default kept); the cook goes on and
-        // names every one of them once, after the reference walk and the HLOD build below have added theirs.
-        Common::Json::Issues issues    = plan.Issues;
+        // What the planner refused is named by the one plan report Play and editor regions use too. Values of
+        // the wrong type the reference walk and the HLOD build below find are the cook's own, named once at the
+        // end.
+        Rules::ReportPlanIssues( plan, scene.SceneName );
+        Common::Json::Issues issues;
         const std::size_t unitCount = Rules::ResidencyUnitCount( plan );
 
         CookedWorld cooked;
@@ -553,16 +555,17 @@ namespace Desert::Core::WorldCells
                  { name, file.Bytes.size(), Common::Utils::Crc32c( file.Bytes.data(), file.Bytes.size() ) } );
             cooked.Files.push_back( std::move( file ) );
         }
-        // THE HLOD OF EVERY CELL, BY THE WORLD'S DEFAULT LAYER (WP10, WP-FAR-7), after the cells so a cell's file
-        // is written before the one that stands in for it and the index lists them in that order. No default
-        // layer: no cell has an HLOD.
-        // The saved HLODs, checked against this world: a missing or stale cell refuses the cook by name.
-        if ( hlodLayer != nullptr && hlods == nullptr )
+        // THE HLOD OF EVERY CELL, BY ITS GRID'S LAYER (WP10, WP-FAR-7, WP22c), after the cells so a cell's file
+        // is written before the one that stands in for it and the index lists them in that order. No grid states a
+        // layer: no cell has an HLOD; a cell of a grid that states none has a row without a file
+        // (BuildWorldHLODs). The saved HLODs, checked against this world: a missing or stale cell refuses the cook
+        // by name.
+        if ( anyHLODLayer && hlods == nullptr )
             return Common::MakeError<Result>(
                  "'" + scene.SceneName +
-                 "' has a default HLOD layer and no built HLODs; run Build > Build HLODs" );
+                 "' has a grid with an HLOD layer and no built HLODs; run Build > Build HLODs" );
         std::unordered_map<std::string, const BuiltHLODCell*> builtRows;
-        if ( hlodLayer != nullptr )
+        if ( anyHLODLayer )
         {
             for ( const BuiltHLODCell& row : hlods->Index.Cells )
                 builtRows.emplace( row.Unit, &row );
@@ -580,7 +583,7 @@ namespace Desert::Core::WorldCells
             }
         }
         std::set<std::uint64_t> hlodIds;
-        for ( std::size_t unit = plan.AlwaysLoaded.size(); hlodLayer != nullptr && unit < unitCount; ++unit )
+        for ( std::size_t unit = plan.AlwaysLoaded.size(); anyHLODLayer && unit < unitCount; ++unit )
         {
             const BuiltHLODCell& built = *builtRows.at( index.Units[unit].Name );
             if ( !built.File.has_value() && built.NotInstanced.empty() )
@@ -1083,10 +1086,9 @@ namespace Desert::Core::WorldCells
         const HLODPlan& hp = planned.GetValue();
         if ( auto layers = Rules::ValidateHLODLayers( *scene.WorldPartition ); !layers )
             return Common::MakeError<Result>( "'" + scene.SceneName + "': " + layers.GetError() );
-        const HLODLayerSerialized* const hlodLayer = Rules::CellHLODLayer( *scene.WorldPartition );
-        if ( hlodLayer == nullptr )
-            return Common::MakeError<Result>( "'" + scene.SceneName +
-                                              "' has no default HLOD layer, so its cells have no HLODs to build" );
+        if ( !Rules::AnyGridHLODLayer( *scene.WorldPartition ) )
+            return Common::MakeError<Result>(
+                 "'" + scene.SceneName + "' has no grid with an HLOD layer, so its cells have no HLODs to build" );
 
         const auto&                     records       = scene.Entities;
         Common::Json::Issues            issues        = hp.Plan.Issues;
@@ -1102,6 +1104,14 @@ namespace Desert::Core::WorldCells
             BuiltHLODCell             row;
             row.Unit      = hp.Names[unit];
             row.BuiltFrom = HLODBuildChecksum( records, hp.Members[unit], *scene.WorldPartition );
+            // The layer is the cell's GRID's (WP22c): a grid that states none gives its cells a row with no file.
+            const HLODLayerSerialized* const hlodLayer =
+                 Rules::GridHLODLayer( *scene.WorldPartition, scene.WorldPartition->Grids.at( cell.Grid ) );
+            if ( hlodLayer == nullptr )
+            {
+                out.Index.Cells.push_back( std::move( row ) );
+                continue;
+            }
             auto builtCell =
                  Rules::BuildCellHLOD( *hlodLayer, records, world, hp.Members[unit],
                                        Rules::HLODMinVisibleDistance( *scene.WorldPartition, hp.Plan, unit ),

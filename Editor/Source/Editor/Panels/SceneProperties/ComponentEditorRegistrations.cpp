@@ -8,6 +8,7 @@
 #include <Editor/Panels/UI/UIAnchorControls.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/ToastManager.hpp>
+#include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/SubjectOpenRequest.hpp>
 #include <Editor/Panels/PanelContext.hpp>
 #include <Editor/Panels/Clouds/CloudSkyCapture.hpp>
@@ -78,6 +79,7 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <limits>
 #include <optional>
 
@@ -142,9 +144,7 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ProjectileComponent, Data, "
 // UE's APlayerStart: where Play puts the pawn (::Desert::Core::ChoosePlayerStart); a tag and nothing else.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PlayerStartComponent, Data, "PlayerStartData", "Player Start" )
 // UE's World Partition Streaming Source: the world loads around this entity in Play
-// (::Desert::Core::WorldStreamer).
-DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::StreamingSourceComponent, Data, "StreamingSourceData",
-                                     "Streaming Source" )
+// (::Desert::Core::WorldStreamer). A custom entry for its Target Grids: see MakeStreamingSourceEntry below.
 // UE's Actor > World Partition > Runtime Grid: which grid of a partitioned world the entity streams on (WP22).
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RuntimeGridComponent, Data, "RuntimeGridData", "Runtime Grid" )
 // Two-Bone IK is the reflected one-liner and deliberately so: it is four values an artist types, and every
@@ -1810,6 +1810,94 @@ namespace Desert::Editor
         return e;
     }
 
+    // STREAMING SOURCE (UE FWorldPartitionStreamingSource): the reflected fields, then Target Grids as a pick of
+    // the names THIS world's grids carry (UE lists TargetGrids by name; a typed list would invite a name no grid
+    // has). Each toggle is one undo step. A name the world does not have (read from the file) is listed in red
+    // and removed by clicking it; the plan names it as an Issue (Entities[i].StreamingSource.TargetGrids).
+    static ComponentEditorEntry MakeStreamingSourceEntry()
+    {
+        using C        = ::Desert::ECS::StreamingSourceComponent;
+        auto e         = MakeReflectedComponentEntry<C>( "Streaming Source", "StreamingSourceData", &C::Data );
+        auto reflected = e.Draw;
+        e.Draw         = [reflected]( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene,
+                              const ComponentEditContext& ctx )
+        {
+            reflected( en, scene, ctx );
+            if ( ctx.FieldFilter )
+                return;
+
+            const std::vector<std::string>& targets = en.GetComponent<C>().Data.TargetGrids;
+            std::vector<std::string>        grids;
+            if ( scene && scene->GetWorldPartition().has_value() )
+                for ( const auto& grid : scene->GetWorldPartition()->Grids )
+                    grids.push_back( grid.Name );
+            const auto isGrid = [&grids]( const std::string& name )
+            { return std::find( grids.begin(), grids.end(), name ) != grids.end(); };
+
+            std::string preview;
+            for ( const std::string& name : targets )
+                preview += std::format( "{}{}{}", preview.empty() ? "" : ", ", name,
+                                        isGrid( name ) ? "" : " (no such grid)" );
+            if ( preview.empty() )
+                preview = "Every grid";
+
+            // The one way the list changes: a whole-entity snapshot around the edit, so Ctrl+Z restores it.
+            const auto edit = [&en]( const std::function<void( std::vector<std::string>& )>& change )
+            {
+                ::Desert::Editor::Commands::MutateEntityUndoable(
+                     en.GetComponent<::Desert::ECS::UUIDComponent>().UUID,
+                     [&] { change( en.GetComponent<C>().Data.TargetGrids ); } );
+            };
+
+            ImGui::TextUnformatted( "Target Grids" );
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( -1.0f );
+            if ( !ImGui::BeginCombo( "##TargetGrids", preview.c_str() ) )
+            {
+                ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
+                     "The World Partition grids this source streams; none picked = every grid." );
+                return;
+            }
+            if ( grids.empty() )
+                ImGui::TextDisabled( "This world is not partitioned: it has no grids." );
+            for ( const std::string& grid : grids )
+            {
+                const bool on = std::find( targets.begin(), targets.end(), grid ) != targets.end();
+                if ( ImGui::Selectable( grid.c_str(), on, ImGuiSelectableFlags_DontClosePopups ) )
+                {
+                    edit(
+                         [&grid, on]( std::vector<std::string>& list )
+                         {
+                             if ( on )
+                                 list.erase( std::remove( list.begin(), list.end(), grid ), list.end() );
+                             else
+                                 list.push_back( grid );
+                         } );
+                    break; // the list moved under `targets`; the combo is drawn again next frame
+                }
+            }
+            for ( const std::string& name : targets )
+            {
+                if ( isGrid( name ) )
+                    continue;
+                ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.95f, 0.35f, 0.30f, 1.0f ) );
+                const bool clicked =
+                     ImGui::Selectable( std::format( "{}  (no such grid - click to remove)", name ).c_str(), true,
+                                        ImGuiSelectableFlags_DontClosePopups );
+                ImGui::PopStyleColor();
+                if ( clicked )
+                {
+                    const std::string gone = name;
+                    edit( [&gone]( std::vector<std::string>& list )
+                          { list.erase( std::remove( list.begin(), list.end(), gone ), list.end() ); } );
+                    break;
+                }
+            }
+            ImGui::EndCombo();
+        };
+        return e;
+    }
+
     // PROCEDURAL FOLIAGE VOLUME (UE AProceduralFoliageVolume's Details: Resimulate, the spawner's FoliageTypes).
     // Resimulate rewrites this volume's own fields (FoliagePaintTool::ResimulateProcedural); the types are a
     // list of `.defoliage` rows, a `.defoliage` dropped on "Add" joins it.
@@ -2269,6 +2357,8 @@ namespace
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeFoliageEntry() );
     const int _desert_procedural_foliage_component_reg = ::Desert::Editor::ComponentWidgetRegistry::Get().Register(
          ::Desert::Editor::MakeProceduralFoliageEntry() );
+    const int _desert_streaming_source_component_reg =
+         ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeStreamingSourceEntry() );
     const int _desert_level_sequence_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeLevelSequenceEntry() );
 

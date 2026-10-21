@@ -92,6 +92,10 @@ namespace Desert::Editor
         /// scene not opened from its files). The undo history is reset on success, as UE resets its transactions
         /// when it unloads actors: an entry may name an entity that is gone.
         [[nodiscard]] Common::BoolResultStr LoadRegion( const RegionRequest& request );
+        // One combo per grid: the layer its cells' HLOD is built with (UE FRuntimePartitionDesc::HLODSetups);
+        // undoable.
+        void DrawRuntimeGrids();
+        void DrawGridHLODLayers();
         /// The panel's Load Region button: the rectangle selected on the map. Refused by name when nothing is
         /// selected; otherwise LoadRegion. The palette offers it beside Unload All / Load All.
         [[nodiscard]] Common::BoolResultStr LoadSelectedRegion();
@@ -137,6 +141,7 @@ namespace Desert::Editor
         std::optional<::Desert::Core::Rules::CellBounds> m_Selection;
         std::optional<glm::dvec2>                        m_DragFrom;
         std::string                                      m_RegionStatus;
+        std::string                                      m_GridEditStatus; ///< the last Runtime grids refusal
         // Whether the Edit plan is the world on disk (its descriptor index) rather than the scene in memory.
         bool m_PlanFromIndex = false;
         // Edit over the index: what the editor holds of each cell of m_EditPlan (empty otherwise).
@@ -148,6 +153,10 @@ namespace Desert::Editor
         glm::dvec2              m_MapSize{ 0.0 };       // the canvas size the view was last drawn at
         bool                    m_Follow       = true; // Play: keep the streaming source centred (UE's default)
         int                     m_Level        = -1;   // -1 shows every level
+        // The runtime grid the map, the header and the source circles show (index into the partition's Grids):
+        // UE's World Partition editor shows one runtime hash grid at a time; every grid is reachable by the
+        // picker beside the Level slider.
+        std::size_t             m_Grid         = 0;
         bool                    m_WasPlaying   = false;
     };
 } // namespace Desert::Editor

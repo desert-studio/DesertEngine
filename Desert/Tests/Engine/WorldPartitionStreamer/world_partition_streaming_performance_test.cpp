@@ -64,8 +64,9 @@ namespace
 TEST( WorldPartitionStreamingPerformance, AQueueThatFitsTheFrameNeitherSlowsNorBlocks )
 {
     const auto plan = TwoCells( 10, 50 );
-    const auto seen = Rules::AssessStreaming(
-         plan, Budget(), States( Rules::Residency::Activated, Rules::Residency::Loaded ), kStandingHere );
+    const auto seen =
+         Rules::AssessStreaming( plan, Desert::Core::WorldPartitionSerialized{}, Budget(),
+                                 States( Rules::Residency::Activated, Rules::Residency::Loaded ), kStandingHere );
     EXPECT_EQ( seen.Performance, Rules::StreamingPerformance::Good );
     EXPECT_FALSE( seen.Blocks() );
     EXPECT_EQ( seen.QueuedUnits, 1u );
@@ -79,8 +80,8 @@ TEST( WorldPartitionStreamingPerformance, FallingBehindWithACellUnderfootFliesOn
     const auto plan = TwoCells( 10, 400 );
     for ( const Rules::Residency farCell : { Rules::Residency::Loading, Rules::Residency::Loaded } )
     {
-        const auto seen = Rules::AssessStreaming( plan, Budget(), States( Rules::Residency::Activated, farCell ),
-                                                  kStandingHere );
+        const auto seen = Rules::AssessStreaming( plan, Desert::Core::WorldPartitionSerialized{}, Budget(),
+                                                  States( Rules::Residency::Activated, farCell ), kStandingHere );
         EXPECT_EQ( seen.Performance, Rules::StreamingPerformance::Slow );
         EXPECT_FALSE( seen.Blocks() );
         EXPECT_GT( seen.QueuedMs, Budget().ActivationBudgetMs );
@@ -95,19 +96,22 @@ TEST( WorldPartitionStreamingPerformance, NoResidentCellUnderfootBlocksUntilItAc
     for ( const Rules::Residency here :
           { Rules::Residency::Unloaded, Rules::Residency::Loading, Rules::Residency::Loaded } )
     {
-        const auto seen =
-             Rules::AssessStreaming( plan, Budget(), States( here, Rules::Residency::Loading ), kStandingHere );
+        const auto seen = Rules::AssessStreaming( plan, Desert::Core::WorldPartitionSerialized{}, Budget(),
+                                                  States( here, Rules::Residency::Loading ), kStandingHere );
         EXPECT_EQ( seen.Performance, Rules::StreamingPerformance::Critical );
         EXPECT_TRUE( seen.Blocks() );
         EXPECT_EQ( seen.UnderSource, kHere );
     }
-    const auto after = Rules::AssessStreaming(
-         plan, Budget(), States( Rules::Residency::Activated, Rules::Residency::Loading ), kStandingHere );
+    const auto after =
+         Rules::AssessStreaming( plan, Desert::Core::WorldPartitionSerialized{}, Budget(),
+                                 States( Rules::Residency::Activated, Rules::Residency::Loading ), kStandingHere );
     EXPECT_FALSE( after.Blocks() );
     EXPECT_EQ( after.Performance, Rules::StreamingPerformance::Slow );
 
     // Before the first step the state is unsized: nothing is resident, so a source inside a cell waits.
-    EXPECT_TRUE( Rules::AssessStreaming( plan, Budget(), Rules::ResidencyState{}, kStandingHere ).Blocks() );
+    EXPECT_TRUE( Rules::AssessStreaming( plan, Desert::Core::WorldPartitionSerialized{}, Budget(),
+                                         Rules::ResidencyState{}, kStandingHere )
+                      .Blocks() );
 }
 
 // The two stated exceptions: an empty stretch of the world has nothing to wait for, and a cell that FAILED is
@@ -116,12 +120,13 @@ TEST( WorldPartitionStreamingPerformance, NoCellAtAllOrAFailedCellDoesNotBlock )
 {
     const auto                                  plan = TwoCells( 10, 10 );
     const std::array<Rules::StreamingSource, 1> away{ Rules::StreamingSource{ { 5000.0f, 0.0f, 5000.0f } } };
-    EXPECT_FALSE( Rules::AssessStreaming( plan, Budget(),
+    EXPECT_FALSE( Rules::AssessStreaming( plan, Desert::Core::WorldPartitionSerialized{}, Budget(),
                                           States( Rules::Residency::Unloaded, Rules::Residency::Unloaded ), away )
                        .Blocks() );
 
-    const auto failed = Rules::AssessStreaming(
-         plan, Budget(), States( Rules::Residency::Failed, Rules::Residency::Activated ), kStandingHere );
+    const auto failed =
+         Rules::AssessStreaming( plan, Desert::Core::WorldPartitionSerialized{}, Budget(),
+                                 States( Rules::Residency::Failed, Rules::Residency::Activated ), kStandingHere );
     EXPECT_FALSE( failed.Blocks() );
     EXPECT_EQ( failed.FailedUnderSrc, 1u );
 }
@@ -131,8 +136,9 @@ TEST( WorldPartitionStreamingPerformance, ASourceOnAnEdgeStandsInTheCellToItsPos
 {
     const auto                                  plan = TwoCells( 10, 10 );
     const std::array<Rules::StreamingSource, 1> edge{ Rules::StreamingSource{ { 1000.0f, 0.0f, 10.0f } } };
-    const auto                                  seen = Rules::AssessStreaming(
-         plan, Budget(), States( Rules::Residency::Activated, Rules::Residency::Loading ), edge );
+    const auto                                  seen =
+         Rules::AssessStreaming( plan, Desert::Core::WorldPartitionSerialized{}, Budget(),
+                                 States( Rules::Residency::Activated, Rules::Residency::Loading ), edge );
     EXPECT_TRUE( seen.Blocks() );
     EXPECT_EQ( seen.UnderSource, kThere );
 }

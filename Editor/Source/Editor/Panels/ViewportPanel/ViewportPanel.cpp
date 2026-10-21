@@ -63,6 +63,7 @@
 // ImGuiContext::WindowsFocusOrder — the editor's one record of where the user has been. See
 // ActiveViewportRule.hpp for why the order is read rather than a focus flag stored.
 #include <imgui_internal.h>
+#include "Tools/ViewportPress.hpp"
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -1804,12 +1805,15 @@ namespace Desert::Editor
         }
 
         // Render scene
-        m_UIHelper->Image( m_Scene->GetFinalImage( ViewIndex() ),
-                           { m_ViewportData.Size.x, m_ViewportData.Size.y } );
-        Control::PointerInjection::PublishTarget( Control::Subject::Viewport,
-                                                  { ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y,
-                                                    ImGui::GetItemRectSize().x, ImGui::GetItemRectSize().y,
-                                                    ImGui::GetWindowViewport()->ID, ImGui::GetFrameCount() } );
+        const auto finalImage = m_Scene->GetFinalImage( ViewIndex() );
+        m_UIHelper->Image( finalImage, { m_ViewportData.Size.x, m_ViewportData.Size.y } );
+        // The image's own pixel size travels with the rect: shot-viewport writes this image, so a drag aimed
+        // in its pixels maps back through it, not through the display's framebuffer scale.
+        Control::PointerInjection::PublishTarget(
+             Control::Subject::Viewport,
+             { ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y, ImGui::GetItemRectSize().x,
+               ImGui::GetItemRectSize().y, ImGui::GetWindowViewport()->ID, ImGui::GetFrameCount(),
+               finalImage ? finalImage->GetWidth() : 0u, finalImage ? finalImage->GetHeight() : 0u } );
 
         // UI Preview vs Design. Preview: publish the viewport pointer/keyboard so the EditorUIPass drives the
         // canvas with real input (buttons interactive) and SKIP the authoring overlays/handles. Design: the
@@ -1975,8 +1979,8 @@ namespace Desert::Editor
         {
             m_FoliageTool.DrawPanel( *m_Scene, m_AssetManager, m_ViewportData.ViewportPos, m_UIHelper.get() );
             // A stroke starts on a press over the viewport and runs until release (one undo step); leaving the
-            // viewport mid-drag does not split it.
-            const bool pressing = ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !ImGui::IsAnyItemActive() &&
+            // viewport mid-drag does not split it (WidgetClaimsMouse: the window's own press is not a widget's).
+            const bool pressing = ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !Tools::WidgetClaimsMouse() &&
                                   ( m_ViewportData.IsHovered || m_FoliageTool.IsStroking() );
             if ( const auto camera = ViewCamera() )
             {
@@ -1993,6 +1997,16 @@ namespace Desert::Editor
                     ::Desert::Core::RaycastHit hover;
                     Core::FoliagePaint::HoverPoint() =
                          m_Scene->Raycast( ray, hover ) ? std::optional<glm::vec3>( hover.Point ) : std::nullopt;
+                }
+                if ( pressing )
+                {
+                    const auto target = Control::PointerInjection::FreshTarget( Control::Subject::Viewport,
+                                                                                ImGui::GetFrameCount() );
+                    LOG_DEBUG( "[Foliage] stroke tick: cursor ({:.1f}, {:.1f}) of viewport {:.0f}x{:.0f} points, "
+                               "image {}x{} px; ray origin ({:.1f}, {:.1f}, {:.1f}) dir ({:.3f}, {:.3f}, {:.3f})",
+                               mx, my, m_ViewportData.Size.x, m_ViewportData.Size.y,
+                               target ? target->ImageWidth : 0u, target ? target->ImageHeight : 0u, ray.Origin.x,
+                               ray.Origin.y, ray.Origin.z, ray.Direction.x, ray.Direction.y, ray.Direction.z );
                 }
                 m_FoliageTool.Update( *m_Scene, m_AssetManager, ray, pressing, ImGui::GetIO().KeyShift );
                 const glm::mat4 viewProjection = camera->GetProjectionMatrix() * camera->GetViewMatrix();

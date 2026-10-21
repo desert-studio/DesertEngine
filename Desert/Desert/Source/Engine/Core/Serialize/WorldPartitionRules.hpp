@@ -137,6 +137,7 @@
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <optional>
@@ -447,7 +448,8 @@ namespace Desert::Core::Rules
 
         // EVERY COMPONENT VALUE THE PLANNER READ AND FOUND OF THE WRONG TYPE, each with its full path
         // (`Entities[id=7].LandscapeTile.TileX`). The planner reads such a value as the loader does — the
-        // component's default is kept — and says so here instead of in silence; CookWorld logs the list.
+        // component's default is kept — and says so here instead of in silence; every place that plans a world
+        // to act on it (cook, Play, editor regions) names them through ReportPlanIssues.
         Common::Json::Issues Issues;
 
         // How many levels the grid has for THIS world: level LevelCount-1 is the first whose cell reaches
@@ -644,6 +646,7 @@ namespace Desert::Core::Rules
     // Author are both about it.
     inline constexpr std::string_view kAlwaysLoadedComponent = "AlwaysLoaded";
     inline constexpr std::string_view kRuntimeGridComponent  = "RuntimeGrid";
+    inline constexpr std::string_view kStreamingSourceComponent = "StreamingSource";
 
     // THE RECORD KINDS WHOSE CONTENTS ARE NOT A POINT AT THEIR OWN POSITION, by their names on disk. One
     // constant per name, so a suite can pin them: see "A COMPOSITE'S FOOTPRINT" at the top of this file.
@@ -1180,6 +1183,10 @@ namespace Desert::Core::Rules
         std::optional<DescriptorLandscapeRoot> LandscapeRoot;
         // The RuntimeGrid block's grid name (WP22); absent = the world's first grid.
         std::optional<std::string> RuntimeGrid;
+        // The StreamingSource block's Target Grids (UE FWorldPartitionStreamingSource::TargetGrids); empty = every
+        // grid. Read here so the plan names a grid the world does not have
+        // (Entities[i].StreamingSource.TargetGrids).
+        std::vector<std::string> TargetGrids;
 
         // Every value read here and found of the wrong type, with its path: the planner reports them as its own.
         Common::Json::Issues Issues;
@@ -1254,6 +1261,8 @@ namespace Desert::Core::Rules
             grid->ReadInto( "Grid", name, issues );
             out.RuntimeGrid = std::move( name );
         }
+        if ( const auto source = Detail::BlockOf( record, kStreamingSourceComponent, issues ); source.has_value() )
+            source->ReadInto( "TargetGrids", out.TargetGrids, issues );
 
         if ( const auto tile = Detail::BlockOf( record, kLandscapeTileComponent, issues ); tile.has_value() )
         {
@@ -1452,6 +1461,84 @@ namespace Desert::Core::Rules
         }
     } // namespace Detail
 
+    // THE ONE REPORT OF A PLAN'S ISSUES. Every caller that plans a world to act on it - the cook (WorldCells),
+    // Play (BeginWorldStreaming) and editor regions (EditorRegions) - names what the planner refused through
+    // this, so an Issue (an unknown StreamingSource.TargetGrids name, a RuntimeGrid.Grid the world lacks, ...)
+    // is never seen by one of them and dropped by another. Returns the logged text ("" when there is none).
+    inline std::string ReportPlanIssues( const WorldPartitionPlan& plan, std::string_view world )
+    {
+        return Common::Json::ReportIssues( plan.Issues, std::format( "the world partition plan of '{}'", world ) );
+    }
+
+    // THE GRID A RuntimeGrid NAME STREAMS ON (UE AActor::RuntimeGrid), the one rule the planner and every editor
+    // tool that files content by grid (the foliage brush, the procedural volume) read: absent = the world's
+    // first grid, UE's main grid; a name the world does not state = nullopt - never read as the first grid by a
+    // guess (the planner reports it as a MissingReference Issue with the record's path).
+    [[nodiscard]] inline std::optional<std::size_t> GridIndexOf( const WorldPartitionSerialized&   settings,
+                                                                 const std::optional<std::string>& wanted )
+    {
+        if ( settings.Grids.empty() )
+            return std::nullopt;
+        if ( !wanted.has_value() )
+            return std::size_t{ 0 };
+        const auto found =
+             std::find_if( settings.Grids.begin(), settings.Grids.end(),
+                           [&]( const WorldPartitionGridSerialized& grid ) { return grid.Name == *wanted; } );
+        if ( found == settings.Grids.end() )
+            return std::nullopt;
+        return static_cast<std::size_t>( found - settings.Grids.begin() );
+    }
+
+    // THE GRIDS A WORLD MAY STATE (WP22, UE FSpatialHashRuntimeGrid) - the one rule the planner (step 4a) and
+    // every editor edit of the block (EditWorldPartition: the panel's Runtime grids section, `desertctl set world
+    // WorldPartition...`) read, so the editor refuses exactly what the planner would. At least one grid; every
+    // grid named, once; a positive finite cell size; a positive finite loading range (a range of 0 is a grid
+    // that never streams anything in). `CellsUsable` is false when the CELLS cannot be made - no grid, a name
+    // missing or stated twice (which grid a record's name reaches would be a guess), a cell size that is not
+    // positive; a bad loading range is an Issue that leaves the cells as they are, because the partition does
+    // not read the range (WorldPartitionGridSerialized::LoadingRange).
+    struct RuntimeGridsCheck
+    {
+        Common::Json::Issues Issues;
+        bool                 CellsUsable = true;
+    };
+
+    [[nodiscard]] inline RuntimeGridsCheck CheckRuntimeGrids( const WorldPartitionSerialized& settings )
+    {
+        RuntimeGridsCheck check;
+        if ( settings.Grids.empty() )
+        {
+            check.Issues.push_back( { "WorldPartition.Grids", "at least one runtime grid", "none" } );
+            check.CellsUsable = false;
+        }
+        for ( std::size_t gridIndex = 0; gridIndex < settings.Grids.size(); ++gridIndex )
+        {
+            const WorldPartitionGridSerialized& grid  = settings.Grids[gridIndex];
+            const bool                          named = !grid.Name.empty();
+            const bool                          twice =
+                 named && std::any_of( settings.Grids.begin(),
+                                       settings.Grids.begin() + static_cast<std::ptrdiff_t>( gridIndex ),
+                                       [&]( const WorldPartitionGridSerialized& other )
+                                       { return other.Name == grid.Name; } );
+            if ( !( grid.CellSize > 0.0f ) || !std::isfinite( grid.CellSize ) )
+            {
+                check.Issues.push_back( { std::format( "WorldPartition.Grids[{}].CellSize", gridIndex ),
+                                          "a positive cell size", std::format( "{}", grid.CellSize ) } );
+                check.CellsUsable = false;
+            }
+            if ( !named || twice )
+            {
+                check.Issues.push_back( { std::format( "WorldPartition.Grids[{}].Name", gridIndex ),
+                                          "a name no other grid of the world states", grid.Name } );
+                check.CellsUsable = false;
+            }
+            if ( !( grid.LoadingRange > 0.0f ) || !std::isfinite( grid.LoadingRange ) )
+                check.Issues.push_back( { std::format( "WorldPartition.Grids[{}].LoadingRange", gridIndex ),
+                                          "a positive loading range", std::format( "{}", grid.LoadingRange ) } );
+        }
+        return check;
+    }
+
     // THE PLANNER, over descriptors (an index on disk, EntityDescriptorIndex.hpp, or DescribeEntities of a
     // scene in memory). Record `r` of the plan is descriptor `r`.
     [[nodiscard]] inline WorldPartitionPlan PlanWorldPartition( std::span<const EntityDescriptor> records,
@@ -1638,30 +1725,13 @@ namespace Desert::Core::Rules
             }
         }
 
-        // ── 4a. The grids (WP22, UE FSpatialHashRuntimeGrid): every one named, once, with a real cell ────
+        // ── 4a. The grids (WP22, UE FSpatialHashRuntimeGrid): Rules::CheckRuntimeGrids ──────────────────
         // A grid with no name, a name two grids state, or a cell size that is not positive makes the grids
         // unusable AS A WHOLE: which grid a record's name reaches would otherwise be a guess.
-        bool gridsUsable = !settings.Grids.empty();
-        for ( std::size_t gridIndex = 0; gridIndex < settings.Grids.size(); ++gridIndex )
-        {
-            const WorldPartitionGridSerialized& grid = settings.Grids[gridIndex];
-            if ( !( grid.CellSize > 0.0f ) || !std::isfinite( grid.CellSize ) )
-            {
-                plan.Issues.push_back( { std::format( "WorldPartition.Grids[{}].CellSize", gridIndex ),
-                                         "a positive cell size", std::format( "{}", grid.CellSize ) } );
-                gridsUsable = false;
-            }
-            const bool named = !grid.Name.empty();
-            const bool twice = named && std::any_of( settings.Grids.begin(), settings.Grids.begin() + gridIndex,
-                                                     [&]( const WorldPartitionGridSerialized& other )
-                                                     { return other.Name == grid.Name; } );
-            if ( !named || twice )
-            {
-                plan.Issues.push_back( { std::format( "WorldPartition.Grids[{}].Name", gridIndex ),
-                                         "a name no other grid of the world states", grid.Name } );
-                gridsUsable = false;
-            }
-        }
+        RuntimeGridsCheck gridCheck = CheckRuntimeGrids( settings );
+        plan.Issues.insert( plan.Issues.end(), std::make_move_iterator( gridCheck.Issues.begin() ),
+                            std::make_move_iterator( gridCheck.Issues.end() ) );
+        const bool gridsUsable = gridCheck.CellsUsable;
         plan.GridLevelCount.assign( settings.Grids.size(), 0 );
         if ( !gridsUsable )
         {
@@ -1682,19 +1752,28 @@ namespace Desert::Core::Rules
             const std::optional<std::string>& wanted = records[held.Anchor].RuntimeGrid;
             if ( !wanted.has_value() )
                 continue;
-            const auto found = std::find_if( settings.Grids.begin(), settings.Grids.end(),
-                                             [&]( const WorldPartitionGridSerialized& grid )
-                                             { return grid.Name == *wanted; } );
-            if ( found == settings.Grids.end() )
+            const std::optional<std::size_t> found = GridIndexOf( settings, wanted );
+            if ( !found.has_value() )
             {
                 plan.Issues.push_back( { std::format( "Entities[{}].{}.Grid", held.Anchor, kRuntimeGridComponent ),
-                                         "the name of one of the world's grids", *wanted } );
+                                         "grid", *wanted, Common::Json::IssueKind::MissingReference } );
                 if ( held.Reason == AlwaysLoadedReason::None )
                     held.Reason = AlwaysLoadedReason::NoGrid;
                 continue;
             }
-            held.Grid = static_cast<std::size_t>( found - settings.Grids.begin() );
+            held.Grid = *found;
         }
+
+        // A Streaming Source's Target Grids name the world does not state streams nothing (Rules::TargetsGrid):
+        // an Issue with the record's path, as a RuntimeGrid name is - never matched to a grid by a guess.
+        for ( std::size_t record = 0; record < records.size(); ++record )
+            for ( const std::string& name : records[record].TargetGrids )
+                if ( std::none_of( settings.Grids.begin(), settings.Grids.end(),
+                                   [&]( const WorldPartitionGridSerialized& grid )
+                                   { return grid.Name == name; } ) )
+                    plan.Issues.push_back(
+                         { std::format( "Entities[{}].{}.TargetGrids", record, kStreamingSourceComponent ), "grid",
+                           name, Common::Json::IssueKind::MissingReference } );
 
         // ── 4c. How many levels each grid has for this world ──────────────────────────────────────
         //

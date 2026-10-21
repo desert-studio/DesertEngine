@@ -135,8 +135,8 @@ namespace Desert::Editor::Tools
         // type beside an ISM. A partitioned world keeps a field per type per cell (FO-6); the row stands for all.
         static std::vector<ECS::Entity> PaletteFields( ::Desert::Core::Scene& scene );
 
-        // FO-6: the instances of every field of @p row's type, or, with @p around, only of the fields whose cell a
-        // disc of @p radius (cm) around it reaches.
+        // FO-6: the instances of every field of @p row's type on every grid (WP22-REST), or, with @p around, only
+        // of the fields whose cell a disc of @p radius (cm) around it reaches.
         static std::vector<glm::mat4> RowInstances( ::Desert::Core::Scene& scene, const Common::UUID& row,
                                                     const std::optional<glm::vec3>& around = std::nullopt,
                                                     float                           radius = 0.0f );

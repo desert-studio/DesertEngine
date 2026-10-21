@@ -230,7 +230,19 @@ namespace Desert::Editor::Tools
         for ( const auto& field : m_Touched )
             if ( field.Entity == entity )
                 return;
-        m_Touched.push_back( { entity, current, {}, selected, {} } );
+        m_Touched.push_back( { entity, current, {}, selected, {}, std::nullopt, std::nullopt } );
+    }
+
+    bool FoliageStroke::TouchPlace( const Common::UUID& entity, const FoliageFieldPlace& current )
+    {
+        for ( auto& field : m_Touched )
+            if ( field.Entity == entity )
+            {
+                if ( !field.PlaceBefore.has_value() )
+                    field.PlaceBefore = current;
+                return true;
+            }
+        return false;
     }
 
     std::vector<glm::vec3>& FoliageStroke::Readjusted( const Common::UUID& entity )
@@ -241,9 +253,10 @@ namespace Desert::Editor::Tools
         return m_Readjusted.emplace_back( entity, std::vector<glm::vec3>{} ).second;
     }
 
-    std::vector<FoliageStrokeField>
-    FoliageStroke::Finish( const std::function<const std::vector<glm::mat4>*( const Common::UUID& )>& current,
-                           const std::function<FoliageSelection( const Common::UUID& )>& selected ) const
+    std::vector<FoliageStrokeField> FoliageStroke::Finish(
+         const std::function<const std::vector<glm::mat4>*( const Common::UUID& )>&    current,
+         const std::function<FoliageSelection( const Common::UUID& )>&                 selected,
+         const std::function<std::optional<FoliageFieldPlace>( const Common::UUID& )>& place ) const
     {
         std::vector<FoliageStrokeField> changed;
         for ( const auto& field : m_Touched )
@@ -252,9 +265,14 @@ namespace Desert::Editor::Tools
             if ( !now )
                 continue;
             FoliageSelection nowSelected = selected ? selected( field.Entity ) : field.SelectedBefore;
-            if ( *now != field.Before || nowSelected != field.SelectedBefore )
-                changed.push_back(
-                     { field.Entity, field.Before, *now, field.SelectedBefore, std::move( nowSelected ) } );
+            std::optional<FoliageFieldPlace> nowPlace;
+            if ( field.PlaceBefore.has_value() && place )
+                nowPlace = place( field.Entity );
+            const bool moved = nowPlace.has_value() && *nowPlace != *field.PlaceBefore;
+            if ( *now != field.Before || nowSelected != field.SelectedBefore || moved )
+                changed.push_back( { field.Entity, field.Before, *now, field.SelectedBefore,
+                                     std::move( nowSelected ), moved ? field.PlaceBefore : std::nullopt,
+                                     moved ? nowPlace : std::nullopt } );
         }
         return changed;
     }

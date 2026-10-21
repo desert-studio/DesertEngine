@@ -3,6 +3,8 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <functional>
 #include <memory>
 #include <string>
@@ -127,6 +129,10 @@ namespace Desert::Editor
     // @p entity, adding the chosen one (undoable). SINGLE source of truth for the categorization — reused by
     // the Details "Add Component" popup AND the scene-outliner context menu, so the buckets live in one place.
     void DrawAddComponentMenu( ECS::Entity& entity, ImGuiTextFilter& filter );
+
+    // Details' Add Component, the one undoable path (the menu above and `desertctl add-component`): refused when
+    // the entry cannot be added or the entity already has it; otherwise one history entry (MutateEntityUndoable).
+    Common::BoolResultStr AddComponentUndoable( ECS::Entity& entity, const ComponentEditorEntry& entry );
 
     // The registrations below run from static initialisers in files nothing else references. They reach the
     // binary because every binary that links EditorCore links it WHOLE (DesertPlatform.LinkWholeArchive in

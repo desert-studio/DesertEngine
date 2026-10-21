@@ -72,6 +72,7 @@ namespace Desert::Editor::Control
         Input,
         SaveAs, ///< save the open scene under a NEW name, through File -> Save's one save path (UE "Save Current
                 ///< Level As")
+        AddComponent, ///< add a component to an entity through Details' Add Component (one undo step)
     };
 
     /**
@@ -126,6 +127,7 @@ namespace Desert::Editor::Control
          { "drag", Op::Drag, RequiresReady::Yes },
          { "input", Op::Input, RequiresReady::Yes },
          { "save-as", Op::SaveAs, RequiresReady::Yes },
+         { "add-component", Op::AddComponent, RequiresReady::Yes },
     };
 
     /// The table's answer for one operation. Yes for anything not in the table at all — an operation this
@@ -182,6 +184,8 @@ namespace Desert::Editor::Control
         Selection, ///< the selected entity's transform (Core/Selection/SelectionTransformProperties.hpp)
         Entity,    ///< one entity's reflected components, addressed by 'entity' (its UUID); values as 'text'
         World,     ///< the open scene's SceneSettings (World Settings); values as 'text'
+        Tool,      ///< the active editor mode's tool settings (Foliage: Core/Selection/FoliageToolProperties.hpp);
+                   ///< 'text'
     };
 
     struct SubjectSpec
@@ -193,6 +197,7 @@ namespace Desert::Editor::Control
     inline constexpr SubjectSpec kSubjects[] = {
          { "document", Subject::Document },   { "viewport", Subject::Viewport }, { "modeling", Subject::Modeling },
          { "selection", Subject::Selection }, { "entity", Subject::Entity },     { "world", Subject::World },
+         { "tool", Subject::Tool },
     };
 
     [[nodiscard]] inline std::string KnownSubjectList()
@@ -238,6 +243,9 @@ namespace Desert::Editor::Control
         /// than padded to four: a float given three numbers is a client that meant a different property,
         /// and the document refuses it instead of writing something that looks accepted.
         std::vector<float> Value;
+
+        /// Op::AddComponent — the component, by its Details name or its reflected type name.
+        std::string Component;
 
         /// Op::SaveAs — the scene's new name; the file is <scene dir>/<name with spaces as _>.desce.
         std::string SceneName;
@@ -544,7 +552,8 @@ namespace Desert::Editor::Control
                          "Ask 'properties' for the ones it offers right now." );
                 }
 
-                if ( request.Whose == Subject::Entity || request.Whose == Subject::World )
+                if ( request.Whose == Subject::Entity || request.Whose == Subject::World ||
+                     request.Whose == Subject::Tool )
                 {
                     // A reflected field takes TEXT, parsed by its own type; absent is refused, "" is a value.
                     if ( !fields.Find( "text" ) )
@@ -602,6 +611,15 @@ namespace Desert::Editor::Control
                          "'save-as' needs the scene's new 'name'. A Save As with no name would be File -> Save "
                          "under another word." );
                 }
+                break;
+            }
+            case Op::AddComponent:
+            {
+                request.Entity    = ReadString( fields, "entity" );
+                request.Component = ReadString( fields, "component" );
+                if ( request.Entity.empty() || request.Component.empty() )
+                    return Common::MakeError<Request>(
+                         "'add-component' needs 'entity' (the UUID) and 'component' (its Details or type name)." );
                 break;
             }
             case Op::ShotWindow:
