@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include <Editor/LevelEditor/SceneMeshBounds.hpp>
+#include <Editor/LevelEditor/ScenePrimitiveBounds.hpp>
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
@@ -37,7 +37,7 @@ namespace
 // A PRIMITIVE has neither a RuntimeMesh nor a handle; it is drawn from the shared primitive mesh, and the
 // frame must measure it from that mesh — leaving it out framed Clouds_Showcase's cubes as "no measurable
 // mesh". Two cubes: the box is the union of both, through each one's transform, and nothing is "missing".
-TEST( SceneMeshBounds, APrimitiveIsMeasuredFromThePrimitiveMesh )
+TEST( ScenePrimitiveBounds, APrimitiveIsMeasuredFromThePrimitiveMesh )
 {
     entt::registry registry;
     PlacePrimitive( registry, glm::vec3( 1000.0f, 0.0f, 0.0f ), glm::vec3( 2.0f ), Geometry::PrimitiveType::Cube );
@@ -49,7 +49,7 @@ TEST( SceneMeshBounds, APrimitiveIsMeasuredFromThePrimitiveMesh )
     const auto local = Geometry::LocalBounds( *cube );
     ASSERT_FALSE( Geometry::IsEmpty( local ) );
 
-    const SceneMeshBounds bounds = MeasureSceneMeshes( registry, &CpuPrimitiveSubmeshes );
+    const ScenePrimitiveBounds bounds = MeasureScenePrimitives( registry, &CpuPrimitiveSubmeshes );
     EXPECT_EQ( bounds.Meshes, 2 );
     EXPECT_EQ( bounds.Missing, 0 );
     EXPECT_FLOAT_EQ( bounds.Box.Max.x, 1000.0f + 2.0f * local.Max.x );
@@ -59,12 +59,12 @@ TEST( SceneMeshBounds, APrimitiveIsMeasuredFromThePrimitiveMesh )
 }
 
 // A primitive type the factory does not build is not drawn either: neither measured nor "missing".
-TEST( SceneMeshBounds, APrimitiveWithNoGeometryIsNeitherMeasuredNorMissing )
+TEST( ScenePrimitiveBounds, APrimitiveWithNoGeometryIsNeitherMeasuredNorMissing )
 {
     entt::registry registry;
     PlacePrimitive( registry, glm::vec3( 0.0f ), glm::vec3( 1.0f ), Geometry::PrimitiveType::Sphere );
 
-    const SceneMeshBounds bounds = MeasureSceneMeshes( registry, &CpuPrimitiveSubmeshes );
+    const ScenePrimitiveBounds bounds = MeasureScenePrimitives( registry, &CpuPrimitiveSubmeshes );
     EXPECT_EQ( bounds.Meshes, 0 );
     EXPECT_EQ( bounds.Missing, 0 );
     EXPECT_TRUE( Geometry::IsEmpty( bounds.Box ) );
