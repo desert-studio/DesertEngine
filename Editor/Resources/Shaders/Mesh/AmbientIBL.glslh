@@ -37,15 +37,35 @@ const vec3 SURFACE_AMBIENT_FLOOR = vec3(0.008, 0.009, 0.012);
 // the diffuse vanished there and the surface drew as its reflection alone - the pale fleck of every leaf seen
 // edge-on and the white rim of every pavement joint (FOLIAGE-LOOK-3). With 1 - E the two halves sum to at most
 // the environment (the split-sum's old 4 % white-furnace excess is gone).
-vec3 EvaluateAmbientIBL(vec3 irradiance, vec3 prefiltered, vec2 specularBRDF, vec3 F0, vec3 albedo, float metalness)
+// The two halves apart, for a model that occludes them differently (ComposeAmbient below).
+vec3 EvaluateAmbientIBLDiffuse(vec3 irradiance, vec2 specularBRDF, vec3 F0, vec3 albedo, float metalness)
 {
 	const vec3 E  = F0 * specularBRDF.x + specularBRDF.y;
 	const vec3 kd = vec3((1.0 - metalness) * (1.0 - dot(E, vec3(0.2126, 0.7152, 0.0722))));
+	return kd * albedo * irradiance;
+}
 
-	vec3 diffuseIBL  = kd * albedo * irradiance;
-	vec3 specularIBL = E * prefiltered;
+vec3 EvaluateAmbientIBLSpecular(vec3 prefiltered, vec2 specularBRDF, vec3 F0)
+{
+	return (F0 * specularBRDF.x + specularBRDF.y) * prefiltered;
+}
 
-	return diffuseIBL + specularIBL;
+vec3 EvaluateAmbientIBL(vec3 irradiance, vec3 prefiltered, vec2 specularBRDF, vec3 F0, vec3 albedo, float metalness)
+{
+	return EvaluateAmbientIBLDiffuse(irradiance, specularBRDF, F0, albedo, metalness) +
+	       EvaluateAmbientIBLSpecular(prefiltered, specularBRDF, F0);
+}
+
+// UE GetSpecularOcclusion (DeferredShadingCommon.ush; ReflectionEnvironmentPixelShader.usf calls it with
+// Pow2(GBuffer.Roughness) and AO = GBufferAO * the screen's AO): Lagarde & de Rousiers 2014, the share of the
+// specular lobe an ambient occlusion of @p ao leaves visible from @p NoV. A smooth lobe takes the AO as it is
+// (pow(.., 0) = 1); a rough one is occluded MORE than the AO where the view grazes - the lobe then leans into the
+// occluded hemisphere - and less where the view is head-on. Without it a leaf deep in a canopy, its AO low but its
+// grazing-view Fresnel near 1, mirrored the open sky as pale-blue flecks (FOLIAGE-SPEC-OCC).
+float DesertSpecularOcclusion(float NoV, float roughness, float ao)
+{
+	// GLSL leaves pow(0, 0) undefined (a fully occluded mirror seen edge-on); the floor keeps it pow's 1.
+	return clamp(pow(max(NoV + ao, 1e-6), roughness * roughness) - 1.0 + ao, 0.0, 1.0);
 }
 
 // The whole ambient contribution of a surface, assembled — and the reason this is a function rather
@@ -55,15 +75,18 @@ vec3 EvaluateAmbientIBL(vec3 irradiance, vec3 prefiltered, vec2 specularBRDF, ve
 // arrives as INCIDENT light from a bounce gather and still has to be reflected. Getting that backwards
 // is a whole-frame error that looks like a tuning problem.
 //
-//   ibl       — EvaluateAmbientIBL / AmbientIBL for this surface;
-//   albedo    — linear base colour;
-//   ao        — the occlusion factor, 1 = unoccluded. It attenuates the ENTIRE ambient, which is what
-//               makes it ambient occlusion and not a second albedo;
-//   indirect  — one-bounce incident light, vec3(0.0) where the path has no GI (the forward mesh
-//               shaders); the deferred composite passes its screen-space or RSM gather here.
-vec3 ComposeAmbient(vec3 ibl, vec3 albedo, float ao, vec3 indirect)
+//   diffuseIBL        — EvaluateAmbientIBLDiffuse for this surface;
+//   specularIBL       — EvaluateAmbientIBLSpecular for this surface;
+//   albedo            — linear base colour;
+//   ao                — the occlusion factor, 1 = unoccluded. It attenuates the ENTIRE diffuse ambient, which is
+//                       what makes it ambient occlusion and not a second albedo;
+//   specularOcclusion — the same occlusion as the specular lobe sees it: DesertSpecularOcclusion(N.V, roughness,
+//                       ao) (UE ReflectionEnvironment: SpecularOcclusion multiplies the reflection, AO the diffuse);
+//   indirect          — one-bounce incident light, vec3(0.0) where the path has no GI (the forward mesh
+//                       shaders); the deferred composite passes its screen-space or RSM gather here.
+vec3 ComposeAmbient(vec3 diffuseIBL, vec3 specularIBL, vec3 albedo, float ao, float specularOcclusion, vec3 indirect)
 {
-	return ibl * ao + albedo * ao * (SURFACE_AMBIENT_FLOOR + indirect);
+	return diffuseIBL * ao + specularIBL * specularOcclusion + albedo * ao * (SURFACE_AMBIENT_FLOOR + indirect);
 }
 
 // THE CHAIN OF REFLECTION SOURCES, for one specular lobe: a traced source (screen-space reflections today; the

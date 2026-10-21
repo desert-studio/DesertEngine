@@ -220,14 +220,15 @@ TEST( AmbientIBL, TheCompositionCarriesNoConstantTermOfItsOwn )
     // constant smuggled in outside the occlusion factor.
     for ( float ao = 0.0f; ao <= 1.0f; ao += 0.125f )
     {
-        const glm::vec3 nothing = ComposeAmbient( glm::vec3( 0.0f ), glm::vec3( 0.0f ), ao, glm::vec3( 0.0f ) );
+        const glm::vec3 nothing =
+             ComposeAmbient( glm::vec3( 0.0f ), glm::vec3( 0.0f ), glm::vec3( 0.0f ), ao, ao, glm::vec3( 0.0f ) );
 
         EXPECT_TRUE( glm::all( glm::epsilonEqual( nothing, glm::vec3( 0.0f ), 1e-6f ) ) ) << "ao " << ao;
     }
 
     // And with a real sky it is the sky that dominates, not the floor.
     const glm::vec3 ibl     = AmbientFor( glm::vec3( 1.2f ), glm::vec3( 1.2f ) );
-    const glm::vec3 ambient = ComposeAmbient( ibl, kAlbedo, 1.0f, glm::vec3( 0.0f ) );
+    const glm::vec3 ambient = ComposeAmbient( ibl, glm::vec3( 0.0f ), kAlbedo, 1.0f, 1.0f, glm::vec3( 0.0f ) );
     EXPECT_GT( ambient.r, kAlbedo.r * SURFACE_AMBIENT_FLOOR.r * 10.0f );
 }
 
@@ -294,14 +295,14 @@ TEST( AmbientIBL, OcclusionAttenuatesTheWholeAmbientAndNotOnlyTheFloor )
     const glm::vec3 ibl      = AmbientFor( glm::vec3( 1.0f ), glm::vec3( 1.0f ) );
     const glm::vec3 indirect = glm::vec3( 0.3f );
 
-    const glm::vec3 lit      = ComposeAmbient( ibl, kAlbedo, 1.0f, indirect );
-    const glm::vec3 occluded = ComposeAmbient( ibl, kAlbedo, 0.0f, indirect );
+    const glm::vec3 lit      = ComposeAmbient( ibl, glm::vec3( 0.0f ), kAlbedo, 1.0f, 1.0f, indirect );
+    const glm::vec3 occluded = ComposeAmbient( ibl, glm::vec3( 0.0f ), kAlbedo, 0.0f, 0.0f, indirect );
 
     EXPECT_TRUE( glm::all( glm::epsilonEqual( occluded, glm::vec3( 0.0f ), 1e-6f ) ) );
     EXPECT_GT( lit.r, 0.0f );
 
     // Linear in ao, so half occlusion is half the ambient — no hidden curve.
-    const glm::vec3 half = ComposeAmbient( ibl, kAlbedo, 0.5f, indirect );
+    const glm::vec3 half = ComposeAmbient( ibl, glm::vec3( 0.0f ), kAlbedo, 0.5f, 0.5f, indirect );
     EXPECT_NEAR( half.r, lit.r * 0.5f, 1e-6f );
 }
 
@@ -313,8 +314,8 @@ TEST( AmbientIBL, TheIndirectBounceArrivesAsIncidentLightAndIsReflectedByAlbedo 
     const glm::vec3 ibl      = glm::vec3( 0.0f ); // isolate the bounce
     const glm::vec3 indirect = glm::vec3( 0.4f );
 
-    const glm::vec3 dark  = ComposeAmbient( ibl, glm::vec3( 0.1f ), 1.0f, indirect );
-    const glm::vec3 light = ComposeAmbient( ibl, glm::vec3( 0.8f ), 1.0f, indirect );
+    const glm::vec3 dark  = ComposeAmbient( ibl, glm::vec3( 0.0f ), glm::vec3( 0.1f ), 1.0f, 1.0f, indirect );
+    const glm::vec3 light = ComposeAmbient( ibl, glm::vec3( 0.0f ), glm::vec3( 0.8f ), 1.0f, 1.0f, indirect );
 
     // Eight times the albedo, so eight times the bounce — plus the floor, which scales with albedo too.
     EXPECT_NEAR( light.r / dark.r, 8.0f, 1e-4f );
