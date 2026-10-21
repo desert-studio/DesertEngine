@@ -284,8 +284,8 @@ namespace Desert::Core
             streamer->m_RecordIds.emplace_back( id );
         streamer->m_Partition = partition;
         streamer->m_Index     = world.Index;
-        streamer->m_Loader    = std::make_unique<WorldCellLoader>( std::make_shared<RegionChunkCellSource>(
-             world.Index, world.Directory, world.RegionChunkOfFile ) );
+        streamer->m_Loader    = std::make_unique<WorldCellLoader>(
+             std::make_shared<RegionChunkCellSource>( world.Index, world.Directory, world.RegionChunkOfFile ) );
         {
             // Every HLOD file is read now, on this thread: HLODs stand in for the whole world from the first
             // frame (their own streaming, UE's HLOD grid, is not this round's).

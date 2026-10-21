@@ -369,9 +369,8 @@ namespace Desert::Editor
         m_Scene->SetWorldPartition( after );
         // The entry, not a dirty flag: the editor reads CommandHistory's revision to decide whether the
         // scene has unsaved changes, so pushing IS marking it dirty (EditorLayer.cpp, s_SavedRevision).
-        CommandHistory::Get().PushCommand(
-             std::make_unique<SetWorldPartitionCommand>( m_Scene, std::move( before ), after,
-                                                        "Convert to World Partition" ) );
+        CommandHistory::Get().PushCommand( std::make_unique<SetWorldPartitionCommand>(
+             m_Scene, std::move( before ), after, "Convert to World Partition" ) );
         // FO-6: the world's foliage filed by the new grid, one field per type per cell (UE converts a level's
         // InstancedFoliageActor into partitioned ones the same way). Its own undo step, after the conversion's.
         if ( auto filed = Tools::FoliagePaintTool::RepartitionFoliage( *m_Scene ); !filed )

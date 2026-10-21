@@ -45,7 +45,7 @@ namespace Desert::Editor
              Utils::ImGuiUtilities::SectionHeader( "World Partition", true ) )
         {
             ::Desert::Core::WorldPartitionSerialized partition = *m_Scene->GetWorldPartition();
-            float size = partition.ChunkRegionSize.value_or( 0.0f );
+            float                                    size      = partition.ChunkRegionSize.value_or( 0.0f );
             const bool changed = ImGui::DragFloat( "Chunk Region Size (cm)", &size, 100.0f, 0.0f, 1.0e9f, "%.0f",
                                                    ImGuiSliderFlags_AlwaysClamp );
             if ( ImGui::IsItemActivated() )
@@ -62,7 +62,8 @@ namespace Desert::Editor
             if ( ImGui::IsItemDeactivatedAfterEdit() && m_ChunkRegionBefore.has_value() )
             {
                 CommandHistory::Get().PushCommand( std::make_unique<SetWorldPartitionCommand>(
-                     m_Scene, std::move( m_ChunkRegionBefore ), m_Scene->GetWorldPartition(), "Chunk Region Size" ) );
+                     m_Scene, std::move( m_ChunkRegionBefore ), m_Scene->GetWorldPartition(),
+                     "Chunk Region Size" ) );
                 m_ChunkRegionBefore.reset();
             }
         }

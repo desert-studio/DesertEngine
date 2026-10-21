@@ -23,7 +23,8 @@ namespace Desert::Editor
     public:
         SetWorldPartitionCommand( std::weak_ptr<::Desert::Core::Scene>                    scene,
                                   std::optional<::Desert::Core::WorldPartitionSerialized> before,
-                                  std::optional<::Desert::Core::WorldPartitionSerialized> after, std::string label )
+                                  std::optional<::Desert::Core::WorldPartitionSerialized> after,
+                                  std::string                                             label )
              : m_Scene( std::move( scene ) ), m_Before( std::move( before ) ), m_After( std::move( after ) ),
                m_Label( std::move( label ) )
         {
