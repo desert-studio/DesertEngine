@@ -268,7 +268,8 @@ namespace Desert::Geometry
         // (UE ConstructConstrainedMeshSmoother: fairing) or d = L p (UE ConstructConstrainedMeshDeformer: the
         // input's Laplacian vectors are kept, so detail survives the move). L is taken from the input positions.
         // The weight enters SQUARED, as UE FConstrainedSolver::SetConstraintWeights ("the soft constrained system
-        // uses the square of the weight"). Normal equations ( L_m^T L_m + w^2 I ) x_m = w^2 t_m - L_m^T ( L_pin p_pin - d ).
+        // uses the square of the weight"). Normal equations ( L_m^T L_m + w^2 I ) x_m = w^2 t_m - L_m^T ( L_pin
+        // p_pin - d ).
         Common::BoolResultStr LaplacianFit( const DynamicMesh3& mesh, SmoothWeightType weightType,
                                             const std::vector<uint8_t>& movable, bool keepLaplacian, double w,
                                             const std::vector<glm::dvec3>& targets, std::vector<glm::dvec3>& p )
@@ -309,7 +310,8 @@ namespace Desert::Geometry
                 {
                     triplets.push_back( { ci, ci, weightSquared } );
                     for ( int c = 0; c < 3; ++c )
-                        rhs[static_cast<size_t>( c )][static_cast<size_t>( ci )] += weightSquared * targets[vid][c];
+                        rhs[static_cast<size_t>( c )][static_cast<size_t>( ci )] +=
+                             weightSquared * targets[vid][c];
                 }
             if ( !SolveInto( SparseMatrixD( count, count, std::move( triplets ) ), index, count, rhs, p ) )
                 return Common::MakeError<bool>( "the Laplacian system is not positive definite" );
