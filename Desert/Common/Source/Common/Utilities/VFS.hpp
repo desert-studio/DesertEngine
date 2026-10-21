@@ -25,6 +25,16 @@ namespace Common::Utils
     // Lookup: an incoming path (absolute or cwd-relative) is normalized and made relative to each
     // pak's MOUNT ROOT (the directory the .dpak sits in); that relative generic string is the
     // archive key — e.g. "/pkg/Assets/S.desce" with a pak at "/pkg/Content.dpak" -> "Assets/S.desce".
+    // WHERE IN THE STACK AN ARCHIVE SITS (WP23). Content (the base and its chunks) always sits BELOW every
+    // Patch, whenever it was mounted: a region chunk mounted on demand mid-game must not override the update
+    // that was mounted at start (UE: pak order, chunk paks under the _P patch paks). Within a tier a later
+    // mount overrides an earlier one, as before.
+    enum class MountTier : unsigned char
+    {
+        Content = 0,
+        Patch   = 1,
+    };
+
     class VFS
     {
     public:
@@ -39,7 +49,16 @@ namespace Common::Utils
         // The error text is the reader's own account of WHICH step failed with the actual numbers (see
         // PakReader::OpenError), because the caller has to put it in front of a player who has no
         // sources: "missing or corrupt" is not something anyone can act on.
-        NO_DISCARD static Common::BoolResultStr MountPak( const std::filesystem::path& pakFile );
+        NO_DISCARD static Common::BoolResultStr MountPak( const std::filesystem::path& pakFile,
+                                                          MountTier                    tier = MountTier::Content );
+
+        // ON-DEMAND ARCHIVES (WP23): a region chunk is KNOWN at start and mounted only when a cell of its
+        // region is about to load (UE: chunk containers mounted when a streaming level needs them). DeferPak
+        // records it; MountDeferred mounts it at the Content tier, once, whichever thread asks first.
+        // MountDeferred of a path never deferred and not mounted is a refusal naming it. A patch whose
+        // deletions name content of a deferred archive is not refused as orphaned.
+        static void                             DeferPak( const std::filesystem::path& pakFile );
+        NO_DISCARD static Common::BoolResultStr MountDeferred( const std::filesystem::path& pakFile );
         static bool                             IsMounted();
         static void                             Unmount();
 

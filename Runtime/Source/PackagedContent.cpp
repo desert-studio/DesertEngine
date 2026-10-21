@@ -180,7 +180,7 @@ namespace Desert::Player
 
         for ( const auto& patch : patches )
         {
-            if ( const auto mounted = Common::Utils::VFS::MountPak( patch ); !mounted )
+            if ( const auto mounted = Common::Utils::VFS::MountPak( patch, Common::Utils::MountTier::Patch ); !mounted )
             {
                 Common::Utils::VFS::Unmount();
                 result.BasePak.clear();
