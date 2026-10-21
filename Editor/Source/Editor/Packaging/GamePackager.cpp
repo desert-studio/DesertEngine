@@ -219,12 +219,14 @@ namespace Desert::Editor
                     continue;
                 // The same mesh and landscape HLOD builders editor Play uses (WP-FAR-7, WP-FAR-6).
                 const auto registries = std::span( &Assets::ContentRegistry::Get(), 1 );
-                const auto builders   = ::Desert::Core::MakeHLODBuilders( registries );
-                auto       cooked     = ::Desert::Core::WorldCells::CookWorld( scene.GetValue().Scene, registries,
-                                                                               builders.Mesh, builders.Landscape );
+                // The HLODs Build HLODs saved beside the scene (WP-FAR-6B D1): packed, never built here.
+                auto hlods  = ::Desert::Core::WorldCells::ReadBuiltHLODs( path );
+                auto cooked = ::Desert::Core::WorldCells::CookWorld( scene.GetValue().Scene, registries,
+                                                                     hlods ? &hlods.GetValue() : nullptr );
                 if ( !cooked )
                 {
-                    error = "cooking the world '" + key + "': " + cooked.GetError();
+                    error = "cooking the world '" + key + "': " + cooked.GetError() +
+                            ( hlods ? "" : " (" + hlods.GetError() + ")" );
                     return false;
                 }
                 const std::string directory = ::Desert::Core::WorldCells::CookedWorldDirectory( key );

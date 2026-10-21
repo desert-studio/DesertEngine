@@ -169,12 +169,16 @@ namespace Desert::WorldCook
         const auto planned = Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
         // The same mesh and landscape HLOD builders editor Play and the packager use (WP-FAR-6/7): a cooked
         // world's stand-ins do not depend on which cook built them.
-        const Core::HLODBuilders builders = Core::MakeHLODBuilders( registries );
-        auto cooked = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries, builders.Mesh,
-                                                   builders.Landscape );
+        // The HLODs are the ones Build HLODs saved beside the scene (WP-FAR-6B D1): packed here, never built.
+        auto hlods = Core::WorldCells::ReadBuiltHLODs( options.Source );
+        if ( hlods )
+            out << "WorldCook: built HLODs " << Core::WorldCells::BuiltHLODDirectory( options.Source ).string()
+                << ": " << hlods.GetValue().Index.Cells.size() << " cell row(s)\n";
+        auto cooked = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries,
+                                                   hlods ? &hlods.GetValue() : nullptr );
         if ( !cooked )
         {
-            err << "WorldCook: " << cooked.GetError() << "\n";
+            err << "WorldCook: " << cooked.GetError() << ( hlods ? "" : " (" + hlods.GetError() + ")" ) << "\n";
             return 4;
         }
         const double cookMs = MsSince( cookStart );

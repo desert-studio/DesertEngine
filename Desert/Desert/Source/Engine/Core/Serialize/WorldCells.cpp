@@ -397,18 +397,16 @@ namespace Desert::Core::WorldCells
 
     Common::ResultStr<CookedWorld> CookWorld( const SceneSerialized&                        scene,
                                               std::span<const Common::Utils::AssetRegistry> registries,
-                                              const Rules::HLODMeshBuilder&                 meshBuilder,
-                                              const Rules::LandscapeHLODBuilder&            landscape )
+                                              const StoredHLODs*                            hlods )
     {
         const std::vector<Rules::EntityDescriptor> descriptors = Rules::DescribeEntities( scene.Entities );
-        return CookWorld( scene, descriptors, registries, meshBuilder, landscape );
+        return CookWorld( scene, descriptors, registries, hlods );
     }
 
     Common::ResultStr<CookedWorld> CookWorld( const SceneSerialized&                        scene,
                                               std::span<const Rules::EntityDescriptor>      descriptors,
                                               std::span<const Common::Utils::AssetRegistry> registries,
-                                              const Rules::HLODMeshBuilder&                 meshBuilder,
-                                              const Rules::LandscapeHLODBuilder&            landscape )
+                                              const StoredHLODs*                            hlods )
     {
         using Result = CookedWorld;
         if ( !scene.WorldPartition.has_value() )
@@ -557,55 +555,64 @@ namespace Desert::Core::WorldCells
         // THE HLOD OF EVERY CELL, BY THE WORLD'S DEFAULT LAYER (WP10, WP-FAR-7), after the cells so a cell's file
         // is written before the one that stands in for it and the index lists them in that order. No default
         // layer: no cell has an HLOD.
-        const std::vector<glm::mat4>    world        = Rules::Detail::ComposeWorld( records, byId );
-        const Rules::CustomShaderSource customShader = CustomShaderFrom( registries );
-        const Rules::FoliageHLODSource  foliageInHLOD = FoliageInHLODFrom( registries );
-        std::set<std::uint64_t>         hlodIds;
+        // The saved HLODs, checked against this world: a missing or stale cell refuses the cook by name.
+        if ( hlodLayer != nullptr && hlods == nullptr )
+            return Common::MakeError<Result>(
+                 "'" + scene.SceneName +
+                 "' has a default HLOD layer and no built HLODs; run Build > Build HLODs" );
+        std::unordered_map<std::string, const BuiltHLODCell*> builtRows;
+        if ( hlodLayer != nullptr )
+        {
+            for ( const BuiltHLODCell& row : hlods->Index.Cells )
+                builtRows.emplace( row.Unit, &row );
+            auto stale = StaleHLODCells( hlods->Index, scene, descriptors, registries );
+            if ( !stale )
+                return Common::MakeError<Result>( stale.GetError() );
+            if ( !stale.GetValue().empty() )
+            {
+                std::string names;
+                for ( const std::string& unit : stale.GetValue() )
+                    names += ( names.empty() ? "" : ", " ) + unit;
+                return Common::MakeError<Result>( std::format(
+                     "'{}': the saved HLOD of {} cell(s) is missing or stale ({}); run Build > Build HLODs",
+                     scene.SceneName, stale.GetValue().size(), names ) );
+            }
+        }
+        std::set<std::uint64_t> hlodIds;
         for ( std::size_t unit = plan.AlwaysLoaded.size(); hlodLayer != nullptr && unit < unitCount; ++unit )
         {
-            auto builtCell =
-                 Rules::BuildCellHLOD( *hlodLayer, records, world, members[unit],
-                                       Rules::HLODMinVisibleDistance( *scene.WorldPartition, plan, unit ),
-                                       customShader, issues, foliageInHLOD, meshBuilder, landscape );
-            if ( !builtCell )
-                return Common::MakeError<Result>( "'" + scene.SceneName + "', " + index.Units[unit].Name + ": " +
-                                                  builtCell.GetError() );
-            const Rules::InstancingHLOD built = builtCell.ExtractValue();
-            if ( built.Batches.empty() && built.NotInstanced.empty() )
+            const BuiltHLODCell& built = *builtRows.at( index.Units[unit].Name );
+            if ( !built.File.has_value() && built.NotInstanced.empty() )
                 continue;
             IndexHLOD row;
             row.Unit      = static_cast<std::uint32_t>( unit );
             row.Instances = built.Instances;
-            for ( const Rules::HLODNotInstanced& missing : built.NotInstanced )
-                row.NotInstanced.push_back(
-                     { static_cast<std::uint64_t>( *records[missing.Record].id ), missing.Reason } );
-            if ( !built.Batches.empty() )
+            row.NotInstanced = built.NotInstanced;
+            if ( built.File.has_value() )
             {
                 const std::string name = HLODFileName( index.Units[unit].File );
                 CellPayload       payload;
                 payload.World = scene.SceneName;
                 payload.Units.push_back( "HLOD " + index.Units[unit].Name );
-                std::set<std::uint64_t> sources;
-                std::set<std::string>   keys;
-                for ( std::size_t batch = 0; batch < built.Batches.size(); ++batch )
+                auto stored = StoredCellRecords( *hlods, built );
+                if ( !stored )
+                    return Common::MakeError<Result>( "'" + scene.SceneName + "', " + index.Units[unit].Name +
+                                                      ": " + stored.GetError() );
+                std::vector<Assets::EntityData> hlodRecords = stored.ExtractValue();
+                std::set<std::string>           keys;
+                for ( Assets::EntityData& hlodRecord : hlodRecords )
                 {
-                    const Common::UUID id = Rules::HLODRecordId( scene.SceneName, name, batch );
+                    const Common::UUID id = *hlodRecord.id; // StoredCellRecords checked it against the row
                     if ( id.IsNull() || byId.contains( id ) ||
                          !hlodIds.insert( static_cast<std::uint64_t>( id ) ).second )
-                        return Common::MakeError<Result>( "the HLOD id " +
-                                                          std::to_string( static_cast<std::uint64_t>( id ) ) +
-                                                          " of batch " + std::to_string( batch ) + " in '" + name +
-                                                          "' is null or already taken; rename the world" );
-                    Assets::EntityData hlodRecord = Rules::HLODRecord( built.Batches[batch], id, batch );
+                        return Common::MakeError<Result>(
+                             std::format( "the HLOD id {} in '{}' is null or already taken; rename the world",
+                                          static_cast<std::uint64_t>( id ), name ) );
                     closure.Record( hlodRecord, keys );
                     row.Ids.push_back( static_cast<std::uint64_t>( id ) );
                     payload.Records.push_back( std::move( hlodRecord ) );
-                    for ( const std::size_t source : built.Batches[batch].Sources )
-                        sources.insert( static_cast<std::uint64_t>( *records[source].id ) );
                 }
-                for ( const std::size_t member : members[unit] )
-                    if ( sources.contains( static_cast<std::uint64_t>( *records[member].id ) ) )
-                        row.Sources.push_back( static_cast<std::uint64_t>( *records[member].id ) );
+                row.Sources = built.Sources;
                 closure.Expand( keys );
                 row.Assets.assign( keys.begin(), keys.end() );
                 auto wrapped =
