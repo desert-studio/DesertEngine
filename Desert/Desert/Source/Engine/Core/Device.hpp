@@ -12,23 +12,6 @@
 
 namespace Desert::Engine
 {
-    /// What a format is being asked about. Flags, because the interesting questions are combinations —
-    /// an accumulation target needs ColorAttachment|Blendable|Sampled, and a compute target needs Storage.
-    enum FormatUsage : uint32_t
-    {
-        FormatUsage_Sampled         = 0x1, ///< usable as a sampled texture
-        FormatUsage_ColorAttachment = 0x2, ///< usable as a colour attachment
-        FormatUsage_DepthAttachment = 0x4, ///< usable as a depth/stencil attachment
-        FormatUsage_Blendable       = 0x8, ///< supports colour blending when used as an attachment
-        FormatUsage_Storage         = 0x10, ///< usable as a storage image (compute writes)
-        FormatUsage_LinearFilter    = 0x20, ///< supports linear filtering when sampled
-    };
-
-    constexpr FormatUsage operator|( FormatUsage a, FormatUsage b )
-    {
-        return static_cast<FormatUsage>( static_cast<uint32_t>( a ) | static_cast<uint32_t>( b ) );
-    }
-
     enum class DeviceType
     {
         Unknown = 0,
@@ -82,12 +65,16 @@ namespace Desert::Engine
         uint32_t MaxTexture2DSize      = 0;
         uint32_t MaxTextureArrayLayers = 0;
         uint32_t MaxColorAttachments   = 0; ///< The deferred G-buffer needs 4 + depth; RSM mirrors it.
+        /// VkPhysicalDeviceLimits::maxComputeSharedMemorySize: the bytes of shared (Workgroup) memory one compute
+        /// workgroup may declare. Vulkan guarantees 16 KiB; desktop GPUs give 32-64 KiB, Apple 32 KiB. Reader:
+        /// VulkanShader::Reflect, which refuses a compute program above it by name (the driver does not have to).
+        uint32_t MaxComputeSharedMemorySize = 0;
         /// VK textureCompressionBC: the BC1..BC7 block-compressed formats, as a DEVICE FEATURE.
         ///
-        /// NOT the same question as `IsFormatSupported(BC7, Sampled)`. That one reads
-        /// vkGetPhysicalDeviceFormatProperties, which describes the PHYSICAL device and answers "could
-        /// this driver do it"; this one says the feature was asked for on the logical device we actually
-        /// created, which is what the spec requires before a BC image may exist. On MoltenVK the two
+        /// NOT the same question as BC7's sampled bit in vkGetPhysicalDeviceFormatProperties, which
+        /// describes the PHYSICAL device and answers "could this driver do it"; this one says the feature
+        /// was asked for on the logical device we actually created, which is what the spec requires
+        /// before a BC image may exist. On MoltenVK the two
         /// diverge silently in the dangerous direction -- a BC7 image creates, uploads and samples
         /// correctly on a device that never enabled the feature, and neither the driver nor validation
         /// layer 1.4.350.1 says a word (measured 2026-09-23). A driver that enforces it would refuse,
@@ -202,20 +189,6 @@ namespace Desert::Engine
          * @brief Returns the device's hardware capabilities.
          */
         [[nodiscard]] virtual const DeviceCapabilities& GetCapabilities() const = 0;
-
-        /**
-         * @brief Can this format be used for ALL of the requested purposes?
-         *
-         * The general form of the question the cached DeviceCapabilities flags answer for the few cases
-         * the renderer checks every frame. Prefer this over adding another Supports<Feature> bool: those
-         * grow one per feature, this one answers for any format the engine has.
-         *
-         * @param format Engine image format.
-         * @param usage  Bitwise-OR of FormatUsage — every requested bit must be supported.
-         */
-        // Fully qualified: inside Desert::Engine a bare "Core::" does not reach Desert::Core.
-        [[nodiscard]] virtual bool IsFormatSupported( ::Desert::Core::Formats::ImageFormat format,
-                                                     FormatUsage                          usage ) const = 0;
 
         /**
          * @brief Wait for all device operations to complete.

@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "adfc8e99d5dfcb9d8a1986b74148baf4",
         "Versions": {
-            "SCNE": 54,
+            "SCNE": 66,
             "UNIT": 1
         },
         "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "91bde2ac45c15dd230d961a447b6fba7", "b7de7b6da944bded0382e39126712944", "df51ca6ed9cb71779a9b5634db0863bc", "e04d99eaf3ddd30e0184e38e5c3bcc57"]
@@ -362,6 +362,12 @@
                 "TimeOfDay": 12.0,
                 "DayLengthSeconds": 600.0,
                 "Latitude": 45.0,
+                "Longitude": 0.0,
+                "TimeZone": 0.0,
+                "DaylightSavingTime": false,
+                "Year": 2026,
+                "Month": 3,
+                "Day": 20,
                 "NorthOffset": 0.0
             }
         },
@@ -427,14 +433,20 @@
             "PointLight": {
                 "Color": [1.0, 0.8500000238418579, 0.6000000238418579],
                 "Intensity": 8.0,
+                "IntensityUnits": 0,
                 "Radius": 1200.0,
                 "MinRadius": 0.0,
+                "SourceRadius": 0.0,
                 "Falloff": 1,
                 "ShowRadius": false,
                 "CastShadows": true,
                 "ShadowBias": 0.5,
                 "ShadowSlopeBias": 0.5,
-                "ShadowResolutionScale": 1.0
+                "ShadowResolutionScale": 1.0,
+                "ContactShadowLength": 0.0,
+                "ContactShadowLengthInWorldSpace": false,
+                "ContactShadowCastingIntensity": 1.0,
+                "ContactShadowNonCastingIntensity": 0.0
             }
         },
         {
@@ -450,16 +462,22 @@
                 "AtmosphereSunLight": true,
                 "AtmosphereSunLightIndex": 0,
                 "AffectedByAtmosphereTransmittance": true,
+                "AtmosphereSunDiskColorScale": [1.0, 1.0, 1.0],
                 "LightShaftBloom": false,
                 "BloomScale": 0.20000000298023224,
                 "BloomThreshold": 0.0,
                 "BloomMaxBrightness": 100.0,
                 "BloomTint": [1.0, 1.0, 1.0],
                 "CastShadows": true,
+                "SourceAngle": 0.5357000231742859,
                 "ShadowBias": 1.0,
                 "ShadowSlopeBias": 2.0,
                 "ShadowCascadeBiasDistribution": 1.0,
-                "CascadeSplitLambda": 0.6000000238418579
+                "CascadeSplitLambda": 0.6000000238418579,
+                "ContactShadowLength": 0.0,
+                "ContactShadowLengthInWorldSpace": false,
+                "ContactShadowCastingIntensity": 1.0,
+                "ContactShadowNonCastingIntensity": 0.0
             }
         },
         {
@@ -526,14 +544,13 @@
                     "ContactShadows": false,
                     "DistanceFieldShadows": false,
                     "Tonemapper": 0,
-                    "Exposure": 1.0,
-                    "Gamma": 2.200000047683716,
+                    "ManualExposureEV100": 0.5260688662528992,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
                     "AutoExposureKey": 0.18000000715255737,
                     "AutoExposureSpeed": 1.5,
-                    "AutoExposureMin": 0.019999999552965164,
-                    "AutoExposureMax": 8.0,
+                    "AutoExposureMinEV100": -2.6438562870025635,
+                    "AutoExposureMaxEV100": 6.0,
                     "EnableBloom": false,
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,
@@ -577,6 +594,7 @@
             "Path": ""
         },
         "RespawnDelay": 3.0,
+        "WorldParameters": "",
         "SplashSprite": {
             "Guid": "",
             "Path": ""

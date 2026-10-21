@@ -9,8 +9,17 @@ namespace Desert::Graphic
     class StorageBufferProperty : public MaterialProperty
     {
     public:
-        StorageBufferProperty( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer ) : m_Buffer( buffer )
+        StorageBufferProperty( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer )
+             : m_Buffer( buffer ), m_Binding( buffer ? buffer->GetBinding() : 0u )
         {
+        }
+
+        // The shader slot this property fills: the reflection-created buffer's binding, kept when SetBuffer
+        // replaces the buffer. An external buffer carries the binding of the program that made it (the grass
+        // generator's compute slot), which is not this shader's.
+        [[nodiscard]] uint32_t GetBinding() const noexcept
+        {
+            return m_Binding;
         }
 
         // The backend is asked EVERY time: whether this view's set needs a write is the set's own record
@@ -67,6 +76,7 @@ namespace Desert::Graphic
 
     private:
         std::shared_ptr<ShaderResources::StorageBuffer> m_Buffer;
+        uint32_t                                        m_Binding = 0;
         bool                                            m_Written = false;
     };
 } // namespace Desert::Graphic

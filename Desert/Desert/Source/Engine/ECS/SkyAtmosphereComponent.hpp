@@ -9,14 +9,15 @@
 
 namespace Desert::ECS
 {
-    // Size of the equirectangular panorama the sky is baked into for image-based lighting. The bake is a
-    // WaitDeviceIdle operation and its cost is paid PER LIVE SceneRenderer (viewport, mesh preview,
-    // thumbnail renderer, extra scene views), which is why the size is authored and not a constant.
+    // The face of the cube the sky light is captured into: the sky and its clouds are rendered straight into the
+    // faces at this size (UE: the sky light's Cubemap Resolution, 128 by default), and the prefiltered specular
+    // cube is the same face. Its cost is a recapture's -- the cloud march runs once per face texel -- paid once
+    // per scene, whatever its views.
     enum class SkyEnvironmentResolution : uint8_t
     {
-        Low,    // 512x256
-        Medium, // 1024x512 - what the engine baked at unconditionally before this was authorable
-        High    // 2048x1024
+        Low,    // 64 face
+        Medium, // 128 face - UE's default
+        High    // 256 face
     };
 
     // Which preset the palette last came from. An ENUM rather than a string on purpose: a string can hold
@@ -51,14 +52,16 @@ namespace Desert::ECS
     // sky pass, the IBL bake and the time-of-day driver read lives here; SkyboxComponent keeps only the HDR
     // path (its asset handle and intensity).
     //
-    // ON THE TWO PAIRS OF SUN NUMBERS. `SunColor` x `SunIntensity` here and `Color` x `Intensity` on
-    // DirectionalLightData are NOT the same quantity stored twice:
-    //   * these two are the RADIANCE of the sky and of the solar disk - how bright the sun looks IN THE
-    //     PICTURE. They are written into the sky's parameter block and into the IBL bake.
-    //   * the light's two are the ILLUMINANCE arriving at scene surfaces - how bright the sun is ON THE
-    //     GROUND. They are written into DirectionLightsUB and integrated by every lit surface.
-    // No code path reads one where it means the other, and neither is derived from the other. The one
-    // quantity they genuinely share is DIRECTION, and that has a single owner: the atmosphere sun light's
+    // ON THE SUN'S NUMBERS (v57, as UE). In SkyModel::PhysicalAtmosphere the sky has NO sun of its own: the
+    // Sky-View LUT, the aerial perspective, the distant sky light, the IBL bake and the disc all integrate
+    // the atmosphere sun LIGHT's outer-space illuminance — DirectionalLightData Color x Intensity, in lux —
+    // and the atmosphere contributes its transmittance (Graphic::SkySunInputs). The art controls are UE's:
+    // SkyLuminanceFactor / SkyAndAerialPerspectiveLuminanceFactor here, Atmosphere Sun Disk Color Scale on
+    // the light. `SunColor` x `SunIntensity` below are the ARTISTIC GRADIENT's palette values, unitless,
+    // and are not read by the physical model at all. Scenes before v57 had the physical sky read them; the
+    // migration folds their ratio to the light into those UE factors, so the picture is unchanged.
+    //
+    // The one quantity both models share with the light is DIRECTION, owned by the atmosphere sun light's
     // TransformComponent (see DirectionalLightData::AtmosphereSunLight).
     struct SkyAtmosphereData
     {
@@ -86,13 +89,13 @@ namespace Desert::ECS
         glm::vec3 NightColor = { 0.010f, 0.020f, 0.050f };
 
         PROPERTY( DisplayName( "Sun Intensity" ), Category( "Sun" ), Range( 1.0f, 50.0f ), Units( "x" ), Summary,
-                  Tooltip( "Brightness of the sky and the solar disk as seen by the camera. Scene surfaces "
-                           "are lit by the directional light's own Colour and Intensity, not by this." ) )
+                  Tooltip( "Artistic Gradient only: brightness of the gradient's sun disk and glow. The "
+                           "Physical Atmosphere sky takes its sun from the directional light (lux), as UE." ) )
         float SunIntensity = 22.0f;
 
         PROPERTY( DisplayName( "Sun Color" ), Category( "Sun" ), Color,
-                  Tooltip( "Tint of the sky and the solar disk as seen by the camera. Scene surfaces are lit "
-                           "by the directional light's own Colour and Intensity, not by this." ) )
+                  Tooltip( "Artistic Gradient only: tint of the gradient's sun disk and glow. The Physical "
+                           "Atmosphere sky takes its sun colour from the directional light, as UE." ) )
         glm::vec3 SunColor = { 1.00f, 0.96f, 0.88f };
 
         // DEGREES and a DIAMETER, unlike the radians-and-radius number this replaces: degrees is what an
@@ -122,8 +125,8 @@ namespace Desert::ECS
         float RebakeSunAngleThreshold = 5.0f;
 
         PROPERTY( DisplayName( "Environment Resolution" ), Category( "Environment Lighting" ), Advanced,
-                  Tooltip( "Size of the baked sky cubemap. High costs 32 MiB for the panorama alone, per "
-                           "live scene renderer." ) )
+                  Tooltip( "Face of the cube the sky light is captured into (64 / 128 / 256). The clouds are "
+                           "marched once per face texel, so High costs four times Medium on every recapture." ) )
         SkyEnvironmentResolution EnvironmentResolution = SkyEnvironmentResolution::Medium;
 
         PROPERTY( DisplayName( "Preset" ), Category( "Atmosphere" ), ReadOnly,

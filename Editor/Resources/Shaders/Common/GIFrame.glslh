@@ -1,0 +1,20 @@
+#ifndef GI_FRAME_GLSLH
+#define GI_FRAME_GLSLH
+
+// What a GI pass knows of the frame (the view, the sun, the sky look, the G-buffer extent): one record, uploaded
+// once per frame by the frame's owner (SceneRenderer), declared by every GI pass as `giFrame`. Neutral to the
+// tracer: what only one walk reads (the global distance field's clipmaps) is the tracer's own record
+// (Common/GITracer.glslh, GlobalIllumination::TracerFrame).
+// std430 — must match GlobalIllumination::GIFramePayload (GITracing.hpp). 224 bytes.
+struct GIFrame {
+    mat4 viewProjection;    // the jittered matrix the G-buffer was rasterised with
+    mat4 invViewProjection; // its inverse
+    vec4 camera;            // xyz = camera world position (cm)
+    vec4 sunTravel;         // xyz = direction the sunlight travels, w = 1 when the scene has a sun
+    vec4 sunRadiance;       // rgb = colour * intensity
+    vec4 skyYawCosSin;      // the sky look (Graphic::SkyLookGPU)
+    vec4 skyGain;
+    vec4 screen;            // xy = G-buffer extent in pixels, zw = 1 / that
+};
+
+#endif // GI_FRAME_GLSLH

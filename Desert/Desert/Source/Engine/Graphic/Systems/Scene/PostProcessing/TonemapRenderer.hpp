@@ -68,10 +68,11 @@ namespace Desert::Graphic::System
         void Resize( uint32_t width, uint32_t height );
 
         // Tonemap parameters, refreshed from SceneSettings each frame (SceneRenderer::BeginScene).
-        void SetParams( float exposure, float gamma )
+        // The display transfer is not a parameter: the composite encodes with the sRGB OETF
+        // (SceneComposite.shader).
+        void SetParams( float exposure )
         {
             m_Exposure = exposure;
-            m_Gamma    = gamma;
         }
 
         // The scene's tonemapping curve. ACES is the default and the one the sky programme measures
@@ -102,6 +103,11 @@ namespace Desert::Graphic::System
 
         // Auto-exposure (eye adaptation): the 1x1 adapted-luminance image + key, set per-frame. When
         // disabled, the manual Exposure is used instead.
+        // This frame's ViewFrame::PreExposure (> 0): the composite divides the scene colour by it.
+        void SetPreExposure( float preExposure )
+        {
+            m_PreExposure = preExposure;
+        }
         void SetAutoExposureImage( const std::shared_ptr<Image2D>& image )
         {
             m_AutoExposureImage = image;
@@ -137,7 +143,7 @@ namespace Desert::Graphic::System
 
         Core::TonemapOperator m_TonemapOperator = Core::TonemapOperator::ACES;
         float                 m_Exposure        = 1.0f;
-        float                 m_Gamma           = 2.2f;
+        float                 m_PreExposure     = 1.0f;
         float                 m_WhitePoint      = 8.0f;
 
         float                  m_BloomIntensity = 0.0f;

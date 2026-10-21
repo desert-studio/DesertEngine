@@ -6,10 +6,10 @@
 // or CreateProxyMesh (simplify) and gets one UStaticMesh; here the parts the Instancing pass chose
 // (Rules::HLODMeshRequest) are gathered into one render mesh in WORLD space, one section per distinct material,
 // welded into a DynamicMesh3, and for MeshSimplify collapsed by the editor's own QEM simplifier
-// (Geometry::QemSimplification::SimplifyToTriangleCount) - no second simplifier. Normals are recomputed from the
-// result. The answer is a StaticMesh block whose EditMesh is the built mesh and whose material slots are the
-// distinct materials, in first-seen order: what the HLOD record carries and ComponentRegistry loads like any
-// editor-built mesh.
+// (Geometry::SimplifyToTriangleCount in MeshSimplifyOperation, over the ported QemSimplification) - no second
+// simplifier. Normals are recomputed from the result. The answer is a StaticMesh block whose EditMesh is the built
+// mesh and whose material slots are the distinct materials, in first-seen order: what the HLOD record carries and
+// ComponentRegistry loads like any editor-built mesh.
 //
 // WHERE GEOMETRY COMES FROM: a Primitive from Geometry::MakePrimitive (the generators the scene's primitives are
 // drawn from), a mesh asset from its render form (Assets::LoadMeshPlatformData, the bytes StaticMeshAsset draws)
@@ -31,4 +31,17 @@ namespace Desert::Core
     [[nodiscard]] Common::ResultStr<Assets::StaticMeshComponentSer>
     BuildHLODMesh( const Rules::HLODMeshRequest&                 request,
                    std::span<const Common::Utils::AssetRegistry> registries );
+
+    // THE LANDSCAPE HLOD OF ONE TILE (WP-FAR-6, Rules::LandscapeHLODRequest): the tile's heights, read from its
+    // HeightFile (DLHT, resolved by Constants::Path::FullPath and read by ReadLandscapeTileFile, exactly as the
+    // LandscapeTile load does), laid out by its root's frame (LandscapeTileFrame over the root record's composed
+    // world position) - the same numbers the terrain shader samples, so the stand-in meets the near tiles on their
+    // shared edge rows. The stride keeps about TrianglePercent of the quads and always keeps the edge rows. A quad
+    // with a corner in the tile's visibility layer hole is left out, as the terrain discards it. Normals from
+    // central differences of the full-resolution samples. Refused by name: the tile's block or root does not
+    // read, the height file is missing or does not decode, the tile does not match its root's size.
+    [[nodiscard]] Common::ResultStr<Assets::StaticMeshComponentSer>
+    BuildLandscapeHLODMesh( const Rules::LandscapeHLODRequest& request );
+
+    [[nodiscard]] Rules::LandscapeHLODBuilder MakeLandscapeHLODBuilder();
 } // namespace Desert::Core

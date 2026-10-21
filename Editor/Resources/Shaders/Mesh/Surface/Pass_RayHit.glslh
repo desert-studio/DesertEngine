@@ -1,0 +1,76 @@
+// Surface cell pass: THE RAY TRACING HIT GROUP of a surface template (UE: the material's ray tracing hit shaders,
+// RayTracingMaterialHitShaders.usf MaterialCHS / MaterialAHS), the `RayTracing.Hit` cell (DShaderParser
+// kSurfaceRayHitPath). The SAME surface function the G-buffer and forward cells evaluate, fed from the triangle the
+// ray hit instead of a vertex stage: the vertices come through the hit group's shader record
+// (Common/RayTracingHitRecord.glslh, the segment's geometry record), the material row through the same record.
+//
+//   closest hit  the surface at the hit into the ray's payload (Common/RayTracingPayload.glslh): base colour,
+//                metallic, roughness, emissive and the world shading normal facing the ray. No lighting here: the
+//                ray generation lights the payload (UE's hit lighting does the same), so one hit group serves
+//                every ray tracing pass;
+//   any hit      Masked templates only (DESERT_SURFACE_RAY_ANY_HIT): the template's OpacityMask against its clip
+//                value, ignoreIntersectionEXT below it - the same test the masked cells' DESERT_SURFACE_CLIP makes.
+//
+// The hit's texture LOD is the ray cone's (Common/BindlessTextures.glslh g_DesertRayHitLod): the payload carries the cone at
+// the ray's origin, the hit widens it by the distance and divides by the triangle's world-per-UV footprint.
+
+#include <Common/RayTracingHitTriangle.glslh>
+
+// The surface input at the hit: world position along the ray, the world normal (inverse-transpose of the instance
+// transform), the tangent frame from the triangle's UV gradient (the record carries no tangent stream; a segment
+// without UVs gets an arbitrary frame around the normal), facing as the raster's two-sided rule.
+SurfaceInput DesertRayHitSurfaceInput( DesertRayHitTriangle t )
+{
+    const vec3 worldPosition = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
+    const vec3 N             = normalize( ( t.Normal * gl_WorldToObjectEXT ).xyz );
+    const mat3 objectToWorld = mat3( gl_ObjectToWorldEXT );
+    const vec3 e1            = objectToWorld * ( t.P1 - t.P0 );
+    const vec3 e2            = objectToWorld * ( t.P2 - t.P0 );
+    const vec2 d1            = t.UV1 - t.UV0;
+    const vec2 d2            = t.UV2 - t.UV0;
+    const float det          = d1.x * d2.y - d2.x * d1.y;
+    vec3        T            = abs( det ) > 1.0e-12 ? ( e1 * d2.y - e2 * d1.y ) / det : vec3( 0.0 );
+    T                        = T - N * dot( N, T );
+    if ( dot( T, T ) < 1.0e-12 )
+        T = abs( N.z ) < 0.999 ? cross( vec3( 0.0, 0.0, 1.0 ), N ) : cross( vec3( 1.0, 0.0, 0.0 ), N );
+    T            = normalize( T );
+    const vec3 B = cross( N, T ) * ( det < 0.0 ? -1.0 : 1.0 );
+
+    // The ray cone at the hit (Akenine-Moller 2021 eq. 34): the width grown by the spread over the distance, against
+    // the triangle's world-per-texel scale (sqrt of world area over UV area) and the incidence.
+    const float worldArea = length( cross( e1, e2 ) );
+    const float uvArea    = abs( det );
+    const float width     = payload.ConeWidth + payload.ConeSpread * gl_HitTEXT;
+    const float cosine    = max( abs( dot( gl_WorldRayDirectionEXT, N ) ), 1.0e-3 );
+    g_DesertRayHitLod     = uvArea > 1.0e-12 && worldArea > 1.0e-12
+                                 ? log2( max( width, 1.0e-6 ) * sqrt( uvArea / worldArea ) / cosine )
+                                 : 0.0;
+
+    const bool frontFacing = gl_HitKindEXT == gl_HitKindFrontFacingTriangleEXT;
+    return DesertSurfaceInput( worldPosition, N, t.UV, mat3( T, B, N ), vec2( 0.0 ), vec4( 1.0 ), frontFacing );
+}
+
+#ifdef DESERT_SURFACE_RAY_ANY_HIT
+void main()
+{
+    const SurfaceInput i = DesertRayHitSurfaceInput( DesertRayHitFetch() );
+    if ( DesertSurfaceOpacityMask( i ) < u_Material.OpacityMaskClipValue )
+        ignoreIntersectionEXT;
+}
+#else
+void main()
+{
+    const SurfaceInput  i = DesertRayHitSurfaceInput( DesertRayHitFetch() );
+    const SurfaceOutput s = EvaluateSurface( i );
+    payload.HitT          = gl_HitTEXT;
+    payload.BaseColor     = s.BaseColor;
+    payload.Metallic      = s.Metallic;
+    payload.Roughness     = max( s.Roughness, 0.04 );
+    payload.Emissive      = s.Emissive;
+    // DesertSurfaceInput already turned a back face toward the ray (the raster two-sided rule); a one-sided
+    // surface hit from behind is shaded from that side, as UE's hit shaders do.
+    payload.Normal = DesertSurfaceWorldNormal( i, s );
+    payload.Flags  = gl_HitKindEXT == gl_HitKindFrontFacingTriangleEXT ? kDesertRayPayloadFrontFace : 0u;
+    DesertRayHitIdentify();
+}
+#endif

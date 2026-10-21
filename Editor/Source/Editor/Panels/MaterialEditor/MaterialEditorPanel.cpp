@@ -22,6 +22,7 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
+#include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
@@ -1807,6 +1808,57 @@ namespace Desert::Editor
             return changed;
         }
 
+        // ---- A LANDSCAPE MATERIAL INPUT'S LAYER --------------------------------------------------------
+        //
+        // The layer info (`.delayerinfo`) whose painted weights this input draws with (UE: the LayerName of a
+        // LandscapeLayerBlend input). The renderer matches the input to a tile's channels by that info's
+        // LayerName, so the order of the root's layers no longer decides which maps a layer gets.
+        if ( p.AssetKind == "LandscapeLayerInfoAsset" )
+        {
+            std::string preview = "None (input unused)";
+            if ( handle != 0 )
+            {
+                preview = "(missing)";
+                if ( m_AssetManager )
+                    if ( auto info = m_AssetManager->FindByHandle<Assets::LandscapeLayerInfoAsset>(
+                              Common::UUID( handle ) ) )
+                        preview = info->GetData().LayerName;
+            }
+            if ( ImGui::BeginCombo( hiddenId.c_str(), preview.c_str() ) )
+            {
+                if ( ImGui::Selectable( "None (input unused)", handle == 0 ) && handle != 0 )
+                {
+                    data.SetCloudAsset( p.Name, {}, {} );
+                    changed = true;
+                }
+                if ( m_AssetManager )
+                {
+                    for ( const auto& row :
+                          Assets::ContentRegistry::Rows( Common::Content::ContentKind::LandscapeLayerInfo ) )
+                    {
+                        const auto info =
+                             m_AssetManager->ProbeByHandle<Assets::LandscapeLayerInfoAsset>( row.Handle );
+                        if ( !info )
+                            continue;
+                        const bool        selected = ( static_cast<uint64_t>( row.Handle ) == handle );
+                        const std::string label =
+                             info->GetData().LayerName + "##" + info->GetMetadata().Filepath.string();
+                        if ( ImGui::Selectable( label.c_str(), selected ) )
+                        {
+                            const auto& file = info->GetMetadata().Filepath;
+                            data.SetCloudAsset( p.Name, info->Guid(),
+                                                Common::AssetHandle::StableKeyForPath( file ) );
+                            changed = true;
+                        }
+                        if ( selected )
+                            ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            return changed;
+        }
+
         if ( !isType && !isLayout )
         {
             // A kind this panel has no row for is a schema ahead of this binary — said instead of drawn
@@ -2076,11 +2128,11 @@ namespace Desert::Editor
             // preview an artist cannot tune against. Same range as the level's own Exposure in Scene
             // Settings, so the number typed here is the number typed there.
             ImGui::SetNextItemWidth( -FLT_MIN );
-            ImGui::SliderFloat( "Exposure", &setup.Exposure, 0.0f, 10.0f, "%.2f" );
+            ImGui::SliderFloat( "Manual EV100", &setup.ExposureEV100, -15.0f, 25.0f, "%.2f" );
             if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "The Exposure this pane grades through - the same field a level carries "
-                                   "in Scene Settings. A cloud material opens at 0.26, which is what 50 of "
-                                   "the 51 cloud scenes in this project author; set it to your level's "
+                ImGui::SetTooltip( "The Manual EV100 this pane grades through - the same field a level's Post "
+                                   "Process Volume carries. A cloud material opens at 2.47, which is what 50 "
+                                   "of the 51 cloud scenes in this project author; set it to your level's "
                                    "value if that level disagrees." );
 
             // THE HDR ENVIRONMENT, as UE's Preview Scene Settings: one editor-wide choice shared by every

@@ -40,6 +40,12 @@ namespace Desert::Graphic::API::Vulkan
         allocatorInfo.physicalDevice         = device->GetPhysicalDevice()->GetVulkanPhysicalDevice();
         allocatorInfo.device                 = device->GetVulkanLogicalDevice();
         allocatorInfo.instance               = instance;
+        m_DeviceCaps                         = device->GetPhysicalDevice()->GetDeviceCaps();
+        // A buffer created with SHADER_DEVICE_ADDRESS (a BLAS build input, an acceleration structure, its
+        // scratch) must be bound to memory allocated with VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT; VMA adds it
+        // only when told. Only where the device enabled bufferDeviceAddress — the flag is invalid otherwise.
+        if ( m_DeviceCaps.Has( Capability::BufferDeviceAddress ) )
+            allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 
         VK_CHECK_RESULT( vmaCreateAllocator( &allocatorInfo, &s_VmaAllocator ) );
 
@@ -260,12 +266,37 @@ namespace Desert::Graphic::API::Vulkan
         m_QueryPoolDeletionQueue.push_back( { queryPool, frameIndex } );
     }
 
+    void VulkanAllocator::RT_DestroyPipeline( VkPipeline pipeline, VkPipelineLayout layout )
+    {
+        if ( pipeline == VK_NULL_HANDLE && layout == VK_NULL_HANDLE )
+            return;
+        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        m_PipelineDeletionQueue.push_back( { pipeline, layout, frameIndex } );
+    }
+
+    void VulkanAllocator::RT_DestroyAccelerationStructure( VkAccelerationStructureKHR accelerationStructure,
+                                                           PFN_vkDestroyAccelerationStructureKHR destroy )
+    {
+        if ( accelerationStructure == VK_NULL_HANDLE || destroy == nullptr )
+            return;
+        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        m_AccelerationStructureDeletionQueue.push_back( { accelerationStructure, destroy, frameIndex } );
+    }
+
     void VulkanAllocator::RT_DestroyDescriptorPool( VkDescriptorPool descriptorPool )
     {
         if ( descriptorPool == VK_NULL_HANDLE )
             return;
         const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
         m_DescriptorPoolDeletionQueue.push_back( { descriptorPool, frameIndex, {} } );
+    }
+
+    void VulkanAllocator::RT_DestroyLater( std::function<void()> destroy )
+    {
+        if ( !destroy )
+            return;
+        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        m_HostObjectDeletionQueue.push_back( { std::move( destroy ), frameIndex } );
     }
 
     void VulkanAllocator::RT_FreeDescriptorSets( VkDescriptorPool pool, std::vector<VkDescriptorSet> sets )
@@ -356,6 +387,19 @@ namespace Desert::Graphic::API::Vulkan
             return 0;
 
         std::size_t destroyed = 0;
+        // FIRST: an acceleration structure is destroyed before the buffer it lives in (queued on the same frame).
+        for ( auto it = m_AccelerationStructureDeletionQueue.begin();
+              it != m_AccelerationStructureDeletionQueue.end(); )
+        {
+            if ( takeFrame( it->FrameIndex ) )
+            {
+                it->Destroy( device, it->AccelerationStructure, nullptr );
+                it = m_AccelerationStructureDeletionQueue.erase( it );
+                ++destroyed;
+            }
+            else
+                ++it;
+        }
 
         for ( auto it = m_BufferDeletionQueue.begin(); it != m_BufferDeletionQueue.end(); )
         {
@@ -407,12 +451,41 @@ namespace Desert::Graphic::API::Vulkan
             else ++it;
         }
 
+        for ( auto it = m_HostObjectDeletionQueue.begin(); it != m_HostObjectDeletionQueue.end(); )
+        {
+            if ( takeFrame( it->FrameIndex ) )
+            {
+                // Moved out first: the call may queue further destructions.
+                const std::function<void()> destroy = std::move( it->Destroy );
+                it                                  = m_HostObjectDeletionQueue.erase( it );
+                destroy();
+                ++destroyed;
+            }
+            else
+                ++it;
+        }
+
         for ( auto it = m_QueryPoolDeletionQueue.begin(); it != m_QueryPoolDeletionQueue.end(); )
         {
             if ( takeFrame( it->FrameIndex ) )
             {
                 vkDestroyQueryPool( device, it->QueryPool, nullptr );
                 it = m_QueryPoolDeletionQueue.erase( it );
+                ++destroyed;
+            }
+            else
+                ++it;
+        }
+
+        for ( auto it = m_PipelineDeletionQueue.begin(); it != m_PipelineDeletionQueue.end(); )
+        {
+            if ( takeFrame( it->FrameIndex ) )
+            {
+                if ( it->Pipeline != VK_NULL_HANDLE )
+                    vkDestroyPipeline( device, it->Pipeline, nullptr );
+                if ( it->Layout != VK_NULL_HANDLE )
+                    vkDestroyPipelineLayout( device, it->Layout, nullptr );
+                it = m_PipelineDeletionQueue.erase( it );
                 ++destroyed;
             }
             else
@@ -464,7 +537,8 @@ namespace Desert::Graphic::API::Vulkan
     {
         return m_BufferDeletionQueue.size() + m_ImageDeletionQueue.size() + m_FramebufferDeletionQueue.size() +
                m_RenderPassDeletionQueue.size() + m_QueryPoolDeletionQueue.size() +
-               m_DescriptorPoolDeletionQueue.size();
+               m_PipelineDeletionQueue.size() + m_AccelerationStructureDeletionQueue.size() +
+               m_DescriptorPoolDeletionQueue.size() + m_HostObjectDeletionQueue.size();
     }
 
     VulkanAllocator::~VulkanAllocator()

@@ -62,10 +62,9 @@ namespace Desert::Editor
                     ++stats.Failures;
                     continue;
                 }
-                // A surface template's default cell IS the default program: cooked once, as "".
-                const bool surfaceTemplate = Preprocess::DShaderParser::MayDeclareSurface( content );
+                // The pass the default program IS (IsDefaultProgramPass): cooked once, as "".
                 for ( const std::string& pass : meta.GetValue().PassNames )
-                    if ( !Preprocess::IsSurfaceDefaultCell( surfaceTemplate, pass ) )
+                    if ( !Preprocess::IsDefaultProgramPass( meta.GetValue(), pass ) )
                         passes.push_back( pass );
 
                 for ( const std::string& passName : passes )

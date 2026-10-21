@@ -20,6 +20,12 @@ namespace Desert::Editor::ShaderGraph
         return ( a << 24 ) | ( b << 16 ) | ( g << 8 ) | r;
     }
 
+    // The two World Parameter node kinds (UE's Collection Parameter): they read the world's table by name.
+    static bool IsWorldParameterKind( const std::string& kind )
+    {
+        return kind == "WorldParameter" || kind == "WorldParameterScalar";
+    }
+
     // ---------------------------------------------------------------- node catalogue ----------
     // Domain masks for the two families of nodes:
     //   CORE    — math / textures / params / Time: valid in every domain.
@@ -203,6 +209,14 @@ namespace Desert::Editor::ShaderGraph
             { "TileUV", "Tile UV", RGBA( 150, 130, 60, 255 ),
               { { "UV", ValueType::Vec2 }, { "Scale", ValueType::Float } },
               { { "UV", ValueType::Vec2 } }, false, false, false, /*mesh tiling*/ SURFACE },
+            // UE's ParallaxOcclusionMapping function with its Pixel Depth Offset wired: the mesh UV moved to the
+            // relief point the view ray hits (Mesh/Surface/SurfaceParallax.glslh). The node gives the template its
+            // surface height - the `Height` line and the material inputs Height (Texture2D) / HeightScale (cm) /
+            // HeightCenter, the names every template uses (Core::Formats::SurfaceHeight) - so it takes no pin: the
+            // height map is read at the mesh UV0 the line states, and every sample fed from its output lands on
+            // the relief. A material that leaves Height empty draws the template's base cells and pays nothing.
+            { "ParallaxOcclusion", "Parallax Occlusion", RGBA( 150, 130, 60, 255 ), {},
+              { { "UV", ValueType::Vec2 } }, false, false, false, SURFACE },
             { "Multiply", "Multiply", RGBA( 90, 90, 120, 255 ),
               { { "A", ValueType::Color }, { "B", ValueType::Color } },
               { { "Out", ValueType::Color } }, false, false, false, NOT_VOLUME },
@@ -244,6 +258,14 @@ namespace Desert::Editor::ShaderGraph
             // the Cloud Sample node already hands out.
             { "Time", "Time", RGBA( 60, 140, 150, 255 ), {},
               { { "Seconds", ValueType::Float } }, false, false, false, NOT_VOLUME },
+            // UE's Collection Parameter node: a value of the world's parameter collection, by name. The node names
+            // no collection — the scene does (SceneSettings::WorldParameters) — so it compiles to the same
+            // `WorldParameter( "Name" )` read a hand-written surface writes, which DShaderParser lowers to a key.
+            // Surface only: the world's table is a view-pass scene read.
+            { "WorldParameter", "World Parameter (Vector)", RGBA( 60, 150, 110, 255 ), {},
+              { { "Value", ValueType::Color } }, true, false, false, SURFACE },
+            { "WorldParameterScalar", "World Parameter (Scalar)", RGBA( 60, 150, 110, 255 ), {},
+              { { "Value", ValueType::Float } }, true, false, false, SURFACE },
             // ---- particles (UE's Particle Color / Particle SubUV / Particle Random / Particle Relative Time) ----
             // Each reads one field of SurfaceInput.Particle (Mesh/Surface/SurfaceTypes.glslh), which the
             // ParticleSprite cell fills from the particle the quad was expanded from (Pass_ParticleSprite.glslh)
@@ -402,7 +424,10 @@ namespace Desert::Editor::ShaderGraph
                 node.ParamName =
                      kind == "CloudParam"
                           ? VolumeParams().front().SchemaName
-                          : ( spec->HasColorValue ? "Tint" : ( spec->HasFloatValue ? "Amount" : "u_Texture" ) );
+                          : ( IsWorldParameterKind( kind )
+                                   ? "Wetness"
+                                   : ( spec->HasColorValue ? "Tint"
+                                                           : ( spec->HasFloatValue ? "Amount" : "u_Texture" ) ) );
             }
             if ( spec->HasFloatValue )
                 node.Value = { 1, 0, 0, 0 };
@@ -601,9 +626,10 @@ namespace Desert::Editor::ShaderGraph
                     // the view's mip bias (Mesh/Surface/SurfaceTypes.glslh); a post-process graph's textures are
                     // read at the implicit level.
                     decl = doc.DomainEnum() == Domain::Surface
-                                ? std::format( "vec4 {} = SurfaceSampleMaterial( {}, {} );", var, node.ParamName,
-                                               uv )
-                                : std::format( "vec4 {} = texture( {}, {} );", var, node.ParamName, uv );
+                                ? std::format( "vec4 {} = SurfaceSampleMaterial( u_Material.{}, {} );", var,
+                                               node.ParamName, uv )
+                                : std::format( "vec4 {} = SampleBindless( u_Material.{}, {} );", var,
+                                               node.ParamName, uv );
                 }
                 else if ( node.Kind == "MediumTexture" )
                 {
@@ -763,6 +789,10 @@ namespace Desert::Editor::ShaderGraph
                     decl = std::format( "vec4 {} = texture( u_SceneTexture, v_UV );", var );
                 else if ( node.Kind == "UV" )
                     decl = std::format( "vec2 {} = v_UV;", var );
+                else if ( node.Kind == "ParallaxOcclusion" )
+                    // `s` is declared before the node body (the surface emitter): the march writes the depth
+                    // offset and the sun self-shadow into it.
+                    decl = std::format( "vec2 {} = SurfaceParallaxOcclusion( i, v_UV, s );", var );
                 else if ( node.Kind == "TileUV" )
                 {
                     const std::string uv     = EmitInput( node, 0, "v_UV" );
@@ -821,6 +851,10 @@ namespace Desert::Editor::ShaderGraph
                 }
                 else if ( node.Kind == "Sine" )
                     decl = std::format( "float {} = sin( {} );", var, EmitInput( node, 0, "0.0" ) );
+                else if ( node.Kind == "WorldParameter" )
+                    decl = std::format( "vec4 {} = WorldParameter( \"{}\" );", var, node.ParamName );
+                else if ( node.Kind == "WorldParameterScalar" )
+                    decl = std::format( "float {} = WorldParameter( \"{}\" ).x;", var, node.ParamName );
                 else if ( node.Kind == "Time" )
                     // A surface reads the view block's clock through its input (SurfaceInput.Time, UE's
                     // View.GameTime); a post-process program has no view block and declares TimeUB.
@@ -1332,12 +1366,19 @@ namespace Desert::Editor::ShaderGraph
                                     ::Desert::Core::kCloudMediumBlockName, ::Desert::Core::kCloudMediumStructName,
                                     ::Desert::Core::kCloudMediumInstanceName );
             }
+            // Each texture is a SEPARATE texture read through one shared state, u_CloudMediumSampler, bound right
+            // after them (the cloud passes fill it with GlobalTextureFilterSampler, VolumetricCloudRenderer); the
+            // macro of the same name keeps every lookup the graph emits in the sampled form. GLSL never re-expands
+            // a macro inside its own expansion, so the inner name is the texture.
             for ( std::size_t i = 0; i < mediumTextures.size(); ++i )
-                out << std::format( "        layout( binding = {} ) uniform sampler2D {};\n",
+                out << std::format( "        layout( binding = {0} ) uniform texture2D {1};\n"
+                                    "        #define {1} sampler2D({1}, u_CloudMediumSampler)\n",
                                     ::Desert::Core::kCloudMediumTextureFirst + static_cast<uint32_t>( i ),
                                     mediumTextures[i]->ParamName );
             if ( !mediumTextures.empty() )
-                out << "\n";
+                out << std::format( "        layout( binding = {} ) uniform sampler u_CloudMediumSampler;\n\n",
+                                    ::Desert::Core::kCloudMediumTextureFirst +
+                                         static_cast<uint32_t>( mediumTextures.size() ) );
 
             out << bodies.str();
             out << "    }\n}\n";
@@ -1356,6 +1397,10 @@ namespace Desert::Editor::ShaderGraph
                 if ( !IsValidIdentifier( node.ParamName ) )
                     return Common::MakeError<std::string>(
                          std::format( "'{}' is not a valid parameter name", node.ParamName ) );
+                // A world parameter is the WORLD's value, not a property of this material: it exposes nothing,
+                // and its name must not shadow a same-named material parameter in the dedupe below.
+                if ( IsWorldParameterKind( node.Kind ) )
+                    continue;
                 if ( !seen.insert( node.ParamName ).second )
                     continue; // same param used twice = same property, fine
                 if ( node.Kind == "TextureSample" )
@@ -1405,29 +1450,32 @@ namespace Desert::Editor::ShaderGraph
         // Exposed properties block — shared across domains (post-process effects can expose params too).
         // Scene texture (post-process) sits at set 0 / binding 0, so params start at Binding(1).
         //
-        // The graph's own textures are numbered from kGraphTextureBinding UPWARD, one per texture, and
-        // that base is the first slot of the window reserved for graph-owned resources
-        // (Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp). It used to be 2, which was safe only
-        // while the engine blocks a graph could receive were two; a lit surface grew to twelve, so the
-        // third texture in a graph would have landed on top of LightsMetadata. Nothing would have said
-        // so: two GLSL declarations at one binding is a descriptor the engine writes twice and a shader
-        // that reads whichever it got.
-        //
-        // THE SLOT LIST THAT USED TO BE WRITTEN OUT HERE IS GONE ON PURPOSE: it was prose asserting a
-        // property of a tree that moves, and the next binding added to a shader-graph surface would have
-        // left it wrong and silent. What keeps the window free now is a measurement over the compiled
-        // SPIR-V of every shipped pass (Desert/Tests/Engine/ShaderCacheKey), which no comment can go
-        // stale against.
-        if ( !textures.empty() || !colorParams.empty() || !floatParams.empty() )
+        // The graph's textures are row slots like its numbers: with a row and no TextureBinding the layout puts
+        // every Texture2D after the numeric params as a BindlessTexture (Core::Formats::IsRowTexture), and the
+        // generated code samples it through the bindless table as u_Material.<name>. No texture is a descriptor
+        // of the material set, so a graph with many textures adds nothing to the stage's sampler count
+        // (MoltenVK: 16 per stage) and cannot land on an engine binding.
+        // A Parallax Occlusion node gives the surface template its height (Core::Formats::SurfaceHeight): the
+        // shared material inputs, which no graph parameter may also claim.
+        const bool usesParallax = domain == Domain::Surface &&
+                                  std::any_of( doc.Nodes.begin(), doc.Nodes.end(),
+                                               []( const Node& n ) { return n.Kind == "ParallaxOcclusion"; } );
+        if ( usesParallax )
+            for ( const auto* list : { &textures, &colorParams, &floatParams } )
+                for ( const Node* n : *list )
+                    if ( n->ParamName == "Height" || n->ParamName == "HeightScale" || n->ParamName == "HeightCenter" )
+                        return Common::MakeError<std::string>( std::format(
+                             "parameter '{}' is the surface height's, which the Parallax Occlusion node declares; "
+                             "rename the parameter",
+                             n->ParamName ) );
+
+        if ( !textures.empty() || !colorParams.empty() || !floatParams.empty() || usesParallax )
         {
             out << "    Properties";
             // The row block sits beside the engine's per-pass blocks: after the scene texture of a post
             // process, and for a surface where the standard material keeps it (StaticMeshLit), because a
             // surface cell's skinned vertex path already owns binding 1 for its bones.
-            if ( !colorParams.empty() || !floatParams.empty() )
-                out << ( domain == Domain::PostProcess ? " Binding(1)" : " Binding(2)" );
-            if ( !textures.empty() )
-                out << std::format( " TextureBinding({})", kGraphTextureBinding );
+            out << ( domain == Domain::PostProcess ? " Binding(1)" : " Binding(2)" );
             out << "\n    {\n";
             for ( const auto* n : colorParams )
                 out << std::format( "        Color     {} (\"{}\") = ({}, {}, {}, {})\n", n->ParamName,
@@ -1438,6 +1486,10 @@ namespace Desert::Editor::ShaderGraph
                                     Compiler::Lit( n->Value[0] ) );
             for ( const auto* n : textures )
                 out << std::format( "        Texture2D {} (\"{}\")\n", n->ParamName, n->ParamName );
+            if ( usesParallax )
+                out << "        Float     HeightScale (\"Height Scale (cm)\", Range(0,50)) = 2\n"
+                       "        Float     HeightCenter (\"Height Center\", Range(0,1)) = 1\n"
+                       "        Texture2D Height (\"Height Map\", Intent(Data))\n";
             out << "    }\n\n";
         }
 
@@ -1485,13 +1537,17 @@ namespace Desert::Editor::ShaderGraph
         if ( doc.UsedWithParticleSprites )
             out << "    Usage ParticleSprites\n\n";
 
+        if ( usesParallax )
+            out << "    Height Height Channel(R) Scale(HeightScale) Center(HeightCenter)\n\n";
+
         out << "    Surface\n    {\n";
         out << "        SurfaceOutput EvaluateSurface( SurfaceInput i )\n        {\n";
         // The graph's nodes read the mesh UV under the name every node emitter uses.
         out << "            const vec2 v_UV = i.UV0;\n";
+        // Before the nodes: a Parallax Occlusion node writes its depth offset and self-shadow into it.
+        out << "            SurfaceOutput s = DefaultSurfaceOutput();\n";
         out << compiler.body.str();
         out << std::format( "            const vec4 albedo = {};\n", albedo );
-        out << "            SurfaceOutput s = DefaultSurfaceOutput();\n";
         if ( doc.Lit )
         {
             out << "            s.BaseColor = albedo.rgb;\n";

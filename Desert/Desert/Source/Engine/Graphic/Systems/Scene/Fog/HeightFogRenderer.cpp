@@ -178,6 +178,9 @@ namespace Desert::Graphic::System
         push.AerialPerspective =
              glm::vec4( atmosphere.AerialPerspectiveDepthKm, atmosphere.AerialPerspectiveViewDistanceScale,
                         apActive ? 1.0f : 0.0f, fogActive ? 1.0f : 0.0f );
+        // The scale the scene colour is stored at this frame: the inscattering is written multiplied by it.
+        const ViewFrame* viewFrame = m_SceneRenderer->GetViewFrame();
+        push.Exposure              = glm::vec4( viewFrame ? viewFrame->PreExposure : 1.0f, 0.0f, 0.0f, 0.0f );
 
         // One Compute node: it samples the scene depth, the aerial-perspective volume and the distant sky light,
         // and writes the fog image the apply (HeightFogApply, a Transparency raster node) samples.
@@ -220,12 +223,12 @@ namespace Desert::Graphic::System
                                           Renderer::GetPipelineRouteFill( *m_FogPipeline ) );
         block.PushConstantBytes( static_cast<uint32_t>( sizeof( FogPush ) ) );
         block.Storage( "u_FogApply", fogImage, RDG::Access::StorageWrite )
-             .Sampled( "u_SceneDepth", depth, RDG::Access::SampledCompute, GlobalTextureFilterSampler(),
-                       "SceneDepth.Compute" )
-             .Sampled( "u_AerialPerspective", aerialPerspective, RDG::Access::SampledCompute, VolumeSampler(),
+             .Texture( "u_SceneDepth", depth, RDG::Access::SampledCompute, "SceneDepth.Compute" )
+             .Sampler( "u_GlobalFilterSampler", GlobalTextureFilterSampler() )
+             .Texture( "u_AerialPerspective", aerialPerspective, RDG::Access::SampledCompute,
                        apActive ? "Sky.AerialPerspectiveLut" : "HeightFog.AerialPerspectiveFallback" )
-             .Sampled( "u_DistantSkyLight", distantSkyLight, RDG::Access::SampledCompute,
-                       GlobalTextureFilterSampler(),
+             .Sampler( "u_LinearRepeatSampler", VolumeSampler() )
+             .Texture( "u_DistantSkyLight", distantSkyLight, RDG::Access::SampledCompute,
                        atmosphere.DistantSkyLight ? "Sky.DistantLight" : "HeightFog.DistantSkyLightFallback" );
         fog.Record = [this, push, fogWidth, fogHeight]( RDG::PassContext& context,
                                                         const FrameGraphRefs& ) -> Common::BoolResultStr
@@ -274,8 +277,9 @@ namespace Desert::Graphic::System
                 return;
             }
             declared.Bindings( m_ApplyLayout.Get( m_ApplyPipeline->GetShader() ), RDG::OtherRouteFill{} )
-                 .Sampled( "u_FogApply", refs.Transients.HeightFog, RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
+                 .Texture( "u_FogApply", refs.Transients.HeightFog, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
         };
 
         return config;

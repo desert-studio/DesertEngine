@@ -42,6 +42,8 @@
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/WaterWavesAsset.hpp>
+#include <Engine/Assets/WorldParametersAsset.hpp>
+#include <Engine/Assets/WeatherPresetAsset.hpp>
 #include <Engine/Assets/PhysicsAsset.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
@@ -979,6 +981,33 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::WaterWavesAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::WaterWavesAsset>( full, /*loadAfterCreate=*/false );
+                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
+            }
+            if ( type == "WorldParametersAsset" )
+            {
+                // The scene's world parameter collection (SceneSettings::WorldParameters). Announced, not read, as
+                // the fracture above: WorldParametersService reads the `.dworldparams` when the world's instance
+                // adopts it, and the asset's constructor adopts the handle its header GUID names.
+                const std::filesystem::path named( path );
+                const std::filesystem::path full =
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                auto a = mgr.FindByPath<Assets::WorldParametersAsset>( full );
+                if ( !a )
+                    a = m.CreateAsset<Assets::WorldParametersAsset>( full, /*loadAfterCreate=*/false );
+                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
+            }
+            if ( type == "WeatherPresetAsset" )
+            {
+                // A weather zone's preset (ECS::WeatherZoneData::Preset). Announced, not read, as the collection
+                // above: WeatherPresetService reads the `.dweatherpreset` when the world's weather first needs it.
+                const std::filesystem::path named( path );
+                const std::filesystem::path full =
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                auto a = mgr.FindByPath<Assets::WeatherPresetAsset>( full );
+                if ( !a )
+                    a = m.CreateAsset<Assets::WeatherPresetAsset>( full, /*loadAfterCreate=*/false );
                 return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
             }
             if ( type == "PhysicsAsset" )
@@ -1945,6 +1974,7 @@ namespace Desert::Core::Serialize
                 ser.Loop          = ac.Loop;
                 ser.PlaybackSpeed = ac.PlaybackSpeed;
                 ser.UpdateAnimationInEditor = ac.UpdateAnimationInEditor;
+                ser.RootMotion              = ac.RootMotion;
 
                 // THE HANDLE, NOT THE GRAPH. `Animation::Graph::Serialize(*ac.Graph)` stood here and put
                 // the whole state machine inside the entity; the file is the graph's identity now and the
@@ -1988,6 +2018,7 @@ namespace Desert::Core::Serialize
                 ac.Loop        = d.Loop;
                 ac.PlaybackSpeed = d.PlaybackSpeed;
                 ac.UpdateAnimationInEditor = d.UpdateAnimationInEditor;
+                ac.RootMotion              = d.RootMotion;
 
                 // ONLY THE HANDLE IS SET HERE. The graph OBJECT is AnimationECSSystem's to hand over
                 // (SyncAnimGraph), from the asset, so that every entity naming one file ends up pointing

@@ -1,0 +1,15 @@
+{
+    "Header": {
+        "Kind": "StaticMesh",
+        "Guid": "c5bd58b3033eb92bc9197a05839026b0",
+        "Versions": {
+            "DIMP": 2
+        },
+        "Dependencies": []
+    },
+    "Source": "FenceRail.gltf",
+    "Bounds": {
+        "Min": [-6.5, -30.000001907348633, -6.5],
+        "Max": [300.0, 116.19999694824219, 9.5]
+    }
+}

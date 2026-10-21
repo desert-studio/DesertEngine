@@ -134,11 +134,11 @@ namespace Desert::Runtime
 
         if ( it->second.Loaded && it->second.Asset )
         {
-            // The aliasing constructor: a share of the ASSET's lifetime, addressing its layout member. See
-            // the header for why the bake must not be handed a borrowed pointer.
-            return Assets::AssetRef<const Assets::CloudLayoutData>::Ready(
-                 handle, std::shared_ptr<const Assets::CloudLayoutData>( it->second.Asset,
-                                                                         &it->second.Asset->GetLayout() ) );
+            // The asset's CURRENT REVISION, owned on its own (CloudLayoutAsset::SharedLayout): the bake keeps
+            // the revision it started with, and a stroke in the Cloud Layout document that replaces the
+            // pixels hands the next frame a new revision with a new ContentHash, which is what re-bakes.
+            return Assets::AssetRef<const Assets::CloudLayoutData>::Ready( handle,
+                                                                           it->second.Asset->SharedLayout() );
         }
 
         if ( it->second.Failed )

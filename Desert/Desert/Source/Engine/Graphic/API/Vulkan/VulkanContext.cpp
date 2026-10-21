@@ -3,6 +3,7 @@
 #include <vk-bootstrap/VkBootstrap.h>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDeviceExtensions.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
@@ -174,7 +175,7 @@ namespace Desert::Graphic::API::Vulkan
         // vk-bootstrap dlopen a second copy.
         //
         // API VERSION: 1.3 is what the engine is written against and what the instance advertises; the
-        // instance itself only has to be 1.1 (kMinimumDeviceApiVersion). A device older than 1.3 is still
+        // instance itself only has to be kMinimumDeviceApiVersion (1.2). A device older than 1.3 is still
         // driven at its own version — VMA and routing use min(device, 1.3), see DeviceCaps.
         vkb::InstanceBuilder builder( vkGetInstanceProcAddr );
         builder.set_app_name( "Desert Engine" )
@@ -200,6 +201,24 @@ namespace Desert::Graphic::API::Vulkan
                 LOG_ERROR( "Validation layer VK_LAYER_KHRONOS_validation not present, validation is disabled" );
             builder.enable_extension( VK_EXT_DEBUG_UTILS_EXTENSION_NAME )
                  .enable_extension( VK_EXT_DEBUG_REPORT_EXTENSION_NAME );
+        }
+
+        // What the platform's runtimes need on the instance (VulkanDeviceExtensions.hpp), each list already
+        // checked present by its runtime.
+        for ( IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+        {
+            const InstanceRequirements requirements = extension->InstanceExtensions();
+            for ( const char* name : requirements.Extensions )
+                builder.enable_extension( name );
+            // The layer still validates every call it sees; it only stops replacing the driver's handles with
+            // its own ids, which the runtime's SDK would otherwise carry to the driver past the layer.
+            if ( validationRequested && requirements.PassesHandlesBesideTheLayers )
+            {
+                builder.add_validation_feature_disable( VK_VALIDATION_FEATURE_DISABLE_UNIQUE_HANDLES_EXT );
+                LOG_INFO( "[Vulkan] validation layer without unique handles: {} hands the engine's handles to "
+                          "the driver past the layers",
+                          extension->Name() );
+            }
         }
 
         auto built = builder.build();

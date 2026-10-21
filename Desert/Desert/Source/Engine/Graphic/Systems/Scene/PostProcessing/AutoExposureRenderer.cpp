@@ -13,7 +13,7 @@ namespace Desert::Graphic::System
         constexpr uint32_t kGroupSize = 16; // matches AEHistogram local_size
 
         // What the meter can SEE, in log2 luminance. The ceiling is not a taste value: the procedural
-        // sky writes the sun disc at up to its own kSkyLuminanceClamp of 1000 (ProceduralSky.shader), and
+        // sky writes the sun disc at up to kSkyLuminanceCeilingMax (AutoExposureRules.hpp, ~2^15), and
         // a meter whose top bin means 4 cannot tell that disc from a merely bright sky — it was eight
         // stops blind at the top, and every pixel above 4 metered as though it were 4. AutoExposureRules
         // asserts this covers the sky's clamp, so the two cannot drift apart again.
@@ -21,8 +21,13 @@ namespace Desert::Graphic::System
         // Widening the window costs bin resolution: 20 stops over 256 bins is 0.078 EV per bin against
         // the old 0.047. The metered average is reconstructed from each bin's own log-luminance, not from
         // the window, so ordinary scenes move by at most that quantisation — measured at under 0.02 EV.
-        constexpr float kMinLogLum = -10.0f;
-        constexpr float kMaxLogLum = 10.0f;
+        //
+        // PHYSICAL UNITS (LIGHT-UNITS). With lights in lux / candelas a sunlit scene meters ~2^12.5 cd/m^2 and a
+        // street at night ~2^-2: the window is UE's histogram range (Histogram Log Min/Max -10 .. 20 EV100), i.e.
+        // log2 luminance -13 .. 17 (EV100ToLuminance), 30 stops = 0.118 EV per bin; an ordinary scene's
+        // average moves by at most half a bin against the former 20-stop window.
+        constexpr float kMinLogLum = -13.0f;
+        constexpr float kMaxLogLum = 17.0f;
 
         // Outlier rejection, UNCHANGED. It was the obvious suspect for "the sun does not move the
         // exposure" and it is not the cause, so it keeps its values — see AutoExposureRules.hpp for the
@@ -44,6 +49,7 @@ namespace Desert::Graphic::System
         {
             float MinLogLum;
             float InvLogLumRange;
+            float InvPreExposure; // 1 / ViewFrame::PreExposure: the histogram meters radiance, not stored values
         };
 
         struct AveragePush
@@ -88,6 +94,7 @@ namespace Desert::Graphic::System
         };
         m_LumImage[0] = makeLum( "AEAdaptedLum0" );
         m_LumImage[1] = makeLum( "AEAdaptedLum1" );
+        m_Readback    = ShaderResources::StorageBuffer::Create( "AEReadback", 4 * sizeof( float ), 4 );
 
         const auto shaderService = Runtime::ResourceRegistry::GetShaderService();
         const auto make          = [&]( const std::string& name ) -> std::shared_ptr<ComputePipeline>
@@ -110,7 +117,8 @@ namespace Desert::Graphic::System
         m_HistogramPipeline = make( "AEHistogram" );
         m_AveragePipeline   = make( "AEAverage" );
 
-        return m_LumImage[0] && m_LumImage[1] && m_ClearPipeline && m_HistogramPipeline && m_AveragePipeline;
+        return m_LumImage[0] && m_LumImage[1] && m_Readback && m_ClearPipeline && m_HistogramPipeline &&
+               m_AveragePipeline;
     }
 
     bool AutoExposureRenderer::Prepare()
@@ -147,8 +155,8 @@ namespace Desert::Graphic::System
         // The shader reads texels with texelFetch: no filtering or addressing applies, PointClamp states that.
         pass.Bindings( m_HistogramLayout.Get( m_HistogramPipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_HistogramPipeline ) )
-             .Sampled( "u_Scene", scene, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::PointClamp() )
+             .Texture( "u_Scene", scene, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
              .Storage( "Histogram", histogram, RDG::Access::StorageWrite )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( HistogramPush ) ) );
     }
@@ -158,7 +166,7 @@ namespace Desert::Graphic::System
     {
         if ( !m_HistogramPipeline )
             return Common::MakeError( "PostFX: AutoExposureHistogram: the histogram pipeline is not initialised" );
-        const HistogramPush hp{ kWindow.MinLogLum, 1.0f / kWindow.Range() };
+        const HistogramPush hp{ kWindow.MinLogLum, 1.0f / kWindow.Range(), 1.0f / m_PreExposure };
         RDG::PassBindings   bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &hp, sizeof( hp ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_HistogramPipeline, GroupCount( width ),
@@ -166,7 +174,8 @@ namespace Desert::Graphic::System
     }
 
     void AutoExposureRenderer::DeclareAverageBindings( RDG::PassBuilder& pass, RDG::BufferRef histogram,
-                                                       RDG::TextureRef previous, RDG::TextureRef adapted ) const
+                                                       RDG::TextureRef previous, RDG::TextureRef adapted,
+                                                       RDG::BufferRef readback ) const
     {
         if ( !m_AveragePipeline )
             return;
@@ -174,9 +183,10 @@ namespace Desert::Graphic::System
         pass.Bindings( m_AverageLayout.Get( m_AveragePipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_AveragePipeline ) )
              .Storage( "Histogram", histogram, RDG::Access::StorageRead )
-             .Sampled( "u_PrevLum", previous, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::PointClamp() )
+             .Texture( "u_PrevLum", previous, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
              .Storage( "u_OutLum", adapted, RDG::Access::StorageWrite, 0 )
+             .Storage( "Readback", readback, RDG::Access::StorageWrite )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( AveragePush ) ) );
     }
 
@@ -202,5 +212,37 @@ namespace Desert::Graphic::System
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &ap, sizeof( ap ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_AveragePipeline, 1, 1, 1 );
+    }
+
+    RDG::BufferRef AutoExposureRenderer::ImportReadback( RDG::Builder& graph )
+    {
+        if ( const Common::BoolResultStr imported = Renderer::ImportBuffer( m_Readback, m_ReadbackImport );
+             !imported )
+        {
+            LOG_ERROR( "PostFX: AutoExposure: the readback buffer is not in the frame graph: {}",
+                       imported.GetError() );
+            return {};
+        }
+        return graph.RegisterExternal( m_ReadbackImport, "AutoExposure.Readback" );
+    }
+
+    float AutoExposureRenderer::ReadBackAdaptedLuminance()
+    {
+        if ( !m_Readback )
+            return 0.0f;
+        std::array<float, 4> value{};
+        if ( const Common::BoolResultStr read = m_Readback->ReadBack( value.data(), sizeof( value ) );
+             !read.IsSuccess() )
+        {
+            LOG_ERROR( "PostFX: AutoExposure: the adapted luminance was not read back: {}", read.GetError() );
+            return 0.0f;
+        }
+        // Per frame, so trace: z = the measured luminance before clamp/adaptation (-1 = empty histogram), w =
+        // samples.
+        LOG_TRACE(
+             "[PreExposure] read-back: adapted {} (written {}), measured {}, histogram samples {}, clamp [{}, {}]",
+             value[0], value[1], value[2], value[3], m_MinLuma, m_MaxLuma );
+        // y == 1: the Average pass wrote this copy; otherwise it is the buffer's first frames.
+        return value[1] == 1.0f && value[0] > 0.0f && value[0] < 3.0e38f ? value[0] : 0.0f;
     }
 } // namespace Desert::Graphic::System

@@ -182,6 +182,8 @@ namespace Desert::Media
                               Graphic::RDG::SubresourceRange::All() );
         m_Pipeline->SetInput( 2, lumaOnly ? y : m_Planes[2].get(), kPlaneRead,
                               Graphic::RDG::SubresourceRange::All() );
+        // The planes are separate textures fetched by texel; the shader's one shared state (u_PointClampSampler).
+        m_Pipeline->SetSampler( 4, Graphic::RDG::SamplerDesc::PointClamp() );
         m_Pipeline->SetOutput( 3, m_Output.get(), 0 );
         m_Pipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
         m_Pipeline->Record( *batch, ( m_Width + kMediaYuvGroupSize - 1 ) / kMediaYuvGroupSize,

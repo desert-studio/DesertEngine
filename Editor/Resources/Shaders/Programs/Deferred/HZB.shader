@@ -14,7 +14,11 @@ Shader "HZB"
 
     Compute
     {
-        Uniform(0) sampler2D u_Source; // mip 0: the scene depth; mip n: this HZB's mip n - 1 (a single-mip view)
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound once by the pass by name and numbered by the program build (SharedSamplerBinding.hpp).
+        Uniform sampler u_PointClampSampler;
+        Uniform(0) texture2D u_Source; // mip 0: the scene depth; mip n: this HZB's mip n - 1 (a single-mip view)
+        #define u_Source sampler2D(u_Source, u_PointClampSampler)
         layout(binding = 1, r32f) writeonly uniform image2D u_Output;
 
         LocalSize(8, 8, 1);

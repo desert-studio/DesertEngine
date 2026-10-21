@@ -21,7 +21,7 @@ namespace Desert::Core
 namespace Desert::Editor
 {
     // UE5-style Modeling Mode palette: a left rail of the palettes something of ours lives in (Selection,
-    // Shapes, Create, PolyModel, TriModel, Transform, Collision, in UE's order), each palette's tool buttons,
+    // Shapes, Create, PolyModel, TriModel, Transform, UVs, Collision, in UE's order), each palette's tool buttons,
     // and a Tool Properties section for the active tool. A tool picked here switches the viewport into
     // Modeling mode; the geometry editing itself happens in the viewport, driven through Core::ModelingState.
     class ModelingPanel final : public IPanel
@@ -75,6 +75,7 @@ namespace Desert::Editor
         void DrawPolyModelPalette();
         void DrawTriModelPalette();
         void DrawTransformPalette();
+        void DrawUVsPalette();
         void DrawCollisionPalette();
         void DrawCubeGrid();
         // A mesh / XForm operation on one click; a refusal is logged with its reason.

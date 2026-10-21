@@ -25,16 +25,16 @@ void main()
     i.Particle.RelativeTime = v_ParticleTimeRandom.x;
     i.Particle.Random       = v_ParticleTimeRandom.y;
 
+    DESERT_SURFACE_CLIP( i );
     const SurfaceOutput s = EvaluateSurface( i );
-    DESERT_SURFACE_CLIP( s );
 #ifdef DESERT_SURFACE_TRANSLUCENT
     if ( s.Opacity <= 0.0 )
         discard;
-    oColor = vec4( s.BaseColor + s.Emissive, clamp( s.Opacity, 0.0, 1.0 ) );
+    oColor = vec4( ( s.BaseColor + s.Emissive ) * cameraUB.PreExposure, clamp( s.Opacity, 0.0, 1.0 ) );
 #ifdef DESERT_SURFACE_RESPONSIVE_AA
     oResponsiveAA = vec4( 1.0, 0.0, 0.0, oColor.a );
 #endif
 #else
-    oColor = vec4( s.BaseColor + s.Emissive, 1.0 );
+    oColor = vec4( ( s.BaseColor + s.Emissive ) * cameraUB.PreExposure, 1.0 );
 #endif
 }

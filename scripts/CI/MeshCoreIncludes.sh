@@ -26,6 +26,8 @@ ALLOW=(
     "$G/DynamicMeshSelection.hpp|adapter: the editor's door to DynamicMesh3 + GroupTopology (MeshElementSelection holds both)"
     "$G/MeshRegionOperation.hpp|adapter: Extrude/Inset/Outset on a DynamicMesh3 region, and Subdivide's settings (SubdividePoly)"
     "$G/MeshRegionOperation.cpp|adapter: drives the ported OffsetMeshRegion/InsetMeshRegion and their helpers"
+    "$G/MeshSimplifyOperation.hpp|adapter: QEM down to a triangle count for runtime builders (HLOD MeshSimplify)"
+    "$G/MeshSimplifyOperation.cpp|adapter: drives the ported QemSimplification and MeshNormals"
     "$G/MeshPlaneOperation.hpp|adapter: Plane Cut / Mirror on a DynamicMesh3 (P14)"
     "$G/MeshPlaneOperation.cpp|adapter: drives the ported MeshPlaneCut/MeshMirror (P14)"
     "$G/MeshElementOperation.cpp|adapter: Delete/Offset/Bevel/Cut/Clean on a DynamicMesh3 (drives the ported MeshBevel/MergeCoincidentMeshEdges)"

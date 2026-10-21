@@ -36,7 +36,13 @@ namespace Desert::Graphic::ShaderProtocols
         float     MaterialMipBias = 0.0f;            // offset 432
         float     ShadowSlopeBias  = 0.0f;            // offset 436, light views only (ViewFrame::ShadowSlopeBias)
         float     ShadowSlopeClamp = 0.0f;            // offset 440, light views only
-        float     Pad0             = 0.0f;            // offset 444 (CameraPad0 in the block); block size 448
+        float     ParallaxMinSteps    = 0.0f;         // offset 444 (ViewFrame::Parallax)
+        glm::vec3 SunDirection{ 0.0f };               // offset 448, toward the sun; zero = no directional light
+        float     ParallaxMaxSteps    = 0.0f;         // offset 460
+        float     ParallaxShadowSteps = 0.0f;         // offset 464
+        float     PreExposure         = 1.0f;         // offset 468, ViewFrame::PreExposure
+        float     PrevPreExposure     = 1.0f;         // offset 472, ViewFrame::PrevPreExposure
+        float     Pad2                = 0.0f;         // offset 476; block size 480
     };
 
     // THE one writer of the camera block: every material that declares CameraUB is filled from the frame's
@@ -59,6 +65,12 @@ namespace Desert::Graphic::ShaderProtocols
         ub.MaterialMipBias           = frame.MaterialMipBias;
         ub.ShadowSlopeBias           = frame.ShadowSlopeBias;
         ub.ShadowSlopeClamp          = frame.ShadowSlopeClamp;
+        ub.ParallaxMinSteps          = static_cast<float>( frame.Parallax.MinSteps );
+        ub.ParallaxMaxSteps          = static_cast<float>( frame.Parallax.MaxSteps );
+        ub.ParallaxShadowSteps       = static_cast<float>( frame.Parallax.ShadowSteps );
+        ub.SunDirection              = frame.SunDirection;
+        ub.PreExposure               = frame.PreExposure;
+        ub.PrevPreExposure           = frame.PrevPreExposure;
         return ub;
     }
 } // namespace Desert::Graphic::ShaderProtocols

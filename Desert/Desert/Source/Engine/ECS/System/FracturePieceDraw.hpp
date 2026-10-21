@@ -7,7 +7,8 @@
 // split as a static mesh's are (Destruction::PieceDraws), each draw under the piece's own motion part. An entity
 // draws as pieces when it has
 //   * a FracturePreviewComponent (the Fracture Mode's preview of the tool's fracture, Explode offsets applied), or
-//   * a DestructibleComponent whose Rest Collection is read (at its bodies' poses while simulated, else at rest);
+//   * a DestructibleComponent whose Rest Collection is read (at its bodies' poses while simulated, else at rest),
+//     or, for a run-time Fracture Source, whose RuntimeFracture is set (simulated only);
 // its StaticMeshComponent, if any, is then not drawn (MeshECSSystem skips the entities Record returns).
 //
 // Per fracture, the piece meshes are built once (saved mesh -> DynamicMesh3 -> render arrays -> DynamicMesh) and

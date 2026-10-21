@@ -9,6 +9,7 @@
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Geometry/SavedMeshForm.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
+#include <Engine/Animation/RootMotion.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Json/Json.hpp>
@@ -174,6 +175,9 @@ namespace Desert::Assets
         /// AnimationComponent::UpdateAnimationInEditor. Absent = false, which is UE's default and the
         /// intended behaviour for every file written before ANIM-FIX1 (the Edit-mode preview was the defect).
         bool                       UpdateAnimationInEditor = false;
+        /// AnimationComponent::RootMotion, by enum name. Absent = NoExtraction (UE's default), which is what every
+        /// file written before ANIM-ROOTMOTION meant: nothing extracted root motion then.
+        Animation::RootMotionMode  RootMotion = Animation::RootMotionMode::NoExtraction;
         std::optional<std::string> Graph;
         /// AnimationComponent::LinkedLayerGraphs as project paths, in link order; absent = nothing linked
         /// (every file written before ANIM-I14b), so no scene needs a migration step.

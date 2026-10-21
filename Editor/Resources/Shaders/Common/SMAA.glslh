@@ -34,16 +34,20 @@ void SMAAMovc4( bvec4 cond, inout vec4 v, vec4 s )
     SMAAMovc2( cond.zw, v.zw, s.zw );
 }
 
+// The inputs are SEPARATE textures (texture2D parameters), sampled here through the one shared state every SMAA
+// read uses, u_LinearClampSampler: the includer declares that sampler BEFORE including this file. A texture is
+// passed to these functions, never a constructed sampler2D (GLSL allows that constructor only at a lookup).
+
 // ---------------------------------------------------------------------------------------------------
 // Edge detection (luma based, with local contrast adaptation). Returns vec2(left-edge, top-edge).
 // ---------------------------------------------------------------------------------------------------
-vec2 SMAALumaEdgeDetection( sampler2D colorTex, vec2 texcoord )
+vec2 SMAALumaEdgeDetection( texture2D colorTex, vec2 texcoord )
 {
     vec2 threshold = vec2( SMAA_THRESHOLD );
 
-    float L      = dot( textureLod( colorTex, texcoord, 0.0 ).rgb, SMAA_LUMA );
-    float Lleft  = dot( textureLodOffset( colorTex, texcoord, 0.0, ivec2( -1, 0 ) ).rgb, SMAA_LUMA );
-    float Ltop   = dot( textureLodOffset( colorTex, texcoord, 0.0, ivec2( 0, -1 ) ).rgb, SMAA_LUMA );
+    float L      = dot( textureLod( sampler2D( colorTex, u_LinearClampSampler ), texcoord, 0.0 ).rgb, SMAA_LUMA );
+    float Lleft  = dot( textureLodOffset( sampler2D( colorTex, u_LinearClampSampler ), texcoord, 0.0, ivec2( -1, 0 ) ).rgb, SMAA_LUMA );
+    float Ltop   = dot( textureLodOffset( sampler2D( colorTex, u_LinearClampSampler ), texcoord, 0.0, ivec2( 0, -1 ) ).rgb, SMAA_LUMA );
 
     vec4 delta;
     delta.xy   = abs( L - vec2( Lleft, Ltop ) );
@@ -52,14 +56,14 @@ vec2 SMAALumaEdgeDetection( sampler2D colorTex, vec2 texcoord )
     if ( dot( edges, vec2( 1.0 ) ) == 0.0 )
         return vec2( 0.0 );
 
-    float Lright  = dot( textureLodOffset( colorTex, texcoord, 0.0, ivec2( 1, 0 ) ).rgb, SMAA_LUMA );
-    float Lbottom = dot( textureLodOffset( colorTex, texcoord, 0.0, ivec2( 0, 1 ) ).rgb, SMAA_LUMA );
+    float Lright  = dot( textureLodOffset( sampler2D( colorTex, u_LinearClampSampler ), texcoord, 0.0, ivec2( 1, 0 ) ).rgb, SMAA_LUMA );
+    float Lbottom = dot( textureLodOffset( sampler2D( colorTex, u_LinearClampSampler ), texcoord, 0.0, ivec2( 0, 1 ) ).rgb, SMAA_LUMA );
     delta.zw      = abs( L - vec2( Lright, Lbottom ) );
 
     vec2 maxDelta = max( delta.xy, delta.zw );
 
-    float Lleftleft = dot( textureLodOffset( colorTex, texcoord, 0.0, ivec2( -2, 0 ) ).rgb, SMAA_LUMA );
-    float Ltoptop   = dot( textureLodOffset( colorTex, texcoord, 0.0, ivec2( 0, -2 ) ).rgb, SMAA_LUMA );
+    float Lleftleft = dot( textureLodOffset( sampler2D( colorTex, u_LinearClampSampler ), texcoord, 0.0, ivec2( -2, 0 ) ).rgb, SMAA_LUMA );
+    float Ltoptop   = dot( textureLodOffset( sampler2D( colorTex, u_LinearClampSampler ), texcoord, 0.0, ivec2( 0, -2 ) ).rgb, SMAA_LUMA );
     delta.zw        = abs( vec2( Lleft, Ltop ) - vec2( Lleftleft, Ltoptop ) );
 
     maxDelta        = max( maxDelta.xy, delta.zw );
@@ -72,7 +76,7 @@ vec2 SMAALumaEdgeDetection( sampler2D colorTex, vec2 texcoord )
 // ---------------------------------------------------------------------------------------------------
 // Blending-weight calculation (search + area lookups).
 // ---------------------------------------------------------------------------------------------------
-float SMAASearchLength( sampler2D searchTex, vec2 e, float offset )
+float SMAASearchLength( texture2D searchTex, vec2 e, float offset )
 {
     vec2 scale = SMAA_SEARCHTEX_SIZE * vec2( 0.5, -1.0 );
     vec2 bias  = SMAA_SEARCHTEX_SIZE * vec2( offset, 1.0 );
@@ -86,72 +90,72 @@ float SMAASearchLength( sampler2D searchTex, vec2 e, float offset )
     // SMAA requires CLAMP addressing on SearchTex — its lookup Y intentionally exceeds 1.0, and a repeat
     // sampler (the engine's global default) would wrap to the wrong row. Clamp the coord to emulate clamp.
     vec2 coord = clamp( scale * e + bias, vec2( 0.0 ), vec2( 1.0 ) );
-    return textureLod( searchTex, coord, 0.0 ).r;
+    return textureLod( sampler2D( searchTex, u_LinearClampSampler ), coord, 0.0 ).r;
 }
 
-float SMAASearchXLeft( sampler2D edgesTex, sampler2D searchTex, vec2 texcoord, float end, vec4 metrics )
+float SMAASearchXLeft( texture2D edgesTex, texture2D searchTex, vec2 texcoord, float end, vec4 metrics )
 {
     vec2 e = vec2( 0.0, 1.0 );
     for ( int i = 0; i < SMAA_MAX_SEARCH_STEPS; ++i )
     {
         if ( !( texcoord.x > end && e.g > 0.8281 && e.r == 0.0 ) )
             break;
-        e = textureLod( edgesTex, texcoord, 0.0 ).rg;
+        e = textureLod( sampler2D( edgesTex, u_LinearClampSampler ), texcoord, 0.0 ).rg;
         texcoord -= vec2( 2.0, 0.0 ) * metrics.xy;
     }
     float offset = -( 255.0 / 127.0 ) * SMAASearchLength( searchTex, e, 0.0 ) + 3.25;
     return metrics.x * offset + texcoord.x;
 }
 
-float SMAASearchXRight( sampler2D edgesTex, sampler2D searchTex, vec2 texcoord, float end, vec4 metrics )
+float SMAASearchXRight( texture2D edgesTex, texture2D searchTex, vec2 texcoord, float end, vec4 metrics )
 {
     vec2 e = vec2( 0.0, 1.0 );
     for ( int i = 0; i < SMAA_MAX_SEARCH_STEPS; ++i )
     {
         if ( !( texcoord.x < end && e.g > 0.8281 && e.r == 0.0 ) )
             break;
-        e = textureLod( edgesTex, texcoord, 0.0 ).rg;
+        e = textureLod( sampler2D( edgesTex, u_LinearClampSampler ), texcoord, 0.0 ).rg;
         texcoord += vec2( 2.0, 0.0 ) * metrics.xy;
     }
     float offset = -( 255.0 / 127.0 ) * SMAASearchLength( searchTex, e, 0.5 ) + 3.25;
     return -metrics.x * offset + texcoord.x;
 }
 
-float SMAASearchYUp( sampler2D edgesTex, sampler2D searchTex, vec2 texcoord, float end, vec4 metrics )
+float SMAASearchYUp( texture2D edgesTex, texture2D searchTex, vec2 texcoord, float end, vec4 metrics )
 {
     vec2 e = vec2( 1.0, 0.0 );
     for ( int i = 0; i < SMAA_MAX_SEARCH_STEPS; ++i )
     {
         if ( !( texcoord.y > end && e.r > 0.8281 && e.g == 0.0 ) )
             break;
-        e = textureLod( edgesTex, texcoord, 0.0 ).rg;
+        e = textureLod( sampler2D( edgesTex, u_LinearClampSampler ), texcoord, 0.0 ).rg;
         texcoord -= vec2( 0.0, 2.0 ) * metrics.xy;
     }
     float offset = -( 255.0 / 127.0 ) * SMAASearchLength( searchTex, e.gr, 0.0 ) + 3.25;
     return metrics.y * offset + texcoord.y;
 }
 
-float SMAASearchYDown( sampler2D edgesTex, sampler2D searchTex, vec2 texcoord, float end, vec4 metrics )
+float SMAASearchYDown( texture2D edgesTex, texture2D searchTex, vec2 texcoord, float end, vec4 metrics )
 {
     vec2 e = vec2( 1.0, 0.0 );
     for ( int i = 0; i < SMAA_MAX_SEARCH_STEPS; ++i )
     {
         if ( !( texcoord.y < end && e.r > 0.8281 && e.g == 0.0 ) )
             break;
-        e = textureLod( edgesTex, texcoord, 0.0 ).rg;
+        e = textureLod( sampler2D( edgesTex, u_LinearClampSampler ), texcoord, 0.0 ).rg;
         texcoord += vec2( 0.0, 2.0 ) * metrics.xy;
     }
     float offset = -( 255.0 / 127.0 ) * SMAASearchLength( searchTex, e.gr, 0.5 ) + 3.25;
     return -metrics.y * offset + texcoord.y;
 }
 
-vec2 SMAAArea( sampler2D areaTex, vec2 dist, float e1, float e2 )
+vec2 SMAAArea( texture2D areaTex, vec2 dist, float e1, float e2 )
 {
     vec2 texcoord = SMAA_AREATEX_MAX_DISTANCE * round( 4.0 * vec2( e1, e2 ) ) + dist;
     texcoord = SMAA_AREATEX_PIXEL_SIZE * texcoord + ( 0.5 * SMAA_AREATEX_PIXEL_SIZE );
     // AreaTex also needs CLAMP addressing — emulate it so a repeat sampler can't wrap the lookup.
     texcoord = clamp( texcoord, vec2( 0.0 ), vec2( 1.0 ) );
-    return textureLod( areaTex, texcoord, 0.0 ).rg;
+    return textureLod( sampler2D( areaTex, u_LinearClampSampler ), texcoord, 0.0 ).rg;
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -169,7 +173,7 @@ vec4 SMAADecodeDiagBilinearAccess( vec4 e )
     return round( e );
 }
 
-vec2 SMAASearchDiag1( sampler2D edgesTex, vec2 texcoord, vec2 dir, out vec2 e, vec4 metrics )
+vec2 SMAASearchDiag1( texture2D edgesTex, vec2 texcoord, vec2 dir, out vec2 e, vec4 metrics )
 {
     vec4 coord = vec4( texcoord, -1.0, 1.0 );
     vec3 t     = vec3( metrics.xy, 1.0 );
@@ -179,13 +183,13 @@ vec2 SMAASearchDiag1( sampler2D edgesTex, vec2 texcoord, vec2 dir, out vec2 e, v
         if ( !( coord.z < float( SMAA_MAX_SEARCH_STEPS_DIAG - 1 ) && coord.w > 0.9 ) )
             break;
         coord.xyz = t * vec3( dir, 1.0 ) + coord.xyz;
-        e         = textureLod( edgesTex, coord.xy, 0.0 ).rg;
+        e         = textureLod( sampler2D( edgesTex, u_LinearClampSampler ), coord.xy, 0.0 ).rg;
         coord.w   = dot( e, vec2( 0.5 ) );
     }
     return coord.zw;
 }
 
-vec2 SMAASearchDiag2( sampler2D edgesTex, vec2 texcoord, vec2 dir, out vec2 e, vec4 metrics )
+vec2 SMAASearchDiag2( texture2D edgesTex, vec2 texcoord, vec2 dir, out vec2 e, vec4 metrics )
 {
     vec4 coord = vec4( texcoord, -1.0, 1.0 );
     coord.x += 0.25 * metrics.x;
@@ -196,25 +200,25 @@ vec2 SMAASearchDiag2( sampler2D edgesTex, vec2 texcoord, vec2 dir, out vec2 e, v
         if ( !( coord.z < float( SMAA_MAX_SEARCH_STEPS_DIAG - 1 ) && coord.w > 0.9 ) )
             break;
         coord.xyz = t * vec3( dir, 1.0 ) + coord.xyz;
-        e         = textureLod( edgesTex, coord.xy, 0.0 ).rg;
+        e         = textureLod( sampler2D( edgesTex, u_LinearClampSampler ), coord.xy, 0.0 ).rg;
         e         = SMAADecodeDiagBilinearAccess( e );
         coord.w   = dot( e, vec2( 0.5 ) );
     }
     return coord.zw;
 }
 
-vec2 SMAAAreaDiag( sampler2D areaTex, vec2 dist, vec2 e, float offset )
+vec2 SMAAAreaDiag( texture2D areaTex, vec2 dist, vec2 e, float offset )
 {
     vec2 texcoord = vec2( SMAA_AREATEX_MAX_DISTANCE_DIAG ) * e + dist;
     texcoord      = SMAA_AREATEX_PIXEL_SIZE * texcoord + 0.5 * SMAA_AREATEX_PIXEL_SIZE;
     texcoord.x += 0.5;                                     // diagonal areas live in the right half
     texcoord.y += SMAA_AREATEX_SUBTEX_SIZE * offset;       // offset = 0 for SMAA 1x
     texcoord = clamp( texcoord, vec2( 0.0 ), vec2( 1.0 ) );
-    return textureLod( areaTex, texcoord, 0.0 ).rg;
+    return textureLod( sampler2D( areaTex, u_LinearClampSampler ), texcoord, 0.0 ).rg;
 }
 
 // Returns the diagonal blending weights (in .rg). subsampleIndices = 0 for 1x.
-vec2 SMAACalculateDiagWeights( sampler2D edgesTex, sampler2D areaTex, vec2 texcoord, vec2 e, vec4 metrics )
+vec2 SMAACalculateDiagWeights( texture2D edgesTex, texture2D areaTex, vec2 texcoord, vec2 e, vec4 metrics )
 {
     vec2 weights = vec2( 0.0 );
     vec4 d;
@@ -242,8 +246,8 @@ vec2 SMAACalculateDiagWeights( sampler2D edgesTex, sampler2D areaTex, vec2 texco
     {
         vec4 coords = vec4( -d.x + 0.25, d.x, d.y, -d.y - 0.25 ) * metrics.xyxy + texcoord.xyxy;
         vec4 c;
-        c.xy = textureLodOffset( edgesTex, coords.xy, 0.0, ivec2( -1, 0 ) ).rg;
-        c.zw = textureLodOffset( edgesTex, coords.zw, 0.0, ivec2( 1, 0 ) ).rg;
+        c.xy = textureLodOffset( sampler2D( edgesTex, u_LinearClampSampler ), coords.xy, 0.0, ivec2( -1, 0 ) ).rg;
+        c.zw = textureLodOffset( sampler2D( edgesTex, u_LinearClampSampler ), coords.zw, 0.0, ivec2( 1, 0 ) ).rg;
         vec4 dec = SMAADecodeDiagBilinearAccess( vec4( c.x, c.y, c.z, c.w ) );
         c.y = dec.x;
         c.x = dec.y;
@@ -259,7 +263,7 @@ vec2 SMAACalculateDiagWeights( sampler2D edgesTex, sampler2D areaTex, vec2 texco
         d.x = dd.x;
         d.z = dd.y;
     }
-    if ( textureLodOffset( edgesTex, texcoord, 0.0, ivec2( 1, 0 ) ).r > 0.0 )
+    if ( textureLodOffset( sampler2D( edgesTex, u_LinearClampSampler ), texcoord, 0.0, ivec2( 1, 0 ) ).r > 0.0 )
     {
         vec2 dd = SMAASearchDiag2( edgesTex, texcoord, vec2( 1.0, 1.0 ), end, metrics );
         d.y = dd.x;
@@ -276,9 +280,9 @@ vec2 SMAACalculateDiagWeights( sampler2D edgesTex, sampler2D areaTex, vec2 texco
     {
         vec4 coords = vec4( -d.x, -d.x, d.y, d.y ) * metrics.xyxy + texcoord.xyxy;
         vec4 c;
-        c.x  = textureLodOffset( edgesTex, coords.xy, 0.0, ivec2( -1, 0 ) ).g;
-        c.y  = textureLodOffset( edgesTex, coords.xy, 0.0, ivec2( 0, -1 ) ).r;
-        c.zw = textureLodOffset( edgesTex, coords.zw, 0.0, ivec2( 1, 0 ) ).gr;
+        c.x  = textureLodOffset( sampler2D( edgesTex, u_LinearClampSampler ), coords.xy, 0.0, ivec2( -1, 0 ) ).g;
+        c.y  = textureLodOffset( sampler2D( edgesTex, u_LinearClampSampler ), coords.xy, 0.0, ivec2( 0, -1 ) ).r;
+        c.zw = textureLodOffset( sampler2D( edgesTex, u_LinearClampSampler ), coords.zw, 0.0, ivec2( 1, 0 ) ).gr;
         vec2 cc = vec2( 2.0 ) * vec2( c.x, c.z ) + vec2( c.y, c.w );
         SMAAMovc2( bvec2( step( 0.9, d.zw ) ), cc, vec2( 0.0 ) );
         vec2 w2 = SMAAAreaDiag( areaTex, d.xy, cc, 0.0 );
@@ -288,7 +292,7 @@ vec2 SMAACalculateDiagWeights( sampler2D edgesTex, sampler2D areaTex, vec2 texco
     return weights;
 }
 
-vec4 SMAABlendingWeightCalculation( sampler2D edgesTex, sampler2D areaTex, sampler2D searchTex,
+vec4 SMAABlendingWeightCalculation( texture2D edgesTex, texture2D areaTex, texture2D searchTex,
                                     vec2 texcoord, vec4 metrics )
 {
     // The exact sub-texel offsets from SMAABlendingWeightCalculationVS — SMAA's bilinear search depends
@@ -300,7 +304,7 @@ vec4 SMAABlendingWeightCalculation( sampler2D edgesTex, sampler2D areaTex, sampl
                     vec4( metrics.xx, metrics.yy ) * vec4( -2.0, 2.0, -2.0, 2.0 ) * float( SMAA_MAX_SEARCH_STEPS );
 
     vec4 weights = vec4( 0.0 );
-    vec2 e       = textureLod( edgesTex, texcoord, 0.0 ).rg;
+    vec2 e       = textureLod( sampler2D( edgesTex, u_LinearClampSampler ), texcoord, 0.0 ).rg;
 
     if ( e.g > 0.0 ) // Edge at north -> horizontal pattern (or a diagonal)
     {
@@ -318,7 +322,7 @@ vec4 SMAABlendingWeightCalculation( sampler2D edgesTex, sampler2D areaTex, sampl
         coords.y = offset1.y;
         d.x      = coords.x;
 
-        float e1 = textureLod( edgesTex, coords.xy, 0.0 ).r;
+        float e1 = textureLod( sampler2D( edgesTex, u_LinearClampSampler ), coords.xy, 0.0 ).r;
 
         coords.z = SMAASearchXRight( edgesTex, searchTex, offset0.zw, offset2.y, metrics );
         d.y      = coords.z;
@@ -326,7 +330,7 @@ vec4 SMAABlendingWeightCalculation( sampler2D edgesTex, sampler2D areaTex, sampl
         d = abs( round( metrics.zz * d - pixcoord.xx ) );
 
         vec2  sqrt_d = sqrt( d );
-        float e2     = textureLodOffset( edgesTex, vec2( coords.z, coords.y ), 0.0, ivec2( 1, 0 ) ).r;
+        float e2     = textureLodOffset( sampler2D( edgesTex, u_LinearClampSampler ), vec2( coords.z, coords.y ), 0.0, ivec2( 1, 0 ) ).r;
 
         weights.rg = SMAAArea( areaTex, sqrt_d, e1, e2 );
         } // end else (no diagonal)
@@ -340,7 +344,7 @@ vec4 SMAABlendingWeightCalculation( sampler2D edgesTex, sampler2D areaTex, sampl
         coords.x = offset0.x;
         d.x      = coords.y;
 
-        float e1 = textureLod( edgesTex, coords.xy, 0.0 ).g;
+        float e1 = textureLod( sampler2D( edgesTex, u_LinearClampSampler ), coords.xy, 0.0 ).g;
 
         coords.z = SMAASearchYDown( edgesTex, searchTex, offset1.zw, offset2.w, metrics );
         d.y      = coords.z;
@@ -348,7 +352,7 @@ vec4 SMAABlendingWeightCalculation( sampler2D edgesTex, sampler2D areaTex, sampl
         d = abs( round( metrics.ww * d - pixcoord.yy ) );
 
         vec2  sqrt_d = sqrt( d );
-        float e2     = textureLodOffset( edgesTex, vec2( coords.x, coords.z ), 0.0, ivec2( 0, 1 ) ).g;
+        float e2     = textureLodOffset( sampler2D( edgesTex, u_LinearClampSampler ), vec2( coords.x, coords.z ), 0.0, ivec2( 0, 1 ) ).g;
 
         weights.ba = SMAAArea( areaTex, sqrt_d, e1, e2 );
     }
@@ -360,18 +364,18 @@ vec4 SMAABlendingWeightCalculation( sampler2D edgesTex, sampler2D areaTex, sampl
 // Neighborhood blending (apply the weights to blend with neighbors). Faithful transcription of
 // SMAANeighborhoodBlendingPS — exploits bilinear filtering to mix the current pixel with one neighbor.
 // ---------------------------------------------------------------------------------------------------
-vec4 SMAANeighborhoodBlending( sampler2D colorTex, sampler2D blendTex, vec2 texcoord, vec4 metrics )
+vec4 SMAANeighborhoodBlending( texture2D colorTex, texture2D blendTex, vec2 texcoord, vec4 metrics )
 {
     // offset.xy = right pixel; offset.zw = bottom pixel (y-down texcoords).
     vec4 offset = vec4( texcoord + vec2( metrics.x, 0.0 ), texcoord + vec2( 0.0, metrics.y ) );
 
     vec4 a;
-    a.x  = textureLod( blendTex, offset.xy, 0.0 ).a;          // right
-    a.y  = textureLod( blendTex, offset.zw, 0.0 ).g;          // bottom
-    a.wz = textureLod( blendTex, texcoord, 0.0 ).xz;          // a.w = .x (left), a.z = .z (top)
+    a.x  = textureLod( sampler2D( blendTex, u_LinearClampSampler ), offset.xy, 0.0 ).a;          // right
+    a.y  = textureLod( sampler2D( blendTex, u_LinearClampSampler ), offset.zw, 0.0 ).g;          // bottom
+    a.wz = textureLod( sampler2D( blendTex, u_LinearClampSampler ), texcoord, 0.0 ).xz;          // a.w = .x (left), a.z = .z (top)
 
     if ( dot( a, vec4( 1.0 ) ) < 1e-5 )
-        return textureLod( colorTex, texcoord, 0.0 );
+        return textureLod( sampler2D( colorTex, u_LinearClampSampler ), texcoord, 0.0 );
 
     bool h = max( a.x, a.z ) > max( a.y, a.w );
 
@@ -383,8 +387,8 @@ vec4 SMAANeighborhoodBlending( sampler2D colorTex, sampler2D blendTex, vec2 texc
 
     vec4 blendingCoord = blendingOffset * vec4( metrics.xy, -metrics.xy ) + texcoord.xyxy;
 
-    vec4 color = blendingWeight.x * textureLod( colorTex, blendingCoord.xy, 0.0 );
-    color += blendingWeight.y * textureLod( colorTex, blendingCoord.zw, 0.0 );
+    vec4 color = blendingWeight.x * textureLod( sampler2D( colorTex, u_LinearClampSampler ), blendingCoord.xy, 0.0 );
+    color += blendingWeight.y * textureLod( sampler2D( colorTex, u_LinearClampSampler ), blendingCoord.zw, 0.0 );
     return color;
 }
 

@@ -134,7 +134,9 @@ namespace Desert::Graphic
 
         // THE WORLD WEATHER, as Assets::CloudFarWeatherUniform packs it: y the weather strength = PatchStrength
         // (ZERO when a painted pattern is the weather or the strength is nil), w 1 / kCloudFarWeatherPeriodKm;
-        // x the far path's read scale of the same map (Assets::CloudFarFieldScale); z unread (kCloudUnreadSlots).
+        // x the far path's read scale of the same map (Assets::CloudFarFieldScale); z the Coverage slider, laid
+        // over the uniform by PackCloudParams from the RESOLVED material (WTH-CLOUDS) — the march thresholds the
+        // baked field by it (Assets::CloudProceduralCoverageRemap), so the weather moves it with no re-bake.
         // The march remaps the baked profile by the W this decides — Assets::CloudProceduralCoverRemap is the CPU
         // half of the same remap. Before the trailing vec3 for the reason Albedo is.
         glm::vec4 Weather;
@@ -258,12 +260,11 @@ namespace Desert::Graphic
     /// not a thing in C++: clang takes it as a GNU extension and MSVC rejects it outright (C2466). That
     /// has reached `dev` twice in one day from two censuses that achieved their own goal. A type has to be
     /// able to express its structure's success.
-    inline constexpr std::array<CloudUnreadSlot, 3> kCloudUnreadSlots = {
+    inline constexpr std::array<CloudUnreadSlot, 2> kCloudUnreadSlots = {
          { { "u_CloudLayoutStrength", 'z',
              "the layout has two strengths and a grid of vec4s grows by four; the place took its own vec4 "
              "whole, so the two strengths leave two floats nobody has a number for" },
-           { "u_CloudLayoutStrength", 'w', "as z" },
-           { "u_CloudWeather", 'z', "held the cover's softness past a rank; the bake's since CUT-AT-BAKE" } } };
+           { "u_CloudLayoutStrength", 'w', "as z" } } };
 
     /// How many of the block's floats a shader is expected to fetch. DERIVED, so the two halves of the
     /// claim — the layout and the exceptions — cannot be adjusted independently.
@@ -957,6 +958,10 @@ namespace Desert::Graphic
         // a second authored copy here is how the fill and the read end up disagreeing about the slice
         // mapping.
         p.Weather        = region.Weather;
+        // THE COVERAGE THRESHOLD IS THIS FRAME'S, not the bake's (WTH-CLOUDS): the region's uniform is a function
+        // of the baked parameters, which no longer change with Coverage, so the live value comes from the
+        // material resolved this frame — the .demat chain with the weather's DynamicParams laid over it.
+        p.Weather.z      = std::clamp( material.Coverage, 0.0f, 1.0f );
         p.LayoutPlace    = region.LayoutPlace;
         p.LayoutStrength = glm::vec4( region.LayoutStrength, 0.0f, 0.0f );
         for ( uint32_t band = 0; band < kCloudFarBandSlots; ++band )

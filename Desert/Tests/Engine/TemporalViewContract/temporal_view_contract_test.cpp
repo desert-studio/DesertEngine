@@ -4,6 +4,7 @@
 // headers only; it does not link until TAA1's implementation step lands, and that step is done when this suite
 // passes unchanged. No GPU: the graph is a bare RDG::Builder that is never executed, and the upscaler is a fixture
 // that declares the same history TAA does.
+#include <Engine/Graphic/API/UpscalerBuild.hpp>
 #include <Engine/Graphic/GraphImageImporter.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/ImageFactory.hpp>
@@ -31,6 +32,8 @@ namespace Scal = Common::Scalability;
 
 namespace
 {
+    // The resolved quality BeginFrame hands HistoryDescs (ViewInputs::Scalability); the fixtures read none of it.
+    const Scal::ResolvedQuality kResolvedQuality{};
     constexpr ViewExtent k1080p{ 1920, 1080 };
 
     // ResultStr::GetValue is deleted on an rvalue (it would hand out a reference into a dying temporary).
@@ -78,7 +81,8 @@ namespace
         {
             return ( m_Method == TemporalMethod::TAAU ) == ( split.Mode == Scal::ScaleMode::Upscale );
         }
-        [[nodiscard]] std::vector<HistoryTextureDesc> HistoryDescs( const ResolutionSplit& split ) const override
+        [[nodiscard]] std::vector<HistoryTextureDesc>
+        HistoryDescs( const ResolutionSplit& split, const Scal::ResolvedQuality& /*quality*/ ) const override
         {
             const ViewExtent   side = split.Mode == Scal::ScaleMode::Supersample ? split.Render : split.Output;
             HistoryTextureDesc desc;
@@ -109,6 +113,7 @@ namespace
         in.CameraIdentity = 7;
         in.SceneIdentity  = 1;
         in.Output         = k1080p;
+        in.Scalability    = &kResolvedQuality;
         in.AntiAliasing   = Path( Scal::AntiAliasingMethod::TAA );
         in.TimeSeconds    = time;
         return in;
@@ -180,13 +185,17 @@ TEST( TemporalViewContract, MethodRefusesWhatScalabilityNeverProduces )
     // Below 100 % with no upscaler, and an upscaler at native scale: SCAL1's Resolve rule 5 removes both.
     EXPECT_FALSE( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), Scal::Upscaler::None ).IsSuccess() );
     EXPECT_FALSE( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 100 ), Scal::Upscaler::TAAU ).IsSuccess() );
-    // A vendor upscaler has no implementation in this build: an error naming it, not a quiet TAAU.
-    for ( const Scal::Upscaler vendor :
-          { Scal::Upscaler::FSR, Scal::Upscaler::DLSS, Scal::Upscaler::XeSS, Scal::Upscaler::MetalFX } )
+    // A vendor upscaler with no implementation in this build: an error naming it, not a quiet TAAU. FSR and DLSS
+    // have one exactly where their SDK is built (API/UpscalerBuild.hpp), XeSS and MetalFX nowhere yet.
+    for ( const Scal::Upscaler vendor : { Scal::Upscaler::XeSS, Scal::Upscaler::MetalFX } )
     {
         const auto chosen = SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), vendor );
         EXPECT_FALSE( chosen.IsSuccess() );
     }
+    EXPECT_EQ( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), Scal::Upscaler::FSR ).IsSuccess(),
+               kFsrBuilt );
+    EXPECT_EQ( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), Scal::Upscaler::DLSS ).IsSuccess(),
+               kDlssBuilt );
 }
 
 // ---- Jitter -------------------------------------------------------------------------------------------------
@@ -315,7 +324,7 @@ TEST( TemporalViewContract, NonTemporalFrameIsUnjitteredAndHoldsNoHistory )
     EXPECT_EQ( f.JitterSequenceLength, 0u );
     EXPECT_EQ( f.JitterNdc, glm::vec2( 0.0f ) );
     EXPECT_EQ( f.JitteredProjection, f.Projection ); // bit-identical to a pre-TAA1 frame
-    EXPECT_EQ( state.History().HeldBytes(), 0u );
+    EXPECT_TRUE( state.History().Descs().empty() );
 }
 
 TEST( TemporalViewContract, UpscaleBiasesMaterialMipsByTheScale )
@@ -397,7 +406,7 @@ TEST( TemporalViewContract, VelocityDefaultsToZeroMotionAndHistoryInvalidates )
 {
     EXPECT_EQ( kVelocityFaultDefault, RDG::FaultDefault::Black );
     EXPECT_EQ( kHistoryFaultPolicy, RDG::ExternalFaultPolicy::InvalidateHistory );
-    EXPECT_EQ( kVelocityFormat, Desert::Core::Formats::ImageFormat::RG16F );
+    EXPECT_EQ( kVelocityFormat, Desert::Core::Formats::ImageFormat::RGBA16F );
 }
 
 TEST( TemporalViewContract, HistoryLostToAFaultResetsTheNextFrame )
@@ -426,14 +435,17 @@ TEST( TemporalViewContract, HistoryShapeComesFromTheUpscalerAndResizeRecreatesIt
     SceneViewState        state;
     const FixtureUpscaler taa( TemporalMethod::TAA );
     (void)state.BeginFrame( Inputs( 1.0 ), &taa );
-    const uint64_t at1080 = state.History().HeldBytes();
-    EXPECT_EQ( at1080, 2ull * 1920 * 1080 * 8 ); // a pair of RGBA16F at OutputExtent
+    ASSERT_EQ( state.History().Descs().size(), 1u );
+    EXPECT_EQ( state.History().Descs()[0].Desc.Size.Width, 1920u ); // at OutputExtent
+    EXPECT_EQ( state.History().Descs()[0].Desc.Size.Height, 1080u );
     state.EndFrame( RDG::ExecuteReport{} );
 
     ViewInputs smaller = Inputs( 1.25 );
     smaller.Output     = { 1280, 720 };
     (void)state.BeginFrame( smaller, &taa );
-    EXPECT_EQ( state.History().HeldBytes(), 2ull * 1280 * 720 * 8 );
+    ASSERT_EQ( state.History().Descs().size(), 1u );
+    EXPECT_EQ( state.History().Descs()[0].Desc.Size.Width, 1280u );
+    EXPECT_EQ( state.History().Descs()[0].Desc.Size.Height, 720u );
 }
 
 // ---- MotionHistory ------------------------------------------------------------------------------------------
@@ -506,7 +518,9 @@ TEST( TemporalViewContract, ASceneChangeClearsMotion )
 // 16-byte std430 stride. VelocityTarget.GpuObjectMotionHasAStd430TwinInGlsl pins the GLSL twin member by member.
 TEST( TemporalViewContract, GpuObjectMotionIsTwoMatricesAndTwoPaletteOffsets )
 {
-    EXPECT_EQ( sizeof( GpuObjectMotion ), 144u );
+    EXPECT_EQ( sizeof( GpuObjectMotion ), 160u );
+    EXPECT_EQ( offsetof( GpuObjectMotion, SkinCacheAddressLo ), 136u );
+    EXPECT_EQ( offsetof( GpuObjectMotion, SkinCacheVertexCount ), 144u );
     EXPECT_EQ( offsetof( GpuObjectMotion, PrevWorld ), 64u );
     EXPECT_EQ( offsetof( GpuObjectMotion, BoneOffset ), 128u );
     EXPECT_EQ( offsetof( GpuObjectMotion, PrevBoneOffset ), 132u );
@@ -615,9 +629,10 @@ namespace
         OneNameUpscaler() : FixtureUpscaler( TemporalMethod::TAA )
         {
         }
-        [[nodiscard]] std::vector<HistoryTextureDesc> HistoryDescs( const ResolutionSplit& split ) const override
+        [[nodiscard]] std::vector<HistoryTextureDesc>
+        HistoryDescs( const ResolutionSplit& split, const Scal::ResolvedQuality& quality ) const override
         {
-            std::vector<HistoryTextureDesc> descs = FixtureUpscaler::HistoryDescs( split );
+            std::vector<HistoryTextureDesc> descs = FixtureUpscaler::HistoryDescs( split, quality );
             descs.front().PreviousName            = descs.front().Name;
             return descs;
         }
@@ -747,5 +762,5 @@ TEST( TemporalViewContract, AnUpscalerWhoseHistorySidesShareANameIsRefused )
     const auto            frame = state.BeginFrame( Inputs( 1.0 ), &oneName );
     ASSERT_FALSE( frame.IsSuccess() );
     EXPECT_NE( std::string( frame.GetError() ).find( "TAA.History" ), std::string::npos ) << frame.GetError();
-    EXPECT_EQ( state.HeldBytes(), 0u ) << "a refused frame changed the state";
+    EXPECT_TRUE( state.History().Descs().empty() ) << "a refused frame changed the state";
 }

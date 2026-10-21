@@ -74,17 +74,30 @@ namespace Desert::ECS
             return calls;
         }
 
-        std::size_t DeliverBreaks( const DestructionEventQueue& queue, const ComponentEvents& events )
+        std::size_t DeliverDestruction( const DestructionEventQueue& queue, const ComponentEvents& events )
         {
-            const Reflection::EventInfo* broke = RequireEvent( "DestructibleData", "OnBreak" );
-            if ( broke == nullptr )
+            const Reflection::EventInfo* broke    = RequireEvent( "DestructibleData", "OnBreak" );
+            const Reflection::EventInfo* collided = RequireEvent( "DestructibleData", "OnCollision" );
+            const Reflection::EventInfo* removed  = RequireEvent( "DestructibleData", "OnRemoved" );
+            if ( broke == nullptr || collided == nullptr || removed == nullptr )
                 return 0;
             std::size_t calls = 0;
-            for ( const DestructionBreakEvent& fact : queue.Breaks )
+            for ( const DestructibleBreakEvent& fact : queue.Breaks )
                 if ( events.IsBound( fact.Self, *broke ) )
                     calls += Fire( events, fact.Self, *broke,
-                                   Reflection::EventPayload<DestructibleData::OnBreak>( fact.Node, fact.Position,
-                                                                                        fact.Velocity ) );
+                                   Reflection::EventPayload<DestructibleData::OnBreak>(
+                                        fact.Node, fact.Position, fact.Velocity, fact.MassKg, fact.PieceCount ) );
+            for ( const DestructibleCollisionEvent& fact : queue.Collisions )
+                if ( events.IsBound( fact.Self, *collided ) )
+                    calls += Fire(
+                         events, fact.Self, *collided,
+                         Reflection::EventPayload<DestructibleData::OnCollision>(
+                              fact.Node, fact.Position, fact.Normal, fact.Impulse, fact.Velocity, fact.MassKg ) );
+            for ( const DestructibleRemovalEvent& fact : queue.Removals )
+                if ( events.IsBound( fact.Self, *removed ) )
+                    calls += Fire( events, fact.Self, *removed,
+                                   Reflection::EventPayload<DestructibleData::OnRemoved>(
+                                        fact.Node, fact.Position, fact.MassKg, fact.PieceCount ) );
             return calls;
         }
     } // namespace
@@ -111,7 +124,7 @@ namespace Desert::ECS
         if ( newContacts )
             calls += DeliverContacts( *contacts, *events );
         if ( newBreaks )
-            calls += DeliverBreaks( *breaks, *events );
+            calls += DeliverDestruction( *breaks, *events );
         return calls;
     }
 } // namespace Desert::ECS

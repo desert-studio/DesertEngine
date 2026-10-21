@@ -4,13 +4,21 @@
 // UE 5.8 Engine/Shaders/Private/DistanceField/GlobalDistanceFieldCompositeObjects.usf (the per-voxel min over the
 // culled object list), adapted: the brick's object list arrives from the CPU cull (GlobalDistanceField::Update)
 // instead of a GPU culling grid, the output is a dense toroidal clipmap instead of a page atlas.
+// THE OBJECT GRID in the same pass (UE CompositeObjectsIntoObjectGridPagesCS, GlobalDistanceFieldObjectGrid.ush):
+// every cell of two voxels lists the four instance-table rows whose mesh surface lies nearest its centre, within the
+// card interpolation range, sorted nearest first (GlobalDistanceField.hpp, THE OBJECT GRID). The brick's object list
+// already holds them: it is culled with the four-voxel influence radius, a cell asks for less than that.
 Shader "GlobalDistanceFieldComposite"
 {
     Compute
     {
         LocalSize(8, 8, 8);
 
-        Uniform(0) sampler3D u_DFBrickAtlas;
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound once by the pass by name and numbered by the program build (SharedSamplerBinding.hpp).
+        Uniform sampler u_LinearRepeatSampler;
+        Uniform(0) texture3D u_DFBrickAtlas;
+        #define u_DFBrickAtlas sampler3D(u_DFBrickAtlas, u_LinearRepeatSampler)
         ReadBuffer(1) DFAssetData
         {
             vec4 u_DFAssetData[];
@@ -33,17 +41,86 @@ Shader "GlobalDistanceFieldComposite"
         {
             uint u_BrickObjects[];
         };
-        layout(binding = 6, r32f) restrict writeonly uniform image3D u_Clipmap;
+        // (distance cm, coverage): the coverage is UE's coverage atlas (GlobalDistanceFieldCompositeObjects.usf
+        // COMPOSITE_COVERAGE_ATLAS), stored beside the distance instead of in pages of its own.
+        layout(binding = 6, rg16f) restrict writeonly uniform image3D u_Clipmap;
+        layout(binding = 8, r32ui) restrict writeonly uniform uimage3D u_ObjectGrid;
 
         PushConstant GDFCompositePush
         {
             uint  u_FirstBrick;      // this clipmap's first entry in u_UpdateBricks
             float u_VoxelSize;       // centimetres
             float u_InfluenceRadius; // centimetres
-            uint  u_Pad;
+            uint  u_Level;           // the object grid's slab of this clipmap
         };
 
         #include <Common/MeshDistanceField.glslh>
+
+        #define GDF_OBJECT_GRID_INVALID 0xFFFFFFFFu
+
+        // UE PackObjectGridCellIndex: the row under its distance quantised to 8 bits, so a smaller word is nearer.
+        uint PackObjectGridSlot(uint row, float distance, float cellExtent, float maxQuery)
+        {
+            const float normalized = clamp((distance + 0.25 * cellExtent) / (maxQuery + 0.25 * cellExtent), 0.0, 1.0);
+            const uint  quantised  = uint(clamp(normalized * 256.0, 0.0, 255.0));
+            return (row & 0xFFFFFFu) | (quantised << 24u);
+        }
+
+        // UE AddToObjectGridCell: replaces the farthest of the four when the new one is nearer.
+        void AddToObjectGridCell(inout uvec4 cell, uint packed)
+        {
+            const uint farthest = max(max(cell.x, cell.y), max(cell.z, cell.w));
+            if (packed >= farthest)
+                return;
+            for (int i = 0; i < GDF_OBJECT_GRID_SLOTS; ++i)
+                if (cell[i] == farthest)
+                {
+                    cell[i] = packed;
+                    return;
+                }
+        }
+
+        // The cells of the brick: one invocation per cell (the even voxel of each 2^3 block) lists its rows.
+        void CompositeObjectGridCell(ivec4 brick, uint listOffset, uint count)
+        {
+            if (any(notEqual(gl_LocalInvocationID % uint(GDF_OBJECT_GRID_CELL_VOXELS), uvec3(0u))))
+                return;
+            const ivec3 cell       = brick.xyz * (GDF_UPDATE_BRICK / GDF_OBJECT_GRID_CELL_VOXELS) +
+                                     ivec3(gl_LocalInvocationID) / GDF_OBJECT_GRID_CELL_VOXELS;
+            const float cellSize   = float(GDF_OBJECT_GRID_CELL_VOXELS) * u_VoxelSize;
+            const vec3  centre     = (vec3(cell) + 0.5) * cellSize;
+            const float cellExtent = 0.5 * cellSize;
+            const float range      = GDF_OBJECT_GRID_INTERPOLATION_VOXELS * u_VoxelSize;
+            // UE MaxQueryDistance: the cell's half diagonal (1.44 of its half size) plus the interpolation range.
+            const float maxQuery   = 1.44 * cellExtent + range;
+            uvec4 slots = uvec4(GDF_OBJECT_GRID_INVALID);
+            for (uint i = 0u; i < count; ++i)
+            {
+                const uint objectIndex = u_BrickObjects[listOffset + 1u + i];
+                const uint row = floatBitsToUint(u_DFObjects[objectIndex * uint(DF_OBJECT_STRIDE) +
+                                                             uint(DF_OBJECT_ROW_FLAGS)].y);
+                if (row == GDF_OBJECT_GRID_INVALID)
+                    continue;
+                const float distance = DistanceToNearestSurfaceForObject(objectIndex, centre, maxQuery);
+                if (abs(distance) < maxQuery)
+                    AddToObjectGridCell(slots, PackObjectGridSlot(row, distance, cellExtent, maxQuery));
+            }
+            // UE SortObjectGridCell: nearest first, the invalid words last.
+            for (int pass = 0; pass < GDF_OBJECT_GRID_SLOTS - 1; ++pass)
+                for (int i = 0; i < GDF_OBJECT_GRID_SLOTS - pass - 1; ++i)
+                {
+                    const uint a = min(slots[i], slots[i + 1]);
+                    const uint b = max(slots[i], slots[i + 1]);
+                    slots[i]     = a;
+                    slots[i + 1] = b;
+                }
+            const ivec3 wrapped = ((cell % GDF_OBJECT_GRID_RESOLUTION) + GDF_OBJECT_GRID_RESOLUTION) %
+                                  GDF_OBJECT_GRID_RESOLUTION;
+            const ivec3 base = ivec3(wrapped.x * GDF_OBJECT_GRID_SLOTS, wrapped.y,
+                                     int(u_Level) * GDF_OBJECT_GRID_RESOLUTION + wrapped.z);
+            for (int i = 0; i < GDF_OBJECT_GRID_SLOTS; ++i)
+                imageStore(u_ObjectGrid, base + ivec3(i, 0, 0), uvec4(slots[i]));
+        }
 
         void main()
         {
@@ -51,16 +128,30 @@ Shader "GlobalDistanceFieldComposite"
             const ivec3 voxel = brick.xyz * GDF_UPDATE_BRICK + ivec3(gl_LocalInvocationID);
             const vec3  world = (vec3(voxel) + 0.5) * u_VoxelSize;
 
+            // Every object's surface makes the distance; only a SOLID one (not mostly two-sided) covers the voxel.
             float minDistance = u_InfluenceRadius;
+            float minSolid    = u_InfluenceRadius;
             const uint listOffset = uint(brick.w);
             const uint count = u_BrickObjects[listOffset];
             for (uint i = 0u; i < count; ++i)
             {
                 const uint objectIndex = u_BrickObjects[listOffset + 1u + i];
-                minDistance = min(minDistance, DistanceToNearestSurfaceForObject(objectIndex, world, minDistance));
+                const uint flags = floatBitsToUint(u_DFObjects[objectIndex * uint(DF_OBJECT_STRIDE) +
+                                                               uint(DF_OBJECT_ROW_FLAGS)].x);
+                const bool foliage = (flags & uint(DF_OBJECT_FLAG_MOSTLY_TWO_SIDED)) != 0u;
+                const float d = DistanceToNearestSurfaceForObject(objectIndex, world, foliage ? minDistance : minSolid);
+                minDistance = min(minDistance, d);
+                if (!foliage)
+                    minSolid = min(minSolid, d);
             }
+            // COVERED: a solid surface within one voxel of the voxel centre - the band the trace's expanded surface
+            // can stop in - so the trilinear coverage is 1 wherever a ray may hit solid geometry, and falls to 0
+            // across one voxel into foliage-only space.
+            const float coverage = minSolid < u_VoxelSize ? 1.0 : 0.0;
             const ivec3 texel = ((voxel % GDF_RESOLUTION) + GDF_RESOLUTION) % GDF_RESOLUTION;
-            imageStore(u_Clipmap, texel, vec4(clamp(minDistance, -u_InfluenceRadius, u_InfluenceRadius)));
+            imageStore(u_Clipmap, texel,
+                       vec4(clamp(minDistance, -u_InfluenceRadius, u_InfluenceRadius), coverage, 0.0, 0.0));
+            CompositeObjectGridCell(brick, listOffset, count);
         }
     }
 }

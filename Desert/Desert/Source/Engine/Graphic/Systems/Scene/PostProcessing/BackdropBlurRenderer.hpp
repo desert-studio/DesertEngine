@@ -79,13 +79,14 @@ namespace Desert::Graphic::System
                                         Renderer::GetPipelineRouteFill( *m_DownsamplePipeline ) );
             if ( mip == 0 )
             {
-                block.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                               RDG::SamplerDesc::LinearClamp() );
+                block.Texture( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                     .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
             }
             else
             {
-                block.Sampled( "u_Source", pyramid, RDG::Access::SampledCompute,
-                               RDG::SubresourceRange::Mip( mip - 1 ), RDG::SamplerDesc::LinearClamp() );
+                block.Texture( "u_Source", pyramid, RDG::Access::SampledCompute,
+                               RDG::SubresourceRange::Mip( mip - 1 ) )
+                     .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
             }
             block.Storage( "u_Output", pyramid, RDG::Access::StorageWrite, mip )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( DownsamplePush ) ) );

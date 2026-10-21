@@ -14,6 +14,7 @@
 #include "Editor/LevelEditor/DocumentHost.hpp"
 #include "Editor/LevelEditor/MainMenu.hpp"
 #include "Editor/LevelEditor/PlaySession.hpp"
+#include "Editor/LevelEditor/ScriptDebugServer.hpp"
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/ViewportCommands.hpp"
@@ -84,7 +85,8 @@ namespace Desert::Editor
                                      out.push_back( std::move( command ) );
                                  }
                              } );
-        m_Commands.Register( "Clouds", []( Out& out ) { AppendCloudCommands( out ); } );
+        m_Commands.Register( "Clouds",
+                             [&workspace]( Out& out ) { AppendCloudCommands( out, workspace.ActiveScene() ); } );
         m_Commands.Register( "Language", []( Out& out ) { AppendLanguageCommands( out ); } );
         m_Commands.Register( "Documents", [&documents]( Out& out ) { documents.AppendDocumentCommands( out ); } );
         m_Commands.Register( "Entity", [this]( Out& out ) { m_EntityCommands.Append( out ); } );
@@ -137,6 +139,8 @@ namespace Desert::Editor
         m_Commands.Register( "SceneFiles (save)",
                              [this]( Out& out ) { m_Modules.Files.AppendSaveSceneCommand( out ); } );
         m_Commands.Register( "Play", [this]( Out& out ) { m_Modules.Play.AppendPlayCommands( out ); } );
+        m_Commands.Register( "Script Debugger",
+                             [this]( Out& out ) { m_Modules.ScriptDebug.AppendCommands( out ); } );
         m_Commands.Register( "Edit (Undo, Redo)", []( Out& out ) { MainMenu::AppendUndoRedoCommands( out ); } );
         m_Commands.Register( "Documents (close all)",
                              [&documents]( Out& out ) { documents.AppendCloseAllCommand( out ); } );

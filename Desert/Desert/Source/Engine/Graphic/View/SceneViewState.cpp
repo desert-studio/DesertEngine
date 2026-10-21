@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string_view>
+#include <utility>
 
 namespace Desert::Graphic
 {
@@ -53,6 +54,14 @@ namespace Desert::Graphic
                     return "TAA";
                 case TemporalMethod::TAAU:
                     return "TAAU";
+                case TemporalMethod::DLSS:
+                    return "DLSS";
+                case TemporalMethod::FSR:
+                    return "FSR";
+                case TemporalMethod::TSR:
+                    return "TSR";
+                case TemporalMethod::DLSSRR:
+                    return "DLSSRR";
             }
             return "<unknown TemporalMethod>";
         }
@@ -65,8 +74,16 @@ namespace Desert::Graphic
             seen.reserve( descs.size() * 2 );
             for ( std::size_t i = 0; i < descs.size(); ++i )
             {
+                const bool persistent = descs[i].Lifetime == HistoryLifetime::Persistent;
+                if ( persistent && descs[i].PreviousName != nullptr && descs[i].PreviousName[0] != '\0' )
+                    return Common::MakeFormattedError<bool>(
+                         "SceneViewState::BeginFrame: upscaler '{}' declares the persistent history {} ('{}') with a "
+                         "PreviousName '{}' (a persistent history has one side)",
+                         upscalerName, i, descs[i].Name, descs[i].PreviousName );
                 for ( const char* side : { descs[i].Name, descs[i].PreviousName } )
                 {
+                    if ( persistent && side == descs[i].PreviousName )
+                        continue;
                     const std::string_view name = side != nullptr ? std::string_view( side ) : std::string_view();
                     if ( name.empty() )
                         return Common::MakeFormattedError<bool>(
@@ -84,11 +101,205 @@ namespace Desert::Graphic
         }
     } // namespace
 
+    // ---- VolumetricCloudHistory -----------------------------------------------------------------------------
+
+    RDG::TextureDesc VolumetricCloudHistory::Desc( const ViewExtent halfExtent )
+    {
+        return RDG::TextureDesc{ .Size   = { .Width = halfExtent.Width, .Height = halfExtent.Height },
+                                 .Format = ViewTargetFormats::kCloudTrace };
+    }
+
+    VolumetricCloudHistory::Refs VolumetricCloudHistory::RegisterPrevious( RDG::Builder&    graph,
+                                                                           const ViewExtent halfExtent )
+    {
+        m_Created                                     = false;
+        m_WriterPass                                  = UINT32_MAX;
+        std::array<RDG::ExternalTexture, 2>& previous = m_Slots[m_PreviousSlot];
+        // Another extent is another view size: the pair describes pixels that no longer exist.
+        if ( !m_HasPrevious || !previous[0].Physical || !previous[1].Physical ||
+             m_PreviousExtent.Width != halfExtent.Width || m_PreviousExtent.Height != halfExtent.Height )
+            return {};
+        return { graph.RegisterExternal( previous[0], "Clouds.History.Previous" ),
+                 graph.RegisterExternal( previous[1], "Clouds.HistoryGuide.Previous" ) };
+    }
+
+    VolumetricCloudHistory::Refs VolumetricCloudHistory::CreateCurrent( RDG::Builder&    graph,
+                                                                        const ViewExtent halfExtent )
+    {
+        // The other slot: what it held is two frames old and nothing registers it any more. Emptied first, so a
+        // frame whose extraction does not happen leaves no stale image in it.
+        std::array<RDG::ExternalTexture, 2>& next = m_Slots[m_PreviousSlot ^ 1u];
+        next                                      = {};
+        const RDG::TextureDesc desc               = Desc( halfExtent );
+        const Refs             current{ graph.CreateTexture( desc, "Clouds.History" ),
+                            graph.CreateTexture( desc, "Clouds.HistoryGuide" ) };
+        graph.Extract( current.Scatter, next[0], RDG::Access::SampledCompute );
+        graph.Extract( current.Guide, next[1], RDG::Access::SampledCompute );
+        m_CurrentExtent = halfExtent;
+        m_Created       = true;
+        m_WriterPass    = UINT32_MAX;
+        return current;
+    }
+
+    void VolumetricCloudHistory::SetWriterPass( const uint32_t writerPass )
+    {
+        m_WriterPass = writerPass;
+    }
+
+    void VolumetricCloudHistory::EndFrame( const RDG::ExecuteReport& report )
+    {
+        const bool created = std::exchange( m_Created, false );
+        const bool lost    = m_WriterPass == UINT32_MAX ||
+                          std::ranges::find( report.FaultCulled, m_WriterPass ) != report.FaultCulled.end();
+        const uint32_t next = m_PreviousSlot ^ 1u;
+        if ( !created || lost || !m_Slots[next][0].Physical || !m_Slots[next][1].Physical )
+        {
+            // No pair of THIS frame: the next frame's previous matrices describe this frame, so nothing older may
+            // be reprojected through them. The memory goes with it (a view whose clouds are off holds none).
+            m_Slots       = {};
+            m_HasPrevious = false;
+            return;
+        }
+        m_PreviousSlot   = next;
+        m_PreviousExtent = m_CurrentExtent;
+        m_HasPrevious    = true;
+    }
+
+    void VolumetricCloudHistory::Reset()
+    {
+        m_Slots          = {};
+        m_PreviousExtent = {};
+        m_CurrentExtent  = {};
+        m_PreviousSlot   = 0;
+        m_HasPrevious    = false;
+        m_Created        = false;
+        m_WriterPass     = UINT32_MAX;
+    }
+
+    uint64_t VolumetricCloudHistory::HeldBytes() const
+    {
+        uint64_t bytes = 0;
+        for ( const std::array<RDG::ExternalTexture, 2>& slot : m_Slots )
+            for ( const RDG::ExternalTexture& side : slot )
+                if ( side.Physical )
+                    bytes += TextureBytes( side.Desc );
+        return bytes;
+    }
+
+    // ---- ScreenProbeGatherHistory ---------------------------------------------------------------------------
+
+    namespace
+    {
+        constexpr std::array<std::string_view, ScreenProbeGatherHistory::TextureCount> kScreenProbeHistoryNames{
+             "ScreenProbes.DiffuseIndirect", "ScreenProbes.RoughSpecularIndirect",
+             "ScreenProbes.BackfaceDiffuseIndirect", "ScreenProbes.HistoryGuide" };
+        constexpr std::array<std::string_view, ScreenProbeGatherHistory::TextureCount> kScreenProbePreviousNames{
+             "ScreenProbes.DiffuseIndirect.Previous", "ScreenProbes.RoughSpecularIndirect.Previous",
+             "ScreenProbes.BackfaceDiffuseIndirect.Previous", "ScreenProbes.HistoryGuide.Previous" };
+
+        using ScreenProbeHistorySet = std::array<RDG::ExternalTexture, ScreenProbeGatherHistory::TextureCount>;
+
+        [[nodiscard]] bool AnyMissing( const ScreenProbeHistorySet& set )
+        {
+            return std::ranges::any_of( set,
+                                        []( const RDG::ExternalTexture& texture ) { return !texture.Physical; } );
+        }
+    } // namespace
+
+    RDG::TextureDesc ScreenProbeGatherHistory::Desc( const Texture texture, const ViewExtent extent )
+    {
+        return RDG::TextureDesc{ .Size   = { .Width = extent.Width, .Height = extent.Height },
+                                 .Format = texture == Guide ? ViewTargetFormats::kGIFinalGatherGuide
+                                                            : ViewTargetFormats::kGIFinalGather };
+    }
+
+    ScreenProbeGatherHistory::Refs ScreenProbeGatherHistory::RegisterPrevious( RDG::Builder&    graph,
+                                                                               const ViewExtent extent )
+    {
+        m_Created                                                = false;
+        m_WriterPass                                             = UINT32_MAX;
+        std::array<RDG::ExternalTexture, TextureCount>& previous = m_Slots[m_PreviousSlot];
+        // Another extent is another view size: the set describes pixels that no longer exist.
+        if ( !m_HasPrevious || AnyMissing( previous ) || m_PreviousExtent.Width != extent.Width ||
+             m_PreviousExtent.Height != extent.Height )
+            return {};
+        Refs refs;
+        for ( uint32_t i = 0; i < TextureCount; ++i )
+            refs[i] = graph.RegisterExternal( previous[i], kScreenProbePreviousNames[i] );
+        return refs;
+    }
+
+    ScreenProbeGatherHistory::Refs ScreenProbeGatherHistory::CreateCurrent( RDG::Builder&    graph,
+                                                                            const ViewExtent extent )
+    {
+        // The other slot held the set of two frames ago, which nothing registers any more; emptied first so a
+        // frame whose extraction does not happen leaves no stale image in it.
+        std::array<RDG::ExternalTexture, TextureCount>& next = m_Slots[m_PreviousSlot ^ 1u];
+        next                                                 = {};
+        Refs current;
+        for ( uint32_t i = 0; i < TextureCount; ++i )
+        {
+            current[i] =
+                 graph.CreateTexture( Desc( static_cast<Texture>( i ), extent ), kScreenProbeHistoryNames[i] );
+            graph.Extract( current[i], next[i], RDG::Access::SampledCompute );
+        }
+        m_CurrentExtent = extent;
+        m_Created       = true;
+        m_WriterPass    = UINT32_MAX;
+        return current;
+    }
+
+    void ScreenProbeGatherHistory::SetWriterPass( const uint32_t writerPass )
+    {
+        m_WriterPass = writerPass;
+    }
+
+    void ScreenProbeGatherHistory::EndFrame( const RDG::ExecuteReport& report )
+    {
+        const bool created = std::exchange( m_Created, false );
+        const bool lost    = m_WriterPass == UINT32_MAX ||
+                          std::ranges::find( report.FaultCulled, m_WriterPass ) != report.FaultCulled.end();
+        const uint32_t next = m_PreviousSlot ^ 1u;
+        if ( !created || lost || AnyMissing( m_Slots[next] ) )
+        {
+            // No set of THIS frame: nothing older may be reprojected through the next frame's previous matrices.
+            // The memory goes with it (a view without the screen probe gather holds none).
+            m_Slots       = {};
+            m_HasPrevious = false;
+            return;
+        }
+        m_PreviousSlot   = next;
+        m_PreviousExtent = m_CurrentExtent;
+        m_HasPrevious    = true;
+    }
+
+    void ScreenProbeGatherHistory::Reset()
+    {
+        m_Slots          = {};
+        m_PreviousExtent = {};
+        m_CurrentExtent  = {};
+        m_PreviousSlot   = 0;
+        m_HasPrevious    = false;
+        m_Created        = false;
+        m_WriterPass     = UINT32_MAX;
+    }
+
+    uint64_t ScreenProbeGatherHistory::HeldBytes() const
+    {
+        uint64_t bytes = 0;
+        for ( const std::array<RDG::ExternalTexture, TextureCount>& slot : m_Slots )
+            for ( const RDG::ExternalTexture& texture : slot )
+                if ( texture.Physical )
+                    bytes += TextureBytes( texture.Desc );
+        return bytes;
+    }
+
     // ---- TemporalHistory ------------------------------------------------------------------------------------
 
     bool HistoryTextureDesc::operator==( const HistoryTextureDesc& other ) const
     {
-        return SameTextureDesc( Desc, other.Desc ) && std::string_view( Name ) == std::string_view( other.Name ) &&
+        return SameTextureDesc( Desc, other.Desc ) && Lifetime == other.Lifetime &&
+               std::string_view( Name ) == std::string_view( other.Name ) &&
                std::string_view( PreviousName ) == std::string_view( other.PreviousName );
     }
 
@@ -116,8 +327,17 @@ namespace Desert::Graphic
         for ( std::size_t i = 0; i < m_Pairs.size(); ++i )
         {
             HistoryRefs history;
-            history.Previous = graph.RegisterExternal( m_Pairs[i][m_CurrentSlot ^ 1u], m_Descs[i].PreviousName );
-            history.Current  = graph.RegisterExternal( m_Pairs[i][m_CurrentSlot], m_Descs[i].Name );
+            if ( m_Descs[i].Lifetime == HistoryLifetime::Persistent )
+            {
+                // One side, never swapped: side 0 is the texture.
+                history.Current  = graph.RegisterExternal( m_Pairs[i][0], m_Descs[i].Name );
+                history.Previous = history.Current;
+            }
+            else
+            {
+                history.Previous = graph.RegisterExternal( m_Pairs[i][m_CurrentSlot ^ 1u], m_Descs[i].PreviousName );
+                history.Current  = graph.RegisterExternal( m_Pairs[i][m_CurrentSlot], m_Descs[i].Name );
+            }
             graph.SetFaultPolicy( history.Current, kHistoryFaultPolicy );
             m_RegisteredCurrent.push_back( history.Current.Index );
             refs.push_back( history );
@@ -148,14 +368,6 @@ namespace Desert::Graphic
         m_Images.clear();
         m_CurrentSlot = 0;
         m_RegisteredCurrent.clear();
-    }
-
-    uint64_t TemporalHistory::HeldBytes() const
-    {
-        uint64_t bytes = 0;
-        for ( const HistoryTextureDesc& history : m_Descs )
-            bytes += 2u * TextureBytes( history.Desc ); // the pair
-        return bytes;
     }
 
     // ---- SceneViewState -------------------------------------------------------------------------------------
@@ -210,8 +422,15 @@ namespace Desert::Graphic
                      split.GetValue().RenderScalePercent );
         }
 
+        if ( upscaler != nullptr && inputs.Scalability == nullptr )
+            return Common::MakeFormattedError<ViewFrame>(
+                 "SceneViewState::BeginFrame: upscaler '{}' needs ViewInputs::Scalability (the renderer's "
+                 "resolved "
+                 "quality its history shape is read from), and none was given",
+                 upscaler->DebugName() );
         const std::vector<HistoryTextureDesc> descs =
-             upscaler != nullptr ? upscaler->HistoryDescs( split.GetValue() ) : std::vector<HistoryTextureDesc>{};
+             upscaler != nullptr ? upscaler->HistoryDescs( split.GetValue(), *inputs.Scalability )
+                                 : std::vector<HistoryTextureDesc>{};
         if ( upscaler != nullptr )
         {
             const Common::BoolResultStr named = CheckHistoryNames( descs, upscaler->DebugName() );
@@ -268,9 +487,13 @@ namespace Desert::Graphic
         f.NearPlane      = inputs.NearPlane;
         f.FarPlane       = inputs.FarPlane;
 
-        f.JitterSequenceLength = TemporalJitterSequenceLength( f.Method, f.Split );
+        // The method's own sample pattern (ITemporalUpscaler::JitterSequenceLength / JitterPixels; the engine's
+        // Halton sequence unless a vendor SDK prescribes another). No upscaler = method None = no jitter.
+        f.JitterSequenceLength = upscaler != nullptr ? upscaler->JitterSequenceLength( f.Split ) : 0;
         f.JitterIndex  = ( isReset || f.JitterSequenceLength == 0 ) ? 0 : m_JitterIndex % f.JitterSequenceLength;
-        f.JitterPixels = TemporalJitterPixels( f.JitterIndex, f.JitterSequenceLength );
+        f.JitterPixels         = f.JitterSequenceLength == 0
+                                      ? glm::vec2( 0.0f )
+                                      : upscaler->JitterPixels( f.JitterIndex, f.JitterSequenceLength );
         f.JitterNdc    = JitterPixelsToNdc( f.JitterPixels, f.Split.Render );
 
         // Method None: no jitter at all, so the jittered matrices are bit-identical to the unjittered ones.
@@ -293,22 +516,46 @@ namespace Desert::Graphic
         f.TimeSeconds     = inputs.TimeSeconds;
         f.PrevTimeSeconds = isReset ? inputs.TimeSeconds : m_Committed.TimeSeconds;
         f.DeltaSeconds    = static_cast<float>( f.TimeSeconds - f.PrevTimeSeconds );
+        // A reset has no history to rescale: the previous scale is this frame's own.
+        f.PreExposure     = ScenePreExposure( inputs.LastExposure );
+        f.PrevPreExposure = isReset ? f.PreExposure : m_Committed.PreExposure;
 
-        // Only a TEMPORAL upscale reconstructs output-pixel detail from the jittered samples; the spatial
-        // upscale has one sample per render pixel, and a negative bias there only aliases (UE applies the
-        // screen-percentage mip bias under temporal upsampling only).
-        f.MaterialMipBias = 0.0f;
-        if ( f.Split.Mode == Common::Scalability::ScaleMode::Upscale && f.Method != TemporalMethod::None &&
-             f.Split.Render.Width != 0 && f.Split.Output.Width != 0 )
-            f.MaterialMipBias = std::log2( static_cast<float>( f.Split.Render.Width ) /
-                                           static_cast<float>( f.Split.Output.Width ) );
+        // Only a TEMPORAL method reconstructs output-pixel detail from the jittered samples; the spatial
+        // upscale has one sample per render pixel, and a negative bias there only aliases. The rule is the
+        // method's (ITemporalUpscaler::MaterialMipBias): UE's screen-percentage bias, or the vendor SDK's own.
+        f.MaterialMipBias = upscaler != nullptr ? upscaler->MaterialMipBias( f.Split ) : 0.0f;
+        // A method without one keeps no vendor state (UE drops the third-party history with the method).
+        if ( upscaler == nullptr )
+            m_UpscalerHistory.reset();
 
         f.HistoryReset = reset;
+        f.Parallax     = inputs.Parallax;
+        f.SunDirection = inputs.SunDirection;
 
         m_Pending               = f;
         m_PendingCameraIdentity = inputs.CameraIdentity;
         m_FrameOpen             = true;
         return Common::MakeSuccess( f );
+    }
+
+    VolumetricCloudHistory& SceneViewState::Clouds()
+    {
+        return m_Clouds;
+    }
+
+    const VolumetricCloudHistory& SceneViewState::Clouds() const
+    {
+        return m_Clouds;
+    }
+
+    ScreenProbeGatherHistory& SceneViewState::ScreenProbeGather()
+    {
+        return m_ScreenProbeGather;
+    }
+
+    const ScreenProbeGatherHistory& SceneViewState::ScreenProbeGather() const
+    {
+        return m_ScreenProbeGather;
     }
 
     TemporalHistory& SceneViewState::History()
@@ -331,13 +578,18 @@ namespace Desert::Graphic
                                          ? 0
                                          : ( m_Committed.JitterIndex + 1 ) % m_Committed.JitterSequenceLength;
         m_PendingFaultReset       = m_History.LostToFault( report );
+        m_Clouds.EndFrame( report );
+        m_ScreenProbeGather.EndFrame( report );
         m_History.Swap();
         m_Motion.EndFrame();
     }
 
     void SceneViewState::Reset()
     {
+        m_Clouds.Reset();
+        m_ScreenProbeGather.Reset();
         m_History.Release();
+        m_UpscalerHistory.reset();
         m_Motion.Clear();
         m_HasCommitted            = false;
         m_Pending                 = ViewFrame{};
@@ -349,8 +601,4 @@ namespace Desert::Graphic
         m_JitterIndex             = 0;
     }
 
-    uint64_t SceneViewState::HeldBytes() const
-    {
-        return m_History.HeldBytes();
-    }
 } // namespace Desert::Graphic

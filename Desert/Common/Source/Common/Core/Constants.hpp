@@ -176,8 +176,11 @@ namespace Common::Constants
             VFX,
             Fracture,
             WaterWaves,
+            WorldParameters,
+            Weather,
             Input,
             PhysicsAsset,
+            LandscapeGrassType,
             Cooked,
             COUNT
         };
@@ -279,10 +282,19 @@ namespace Common::Constants
              // Water wave sets (`.dwaves`, UE UWaterWavesAsset) get their own folder for the anim graph's
              // reason: a water body's waves slot offers only what is scanned from here.
              /* WaterWaves    */ { "Water/Waves/", DirRoot::Assets },
+             // World parameter collections (`.dworldparams`, UE UMaterialParameterCollection): the scene's
+             // World Parameters slot offers only what is scanned from here.
+             /* WorldParameters */ { "WorldParameters/", DirRoot::Assets },
+             // Weather presets (`.dweatherpreset`, WTH-STATE): a weather zone's Preset slot offers what is scanned
+             // here.
+             /* Weather       */ { "Weather/", DirRoot::Assets },
              // Input actions and mapping contexts (`.deinputaction`, `.deinputcontext`, UE Enhanced Input).
              /* Input         */ { "Input/", DirRoot::Assets },
              // Physics assets (`.dephysasset`, UE UPhysicsAsset): the ragdoll bodies and joints of a skeleton.
              /* PhysicsAsset  */ { "PhysicsAssets/", DirRoot::Assets },
+             // Landscape grass types (`.degrasstype`, UE ULandscapeGrassType) sit beside the layer infos that
+             // name them, as UE keeps them.
+             /* LandscapeGrassType */ { "Landscape/Grass/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
         } };
 
@@ -628,8 +640,12 @@ namespace Common::Constants
         inline const std::filesystem::path& VFX_PATH            = Detail::Slot( ContentDir::VFX );
         inline const std::filesystem::path& FRACTURE_PATH       = Detail::Slot( ContentDir::Fracture );
         inline const std::filesystem::path& WATER_WAVES_PATH    = Detail::Slot( ContentDir::WaterWaves );
+        inline const std::filesystem::path& WORLD_PARAMETERS_PATH = Detail::Slot( ContentDir::WorldParameters );
+        inline const std::filesystem::path& WEATHER_PATH          = Detail::Slot( ContentDir::Weather );
         inline const std::filesystem::path& INPUT_PATH          = Detail::Slot( ContentDir::Input );
         inline const std::filesystem::path& PHYSICS_ASSET_PATH  = Detail::Slot( ContentDir::PhysicsAsset );
+        inline const std::filesystem::path& LANDSCAPE_GRASS_TYPE_PATH =
+             Detail::Slot( ContentDir::LandscapeGrassType );
         inline const std::filesystem::path& COOKED_PATH         = Detail::Slot( ContentDir::Cooked );
         // Empty while no project is open (a read of an empty path finds nothing, the reader refuses by name).
         inline const std::filesystem::path& PROJECT_CONFIG_PATH = Detail::s_ProjectConfig;

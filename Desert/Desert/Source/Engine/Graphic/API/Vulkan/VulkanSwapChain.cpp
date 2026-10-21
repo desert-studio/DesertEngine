@@ -206,7 +206,8 @@ namespace Desert::Graphic::API::Vulkan
         // NOT VK_CHECK_RESULT, and this is the line the whole task is named after. This function has an
         // error channel of its own, so a failure here can be REPORTED instead of aborting the process; the
         // macro's abort is for invariants, and "the device died while we were rebuilding" is not one.
-        const VkResult created = vkCreateSwapchainKHR( lDevice, &swapChainCreateInfo, nullptr, &m_SwapChain );
+        const VkResult created = vkLogicalDevice->GetPresentationDispatch().vkCreateSwapchainKHR(
+             lDevice, &swapChainCreateInfo, nullptr, &m_SwapChain );
         if ( created != VK_SUCCESS )
         {
             (void)NoteIfDeviceLost( created, "vkCreateSwapchainKHR", __FILE__, __LINE__ );
@@ -218,11 +219,12 @@ namespace Desert::Graphic::API::Vulkan
         {
             for ( auto& imageView : m_SwapChainImages.ImagesView )
                 vkDestroyImageView( lDevice, imageView, nullptr );
-            vkDestroySwapchainKHR( lDevice, oldSwapchain, nullptr );
+            vkLogicalDevice->GetPresentationDispatch().vkDestroySwapchainKHR( lDevice, oldSwapchain, nullptr );
         }
 
         uint32_t swapChainImagesCount = 0u;
-        VK_CHECK_RESULT( vkGetSwapchainImagesKHR( lDevice, m_SwapChain, &swapChainImagesCount, VK_NULL_HANDLE ) );
+        VK_CHECK_RESULT( vkLogicalDevice->GetPresentationDispatch().vkGetSwapchainImagesKHR(
+             lDevice, m_SwapChain, &swapChainImagesCount, VK_NULL_HANDLE ) );
         m_SwapChainImages.Images.resize( swapChainImagesCount );
         m_SwapChainImages.ImagesView.resize( swapChainImagesCount );
 
@@ -231,7 +233,8 @@ namespace Desert::Graphic::API::Vulkan
                  "the rebuilt swapchain has {} image(s) where the first had {}; the per-frame semaphores, fences "
                  "and command buffers are sized by the first count and cannot follow a change.",
                  swapChainImagesCount, Engine::FrameManager::GetInstance().GetMaxFramesInFlight() );
-        VK_CHECK_RESULT( vkGetSwapchainImagesKHR( lDevice, m_SwapChain, &swapChainImagesCount, m_SwapChainImages.Images.data() ) );
+        VK_CHECK_RESULT( vkLogicalDevice->GetPresentationDispatch().vkGetSwapchainImagesKHR(
+             lDevice, m_SwapChain, &swapChainImagesCount, m_SwapChainImages.Images.data() ) );
 
         for ( uint32_t i = 0; i < swapChainImagesCount; i++ )
         {
@@ -347,8 +350,9 @@ namespace Desert::Graphic::API::Vulkan
         // through VK_RETURN_RESULT as an error, and the caller then rebuilt and acquired again on the
         // semaphore this call had already signalled -- the GPU timeout every editor launch died of.
         const VkResult res =
-             vkAcquireNextImageKHR( vkLogicalDevice->GetVulkanLogicalDevice(), m_SwapChain, UINT64_MAX,
-                                    presentCompleteSemaphore, VK_NULL_HANDLE, imageIndex );
+             vkLogicalDevice->GetPresentationDispatch().vkAcquireNextImageKHR(
+                  vkLogicalDevice->GetVulkanLogicalDevice(), m_SwapChain, UINT64_MAX, presentCompleteSemaphore,
+                  VK_NULL_HANDLE, imageIndex );
         switch ( res )
         {
             case VK_SUCCESS:
@@ -457,7 +461,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             for ( auto& view : m_SwapChainImages.ImagesView ) vkDestroyImageView( device, view, nullptr );
             m_BackBufferGraphTextures.clear();
-            vkDestroySwapchainKHR( device, m_SwapChain, nullptr );
+            vkLogicalDevice->GetPresentationDispatch().vkDestroySwapchainKHR( device, m_SwapChain, nullptr );
             m_SwapChain = VK_NULL_HANDLE;
         }
 

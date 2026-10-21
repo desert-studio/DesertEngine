@@ -1,103 +1,140 @@
 #ifndef HZB_TRACE_GLSLH
 #define HZB_TRACE_GLSLH
 
+// Ported from UE 5.8 Engine/Shaders/Private/HZBTracing.ush:33-250 (TraceHZB) and Common.ush:1893 (LineBoxIntersect),
+// adapted: GLSL; our HZB's mip 0 is the full-resolution closest depth (UE's FullResDepth permutation, base mip -1),
+// so there is no separate scene-depth level and no near-start depth scaling; mip sizes are read from the texture
+// (our mips are not padded to a power of two, UE's HZBUvFactor); the thickness test of the stop is the caller's
+// (screen probes: UE's relative depth thickness; SSR: its own confidence), and the linear thickness steps are a
+// separate function (HZBThinSurfaceAhead) the caller runs on a stop it accepted.
+//
 // THE SCREEN TRACE OVER THE CLOSEST-DEPTH HZB (Programs/Deferred/HZB.shader). A hierarchical traversal (Uludag,
-// GPU Pro 5 "Hi-Z Screen-Space Cone-Traced Reflections"; the min-Z walk of AMD FidelityFX SSSR
-// FFX_SSSR_HierarchicalRaymarch, MIT, and of UE Lumen's TraceScreen): the ray walks the texel boundaries of one HZB
-// mip at a time; where it is in front of a texel's closest depth it skips the whole texel and climbs a mip, where it
-// is not it descends one, and it stops when it descends below mip 0 (a hit at full resolution) or runs out of
-// iterations. UE's SSR (SSRTRayCast.ush CastScreenSpaceRay) instead marches a fixed number of linear steps reading
-// the HZB at a roughness-picked level: the walk below finds thin geometry a linear march steps over, and its cost
-// follows the empty space it crosses instead of a step count.
+// GPU Pro 5 "Hi-Z Screen-Space Cone-Traced Reflections"; UE Lumen's TraceHZB): the ray walks the texel boundaries of
+// one HZB mip at a time; where it is in front of a texel's closest depth it skips the whole texel and climbs a mip,
+// where it is not it descends one, and it stops when it descends below mip 0 (a stop at full resolution), reaches the
+// END of its segment, or runs out of iterations.
+//
+// THE SEGMENT. The caller gives the ray's start and end in screen space - the end is where the ray stops mattering
+// (the trace distance, or where the next source takes over: the radiance cache's coverage for screen probes, the
+// fade-out distance for SSR) - and the walk clips the end to the screen box. Bounding the walk by the segment is what
+// makes its cost follow the distance the caller asked about rather than the distance to the screen's edge.
 //
 // THE INCLUDER DECLARES the hierarchy before including this file:
-//   Uniform(n) sampler2D u_HZB; // all mips, point sampled (texelFetch only)
+//   Uniform(n) texture2D u_HZB; // all mips, point sampled (texelFetch only)
+//   #define u_HZB sampler2D(u_HZB, u_PointClampSampler) // through a shared sampler state of the pass
 //
 // Screen space here is (uv, deviceZ): uv (0,0) top-left (Common/ScreenUV.glslh), deviceZ the reversed-Z depth. A
-// straight world ray is a straight line in that space (z/w is affine in the screen), so the ray is origin +
-// t * direction for t >= 0 and every boundary crossing is one division.
+// straight world ray is a straight line in that space (z/w is affine in the screen), so the segment is
+// start + t * (end - start), t in [0, 1], and every boundary crossing is one division.
 //
 // THE CONTRACT WITH THE NEXT SOURCE: HZBTraceScreen says where the ray met the depth buffer, nothing about whether
-// the depth buffer was right to stop it. The caller validates the hit (SSR.shader SSRHitConfidence: thickness, sky,
-// back face, screen edge - HZBScreenEdgeFade) into a CONFIDENCE in [0, 1], and whatever confidence is missing is the share of the ray
-// the next source answers (Common/ReflectionEnvironment.glslh today, the hardware ray continued into the TLAS
-// later): a reflection is never "hit or black".
+// the depth buffer was right to stop it. The caller validates the stop (thickness, sky, back face, screen edge -
+// HZBScreenEdgeFade); what it rejects is answered by the next source, which may start at LastVisible: every point of
+// the segment before it was in front of the closest depth, so nothing the depth buffer holds is there.
 
 struct HZBTraceResult
 {
-	vec3 Position;  // where the walk stopped, (uv, deviceZ)
-	bool Exhausted; // no hit: the iteration budget ran out, or the ray left the screen, before mip 0
+	vec3 Position;    // where the walk stopped, (uv, deviceZ): the stop, or how far it got in front of the depth
+	vec3 LastVisible; // the last texel boundary it crossed in front of the depth (UE OutLastVisibleScreenUV)
+	vec3 End;         // the segment's end after the screen clip
+	bool Stopped;     // descended below mip 0 before the end: Position is on (or behind) a depth texel
+	bool ReachedEnd;  // walked the whole (clipped) segment in front of the depth
+	bool Clipped;     // the screen box cut the segment short of the caller's end
 };
 
-// FFX_SSSR_InitialAdvanceRay: from the origin to the first texel boundary of the most detailed mip, so the walk
-// does not test the origin's own texel against itself.
-void HZBInitialAdvance(vec3 origin, vec3 direction, vec3 invDirection, vec2 mipResolution, vec2 floorOffset,
-                       vec2 uvOffset, out vec3 position, out float t)
+// UE LineBoxIntersect's exit: the share of start -> end inside the box [0,1]^3 (start inside it).
+float HZBSegmentExit(vec3 start, vec3 end)
 {
-	const vec2 mipPosition = mipResolution * origin.xy;
-	const vec2 xyPlane     = (floor(mipPosition) + floorOffset) / mipResolution + uvOffset;
-	const vec2 tPlane      = (xyPlane - origin.xy) * invDirection.xy;
-	t        = min(tPlane.x, tPlane.y);
-	position = origin + t * direction;
+	const vec3 direction = end - start;
+	const vec3 inv       = vec3(direction.x != 0.0 ? 1.0 / direction.x : 3.4e38,
+	                            direction.y != 0.0 ? 1.0 / direction.y : 3.4e38,
+	                            direction.z != 0.0 ? 1.0 / direction.z : 3.4e38);
+	const vec3 first     = (vec3(0.0) - start) * inv;
+	const vec3 second    = (vec3(1.0) - start) * inv;
+	const vec3 furthest  = max(first, second);
+	return clamp(min(min(furthest.x, furthest.y), furthest.z), 0.0, 1.0);
 }
 
-// FFX_SSSR_AdvanceRay, reversed-Z: the nearest of the texel's two exit planes and, for a ray going away from the
-// camera (deviceZ decreasing), the plane of the texel's closest depth. The ray advances only while it is in front of
-// that depth; true when it left the texel sideways while in front of it (the texel is empty for this ray: climb).
-bool HZBAdvance(vec3 origin, vec3 direction, vec3 invDirection, vec2 mipPosition, vec2 mipResolution,
-                vec2 floorOffset, vec2 uvOffset, float surfaceZ, inout vec3 position, inout float t)
+// The walk from @p start to @p end, both (uv, deviceZ) with @p start on the screen; @p maxIterations bounds it (UE
+// r.Lumen.ScreenProbeGather.ScreenTraces.HZBTraversal.MaxIterations).
+HZBTraceResult HZBTraceScreen(vec3 start, vec3 end, int maxIterations)
 {
-	const vec2 xyPlane = (floor(mipPosition) + floorOffset) / mipResolution + uvOffset;
-	vec3       tPlane  = (vec3(xyPlane, surfaceZ) - origin) * invDirection;
-	tPlane.z           = direction.z < 0.0 ? tPlane.z : 3.4e38;
-	const float tMin   = min(min(tPlane.x, tPlane.y), tPlane.z);
-	const bool  inFront = surfaceZ < position.z;
-	const bool  skipped = tMin != tPlane.z && inFront;
-	t        = inFront ? tMin : t;
-	position = origin + t * direction;
-	return skipped;
-}
+	const float exitT = HZBSegmentExit(start, end);
+	HZBTraceResult result;
+	result.End     = start + (end - start) * exitT;
+	result.Clipped = exitT < 1.0;
 
-// The walk. @p origin and @p direction in (uv, deviceZ); @p maxIterations bounds it.
-HZBTraceResult HZBTraceScreen(vec3 origin, vec3 direction, int maxIterations)
-{
-	const int   mostDetailedMip = 0;
-	const int   mipCount        = textureQueryLevels(u_HZB);
-	const vec2  screenSize      = vec2(textureSize(u_HZB, 0));
-	const vec3  invDirection    = vec3(direction.x != 0.0 ? 1.0 / direction.x : 3.4e38,
-	                                   direction.y != 0.0 ? 1.0 / direction.y : 3.4e38,
-	                                   direction.z != 0.0 ? 1.0 / direction.z : 3.4e38);
-	// A boundary crossing lands exactly ON the plane; the offset puts the position inside the next texel.
-	vec2       uvOffset    = 0.005 * exp2(float(mostDetailedMip)) / screenSize;
-	uvOffset               = mix(uvOffset, -uvOffset, lessThan(direction.xy, vec2(0.0)));
+	const int  mipCount     = textureQueryLevels(u_HZB);
+	const vec3 direction    = result.End - start;
+	const vec3 invDirection = vec3(direction.x != 0.0 ? 1.0 / direction.x : 3.4e38,
+	                               direction.y != 0.0 ? 1.0 / direction.y : 3.4e38,
+	                               direction.z != 0.0 ? 1.0 / direction.z : 3.4e38);
+	// Which of a texel's two XY planes the ray leaves through.
 	const vec2 floorOffset = mix(vec2(1.0), vec2(0.0), lessThan(direction.xy, vec2(0.0)));
+	const vec2 offsetSign  = mix(vec2(1.0), vec2(-1.0), lessThan(direction.xy, vec2(0.0)));
 
-	int   mip = mostDetailedMip;
-	vec2  mipResolution = vec2(textureSize(u_HZB, mip));
-	vec3  position;
-	float t;
-	HZBInitialAdvance(origin, direction, invDirection, mipResolution, floorOffset, uvOffset, position, t);
+	// Out of the start's own texel without a test (UE bStepOutOfCurrentTile): no self-intersection. A crossing lands
+	// exactly ON a plane; the offset puts the position inside the next texel.
+	int   mip = 0;
+	vec2  mipResolution = vec2(textureSize(u_HZB, 0));
+	vec2  xyPlane = (floor(start.xy * mipResolution) + floorOffset) / mipResolution + offsetSign * 0.005 / mipResolution;
+	vec2  tPlane  = (xyPlane - start.xy) * invDirection.xy;
+	float t       = min(tPlane.x, tPlane.y);
+	vec3  position = t >= 1.0 ? start : start + t * direction; // the step out ended the segment: nothing to walk
+	float lastAboveT = 0.0;
 
 	int i = 0;
-	while (i < maxIterations && mip >= mostDetailedMip)
+	while (mip >= 0 && i < maxIterations && t < 1.0)
 	{
-		// Off the screen: nothing further along can be on it again (the line is straight).
-		if (any(lessThan(position.xy, vec2(0.0))) || any(greaterThan(position.xy, vec2(1.0))))
-			break;
-		const vec2  mipPosition = mipResolution * position.xy;
-		const ivec2 texel       = clamp(ivec2(mipPosition), ivec2(0), ivec2(mipResolution) - 1);
-		const float surfaceZ    = texelFetch(u_HZB, texel, mip).r;
-		const bool  skipped     = HZBAdvance(origin, direction, invDirection, mipPosition, mipResolution,
-		                                     floorOffset, uvOffset, surfaceZ, position, t);
-		mip = skipped ? min(mip + 1, mipCount - 1) : mip - 1;
-		mipResolution = vec2(textureSize(u_HZB, max(mip, 0)));
+		mipResolution         = vec2(textureSize(u_HZB, mip));
+		xyPlane               = (floor(position.xy * mipResolution) + floorOffset) / mipResolution +
+		                        offsetSign * 0.005 / mipResolution;
+		const ivec2 texel     = clamp(ivec2(position.xy * mipResolution), ivec2(0), ivec2(mipResolution) - 1);
+		const float tileZ     = texelFetch(u_HZB, texel, mip).r;
+		vec3        planes    = (vec3(xyPlane, tileZ) - start) * invDirection;
+		// Reversed-Z: only a ray going away from the camera (deviceZ decreasing) can reach the texel's depth plane.
+		planes.z              = direction.z < 0.0 ? planes.z : 1.0;
+		const float crossing  = min(min(planes.x, planes.y), planes.z);
+		const bool  above     = position.z > tileZ;
+		// In front of the texel and out through its side: the texel is empty for this ray, climb.
+		const bool  skipped   = above && crossing != planes.z;
+		lastAboveT            = skipped ? crossing : lastAboveT;
+		t                     = above ? crossing : t;
+		position              = start + min(t, 1.0) * direction;
+		mip                   = skipped ? min(mip + 1, mipCount - 1) : mip - 1;
 		++i;
 	}
 
-	HZBTraceResult result;
-	result.Position  = position;
-	result.Exhausted = mip >= mostDetailedMip; // the loop left before descending below mip 0
+	result.Position    = position;
+	result.LastVisible = start + min(lastAboveT, 1.0) * direction;
+	result.Stopped     = mip < 0 && t < 1.0;
+	result.ReachedEnd  = t >= 1.0;
 	return result;
+}
+
+// UE TraceHZB's linear thickness steps (r.Lumen.ScreenProbeGather.ScreenTraces.HZBTraversal.
+// NumThicknessStepsToDetermineCertainty): from an accepted stop, @p numSteps mip-0 texels further along the ray; if
+// the ray comes out in front of the depth again within them, what stopped it was thin (grass, hair, foliage
+// cards) and the stop is uncertain.
+bool HZBThinSurfaceAhead(HZBTraceResult walk, vec3 start, int numSteps)
+{
+	const vec2  texelSize = 1.0 / vec2(textureSize(u_HZB, 0));
+	const float remaining = length(walk.End.xy - walk.Position.xy);
+	if (numSteps <= 0 || remaining <= 0.0)
+		return false;
+	const vec2  direction = walk.End.xy - start.xy;
+	const float endTime   = min(length(direction * texelSize * float(numSteps)) / remaining, 1.0);
+	for (int i = 0; i < numSteps; ++i)
+	{
+		const vec3 sampleAt = walk.Position + (float(i) / float(numSteps)) * endTime * (walk.End - walk.Position);
+		if (all(greaterThan(sampleAt.xy, vec2(0.0))) && all(lessThan(sampleAt.xy, vec2(1.0))))
+		{
+			const ivec2 texel = clamp(ivec2(sampleAt.xy / texelSize), ivec2(0), textureSize(u_HZB, 0) - 1);
+			if (sampleAt.z > texelFetch(u_HZB, texel, 0).r)
+				return true;
+		}
+	}
+	return false;
 }
 
 // UE ScreenSpaceReflections.usf's vignette: the last tenth of the screen on each side fades a hit out, so a

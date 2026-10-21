@@ -21,13 +21,13 @@ namespace Desert::Graphic
     // screen with a raw G-buffer channel so the deferred passes can be inspected. Only used in the Deferred path.
     enum class DeferredDebugMode : int
     {
-        Off             = 0,
-        Albedo          = 1,
-        Normal          = 2,
-        Metallic        = 3,
-        Roughness       = 4,
-        AO              = 5,
-        GI              = 6, // indirect light only (whichever GI method is effective) — for judging GI in isolation
+        Off       = 0,
+        Albedo    = 1,
+        Normal    = 2,
+        Metallic  = 3,
+        Roughness = 4,
+        AO        = 5,
+        GI        = 6, // indirect light only (whichever GI method is effective) — for judging GI in isolation
         LightComplexity = 7, // per-pixel count of point/spot light volumes, heat-mapped (UE-style)
         Overdraw        = 8, // additive re-raster of all meshes -> heat-mapped overdraw count (both paths)
         MaterialComplexity =
@@ -42,12 +42,28 @@ namespace Desert::Graphic
         // (hue = direction, brightness = speed), black where the pixel is still. Deferred only, like the G-buffer
         // modes; drawn by "Debug: Velocity" (System::VelocityViewRenderer) after the temporal resolve.
         Velocity = 12,
+        // The WORLD light grid (Graphic/LightGrid.hpp, LightGridLayout::WorldClipmaps): per pixel, the number of
+        // point/spot lights the radiance-cache clipmap cell around its surface lists — what a GI ray hitting that
+        // surface is lit by — heat-mapped, cell edges drawn. Deferred only; drawn by "Debug: LightGridWorld" after
+        // the temporal resolve, and the only reason the frame builds the world grid until GI-RADIANCE-CACHE reads
+        // it.
+        LightGridWorld = 13,
         // The global distance field (Graphic/DistanceField/GlobalDistanceField): UE's "Global DistanceField"
         // visualization - every pixel sphere-traces the four clipmaps; the hit lit by the field's gradient, tinted
         // by the clipmap that answered, the march's step count heat-mapped. Deferred only; drawn by
         // "Debug: Global Distance Field" after the temporal resolve. Today the only reader of the field, so the
         // field is built only while this mode is on.
-        GlobalDistanceField = 13,
+        GlobalDistanceField = 14,
+        // The surface cache (Graphic/GlobalIllumination/SurfaceCacheRenderer): UE's r.Lumen.Visualize views. The
+        // atlas
+        // - its captured layers, a quadrant each (albedo, normal, depth, opacity) - and the Lumen Scene: the world
+        // drawn from the captured cards alone, each card's albedo placed back at its captured depth - and the
+        // Lit Lumen Scene: the same cards showing their FinalLighting (direct light of every source with its
+        // shadow + emissive), UE r.Lumen.Visualize "Lumen Scene" lit. Deferred only; drawn after the temporal
+        // resolve.
+        SurfaceCacheAtlas    = 15,
+        SurfaceCacheScene    = 16,
+        SurfaceCacheSceneLit = 17,
     };
 
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a
@@ -105,6 +121,11 @@ namespace Desert::Graphic
         bool      ShowBoundingBoxes    = false;
         glm::vec3 BoundingBoxColor     = glm::vec3( 0.25f, 0.95f, 0.35f );
         float     BoundingBoxLineWidth = 1.5f;
+
+        // The surface-cache card placement (UE r.Lumen.Visualize.CardPlacement): every drawn static mesh's cards
+        // as wireframe boxes coloured by the direction they face - the check that cards cover the walls and the
+        // kerbs. Drawn by MeshRenderer's debug line pass, like the AABBs (MeshRenderer::SetCardPlacementView).
+        bool ShowCardPlacement = false;
 
         // View modes. These are alternatives to "Lit" rather than overlays, and the editor's View Mode
         // dropdown is what keeps them mutually exclusive; the renderer simply honours whatever it is given.

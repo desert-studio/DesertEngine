@@ -67,13 +67,19 @@ Shader "HeightFog"
         // The scene depth attachment, presented to this dispatch by ComputeImageBeginRead and handed
         // back afterwards. Point-sampled with texelFetch, never filtered: a filtered depth across a
         // silhouette averages foreground and background into a distance where nothing is.
-        Uniform(2) sampler2D u_SceneDepth;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform sampler u_GlobalFilterSampler;
+        Uniform sampler u_LinearRepeatSampler;
+        Uniform(2) texture2D u_SceneDepth;
+        #define u_SceneDepth sampler2D(u_SceneDepth, u_GlobalFilterSampler)
 
         // The sky's camera aerial-perspective volume (Graphic::kFogAerialPerspectiveBinding). Sampled
         // TRILINEARLY — across x and y so the 32x32 froxel grid does not show as blocks over a
         // silhouette, and across z because that interpolation is what turns 16 slices into a smooth
         // distance ramp instead of 16 visible shells.
-        Uniform(3) sampler3D u_AerialPerspective;
+        Uniform(3) texture3D u_AerialPerspective;
+        #define u_AerialPerspective sampler3D(u_AerialPerspective, u_LinearRepeatSampler)
 
         // The sky's DISTANT SKY LIGHT (Graphic::kFogDistantSkyLightBinding): one texel holding the
         // average radiance of the sky, marched this frame from 64 directions at 6 km
@@ -81,7 +87,8 @@ Shader "HeightFog"
         // verbatim, and the right one here: a fog pixel is lit from every direction at once and has no
         // separate ground term to double-count against. Bound on the same terms as the volume above:
         // always bound, read only when u_FogAmbient.w says the value is real.
-        Uniform(4) sampler2D u_DistantSkyLight;
+        Uniform(4) texture2D u_DistantSkyLight;
+        #define u_DistantSkyLight sampler2D(u_DistantSkyLight, u_GlobalFilterSampler)
 
         PushConstant FogPush
         {
@@ -89,6 +96,7 @@ Shader "HeightFog"
             vec4 u_CameraPosition;   // xyz = camera position in world units, w unused
             vec4 u_ApParams;         // x = volume depth (km), y = view distance scale,
                                      // z = 1 when the volume exists, w = 1 when height fog is enabled
+            vec4 u_Exposure;         // x = ViewFrame::PreExposure (scales the inscattering only), yzw unused
         };
 
         LocalSize(8, 8, 1);
@@ -168,7 +176,9 @@ Shader "HeightFog"
             vec3  inscattering = fog.Inscattering + ap.rgb * fog.Transmittance;
             float transmittance = fog.Transmittance * clamp(ap.a, 0.0f, 1.0f);
 
-            imageStore(u_FogApply, coord, vec4(inscattering, transmittance));
+            // The inscattering is radiance and goes into the pre-exposed scene colour; the transmittance is a
+            // ratio and does not (ViewFrame::PreExposure).
+            imageStore(u_FogApply, coord, vec4(inscattering * u_Exposure.x, transmittance));
         }
     }
 }

@@ -12,8 +12,9 @@ and a lead decision went only into an agent's REMAINDER. Rules (lead session onl
 3. Writing a lead decision into a REMAINDER.md gets a reminder: the decision goes into the card body.
 4. A card set to «На проверке»/«Сделано» unblocks its dependents. Owner 10-14: «почему не сделан UI панели?» —
    SCR-DETAILS («Владелец назвал», «после SCR-PORT») lay in the backlog 5 days after SCR-PORT-2 was done. Until a
-   notion-query-data-sources whose SQL names the code AND «Владелец назвал» is run, agent launches are refused and
-   the turn may not end: every owner-named card waiting on that code is either launched or reported to the owner.
+   notion-query-data-sources whose SQL names «Владелец назвал» is run, agent launches are refused: every owner-named
+   card waiting on a handed-in code is either launched or reported to the owner. One query clears every pending code;
+   the turn may end meanwhile (owner 10-19: blocking Stop re-ran the lead's whole turn after each hand-in).
 
 State: ~/.claude/board_guard_state.json {pages: {page_id: code}, writes: {code: t}, pending: {code: t}, agents: {id: code}}.
 """
@@ -22,6 +23,10 @@ import os
 import re
 import sys
 import time
+
+# Windows: the hook event and our messages are UTF-8, not the console code page (cp1251 lost «Код» on 10-20).
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
+    _stream.reconfigure(encoding="utf-8")
 
 STATE = os.path.expanduser("~/.claude/board_guard_state.json")
 CODE_RE = r"[A-Z][A-Z0-9]*(?:-[A-Z0-9+]+)*"
@@ -35,7 +40,7 @@ def load():
             s = json.load(f)
     except (OSError, ValueError):
         s = {}
-    for k in ("pages", "writes", "pending", "agents", "unblock"):
+    for k in ("pages", "writes", "pending", "agents", "unblock", "launched", "stopped"):
         s.setdefault(k, {})
     return s
 
@@ -91,6 +96,18 @@ def deny(reason):
                                  "permissionDecisionReason": "[board_guard] " + reason}})
 
 
+RUNNING_MAX_AGE = 4 * 3600  # an agent with no SubagentStop older than this died with its session (crash, reboot)
+
+
+def running_agent(s, code):
+    """The id of a launched agent for @p code that has not stopped yet, or None."""
+    now = time.time()
+    for aid, c in s["agents"].items():
+        if c == code and aid not in s["stopped"] and now - s["launched"].get(aid, 0) < RUNNING_MAX_AGE:
+            return aid
+    return None
+
+
 def unaccepted(s):
     return sorted(c for c, t in s["pending"].items() if s["writes"].get(c, 0) < t)
 
@@ -102,7 +119,7 @@ UNBLOCK_SQL = ("SELECT \"Код\",\"Статус\",\"Название\" FROM \"c
 
 def unblock_reason(codes):
     return ("сдано " + ", ".join(codes) + " — проверь, что ждало этого среди карточек «Владелец назвал»: "
-            "notion-query-data-sources, SQL с кодом и «Владелец назвал», напр. " + UNBLOCK_SQL.format(codes=" ".join(codes)) +
+            "один notion-query-data-sources с «Владелец назвал» на все сданные коды, напр. " + UNBLOCK_SQL.format(codes=" ".join(codes)) +
             " (затем открой карточки, где в теле «после <КОД>»). Ждавшее — запустить сразу или назвать владельцу причину "
             "(владелец 10-14: SCR-DETAILS 5 дней в бэклоге после SCR-PORT-2).")
 
@@ -120,9 +137,10 @@ def main():
     if event == "SubagentStop":
         code = s["agents"].get(data.get("agent_id") or "") or \
             code_from_transcript(data.get("agent_transcript_path") or "")
+        s["stopped"][data.get("agent_id") or ""] = time.time()
         if code:
             s["pending"][code] = time.time()
-            save(s)
+        save(s)
         sys.exit(0)
 
     if data.get("agent_id"):
@@ -133,8 +151,8 @@ def main():
         if late and not data.get("stop_hook_active"):
             emit({"decision": "block", "reason": "[board_guard] Агенты сдали, карточки не обновлены: " + ", ".join(late) +
                   ". Приём = карточка: Статус (На проверке/Сделано/В работе), «Кто ведёт», итог и остаток в теле."})
-        if s["unblock"] and not data.get("stop_hook_active"):
-            emit({"decision": "block", "reason": "[board_guard] " + unblock_reason(sorted(s["unblock"]))})
+        # Rule 4 is NOT enforced at Stop (owner 10-19: a blocked Stop re-ran the whole lead turn after every
+        # hand-in); it is enforced before the next Agent launch, where the check actually changes what runs.
         sys.exit(0)
 
     if event == "PostToolUse" and tool.startswith("mcp__notion__"):
@@ -157,8 +175,8 @@ def main():
         elif tool.endswith("notion-query-data-sources"):
             sql = json.dumps(tin, ensure_ascii=False)
             if "Владелец назвал" in sql:
-                for code in [c for c in s["unblock"] if re.search(r"(?<![A-Z0-9-])" + re.escape(c) + r"(?![A-Z0-9])", sql)]:
-                    del s["unblock"][code]
+                # One query over the owner-named backlog answers for every code handed in so far (owner 10-19).
+                s["unblock"].clear()
         save(s)
         sys.exit(0)
 
@@ -167,6 +185,7 @@ def main():
         m = re.search(r"agentId\"?\s*[:=]\s*\"?([0-9a-z]{8,})", json.dumps(data.get("tool_response"), ensure_ascii=False))
         if code and m:
             s["agents"][m.group(1)] = code
+            s["launched"][m.group(1)] = time.time()
             save(s)
         sys.exit(0)
 
@@ -185,17 +204,22 @@ def main():
         late = unaccepted(s)
         if late:
             deny("сначала приём на доске: агенты сдали, карточки не обновлены — " + ", ".join(late) +
-                 ". notion-update-page: Статус, «Кто ведёт», итог/остаток в теле.")
+                 ". accept.sh, затем по ~/.claude/tools/lead_templates.md §6: update_properties (Статус, «Чем доказано», Токены) + insert_content (итог/остаток).")
         if tool == "Agent" and s["unblock"]:
             deny(unblock_reason(sorted(s["unblock"])))
         if tool == "Agent":
             code = code_from_text(str(tin.get("prompt") or ""))
             if not code:
                 deny("в промпте нет кода задачи («You are agent <КОД>» или /private/tmp/claude-501/<КОД>/BRIEF.md) — "
-                     "без кода карточку не сверить.")
+                     "без кода карточку не сверить. Промпт — шаблон ~/.claude/tools/lead_templates.md §5.")
+            alive = running_agent(s, code)
+            if alive:
+                deny(f"агент {code} ещё работает ({alive}): второй агент на ту же задачу правит то же дерево и сжигает "
+                     "токены впустую (10-20: двойной PT-GLASS, 2,3 млн). Дождись его уведомления или TaskStop, потом запускай.")
             if code not in s["writes"]:
                 deny(f"нет карточки {code} на доске «Задачи»: создай/обнови ДО запуска (Код={code}, Статус «В работе», "
-                     "Ветка, «Кто ведёт»; заголовок «КОД · …»). Владелец 10-09: «почему я каждый раз тебя тыкаю?»")
+                     "Ветка, «Кто ведёт»; заголовок «КОД · …»): notion-search по коду → update_properties по шаблону "
+                     "~/.claude/tools/lead_templates.md §6, без fetch схемы. Владелец 10-09: «почему я каждый раз тебя тыкаю?»")
     sys.exit(0)
 
 

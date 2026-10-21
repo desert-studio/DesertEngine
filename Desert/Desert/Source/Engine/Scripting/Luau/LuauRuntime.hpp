@@ -99,6 +99,14 @@ namespace Desert::Scripting
         Reflection::Value Value;
     };
 
+    /// Whether a runtime reports to the script debugger (LuauDebugger.hpp): a world's scripts do; a runtime that
+    /// only probes a script (its schema, its SaveGame properties) runs its top level once and must not stop there.
+    enum class LuauDebugging
+    {
+        Off,
+        Attachable,
+    };
+
     /// THE LUAU RUNTIME — one VM, every script in its own sandbox, every call under the watchdog.
     ///
     /// The shape is Roblox's and Luau's own recommended embedding:
@@ -117,7 +125,8 @@ namespace Desert::Scripting
     class LuauRuntime
     {
     public:
-        explicit LuauRuntime( LuauLimits limits = {}, const LuauInstall& install = {} );
+        explicit LuauRuntime( LuauLimits limits = {}, const LuauInstall& install = {},
+                              LuauDebugging debugging = LuauDebugging::Off );
         ~LuauRuntime();
 
         LuauRuntime( const LuauRuntime& )            = delete;

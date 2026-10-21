@@ -1,5 +1,7 @@
 #include <Engine/Graphic/View/ViewFrame.hpp>
 
+#include <Engine/Graphic/API/UpscalerBuild.hpp>
+
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
@@ -36,6 +38,10 @@ namespace Desert::Graphic
                     return "MetalFX";
                 case Scal::Upscaler::Spatial:
                     return "Spatial";
+                case Scal::Upscaler::TSR:
+                    return "TSR";
+                case Scal::Upscaler::DLSSRayReconstruction:
+                    return "DLSSRayReconstruction";
             }
             return "<unknown Upscaler>";
         }
@@ -121,6 +127,14 @@ namespace Desert::Graphic
         {
             if ( upscaler == Scal::Upscaler::TAAU )
                 return Common::MakeSuccess( TemporalMethod::TAAU );
+            if ( upscaler == Scal::Upscaler::TSR )
+                return Common::MakeSuccess( TemporalMethod::TSR );
+            if ( upscaler == Scal::Upscaler::DLSS && kDlssBuilt )
+                return Common::MakeSuccess( TemporalMethod::DLSS );
+            if ( upscaler == Scal::Upscaler::DLSSRayReconstruction && kDlssBuilt )
+                return Common::MakeSuccess( TemporalMethod::DLSSRR );
+            if ( upscaler == Scal::Upscaler::FSR && kFsrBuilt )
+                return Common::MakeSuccess( TemporalMethod::FSR );
             // The spatial upscale has no history and no jitter: the frame's temporal method is None, and only a
             // method without history reaches it (Scalability UpscalerForScale gives a temporal method TAAU).
             if ( upscaler == Scal::Upscaler::Spatial )
@@ -143,6 +157,9 @@ namespace Desert::Graphic
                  UpscalerName( upscaler ), split.RenderScalePercent );
         }
 
+        // Ray Reconstruction at 100 % is DLAA's network with the denoiser (Scalability IsNativeRayReconstruction).
+        if ( Scal::IsNativeRayReconstruction( path.Method, split.RenderScalePercent, upscaler ) && kDlssBuilt )
+            return Common::MakeSuccess( TemporalMethod::DLSSRR );
         if ( upscaler != Scal::Upscaler::None )
             return Common::MakeFormattedError<TemporalMethod>(
                  "SelectTemporalMethod: Upscaler {} at render scale {} % (Scalability Resolve never produces it: "
@@ -159,8 +176,16 @@ namespace Desert::Graphic
             case Scal::AntiAliasingMethod::SMAA:
             case Scal::AntiAliasingMethod::MSAA:
                 return Common::MakeSuccess( TemporalMethod::None );
-            case Scal::AntiAliasingMethod::FSRNative:
+            // A vendor's native AA ("DLAA", "FSR Native AA"). Above 100 % the vendor method is selected too, and
+            // its Supports refuses the supersample split, so ResolveViewResolution clamps the view to 100 % and
+            // says why.
             case Scal::AntiAliasingMethod::DLAA:
+                if ( kDlssBuilt )
+                    return Common::MakeSuccess( TemporalMethod::DLSS );
+                break;
+            case Scal::AntiAliasingMethod::FSRNative:
+                if ( kFsrBuilt )
+                    return Common::MakeSuccess( TemporalMethod::FSR );
                 break;
         }
         return Common::MakeFormattedError<TemporalMethod>(
@@ -178,7 +203,15 @@ namespace Desert::Graphic
                 return 0;
             case TemporalMethod::TAA:
                 return kJitterSamplesPerOutputPixel;
+            // DLSS: NVIDIA's rule is UE's TAAU rule (8 phases per output pixel, the render/output pixel ratio
+            // times it), so it shares TAAU's sequence length below. FSR has its own phase count
+            // (Fsr3Upscaler::JitterSequenceLength overrides the ITemporalUpscaler default); it is listed so this
+            // free function stays total. TSR is UE's TAAU rule too (TemporalSuperResolution.cpp: the jitter
+            // sequence of a temporal upsample, 8 samples per output pixel).
             case TemporalMethod::TAAU:
+            case TemporalMethod::TSR:
+            case TemporalMethod::DLSS:
+            case TemporalMethod::FSR:
                 break;
         }
 
@@ -239,6 +272,8 @@ namespace Desert::Graphic
 
         f.TimeSeconds     = timeSeconds;
         f.PrevTimeSeconds = timeSeconds;
+        f.PreExposure     = 1.0f; // a still camera has no eye adaptation: its output is stored absolute
+        f.PrevPreExposure = f.PreExposure;
         f.HistoryReset    = HistoryResetReason::FirstFrame;
         return f;
     }

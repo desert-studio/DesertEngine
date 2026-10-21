@@ -91,6 +91,11 @@ namespace
             return {};
         }
 
+        bool SamplesTexture( std::string_view ) const override
+        {
+            return false;
+        }
+
         const Desert::Graphic::ShaderVariant& GetVariant() const override
         {
             return m_Variant;

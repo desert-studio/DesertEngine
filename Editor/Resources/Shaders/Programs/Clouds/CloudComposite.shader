@@ -63,18 +63,30 @@ Shader "CloudComposite"
         // places that must agree and is never checked. The cost is eight fetches on a fullscreen pass,
         // against a march that took hundreds of samples per texel.
         //
-        // NO TONEMAP, NO GAMMA, NO EXPOSURE: linear HDR onto linear HDR.
+        // NO TONEMAP, NO GAMMA, NO EXPOSURE: linear HDR onto linear HDR -- except the view's PreExposure, the scale
+        // the scene colour is stored at (ViewFrame::PreExposure): the radiance is multiplied by it, the transmittance
+        // is not. The march and the cloud history stay absolute.
 
         In(0) vec2 v_TexCoord;
 
         Out(0) vec4 o_Color;
 
-        Uniform(0) sampler2D u_CloudScatter;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(2) sampler u_LinearRepeatSampler;
+        Uniform(0) texture2D u_CloudScatter;
+        #define u_CloudScatter sampler2D(u_CloudScatter, u_LinearRepeatSampler)
 
         // The guide, same size as the scatter: .x = cloud front distance (km), .y = scene
         // distance (km). Point-fetched, never filtered — a filtered depth across a silhouette averages
         // near and far into a distance where nothing is, which is the artefact this pass exists to undo.
-        Uniform(1) sampler2D u_CloudGuide;
+        Uniform(1) texture2D u_CloudGuide;
+        #define u_CloudGuide sampler2D(u_CloudGuide, u_LinearRepeatSampler)
+
+        Uniform(3) CloudCompositeUB
+        {
+            vec4 u_Exposure; // x = ViewFrame::PreExposure (MaterialCloudComposite::SetExposure), yzw unused
+        };
 
         // Unreal's coherence threshold: a tenth of the reference distance. Relative rather than absolute
         // because a kilometre of disagreement is a silhouette at three kilometres and nothing at fifty.
@@ -186,7 +198,7 @@ Shader "CloudComposite"
             // source texel can propagate into. Transmittance is clamped both ways because it multiplies
             // the scene: a value above 1 brightens what is BEHIND the cloud, which reads as a glowing
             // rectangle and is very hard to trace back to a filter.
-            o_Color = vec4(max(cloud.rgb, vec3(0.0)), clamp(cloud.a, 0.0, 1.0));
+            o_Color = vec4(max(cloud.rgb, vec3(0.0)) * u_Exposure.x, clamp(cloud.a, 0.0, 1.0));
         }
     }
 

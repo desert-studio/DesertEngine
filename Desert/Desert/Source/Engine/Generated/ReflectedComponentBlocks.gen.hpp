@@ -20,6 +20,7 @@
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/WaterBodyComponent.hpp>
 #include <Engine/ECS/WaterZoneComponent.hpp>
+#include <Engine/ECS/WeatherZoneComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
 
 namespace Desert::Core::Serialize
@@ -53,6 +54,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<::Desert::ECS::ReflectionCaptureComponent, decltype( ::Desert::ECS::ReflectionCaptureComponent::Data )>{ "ReflectionCapture", "ReflectionCaptureData", &::Desert::ECS::ReflectionCaptureComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::RetargetComponent, decltype( ::Desert::ECS::RetargetComponent::Data )>{ "Retarget", "RetargetData", &::Desert::ECS::RetargetComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::RigidBodyComponent, decltype( ::Desert::ECS::RigidBodyComponent::Data )>{ "RigidBody", "RigidBodyData", &::Desert::ECS::RigidBodyComponent::Data, R::ActorsAndUI } );
+        visit( ReflectedMemberBlock<::Desert::ECS::RuntimeGridComponent, decltype( ::Desert::ECS::RuntimeGridComponent::Data )>{ "RuntimeGrid", "RuntimeGridData", &::Desert::ECS::RuntimeGridComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::SkyAtmosphereComponent, decltype( ::Desert::ECS::SkyAtmosphereComponent::Data )>{ "SkyAtmosphere", "SkyAtmosphereData", &::Desert::ECS::SkyAtmosphereComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedWholeBlock<::Desert::ECS::SkyboxComponent>{ "Skybox", "SkyboxComponent", R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::SpotLightComponent, decltype( ::Desert::ECS::SpotLightComponent::Data )>{ "SpotLight", "SpotLightData", &::Desert::ECS::SpotLightComponent::Data, R::ActorsAndUI } );
@@ -96,6 +98,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<::Desert::ECS::VolumetricCloudComponent, decltype( ::Desert::ECS::VolumetricCloudComponent::Data )>{ "VolumetricCloud", "VolumetricCloudData", &::Desert::ECS::VolumetricCloudComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::WaterBodyComponent, decltype( ::Desert::ECS::WaterBodyComponent::Data )>{ "WaterBody", "WaterBodyData", &::Desert::ECS::WaterBodyComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::WaterZoneComponent, decltype( ::Desert::ECS::WaterZoneComponent::Data )>{ "WaterZone", "WaterZoneData", &::Desert::ECS::WaterZoneComponent::Data, R::SkyAndAtmosphere } );
+        visit( ReflectedMemberBlock<::Desert::ECS::WeatherZoneComponent, decltype( ::Desert::ECS::WeatherZoneComponent::Data )>{ "WeatherZone", "WeatherZoneData", &::Desert::ECS::WeatherZoneComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::WindSourceComponent, decltype( ::Desert::ECS::WindSourceComponent::Data )>{ "WindSource", "WindSourceData", &::Desert::ECS::WindSourceComponent::Data, R::SkyAndAtmosphere } );
     }
 } // namespace Desert::Core::Serialize

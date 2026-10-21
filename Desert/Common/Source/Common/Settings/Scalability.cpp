@@ -36,7 +36,7 @@ namespace Common::Scalability
              { P::RenderScalePercent, G::ResolutionScale, "Resolution.Percent", 50, 200, CL::RenderScale,
                "RDG view-target size + upscaler pass" },
              { P::Upscaler, G::ResolutionScale, "Resolution.Upscaler", 0,
-               static_cast<ParameterValue>( Upscaler::Spatial ), CL::Upscalers, "upscaler pass" },
+               static_cast<ParameterValue>( Upscaler::TSR ), CL::Upscalers, "upscaler pass" },
              { P::TextureFilter, G::Filtering, "Filtering.Texture", 0, 3, CL::None,
                "sampler cache (RenderConfig push)" },
              { P::Anisotropy, G::Filtering, "Filtering.Anisotropy", 1, 16, CL::AnisotropyLevels,
@@ -54,13 +54,11 @@ namespace Common::Scalability
                "(u_ContactShadowView.x)" },
              { P::ReflectionMaxSteps, G::Reflections, "Reflections.MaxSteps", 8, 128, CL::None,
                "SSRRenderer trace push constant: HZB traversal iterations per ray (SceneRenderer SSR pass)" },
-             { P::GlobalIlluminationSamples, G::GlobalIllumination, "GlobalIllumination.Samples", 8, 64, CL::None,
-               "GIResolve.shader RSM gather taps (GIResolveUB Params.z)" },
              { P::DistanceFieldPoolMiB, G::GlobalIllumination, "GlobalIllumination.DistanceFieldPoolMiB", 32, 512,
                CL::None,
                "DistanceFieldSceneData::SetPoolMiB - the brick atlas the finer mesh-field mips stream within" },
              { P::AmbientOcclusionSamples, G::PostProcess, "PostProcess.AmbientOcclusionSamples", 4, 32, CL::None,
-               "SSAORenderer kernel sampleCount (SSAO.shader MAX_SAMPLES = 32)" },
+               "SSAORenderer GTAO horizon taps per direction (SSAO.shader kMaxTaps = 32)" },
              { P::BloomMips, G::PostProcess, "PostProcess.BloomMips", 2, 6, CL::None,
                "BloomRenderer::SetMaxMips (SceneRenderer::BeginScene)" },
              { P::MotionBlurQuality, G::PostProcess, "PostProcess.MotionBlurQuality", 0, 2, CL::None,
@@ -79,12 +77,132 @@ namespace Common::Scalability
                "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the reflection method ceiling" },
              { P::ShadowsMethod, G::Shadows, "Shadows.Method", 0, LastOf( kShadowMethodNames.size() ), CL::None,
                "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the shadow method ceiling" },
+             { P::SkinCache, G::Effects, "Effects.SkinCache", 0, 1, CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::SetSkinCacheEnabled -> "
+               "RayTracingSkinCache::SetEnabled" },
              { P::LightGridPixelSize, G::Shadows, "Shadows.LightGridPixelSize", 16, 256, CL::None,
                "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" tiles)" },
              { P::LightGridSlices, G::Shadows, "Shadows.LightGridSlices", 8, 128, CL::None,
                "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" slices)" },
              { P::LightGridMaxLightsPerCell, G::Shadows, "Shadows.LightGridMaxLightsPerCell", 8, 256, CL::None,
                "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" lists)" },
+             { P::ShadowRayTracedSamplesPerPixel, G::Shadows, "Shadows.RayTracedSamplesPerPixel", 1, 8, CL::None,
+               "SceneRenderer::BeginScene -> System::MakeRayTracedSunShadowParams (\"Shadows: Ray Traced Sun\")" },
+             { P::ShadowRayTracedTranslucencyCascades, G::Shadows, "Shadows.RayTracedTranslucencyCascades", 1, 4,
+               CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows under a ray-traced sun (blended "
+               "u_ShadowCascades readers, MeshRenderer::SunCascadeReadersQueued)" },
+             { P::ShadowRayTracedTranslucencyMapSize, G::Shadows, "Shadows.RayTracedTranslucencyMapSize", 256,
+               2048, CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows under a ray-traced sun (blended "
+               "u_ShadowCascades readers, MeshRenderer::SunCascadeReadersQueued)" },
+             { P::ShadowFilterTaps, G::Shadows, "Shadows.FilterTaps", 4, 64, CL::None,
+               "SceneRenderer::BeginScene -> SceneResources::PackShadowFilter (ShadowUB u_ShadowFilter.y: "
+               "Mesh/CascadedShadow.glslh PCSS filter taps)" },
+             { P::ShadowBlockerSearchTaps, G::Shadows, "Shadows.BlockerSearchTaps", 4, 32, CL::None,
+               "SceneRenderer::BeginScene -> SceneResources::PackShadowFilter (ShadowUB u_ShadowFilter.x: "
+               "Mesh/CascadedShadow.glslh PCSS blocker search taps)" },
+             { P::ShadowRayTracedDenoiserRadius, G::Shadows, "Shadows.RayTracedDenoiserRadius", 1, 3, CL::None,
+               "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseShadowVisibility (reconstruction "
+               "kernel)" },
+             { P::ShadowVirtualMaxPhysicalPages, G::Shadows, "Shadows.VirtualMaxPhysicalPages", 256, 8192,
+               CL::None,
+               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (the physical pool)" },
+             { P::ShadowVirtualResolutionLodBias, G::Shadows, "Shadows.VirtualResolutionLodBias", -30, 30,
+               CL::None,
+               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Lod.x, tenths)" },
+             { P::ShadowVirtualSMRTRayCount, G::Shadows, "Shadows.VirtualSMRTRayCount", 0, 16, CL::None,
+               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Smrt.x: "
+               "VirtualShadowMapProject.shader rays)" },
+             { P::ShadowVirtualSMRTSamplesPerRay, G::Shadows, "Shadows.VirtualSMRTSamplesPerRay", 1, 16, CL::None,
+               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Smrt.y: "
+               "VirtualShadowMapProject.shader samples per ray)" },
+             { P::ShadowMegaLightsSamplesPerPixel, G::Shadows, "Shadows.MegaLightsSamplesPerPixel", 1, 4, CL::None,
+               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (reservoirs per pixel)" },
+             { P::ShadowMegaLightsSpatialSamples, G::Shadows, "Shadows.MegaLightsSpatialSamples", 0, 8, CL::None,
+               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (\"MegaLights: Spatial Resampling\")" },
+             { P::ShadowMegaLightsMaxHistory, G::Shadows, "Shadows.MegaLightsMaxHistory", 0, 30, CL::None,
+               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (\"MegaLights: Temporal "
+               "Resampling\")" },
+             { P::ShadowMegaLightsDenoiserRadius, G::Shadows, "Shadows.MegaLightsDenoiserRadius", 1, 3, CL::None,
+               "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseDiffuseIndirect / DenoiseDirectSpecular "
+               "(MegaLights kernel)" },
+             { P::ShadowMegaLightsDownsampleFactor, G::Shadows, "Shadows.MegaLightsDownsampleFactor", 1, 2,
+               CL::None, "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (sample pixels per side)" },
+             { P::ShadowMegaLightsVolumeTilePixels, G::Shadows, "Shadows.MegaLightsVolumeTilePixels", 8, 64,
+               CL::None, "SceneRenderer::BeginScene -> MegaLightsVolumeRenderer::AddPasses (froxel edge, px)" },
+             { P::ShadowMegaLightsVolumeSlices, G::Shadows, "Shadows.MegaLightsVolumeSlices", 16, 128, CL::None,
+               "SceneRenderer::BeginScene -> MegaLightsVolumeRenderer::AddPasses (depth slices)" },
+             { P::ShadowMegaLightsVolumeSamples, G::Shadows, "Shadows.MegaLightsVolumeSamples", 1, 4, CL::None,
+               "SceneRenderer::BeginScene -> MegaLightsVolumeRenderer::AddPasses (traced samples per froxel)" },
+             { P::ShadowRainOcclusionMapSize, G::Shadows, "Shadows.RainOcclusionMapSize", 256, 4096, CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (\"Weather: RainOcclusion\" "
+               "target side)" },
+             { P::ShadowRainOcclusionExtent, G::Shadows, "Shadows.RainOcclusionExtent", 1000, 100000, CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (box side, world cm)" },
+             { P::ShadowRainOcclusionRefreshPercent, G::Shadows, "Shadows.RainOcclusionRefreshPercent", 5, 50,
+               CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (recentre distance)" },
+             { P::ScreenSpaceGISamples, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceSamples", 4, 64,
+               CL::None,
+               "SceneRenderer::BeginScene -> MaterialDeferredLighting (u_ScreenSpaceGI.x: DeferredLighting.shader "
+               "GatherIndirectGI samples)" },
+             { P::ReflectionDenoiserRadius, G::Reflections, "Reflections.DenoiserRadius", 1, 3, CL::None,
+               "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseReflections (reconstruction kernel)" },
+             { P::ReflectionDownsampleFactor, G::Reflections, "Reflections.DownsampleFactor", 1, 2, CL::None,
+               "SceneRenderer::BeginScene -> SSRRenderer::Prepare (trace resolution) + "
+               "ScreenSpaceDenoiser::DenoiseReflections (2x2 block rotation)" },
+             { P::DlssPresetDLAA, G::AntiAliasing, "AntiAliasing.DLSSPreset.DLAA", 0,
+               LastOf( kDlssPresetNames.size() ), CL::None,
+               "DLSSUpscaler (DLSS options of the view's DLAA mode)" },
+             { P::DlssPresetUltraQuality, G::AntiAliasing, "AntiAliasing.DLSSPreset.UltraQuality", 0,
+               LastOf( kDlssPresetNames.size() ), CL::None,
+               "DLSSUpscaler (DLSS options of the view's Ultra Quality mode)" },
+             { P::DlssPresetQuality, G::AntiAliasing, "AntiAliasing.DLSSPreset.Quality", 0,
+               LastOf( kDlssPresetNames.size() ), CL::None,
+               "DLSSUpscaler (DLSS options of the view's Quality mode)" },
+             { P::DlssPresetBalanced, G::AntiAliasing, "AntiAliasing.DLSSPreset.Balanced", 0,
+               LastOf( kDlssPresetNames.size() ), CL::None,
+               "DLSSUpscaler (DLSS options of the view's Balanced mode)" },
+             { P::DlssPresetPerformance, G::AntiAliasing, "AntiAliasing.DLSSPreset.Performance", 0,
+               LastOf( kDlssPresetNames.size() ), CL::None,
+               "DLSSUpscaler (DLSS options of the view's Performance mode)" },
+             { P::DlssPresetUltraPerformance, G::AntiAliasing, "AntiAliasing.DLSSPreset.UltraPerformance", 0,
+               LastOf( kDlssPresetNames.size() ), CL::None,
+               "DLSSUpscaler (DLSS options of the view's Ultra Performance mode)" },
+             { P::DlssRRPresetDLAA, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.DLAA", 0,
+               LastOf( kDlssRRPresetNames.size() ), CL::None,
+               "DLSSUpscaler (Ray Reconstruction options of the view's DLAA mode)" },
+             { P::DlssRRPresetUltraQuality, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.UltraQuality", 0,
+               LastOf( kDlssRRPresetNames.size() ), CL::None,
+               "DLSSUpscaler (Ray Reconstruction options of the view's Ultra Quality mode)" },
+             { P::DlssRRPresetQuality, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.Quality", 0,
+               LastOf( kDlssRRPresetNames.size() ), CL::None,
+               "DLSSUpscaler (Ray Reconstruction options of the view's Quality mode)" },
+             { P::DlssRRPresetBalanced, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.Balanced", 0,
+               LastOf( kDlssRRPresetNames.size() ), CL::None,
+               "DLSSUpscaler (Ray Reconstruction options of the view's Balanced mode)" },
+             { P::DlssRRPresetPerformance, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.Performance", 0,
+               LastOf( kDlssRRPresetNames.size() ), CL::None,
+               "DLSSUpscaler (Ray Reconstruction options of the view's Performance mode)" },
+             { P::DlssRRPresetUltraPerformance, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.UltraPerformance", 0,
+               LastOf( kDlssRRPresetNames.size() ), CL::None,
+               "DLSSUpscaler (Ray Reconstruction options of the view's Ultra Performance mode)" },
+             { P::TemporalUpscaler, G::AntiAliasing, "AntiAliasing.TemporalUpscaler", 0,
+               LastOf( kEngineTemporalUpscalerNames.size() ), CL::None,
+               "Scalability UpscalerForScale (Resolve step 5) + SceneRenderer per-view resolution" },
+             { P::TsrHistoryScreenPercentage, G::AntiAliasing, "AntiAliasing.TSR.HistoryScreenPercentage", 100,
+               200, CL::None, "TemporalSuperResolution::HistoryDescs (history extent)" },
+             { P::TsrHistoryUpdateQuality, G::AntiAliasing, "AntiAliasing.TSR.HistoryUpdateQuality", 0, 3,
+               CL::None, "TemporalSuperResolution (TSR.UpdateHistory shader variant)" },
+             { P::TsrShadingRejectionFlickering, G::AntiAliasing, "AntiAliasing.TSR.ShadingRejectionFlickering", 0,
+               1, CL::None, "TemporalSuperResolution (TSR.RejectShading flicker tolerance)" },
+             { P::TsrRejectionAntiAliasing, G::AntiAliasing, "AntiAliasing.TSR.RejectionAntiAliasingQuality", 0, 2,
+               CL::None, "TemporalSuperResolution (TSR.SpatialAntiAliasing)" },
+             { P::TsrReprojectionField, G::AntiAliasing, "AntiAliasing.TSR.ReprojectionField", 0, 1, CL::None,
+               "TemporalSuperResolution (TSR.DilateVelocity reprojection field, TSR.UpdateHistory)" },
+             { P::TsrResurrection, G::AntiAliasing, "AntiAliasing.TSR.Resurrection", 0, 1, CL::None,
+               "TemporalSuperResolution::HistoryDescs (persistent frames) + TSR.RejectShading resurrection" },
              { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
              { P::TextureStreamingPoolMiB, G::Textures, "Textures.StreamingPoolMiB", 256, 16384, CL::None,
                std::nullopt },
@@ -92,6 +210,66 @@ namespace Common::Scalability
                std::nullopt },
              { P::UpscalerSharpness, G::ResolutionScale, "Resolution.Sharpness", 0, 100, CL::None,
                "post sharpen pass (Graphic::Sharpen)" },
+             { P::SurfaceCacheAtlasSize, G::GlobalIllumination, "GlobalIllumination.SurfaceCacheAtlasSize", 1024,
+               8192, CL::None, "surface cache scene + atlas (Graphic::SurfaceCache::SurfaceCacheScene)" },
+             { P::SurfaceCacheCardTexelDensity, G::GlobalIllumination, "GlobalIllumination.CardTexelDensityScale",
+               10, 400, CL::None, "surface cache scene + atlas (Graphic::SurfaceCache::SurfaceCacheScene)" },
+             { P::SurfaceCacheCardMinResolution, G::GlobalIllumination, "GlobalIllumination.CardMinResolution", 1,
+               64, CL::None, "surface cache scene + atlas (Graphic::SurfaceCache::SurfaceCacheScene)" },
+             { P::SurfaceCacheCardMaxResolution, G::GlobalIllumination, "GlobalIllumination.CardMaxResolution", 64,
+               2048, CL::None, "surface cache scene + atlas (Graphic::SurfaceCache::SurfaceCacheScene)" },
+             { P::SurfaceCacheDirectLightingUpdateFactor, G::GlobalIllumination,
+               "GlobalIllumination.DirectLightingUpdateFactor", 1, 1024, CL::None,
+               "surface cache direct lighting (Graphic::SurfaceCache::SurfaceCacheScene)" },
+             { P::SurfaceCacheRadiosityUpdateFactor, G::GlobalIllumination,
+               "GlobalIllumination.RadiosityUpdateFactor", 1, 1024, CL::None, std::nullopt },
+             { P::SurfaceCacheRadiosityProbeSpacing, G::GlobalIllumination,
+               "GlobalIllumination.RadiosityProbeSpacing", 1, 16, CL::None, std::nullopt },
+             { P::SurfaceCacheRadiosityProbeResolution, G::GlobalIllumination,
+               "GlobalIllumination.RadiosityHemisphereProbeResolution", 2, 8, CL::None, std::nullopt },
+             { P::RadianceCacheProbeResolution, G::GlobalIllumination,
+               "GlobalIllumination.RadianceCacheProbeResolution", 8, 64, CL::None,
+               "SceneRenderer::BeginScene -> RadianceCache::MakeRadianceCacheInputs (probe texels per side)" },
+             { P::RadianceCacheProbesPerFrame, G::GlobalIllumination,
+               "GlobalIllumination.RadianceCacheProbesPerFrame", 10, 2000, CL::None,
+               "SceneRenderer::BeginScene -> RadianceCache::MakeRadianceCacheInputs (probes traced per frame)" },
+             { P::HitLightingAllowed, G::GlobalIllumination, "GlobalIllumination.HitLighting", 0, 1, CL::None,
+               "SceneRenderer::BeginScene -> GlobalIllumination::PipelineFor (hardware-traced hits lit in "
+               "place)" },
+             { P::PathTracingPathsPerFrame, G::GlobalIllumination, "PathTracing.PathsPerFrame", 1, 64, CL::None,
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (paths per pixel per frame)" },
+             { P::PathTracingMaxBounces, G::GlobalIllumination, "PathTracing.MaxBounces", 0, 64, CL::None,
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (bounces per path)" },
+             { P::PathTracingSamplesPerPixel, G::GlobalIllumination, "PathTracing.SamplesPerPixel", 1, 65536,
+               CL::None,
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (paths per pixel until it stops)" },
+             { P::ScreenProbeDownsample, G::GlobalIllumination, "GlobalIllumination.ScreenProbeDownsample", 8, 64,
+               CL::None, std::nullopt },
+             { P::ScreenProbeTracedTexels, G::GlobalIllumination, "GlobalIllumination.ScreenProbeTracedTexels", 4,
+               16, CL::None, std::nullopt },
+             { P::IrradianceFieldProbesPerFrame, G::GlobalIllumination,
+               "GlobalIllumination.IrradianceFieldProbesPerFrame", 10, 2000, CL::None, std::nullopt },
+             { P::ReflectionsHitLighting, G::Reflections, "Reflections.HitLighting", 0, 1, CL::None,
+               "SceneRenderer::ReflectionsTracer -> SSR.shader \"HitLighting\" ray generation "
+               "(Renderer::TraceRays)" },
+             { P::ScreenProbeAdaptiveAllocation, G::GlobalIllumination,
+               "GlobalIllumination.AdaptiveProbeAllocationPercent", 0, 100, CL::None,
+               "screen probe adaptive budget (Graphic::GlobalIllumination::ScreenProbeGather)" },
+             { P::ScreenProbeShortRangeAO, G::GlobalIllumination, "GlobalIllumination.ShortRangeAO", 0, 1,
+               CL::None, "screen probe short-range AO (Graphic::GlobalIllumination::ScreenProbeGather)" },
+             { P::ReflectionsTranslucentFrontLayer, G::Reflections, "Reflections.TranslucentFrontLayer", 0, 1,
+               CL::None,
+               "SceneRenderer::TranslucentFrontLayerReflections -> \"Translucency: Front Layer G-buffer\" + "
+               "\"Translucency: Front Layer Reflections\" -> Pass_Forward_Translucent.glslh" },
+             { P::ShadingParallaxMinSteps, G::Shading, "Shading.ParallaxMinSteps", 1, 64, CL::None,
+               "SceneRenderer::BeginScene -> ViewFrame::Parallax -> cameraUB.ParallaxMinSteps "
+               "(Mesh/Surface/SurfaceParallax.glslh)" },
+             { P::ShadingParallaxMaxSteps, G::Shading, "Shading.ParallaxMaxSteps", 1, 128, CL::None,
+               "SceneRenderer::BeginScene -> ViewFrame::Parallax -> cameraUB.ParallaxMaxSteps "
+               "(Mesh/Surface/SurfaceParallax.glslh)" },
+             { P::ShadingParallaxShadowSteps, G::Shading, "Shading.ParallaxShadowSteps", 0, 64, CL::None,
+               "SceneRenderer::BeginScene -> ViewFrame::Parallax -> cameraUB.ParallaxShadowSteps "
+               "(Mesh/Surface/SurfaceParallax.glslh)" },
         } };
     } // namespace
 
@@ -108,6 +286,12 @@ namespace Common::Scalability
                 return kReflectionMethodNames;
             if ( parameter == Parameter::ShadowsMethod )
                 return kShadowMethodNames;
+            if ( parameter >= Parameter::DlssPresetDLAA && parameter <= Parameter::DlssPresetUltraPerformance )
+                return kDlssPresetNames;
+            if ( parameter >= Parameter::DlssRRPresetDLAA && parameter <= Parameter::DlssRRPresetUltraPerformance )
+                return kDlssRRPresetNames;
+            if ( parameter == Parameter::TemporalUpscaler )
+                return kEngineTemporalUpscalerNames;
             switch ( SpecOf( parameter ).NarrowedBy )
             {
                 case CatalogList::AntiAliasingMethods:
@@ -199,6 +383,23 @@ namespace Common::Scalability
             return true;
         }
 
+        // The render-method ceilings' refusal (RenderMethods.hpp, RefuseGIMethod and its siblings): empty for
+        // every other parameter and for an implemented method.
+        [[nodiscard]] std::string_view RefuseMethodCeiling( Parameter parameter, ParameterValue value )
+        {
+            switch ( parameter )
+            {
+                case Parameter::GlobalIlluminationMethod:
+                    return RefuseGIMethod( value );
+                case Parameter::ReflectionsMethod:
+                    return RefuseReflectionMethod( value );
+                case Parameter::ShadowsMethod:
+                    return RefuseShadowMethod( value );
+                default:
+                    return {};
+            }
+        }
+
         std::optional<ParameterValue> ParseValue( const ParameterSpec& spec, const Json::Node& node,
                                                   Errors& errors )
         {
@@ -230,6 +431,14 @@ namespace Common::Scalability
             if ( value < spec.Min || value > spec.Max )
             {
                 errors.Add( node, "{}: {} is outside [{}, {}]", spec.Key, value, spec.Min, spec.Max );
+                return std::nullopt;
+            }
+            // A level states the render method it renders (RenderMethods.hpp): one this build has not implemented
+            // would be lowered on every machine, so the level would say one thing and every frame show another.
+            if ( const std::string_view refused = RefuseMethodCeiling( spec.Id, value ); !refused.empty() )
+            {
+                errors.Add( node, "{}: '{}' is {}; a level names a method this build renders", spec.Key,
+                            names[static_cast<std::size_t>( value )], refused );
                 return std::nullopt;
             }
             return value;
@@ -465,6 +674,39 @@ namespace Common::Scalability
 
         constexpr std::string_view kNotOffered = "not offered by this device";
 
+        // A render-method ceiling (RenderMethods.hpp) down its ladder - the enum's order - past what this device
+        // cannot run (no ray query) and what this build does not implement. The table cannot name an unimplemented
+        // method (ParseValue refuses it), an override can; either lowering is a Fallback, logged by Publish like
+        // every other, so the resolved ceiling is what the machine renders and the log says why it is lower.
+        template <typename Method>
+        void NarrowMethod( Parameter parameter, bool rayQuery, bool fragmentStores, Resolution& r )
+        {
+            auto             method = static_cast<Method>( r.Get( parameter ) );
+            std::string_view reason;
+            for ( ;; )
+            {
+                std::string_view blocked;
+                if ( NeedsRayQuery( method ) && !rayQuery )
+                    blocked = "the device offers no ray query";
+                else if ( NeedsFragmentStores( method ) && !fragmentStores )
+                    blocked = "the device offers no fragmentStoresAndAtomics";
+                else if ( !IsImplemented( method ) )
+                    blocked = "not implemented in this build";
+                if ( blocked.empty() )
+                    break;
+                if ( reason.empty() )
+                    reason = blocked;
+                method = static_cast<Method>( static_cast<int>( method ) - 1 );
+            }
+            r.Set( parameter, static_cast<ParameterValue>( method ), reason );
+        }
+
+        [[nodiscard]] bool OffersRayQuery( const CapabilityCatalog& catalog )
+        {
+            return std::any_of( catalog.RayTracingModes.begin(), catalog.RayTracingModes.end(),
+                                []( RayTracingMode m ) { return m != RayTracingMode::None; } );
+        }
+
         // Largest offered <= value; the list's front when none is (MSAACounts / AnisotropyLevels are ascending
         // and start at 1).
         template <typename T>
@@ -478,6 +720,16 @@ namespace Common::Scalability
                     best = v;
             }
             return best ? *best : static_cast<ParameterValue>( list.front() );
+        }
+
+        // The engine temporal upscaler this resolution asks for, inside its spec's range. Read while the
+        // Upscaler row (narrowed before it, in spec order) falls back, so it clamps by the same spec the row's own
+        // range step uses.
+        EngineTemporalUpscaler EngineTemporalOf( const Resolution& r )
+        {
+            const ParameterSpec& spec = SpecOf( Parameter::TemporalUpscaler );
+            return static_cast<EngineTemporalUpscaler>(
+                 std::clamp( r.Get( Parameter::TemporalUpscaler ), spec.Min, spec.Max ) );
         }
 
         void NarrowByCatalog( const ParameterSpec& spec, const CapabilityCatalog& catalog, Resolution& r )
@@ -507,8 +759,16 @@ namespace Common::Scalability
                 case CatalogList::Upscalers:
                 {
                     const auto upscaler = static_cast<Upscaler>( value );
-                    if ( !CapabilityCatalog::Offers( catalog.Upscalers, upscaler ) )
-                        r.Set( spec.Id, static_cast<ParameterValue>( Upscaler::TAAU ), kNotOffered );
+                    if ( CapabilityCatalog::Offers( catalog.Upscalers, upscaler ) )
+                        return;
+                    // Ray Reconstruction is DLSS with the denoiser: a device without the RR runtime keeps DLSS
+                    // Super Resolution when it has that, as UE's plugin falls back from RR to DLSS-SR.
+                    const Upscaler to =
+                         upscaler == Upscaler::DLSSRayReconstruction &&
+                                   CapabilityCatalog::Offers( catalog.Upscalers, Upscaler::DLSS )
+                              ? Upscaler::DLSS
+                              : UpscalerOf( EngineTemporalOf( r ) );
+                    r.Set( spec.Id, static_cast<ParameterValue>( to ), kNotOffered );
                     return;
                 }
                 case CatalogList::RenderScale:
@@ -610,7 +870,8 @@ namespace Common::Scalability
     {
         constexpr std::array<std::string_view, kGroupCount> kKeys{
              "Textures",    "Filtering", "Shadows",      "GlobalIllumination", "Reflections",
-             "PostProcess", "Effects",   "ViewDistance", "AntiAliasing",       "ResolutionScale" };
+             "PostProcess", "Effects",   "ViewDistance", "AntiAliasing",       "ResolutionScale",
+             "Shading" };
         return kKeys[static_cast<std::size_t>( group )];
     }
 
@@ -706,6 +967,12 @@ namespace Common::Scalability
             r.Set( spec.Id, std::clamp( r.Get( spec.Id ), spec.Min, spec.Max ), "outside the parameter's range" );
             NarrowByCatalog( spec, catalog, r );
         }
+        {
+            const bool rayQuery = OffersRayQuery( catalog );
+            NarrowMethod<GIMethod>( Parameter::GlobalIlluminationMethod, rayQuery, catalog.FragmentStores, r );
+            NarrowMethod<ReflectionMethod>( Parameter::ReflectionsMethod, rayQuery, catalog.FragmentStores, r );
+            NarrowMethod<ShadowMethod>( Parameter::ShadowsMethod, rayQuery, catalog.FragmentStores, r );
+        }
 
         // 5. The two axes are coupled (UE: below 100 % r.ScreenPercentage the AA method's temporal pass upscales,
         // and without one the spatial upscale does). The upscaler follows UpscalerForScale, THE one rule (the
@@ -720,14 +987,16 @@ namespace Common::Scalability
         if ( scale < 100 )
         {
             resolved.Scale        = ScaleMode::Upscale;
-            const Upscaler chosen = UpscalerForScale( aa, scale, up );
+            const Upscaler chosen = UpscalerForScale( aa, scale, up, EngineTemporalOf( r ) );
             if ( chosen != up )
                 r.Set( Parameter::Upscaler, static_cast<ParameterValue>( chosen ),
-                       chosen == Upscaler::Spatial ? "without temporal AA below 100 % the spatial upscaler runs"
-                                                   : "temporal AA below 100 % upscales with TAAU" );
+                       chosen == Upscaler::Spatial
+                            ? "without temporal AA below 100 % the spatial upscaler runs"
+                            : "temporal AA below 100 % upscales with the engine's temporal upscaler" );
             const auto upscaler = static_cast<Upscaler>( r.Get( Parameter::Upscaler ) );
             const bool nativePassOfThisUpscaler =
-                 ( aa == AntiAliasingMethod::DLAA && upscaler == Upscaler::DLSS ) ||
+                 ( aa == AntiAliasingMethod::DLAA &&
+                   ( upscaler == Upscaler::DLSS || upscaler == Upscaler::DLSSRayReconstruction ) ) ||
                  ( aa == AntiAliasingMethod::FSRNative && upscaler == Upscaler::FSR );
             if ( upscaler != Upscaler::Spatial && !nativePassOfThisUpscaler )
                 r.Set( Parameter::AntiAliasingMethod, static_cast<ParameterValue>( AntiAliasingMethod::TAA ),
@@ -736,9 +1005,11 @@ namespace Common::Scalability
         else
         {
             resolved.Scale = scale == 100 ? ScaleMode::Native : ScaleMode::Supersample;
-            if ( up != Upscaler::None )
+            if ( up != Upscaler::None && !IsNativeRayReconstruction( aa, scale, up ) )
                 r.Set( Parameter::Upscaler, static_cast<ParameterValue>( Upscaler::None ),
-                       "upscaler unused at native/supersampled scale" );
+                       up == Upscaler::DLSSRayReconstruction
+                            ? "Ray Reconstruction at 100 % runs under DLAA only (above 100 % it does not run)"
+                            : "upscaler unused at native/supersampled scale" );
             // An upscaler's native-AA pass is its network at exactly output size; supersampled input is not it.
             if ( scale > 100 && ( aa == AntiAliasingMethod::DLAA || aa == AntiAliasingMethod::FSRNative ) )
                 r.Set( Parameter::AntiAliasingMethod, static_cast<ParameterValue>( AntiAliasingMethod::TAA ),
@@ -762,15 +1033,25 @@ namespace Common::Scalability
                method == AntiAliasingMethod::FSRNative;
     }
 
-    Upscaler UpscalerForScale( const AntiAliasingMethod method, const int percent, const Upscaler vendorOverride )
+    Upscaler UpscalerOf( const EngineTemporalUpscaler engineTemporal )
     {
+        return engineTemporal == EngineTemporalUpscaler::TSR ? Upscaler::TSR : Upscaler::TAAU;
+    }
+
+    Upscaler UpscalerForScale( const AntiAliasingMethod method, const int percent, const Upscaler vendorOverride,
+                               const EngineTemporalUpscaler engineTemporal )
+    {
+        if ( IsNativeRayReconstruction( method, percent, vendorOverride ) )
+            return Upscaler::DLSSRayReconstruction;
         if ( percent >= 100 )
             return Upscaler::None;
         if ( !IsTemporalAntiAliasing( method ) )
             return Upscaler::Spatial;
-        // A temporal method upscales temporally: Spatial (or nothing) asked for under it means the engine's TAAU.
-        return vendorOverride == Upscaler::None || vendorOverride == Upscaler::Spatial ? Upscaler::TAAU
-                                                                                       : vendorOverride;
+        // A temporal method upscales temporally: Spatial (or nothing) asked for under it means the engine's own
+        // temporal upscaler of this quality level (TAAU or TSR).
+        return vendorOverride == Upscaler::None || vendorOverride == Upscaler::Spatial
+                    ? UpscalerOf( engineTemporal )
+                    : vendorOverride;
     }
 
     PathAntiAliasing ResolveAntiAliasingForPath( const ResolvedQuality& resolved, bool pathSupportsMSAA )
@@ -815,7 +1096,8 @@ namespace Common::Scalability
     {
         using M = AntiAliasingMethod;
         using U = Upscaler;
-        // Scale figures are the vendors' published mode ratios (Quality 1/1.5, Balanced 1/1.7, Performance 1/2).
+        // Scale figures are the vendors' published mode ratios (Quality 1/1.5, Balanced 1/1.7, Performance 1/2,
+        // Ultra Performance 1/3).
         static constexpr AntiAliasingPreset kPresets[] = {
              { "Native.TAA", M::TAA, 1, 100, U::None },
              { "Native.SMAA", M::SMAA, 1, 100, U::None },
@@ -829,14 +1111,19 @@ namespace Common::Scalability
              { "TAAU.Quality", M::TAA, 1, 67, U::TAAU },
              { "TAAU.Balanced", M::TAA, 1, 58, U::TAAU },
              { "TAAU.Performance", M::TAA, 1, 50, U::TAAU },
+             { "TSR.Quality", M::TAA, 1, 67, U::TSR },
+             { "TSR.Balanced", M::TAA, 1, 58, U::TSR },
+             { "TSR.Performance", M::TAA, 1, 50, U::TSR },
              { "FSR.NativeAA", M::FSRNative, 1, 100, U::None },
              { "FSR.Quality", M::FSRNative, 1, 67, U::FSR },
              { "FSR.Balanced", M::FSRNative, 1, 58, U::FSR },
              { "FSR.Performance", M::FSRNative, 1, 50, U::FSR },
+             { "FSR.UltraPerformance", M::FSRNative, 1, 33, U::FSR },
              { "DLSS.DLAA", M::DLAA, 1, 100, U::None },
              { "DLSS.Quality", M::DLAA, 1, 67, U::DLSS },
              { "DLSS.Balanced", M::DLAA, 1, 58, U::DLSS },
              { "DLSS.Performance", M::DLAA, 1, 50, U::DLSS },
+             { "DLSS.UltraPerformance", M::DLAA, 1, 33, U::DLSS },
              { "XeSS.Quality", M::TAA, 1, 67, U::XeSS },
              { "XeSS.Balanced", M::TAA, 1, 58, U::XeSS },
              { "XeSS.Performance", M::TAA, 1, 50, U::XeSS },

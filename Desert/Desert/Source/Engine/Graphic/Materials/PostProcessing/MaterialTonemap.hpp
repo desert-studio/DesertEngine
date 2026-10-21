@@ -17,7 +17,6 @@ namespace Desert::Graphic
             // caller can be wrong about which number meant which operator.
             Core::TonemapOperator Operator;
             float                 Exposure;
-            float                 Gamma;
             float                 BloomIntensity;
             float                 ExposureKey;
             bool                  AutoExposure;
@@ -27,6 +26,7 @@ namespace Desert::Graphic
             glm::vec3 LightShaftTint;      // the sun light's Bloom Tint
             float     LensFlareIntensity;  // Lens Flare Intensity x screen fade (0 = off)
             glm::vec3 LensFlareTint;       // the lens's Tint
+            float     PreExposure;         // ViewFrame::PreExposure the scene colour is stored at (> 0)
         };
 
         // Uniform values only: every texture the shader samples (u_GeometryTexture, u_AvgLuminance,
@@ -34,8 +34,7 @@ namespace Desert::Graphic
         // through RDG::PassBindings, never here.
         void BindValues( const Params& params );
 
-        MPROPERTY( float, Exposure,            "u_Exposure",            1.0f )
-        MPROPERTY( float, Gamma,               "u_Gamma",               2.2f )
+        MPROPERTY( float, Exposure, "u_Exposure", 1.0f )
         MPROPERTY( float, BloomIntensity,      "u_BloomIntensity",      0.0f )
         MPROPERTY( float, ExposureKey,         "u_ExposureKey",         0.18f )
         MPROPERTY( float, AutoExposureEnabled, "u_AutoExposureEnabled", 0.0f )
@@ -43,6 +42,7 @@ namespace Desert::Graphic
         MPROPERTY( float, WhitePoint, "u_WhitePoint", 8.0f )
         // 0 = ACES, 1 = extended Reinhard — Core::TonemapOperator's own numbering, converted in Bind().
         MPROPERTY( float, TonemapOperator, "u_TonemapOperator", 0.0f )
+        MPROPERTY( float, InvPreExposure, "u_InvPreExposure", 1.0f )
         // rgb = tint, a = intensity: one vec4 slot, and the two cannot disagree about being on.
         MPROPERTY( glm::vec4, LightShaftTintIntensity, "u_LightShaftTintIntensity",
                    ( glm::vec4( 1.0f, 1.0f, 1.0f, 0.0f ) ) )

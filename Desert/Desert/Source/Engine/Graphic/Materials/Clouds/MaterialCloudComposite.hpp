@@ -13,15 +13,19 @@ namespace Desert::Graphic
     // of the view and the reconstruction turns four such frames into the half-resolution pair this
     // composites. That is invisible here on purpose — the interface is "two half-res images of the same
     // size", and it did not change when the producer behind it did.
-    // The cloud composite program's material. It carries no values and no textures: the two images the pass
-    // reads -- the RGBA16F scatter image (premultiplied radiance + transmittance) and the depth guide beside it
-    // (cloud front distance and scene distance, kilometres), which the shader upsamples the first through -- are
-    // the reconstruction CloudTemporalResolve wrote this frame, imported into the frame graph and bound by
-    // shader name (u_CloudScatter / u_CloudGuide) through RDG::PassBindings in the composite pass
+    // The cloud composite program's material. It carries one value (the view's PreExposure) and no textures: the
+    // two images the pass reads -- the RGBA16F scatter image (premultiplied radiance + transmittance) and the
+    // depth guide beside it (cloud front distance and scene distance, kilometres), which the shader upsamples the
+    // first through -- are the reconstruction CloudTemporalResolve wrote this frame, imported into the frame graph
+    // and bound by shader name (u_CloudScatter / u_CloudGuide) through RDG::PassBindings in the composite pass
     // (VolumetricCloudRenderer::CompositePass). The pipeline's blend state does the rest.
     class MaterialCloudComposite final : public Material
     {
     public:
         MaterialCloudComposite();
+
+        // x = ViewFrame::PreExposure: the composite writes the cloud radiance into the scene colour multiplied by
+        // it (CloudCompositeUB, set per frame by VolumetricCloudRenderer::DeclareFrameNodes); yzw unused.
+        MPROPERTY( glm::vec4, Exposure, "u_Exposure", ( glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) ) )
     };
 } // namespace Desert::Graphic

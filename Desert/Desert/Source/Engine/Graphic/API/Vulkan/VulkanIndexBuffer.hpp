@@ -42,6 +42,8 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t               m_Size = 0;
         BufferUsage            m_Usage;
         Common::Memory::Buffer m_StorageBuffer;
+        // The static upload released m_StorageBuffer (RT_Invalidate): the buffer cannot be uploaded again.
+        bool m_HostCopyReleased = false;
 
         VkBuffer      m_VulkanBuffer = nullptr;
         VmaAllocation m_MemoryAllocation;

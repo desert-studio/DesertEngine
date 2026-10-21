@@ -9,7 +9,7 @@
 //   vec4  u_DFAssetData[]   - DF_ASSET_STRIDE vec4s per asset
 //   uint  u_DFIndirection[] - every resident mip's indirection table, entries already atlas brick slots
 //   vec4  u_DFObjects[]     - DF_OBJECT_STRIDE vec4s per object
-//   sampler3D u_DFBrickAtlas
+//   u_DFBrickAtlas          - a texture3D with a same-name `sampler3D(texture, u_LinearRepeatSampler)` macro
 #ifndef MESH_DISTANCE_FIELD_GLSLH
 #define MESH_DISTANCE_FIELD_GLSLH
 

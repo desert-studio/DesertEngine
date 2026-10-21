@@ -15,6 +15,10 @@
 #include "SceneEntityIndex.hpp"
 #include "SceneViewList.hpp"
 #include "WorldTime.hpp"
+#include "DebugDraw.hpp"
+#if DESERT_DEV_INSTRUMENTS
+#include <Engine/GameplayDebugger/GameplayDebugger.hpp>
+#endif
 #include "SceneGeneration.hpp"
 
 #include <Common/Core/ResultStr.hpp>
@@ -29,19 +33,30 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
 #include <entt/entt.hpp>
 #include <functional>
 #include <memory>
 #include <optional>
+#include <Engine/Core/WorldParameterInstance.hpp>
+#include <Engine/Core/WeatherState.hpp>
+
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+namespace Desert::Graphic::RayTracing
+{
+    class RayTracingSceneCache;
+}
 
 namespace Desert::Graphic
 {
     class SceneRenderer;
     class ReflectionCaptureRenderer;
+    class SceneSkyLight;
+    class LocalShadowCache;
     // `struct` and not `class`: the definition in Graphic/Environment/SceneEnvironment.hpp uses struct, and the
     // Microsoft C++ ABI encodes the class-key into the decorated name, so the mismatch is a Windows-only link
     // error waiting for the day this forward declaration is the one a caller sees first.
@@ -353,6 +368,30 @@ namespace Desert::Core
             return m_WorldTime;
         }
 
+        // The world's instance of its collection (UE's UMaterialParameterCollectionInstance, Engine/Core/
+        // WorldParameterInstance.hpp): the live values every view snapshots into its WorldParameters buffer.
+        // SyncWorldParameters adopts the collection SceneSettings::WorldParameters names; OnUpdate calls it
+        // first, and the Luau library calls it before a set/get so a script's first frame finds the parameters.
+        [[nodiscard]] WorldParameterInstance& GetWorldParameters()
+        {
+            return m_WorldParameters;
+        }
+        [[nodiscard]] const WorldParameterInstance& GetWorldParameters() const
+        {
+            return m_WorldParameters;
+        }
+        // Adopts (or keeps) the named collection. Refused with the reason when the collection cannot be read;
+        // the instance then holds no parameters, so no material reads a stale value.
+        Common::BoolResultStr SyncWorldParameters();
+
+        // THE WORLD'S WEATHER (Core/WeatherState.hpp, WTH-STATE): per WeatherZone, what it shows and the
+        // transition it is in. Ticked by gameplay time in OnUpdate before the systems, then applied at the active
+        // camera into the world parameters, the cloud layer's Coverage, the fog's density and the zones' wind.
+        [[nodiscard]] WeatherState& GetWeather()
+        {
+            return m_Weather;
+        }
+
         // The editor viewport's Realtime toggle (UE's viewport "Realtime"): while editing, whether the
         // world's preview time moves. An editor preference pushed every frame, never serialized with the
         // scene.
@@ -432,6 +471,11 @@ namespace Desert::Core
         {
             return m_ViewTarget;
         }
+        // THE PLAYER'S VIEW POINT (UE: APlayerController::GetPlayerViewPoint - its camera manager's view), as a
+        // world matrix (translation = eye, -Z = forward): the view target camera entity's world transform, or,
+        // with no target entity (Play from Here's editor camera, a view pinned from outside), the active
+        // camera's. nullopt outside Play/Paused, or with no camera to look through.
+        [[nodiscard]] std::optional<glm::mat4> PlayerViewPoint();
         // A Camera Cut (UE: the Level Sequence's camera cut calling APlayerController::SetViewTarget) moves the
         // view to another camera entity; the sequence hands the previous target back when its cut ends.
         void SetViewTarget( entt::entity target )
@@ -536,6 +580,31 @@ namespace Desert::Core
         // (Graphic::ExtensionPass). A repeated name replaces the earlier pass.
         void                                                RegisterExtensionPass( Graphic::ExtensionPass&& pass );
         void                                                UnregisterExtensionPass( const std::string& name );
+        // THE SCENE'S DEBUG DRAWING (UE: the world's line batchers): what DebugDraw:: calls and the DebugDraw
+        // script library add, and what every view of this scene draws (SceneRenderer::BeginScene). Aged at the top
+        // of OnUpdate, before the systems that draw into it.
+        [[nodiscard]] DebugDrawWorld& GetDebugDraw()
+        {
+            return m_DebugDraw;
+        }
+        [[nodiscard]] const DebugDrawWorld& GetDebugDraw() const
+        {
+            return m_DebugDraw;
+        }
+#if DESERT_DEV_INSTRUMENTS
+        // THE SCENE'S GAMEPLAY DEBUGGER (UE: the local player's gameplay debugger replicator): the ` overlay about
+        // one entity. Ticked in OnUpdate right after the systems (the scripts' switches and this frame's keys are
+        // in); draws into GetDebugDraw. Not in a player's build.
+        [[nodiscard]] Debug::GameplayDebugger& GetGameplayDebugger()
+        {
+            return m_GameplayDebugger;
+        }
+        [[nodiscard]] const Debug::GameplayDebugger& GetGameplayDebugger() const
+        {
+            return m_GameplayDebugger;
+        }
+#endif
+
         [[nodiscard]] const Graphic::ExtensionPassRegistry& GetExtensionPasses() const
         {
             return m_ExtensionPasses;
@@ -549,6 +618,37 @@ namespace Desert::Core
             return *m_ReflectionCaptures;
         }
 
+        // THE SCENE'S RAY-TRACING GEOMETRY (UE: FScene's GPU skin cache and cached RT geometry): skinned BLASes
+        // skinned once per frame and hidden-submesh BLAS variants, shared by every view's TLAS. Renderer state
+        // cached on the scene, like the reflection captures.
+        [[nodiscard]] Graphic::RayTracing::RayTracingSceneCache& GetRayTracingCache() const
+        {
+            return *m_RayTracingCache;
+        }
+
+        // THE SCENE'S SKY LIGHT (UE: FScene's SkyLight and its real-time capture): one capture of the procedural
+        // sky's light, shared by every view of this scene and every face view of its reflection captures. Renderer
+        // state cached on the scene, like the captures above; a view holds it weakly (SkyboxRenderer).
+        [[nodiscard]] std::weak_ptr<Graphic::SceneSkyLight> GetSkyLight() const
+        {
+            return m_SkyLight;
+        }
+
+        // THE SCENE'S CACHED POINT/SPOT-LIGHT SHADOW DEPTH (UE: FScene's FCachedShadowMapData per light): one
+        // atlas for every view of this scene, the reflection captures' face views included
+        // (Graphic/LocalShadowCache.hpp). Renderer state cached on the scene, like the captures.
+        [[nodiscard]] Graphic::LocalShadowCache& GetLocalShadows() const
+        {
+            return *m_LocalShadows;
+        }
+
+        // THE SCENE in the resource ledger: every device object of the scene's shared renderer state above — the
+        // reflection-capture arrays, the ray-tracing cache, the sky light's capture — is a row of this instance,
+        // and the scene's budget entry (SceneRenderer::SceneHoldings) is the sum of them.
+        [[nodiscard]] Graphic::ResourceOwnerInstance GetLedgerInstance() const
+        {
+            return m_LedgerInstance;
+        }
         // VIEW 0's CAMERA. Returned BY VALUE, not by reference: the camera lives in the view list now, and
         // a reference into a vector that AddView/RemoveView reallocate is a dangling reference waiting
         // for the second viewport. Every existing `GetMainCamera().lock()` reads the same.
@@ -663,8 +763,23 @@ namespace Desert::Core
         // and a renderer bound to another scene has that scene's, with nothing to replay or drop.
         Graphic::ExtensionPassRegistry m_ExtensionPasses;
 
+        // See GetLedgerInstance. Declared BEFORE the members it is handed to.
+        Graphic::ResourceOwnerInstance m_LedgerInstance = Graphic::ResourceOwnerInstance::NewScene();
+        // See GetDebugDraw.
+        DebugDrawWorld m_DebugDraw;
+#if DESERT_DEV_INSTRUMENTS
+        // See GetGameplayDebugger.
+        Debug::GameplayDebugger m_GameplayDebugger;
+#endif
+
         // See GetReflectionCaptures. Never null: made by both constructors.
         std::unique_ptr<Graphic::ReflectionCaptureRenderer> m_ReflectionCaptures;
+        // See GetRayTracingCache. Never null: made by both constructors.
+        std::unique_ptr<Graphic::RayTracing::RayTracingSceneCache> m_RayTracingCache;
+        // See GetSkyLight. Never null: made by both constructors. Shared so a view can hold it weakly.
+        std::shared_ptr<Graphic::SceneSkyLight> m_SkyLight;
+        // See GetLocalShadows. Never null: made by both constructors.
+        std::unique_ptr<Graphic::LocalShadowCache> m_LocalShadows;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)
@@ -674,6 +789,8 @@ namespace Desert::Core
         mutable uint32_t              m_ViewportHeight = 720;
         SceneState                    m_State = SceneState::Edit;
         WorldTime                     m_WorldTime;
+        WorldParameterInstance        m_WorldParameters;
+        WeatherState                  m_Weather;
         bool                          m_PreviewRealtime    = true;
         bool                          m_SingleFramePending = false; // RequestSingleFrame, consumed by OnUpdate
         entt::entity                  m_PlayerPawn     = entt::null; // see SetPlayerPawn

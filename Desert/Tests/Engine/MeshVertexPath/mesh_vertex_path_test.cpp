@@ -239,11 +239,7 @@ namespace
             out[binding] = resource.Name;
         for ( const auto& [binding, resource] : set.StorageBuffers )
             out[binding] = resource.Name;
-        for ( const auto& [binding, resource] : set.Image2DSamplers )
-            out[binding] = resource.Name;
-        for ( const auto& [binding, resource] : set.ImageCubeSamplers )
-            out[binding] = resource.Name;
-        for ( const auto& [binding, resource] : set.Image3DSamplers )
+        for ( const auto& [binding, resource] : set.SampledImages )
             out[binding] = resource.Name;
         return out;
     }
@@ -343,14 +339,11 @@ TEST_F( MeshVertexPathShaderRoot, EveryVertexPathThatCanBeDrawnCanAlsoCastAShado
 // inherits the question.
 TEST_F( MeshVertexPathShaderRoot, EveryVertexPathDrawnINTOTheGBufferHasACellForIt )
 {
-    // The exception, and why it is one: a skinned mesh is not rasterized into the G-buffer at all. It is
-    // drawn FORWARD over the deferred composite (MeshRenderer::RenderSkinnedManual), so a (Skinned x
-    // GBuffer) cell would be a shader nothing binds.
-    const auto drawnIntoTheGBuffer = []( MeshVertexPath path ) { return path != MeshVertexPath::Skinned; };
-
+    // No exception: the skinned mesh is drawn in the G-buffer too (UE's base pass; MeshRenderer::BuildSkinnedDraws
+    // under the G-buffer node), not forward over the deferred composite.
     for ( const auto path : kAllPaths )
     {
-        if ( TableShader( path, MeshPass::Forward ) == nullptr || !drawnIntoTheGBuffer( path ) )
+        if ( TableShader( path, MeshPass::Forward ) == nullptr )
         {
             continue;
         }
@@ -1081,11 +1074,11 @@ TEST( ShadowCaster, MaskedCastsThroughItsOwnTemplateCellOpaqueThroughTheSharedOn
     using Desert::Core::Formats::SurfaceBlendMode;
     constexpr std::string_view kDefault = "StandardSurface";
     constexpr std::string_view kFoliage = "FoliageSurface";
-    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Masked ),
+    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Masked, false ),
                Desert::Graphic::ShadowCasterCell::Own );
-    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Opaque ),
+    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Opaque, false ),
                Desert::Graphic::ShadowCasterCell::Shared );
-    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Translucent ),
+    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Translucent, false ),
                Desert::Graphic::ShadowCasterCell::Shared );
     for ( const auto path : kAllPaths )
     {
@@ -1093,7 +1086,7 @@ TEST( ShadowCaster, MaskedCastsThroughItsOwnTemplateCellOpaqueThroughTheSharedOn
         ASSERT_TRUE( shared.has_value() ) << MeshVertexPathName( path );
 
         const auto masked =
-             Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, SurfaceBlendMode::Masked, path );
+             Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, SurfaceBlendMode::Masked, false, path );
         ASSERT_TRUE( masked.has_value() ) << MeshVertexPathName( path );
         EXPECT_NE( masked, shared ) << "a masked caster on " << MeshVertexPathName( path )
                                     << " draws through the shared program and casts its whole quad";
@@ -1101,7 +1094,7 @@ TEST( ShadowCaster, MaskedCastsThroughItsOwnTemplateCellOpaqueThroughTheSharedOn
 
         for ( const auto blend : { SurfaceBlendMode::Opaque, SurfaceBlendMode::Translucent } )
         {
-            const auto caster = Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, blend, path );
+            const auto caster = Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, blend, false, path );
             ASSERT_TRUE( caster.has_value() );
             EXPECT_EQ( caster, shared ) << "a non-masked caster on " << MeshVertexPathName( path )
                                         << " must share the one position-only program and batch by mesh";

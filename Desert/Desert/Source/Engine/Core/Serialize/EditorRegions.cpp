@@ -195,7 +195,7 @@ namespace Desert::Core::EditorRegions
         return Hold( scene, assets, nullptr );
     }
 
-    Common::ResultStr<OpenRead> ReadForOpen( const std::filesystem::path& path )
+    Common::ResultStr<OpenRead> ReadForOpen( const std::filesystem::path& path, const HeldRegions& held )
     {
         using Result = OpenRead;
         OpenRead read;
@@ -222,9 +222,10 @@ namespace Desert::Core::EditorRegions
             return Common::MakeError<Result>( fmt::format(
                  "'{}' lists its entities in files but states no WorldPartition block.", path.string() ) );
 
-        // What a load with no region holds (LoadRegions( scene, {} )).
-        const std::span<const Rules::CellBounds> none;
-        auto selected = SelectOverIndex( path, *header.GetValue().Scene.WorldPartition, &none );
+        // What a load of `held` holds (LoadRegions( scene, held.Regions ) or LoadWholeWorld).
+        const std::span<const Rules::CellBounds> regions( held.Regions );
+        auto                                     selected =
+             SelectOverIndex( path, *header.GetValue().Scene.WorldPartition, held.Whole ? nullptr : &regions );
         if ( !selected )
             return Common::MakeError<Result>( selected.GetError() );
         read.Selection = selected.GetValue().Selection;

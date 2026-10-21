@@ -17,8 +17,11 @@ namespace Desert::ShaderResources::API::Vulkan
         }
     } // namespace
 
-    MappedBufferCopy::MappedBufferCopy( VkBuffer buffer, VmaAllocation allocation, VkDeviceSize size )
-         : m_Buffer( buffer ), m_Allocation( allocation ), m_Size( size )
+    MappedBufferCopy::MappedBufferCopy( VkBuffer buffer, VmaAllocation allocation, VkDeviceSize size,
+                                        const Desert::Graphic::ResourceKind kind )
+         : m_Buffer( buffer ), m_Allocation( allocation ), m_Size( size ),
+           m_Ledger( Desert::Graphic::ResourceOwnership::Take(
+                kind, Desert::Graphic::API::Vulkan::VulkanAllocator::AllocationSize( allocation ) ) )
     {
     }
 
@@ -28,6 +31,17 @@ namespace Desert::ShaderResources::API::Vulkan
         // what makes dropping a copy legal at any point of a frame.
         m_Mapping.Unmap();
         Allocator()->RT_DestroyBuffer( m_Buffer, m_Allocation );
+    }
+
+    Common::BoolResultStr MappedBufferCopy::Read( void* destination, uint32_t size, uint32_t offset )
+    {
+        if ( const VkResult invalidated = vmaInvalidateAllocation(
+                  Desert::Graphic::API::Vulkan::VulkanAllocator::GetVMAAllocator(), m_Allocation, offset, size );
+             invalidated != VK_SUCCESS )
+            return Common::MakeFormattedError<bool>(
+                 "the host view of {} byte(s) at {} was not invalidated (VkResult {})", size, offset,
+                 static_cast<int>( invalidated ) );
+        return m_Mapping.ReadInto( destination, size, offset );
     }
 
     Common::BoolResultStr MakeMappedBufferCopy( std::string_view debugName, VkBufferUsageFlags usage,
@@ -46,7 +60,10 @@ namespace Desert::ShaderResources::API::Vulkan
             return Common::MakeFormattedError<bool>( "{} byte(s) could not be allocated: {}", size,
                                                      allocated.GetError() );
 
-        auto copy       = std::make_unique<MappedBufferCopy>( buffer, allocated.GetValue(), size );
+        const Desert::Graphic::ResourceKind kind = ( usage & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT ) != 0
+                                                        ? Desert::Graphic::ResourceKind::StorageBuffer
+                                                        : Desert::Graphic::ResourceKind::UniformBuffer;
+        auto copy       = std::make_unique<MappedBufferCopy>( buffer, allocated.GetValue(), size, kind );
         copy->m_Mapping = allocator->MapMemory( copy->m_Allocation );
 
         // A COPY THAT DID NOT MAP IS THE SAME FAILURE AS ONE THAT DID NOT ALLOCATE: every write to it would

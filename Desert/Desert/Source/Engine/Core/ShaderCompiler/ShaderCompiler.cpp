@@ -1,8 +1,10 @@
 #include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
 #include "ShaderCompiler.hpp"
+#include <Engine/Core/ShaderCompiler/BindlessSetIndex.hpp>
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderTarget.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
 #include <shaderc/shaderc.hpp>
@@ -32,6 +34,14 @@ namespace Desert::Core
                 case Formats::ShaderStage::TessEvaluation: return shaderc_tess_evaluation_shader;
                 case Formats::ShaderStage::Fragment:       return shaderc_fragment_shader;
                 case Formats::ShaderStage::Compute:        return shaderc_compute_shader;
+                case Formats::ShaderStage::RayGen:
+                    return shaderc_raygen_shader;
+                case Formats::ShaderStage::AnyHit:
+                    return shaderc_anyhit_shader;
+                case Formats::ShaderStage::ClosestHit:
+                    return shaderc_closesthit_shader;
+                case Formats::ShaderStage::Miss:
+                    return shaderc_miss_shader;
                 default:
                     DESERT_VERIFY( false, "Unsupported shader stage for compilation" );
                     return (shaderc_shader_kind)0;
@@ -115,12 +125,16 @@ namespace Desert::Core
                 const std::string_view value = ShaderDefineValue( define );
                 options.AddMacroDefinition( name.data(), name.size(), value.data(), value.size() );
             }
-            // THE OLDEST ACCEPTED DEVICE, NOT THE CURRENT ONE. SPIR-V is cached on disk and shipped, so its
-            // target cannot follow the GPU of the machine that compiled it; it follows DeviceCaps' minimum,
-            // which every device that passes CheckRequired meets. Raising it is VKF2's call (with the minimum).
-            static_assert( Graphic::API::Vulkan::kMinimumDeviceApiVersion == VK_API_VERSION_1_1,
-                           "the shader target below must move with kMinimumDeviceApiVersion" );
-            options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
+            // Every stage, not only those that include BindlessTextures.glslh: the defines are the engine's table
+            // layout (BindlessSetIndex.hpp), and the cache key mixes them in (ShaderCacheKey.cpp
+            // MixCompileOptions).
+            for ( const BindlessShaderDefine& define : kBindlessShaderDefines )
+            {
+                const std::string value = std::to_string( define.Value );
+                options.AddMacroDefinition( define.Name.data(), define.Name.size(), value.data(), value.size() );
+            }
+            // The oldest accepted device's version (ShaderTarget.hpp), never a literal here.
+            options.SetTargetEnvironment( shaderc_target_env_vulkan, kShaderTargetEnvVersion );
             options.SetWarningsAsErrors();
 
             // NO SetOptimizationLevel, measured (PSO2, 2026-09-27, 126 shaders of the SPIR-V cache). shaderc's

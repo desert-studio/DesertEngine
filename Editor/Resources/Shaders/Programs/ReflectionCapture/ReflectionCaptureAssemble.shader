@@ -10,12 +10,21 @@ Shader "ReflectionCaptureAssemble"
         // only convention read. The six 90-degree frusta partition the sphere along the major axis, so the major
         // axis of the direction names the one face view that saw it.
 
-        Uniform(0) sampler2D u_FacePosX;
-        Uniform(1) sampler2D u_FaceNegX;
-        Uniform(2) sampler2D u_FacePosY;
-        Uniform(3) sampler2D u_FaceNegY;
-        Uniform(4) sampler2D u_FacePosZ;
-        Uniform(5) sampler2D u_FaceNegZ;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform sampler u_LinearClampSampler;
+        Uniform(0) texture2D u_FacePosX;
+        #define u_FacePosX sampler2D(u_FacePosX, u_LinearClampSampler)
+        Uniform(1) texture2D u_FaceNegX;
+        #define u_FaceNegX sampler2D(u_FaceNegX, u_LinearClampSampler)
+        Uniform(2) texture2D u_FacePosY;
+        #define u_FacePosY sampler2D(u_FacePosY, u_LinearClampSampler)
+        Uniform(3) texture2D u_FaceNegY;
+        #define u_FaceNegY sampler2D(u_FaceNegY, u_LinearClampSampler)
+        Uniform(4) texture2D u_FacePosZ;
+        #define u_FacePosZ sampler2D(u_FacePosZ, u_LinearClampSampler)
+        Uniform(5) texture2D u_FaceNegZ;
+        #define u_FaceNegZ sampler2D(u_FaceNegZ, u_LinearClampSampler)
 
         // Rotation-only view-projections (the views' translation removed: a direction, not a point, is
         // projected), in the face order above; Probe.x = a distance inside every view's depth range.

@@ -22,16 +22,27 @@ Shader "SSDTemporalAccumulation"
 
     Compute
     {
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound once by the pass by name and numbered by the program build (SharedSamplerBinding.hpp).
+        // Declared before Common/ScreenSpaceDenoise.glslh, whose SSDLoadSceneInfo reads the G-buffer through u_PointClampSampler.
+        Uniform sampler u_LinearClampSampler;
+        Uniform sampler u_PointClampSampler;
         #include <Common/ScreenSpaceDenoise.glslh>
 
-        Uniform(1) sampler2D u_GBufferNormal;   // rgb = world normal, a = roughness
-        Uniform(2) sampler2D u_GBufferDepth;    // device depth (nearest)
-        Uniform(3) sampler2D u_Signal;          // this frame's reconstruction, premultiplied
-        Uniform(4) sampler2D u_Trace;           // reflections: SSR's half-res trace (a = coverage); diffuse: black
-        Uniform(6) sampler2D u_TraceRay;        // reflections: its hit points (xyz); diffuse: black
-        Uniform(5) sampler2D u_History;         // last frame's accumulation, premultiplied (linear)
-        Uniform(7) sampler2D u_HistoryCount;    // last frame's sample count (nearest)
-        Uniform(8) sampler2D u_Velocity;        // NDC current - previous per pixel (View/Velocity.hpp), unjittered
+        Uniform(1) texture2D u_GBufferNormal;   // rgb = world normal, a = roughness
+        Uniform(2) texture2D u_GBufferDepth;    // device depth (nearest)
+        Uniform(3) texture2D u_Signal;          // this frame's reconstruction, premultiplied
+        #define u_Signal sampler2D(u_Signal, u_PointClampSampler)
+        Uniform(4) texture2D u_Trace;           // reflections: SSR's half-res trace (a = coverage); diffuse: black
+        #define u_Trace sampler2D(u_Trace, u_PointClampSampler)
+        Uniform(6) texture2D u_TraceRay;        // reflections: its hit points (xyz); diffuse: black
+        #define u_TraceRay sampler2D(u_TraceRay, u_PointClampSampler)
+        Uniform(5) texture2D u_History;         // last frame's accumulation, premultiplied (linear)
+        #define u_History sampler2D(u_History, u_LinearClampSampler)
+        Uniform(7) texture2D u_HistoryCount;    // last frame's sample count (nearest)
+        #define u_HistoryCount sampler2D(u_HistoryCount, u_PointClampSampler)
+        Uniform(8) texture2D u_Velocity;        // NDC current - previous per pixel (View/Velocity.hpp), unjittered
+        #define u_Velocity sampler2D(u_Velocity, u_PointClampSampler)
         layout(binding = 9, rgba16f) writeonly uniform image2D u_NewHistory;      // premultiplied
         layout(binding = 10, r32f) writeonly uniform image2D u_NewHistoryCount;
 
@@ -70,12 +81,12 @@ Shader "SSDTemporalAccumulation"
 
         void main()
         {
-        	const ivec2 viewSize = textureSize(u_GBufferNormal, 0);
+        	const ivec2 viewSize = textureSize(sampler2D(u_GBufferNormal, u_PointClampSampler), 0);
         	const ivec2 pixel    = ivec2(gl_GlobalInvocationID.xy);
         	if (pixel.x >= viewSize.x || pixel.y >= viewSize.y)
         		return;
         	const int signal = int(u_Params.y + 0.5);
-        	if (!SSDPixelHasSignal(signal, texelFetch(u_GBufferNormal, pixel, 0)))
+        	if (!SSDPixelHasSignal(signal, texelFetch(sampler2D(u_GBufferNormal, u_PointClampSampler), pixel, 0)))
         	{
         		imageStore(u_NewHistory, pixel, vec4(0.0));
         		imageStore(u_NewHistoryCount, pixel, vec4(0.0));
@@ -113,7 +124,7 @@ Shader "SSDTemporalAccumulation"
         	float target = u_Params.z;
         	if (signal == kSSDSignalReflections)
         	{
-        		const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(u_GBufferDepth, pixel, 0).r, ref.Position,
+        		const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(sampler2D(u_GBufferDepth, u_PointClampSampler), pixel, 0).r, ref.Position,
         		                                              1.0 / size, u_InvJitteredViewProjection);
         		const vec3  nearPoint   = ReconstructWorldPosition(uv, 1.0, u_InvJitteredViewProjection);
         		const vec2  radii       = SSDLobePixelRadii(ref.Roughness, abs(dot(ref.Normal, V)), pixelRadius,

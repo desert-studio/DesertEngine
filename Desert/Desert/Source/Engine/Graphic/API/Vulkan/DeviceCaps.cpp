@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
+#include <Engine/Core/ShaderCompiler/BindlessSetIndex.hpp>
 
 #include <algorithm>
 #include <format>
@@ -26,19 +27,38 @@ namespace Desert::Graphic::API::Vulkan
              // The reflection captures live in one cube array (samplerCubeArray / imageCubeArray). Universal on
              // desktop and MoltenVK.
              { C::ImageCubeArray, "imageCubeArray", N::Required, V10, {} },
+             // The sun's virtual shadow map draws its casters with depth clamp (UE VSM: casters behind a clipmap
+             // level's depth range are flattened onto its near plane instead of clipped away, so a mountain
+             // between the sun and the level still shadows it). Universal on desktop and MoltenVK.
+             { C::DepthClamp, "depthClamp", N::Required, V10, {} },
+             // The sun's virtual shadow map rasterizes its casters with no attachment: the fragment stage
+             // atomic-maxes its depth into the physical pool, a storage image (Common/VirtualShadowRaster.glslh;
+             // UE ShadowDepthPixelShader.usf VIRTUAL_TEXTURE_TARGET). Optional, as in UE, where a platform without
+             // the feature has no virtual shadow maps and keeps the shadow maps: ShadowMethod::VirtualMaps needs
+             // it (NeedsFragmentStores) and both method ladders lower it to CascadedMaps by name where it is
+             // absent. Desktop GPUs and MoltenVK on Apple GPUs carry it.
+             { C::FragmentStoresAndAtomics, "fragmentStoresAndAtomics", N::Optional, V10, {} },
              { C::Swapchain, "swapchain", N::Required, 0, VK_KHR_SWAPCHAIN_EXTENSION_NAME },
              // MoltenVK has no wide lines; the debug-line path clamps the width instead.
              { C::WideLines, "wideLines", N::Optional, V10, {} },
              { C::FillModeNonSolid, "fillModeNonSolid", N::Optional, V10, {} },
              { C::SamplerAnisotropy, "samplerAnisotropy", N::Optional, V10, {} },
              { C::TextureCompressionBC, "textureCompressionBC", N::Optional, V10, {} },
+             // A storage image declared without a format and written (OpTypeImage Unknown + OpImageWrite): the FSR
+             // upscaler's output binding, whose format is the application's (FidelityFX
+             // ffx_fsr3upscaler_callbacks_glsl.h rw_upscaled_output). Without it FSR is refused by name
+             // (FsrDeviceSupport); nothing else reads it.
+             { C::StorageImageWriteWithoutFormat, "shaderStorageImageWriteWithoutFormat", N::Optional, V10, {} },
              // Not a capability the engine uses but a spec rule: an implementation that advertises it
              // (MoltenVK) must have it enabled. "Optional" gives exactly that: enabled iff present.
              { C::PortabilitySubset, "portability_subset", N::Optional, 0, "VK_KHR_portability_subset" },
              { C::MemoryBudget, "memory_budget", N::Optional, 0, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME },
              { C::TimelineSemaphore, "timelineSemaphore", N::Available, V12,
                VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME },
-             { C::DescriptorIndexing, "descriptorIndexing", N::Available, V12,
+             // Required: the bindless texture table (runtime array of sampled images, update-after-bind,
+             // partially bound, variable count, non-uniform indexing). Core in 1.2; every desktop GPU and
+             // MoltenVK (argument buffers) carries it, and there is no non-bindless second path.
+             { C::DescriptorIndexing, "descriptorIndexing", N::Required, V12,
                VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME },
              { C::BufferDeviceAddress, "bufferDeviceAddress", N::Available, V12,
                VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME },
@@ -171,6 +191,29 @@ namespace Desert::Graphic::API::Vulkan
             if ( !spec.Extension.empty() )
                 missing += std::format( " ({})", spec.Extension );
         }
+        if ( caps.Has( Capability::DescriptorIndexing ) )
+        {
+            const DescriptorIndexingLimits& limits = caps.DescriptorIndexing;
+            // BindlessCapacityCeiling's rule: the table keeps at most half the ceiling for itself.
+            if ( limits.SampledImageCeiling() < 2 * kBindlessInitialTextureCapacity )
+            {
+                if ( !missing.empty() )
+                    missing += ", ";
+                missing += std::format( "{} update-after-bind sampled images (per stage {}, per set {})",
+                                        2 * kBindlessInitialTextureCapacity,
+                                        limits.MaxPerStageUpdateAfterBindSampledImages,
+                                        limits.MaxSetUpdateAfterBindSampledImages );
+            }
+            if ( limits.SamplerCeiling() < ::Desert::Core::kBindlessSamplerStateCount )
+            {
+                if ( !missing.empty() )
+                    missing += ", ";
+                missing += std::format( "{} update-after-bind samplers (per stage {}, per set {})",
+                                        ::Desert::Core::kBindlessSamplerStateCount,
+                                        limits.MaxPerStageUpdateAfterBindSamplers,
+                                        limits.MaxSetUpdateAfterBindSamplers );
+            }
+        }
         if ( missing.empty() )
             return Common::MakeSuccess( true );
         return Common::MakeError<bool>(
@@ -196,5 +239,22 @@ namespace Desert::Graphic::API::Vulkan
             line += std::format( " {}{}={}", need, spec.Name, how );
         }
         return line;
+    }
+
+    std::string FormatDescriptorLimits( const DeviceCaps& caps )
+    {
+        const PerStageDescriptorLimits& stage = caps.PerStage;
+        const DescriptorIndexingLimits& uab   = caps.DescriptorIndexing;
+        // descriptorBindingSampledImageUpdateAfterBind is enabled with the descriptorIndexing row, never alone.
+        return std::format(
+             "per-stage limits: samplers {}, sampled images {}, uniform buffers {}, storage buffers "
+             "{}, storage images {}, resources {} | update-after-bind (sampledImageUpdateAfterBind="
+             "{}): per stage samplers {}, sampled images {}, resources {}; per set samplers {}, "
+             "sampled images {}",
+             stage.MaxSamplers, stage.MaxSampledImages, stage.MaxUniformBuffers, stage.MaxStorageBuffers,
+             stage.MaxStorageImages, stage.MaxResources, caps.Has( Capability::DescriptorIndexing ) ? "yes" : "no",
+             uab.MaxPerStageUpdateAfterBindSamplers, uab.MaxPerStageUpdateAfterBindSampledImages,
+             uab.MaxPerStageUpdateAfterBindResources, uab.MaxSetUpdateAfterBindSamplers,
+             uab.MaxSetUpdateAfterBindSampledImages );
     }
 } // namespace Desert::Graphic::API::Vulkan

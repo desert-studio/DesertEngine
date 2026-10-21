@@ -1,0 +1,94 @@
+{
+    "Header": {
+        "Kind": "FoliageType",
+        "Guid": "ef6e7c4e137113f552595c56bedcb909",
+        "Versions": {
+            "FOLT": 8
+        },
+        "Dependencies": [
+            "3a1289c7205a9d50d0fbafa6e09d09b9",
+            "0e67a9bfdff1b3cd7ed50e27dadc465e",
+            "c39ddb7d5965f1c080b50b71c51a6db6"
+        ]
+    },
+    "Kind": "Mesh",
+    "Prefab": {
+        "Guid": "",
+        "Path": ""
+    },
+    "Density": 100.0,
+    "ScaleX": {
+        "Min": 1.0,
+        "Max": 1.0
+    },
+    "ZOffset": {
+        "Min": -2.0,
+        "Max": 0.0
+    },
+    "AlignToNormal": true,
+    "RandomYaw": true,
+    "RandomPitchAngle": 6.0,
+    "GroundSlopeAngle": {
+        "Min": 0.0,
+        "Max": 40.0
+    },
+    "Height": {
+        "Min": -262144.0,
+        "Max": 262144.0
+    },
+    "LandscapeLayers": [
+        {
+            "Guid": "0e67a9bfdff1b3cd7ed50e27dadc465e",
+            "Path": "Landscape/Layers/FieldBarn/FieldGrass.delayerinfo"
+        },
+        {
+            "Guid": "c39ddb7d5965f1c080b50b71c51a6db6",
+            "Path": "Landscape/Layers/FieldBarn/FieldDry.delayerinfo"
+        }
+    ],
+    "MinimumLayerWeight": 0.5,
+    "CullDistance": {
+        "Min": 9000,
+        "Max": 12000
+    },
+    "Wind": {
+        "Strength": 0.2,
+        "Speed": 0.6,
+        "Height": 150.0
+    },
+    "IncludeInHLOD": true,
+    "Mesh": {
+        "Guid": "3a1289c7205a9d50d0fbafa6e09d09b9",
+        "Path": "assets:Environments/FieldBarn/Meshes/shrub_02/shrub_02_shrub_02_a.stmesh"
+    },
+    "Procedural": {
+        "CollisionRadius": 120.0,
+        "ShadeRadius": 30.0,
+        "NumSteps": 2,
+        "InitialSeedDensity": 0.2,
+        "AverageSpreadDistance": 150.0,
+        "SpreadVariance": 150.0,
+        "SeedsPerStep": 2,
+        "DistributionSeed": 8553,
+        "MaxInitialSeedOffset": 0.0,
+        "CanGrowInShade": true,
+        "SpawnsInShade": false,
+        "MaxInitialAge": 0.0,
+        "MaxAge": 10.0,
+        "OverlapPriority": 4.0,
+        "ProceduralScale": {
+            "Min": 0.9,
+            "Max": 1.4
+        },
+        "ScaleCurve": [
+            {
+                "Time": 0.0,
+                "Value": 0.0
+            },
+            {
+                "Time": 1.0,
+                "Value": 1.0
+            }
+        ]
+    }
+}

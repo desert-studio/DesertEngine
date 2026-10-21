@@ -28,6 +28,7 @@ namespace Desert::Assets
 
         std::mutex              s_BuilderMutex;
         MeshPlatformDataBuilder s_Builder;
+        MeshSourceBuilder       s_SourceBuilder;
 
     } // namespace
 
@@ -57,6 +58,12 @@ namespace Desert::Assets
     {
         const std::lock_guard<std::mutex> lock( s_BuilderMutex );
         s_Builder = std::move( builder );
+    }
+
+    void SetMeshSourceBuilder( MeshSourceBuilder builder )
+    {
+        const std::lock_guard<std::mutex> lock( s_BuilderMutex );
+        s_SourceBuilder = std::move( builder );
     }
 
     Common::ResultStr<std::string> LoadMeshPlatformData( const std::filesystem::path& asset )
@@ -147,12 +154,29 @@ namespace Desert::Assets
         const uint64_t key = MeshSourceDerivedDataKey( hash.GetValue() );
         auto           hit = Common::DDC::Get( kMeshSourceDeriver, key );
         if ( !hit.has_value() )
-            return Common::MakeFormattedError<MeshSourceAsset>(
-                 "'{}' has no imported source under DDC key {:016x} ({}) for '{}': re-import it (Assets > "
-                 "Rebuild Cooked Assets) - a stale file beside the source, if one exists, is never read in "
-                 "its place",
-                 assetPath.string(), key, Common::DDC::RelativePath( kMeshSourceDeriver, key ).generic_string(),
-                 companion->string() );
+        {
+            MeshSourceBuilder builder;
+            {
+                const std::lock_guard<std::mutex> lock( s_BuilderMutex );
+                builder = s_SourceBuilder;
+            }
+            if ( !builder )
+                return Common::MakeFormattedError<MeshSourceAsset>(
+                     "'{}' has no imported source under DDC key {:016x} ({}) for '{}', and this build cannot "
+                     "derive it - a stale file beside the source, if one exists, is never read in its place",
+                     assetPath.string(), key,
+                     Common::DDC::RelativePath( kMeshSourceDeriver, key ).generic_string(), companion->string() );
+            if ( auto built = builder( *companion ); !built )
+                return Common::MakeFormattedError<MeshSourceAsset>(
+                     "'{}' has no imported source under DDC key {:016x} and its rebuild from '{}' failed: {}",
+                     assetPath.string(), key, companion->string(), built.GetError() );
+            hit = Common::DDC::Get( kMeshSourceDeriver, key );
+            if ( !hit.has_value() )
+                return Common::MakeFormattedError<MeshSourceAsset>(
+                     "'{}': the rebuild from '{}' succeeded but DDC key {:016x} ({}) is still missing",
+                     assetPath.string(), companion->string(), key,
+                     Common::DDC::RelativePath( kMeshSourceDeriver, key ).generic_string() );
+        }
         auto decoded = DecodeMeshSourceAsset( std::as_bytes( std::span<const char>( hit->data(), hit->size() ) ) );
         if ( !decoded.IsSuccess() )
             return Common::MakeFormattedError<MeshSourceAsset>( "'{}': cached imported source is corrupt: {}",

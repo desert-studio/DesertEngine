@@ -99,7 +99,7 @@ namespace Desert::Graphic
         // one zeroed row (LightPayloadBytes, the rule the deferred composite's upload follows too). The consumer
         // loops 0..count with the count below, so the row is never read; skipping the write instead left the
         // buffer unfilled by either route, and a lit forward pass with no point light in the scene
-        // ("Deferred: Skinned" over StandardSurface/Skinned.Forward) was refused at setup.
+        // (the skinned forward draw over StandardSurface/Skinned.Forward) was refused at setup.
         if ( auto* sb =
                   material->Get<StorageBufferProperty>( Desert::Graphic::ShaderProtocols::PointLight::Name ) )
         {
@@ -139,7 +139,8 @@ namespace Desert::Graphic
                                  bool enabled, int debugMode, bool showNormals,
                                  const glm::vec4& cascadeWorldPerTexel, const glm::vec4& cascadeDepthRange,
                                  float sourceTanHalf, bool lightingDebug,
-                                 const SceneResources::ContactShadowSettings& contact )
+                                 const SceneResources::ContactShadowSettings& contact,
+                                 const SceneResources::ShadowFilterSettings&  filter )
     {
         if ( material == nullptr || cascadeViewProj == nullptr )
             return;
@@ -162,6 +163,7 @@ namespace Desert::Graphic
         data.CascadeTexelWorld = cascadeWorldPerTexel;
         data.CascadeDepthRange = cascadeDepthRange;
         SceneResources::PackContactShadow( data, contact );
+        SceneResources::PackShadowFilter( data, filter );
 
         if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kShadowBlockName ) )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );

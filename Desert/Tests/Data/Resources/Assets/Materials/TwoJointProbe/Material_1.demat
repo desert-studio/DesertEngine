@@ -37,10 +37,6 @@
             "Value": [1.0, 0.0, 0.0, 0.0]
         },
         {
-            "Name": "AlphaCutoff",
-            "Value": [0.0, 0.0, 0.0, 0.0]
-        },
-        {
             "Name": "UVTiling",
             "Value": [1.0, 1.0, 0.0, 0.0]
         }
@@ -53,11 +49,6 @@
         },
         {
             "Name": "u_NormalTexture",
-            "Guid": "",
-            "Path": ""
-        },
-        {
-            "Name": "u_OpacityTexture",
             "Guid": "",
             "Path": ""
         },

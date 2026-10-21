@@ -116,8 +116,8 @@ layout( std430, binding = CLOUD_PARAMS_BINDING ) readonly buffer CloudParamsBuff
     // 268 in Graphic::CloudGpuPayload — a silent divergence between the two halves of one layout, which is
     // the failure this whole file exists to prevent. Same reason the species array is where it is.
     vec4  u_CloudAlbedo;    // rgb scattering albedo, w Sky Light Cloud Bottom Occlusion (CloudLighting.glslh)
-    // THE WORLD WEATHER'S CUT (Graphic::CloudGpuPayload::Weather): x the far path's read scale, y rho, z not read since
-    // CUT-AT-BAKE, w 1 / the weather's period in km. Unpacked into
+    // THE WORLD WEATHER'S CUT (Graphic::CloudGpuPayload::Weather): x the far path's read scale, y rho, z the
+    // Coverage slider the march thresholds the baked field by (WTH-CLOUDS), w 1 / the weather's period in km. Unpacked into
     // CloudFieldParams::Weather for Common/CloudField.glslh's procedural producer. Before u_CloudAerial for
     // the reason u_CloudAlbedo is.
     vec4  u_CloudWeather;
@@ -194,6 +194,7 @@ CloudFieldParams CloudUnpackFieldParams()
         p.ProceduralLevel[level] = u_CloudLevel[level];
     p.Weather         = u_CloudWeather.yw;
     p.FarScale        = u_CloudWeather.x;
+    p.Coverage        = u_CloudWeather.z;
     for ( int band = 0; band < CLOUD_FAR_BANDS; ++band )
     {
         p.FarPresence[band] = u_CloudFarPresence[band];

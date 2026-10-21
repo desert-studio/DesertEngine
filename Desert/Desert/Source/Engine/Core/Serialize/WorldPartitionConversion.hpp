@@ -54,7 +54,8 @@ namespace Desert::Core::Rules
     [[nodiscard]] inline WorldPartitionSerialized DefaultWorldPartition()
     {
         WorldPartitionSerialized partition;
-        partition.Grids.emplace_back();
+        // UE's main grid: the one every record that names no RuntimeGrid streams on.
+        partition.Grids.emplace_back().Name = "Main";
         StateInstancingHLODLayer( partition );
         return partition;
     }

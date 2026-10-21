@@ -1208,6 +1208,88 @@ namespace Desert::Editor
         return false;
     }
 
+    // THE FILE'S LIGHT SOURCES (BISTRO-LIGHTS; ports UE FbxLightImport.cpp CreateLight / Interchange
+    // FbxLight.cpp AddLightsRecursively): one entry per aiLight, at its node's world transform (the same root-down
+    // composition the meshes are baked with in ProcessScene, so a light stands where the file put it among them).
+    // assimp's FBX reader (FBXConverter.cpp ConvertLight) folds Intensity / 100 into the colour, points the light
+    // down its node's -Y, and turns DecayStart into attenuation terms; those are read back into the radius UE
+    // takes from DecayStart. @p centimetresPerUnit is the file unit the geometry was scaled by: DecayStart is
+    // stated in file units and assimp's scaling step does not touch lights.
+    static std::vector<ImportedLight> ReadSceneLights( const aiScene& scene, const std::string& fileName,
+                                                       const float centimetresPerUnit )
+    {
+        std::vector<ImportedLight> lights;
+        for ( uint32_t i = 0; i < scene.mNumLights; ++i )
+        {
+            const aiLight& source = *scene.mLights[i];
+            ImportedLight  light;
+            light.Name = source.mName.C_Str();
+            switch ( source.mType )
+            {
+                case aiLightSource_DIRECTIONAL:
+                    light.Type = ImportedLightType::Directional;
+                    break;
+                case aiLightSource_SPOT:
+                    light.Type             = ImportedLightType::Spot;
+                    light.InnerConeDegrees = glm::degrees( source.mAngleInnerCone );
+                    light.OuterConeDegrees = glm::degrees( source.mAngleOuterCone );
+                    break;
+                case aiLightSource_POINT:
+                    light.Type = ImportedLightType::Point;
+                    break;
+                default:
+                    // UE FbxLightImport: "default: LightClass = APointLight" - an area or volume light the engine
+                    // has no type for is imported as a point light at its node, and the log says so.
+                    LOG_WARN( "[Import] {}: light '{}' is of a type the engine has no light for (assimp type {}); "
+                              "imported as a point light, as UE does",
+                              fileName, light.Name, static_cast<int>( source.mType ) );
+                    light.Type = ImportedLightType::Point;
+                    break;
+            }
+
+            const aiNode* node = scene.mRootNode->FindNode( source.mName );
+            glm::mat4     world( 1.0f );
+            for ( const aiNode* at = node; at != nullptr; at = at->mParent )
+                world = ConvertMatrix( at->mTransformation ) * world;
+            if ( node == nullptr )
+                LOG_WARN( "[Import] {}: light '{}' names no node of the file, so it stands at the file's origin",
+                          fileName, light.Name );
+            light.Position = glm::vec3(
+                 world * glm::vec4( source.mPosition.x, source.mPosition.y, source.mPosition.z, 1.0f ) );
+            const glm::vec3 direction = glm::vec3(
+                 world * glm::vec4( source.mDirection.x, source.mDirection.y, source.mDirection.z, 0.0f ) );
+            if ( glm::length( direction ) <= 1e-6f )
+            {
+                LOG_WARN( "[Import] {}: light '{}' has no direction under its node's transform; it is skipped",
+                          fileName, light.Name );
+                continue;
+            }
+            light.Direction = glm::normalize( direction );
+            light.Radiance  = glm::vec3( source.mColorDiffuse.r, source.mColorDiffuse.g, source.mColorDiffuse.b );
+
+            // DecayStart back out of assimp's terms: None -> constant = DecayStart; Linear -> linear = 2 / start;
+            // Quadratic -> quadratic = 2 / start^2 (FBXConverter.cpp ConvertLight). UE: AttenuationRadius =
+            // DecayStart, and no decay = an unbounded radius.
+            if ( light.Type != ImportedLightType::Directional )
+            {
+                std::optional<float> decayStart;
+                if ( source.mAttenuationLinear > 0.0f )
+                    decayStart = 2.0f / source.mAttenuationLinear;
+                else if ( source.mAttenuationQuadratic > 0.0f )
+                    decayStart = std::sqrt( 2.0f / source.mAttenuationQuadratic );
+                if ( decayStart && std::isfinite( *decayStart ) && *decayStart > 0.0f )
+                    light.Radius = *decayStart * centimetresPerUnit;
+            }
+            LOG_INFO( "[Import] {}: light '{}' ({}) at ({}, {}, {}) cm", fileName, light.Name,
+                      light.Type == ImportedLightType::Directional ? "directional"
+                      : light.Type == ImportedLightType::Spot      ? "spot"
+                                                                   : "point",
+                      light.Position.x, light.Position.y, light.Position.z );
+            lights.push_back( std::move( light ) );
+        }
+        return lights;
+    }
+
     Common::ResultStr<ImportContentKind> AssimpImporter::Probe( const std::filesystem::path& path )
     {
         static const ScopedAssimpLogger logger;
@@ -1314,7 +1396,9 @@ namespace Desert::Editor
             throw std::runtime_error( "Failed to scale to centimetres on import: " + path.string() );
         }
 
-        return ProcessScene( scene, manager, path, pass );
+        ImportResult result = ProcessScene( scene, manager, path, pass );
+        result.Lights       = ReadSceneLights( *scene, fileName, unit.CentimetresPerUnit );
+        return result;
     }
 
 } // namespace Desert::Editor

@@ -68,11 +68,16 @@ local function EngineModuleLibrary(module, legacyFiles)
         DesertModuleLibs.DependOnCodegen()
     end
 
-    -- Platform/Windows and Platform/MacOS (and any .mm) compile on their own system only.
+    -- Platform/Windows and Platform/MacOS (and any .mm) compile on their own system only. So do the vendor
+    -- upscalers (Engine/Graphic/Upscalers/), every Streamline/ directory (the NVIDIA Streamline device
+    -- integration DLSS runs on) and every FidelityFX/ directory (the device the FSR Vulkan backend assumes):
+    -- their SDKs are built or shipped for Windows only (BuildScripts/ThirdParty/FidelityFX.lua,
+    -- ThirdParty/Streamline).
     local commonFiles, windowsFiles, macFiles = { "Source/pch.cpp", "Source/pch.hpp" }, {}, {}
     for _, file in ipairs(legacyFiles) do
         local target = commonFiles
-        if file:find("^Platform/Windows/") then
+        if file:find("^Platform/Windows/") or file:find("^Engine/Graphic/Upscalers/") or file:find("/Streamline/")
+            or file:find("/FidelityFX/") then
             target = windowsFiles
         elseif file:find("^Platform/MacOS/") or file:find("%.mm$") then
             target = macFiles
@@ -105,6 +110,10 @@ local function EngineModuleLibrary(module, legacyFiles)
         -- Luau, by module path (<VM/include/lua.h>, <Compiler/include/luacode.h>): its lua.h shares a name with
         -- PUC Lua's (DesertHeaderTool's), so the two VMs' headers can never resolve to each other.
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau",
+        -- Luau's C++ CodeGen API (<CodeGen/include/Luau/CodeGen.h>: the script debugger turns native execution
+        -- off while attached) includes its siblings as "Luau/...", from these two roots.
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau/CodeGen/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau/Common/include",
     }
 
     for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
@@ -162,6 +171,15 @@ end
         -- past it. Clang has no such limit, which is why this only bites the Windows build.
         buildoptions { "/bigobj" }
         files(windowsFiles)
+        -- The vendor upscalers (Engine/Graphic/API/UpscalerBuild.hpp reads the defines; the windowsFiles above
+        -- hold their sources). FSR 3.1: Upscalers/FSR on the FidelityFX SDK. DLSS: Upscalers/DLSS on NVIDIA
+        -- Streamline, whose device integration is API/Vulkan/Streamline (registered by VulkanDeviceExtensions.cpp).
+        defines { "DESERT_UPSCALER_FSR", "DESERT_UPSCALER_DLSS" }
+        externalincludedirs {
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/FidelityFX-SDK/sdk/include",
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/Streamline/include",
+        }
+        links { "FidelityFX" }
 
     filter { "system:macosx" }
         defines { "DESERT_PLATFORM_MACOS" }

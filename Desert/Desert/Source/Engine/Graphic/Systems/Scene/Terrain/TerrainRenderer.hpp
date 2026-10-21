@@ -9,9 +9,12 @@
 #include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/TerrainLayerInputs.hpp>
 
 #include <glm/glm.hpp>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -30,7 +33,7 @@ namespace Desert::Graphic::System
     {
         // The tile's R16 heightmap (LandscapeECSSystem's GPU copy of the tile's samples), and where the tile
         // sits in its root's frame.
-        Image2D*          Heightmap = nullptr;
+        std::shared_ptr<Image2D> Heightmap;
         LandscapeTileDraw Landscape;
 
         // The tile's ground and painted weight layers (LayerCount 0 = none painted).
@@ -102,14 +105,41 @@ namespace Desert::Graphic::System
                                                               uint32_t firstBlock, const glm::mat4& casterViewProj,
                                                               const CascadeCasterBias& bias ) override;
 
+        void AppendVirtualShadowEntries( std::vector<ShadowCasterEntry>& entries ) const override;
+        [[nodiscard]] uint32_t DeclareVirtualShadow( RDG::PassBuilder&                   pass,
+                                                     const VirtualShadowBlockParameters& parameters ) override;
+        void AppendVirtualShadowDraws( std::vector<VirtualShadowCasterDraw>& draws ) const override;
+        [[nodiscard]] Common::BoolResultStr
+        RecordVirtualShadow( const RDG::PassContext& context, uint32_t firstBlock, const glm::mat4& levelViewProj,
+                             RDG::BufferRef arguments, uint32_t firstRecord ) override;
+
         void Submit( const TerrainDrawData& data )
         {
             m_Queue.push_back( data );
         }
 
+        // This frame's tiles and, parallel to them, the row PrepareFrame packed for each (LOD, borders, frame):
+        // what the view's ray-tracing landscape (LandscapeRayTracing) builds its BLAS from.
+        [[nodiscard]] std::span<const TerrainDrawData> GetQueue() const
+        {
+            return m_Queue;
+        }
+        [[nodiscard]] std::span<const TerrainInstance> GetFrameInstances() const
+        {
+            return m_FrameInstances;
+        }
+        // ...and the material's Tint each tile drew with (its row after the defaults and the tile's overrides):
+        // the landscape's ray tracing hit group shades a hit with the raster's own tint.
+        [[nodiscard]] std::span<const glm::vec4> GetFrameTints() const
+        {
+            return m_FrameTints;
+        }
+
         void ClearQueue()
         {
             m_Queue.clear();
+            m_FrameInstances.clear();
+            m_FrameTints.clear();
             m_FrameGroups.clear();
             m_FrameDraws.clear();
             m_LocalLightDraws.clear();
@@ -123,6 +153,8 @@ namespace Desert::Graphic::System
             std::unique_ptr<DataDrivenMaterial> Forward;
             std::unique_ptr<DataDrivenMaterial> GBuffer;
             std::unique_ptr<DataDrivenMaterial> Shadow;
+            // TerrainVirtualShadow.shader: the virtual shadow map's caster (the same vertex stage as Shadow).
+            std::unique_ptr<DataDrivenMaterial> VirtualShadow;
         };
 
         // A frame's terrains sharing one texture set. Named by key, not by pointer: m_Materials owns them.
@@ -156,17 +188,33 @@ namespace Desert::Graphic::System
         // The executors of @p program's material of every frame group, in group order: a node drawing the
         // terrain declares one binding block per entry (block firstBlock + group), and RecordDraws records group
         // g's draws through block firstBlock + g.
+        // The culled records a virtual shadow map level draws the tiles from (RecordVirtualShadow): tile k's at
+        // record FirstRecord + k of Arguments.
+        struct VirtualShadowIndirect
+        {
+            RDG::BufferRef Arguments;
+            uint32_t       FirstRecord = 0;
+        };
+
         [[nodiscard]] std::vector<const MaterialExecutor*>
         GroupExecutors( std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program ) const;
 
         [[nodiscard]] Common::BoolResultStr
         RecordDraws( const RDG::PassContext& context, uint32_t firstBlock, const GraphicsPipeline& pipeline,
                      std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
-                     const glm::mat4& clipFromWorld, const std::vector<FrameDraw>& draws );
+                     const glm::mat4& clipFromWorld, const std::vector<FrameDraw>& draws,
+                     const std::optional<VirtualShadowIndirect>& indirect = std::nullopt );
 
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         std::shared_ptr<GraphicsPipeline> m_GBufferPipeline;
         std::shared_ptr<GraphicsPipeline> m_ShadowPipeline;
+        // The virtual shadow map's caster: no attachment, no depth test, depth clamp (the mesh renderer's VSM
+        // casters' state). Built on the first level that draws the terrain; a refusal is logged once and kept.
+        [[nodiscard]] const GraphicsPipeline* VirtualShadowPipeline();
+        std::shared_ptr<GraphicsPipeline>     m_VirtualShadowPipeline;
+        bool                                  m_VirtualShadowRefused = false;
+        ShaderBindingLayoutCache              m_VirtualShadowLayout;
+
         // Each program's block layout, keyed on the shader of the pipeline its draws record with (kept, not
         // re-derived per frame; a reload re-derives it).
         ShaderBindingLayoutCache m_ForwardLayout;
@@ -174,8 +222,14 @@ namespace Desert::Graphic::System
         ShaderBindingLayoutCache m_ShadowLayout;
 
         std::unordered_map<std::string, ProgramMaterials> m_Materials;
+        // The landscape materials' layer inputs (their texture arrays), by the material's texture key: shared
+        // by every tile of a landscape, kept between frames so an array is copied only when its sources change.
+        std::unordered_map<std::string, TerrainLayerInputs> m_LayerInputs;
+        std::shared_ptr<Image2D>                            m_EmptyLayerArray; // CreateTerrainEmptyLayerArray
 
         std::vector<TerrainDrawData> m_Queue;
+        std::vector<TerrainInstance> m_FrameInstances; // parallel to m_Queue after PrepareFrame
+        std::vector<glm::vec4>       m_FrameTints;     // parallel to m_Queue after PrepareFrame
         std::vector<FrameGroup>      m_FrameGroups;
         std::vector<FrameDraw>       m_FrameDraws;
         std::vector<LocalLightDraws> m_LocalLightDraws; // this frame's point/spot lights, PrepareFrame

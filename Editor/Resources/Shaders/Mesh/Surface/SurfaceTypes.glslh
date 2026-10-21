@@ -6,9 +6,11 @@
 // path fills the varyings, and the engine's pass header builds the input, calls the function and writes
 // the pass's targets. Every cell of every template compiles this file, so it is hashed into their keys.
 //
-// The parser defines, in BOTH stages of a cell: DESERT_SURFACE_PASS_<Pass> (Forward | GBuffer | ShadowDepth),
+// The parser defines, in BOTH stages of a cell: DESERT_SURFACE_PASS_<Pass> (Forward | GBuffer | ShadowDepth |
+// VirtualShadowDepth),
 // DESERT_SHADING_MODEL_INDEX (the template's model, a SHADING_MODEL_INDEX_<NAME> of the generated
-// Generated/ShadingModels.glslh) and, for `BlendMode Masked`, DESERT_SURFACE_MASKED. The headers shape their declarations on these so each
+// Generated/ShadingModels.glslh), for `BlendMode Masked`, DESERT_SURFACE_MASKED and, in the `.Parallax` cells of
+// a template that declares `Height <Texture2D> ... Scale(<Float>)`, DESERT_SURFACE_PARALLAX (SurfaceParallax.glslh). The headers shape their declarations on these so each
 // cell declares exactly what the shader it replaces declared (SurfaceTemplate holds them equal by reflection).
 
 // The source-to-surface arithmetic a surface function is written in (UV transform, base colour, ORM, normal
@@ -24,14 +26,24 @@
 // G-buffer, post and screen-space reads are at the render resolution and keep the implicit level.
 #ifdef DESERT_SURFACE_SAMPLES_MATERIAL
 #include <Common/CameraUB.glslh>
+#include <Common/BindlessTextures.glslh>
 
-vec4 SurfaceSampleMaterial( sampler2D materialTexture, vec2 uv )
+#ifdef DESERT_SURFACE_PASS_Hit
+// A ray hit samples at the ray cone's mip (Common/BindlessTextures.glslh RayHitTextureLod, g_DesertRayHitLod).
+vec4 SurfaceSampleMaterial( BindlessTexture materialTexture, vec2 uv )
 {
-    return texture( materialTexture, uv, cameraUB.MaterialMipBias );
+    return SampleBindless( materialTexture, uv );
 }
+#else
+// A material texture is its row slot (u_Material.<name>, a BindlessTexture), read through the bindless table.
+vec4 SurfaceSampleMaterial( BindlessTexture materialTexture, vec2 uv )
+{
+    return SampleBindlessBias( materialTexture, uv, cameraUB.MaterialMipBias );
+}
+#endif
 
 // A material's normal map: the biased fetch, decoded as Common/TangentNormal.glslh decodes any normal map.
-vec3 SurfaceSampleTangentNormal( sampler2D normalMap, vec2 uv )
+vec3 SurfaceSampleTangentNormal( BindlessTexture normalMap, vec2 uv )
 {
     return DecodeTangentNormal( SurfaceSampleMaterial( normalMap, uv ).rg );
 }
@@ -99,24 +111,31 @@ SurfaceSubUV DesertParticleSubUV( SurfaceParticleInput p, vec2 uv, float columns
 //
 // THE SCENE DEPTH, declared here once for every fragment stage that reads it: the particle sprites (Depth Fade) and
 // the Forward cells (opaque and translucent), whose contact shadows march it (Common/ContactShadow.glslh; bound as
-// SceneViewInputs::SceneDepth, the opaque G-buffer depth, or a black texture where the view has none).
-#if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) && \
-     ( defined( DESERT_SURFACE_PARTICLE_SPRITE ) || defined( DESERT_SURFACE_PASS_Forward ) )
-layout( binding = 27 ) uniform sampler2D u_SceneDepth; // 27 = Core::kSceneDepthBinding, the scene-read range's third slot (ShaderGraphBindings.hpp)
+// SceneViewInputs::SceneDepth, the opaque G-buffer depth, or a black texture where the view has none). A separate
+// texture read through the point-clamped shared state (ParticleRenderer / Graphic::BindSceneViewInputs bind both),
+// numbered by the program build (SharedSamplerBinding.hpp).
+#if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) &&      ( defined( DESERT_SURFACE_PARTICLE_SPRITE ) || defined( DESERT_SURFACE_PASS_Forward ) )
+Uniform sampler u_PointClampSampler;
+layout( binding = 27 ) uniform texture2D u_SceneDepth; // 27 = Core::kSceneDepthBinding, the scene-read range's third slot (ShaderGraphBindings.hpp)
+#define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
 #endif
 // THE SCENE SHADING WORD beside it, for the Forward cells only: the contact-shadow ray's hit texel's NO_CONTACT_SHADOW
-// bit (UE CastContactShadow( GBuffer ); SceneViewInputs::SceneShadingWord, the G-buffer's, or an integer zero).
+// bit (UE CastContactShadow( GBuffer ); SceneViewInputs::SceneShadingWord, the G-buffer's, or an integer zero). Read
+// with texelFetch through the same point-clamped state.
 #if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) && defined( DESERT_SURFACE_PASS_Forward )
-layout( binding = 28 ) uniform usampler2D u_SceneShadingWord; // 28 = Core::kSceneShadingWordBinding, the range's fourth slot
+layout( binding = 28 ) uniform utexture2D u_SceneShadingWord; // 28 = Core::kSceneShadingWordBinding, the range's fourth slot
+#define u_SceneShadingWord usampler2D(u_SceneShadingWord, u_PointClampSampler)
 #endif
 
 #if defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
+#include <Common/ReconstructPosition.glslh>
 float DesertDepthFade( vec3 worldPosition, float opacity, float fadeDistance )
 {
     const vec2  uv     = gl_FragCoord.xy / vec2( textureSize( u_SceneDepth, 0 ) );
     const float depth  = texture( u_SceneDepth, uv ).r;
-    const vec4  scene  = cameraUB.InvJitteredViewProjection * vec4( uv * 2.0 - 1.0, depth, 1.0 );
-    const float behind = -( cameraUB.View * vec4( scene.xyz / scene.w, 1.0 ) ).z;
+    // Common/ReconstructPosition.glslh: (0,0) is the top-left pixel and NDC +y is up - the one convention.
+    const vec3  scene  = ReconstructWorldPosition( uv, depth, cameraUB.InvJitteredViewProjection );
+    const float behind = -( cameraUB.View * vec4( scene, 1.0 ) ).z;
     const float self   = -( cameraUB.View * vec4( worldPosition, 1.0 ) ).z;
     return opacity * clamp( ( behind - self ) / max( fadeDistance, 0.001 ), 0.0, 1.0 );
 }
@@ -132,8 +151,11 @@ struct SurfaceOutput
     vec3  BaseColor; // linear
     float Metallic;
     float Roughness; // the pass clamps it to 0.04 so the GGX lobe stays finite
+    // UE's Specular pin: the dielectric reflectance, F0 = 0.08 x Specular (0.5, the default, = 4 %). It reaches the
+    // model through the shading word's 8-bit field (deferred) or quantized the same way (forward).
+    float Specular;
     vec3  Emissive;  // linear, HDR, added unlit
-    float Opacity;   // read only by BlendMode Masked, against u_Material.OpacityMaskClipValue
+    float Opacity;   // read by the translucency passes (BlendMode Translucent / Additive) and the sprite cell
     vec3  Normal;    // TANGENT space, as UE's Normal pin: (0,0,1) is the geometric normal
     float AmbientOcclusion;
     // The sun-shadow receive half the material owns (the renderer zeroes a mesh's row value when its Receive
@@ -150,6 +172,13 @@ struct SurfaceOutput
     float CustomData1;
     float CustomData2;
     float CustomData3;
+    // UE's Pixel Depth Offset pin: centimetres along the view ray the pass headers push the fragment's depth, shaded
+    // position and velocity (>= 0, away from the eye). Written by SurfaceParallaxOcclusion (SurfaceParallax.glslh) and
+    // applied only by a template's `.Parallax` cells; every other cell keeps its rasterised depth.
+    float PixelDepthOffset;
+    // The relief's own shadow from the main directional light (1 = lit), multiplied into the sun's shadow by the
+    // forward pass and, through the G-buffer shading word's SUN_SELF_SHADOW field, by the deferred composite.
+    float SunSelfShadow;
 };
 
 // What an author starts from, so a surface that sets only BaseColor still returns a defined value.
@@ -159,6 +188,7 @@ SurfaceOutput DefaultSurfaceOutput()
     s.BaseColor           = vec3( 1.0 );
     s.Metallic            = 0.0;
     s.Roughness           = 0.5;
+    s.Specular            = 0.5;
     s.Emissive            = vec3( 0.0 );
     s.Opacity             = 1.0;
     s.Normal              = vec3( 0.0, 0.0, 1.0 );
@@ -170,20 +200,29 @@ SurfaceOutput DefaultSurfaceOutput()
     s.CustomData1         = 0.0;
     s.CustomData2         = 0.0;
     s.CustomData3         = 0.0;
+    s.PixelDepthOffset    = 0.0;
+    s.SunSelfShadow       = 1.0;
     return s;
 }
 
+// The two caster passes: a cascade's depth attachment (ShadowDepth) and the virtual shadow map's physical pool
+// (VirtualShadowDepth). Both project through the caster matrix with the caster's slope bias and draw a light view.
+#if defined( DESERT_SURFACE_PASS_ShadowDepth ) || defined( DESERT_SURFACE_PASS_VirtualShadowDepth )
+#define DESERT_SURFACE_CASTER_PASS 1
+#endif
+
 // Whether this cell's stages talk at all: a shadow-depth cell of an opaque template writes gl_FragCoord.z
 // and nothing else, exactly as Programs/Shadow/Shadow*.shader.
-#if !defined( DESERT_SURFACE_PASS_ShadowDepth ) || defined( DESERT_SURFACE_MASKED )
+// A parallax cell's caster evaluates the surface too: its depth is the relief's (Pixel Depth Offset), not the flat
+// triangle's.
+#if !defined( DESERT_SURFACE_CASTER_PASS ) || defined( DESERT_SURFACE_MASKED ) || defined( DESERT_SURFACE_PARALLAX )
 #define DESERT_SURFACE_HAS_VARYINGS 1
 #endif
 
 // A cell of a VIEW pass (G-buffer, forward, translucent — the camera's own frame) reads its object's motion row and
 // hands the fragment stage both unjittered clip positions; a shadow-depth cell draws a light view, which has no
-// previous frame, and keeps its world transform in the push block. So does the RSM permutation of the G-buffer
-// cell (DESERT_GBUFFER_RSM, MeshRendererShadow DeclareRSMDraws pushes the world): a light view as well.
-#if defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_PASS_ShadowDepth ) && !defined( DESERT_GBUFFER_RSM )
+// previous frame, and keeps its world transform in the push block.
+#if defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_CASTER_PASS )
 #define DESERT_SURFACE_VIEW_PASS 1
 #endif
 
@@ -247,14 +286,20 @@ vec3 DesertSurfaceWorldNormal( SurfaceInput i, SurfaceOutput s )
     return normalize( i.TBN * s.Normal );
 }
 
-// BlendMode Masked: the parser defines DESERT_SURFACE_MASKED and has already refused a template without the
-// Float parameter the threshold is read from.
-#ifdef DESERT_SURFACE_MASKED
-#define DESERT_SURFACE_CLIP( s ) \
-    if ( ( s ).Opacity < u_Material.OpacityMaskClipValue ) \
+// BlendMode Masked (UE's OpacityMask < OpacityMaskClipValue): the parser defines DESERT_SURFACE_MASKED, has refused
+// a template without its `OpacityMask` line or the Float threshold, and GENERATES DesertSurfaceOpacityMask( i ) from
+// that line (DShaderParser OpacityMaskFunction) between the surface block and the pass header. Every cell clips
+// with it, BEFORE evaluating the surface; ray tracing reads the same line from ShaderProgramMeta::OpacityMask.
+// A hit cell clips in its any-hit stage (ignoreIntersectionEXT), never in closest hit: a hit has no discard.
+#if defined( DESERT_SURFACE_MASKED ) && !defined( DESERT_SURFACE_PASS_Hit )
+#define DESERT_SURFACE_CLIP( i ) \
+    if ( DesertSurfaceOpacityMask( i ) < u_Material.OpacityMaskClipValue ) \
         discard
 #else
-#define DESERT_SURFACE_CLIP( s )
+#define DESERT_SURFACE_CLIP( i )
 #endif
+
+// Parallax occlusion mapping and the Pixel Depth Offset (needs SurfaceInput / SurfaceOutput and the view block).
+#include <Mesh/Surface/SurfaceParallax.glslh>
 
 #endif

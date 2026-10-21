@@ -74,6 +74,26 @@ namespace Common::Scalability
         XeSS,    // Intel XeSS — offered once its SDK is integrated
         MetalFX, // Apple MetalFX temporal scaler — Mac only, reached through the MoltenVK/Metal interop
         Spatial, // the engine's edge-adaptive spatial upscale (FSR1 EASU port) — always offered, no history
+        // The engine's temporal super resolution (UE TSR: Graphic::TemporalSuperResolution) — always offered: pure
+        // Vulkan compute, no vendor SDK, nothing beyond the required feature set (MoltenVK included).
+        TSR,
+        // NVIDIA DLSS Ray Reconstruction (Streamline sl::kFeatureDLSS_RR; UE's DLSS plugin "Ray Reconstruction"):
+        // DLSS's upscaler that is also the denoiser of the view's noisy lighting signals, which then reach it raw
+        // (Graphic::ITemporalUpscaler::TakesRawLightingSignals). Offered where the RR runtime is (NVIDIA RTX, never
+        // on Mac). The one upscaler value legal at 100 %: there, under AntiAliasingMethod::DLAA, it is DLAA's
+        // network with the denoiser (Scalability IsNativeRayReconstruction). A view with no noisy signal refuses it
+        // by name and renders DLSS Super Resolution (SceneRenderer, Graphic::RayReconstructionRefusal).
+        DLSSRayReconstruction,
+    };
+
+    // WHICH OF THE ENGINE'S OWN TEMPORAL UPSCALERS a temporal AA method upscales with below 100 % when no vendor
+    // upscaler is asked for (Parameter::TemporalUpscaler; UE: r.AntiAliasingMethod TSR vs TAA, whose quality
+    // follows sg.AntiAliasingQuality). Scalability UpscalerForScale maps it to Upscaler::TAAU / Upscaler::TSR,
+    // and a vendor upscaler the device does not offer falls back to it.
+    enum class EngineTemporalUpscaler : int
+    {
+        TAAU = 0,
+        TSR,
     };
 
     // How rays may be traced on this device. Reader: Graphic::ResolveRenderMethods — a traced render method
@@ -139,8 +159,8 @@ namespace Common::Scalability
     // The render-scale axis' legal range, in percent of output size. Reader: the ResolutionScale group.
     struct RenderScaleRange
     {
-        int MinPercent = 50;  // below it every upscaler's quality collapses (DLSS Ultra Performance is 33 %; we
-                              // do not offer it until something renders it acceptably)
+        int MinPercent = 33;  // the vendors' Ultra Performance mode (1/3.0 per axis: FSR 3.1, DLSS); below it
+                              // no upscaler has a mode
         int MaxPercent = 200; // SSAA ceiling: 4x the pixels; bounded further by MaxTexture2DSize at output size
 
         bool operator==( const RenderScaleRange& ) const = default;
@@ -151,14 +171,48 @@ namespace Common::Scalability
     // enum so a name can never differ between the data file and the log.
     inline constexpr std::array<std::string_view, 7> kAntiAliasingMethodNames{ "None", "FXAA",      "SMAA", "MSAA",
                                                                                "TAA",  "FSRNative", "DLAA" };
-    inline constexpr std::array<std::string_view, 7> kUpscalerNames{ "None", "TAAU",    "FSR",    "DLSS",
-                                                                     "XeSS", "MetalFX", "Spatial" };
+    inline constexpr std::array<std::string_view, 9> kUpscalerNames{ "None",    "TAAU",    "FSR",
+                                                                     "DLSS",    "XeSS",    "MetalFX",
+                                                                     "Spatial", "TSR",     "DLSSRayReconstruction" };
+    inline constexpr std::array<std::string_view, 2> kEngineTemporalUpscalerNames{ "TAAU", "TSR" };
     inline constexpr std::array<std::string_view, 3> kRayTracingModeNames{ "None", "RayQuery",
                                                                            "RayTracingPipeline" };
     static_assert( static_cast<std::size_t>( AntiAliasingMethod::DLAA ) + 1 == kAntiAliasingMethodNames.size() );
-    static_assert( static_cast<std::size_t>( Upscaler::Spatial ) + 1 == kUpscalerNames.size() );
+    static_assert( static_cast<std::size_t>( Upscaler::DLSSRayReconstruction ) + 1 == kUpscalerNames.size() );
+    static_assert( static_cast<std::size_t>( EngineTemporalUpscaler::TSR ) + 1 ==
+                   kEngineTemporalUpscalerNames.size() );
     static_assert( static_cast<std::size_t>( RayTracingMode::RayTracingPipeline ) + 1 ==
                    kRayTracingModeNames.size() );
+
+    // WHICH DLSS NETWORK A DLSS MODE RUNS (UE: r.NGX.DLSS.DLAAPreset / QualityPreset / ... PerformancePreset /
+    // UltraPerformancePreset), one Parameter per mode (Parameter::DlssPresetDLAA ..). Default is NVIDIA's choice
+    // for the mode, which a driver-side DLSS update may move. Only the presets the Streamline SDK still recommends
+    // are offered (sl_dlss.h: A-D were removed, E-F are deprecated, G-I and N-O revert to the default). Stored by
+    // name; the Streamline runtime maps a value to its sl::DLSSPreset (StreamlineRuntime.cpp).
+    enum class DlssPreset : int
+    {
+        Default = 0,
+        J, // transformer; slightly less ghosting than K, more flicker
+        K, // transformer; NVIDIA's default for DLAA / Quality / Balanced
+        L, // NVIDIA's default for Ultra Performance
+        M, // NVIDIA's default for Performance
+    };
+    inline constexpr std::array<std::string_view, 5> kDlssPresetNames{ "Default", "J", "K", "L", "M" };
+    static_assert( static_cast<std::size_t>( DlssPreset::M ) + 1 == kDlssPresetNames.size() );
+
+    // WHICH RAY RECONSTRUCTION NETWORK A DLSS MODE RUNS under Upscaler::DLSSRayReconstruction (UE: r.NGX.DLSS.RR.
+    // <Mode>Preset), one Parameter per mode (Parameter::DlssRRPresetDLAA ..). Ray Reconstruction has its own
+    // networks (sl_dlss_d.h DLSSDPreset): A-C were removed, D and E are the transformer models, F-O revert to the
+    // default; only D and E are offered. Stored by name; the Streamline runtime maps a value to its
+    // sl::DLSSDPreset.
+    enum class DlssRRPreset : int
+    {
+        Default = 0,
+        D, // transformer
+        E, // transformer; NVIDIA's latest
+    };
+    inline constexpr std::array<std::string_view, 3> kDlssRRPresetNames{ "Default", "D", "E" };
+    static_assert( static_cast<std::size_t>( DlssRRPreset::E ) + 1 == kDlssRRPresetNames.size() );
 
     // THE CATALOG. Filled once per device (VulkanCapabilityCatalog::Build), then immutable for the device's
     // life; a device loss rebuilds it with the new device. Every list is ordered BEST FIRST where an order
@@ -186,6 +240,16 @@ namespace Common::Scalability
         // Mac: None, plus RayQuery where MoltenVK exposes VK_KHR_ray_query (Apple7+ GPU, MoltenVK >= 1.2.x);
         // RayTracingPipeline never.
         std::vector<RayTracingMode> RayTracingModes;
+
+        // Reader: Graphic::ResolveRenderMethods (NeedsRenderArea: the virtual shadow map's attachment-less
+        // raster). The largest square render area the device rasterizes: min of maxFramebufferWidth / Height and
+        // maxViewportDimensions. Mac: 16384 on Apple GPUs (Metal's texture and render-target limit).
+        uint32_t MaxRenderArea = 0;
+
+        // Reader: Graphic::ResolveRenderMethods and Scalability's method ceilings (NeedsFragmentStores: the
+        // virtual shadow map's caster raster atomic-maxes into a storage image from the fragment stage). The
+        // device's fragmentStoresAndAtomics, enabled (DeviceCaps). Mac: true on Apple GPUs (MoltenVK).
+        bool FragmentStores = false;
 
         // Reader: Filtering group (Anisotropy parameter). The selectable levels (1, 2, 4, 8, 16) up to the
         // device's maxSamplerAnisotropy; {1} when samplerAnisotropy is absent. Mac: 1..16.

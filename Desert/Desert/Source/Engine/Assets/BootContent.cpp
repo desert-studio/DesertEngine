@@ -90,8 +90,7 @@ namespace Desert::Assets
         std::vector<Core::ShaderMapRequest> passes;
         for ( size_t i = 0; i < programs.size(); ++i )
             for ( const auto& pass : programMaps[i].Map.Meta.PassNames )
-                if ( !Core::Preprocess::IsSurfaceDefaultCell(
-                          Core::Preprocess::DShaderParser::MayDeclareSurface( programs[i].Source ), pass ) )
+                if ( !Core::Preprocess::IsDefaultProgramPass( programMaps[i].Map.Meta, pass ) )
                     passes.push_back( { programs[i].Source, programs[i].Path, pass, {}, programs[i].Name } );
         Core::BuildShaderMaps( passes );
         const double workersMs =

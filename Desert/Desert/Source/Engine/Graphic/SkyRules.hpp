@@ -11,6 +11,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <optional>
@@ -64,50 +65,7 @@ namespace Desert::Graphic
         return best;
     }
 
-    // ---------------------------------------------------------------------------------------------------
-    // Time of day -> sun direction
-    // ---------------------------------------------------------------------------------------------------
-
-    // Where the sun is at @p hours of solar time, as the direction the sunlight TRAVELS (sun -> scene) —
-    // which is exactly what a directional light's TransformComponent::Translation encodes.
-    //
-    // Horizon frame: +X east, +Y up, +Z north. Solar declination is ZERO: the model has no calendar, so
-    // this is the equinox path — the sun rises due east, sets due west, and @p latitudeDeg only decides
-    // how high noon gets. @p northOffsetDeg rotates solar north onto the scene's north about world +Y, in
-    // DEGREES converted here (the reference implementation this model comes from fed 45 degrees into a
-    // radians parameter and got a sun path nobody could explain).
-    inline glm::vec3 SunDirectionFromTimeOfDay( float hours, float latitudeDeg, float northOffsetDeg )
-    {
-        // Hour angle: 0 at noon, -pi at midnight, +-pi/2 at 06:00 / 18:00.
-        const float hourAngle = ( hours / 24.0f ) * glm::two_pi<float>() - glm::pi<float>();
-        const float latitude  = glm::radians( latitudeDeg );
-
-        const float sinH = std::sin( hourAngle );
-        const float cosH = std::cos( hourAngle );
-
-        // Already unit length: sin^2(H) + cos^2(H) * (cos^2(lat) + sin^2(lat)) == 1.
-        const glm::vec3 towardSunSolar( -sinH, std::cos( latitude ) * cosH, -std::sin( latitude ) * cosH );
-
-        const glm::vec3 towardSun = glm::vec3(
-             glm::rotate( glm::mat4( 1.0f ), glm::radians( northOffsetDeg ), glm::vec3( 0.0f, 1.0f, 0.0f ) ) *
-             glm::vec4( towardSunSolar, 0.0f ) );
-
-        return -towardSun;
-    }
-
-    // Advances the clock by one frame. @p dayLengthSeconds == 0 freezes the sun at the authored hour, which
-    // is what makes "Drive Sun From Time Of Day" usable as a posing tool and not only as an animation.
-    inline float AdvanceTimeOfDay( float hours, float dtSeconds, float dayLengthSeconds )
-    {
-        if ( dayLengthSeconds <= 0.0f )
-            return hours;
-
-        float next = hours + dtSeconds * 24.0f / dayLengthSeconds;
-        next       = std::fmod( next, 24.0f );
-        if ( next < 0.0f )
-            next += 24.0f;
-        return next;
-    }
+    // Time of day -> sun direction: Engine/Graphic/SunPosition.hpp (UE SunPosition's calendar).
 
     // ---------------------------------------------------------------------------------------------------
     // When the sky IBL is re-baked
@@ -147,6 +105,22 @@ namespace Desert::Graphic
     inline bool SkyEnvironmentBakeWaitsForClouds( bool explicitRequest, bool cloudInputsPending )
     {
         return !explicitRequest && cloudInputsPending;
+    }
+
+    // WHETHER A SKY LIGHT CAPTURE IS RECORDED WHOLE, IN THE FRAME THAT BEGINS IT (UE: the first real-time sky
+    // light capture is complete; only the ones after it are time-sliced). Whole when the scene has no sky
+    // light yet (a scene opened or loaded, its first view) and when this capture is the FIRST to carry the
+    // clouds: a cloud layer's inputs arrive a few frames after the scene opens (SkyEnvironmentBakeWaitsForClouds
+    // does not hold the very first capture back, an unlit world being the worse answer), and a time-sliced
+    // capture of them left the scene lit by the bare sky for 54 frames on Clouds_Protocol -- the ambient
+    // jumped when they landed. Whole, that frame pays the six faces at the screen's march once (250-300 ms on
+    // an M1 Pro) and the scene's light carries its clouds from then on. Every later capture -- the sun, the
+    // clouds or the sky changed -- is time-sliced while the previous, complete one lights the scene.
+    // @p environmentHasClouds is whether the environment the scene reads now was captured with a marched
+    // cloud layer; @p captureHasClouds whether the capture about to begin marches one.
+    inline bool SkyCaptureIsWhole( bool hasEnvironment, bool environmentHasClouds, bool captureHasClouds )
+    {
+        return !hasEnvironment || ( captureHasClouds && !environmentHasClouds );
     }
 
     inline bool ShouldRebakeSkyEnvironment( const glm::vec3& bakedSunDir, const glm::vec3& currentSunDir,
@@ -217,6 +191,8 @@ namespace Desert::Graphic
     // asset layer stages the cubes on a worker and must not include the renderer to learn their shape.
     using Assets::kSkyEnvCubeFaceSize;
     using Assets::kSkyEnvIrradianceFaceSize;
+    using Assets::kSkyEnvIrradianceSourceFace;
+    using Assets::kSkyEnvIrradianceSourceMip;
     using Assets::kSkyEnvPrefilterFaceSize;
     using Assets::kSkyEnvPrefilterMips;
     using Assets::kSkyEnvRadianceMips;
@@ -228,26 +204,37 @@ namespace Desert::Graphic
     // answering 16 on the day the cubes moved to RGBA16F.
     inline constexpr Core::Formats::ImageFormat kSkyEnvCubeFormat = Core::Formats::ImageFormat::RGBA32F;
 
+    /// THE SKY LIGHT'S CAPTURE SIZE: one cube FACE. The sky and its clouds are rendered straight into the faces
+    /// of the radiance cube at this size (UE: FSkyLightSceneProxy::CaptureResolution, 128 by default, the
+    /// real-time capture renders the sky material and the volumetric clouds per face at it); the prefiltered
+    /// specular cube is the same face, and the irradiance is summed over its 16-texel mip. There is no panorama
+    /// any more.
     struct SkyEnvironmentSize
     {
-        uint32_t Width  = 0;
-        uint32_t Height = 0;
+        uint32_t Face = 0;
     };
 
-    // An ENUM, not an int: the bake dispatches in 32x32 work groups, so a hand-typed size that is not a
-    // multiple of 32 would silently leave the panorama's right/bottom edge unwritten.
-    inline SkyEnvironmentSize EnvironmentPanoramaSize( ECS::SkyEnvironmentResolution resolution )
+    // An ENUM, not an int: a face that is not a power of two has no 16-texel mip to sum the irradiance over, and
+    // one under 32 would leave the capture's 8x8 groups half empty.
+    inline SkyEnvironmentSize EnvironmentCaptureSize( ECS::SkyEnvironmentResolution resolution )
     {
         switch ( resolution )
         {
             case ECS::SkyEnvironmentResolution::Low:
-                return { 512u, 256u };
+                return { 64u };
             case ECS::SkyEnvironmentResolution::High:
-                return { 2048u, 1024u };
+                return { 256u };
             case ECS::SkyEnvironmentResolution::Medium:
                 break;
         }
-        return { 1024u, 512u };
+        return { 128u };
+    }
+
+    /// The mip of a capture's radiance cube whose face is kSkyEnvIrradianceSourceFace: the one the irradiance is
+    /// summed over exactly, the same 16-texel face the .hdr bake reads at its own kSkyEnvIrradianceSourceMip.
+    inline constexpr uint32_t SkyCaptureIrradianceSourceMip( uint32_t face )
+    {
+        return static_cast<uint32_t>( std::countr_zero( face ) - std::countr_zero( kSkyEnvIrradianceSourceFace ) );
     }
 
     inline const char* EnvironmentResolutionName( ECS::SkyEnvironmentResolution resolution )
@@ -276,29 +263,23 @@ namespace Desert::Graphic
 
     struct SkyEnvironmentCost
     {
-        uint64_t PanoramaBytes = 0;
-        uint64_t CubeBytes     = 0; // radiance + irradiance + prefiltered
+        uint64_t RadianceBytes = 0; // the capture's intermediate, released when it completes
+        uint64_t CubeBytes     = 0; // irradiance + prefiltered, the two the scene keeps
         uint64_t TotalBytes    = 0;
     };
 
-    // What one baked environment costs on the GPU. Note that only the PANORAMA scales with the resolution
-    // ladder — the cube chain's faces are fixed constants either way — which is exactly the kind of thing
-    // a number in the log tells you and a tooltip does not.
-    //
-    // Each addend below is (face, mips) EXACTLY as SceneEnvironment requests it, from the same constants.
-    // This function once charged for a 1024-face 11-mip prefiltered cube (128 MiB) while the bake built a
-    // 256-face 9-mip one (8 MiB) — the two sides shared the face constant but one call site multiplied it
-    // by the cross layout and the other did not. Tests/Engine/SkyRules pins the agreement.
+    // What one captured sky light costs on the GPU while it is being captured. Each addend is (face, mips)
+    // EXACTLY as SkyCapture::Begin creates it, from the same functions; Tests/Engine/SkyRules pins the agreement.
     inline SkyEnvironmentCost SkyEnvironmentBakeCost( ECS::SkyEnvironmentResolution resolution )
     {
-        const SkyEnvironmentSize size = EnvironmentPanoramaSize( resolution );
+        const uint32_t face = EnvironmentCaptureSize( resolution ).Face;
+        const uint32_t mips = Core::Formats::MipChainLength( face );
 
         SkyEnvironmentCost cost;
-        cost.PanoramaBytes = Core::Formats::CalculateImageSize( size.Width, size.Height, kSkyEnvCubeFormat );
-        cost.CubeBytes     = SkyEnvironmentCubeBytes( kSkyEnvCubeFaceSize, kSkyEnvRadianceMips ) +
-                         SkyEnvironmentCubeBytes( kSkyEnvIrradianceFaceSize, 1u ) +
-                         SkyEnvironmentCubeBytes( kSkyEnvPrefilterFaceSize, kSkyEnvPrefilterMips );
-        cost.TotalBytes = cost.PanoramaBytes + cost.CubeBytes;
+        cost.RadianceBytes = SkyEnvironmentCubeBytes( face, mips );
+        cost.CubeBytes =
+             SkyEnvironmentCubeBytes( kSkyEnvIrradianceFaceSize, 1u ) + SkyEnvironmentCubeBytes( face, mips );
+        cost.TotalBytes = cost.RadianceBytes + cost.CubeBytes;
         return cost;
     }
 

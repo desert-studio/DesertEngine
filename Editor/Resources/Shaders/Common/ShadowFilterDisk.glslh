@@ -1,0 +1,38 @@
+#ifndef SHADOW_FILTER_DISK_GLSLH
+#define SHADOW_FILTER_DISK_GLSLH
+
+// THE SHADOW FILTERS' TAP PATTERN, one text for every percentage-closer filter of a shadow map: the sun's PCSS
+// (Mesh/CascadedShadow.glslh) and the point and spot lights' PCF (Mesh/LocalLightShadow.glslh). A Vogel disc
+// (golden-angle spiral) of n taps, turned per pixel by interleaved gradient noise, so the taps of neighbouring
+// pixels interleave and the temporal filter blends them, instead of one fixed pattern banding. n is
+// Scalability Shadows.FilterTaps (u_ShadowFilter.y) for both, as UE filters its local lights at the same
+// r.ShadowQuality as its sun.
+
+const float kGoldenAngle = 2.39996323;
+
+// Jimenez 2014, the noise UE's shadow filters turn their discs by: InterleavedGradientNoise(SvPosition,
+// View.StateFrameIndexMod8). The frame (the sun's: u_ContactShadowView.z, the view's dither frame 0..7, the one the
+// contact march offsets by) turns the disc every frame, so the temporal filter averages eight discs into the
+// penumbra. With the pixel alone the turn was the same every frame: a wide penumbra (a leaf's shadow metres under
+// it) kept a fixed stipple no history could resolve.
+float shadowInterleavedGradientNoise(vec2 pixel, float frame)
+{
+	pixel += frame * 5.588238;
+	return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
+}
+
+// The pixel alone (frame 0): the local lights' PCF, whose layout carries no view dither frame.
+float shadowInterleavedGradientNoise(vec2 pixel)
+{
+	return shadowInterleavedGradientNoise(pixel, 0.0);
+}
+
+// Tap i of n on the unit disc, the disc turned by phi.
+vec2 shadowVogelDisk(int i, int n, float phi)
+{
+	float r     = sqrt((float(i) + 0.5) / float(n));
+	float theta = float(i) * kGoldenAngle + phi;
+	return r * vec2(cos(theta), sin(theta));
+}
+
+#endif // SHADOW_FILTER_DISK_GLSLH

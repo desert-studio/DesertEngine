@@ -1,7 +1,7 @@
 // Per-draw object motion (TAA1 step 4): the current and the previous world transform of one draw, and the
 // velocity a geometry pass writes from them.
 //
-// C++ twin: Graphic::GpuObjectMotion (Engine/Graphic/View/SceneViewState.hpp), std430, 144 bytes, PrevWorld at
+// C++ twin: Graphic::GpuObjectMotion (Engine/Graphic/View/SceneViewState.hpp), std430, 160 bytes, PrevWorld at
 // byte 64, BoneOffset at 128, PrevBoneOffset at 132 — Desert/Tests/Engine/VelocityTarget pins the two. PrevWorld is what the view's
 // MotionHistory answered for the draw: World itself when the object was not drawn in the view's previous frame,
 // so a newly visible object carries camera motion only.
@@ -20,8 +20,12 @@ struct GpuObjectMotion
     mat4 PrevWorld;      // offset 64
     uint BoneOffset;     // offset 128 — skinned: first bone of the CURRENT palette in objectBones; 0 otherwise
     uint PrevBoneOffset; // offset 132 — skinned: first bone of the PREVIOUS palette in objectBones; 0 otherwise
+    uint SkinCacheAddressLo;   // offset 136 — skinned, skin cache on: device address of the cached streams
+    uint SkinCacheAddressHi;   // offset 140   (RayTracingSkinCache.hpp layout); 0 = skin in the vertex stage
+    uint SkinCacheVertexCount; // offset 144 — the streams' vertex count V
     uint Pad0;
     uint Pad1;
+    uint Pad2;
 };
 
 // ONE ROW PER DRAWN PRIMITIVE (object), per (frame x view) — UE GPUScene primitive data. Built once per frame per
@@ -51,9 +55,12 @@ layout( std430, binding = 26 ) readonly buffer ObjectBones
 objectBones;
 #endif
 
-vec2 DesertVelocity( vec4 clip, vec4 prevClip )
+// xyz = current minus previous NDC (z: the device depth, as UE's velocity carries it with VELOCITY_ENCODE_DEPTH, so
+// a reprojection knows where the surface sat in depth last frame: the screen probe gather's history test,
+// Common/ScreenProbeTemporal.glslh); w = 0.
+vec4 DesertVelocity( vec4 clip, vec4 prevClip )
 {
-    return clip.xy / clip.w - prevClip.xy / prevClip.w;
+    return vec4( clip.xyz / clip.w - prevClip.xyz / prevClip.w, 0.0 );
 }
 
 #endif // DESERT_OBJECT_MOTION_GLSLH

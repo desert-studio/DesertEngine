@@ -26,6 +26,7 @@
 #include "Editor/LevelEditor/SessionRecovery.hpp"
 #include "Editor/LevelEditor/LevelEditorCommands.hpp"
 #include "Editor/LevelEditor/ControlService.hpp"
+#include "Editor/LevelEditor/ScriptDebugServer.hpp"
 #include "Editor/LevelEditor/AssetCompiling.hpp"
 #include "Editor/LevelEditor/EditorStartup.hpp"
 #include "Editor/LevelEditor/ProfilerWindow.hpp"
@@ -187,7 +188,7 @@ namespace Desert::Editor
         LevelToolbar m_Toolbar{ m_Workspace, m_SceneFiles, m_Play, m_Preferences, m_Profiler.Shown() };
         // The bottom strip (UE: SStatusBar); the bottom drawer's chevron stays with the dock layout and arrives
         // as an action. See Editor/LevelEditor/StatusBar.hpp.
-        StatusBar m_StatusBar{ m_Workspace, m_SceneFiles, m_Documents, m_AssetCompiling.CookQueue(),
+        StatusBar m_StatusBar{ m_Workspace, m_SceneFiles, m_Documents, m_AssetCompiling,
                                [this] { m_Dock.DrawBottomDrawerToggle(); } };
         // Headless capture: `--shot`, `--play`, `--camera`/`--look` (UE: the automation screenshot director). See
         // Editor/LevelEditor/ShotDirector.hpp.
@@ -195,6 +196,9 @@ namespace Desert::Editor
         // Autosave, the crash lock and its recovery pop-up, the device-lost save (UE: FPackageAutoSaver). See
         // Editor/LevelEditor/SessionRecovery.hpp.
         SessionRecovery m_Recovery{ m_Workspace, m_SceneFiles, m_Play, m_AssetManager };
+        // VS Code (any DAP client) debugging the worlds' scripts; started from the palette. See
+        // Editor/LevelEditor/ScriptDebugServer.hpp.
+        ScriptDebugServer m_ScriptDebug{ m_Play, m_Application };
         // The palette's dictionary, the Ctrl+P overlay and the level's global shortcuts (UE:
         // FLevelEditorCommands), after every module whose commands it lists. See
         // Editor/LevelEditor/LevelEditorCommands.hpp.
@@ -202,6 +206,7 @@ namespace Desert::Editor
              { .Workspace      = m_Workspace,
                .Files          = m_SceneFiles,
                .Play           = m_Play,
+               .ScriptDebug    = m_ScriptDebug,
                .Documents      = m_Documents,
                .Dock           = m_Dock,
                .Menu           = m_MainMenu,

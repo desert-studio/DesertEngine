@@ -28,9 +28,12 @@ layout( std430, binding = 30 ) readonly buffer LightGridCellsUB
 };
 
 // The view's local shadow atlas and the table of its views each light's shadowView names (Graphic/LocalShadows.hpp).
+// The atlas is a separate texture read through the pass's shared point-clamped state (the includer declares
+// u_PointClampSampler, as the deferred composite does), so it costs no sampler of its own in the stage's limit.
 #include <Mesh/LocalLightShadowView.glslh>
-layout( binding = 31 ) uniform sampler2D u_LocalShadowAtlas;
-layout( std430, binding = 32 ) readonly buffer LocalShadowViewsUB
+layout( binding = 38 ) uniform texture2D u_LocalShadowAtlas;
+#define u_LocalShadowAtlas sampler2D( u_LocalShadowAtlas, u_PointClampSampler )
+layout( std430, binding = 39 ) readonly buffer LocalShadowViewsUB
 {
     LocalShadowView localShadowViews[];
 };

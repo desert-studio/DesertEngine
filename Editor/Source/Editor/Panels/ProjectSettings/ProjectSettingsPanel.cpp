@@ -63,7 +63,8 @@ namespace Desert::Editor
         if ( directory != m_LoadedFor )
         {
             m_LoadedFor = directory;
-            m_Edit      = ::Desert::Project::CurrentGameSettings();
+            m_Edit          = ::Desert::Project::CurrentGameSettings();
+            m_EditRendering = ::Desert::Project::CurrentRendererSettings();
             m_Problem.clear();
         }
 
@@ -72,6 +73,7 @@ namespace Desert::Editor
 
         DrawGameSection();
         DrawMoviesSection();
+        DrawRenderingSection();
 
         if ( !m_Problem.empty() )
             ImGui::TextColored( ImVec4( 1.0f, 0.45f, 0.35f, 1.0f ), "%s %s", ICON_MDI_ALERT, m_Problem.c_str() );
@@ -205,6 +207,31 @@ namespace Desert::Editor
                 break;
         }
         Commit();
+    }
+
+    void ProjectSettingsPanel::DrawRenderingSection()
+    {
+        if ( !Utils::ImGuiUtilities::SectionHeader( "Rendering" ) )
+            return;
+
+        ImGui::TextDisabled( "%s", ( std::filesystem::path( m_LoadedFor ) / "Config" / "Engine.json" ).string().c_str() );
+        Utils::ImGuiUtilities::ResetPropertyRows();
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "TSR Thin Geometry Detection",
+             "UE r.TSR.ThinGeometryDetection: TSR finds sub-pixel geometry (foliage, wires) in the base passes' "
+             "coverage and keeps more of its history there. Costs one pass and one history." );
+        if ( ImGui::Checkbox( "##TsrThinGeometryDetection", &m_EditRendering.TsrThinGeometryDetection ) )
+            CommitRendering();
+        Utils::ImGuiUtilities::EndPropertyRow();
+    }
+
+    void ProjectSettingsPanel::CommitRendering()
+    {
+        const auto saved = ::Desert::Project::SaveRendererSettings( m_EditRendering );
+        if ( saved )
+            m_Problem.clear();
+        else
+            m_Problem = saved.GetError();
     }
 
     void ProjectSettingsPanel::Commit()

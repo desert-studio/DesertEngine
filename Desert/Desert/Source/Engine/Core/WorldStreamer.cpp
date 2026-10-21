@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -138,12 +139,14 @@ namespace Desert::Core
             const HLODLayerSerialized* const hlodLayer = Rules::CellHLODLayer( *partition );
             const Rules::HLODMeshBuilder     meshBuilder =
                  MakeHLODMeshBuilder( std::span( &Assets::ContentRegistry::Get(), 1 ) );
+            // The landscape HLOD (WP-FAR-6): every tile of a cell stands in as a mesh of its own heights.
+            const Rules::LandscapeHLODBuilder landscapeBuilder = MakeLandscapeHLODBuilder();
             for ( std::size_t unit = plan.AlwaysLoaded.size();
                   hlodLayer != nullptr && unit < Rules::ResidencyUnitCount( plan ); ++unit )
             {
                 auto builtCell = Rules::BuildCellHLOD( *hlodLayer, snapshot->Entities, world,
                                                        Rules::ResidencyUnitMembers( plan, unit ), customShader,
-                                                       issues, foliageInHLOD, meshBuilder );
+                                                       issues, foliageInHLOD, meshBuilder, landscapeBuilder );
                 if ( !builtCell )
                     return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName + "', " +
                                                       Rules::DescribeResidencyUnit( plan, unit ) + ": " +
@@ -247,7 +250,7 @@ namespace Desert::Core
 
     std::vector<Rules::StreamingSource>
     WorldStreamer::GatherSources( Scene& scene, std::span<const Rules::StreamingSource> instruments,
-                                  std::vector<std::uint32_t>* entities )
+                                  std::vector<std::uint32_t>* entities, std::vector<std::uint32_t>* withoutCamera )
     {
         std::vector<Rules::StreamingSource> sources;
         entt::registry&                     registry = scene.GetRegistry();
@@ -270,6 +273,24 @@ namespace Desert::Core
             shape.Radius              = data.LoadingRange;
             shape.IsSector            = data.IsSector;
             shape.SectorAngle         = data.SectorAngle;
+            if ( data.IsSector && data.SectorAngleFromCamera )
+            {
+                const auto* camera = registry.try_get<ECS::CameraComponent>( entity );
+                if ( camera == nullptr )
+                {
+                    if ( withoutCamera != nullptr )
+                        withoutCamera->push_back( static_cast<std::uint32_t>( entity ) );
+                }
+                else
+                {
+                    // The component's FOV is what gameplay zooms; the width comes from the viewport it was last
+                    // drawn into. Before its first frame nothing has drawn through it, it has no width yet, and
+                    // its vertical angle stands for one frame.
+                    const float aspect =
+                         camera->Camera ? camera->Camera->GetViewportAspect().value_or( 1.0f ) : 1.0f;
+                    shape.SectorAngle = CameraViewAngle( camera->Data.FOV, aspect );
+                }
+            }
             shape.Location            = data.ShapeOffset;
             shape.Yaw                 = data.ShapeYaw;
             source.Shapes.push_back( shape );
@@ -277,8 +298,27 @@ namespace Desert::Core
             if ( entities != nullptr )
                 entities->push_back( static_cast<std::uint32_t>( entity ) );
         }
+        // THE PLAYER (UE's APlayerController, a streaming source provider at GetPlayerViewPoint): with a pawn
+        // the pawn's own component above stands for it; with none - a level without a Default Pawn, played from
+        // here or through an Auto Activate camera - the player is a source where it looks from.
+        if ( scene.GetPlayerPawn() == entt::null )
+            if ( const std::optional<glm::mat4> view = scene.PlayerViewPoint() )
+            {
+                Rules::StreamingSource player;
+                player.Position = glm::vec3( ( *view )[3] );
+                player.Facing   = -glm::vec3( ( *view )[2] );
+                sources.push_back( std::move( player ) );
+            }
         sources.insert( sources.end(), instruments.begin(), instruments.end() );
         return sources;
+    }
+
+    float WorldStreamer::CameraViewAngle( const float verticalFovDegrees, const float aspect )
+    {
+        const double halfVertical =
+             static_cast<double>( verticalFovDegrees ) * 0.5 * 3.14159265358979323846 / 180.0;
+        const double horizontal = 2.0 * std::atan( std::tan( halfVertical ) * static_cast<double>( aspect ) );
+        return static_cast<float>( std::min( 360.0, horizontal * 180.0 / 3.14159265358979323846 ) );
     }
 
     void WorldStreamer::StampVelocities( std::vector<Rules::StreamingSource>& sources,
@@ -306,8 +346,9 @@ namespace Desert::Core
         {
             m_SaidNoSource = true;
             LOG_ERROR( "[WorldPartition] '{0}': Play has no streaming source — no entity has an enabled Streaming "
-                       "Source and the level spawned no pawn — so only the always-loaded part of the world is "
-                       "resident. Give the level a Default Pawn or put a Streaming Source on an entity.",
+                       "Source, the level spawned no pawn and the player has no view — so only the always-loaded "
+                       "part of the world is resident. Give the level a Default Pawn or put a Streaming Source on "
+                       "an entity.",
                        m_SceneName );
         }
         m_LastSources = std::move( sources );
@@ -317,7 +358,18 @@ namespace Desert::Core
                                                std::span<const Rules::StreamingSource> instruments )
     {
         std::vector<std::uint32_t>          entities;
-        std::vector<Rules::StreamingSource> gathered = GatherSources( *m_Scene, instruments, &entities );
+        std::vector<std::uint32_t>          withoutCamera;
+        std::vector<Rules::StreamingSource> gathered =
+             GatherSources( *m_Scene, instruments, &entities, &withoutCamera );
+        for ( const std::uint32_t entity : withoutCamera )
+            if ( m_SaidWithoutCamera.insert( entity ).second )
+                LOG_ERROR( "[WorldPartition] '{0}': entity {1}'s Streaming Source takes its sector's angle from "
+                           "its camera (Angle From Camera) but the entity has no Camera; it streams its authored "
+                           "Sector Angle of {2} degrees until it has one.",
+                           m_SceneName, entity,
+                           m_Scene->GetRegistry()
+                                .get<ECS::StreamingSourceComponent>( static_cast<entt::entity>( entity ) )
+                                .Data.SectorAngle );
         StampVelocities( gathered, entities, nowSeconds );
         UseSources( std::move( gathered ) );
         const std::span<const Rules::StreamingSource> sources = m_LastSources;
@@ -356,8 +408,17 @@ namespace Desert::Core
                  "world '" + m_SceneName + "': " + std::to_string( done.UnitsDeactivated ) +
                  " cell(s) deactivated, " + std::to_string( done.UnitsUnloaded ) + " unloaded" );
         }
-        m_Scene->GetRegistry().set<WorldStreamingWait>(
-             WorldStreamingWait{ m_LastTick.Streaming, m_FramesWaiting } );
+        WorldStreamingWait wait{ m_LastTick.Streaming, m_FramesWaiting, {} };
+        // The entity sources lead the gathered list, in the order of entities.
+        for ( std::size_t index = 0; index < entities.size(); ++index )
+        {
+            auto completion = Rules::AssessSourceCompletion( Executor().Plan(), m_Partition, Executor().State(),
+                                                             m_LastSources[index] );
+            if ( !completion )
+                return Common::MakeError( "world streaming of '" + m_SceneName + "': " + completion.GetError() );
+            wait.Sources.emplace( entities[index], completion.GetValue() );
+        }
+        m_Scene->GetRegistry().set<WorldStreamingWait>( std::move( wait ) );
         // A reference across a cell boundary is legal and its reader handles the absence — but it is SAID.
         if ( done.DeferredReferences > 0 || done.UnboundReferences > 0 )
         {

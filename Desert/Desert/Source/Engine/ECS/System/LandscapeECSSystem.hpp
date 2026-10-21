@@ -1,6 +1,12 @@
 #pragma once
 
+#include <Engine/Assets/Serialization/LandscapeLayerInfo.hpp>
+#include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
+#include <Engine/World/Landscape/LandscapeLayout.hpp>
+
 #include "System.hpp"
+
+#include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <entt/entt.hpp>
 
@@ -8,6 +14,8 @@
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
+#include <string>
+#include <vector>
 
 namespace Desert::Graphic
 {
@@ -43,7 +51,12 @@ namespace Desert::ECS
     class LandscapeECSSystem : public System
     {
     public:
-        using System::System;
+        // @p scene: the ledger instance of the scene that runs this system (its RayTracingSceneCache's). The
+        // tiles' GPU copies are that scene's rows, "scene #N" (RT-LEDGER-4, lead decision): derived from the
+        // scene's components, held as long as the scene holds the tiles, shared by every view that draws them.
+        explicit LandscapeECSSystem( Graphic::ResourceOwnerInstance scene ) : m_SceneLedger( scene )
+        {
+        }
         ~LandscapeECSSystem() override;
 
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
@@ -59,9 +72,6 @@ namespace Desert::ECS
             uint32_t                          SamplesX = 0u;
             uint32_t                          SamplesZ = 0u;
             uint32_t                          NeighbourMask = 0u; // whose ring rows the copy carries
-            // A fresh m_ContentRevision each time the heightmap's texels are (re)written (0 = never drawn):
-            // LandscapeTileDraw::HeightRevision.
-            uint64_t HeightRevision = 0u;
             // The RGBA8 copy of the tile's weight layers, pages stacked along the height
             // (LandscapeWeightmapAtlasTexels); null while it has none. WeightmapZ counts the stacked rows.
             // Updated IN PLACE per stroke: its address keys the tile's terrain material (TerrainTextureKey),
@@ -69,8 +79,9 @@ namespace Desert::ECS
             std::shared_ptr<Graphic::Image2D> Weightmap;
             uint32_t                          WeightmapX = 0u;
             uint32_t                          WeightmapZ = 0u;
-            // A fresh m_ContentRevision each time the weightmap's texels are (re)written:
-            // LandscapeWeightDraw::Revision.
+            // Revisions of the two images' PIXELS (from m_Revision): bumped on every rewrite or recreation,
+            // since an in-place rewrite keeps the address. The view's ray-tracing BLAS rebuilds on a change.
+            uint64_t HeightRevision = 0u;
             uint64_t WeightRevision = 0u;
         };
 
@@ -78,15 +89,44 @@ namespace Desert::ECS
         void UpdateWeightmap( TileGpu& gpu, const World::Landscape::LandscapeTileData& heights,
                               entt::entity entity, const LandscapeTileComponent& tileComp, bool weightsDirty );
 
+        Graphic::ResourceOwnerInstance            m_SceneLedger;
         std::unordered_map<entt::entity, TileGpu> m_Tiles;
-        // The source of the tiles' content revisions: one counter for every tile and both maps, so a revision is
-        // never reused — not by a tile recreated at a freed image's address either.
-        uint64_t m_ContentRevision = 0u;
+        uint64_t                                  m_Revision = 0u; // the last revision handed out
         // Said once per tile, not once per frame: a tile that cannot be drawn stays that way until edited.
         std::unordered_set<entt::entity> m_Warned;
         // Weight-layer problems (a layer the root does not name, a weightmap that could not be created or
         // written), said once per tile until its weights are edited again.
         std::unordered_set<entt::entity> m_WarnedWeights;
+        struct GrassTile
+        {
+            const LandscapeTileComponent* Tile  = nullptr;
+            bool                          Dirty = false;
+        };
+        void EmitGrass( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
+                        uint64_t rootId, const World::Landscape::LandscapeRoot& root,
+                        const std::vector<Assets::Serialization::LandscapeLayerInfoData>& layers,
+                        const std::vector<GrassTile>&                                     tiles );
+
+        // GRASS-GPU: per landscape root, the packed grass field (rebuilt when a tile's heights or weights, the
+        // tile set or the grass layers change) and the varieties' resolved section materials.
+        struct GrassRootCache
+        {
+            std::shared_ptr<Graphic::System::GrassFieldData> Field;
+            uint64_t                                         Signature = 0;
+        };
+        struct GrassSections
+        {
+            const void*                                    Mesh         = nullptr;
+            uint32_t                                       Version      = 0;
+            uint64_t                                       TypeRevision = 0;
+            std::vector<Graphic::System::GrassSectionDraw> Sections;
+        };
+        std::unordered_map<uint64_t, GrassRootCache> m_Grass;
+        std::unordered_map<uint64_t, GrassSections>  m_GrassSections;
+        uint64_t                                     m_GrassRevision   = 0;
+        double                                       m_WindSeconds     = 0.0;
+        double                                       m_PrevWindSeconds = 0.0;
+        std::unordered_set<std::string>              m_WarnedGrass;
 
         // Material handles already reported as unresolvable, so the warning is said once and not once a frame.
         std::unordered_set<uint64_t> m_WarnedMaterials;

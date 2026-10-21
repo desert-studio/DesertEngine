@@ -365,6 +365,15 @@ namespace Desert::Editor
             return false;
         }
 
+        // A document whose point is the LEVEL'S picture — a painted sky is judged in the scene's sky, not in
+        // the document — opens in a node split off beside the level viewport instead of as a tab over it, so
+        // both stay on screen (Unreal docks such an asset editor next to the level viewport). Only the first
+        // opening of a kind is placed this way; where the person moves it afterwards is remembered as usual.
+        [[nodiscard]] virtual bool OpensBesideViewport() const
+        {
+            return false;
+        }
+
         // Put that preview at @p viewpoint. Only called when HasPreview(); the default does nothing
         // because a document without a preview is never asked.
         virtual void SetPreviewViewpoint( const PreviewViewpoint& /*viewpoint*/ )

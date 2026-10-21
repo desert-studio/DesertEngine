@@ -14,7 +14,11 @@ Shader "LensFlareFeatures"
 
         #include <Common/LensFlare.glslh>
 
-        Uniform(0) sampler2D u_FlareSource; // quarter-res thresholded scene (LensFlareBrightPass)
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(2) sampler u_LinearClampSampler;
+        Uniform(0) texture2D u_FlareSource; // quarter-res thresholded scene (LensFlareBrightPass)
+        #define u_FlareSource sampler2D(u_FlareSource, u_LinearClampSampler)
         layout(binding = 1, rgba16f) restrict writeonly uniform image2D u_Flare;
 
         PushConstant LensFlareFeaturesPush

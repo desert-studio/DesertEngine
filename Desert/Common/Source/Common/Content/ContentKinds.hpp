@@ -85,6 +85,9 @@ namespace Common::Content
         PhysicsAsset,
         Sound,
         VFXDataChannel,
+        LandscapeGrassType,
+        WorldParameters,
+        WeatherPreset,
         COUNT,
     };
 
@@ -187,6 +190,14 @@ namespace Common::Content
              // UE's UNiagaraDataChannel: a payload layout gameplay writes and emitters spawn from
              // (Engine/Assets/Serialization/VFXDataChannel.hpp).
              /* VFXDataChannel       */ { "VFXDataChannel", ".dfxch", &P::VFX_PATH },
+             // UE's ULandscapeGrassType: the varieties a landscape layer info grows
+             // (Engine/Assets/Serialization/LandscapeGrassType.hpp).
+             /* LandscapeGrassType   */ { "LandscapeGrassType", ".degrasstype", &P::LANDSCAPE_GRASS_TYPE_PATH },
+             // UE's UMaterialParameterCollection: named world values with defaults
+             // (Engine/Assets/Serialization/WorldParameters.hpp).
+             /* WorldParameters      */ { "WorldParameters", ".dworldparams", &P::WORLD_PARAMETERS_PATH },
+             // One weather as data (Engine/Assets/Serialization/WeatherPreset.hpp, WTH-STATE).
+             /* WeatherPreset        */ { "WeatherPreset", ".dweatherpreset", &P::WEATHER_PATH },
         } };
     }
 

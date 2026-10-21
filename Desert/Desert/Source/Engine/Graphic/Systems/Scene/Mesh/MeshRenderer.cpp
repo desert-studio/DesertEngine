@@ -3,8 +3,12 @@
 
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
+#include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/View/ObjectMotionRows.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
+
+#include <algorithm>
+#include <optional>
 
 namespace Desert::Graphic::System
 {
@@ -24,24 +28,29 @@ namespace Desert::Graphic::System
             {
                 if ( !prop.bIsOverridden )
                     continue;
-                const auto slot = Core::Formats::MaterialParamSlot( material->GetSchema(), name );
-                if ( !slot || *slot >= row.size() )
-                    continue;
-                glm::vec4& dst = row[*slot];
-                std::visit(
-                     [&dst]( const auto& v )
+                // The authored value as a vec4, then written as the bytes of the parameter's declared type
+                // (Core::Formats::MaterialRowSlotValue, via SetMaterialParam) — an Int/Bool slot is an int.
+                // A value that is not row bytes (a matrix, a texture) is skipped.
+                const std::optional<glm::vec4> authored = std::visit(
+                     []( const auto& v ) -> std::optional<glm::vec4>
                      {
                          using T = std::decay_t<decltype( v )>;
                          if constexpr ( std::is_same_v<T, float> )
-                             dst = glm::vec4( v, 0.0f, 0.0f, 0.0f );
+                             return glm::vec4( v, 0.0f, 0.0f, 0.0f );
+                         else if constexpr ( std::is_same_v<T, int> || std::is_same_v<T, bool> )
+                             return glm::vec4( static_cast<float>( v ), 0.0f, 0.0f, 0.0f );
                          else if constexpr ( std::is_same_v<T, glm::vec2> )
-                             dst = glm::vec4( v, 0.0f, 0.0f );
+                             return glm::vec4( v, 0.0f, 0.0f );
                          else if constexpr ( std::is_same_v<T, glm::vec3> )
-                             dst = glm::vec4( v, dst.w );
+                             return glm::vec4( v, 0.0f );
                          else if constexpr ( std::is_same_v<T, glm::vec4> )
-                             dst = v;
+                             return v;
+                         else
+                             return std::nullopt;
                      },
                      prop.Value );
+                if ( authored )
+                    Core::Formats::SetMaterialParam( material->GetSchema(), row, name, *authored );
             }
             return row;
         }
@@ -64,18 +73,14 @@ namespace Desert::Graphic::System
             return index;
         }
 
-        SurfaceSlot FirstSurfaceSlot( const std::vector<MaterialInstance*>& slots, MeshVertexPath path )
+        SurfaceSlot SectionSurface( const MaterialSlotBinding* slots, uint32_t sectionSlot )
         {
-            for ( auto* inst : slots )
-            {
-                if ( inst == nullptr )
-                    continue;
-                // The batched paths draw a material allocated from a cell of the mesh-shader table, on the
-                // path the cell belongs to (MeshCellPath) — the vertex factory's question, asked of the shader.
-                auto* surface = dynamic_cast<DataDrivenMaterial*>( inst->GetParentMaterial() );
-                if ( surface != nullptr && MeshCellPath( surface->GetShaderName() ) == path )
-                    return { inst, surface };
-            }
+            if ( slots == nullptr || sectionSlot >= slots->Slots.size() || slots->Slots[sectionSlot] == nullptr )
+                return {};
+            MaterialInstance* inst    = slots->Slots[sectionSlot];
+            auto*             surface = dynamic_cast<DataDrivenMaterial*>( inst->GetParentMaterial() );
+            if ( surface != nullptr && MeshCellPath( surface->GetShaderName() ) == MeshVertexPath::Static )
+                return { inst, surface };
             return {};
         }
 
@@ -125,6 +130,7 @@ namespace Desert::Graphic::System
             switch ( path )
             {
                 case MeshVertexPath::Instanced:
+                case MeshVertexPath::GrassBlade:
                     return "InstanceTransforms";
                 case MeshVertexPath::Skinned:
                     return ShaderProtocols::SkinnedUB::Name;
@@ -191,6 +197,7 @@ namespace Desert::Graphic::System
         m_SkinnedQueue.clear();
         m_GenericQueue.clear();
         m_InstancedQueue.clear();
+        m_GpuInstancedQueue.clear();
     }
 
     uint32_t MeshRenderer::ComputeLOD( const glm::mat4& transform, const Mesh* mesh, int forcedLOD,
@@ -225,6 +232,12 @@ namespace Desert::Graphic::System
             m_InstancedQueue.push_back( data );
     }
 
+    void MeshRenderer::SubmitGpuInstanced( const GpuInstancedRenderData& data )
+    {
+        if ( data.Mesh != nullptr && data.Material && data.Instances && data.Refs != nullptr )
+            m_GpuInstancedQueue.push_back( data );
+    }
+
     namespace MeshRendererDetail
     {
         void MeshDrawList::Clear()
@@ -233,7 +246,21 @@ namespace Desert::Graphic::System
             m_BlockOf.clear();
             m_Blocks.clear();
             m_Error.reset();
+            m_IndirectArguments = {};
+            m_FirstRecords.clear();
             m_Layouts.DropExpired();
+        }
+
+        void MeshDrawList::SetIndirect( const RDG::BufferRef arguments, std::vector<uint32_t> firstRecords )
+        {
+            if ( firstRecords.size() != m_Commands.size() )
+            {
+                Fail( std::format( "indirect mesh draws: {} first records for {} commands", firstRecords.size(),
+                                   m_Commands.size() ) );
+                return;
+            }
+            m_IndirectArguments = arguments;
+            m_FirstRecords      = std::move( firstRecords );
         }
 
         void MeshDrawList::Add( MeshDrawCommand command )
@@ -300,6 +327,18 @@ namespace Desert::Graphic::System
                 }
                 perBlock( block, *layout );
             }
+            // A GPU-instanced draw's buffers: the graph places the compute-write -> vertex / indirect barrier from
+            // these (its material binds the transforms; the record reads the arguments). Each buffer once.
+            std::vector<RDG::BufferRef> read;
+            for ( const MeshDrawCommand& command : m_Commands )
+            {
+                if ( !command.IndirectArgs.IsValid() ||
+                     std::find( read.begin(), read.end(), command.IndirectArgs ) != read.end() )
+                    continue;
+                read.push_back( command.IndirectArgs );
+                declaration.Read( command.IndirectArgs, RDG::Access::IndirectArgs );
+                declaration.Read( command.IndirectInstances, RDG::Access::StorageRead );
+            }
         }
 
         void MeshDrawList::Declare( RDG::PassBuilder& pass, const std::optional<SceneViewInputs>& view ) const
@@ -335,6 +374,29 @@ namespace Desert::Graphic::System
                 if ( draw.BindState )
                 {
                     draw.BindState();
+                }
+                // A GPU-instanced draw (GpuInstances.hpp): its own argument records, one per submesh of the mesh
+                // after the header, the instance counts its generator wrote.
+                if ( draw.IndirectArgs.IsValid() )
+                {
+                    static_assert( kGpuInstanceArgsRecordBytes == kMeshDrawArgumentsBytes );
+                    if ( auto drawn = Renderer::RenderMeshIndirect(
+                              *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
+                              draw.IndirectArgs, kGpuInstanceArgsHeaderBytes, draw.HiddenSubmeshMask,
+                              MeshDrawArgumentsOrder::Submesh );
+                         !drawn.IsSuccess() )
+                        return drawn;
+                    continue;
+                }
+                if ( m_IndirectArguments.IsValid() )
+                {
+                    if ( auto drawn = Renderer::RenderMeshIndirect(
+                              *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
+                              m_IndirectArguments, uint64_t{ m_FirstRecords[i] } * kMeshDrawArgumentsBytes,
+                              draw.HiddenSubmeshMask, MeshDrawArgumentsOrder::Drawn );
+                         !drawn.IsSuccess() )
+                        return drawn;
+                    continue;
                 }
                 if ( auto drawn = Renderer::RenderMesh(
                           *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
@@ -386,8 +448,11 @@ namespace Desert::Graphic::System
                 return;
             BuildStaticDraws( m_ForwardDraws );
             BuildSkinnedDraws( m_ForwardDraws );
-            BuildGenericDraws( m_ForwardDraws );
+            BuildGenericDraws( m_ForwardDraws, GenericSlice::Forward );
             m_ForwardDraws.Declare( declared, SceneViewInputsOf( refs ) );
+            // The skin cache's streams the forward skinned cell fetches by address (Vertex_Skinned.glslh).
+            for ( const RDG::BufferRef& streams : m_SkinCacheReads )
+                declared.Read( streams, RDG::Access::StorageRead );
         };
 
         // NOTE: the deferred G-buffer geometry is NOT a graph pass — it's rendered MANUALLY via
@@ -457,28 +522,51 @@ namespace Desert::Graphic::System
         if ( view != nullptr )
             frame.ContactShadow = m_SceneRenderer->GetContactShadowSettings(
                  *view, m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred );
+        // The sun's PCSS taps: the SAME value the deferred composite and the surface-cache cards pack.
+        frame.ShadowFilter = m_SceneRenderer->GetShadowFilterSettings();
 
         // The view's motion rows and both frames' bone palettes (BuildObjectMotions, this frame). Carried by
         // every capture: only the view-pass cells declare them (a light view — shadow depth, RSM — reads none),
         // and ApplyTo binds them by name only into a template that does.
         frame.ObjectMotions = m_ObjectMotions;
         frame.ObjectBones   = m_ObjectBones;
+        // The world's parameters, the view's one snapshot of this frame (SceneRenderer::BeginScene).
+        frame.WorldParameters = m_SceneRenderer->GetWorldParametersBuffer();
+        frame.RainOcclusion   = GetRainOcclusionUniforms();
 
         return frame;
     }
 
-    Common::BoolResultStr MeshRenderer::BuildObjectMotions( MotionHistory& motion )
+    Common::BoolResultStr MeshRenderer::BuildObjectMotions( MotionHistory&                         motion,
+                                                            std::span<const MotionRecord>          otherRigid,
+                                                            RayTracing::RayTracingSkinCache* const skinCache,
+                                                            const uint64_t                         frame )
     {
         // The rows are numbered on the CPU (Graphic/View/ObjectMotionRows.hpp: one row per primitive, submesh
         // records of one object share it, slots stable per submission); this function only gathers the queued
         // records, writes each one's row back and uploads.
         auto& records = m_ScratchMotionRecords;
         records.clear();
-        records.reserve( m_StaticQueue.size() + m_GenericQueue.size() + m_SkinnedQueue.size() );
+        size_t instanceCount = 0;
+        for ( const auto& data : m_InstancedQueue )
+            instanceCount += data.Transforms->size();
+        records.reserve( m_StaticQueue.size() + m_GenericQueue.size() + instanceCount + otherRigid.size() +
+                         m_SkinnedQueue.size() );
         for ( const auto& data : m_StaticQueue )
             records.push_back( { .Entity = data.Entity, .Part = data.MotionPart, .World = data.Transform } );
         for ( const auto& data : m_GenericQueue )
             records.push_back( { .Entity = data.Entity, .Part = data.MotionPart, .World = data.Transform } );
+        // Every ISM instance is a primitive row of its own (UE instance scene data; the GI card table and the TLAS
+        // custom index are keyed per instance). Part = instance + 1 keeps each instance's previous world its own.
+        for ( const auto& data : m_InstancedQueue )
+        {
+            const std::vector<glm::mat4>& transforms = *data.Transforms;
+            for ( size_t instance = 0; instance < transforms.size(); ++instance )
+                records.push_back( { .Entity = data.Entity,
+                                     .Part   = static_cast<uint32_t>( instance + 1 ),
+                                     .World  = transforms[instance] } );
+        }
+        records.insert( records.end(), otherRigid.begin(), otherRigid.end() );
         const size_t rigidCount = records.size();
         for ( const auto& data : m_SkinnedQueue )
             records.push_back( { .Entity = data.Entity, .World = data.Transform, .Bones = data.BoneMatrices } );
@@ -491,8 +579,23 @@ namespace Desert::Graphic::System
             data.MotionRow = built.RecordRows[record++];
         for ( auto& data : m_GenericQueue )
             data.MotionRow = built.RecordRows[record++];
+        m_InstancedMotionRows.clear();
+        m_InstancedMotionRows.reserve( instanceCount );
+        for ( auto& data : m_InstancedQueue )
+        {
+            data.FirstMotionRow = static_cast<uint32_t>( m_InstancedMotionRows.size() );
+            for ( size_t instance = 0; instance < data.Transforms->size(); ++instance )
+                m_InstancedMotionRows.push_back( built.RecordRows[record++] );
+        }
+        m_OtherMotionRows.clear();
+        m_OtherMotionRows.reserve( otherRigid.size() );
+        for ( size_t other = 0; other < otherRigid.size(); ++other )
+            m_OtherMotionRows.push_back( built.RecordRows[record++] );
         for ( auto& data : m_SkinnedQueue )
             data.MotionRow = built.RecordRows[record++];
+        // The GPU skin cache: each skinned row learns where its posed vertices are, before the rows are uploaded.
+        if ( skinCache != nullptr )
+            skinCache->PrepareRows( *this, built.Rows, frame );
         const auto& rows     = built.Rows;
         const auto& palettes = built.Palettes;
 
@@ -515,12 +618,20 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         };
         if ( const auto uploaded =
-                  upload( m_ObjectMotions, SceneResources::kObjectMotionsName, Core::kObjectMotionsBinding,
-                          rows.data(), rows.size() * sizeof( GpuObjectMotion ) );
+                  upload( m_ObjectBones, SceneResources::kObjectBonesName, Core::kObjectBonesBinding,
+                          palettes.data(), palettes.size() * sizeof( glm::mat4 ) );
              !uploaded )
             return uploaded;
-        return upload( m_ObjectBones, SceneResources::kObjectBonesName, Core::kObjectBonesBinding, palettes.data(),
-                       palettes.size() * sizeof( glm::mat4 ) );
+        // The scene's skin step, after the palette it skins from is uploaded and before the rows are: its own
+        // graph is submitted here, ahead of every view graph (each only reads the streams), and a failure strips
+        // the address from the rows it was to fill before they reach the GPU.
+        if ( skinCache != nullptr )
+            if ( const Common::BoolResultStr skinned =
+                      skinCache->SkinFrame( *this, built.Rows, m_SkinCacheBonesImport, frame );
+                 !skinned )
+                LOG_ERROR( "[MeshRenderer] the skin cache's step failed: {}", skinned.GetError() );
+        return upload( m_ObjectMotions, SceneResources::kObjectMotionsName, Core::kObjectMotionsBinding,
+                       rows.data(), rows.size() * sizeof( GpuObjectMotion ) );
     }
 
     void MeshRenderer::SubmitMesh( const MeshRenderData& data )
@@ -540,6 +651,7 @@ namespace Desert::Graphic::System
                 staticData.Mesh            = static_cast<StaticMesh*>( data.Mesh );
                 staticData.Transform       = data.Transform;
                 staticData.MaterialSlots   = data.MaterialSlots;
+                staticData.SectionSlot              = data.SectionSlot;
                 staticData.Outlined        = data.Outlined;
                 staticData.HiddenSubmeshes = data.HiddenSubmeshes;
                 staticData.ForcedLOD       = data.ForcedLOD;
@@ -564,38 +676,58 @@ namespace Desert::Graphic::System
                 skinnedData.BoneMatrices  = data.BoneMatrices;
                 skinnedData.Outlined      = data.Outlined;
                 skinnedData.CastShadows   = data.CastShadows;
-                skinnedData.MaterialSlots = data.MaterialSlots; // keeps Instance below alive (A8-3)
+                skinnedData.MaterialSlots = data.MaterialSlots; // keeps the sections' instances alive (A8-3)
                 if ( data.MaterialSlots && !data.MaterialSlots->Slots.empty() )
                 {
-                    // THE SAME selector the static queue uses, asked for the SKINNED path. It used to be
-                    // a second loop hunting a different C++ CLASS, and since the material build could not
-                    // produce that class from an asset under any circumstances, an imported character
-                    // with its own materials matched nothing and was dropped without drawing.
-                    if ( const auto slot = FirstSurfaceSlot( data.MaterialSlots->Slots, MeshVertexPath::Skinned ) )
+                    // Section si shades with slot SectionMaterialSlot( si, slots ), the static rule; the sections
+                    // of one slot are one draw, masked to them. Up to 64 submeshes, the masks' width.
+                    using SlotSections = std::pair<size_t, uint64_t>; // slot, the submeshes it shades
+                    const auto&  slots = data.MaterialSlots->Slots;
+                    const size_t count = std::min<size_t>( skinnedData.Mesh->GetSubmeshes().size(), 64 );
+                    std::vector<SlotSections> visibleBySlot;
+                    for ( size_t si = 0; si < count; ++si )
                     {
-                        skinnedData.Instance = slot.Instance;
-                        skinnedData.Material = slot.Surface;
+                        const size_t slot = Desert::SectionMaterialSlot( si, slots.size() );
+                        const auto   it   = std::ranges::find( visibleBySlot, slot, &SlotSections::first );
+                        if ( it != visibleBySlot.end() )
+                            it->second |= 1ull << si;
+                        else
+                            visibleBySlot.emplace_back( slot, 1ull << si );
                     }
-                    else
+                    for ( const SlotSections& group : visibleBySlot )
                     {
-                        // A consistency guard, not the custom-shader case: MeshECSSystem substitutes its
-                        // default skinned lit material for any slot that fails to resolve, so every slot
-                        // reaching here should already carry a skinned-path parent. If one does not, the
-                        // producer and this queue disagree about what a skinned slot IS, and drawing it
-                        // through the skinned pipeline with a static material's descriptor sets is a
-                        // layout mismatch — so the mesh is dropped and the disagreement is named.
+                        const size_t        slot    = group.first;
+                        const uint64_t      visible = group.second;
+                        MaterialInstance*   inst    = slots[slot];
+                        DataDrivenMaterial* surface = nullptr;
+                        if ( inst != nullptr )
+                            surface = dynamic_cast<DataDrivenMaterial*>( inst->GetParentMaterial() );
+                        if ( surface != nullptr &&
+                             MeshCellPath( surface->GetShaderName() ) == MeshVertexPath::Skinned )
+                        {
+                            skinnedData.Sections.push_back(
+                                 { .Material = surface, .Instance = inst, .HiddenSubmeshes = ~visible } );
+                            continue;
+                        }
+                        // A consistency guard, not the custom-shader case: MeshECSSystem substitutes its default
+                        // skinned lit material for any slot that fails to resolve, so every slot reaching here
+                        // should already carry a skinned-path parent. If one does not, the producer and this
+                        // queue disagree about what a skinned slot IS, and drawing it through the skinned
+                        // pipeline with a static material's descriptor sets is a layout mismatch - so that
+                        // section is dropped and the disagreement is named.
                         static bool s_WarnedNoSkinnedSlot = false;
                         if ( !s_WarnedNoSkinnedSlot )
                         {
-                            LOG_WARN( "[MeshRenderer] A skinned mesh arrived with slots but none whose parent "
-                                      "is a lit material on the SKINNED vertex path; the mesh is dropped. "
-                                      "MeshECSSystem is expected to have substituted its default skinned "
-                                      "material, so this means the two disagree." );
+                            LOG_WARN(
+                                 "[MeshRenderer] A skinned mesh's slot {} is not a lit material on the SKINNED "
+                                 "vertex path; its sections are dropped. MeshECSSystem is expected to have "
+                                 "substituted its default skinned material, so this means the two disagree.",
+                                 slot );
                             s_WarnedNoSkinnedSlot = true;
                         }
                     }
                 }
-                if ( skinnedData.Material && skinnedData.Instance )
+                if ( !skinnedData.Sections.empty() )
                     m_SkinnedQueue.push_back( std::move( skinnedData ) );
                 break;
             }

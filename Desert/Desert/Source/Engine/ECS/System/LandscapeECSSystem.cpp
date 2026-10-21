@@ -9,10 +9,21 @@
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Render/Commands/DrawLandscapeTileCommand.hpp>
+#include <Engine/Graphic/Render/Commands/DrawLandscapeGrassCommand.hpp>
+#include <Engine/Graphic/InstanceWind.hpp>
+#include <Engine/ECS/System/WindField.hpp>
+#include <Engine/Assets/Mesh/MeshAsset.hpp>
+#include <Engine/Geometry/MeshTypes.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Landscape/LandscapeWeightmap.hpp>
 #include <Common/Core/Logger.hpp>
 
+#include <algorithm>
+#include <array>
+#include <bit>
 #include <cstring>
 #include <map>
 #include <tuple>
@@ -39,7 +50,8 @@ namespace Desert::ECS
         }
 
         std::shared_ptr<Graphic::Image2D> CreateHeightmap( const Landscape::LandscapeTileData& tile, int32_t tileX,
-                                                           int32_t tileZ, std::vector<unsigned char> texels )
+                                                           int32_t tileZ, std::vector<unsigned char> texels,
+                                                           const Graphic::ResourceOwnerInstance scene )
         {
             Core::Formats::Image2DSpecification spec = {
                  .Tag        = "LandscapeTile(" + std::to_string( tileX ) + "," + std::to_string( tileZ ) + ")",
@@ -56,8 +68,9 @@ namespace Desert::ECS
             spec.Data = std::move( texels );
 
             // A derived copy: the recipe is the component's samples, which the scene owns, so the owner is
-            // the renderer side that re-derives it - releasing it loses nothing.
-            const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::SceneRenderer );
+            // the renderer side that re-derives it - releasing it loses nothing. The scene's row, not the view's
+            // whose frame happened to run the system: every view of the scene draws this one copy.
+            const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::SceneRenderer, scene );
             return Graphic::Image2D::Create( spec );
         }
 
@@ -65,7 +78,8 @@ namespace Desert::ECS
         // (LandscapeWeightmapAtlasTexels): no neighbour ring — the surface samples it at the vertex's own
         // sample, which every tile holds for its edges.
         std::shared_ptr<Graphic::Image2D> CreateWeightmap( const Landscape::LandscapeTileData& tile, int32_t tileX,
-                                                           int32_t tileZ, std::vector<unsigned char> texels )
+                                                           int32_t tileZ, std::vector<unsigned char> texels,
+                                                           const Graphic::ResourceOwnerInstance scene )
         {
             Core::Formats::Image2DSpecification spec = {
                  .Tag     = "LandscapeWeights(" + std::to_string( tileX ) + "," + std::to_string( tileZ ) + ")",
@@ -81,8 +95,8 @@ namespace Desert::ECS
             };
             spec.Data = std::move( texels );
 
-            // Derived from the component's weights, like the heightmap copy above.
-            const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::SceneRenderer );
+            // Derived from the component's weights, like the heightmap copy above; the scene's row likewise.
+            const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::SceneRenderer, scene );
             return Graphic::Image2D::Create( spec );
         }
     } // namespace
@@ -91,7 +105,7 @@ namespace Desert::ECS
 
     void LandscapeECSSystem::Update( entt::registry&                       registry,
                                      Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
-                                     const Common::Timestep& /*ts*/ )
+                                     const Common::Timestep&               ts )
     {
         // Pass 1: every drawable tile, by (root, tile x, tile z) — a tile's heightmap carries a ring row from
         // each loaded neighbour, so it cannot be built before its neighbours are known.
@@ -101,6 +115,7 @@ namespace Desert::ECS
             Landscape::LandscapeRoot Root;
             bool                     Dirty        = false;
             bool                     WeightsDirty = false;
+            bool                     GrassDirty   = false;
         };
         using Coord = std::tuple<uint64_t, int32_t, int32_t>;
         std::vector<Drawable>   drawables;
@@ -131,6 +146,7 @@ namespace Desert::ECS
             d.Dirty  = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Gpu ).empty();
             // Same rule for the weightmap copy: taken always, so a hidden tile shows its current paint.
             d.WeightsDirty = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Weights ).empty();
+            d.GrassDirty   = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Grass ).empty();
             byCoord.emplace( Coord{ static_cast<uint64_t>( Common::UUID( tileComp.Landscape ) ), tileComp.TileX,
                                     tileComp.TileZ },
                              drawables.size() );
@@ -158,6 +174,8 @@ namespace Desert::ECS
             // The root's FIRST layer's colour with a = 1 (UE shows its first layer where nothing is
             // painted); a = 0 while the root names none or that layer is not loaded: white ground.
             glm::vec4 Ground = glm::vec4( 0.0f );
+            // That first layer's LayerName: the material input the ground draws with is matched by it.
+            std::string GroundLayer;
         };
         std::map<uint64_t, Surface> surfaces;
         const auto                  surfaceOf = [&]( const Common::UUID& rootId ) -> const Surface&
@@ -177,7 +195,10 @@ namespace Desert::ECS
                     if ( const auto* info = service.Get( handle ) )
                     {
                         if ( handle == handles.front() )
-                            it->second.Ground = glm::vec4( info->LayerUsageDebugColor, 1.0f );
+                        {
+                            it->second.Ground      = glm::vec4( info->LayerUsageDebugColor, 1.0f );
+                            it->second.GroundLayer = info->LayerName;
+                        }
                         it->second.Layers.push_back( *info );
                     }
                     else if ( service.StateOf( handle ) == Runtime::LandscapeLayerInfoService::State::Pending )
@@ -237,12 +258,15 @@ namespace Desert::ECS
             TileGpu& gpu = m_Tiles[d.Entity];
             // In place while the sample count holds (LandscapeTileImage.hpp): the image's address keys the tile's
             // terrain material, so sculpting must not replace it.
-            // An in-place rewrite keeps the address, so the contents carry their own revision (HeightRevision).
-            const bool heightsStale = d.Dirty || neighbourDirty || gpu.NeighbourMask != mask;
-            const auto heightmap    = RefreshLandscapeTileImage(
-                 gpu.Heightmap, gpu.SamplesX, gpu.SamplesZ, heights.SamplesX(), heights.SamplesZ(), heightsStale,
-                 [&] { return HeightmapTexels( heights, neighbours ); }, [&]( std::vector<unsigned char> texels )
-                 { return CreateHeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ) ); } );
+            const Graphic::Image2D* previousHeightmap = gpu.Heightmap.get();
+            const bool              heightsDirty      = d.Dirty || neighbourDirty || gpu.NeighbourMask != mask;
+            const auto              heightmap         = RefreshLandscapeTileImage(
+                 gpu.Heightmap, gpu.SamplesX, gpu.SamplesZ, heights.SamplesX(), heights.SamplesZ(), heightsDirty,
+                 [&] { return HeightmapTexels( heights, neighbours ); },
+                 [&]( std::vector<unsigned char> texels ) {
+                     return CreateHeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ),
+                                                                  m_SceneLedger );
+                 } );
             if ( !heightmap.IsSuccess() )
             {
                 LOG_ERROR(
@@ -254,8 +278,8 @@ namespace Desert::ECS
                 continue;
             }
             gpu.NeighbourMask = mask;
-            if ( heightsStale || gpu.HeightRevision == 0u )
-                gpu.HeightRevision = ++m_ContentRevision;
+            if ( heightsDirty || gpu.Heightmap.get() != previousHeightmap )
+                gpu.HeightRevision = ++m_Revision;
 
             if ( d.WeightsDirty )
             {
@@ -277,21 +301,24 @@ namespace Desert::ECS
             draw.FirstSampleZ  = tileComp.TileZ * static_cast<int32_t>( root.QuadsPerTile );
             draw.QuadsPerTile  = root.QuadsPerTile;
             draw.NeighbourMask = mask;
+            draw.Entity            = static_cast<uint32_t>( d.Entity );
             draw.HeightRevision    = gpu.HeightRevision;
             const Surface& surface = surfaceOf( Common::UUID( tileComp.Landscape ) );
 
             Graphic::System::LandscapeWeightDraw weights;
-            weights.Ground = surface.Ground;
+            weights.Ground      = surface.Ground;
+            weights.GroundLayer = surface.GroundLayer;
             if ( gpu.Weightmap )
             {
                 const Landscape::LandscapeWeightChannels channels =
                      Landscape::ResolveLandscapeWeightChannels( heights, surface.Layers );
-                weights.Weightmap  = gpu.Weightmap.get();
+                weights.Weightmap       = gpu.Weightmap;
+                weights.Revision        = gpu.WeightRevision;
                 weights.LayerCount = channels.Count;
                 weights.Colors     = channels.Colors;
                 weights.AlphaBlend = Landscape::LandscapeAlphaBlendPages( channels );
+                weights.LayerNames      = channels.Names;
                 weights.VisibilityLayer = channels.Visibility;
-                weights.Revision        = gpu.WeightRevision;
                 if ( !channels.Unknown.empty() && !surface.LayersPending &&
                      m_WarnedWeights.insert( d.Entity ).second )
                 {
@@ -305,9 +332,25 @@ namespace Desert::ECS
                               tileComp.TileX, tileComp.TileZ, names );
                 }
             }
-            renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeTileCommand>( gpu.Heightmap.get(), draw,
+            renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeTileCommand>( gpu.Heightmap, draw,
                                                                                     surface.Overrides, weights );
         }
+
+        // Pass 3 (GRASS-GPU): every root whose layers grow grass hands the grass renderer its field and varieties.
+        m_PrevWindSeconds = m_WindSeconds;
+        m_WindSeconds += static_cast<double>( ts.GetSeconds() );
+        std::map<uint64_t, std::vector<GrassTile>>   grassRoots;
+        std::map<uint64_t, Landscape::LandscapeRoot> grassFrames;
+        for ( const Drawable& d : drawables )
+        {
+            const auto& tileComp = registry.get<LandscapeTileComponent>( d.Entity );
+            const auto  rootId   = static_cast<uint64_t>( Common::UUID( tileComp.Landscape ) );
+            grassRoots[rootId].push_back( { &tileComp, d.GrassDirty } );
+            grassFrames[rootId] = d.Root;
+        }
+        for ( const auto& [rootId, tiles] : grassRoots )
+            EmitGrass( registry, renderCommandBuffer, rootId, grassFrames[rootId],
+                       surfaceOf( Common::UUID( rootId ) ).Layers, tiles );
 
         // Release: the entity is gone, lost its tile component, or its heights were unloaded.
         for ( auto it = m_Tiles.begin(); it != m_Tiles.end(); )
@@ -332,21 +375,263 @@ namespace Desert::ECS
             return;
         }
         // In place per stroke, like the heightmap: the weightmap's address keys the tile's material too.
-        const auto weightmap = RefreshLandscapeTileImage(
+        const Graphic::Image2D* previousWeightmap = gpu.Weightmap.get();
+        const auto              weightmap         = RefreshLandscapeTileImage(
              gpu.Weightmap, gpu.WeightmapX, gpu.WeightmapZ, heights.SamplesX(),
              heights.SamplesZ() * Landscape::LandscapeWeightmapPageCount( heights.WeightLayers().size() ),
              weightsDirty, [&] { return Landscape::LandscapeWeightmapAtlasTexels( heights ); },
-             [&]( std::vector<unsigned char> texels )
-             { return CreateWeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ) ); } );
+             [&]( std::vector<unsigned char> texels ) {
+                 return CreateWeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ),
+                                                              m_SceneLedger );
+             } );
         if ( weightmap.IsSuccess() )
         {
-            if ( weightsDirty || gpu.WeightRevision == 0u )
-                gpu.WeightRevision = ++m_ContentRevision;
+            if ( weightsDirty || gpu.Weightmap.get() != previousWeightmap )
+                gpu.WeightRevision = ++m_Revision;
             return;
         }
         gpu.Weightmap.reset();
         if ( m_WarnedWeights.insert( entity ).second )
             LOG_ERROR( "[Landscape] tile ({}, {}): RGBA8 weightmap: {}; the tile's painted layers are not drawn",
                        tileComp.TileX, tileComp.TileZ, weightmap.GetError() );
+    }
+    void LandscapeECSSystem::EmitGrass( entt::registry&                       registry,
+                                        Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
+                                        const uint64_t rootId, const World::Landscape::LandscapeRoot& root,
+                                        const std::vector<Assets::Serialization::LandscapeLayerInfoData>& layers,
+                                        const std::vector<GrassTile>&                                     tiles )
+    {
+        std::vector<const Assets::Serialization::LandscapeLayerInfoData*> grassLayers;
+        for ( const auto& layer : layers )
+            if ( !layer.GrassTypes.empty() )
+                grassLayers.push_back( &layer );
+        if ( grassLayers.empty() || tiles.empty() )
+            return;
+
+        // The field: rebuilt when a tile's heights or weights changed, or the tile set or the grass layers did.
+        const uint32_t quads     = root.QuadsPerTile;
+        int32_t        minX      = tiles.front().Tile->TileX;
+        int32_t        maxX      = minX;
+        int32_t        minZ      = tiles.front().Tile->TileZ;
+        int32_t        maxZ      = minZ;
+        uint64_t       signature = 1469598103934665603ull;
+        bool           dirty     = false;
+        const auto     mix       = [&]( uint64_t v ) { signature = ( signature ^ v ) * 1099511628211ull; };
+        for ( const GrassTile& t : tiles )
+        {
+            minX  = std::min( minX, t.Tile->TileX );
+            maxX  = std::max( maxX, t.Tile->TileX );
+            minZ  = std::min( minZ, t.Tile->TileZ );
+            maxZ  = std::max( maxZ, t.Tile->TileZ );
+            dirty = dirty || t.Dirty;
+            mix( ( static_cast<uint64_t>( static_cast<uint32_t>( t.Tile->TileX ) ) << 32u ) |
+                 static_cast<uint32_t>( t.Tile->TileZ ) );
+        }
+        for ( const auto* layer : grassLayers )
+            mix( std::hash<std::string>{}( layer->LayerName ) );
+        mix( std::bit_cast<uint32_t>( root.SpacingCm ) );
+        mix( std::bit_cast<uint32_t>( root.ZScale ) );
+
+        GrassRootCache& cache = m_Grass[rootId];
+        if ( dirty || !cache.Field || cache.Signature != signature )
+        {
+            const uint32_t samplesX = ( static_cast<uint32_t>( maxX - minX ) + 1u ) * quads + 1u;
+            const uint32_t samplesZ = ( static_cast<uint32_t>( maxZ - minZ ) + 1u ) * quads + 1u;
+            const size_t   count    = static_cast<size_t>( samplesX ) * samplesZ;
+            const size_t   perLayer = ( count + 3u ) / 4u;
+            auto           field    = std::make_shared<Graphic::System::GrassFieldData>();
+            auto&          w        = field->Words;
+            w.assign( 8u + count + ( perLayer * grassLayers.size() ), 0u );
+            w[0]               = samplesX;
+            w[1]               = samplesZ;
+            w[2]               = static_cast<uint32_t>( grassLayers.size() );
+            const float firstX = static_cast<float>( minX * static_cast<int32_t>( quads ) ) * root.SpacingCm;
+            const float firstZ = static_cast<float>( minZ * static_cast<int32_t>( quads ) ) * root.SpacingCm;
+            w[4]               = std::bit_cast<uint32_t>( root.Origin.x + firstX );
+            w[5]               = std::bit_cast<uint32_t>( root.Origin.z + firstZ );
+            w[6]               = std::bit_cast<uint32_t>( root.SpacingCm );
+            std::fill( w.begin() + 8, w.begin() + 8 + static_cast<std::ptrdiff_t>( count ),
+                       std::bit_cast<uint32_t>( Graphic::System::kGrassNoHeight ) );
+            for ( const GrassTile& t : tiles )
+            {
+                const Landscape::LandscapeTileData& data = *t.Tile->Heights;
+                if ( data.SamplesX() != quads + 1u || data.SamplesZ() != quads + 1u )
+                    continue; // the loader refuses such a tile before it is drawable; nothing to grow from
+                const uint32_t                     baseX = static_cast<uint32_t>( t.Tile->TileX - minX ) * quads;
+                const uint32_t                     baseZ = static_cast<uint32_t>( t.Tile->TileZ - minZ ) * quads;
+                std::vector<std::optional<size_t>> planes;
+                for ( const auto* layer : grassLayers )
+                    planes.push_back( data.FindWeightLayer( layer->LayerName ) );
+                for ( uint32_t z = 0; z <= quads; ++z )
+                    for ( uint32_t x = 0; x <= quads; ++x )
+                    {
+                        const size_t index = ( static_cast<size_t>( baseZ + z ) * samplesX ) + baseX + x;
+                        w[8u + index]      = std::bit_cast<uint32_t>(
+                             root.Origin.y + Landscape::LandscapeHeightCm( data.Sample( x, z ), root.ZScale ) );
+                        for ( size_t k = 0; k < planes.size(); ++k )
+                        {
+                            if ( !planes[k] )
+                                continue;
+                            const uint32_t weight = data.Weight( *planes[k], x, z );
+                            uint32_t&      word   = w[8u + count + ( k * perLayer ) + ( index / 4u )];
+                            const uint32_t shift  = 8u * static_cast<uint32_t>( index & 3u );
+                            word                  = ( word & ~( 0xffu << shift ) ) | ( weight << shift );
+                        }
+                    }
+            }
+            field->Revision = ++m_GrassRevision;
+            cache.Field     = std::move( field );
+            cache.Signature = signature;
+        }
+
+        // The varieties: mesh, its sections' own materials (UE: the mesh's materials), placement and wind.
+        auto*                           meshes    = Runtime::ResourceRegistry::GetMeshService();
+        auto*                           materials = Runtime::ResourceRegistry::GetMaterialService();
+        const glm::vec3                 air       = ECS::WindAt( registry, root.Origin ).Velocity;
+        auto*                           types     = Runtime::ResourceRegistry::GetLandscapeGrassTypeService();
+        Graphic::System::GrassFieldDraw draw;
+        draw.Root  = rootId;
+        draw.Field = cache.Field;
+        for ( uint32_t k = 0; k < grassLayers.size(); ++k )
+            for ( const Assets::AssetGuidRef& typeRef : grassLayers[k]->GrassTypes )
+            {
+                const auto typeGuid = Common::Content::AssetGuidFromText( typeRef.Guid );
+                if ( !typeGuid )
+                    continue; // the layer info's validation refused it on load
+                const Assets::AssetHandle typeHandle = Common::Content::HandleForGuid( typeGuid.GetValue() );
+                const auto                type       = types->AssetOf( typeHandle );
+                if ( !type )
+                    continue; // still loading, or the service said once why it failed
+                const auto& varieties = type->GetData().GrassVarieties;
+                for ( uint32_t vi = 0; vi < varieties.size(); ++vi )
+                {
+                    const auto& v = varieties[vi];
+                    // Stable per (root, layer, type, variety): it seeds the placement, so the same grass grows at
+                    // the same spot every session; the type's revision decides when its derived sections are
+                    // stale.
+                    uint64_t key = 1469598103934665603ull;
+                    for ( const uint64_t part :
+                          { rootId, static_cast<uint64_t>( k ), static_cast<uint64_t>( typeHandle ),
+                            static_cast<uint64_t>( vi ) } )
+                        key = ( key ^ part ) * 1099511628211ull;
+                    GrassSections&              sections = m_GrassSections[key];
+                    const bool                  blade = v.Kind == Assets::Serialization::GrassVarietyKind::Blade;
+                    const Assets::AssetGuidRef& ref   = blade ? *v.Material : *v.Mesh;
+                    const auto                  guid  = Common::Content::AssetGuidFromText( ref.Guid );
+                    if ( !guid )
+                        continue; // the type's validation refused it on load
+                    const Assets::AssetHandle handle = Common::Content::HandleForGuid( guid.GetValue() );
+                    Desert::Mesh*             mesh   = nullptr;
+                    const Assets::MeshAsset*  asset  = nullptr;
+                    if ( !blade )
+                    {
+                        mesh  = meshes->Get( handle );
+                        asset = meshes->GetAsset( handle );
+                        if ( mesh == nullptr || asset == nullptr )
+                            continue; // still loading, or MeshService said why it failed
+                    }
+                    const void* source = blade ? static_cast<const void*>( &ref ) : mesh;
+                    if ( sections.Mesh != source || sections.Version != materials->GetInvalidationVersion() ||
+                         sections.TypeRevision != type->Revision() )
+                    {
+                        sections.Mesh         = source;
+                        sections.Version      = materials->GetInvalidationVersion();
+                        sections.TypeRevision = type->Revision();
+                        sections.Sections.clear();
+                        if ( blade )
+                        {
+                            // The blade's one material, drawn through its template's GrassBlade cells.
+                            if ( auto instance = materials->CreateRuntimeInstance(
+                                      materials->GetAssetHandleByExternal( handle ) ) )
+                                sections.Sections.push_back( { std::move( instance ), 0 } );
+                            else if ( m_WarnedGrass.insert( ref.Path ).second )
+                                LOG_WARN(
+                                     "[Landscape] grass blade material '{}' does not resolve; the variety does "
+                                     "not grow",
+                                     ref.Path );
+                        }
+                        else
+                        {
+                            const auto&    slots     = asset->GetMaterialHandles();
+                            const size_t   submeshes = std::min<size_t>( mesh->GetSubmeshes().size(), 64 );
+                            const uint64_t all       = submeshes >= 64 ? ~0ull : ( 1ull << submeshes ) - 1ull;
+                            for ( size_t slot = 0; slot < slots.size(); ++slot )
+                            {
+                                uint64_t hidden = 0;
+                                for ( size_t si = 0; si < submeshes; ++si )
+                                    if ( SectionMaterialSlot( si, slots.size() ) != slot )
+                                        hidden |= 1ull << si;
+                                if ( hidden == all )
+                                    continue;
+                                auto instance = materials->CreateRuntimeInstance(
+                                     materials->GetAssetHandleByExternal( slots[slot] ) );
+                                if ( !instance )
+                                {
+                                    if ( m_WarnedGrass.insert( ref.Path ).second )
+                                        LOG_WARN( "[Landscape] grass mesh '{}': section material {} does not "
+                                                  "resolve; those sections do not grow",
+                                                  ref.Path, slot );
+                                    continue;
+                                }
+                                sections.Sections.push_back( { std::move( instance ), hidden } );
+                            }
+                        }
+                    }
+                    Graphic::System::GrassVarietyDraw variety;
+                    variety.Key      = key;
+                    variety.Layer    = k;
+                    variety.Mesh     = mesh;
+                    variety.Sections = sections.Sections;
+                    if ( blade )
+                    {
+                        const auto& b   = *v.Blade;
+                        const auto  rgb = []( const std::array<float, 3>& c )
+                        { return glm::vec3( c[0], c[1], c[2] ); };
+                        variety.Blade = Graphic::System::GrassBladeDraw{ .Height          = b.Height,
+                                                                         .Width           = b.Width,
+                                                                         .Taper           = b.Taper,
+                                                                         .Curvature       = b.Curvature,
+                                                                         .CurvatureSpread = b.CurvatureSpread,
+                                                                         .BendSpread      = b.BendSpread,
+                                                                         .Tilt            = b.Tilt,
+                                                                         .FacingJitter    = b.FacingJitter,
+                                                                         .Stiffness       = b.Stiffness,
+                                                                         .BaseColor       = rgb( b.BaseColor ),
+                                                                         .TipColor        = rgb( b.TipColor ),
+                                                                         .DryTipColor     = rgb( b.DryTipColor ),
+                                                                         .DryTipShare     = b.DryTipShare,
+                                                                         .DryTipLength    = b.DryTipLength,
+                                                                         .Clumping        = b.Clumping,
+                                                                         .ClumpSize       = b.ClumpSize,
+                                                                         .ClumpPull       = b.ClumpPull,
+                                                                         .Scatter         = b.Scatter,
+                                                                         .Patchiness      = b.Patchiness,
+                                                                         .PatchSize       = b.PatchSize,
+                                                                         .Segments        = b.Segments,
+                                                                         .LodDistance     = b.LodDistance };
+                    }
+                    auto& p                     = variety.Placement;
+                    p.Density                   = v.Density;
+                    p.PlacementJitter           = v.PlacementJitter;
+                    p.StartCullDistance         = v.StartCullDistance;
+                    p.EndCullDistance           = v.EndCullDistance;
+                    p.AllowedDensityRange       = { v.AllowedDensityRange.Min, v.AllowedDensityRange.Max };
+                    p.Scaling                   = static_cast<uint32_t>( v.Scaling );
+                    p.ScaleX                    = { v.ScaleX.Min, v.ScaleX.Max };
+                    p.ScaleY                    = { v.ScaleY.Min, v.ScaleY.Max };
+                    p.ScaleZ                    = { v.ScaleZ.Min, v.ScaleZ.Max };
+                    p.WeightAttenuatesMaxScale  = v.WeightAttenuatesMaxScale;
+                    p.MaxScaleWeightAttenuation = v.MaxScaleWeightAttenuation;
+                    p.RandomRotation            = v.RandomRotation;
+                    p.AlignToSurface            = v.AlignToSurface;
+                    p.CastDynamicShadow         = v.CastDynamicShadow;
+                    variety.Wind =
+                         Graphic::MakeInstanceWind( v.Wind.Strength, v.Wind.Speed, v.Wind.Height,
+                                                    glm::vec2( air.x, air.z ), m_WindSeconds, m_PrevWindSeconds );
+                    draw.Varieties.push_back( std::move( variety ) );
+                }
+            }
+        if ( !draw.Varieties.empty() )
+            renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeGrassCommand>( std::move( draw ) );
     }
 } // namespace Desert::ECS

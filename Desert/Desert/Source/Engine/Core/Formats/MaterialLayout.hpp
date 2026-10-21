@@ -38,15 +38,32 @@ namespace Desert::Core::Formats
         uint32_t        Offset = 0;      // bytes into the row; slot i sits at kMaterialParamSlotSize * i
         uint32_t        Size   = 0;      // bytes of VALUE; the rest of the slot is the generated padding
         glm::vec4       Default{ 0.0f }; // the `Properties ... = default` value the row starts from
+
+        // A material texture read through the bindless table: the slot holds a BindlessTexture
+        // (Common/BindlessTextures.glslh: table slot, sampler index, two reserved words), written from the
+        // material's Texture2DProperty when the row is copied (Graphic::DataDrivenMaterial::GetParamRow), never
+        // from a persisted value; its default image is the schema's (Texture2DProperty).
+        bool IsTexture = false;
     };
 
+    // The GLSL type of a texture slot in the row (Common/BindlessTextures.glslh): exactly one 16-byte slot.
+    inline constexpr std::string_view kMaterialTextureGlslType = "BindlessTexture";
+
+    // A bound texture property: a SEPARATE texture at Binding read through its own sampler state at SamplerBinding
+    // (`<Name>Sampler`, kMaterialTextureSamplerSuffix), which the material writes from the property's state.
     struct MaterialLayoutTexture
     {
         std::string        Name;
         uint32_t           Binding = 0;
         bool               IsCube  = false;
         DefaultTextureKind Default = DefaultTextureKind::White;
+        uint32_t           SamplerBinding = 0;
     };
+
+    // The name of a bound texture property's own sampler state: `<texture>Sampler`. Reflection pairs the two by it
+    // (VulkanShader::GetUniformImage2DModels), the generator emits it (DShaderParser BuildAutoDeclarations), and a
+    // hand-declared property texture follows it.
+    inline constexpr std::string_view kMaterialTextureSamplerSuffix = "Sampler";
 
     struct MaterialLayoutPushField
     {
@@ -78,6 +95,13 @@ namespace Desert::Core::Formats
         // palettes of every skinned primitive the view draws, named by the row's BoneOffset / PrevBoneOffset.
         // Read by the view-pass skinned surface vertex stage.
         ObjectBones = 1u << 7,
+        // The world's parameters this frame (Common/WorldParameters.glslh `WorldParameters`): read by the cells
+        // whose surface names one (`WorldParameter( "Name" )`).
+        WorldParameters = 1u << 8,
+        // The view's rain occlusion (Common/RainOcclusion.glslh `RainOcclusionUB`, `u_RainOcclusionMap`):
+        // read by the cells that wet a surface. The block is written by SceneFrameBinding::ApplyTo, the map is a
+        // pass parameter (BindSceneViewInputs).
+        RainOcclusion = 1u << 9,
     };
     constexpr SceneRead operator|( SceneRead a, SceneRead b )
     {
@@ -146,27 +170,22 @@ namespace Desert::Core::Formats
         }
     }
 
-    constexpr const char* MaterialLayoutGlslType( ShaderValueType type )
+    // MaterialLayoutGlslType — the GLSL type of a row parameter — lives in MaterialParamRow.hpp beside
+    // MaterialRowSlotValue, the bytes written for it: the two are one statement and are kept in one place.
+
+    // Whether a texture property is read through the bindless table from the row: every 2D texture of a template
+    // that carries a row and no TextureBinding, except EngineSet ones. An EngineSet texture (terrain heightmap,
+    // weightmap) is the engine's per-draw input, read by the vertex stage, which has no row (DShaderParser emits
+    // the row for fragment and compute only), so it stays a bound sampler. A cube has no bindless table.
+    inline bool IsRowTexture( const MaterialLayoutBindings& bindings, const ShaderParam& p )
     {
-        switch ( type )
-        {
-            case ShaderValueType::Float:
-                return "float";
-            case ShaderValueType::Float2:
-                return "vec2";
-            case ShaderValueType::Float3:
-                return "vec3";
-            case ShaderValueType::Int:
-            case ShaderValueType::Bool:
-                return "int";
-            default:
-                return "vec4";
-        }
+        return bindings.Row && !bindings.FirstTexture && p.IsTexture && !p.IsCubeTexture && !p.EngineSet;
     }
 
     // THE builder. Params are the numeric properties in schema order (the walk MaterialParamSlot
-    // repeats for MeshRenderer's instance overrides; ShippedShaderPasses holds the two equal), textures every
-    // texture property from FirstTexture upward.
+    // repeats for MeshRenderer's instance overrides; ShippedShaderPasses holds the two equal), then the row
+    // textures (IsRowTexture) in schema order AFTER every numeric one, so a numeric slot is where
+    // MaterialParamSlot counts it; textures every texture property from FirstTexture upward.
     inline MaterialLayout BuildMaterialLayout( const ShaderProgramMeta& meta )
     {
         const MaterialLayoutBindings& bindings = meta.LayoutBindings;
@@ -175,11 +194,23 @@ namespace Desert::Core::Formats
         {
             for ( const auto& p : meta.Params )
             {
-                if ( p.IsTexture )
+                // Samplers are descriptors and asset references are CPU-side inputs: neither is a row field.
+                if ( p.IsTexture || p.IsAssetRef() )
                     continue;
                 layout.Params.push_back( { p.Name, p.Type,
                                            kMaterialParamSlotSize * static_cast<uint32_t>( layout.Params.size() ),
                                            MaterialParamValueSize( p.Type ), p.Default } );
+            }
+            for ( const auto& p : meta.Params )
+            {
+                if ( !IsRowTexture( bindings, p ) )
+                    continue;
+                MaterialLayoutParam texture{ p.Name, ShaderValueType::Struct,
+                                             kMaterialParamSlotSize *
+                                                  static_cast<uint32_t>( layout.Params.size() ),
+                                             kMaterialParamSlotSize, glm::vec4( 0.0f ) };
+                texture.IsTexture = true;
+                layout.Params.push_back( texture );
             }
             if ( !layout.Params.empty() )
             {
@@ -189,10 +220,13 @@ namespace Desert::Core::Formats
         }
         if ( bindings.FirstTexture )
         {
+            // The textures from FirstTexture upward, then each one's sampler state in the same order right after.
             uint32_t binding = *bindings.FirstTexture;
             for ( const auto& p : meta.Params )
-                if ( p.IsTexture )
+                if ( p.IsTexture && p.ElementIndex < 0 ) // an Element texture is copied into its array
                     layout.Textures.push_back( { p.Name, binding++, p.IsCubeTexture, p.DefaultTexture } );
+            for ( auto& texture : layout.Textures )
+                texture.SamplerBinding = binding++;
         }
         return layout;
     }
@@ -239,6 +273,14 @@ namespace Desert::Core::Formats
                 return "fragment";
             case ShaderStage::Compute:
                 return "compute";
+            case ShaderStage::RayGen:
+                return "ray-generation";
+            case ShaderStage::AnyHit:
+                return "any-hit";
+            case ShaderStage::ClosestHit:
+                return "closest-hit";
+            case ShaderStage::Miss:
+                return "miss";
             default:
                 return "unknown";
         }
@@ -343,6 +385,16 @@ namespace Desert::Core::Formats
                 if ( const auto* t = layout.FindTexture( s.Name ); t != nullptr && t->Binding != s.Offset )
                     fail( stage.Stage, std::format( "texture '{}' compiled at binding {}, the template says {}",
                                                     s.Name, s.Offset, t->Binding ) );
+            // A row texture is read through the bindless table; a sampler of the same name beside it is a second
+            // descriptor the material never writes.
+            for ( const auto& s : stage.Samplers )
+                if ( const auto* p = layout.FindParam( s.Name ); p != nullptr && p->IsTexture )
+                    fail( stage.Stage,
+                          std::format(
+                               "texture '{}' is a row texture read through the bindless table (u_Material.{}), "
+                               "and the stage also declares a sampler of that name at binding {}; remove "
+                               "the sampler declaration",
+                               s.Name, s.Name, s.Offset ) );
         }
         return errors;
     }

@@ -1,4 +1,5 @@
 #include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp>
 #include <Common/Settings/MachineSettings.hpp>
 #include <Engine/Graphic/PipelineCacheFile.hpp>
 #include <Engine/Project/ProjectContext.hpp>
@@ -20,6 +21,7 @@
 
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDeviceExtensions.hpp>
 
 #include <algorithm> // std::max — largest device-local heap
 #include <array>
@@ -102,6 +104,7 @@ namespace Desert::Graphic::API::Vulkan
             m_Capabilities.MaxTexture2DSize       = deviceProperties.limits.maxImageDimension2D;
             m_Capabilities.MaxTextureArrayLayers  = deviceProperties.limits.maxImageArrayLayers;
             m_Capabilities.MaxColorAttachments       = deviceProperties.limits.maxColorAttachments;
+            m_Capabilities.MaxComputeSharedMemorySize = deviceProperties.limits.maxComputeSharedMemorySize;
             m_Capabilities.SupportsTimestampQueries  = deviceProperties.limits.timestampComputeAndGraphics == VK_TRUE;
             m_Capabilities.TimestampPeriodNs         = deviceProperties.limits.timestampPeriod;
 
@@ -206,6 +209,12 @@ namespace Desert::Graphic::API::Vulkan
         // THE START-UP TABLE, ONE LINE: which device, which driver, which version, and every row of
         // DeviceCaps as core / ext / no ("!" marks the required set).
         LOG_INFO( "[Vulkan] {}", FormatCapsTable( probed.GetValue().Caps ) );
+        LOG_INFO( "[Vulkan] {}", FormatDescriptorLimits( probed.GetValue().Caps ) );
+
+        // A platform runtime enables what it needs on the chosen device before the catalog is probed from it and
+        // before vkCreateDevice (VulkanDeviceExtensions.hpp).
+        for ( IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            extension->OnPhysicalDeviceSelected( VulkanContext::GetVulkanInstance(), *probed.GetValue().Physical );
 
         auto physical = VulkanPhysicalDevice::Create( probed.ExtractValue() );
         if ( !physical )
@@ -253,7 +262,7 @@ namespace Desert::Graphic::API::Vulkan
             return;
 
         const std::scoped_lock queues( m_QueueMutex );
-        const VkResult         idle = vkDeviceWaitIdle( m_LogicalDevice );
+        const VkResult         idle = m_Presentation.vkDeviceWaitIdle( m_LogicalDevice );
         if ( idle != VK_SUCCESS && !NoteIfDeviceLost( idle, "vkDeviceWaitIdle", __FILE__, __LINE__ ) )
             LOG_ERROR( "[Device] vkDeviceWaitIdle failed: {}", VkResultToString( idle ) );
     }
@@ -304,37 +313,6 @@ namespace Desert::Graphic::API::Vulkan
         return m_DeviceName;
     }
 
-    bool VulkanLogicalDevice::IsFormatSupported( ::Desert::Core::Formats::ImageFormat format,
-                                                 Engine::FormatUsage                  usage ) const
-    {
-        const VkFormat vkFormat = GetImageVulkanFormat( format );
-        if ( vkFormat == VK_FORMAT_UNDEFINED )
-            return false;
-
-        VkFormatProperties props{};
-        vkGetPhysicalDeviceFormatProperties( m_PhysicalDevice->GetVulkanPhysicalDevice(), vkFormat, &props );
-
-        // Optimal tiling only: every image the engine creates is VK_IMAGE_TILING_OPTIMAL. Asking about
-        // linear tiling would answer a question nothing here can act on.
-        const VkFormatFeatureFlags features = props.optimalTilingFeatures;
-
-        VkFormatFeatureFlags required = 0;
-        if ( usage & Engine::FormatUsage_Sampled )
-            required |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
-        if ( usage & Engine::FormatUsage_ColorAttachment )
-            required |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
-        if ( usage & Engine::FormatUsage_DepthAttachment )
-            required |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
-        if ( usage & Engine::FormatUsage_Blendable )
-            required |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT;
-        if ( usage & Engine::FormatUsage_Storage )
-            required |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
-        if ( usage & Engine::FormatUsage_LinearFilter )
-            required |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
-
-        return ( features & required ) == required;
-    }
-
     VkResult VulkanLogicalDevice::SubmitToQueue( VkQueue queue, uint32_t submitCount, const VkSubmitInfo* submits,
                                                  VkFence fence ) const
     {
@@ -345,7 +323,7 @@ namespace Desert::Graphic::API::Vulkan
     VkResult VulkanLogicalDevice::PresentToQueue( VkQueue queue, const VkPresentInfoKHR& present ) const
     {
         const std::scoped_lock queues( m_QueueMutex );
-        return vkQueuePresentKHR( queue, &present );
+        return m_Presentation.vkQueuePresentKHR( queue, &present );
     }
 
     std::unique_lock<std::mutex> VulkanLogicalDevice::LockQueues() const
@@ -362,7 +340,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( Graphic::DeviceLost::AllowWork() )
             {
                 const std::scoped_lock queues( m_QueueMutex );
-                vkDeviceWaitIdle( m_LogicalDevice );
+                m_Presentation.vkDeviceWaitIdle( m_LogicalDevice );
             }
 
             // THE LAST MOMENT AT WHICH THIS DEVICE IS STILL ALIVE, and therefore the only place from which
@@ -377,12 +355,23 @@ namespace Desert::Graphic::API::Vulkan
             // window -> device -> context: by the time the context is destroyed this device is already
             // gone, so a release there would free device children through a destroyed device. Every owner
             // that queues work — the swapchain included — has already run by the time we get here.
+            // The table's own missing texture goes while the context can still retire its image.
+            if ( m_Bindless )
+                m_Bindless->ReleaseMissingTexture();
             if ( const auto context = EngineContext::GetInstance().GetRendererContext() )
                 context->Shutdown();
 
             // Every texture, slot and graph pass that held a sampler is gone with the content released above;
-            // the samplers themselves are the device's, so they go here, last before the device.
+            // the table's sets name those samplers, so it goes first; the samplers last before the device.
+            m_Bindless.reset();
             m_Samplers.reset();
+
+            // The GPU is idle (above): a platform runtime releases what it made on this device while it exists.
+            // Its presentation proxies go first: the runtime unloads them in OnDeviceDestroying (slShutdown, then
+            // the interposer's FreeLibrary), and nothing presents past this point.
+            m_Presentation = {};
+            for ( IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+                extension->OnDeviceDestroying();
 
             if ( m_PipelineCache != VK_NULL_HANDLE )
             {
@@ -436,9 +425,39 @@ namespace Desert::Graphic::API::Vulkan
                  built.error().message(), static_cast<int>( built.vk_result() ) );
         m_LogicalDevice = built.value().device;
 
+        // Acceleration-structure entry points exist only through the device and only where the probe enabled
+        // the extension (DeviceCaps). An enabled extension whose functions do not resolve is a broken driver,
+        // not a device without ray tracing: refuse it rather than run with half a table.
+        const VkDevice device = m_LogicalDevice;
+        m_RayTracingFunctions =
+             LoadRayTracingDeviceFunctions( m_PhysicalDevice->GetDeviceCaps(), [device]( const char* name )
+                                            { return vkGetDeviceProcAddr( device, name ); } );
+        SetRdgRayTracingShaderStages( m_PhysicalDevice->GetDeviceCaps().Has( Capability::RayTracingPipeline ) );
+        if ( m_PhysicalDevice->GetDeviceCaps().Has( Capability::AccelerationStructure ) &&
+             !m_RayTracingFunctions.Complete() )
+            return Common::MakeFormattedError<bool>(
+                 "'{}' enabled VK_KHR_acceleration_structure but vkGetDeviceProcAddr did not resolve all of its "
+                 "entry points",
+                 m_DeviceName );
+
         vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetGraphicsFamily(), 0, &m_GraphicsQueue );
         vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetComputeFamily(), 0, &m_ComputeQueue );
         vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetTransferFamily(), 0, &m_TransferQueue );
+
+        VulkanDeviceHandles handles;
+        handles.Instance              = VulkanContext::GetVulkanInstance();
+        handles.PhysicalDevice        = m_PhysicalDevice->GetBootstrapDevice().physical_device;
+        handles.Device                = m_LogicalDevice;
+        handles.GraphicsFamily        = graphics;
+        handles.ComputeFamily         = compute;
+        handles.GraphicsQueuesCreated = 1;
+        handles.ComputeQueuesCreated  = 1;
+        for ( IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            extension->OnDeviceCreated( handles );
+        // Before any swapchain exists (a swapchain is made on this device): the swapchain is created, acquired,
+        // presented and destroyed through the same entry points for its whole life.
+        for ( const IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            extension->AmendPresentationDispatch( m_Presentation );
 
         CreatePipelineCache();
         m_Samplers = std::make_unique<VulkanSamplerCache>( m_LogicalDevice );
@@ -451,6 +470,23 @@ namespace Desert::Graphic::API::Vulkan
         DESERT_VERIFY( m_Samplers != nullptr,
                        "GetSamplerCache: the device was not created or is already destroyed" );
         return *m_Samplers;
+    }
+
+    VulkanBindlessTextureTable& VulkanLogicalDevice::GetBindlessTextureTable()
+    {
+        if ( m_Bindless )
+            return *m_Bindless;
+        DESERT_VERIFY( m_LogicalDevice != VK_NULL_HANDLE,
+                       "GetBindlessTextureTable: the device was not created or is already destroyed" );
+        const DescriptorIndexingLimits& limits = m_PhysicalDevice->GetDeviceCaps().DescriptorIndexing;
+        const uint32_t                  ceiling =
+             BindlessCapacityCeiling( kBindlessInitialTextureCapacity, limits.SampledImageCeiling() );
+        // Published before Initialize: the missing texture registers itself through this getter.
+        m_Bindless = std::make_unique<VulkanBindlessTextureTable>( m_LogicalDevice, ceiling, &AcquireSlotSampler );
+        const auto initialized = m_Bindless->Initialize();
+        DESERT_VERIFY( initialized.IsSuccess(), "{}",
+                       initialized.IsSuccess() ? std::string{} : initialized.GetError() );
+        return *m_Bindless;
     }
 
     VulkanSamplerCache& EngineSamplerCache()
@@ -671,4 +707,37 @@ namespace Desert::Graphic::API::Vulkan
         return VK_FORMAT_UNDEFINED;
     }
 
+    namespace
+    {
+        VulkanLogicalDevice* EngineVulkanDevice()
+        {
+            return SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() ).get();
+        }
+    } // namespace
+
+    VulkanBindlessTextureTable* BindlessTableIn( const std::vector<DescriptorSetLayoutRef>& layouts )
+    {
+        const VulkanLogicalDevice*  device = EngineVulkanDevice();
+        VulkanBindlessTextureTable* table  = device != nullptr ? device->TryGetBindlessTextureTable() : nullptr;
+        if ( table == nullptr || layouts.size() <= kBindlessSetIndex ||
+             layouts[kBindlessSetIndex] != table->GetLayout() )
+            return nullptr;
+        return table;
+    }
 } // namespace Desert::Graphic::API::Vulkan
+
+namespace Desert::Graphic
+{
+    BindlessTextureTable& GetBindlessTextureTable()
+    {
+        API::Vulkan::VulkanLogicalDevice* device = API::Vulkan::EngineVulkanDevice();
+        DESERT_VERIFY( device != nullptr, "GetBindlessTextureTable: no engine device" );
+        return device->GetBindlessTextureTable();
+    }
+
+    BindlessTextureTable* TryGetBindlessTextureTable()
+    {
+        API::Vulkan::VulkanLogicalDevice* device = API::Vulkan::EngineVulkanDevice();
+        return device != nullptr ? device->TryGetBindlessTextureTable() : nullptr;
+    }
+} // namespace Desert::Graphic

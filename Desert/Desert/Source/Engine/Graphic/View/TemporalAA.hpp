@@ -40,7 +40,9 @@ namespace Desert::Graphic
         }
 
         [[nodiscard]] bool                            Supports( const ResolutionSplit& split ) const override;
-        [[nodiscard]] std::vector<HistoryTextureDesc> HistoryDescs( const ResolutionSplit& split ) const override;
+        [[nodiscard]] std::vector<HistoryTextureDesc>
+        HistoryDescs( const ResolutionSplit&                      split,
+                      const Common::Scalability::ResolvedQuality& quality ) const override;
         [[nodiscard]] Common::ResultStr<TemporalUpscalerOutputs>
         AddPasses( RDG::Builder& graph, const ViewFrame& frame,
                    const TemporalUpscalerInputs& inputs ) const override;
@@ -70,14 +72,19 @@ namespace Desert::Graphic
         glm::vec2 OutputSize;          // pixels
         glm::vec2 JitterUv;            // this frame's jitter in uv: JitterNdc * (0.5, -0.5)
         float     HistoryValid = 0.0f; // 1 when the history holds this view's previous frame
-        float     Pad          = 0.0f;
+        // ViewFrame::PreExposure / PrevPreExposure (UE HistoryPreExposureCorrection): the history was resolved
+        // from last frame's pre-exposed scene colour.
+        float HistoryPreExposureCorrection = 1.0f;
+        float PreExposure                  = 1.0f; // ViewFrame::PreExposure: the scene colour arrives x this
+        float Pad[3]                       = {};
     };
     static_assert( offsetof( TemporalAAParams, PrevViewProjection ) == 64 );
     static_assert( offsetof( TemporalAAParams, RenderSize ) == 128 );
     static_assert( offsetof( TemporalAAParams, OutputSize ) == 136 );
     static_assert( offsetof( TemporalAAParams, JitterUv ) == 144 );
     static_assert( offsetof( TemporalAAParams, HistoryValid ) == 152 );
-    static_assert( sizeof( TemporalAAParams ) == 160 );
+    static_assert( offsetof( TemporalAAParams, PreExposure ) == 160 );
+    static_assert( sizeof( TemporalAAParams ) == 176 );
 
     // The parameters of this frame's resolve (pure; the suite pins the values the shader relies on).
     [[nodiscard]] TemporalAAParams MakeTemporalAAParams( const ViewFrame& frame, RDG::Extent3D output );

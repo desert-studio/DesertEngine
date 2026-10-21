@@ -78,6 +78,13 @@ namespace Desert::Graphic::System
         {
             return m_Params;
         }
+        // The scale the scene colour is stored at (ViewFrame::PreExposure): the mask reads the STORED scene, so
+        // the authored radiance threshold and cap are multiplied by it (as BloomRenderer::SetPreExposure); the
+        // streaks come out pre-exposed and the tonemap's 1/PreExposure undoes them with the scene.
+        void SetPreExposure( float preExposure )
+        {
+            m_PreExposure = preExposure;
+        }
 
     private:
         bool CreatePipelines();
@@ -90,5 +97,6 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache m_BlurLayout;
 
         Params m_Params;
+        float  m_PreExposure = 1.0f;
     };
 } // namespace Desert::Graphic::System

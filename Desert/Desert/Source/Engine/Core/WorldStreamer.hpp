@@ -6,9 +6,12 @@
 // THE SOURCES (WP24, UE's UWorldPartitionStreamingSourceComponent). Every entity with an enabled
 // ECS::StreamingSourceComponent, the player's pawn among them (Core::SpawnDefaultPawn gives it one), plus
 // whatever an instrument hands Begin/Tick (the editor's --flight camera — UE's streaming source providers).
-// Residency follows their UNION. The view is not a source: a camera looking at the world is not where the
-// world must exist. A Play with no source at all streams nothing beyond the always-loaded part and says so
-// once, by name — the origin or the camera standing in would stream the wrong neighbourhood in silence.
+// A player WITHOUT a pawn is a source at its view point (Scene::PlayerViewPoint) — UE's APlayerController is a
+// streaming source provider located at GetPlayerViewPoint, which is how a pawn-less PIE (Play from Here, a
+// spectator, an Auto Activate camera) streams the world it looks at. Residency follows their UNION. No other
+// camera is a source: the editor's view in Edit, a preview, a Sequencer camera that is not the player's view.
+// A Play with no source at all streams nothing beyond the always-loaded part and says so once, by name — the
+// origin standing in would stream the wrong neighbourhood in silence.
 //
 // The decisions are pure and tested (Serialize/WorldPartitionResidencyExecutor.hpp, suite WorldPartitionStreamer);
 // this is the Scene side of them — the ResidencyWorld whose loads read a unit's records on a JobSystem worker
@@ -50,6 +53,7 @@
 #include <optional>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <string>
 
@@ -164,12 +168,21 @@ namespace Desert::Core
         }
 
         // Every enabled StreamingSourceComponent of @p scene, at its entity's world position and facing its
-        // forward, with the component's one shape, then @p instruments. A disabled one is not a source; an
+        // forward, with the component's one shape; then the player's view point when the player has no pawn
+        // (see THE SOURCES); then @p instruments. A disabled one is not a source; an
         // override range is the shape's own radius. @p entities, when given, receives each component source's
         // entity, in order. Velocity is zero here: only a Tick knows the time between two positions.
+        // A sector with Angle From Camera is as wide as its entity's camera sees across (CameraViewAngle);
+        // @p withoutCamera, when given, receives each such entity that has no camera to read (its source keeps
+        // the authored Sector Angle, and the Tick names it).
         [[nodiscard]] static std::vector<Rules::StreamingSource>
         GatherSources( Scene& scene, std::span<const Rules::StreamingSource> instruments,
-                       std::vector<std::uint32_t>* entities = nullptr );
+                       std::vector<std::uint32_t>* entities      = nullptr,
+                       std::vector<std::uint32_t>* withoutCamera = nullptr );
+
+        // The horizontal angle, degrees, a perspective camera of vertical @p verticalFovDegrees sees across a
+        // viewport of width over height @p aspect: 2 atan(tan(v / 2) * aspect), capped at the full circle.
+        [[nodiscard]] static float CameraViewAngle( float verticalFovDegrees, float aspect );
 
         // Says what streaming cost, once: the activation measurement MsPerRecord comes from.
         ~WorldStreamer() override;
@@ -247,6 +260,8 @@ namespace Desert::Core
         WorldPartitionSerialized              m_Partition;
         std::vector<Rules::StreamingSource>   m_LastSources;
         bool                                  m_SaidNoSource = false;
+        // Entities whose Angle From Camera found no camera, already named in the log.
+        std::unordered_set<std::uint32_t> m_SaidWithoutCamera;
         // Where each entity source stood on the last Tick, and when: what its velocity is measured from.
         std::unordered_map<std::uint32_t, glm::vec3> m_SourcePositions;
         double                                       m_SourcesAt = 0.0;

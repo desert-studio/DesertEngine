@@ -14,8 +14,11 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
+#include <format>
 #include <memory>
 #include <span>
 #include <string>
@@ -25,8 +28,10 @@ namespace Desert::Graphic::System
     // Which signal a denoiser instance serves (the shaders' kSSDSignal*, Common/ScreenSpaceDenoise.glslh).
     enum class DenoiserSignal : uint8_t
     {
-        Reflections     = 0, // SSR (and, later, ray-traced reflections): specular, lobe-aware
-        DiffuseIndirect = 1, // RSM-GI (and, later, SSGI / ray-traced GI): diffuse, normal-aware
+        Reflections      = 0, // SSR (and, later, ray-traced reflections): specular, lobe-aware
+        DiffuseIndirect  = 1, // RSM-GI (and, later, SSGI / ray-traced GI): diffuse, normal-aware
+        ShadowVisibility = 2, // a light's penumbra mask (ray-traced sun shadow): penumbra-sized, normal-aware
+        DirectSpecular   = 3, // MegaLights' specular direct light: lobe-aware, reprojected through the surface
     };
 
     // The view's scene textures every pass of the denoiser compares its taps with (graph textures of the frame).
@@ -38,22 +43,59 @@ namespace Desert::Graphic::System
         RDG::TextureRef Black;         // the system black texture (a history that does not exist yet)
     };
 
-    // What SSR hands the reflections denoiser (UE IScreenSpaceDenoiser::FReflectionsInputs): its half-resolution
-    // trace, the trace texels' hit points + pdfs, the tile mask, and the seed of the 2x2 block rotation the trace
-    // used this frame (the reconstruction finds each texel's source pixel from it).
+    // What SSR hands the reflections denoiser (UE IScreenSpaceDenoiser::FReflectionsInputs): its trace (full or
+    // half resolution), the trace texels' hit points + pdfs, the tile mask, and the seed of the 2x2 block rotation
+    // a half-resolution trace used this frame (the reconstruction finds each texel's source pixel from it).
     struct ReflectionsDenoiserInputs
     {
         RDG::TextureRef Trace;
         RDG::TextureRef TraceRay;
         RDG::TextureRef TileMask;
         uint32_t        TraceSeed = 0;
+        // The reconstruction's kernel, trace texels per side from the centre (Scalability
+        // Reflections.DenoiserRadius; UE r.Reflections.Denoiser.ReconstructionSamples). 2 = 5x5.
+        uint32_t ReconstructionRadius = 2;
+        // The trace's pixels per side per texel (SSRRenderer::TraceTargets::DownsampleFactor, Scalability
+        // Reflections.DownsampleFactor): 1 = every pixel traced; 2 = one pixel of each 2x2 block, rotated by
+        // TraceSeed.
+        uint32_t DownsampleFactor = 2;
     };
 
     // What a diffuse-indirect producer hands the denoiser (UE FDiffuseIndirectInputs): its full-resolution
-    // estimate, rgb = light, a = the share it answered.
+    // estimate, rgb = light, a = the share it answered - RSM-GI's bounce light, MegaLights' demodulated local
+    // light.
     struct DiffuseIndirectDenoiserInputs
     {
         RDG::TextureRef Signal;
+        // The reconstruction's kernel, taps per side from the centre (UE r.*.Denoiser.ReconstructionSamples;
+        // MegaLights: Scalability Shadows.MegaLightsDenoiserRadius). 2 = 5x5.
+        uint32_t ReconstructionRadius = 2;
+    };
+
+    // What MegaLights hands the denoiser's specular signal (UE MegaLights denoises its specular lighting apart
+    // from the diffuse): its full-resolution demodulated specular light, rgb = light, a = 1 on a surface. The
+    // diffuse half goes through DiffuseIndirectDenoiserInputs, so a glossy highlight never gets the diffuse
+    // kernel.
+    struct DirectSpecularDenoiserInputs
+    {
+        RDG::TextureRef Signal;
+        // The reconstruction's kernel, taps per side from the centre (Shadows.MegaLightsDenoiserRadius), shrunk
+        // further by each pixel's specular lobe (SSDReconstructDirectSpecular.shader). 2 = 5x5.
+        uint32_t ReconstructionRadius = 2;
+    };
+
+    // UE FShadowVisibilityInputs: a penumbra mask and the closest occluder distance, whatever produced them (no
+    // ray-tracing type here). Mask: r = visibility estimate (0 shadowed .. 1 lit); ClosestOccluder: r = the
+    // distance to the closest occluder hit in cm, <= 0 where nothing was hit. The light's angular diameter sizes
+    // the penumbra the reconstruction blurs over (occluder distance * tan(angle / 2)).
+    struct ShadowVisibilityDenoiserInputs
+    {
+        RDG::TextureRef Mask;
+        RDG::TextureRef ClosestOccluder;
+        float           LightSourceAngleRadians = 0.0f;
+        // The reconstruction's kernel, taps per side from the centre, spread over the penumbra (Scalability
+        // Shadows.RayTracedDenoiserRadius; UE r.Shadow.Denoiser.ReconstructionSamples). 2 = 5x5.
+        uint32_t ReconstructionRadius = 2;
     };
 
     // THE SCREEN-SPACE DENOISER (UE ScreenSpaceDenoiser.cpp / ScreenSpaceDenoise/*.usf): one denoiser for every
@@ -78,31 +120,17 @@ namespace Desert::Graphic::System
 
         [[nodiscard]] Common::BoolResultStr Initialize()
         {
-            const auto shaders = Runtime::ResourceRegistry::GetShaderService();
-            if ( m_Signal == DenoiserSignal::Reflections )
-            {
-                m_ReconstructShader = shaders->GetByName( "SSDReconstructReflections" );
-                if ( !m_ReconstructShader )
-                    return Common::MakeError( "Denoiser: shader SSDReconstructReflections not found" );
-                const ComputePipelineSpecification pipelineSpec{ .Shader    = m_ReconstructShader,
-                                                                 .DebugName = "SSDReconstructReflections" };
-                const auto                         pipeline = ComputePipeline::Create( pipelineSpec );
-                if ( !pipeline )
-                    return Common::MakeError( pipeline.GetError() );
-                m_ReconstructPipeline = pipeline.GetValue();
-            }
-            else
-            {
-                m_ReconstructShader = shaders->GetByName( "SSDReconstructDiffuse" );
-                if ( !m_ReconstructShader )
-                    return Common::MakeError( "Denoiser: shader SSDReconstructDiffuse not found" );
-                const ComputePipelineSpecification pipelineSpec{ .Shader    = m_ReconstructShader,
-                                                                 .DebugName = "SSDReconstructDiffuse" };
-                const auto                         pipeline = ComputePipeline::Create( pipelineSpec );
-                if ( !pipeline )
-                    return Common::MakeError( pipeline.GetError() );
-                m_ReconstructPipeline = pipeline.GetValue();
-            }
+            const auto        shaders         = Runtime::ResourceRegistry::GetShaderService();
+            const std::string reconstructName = ReconstructShaderName( m_Signal );
+            m_ReconstructShader               = shaders->GetByName( reconstructName );
+            if ( !m_ReconstructShader )
+                return Common::MakeError( std::format( "Denoiser: shader {} not found", reconstructName ) );
+            const ComputePipelineSpecification reconstructSpec{ .Shader    = m_ReconstructShader,
+                                                                .DebugName = reconstructName };
+            const auto                         reconstruct = ComputePipeline::Create( reconstructSpec );
+            if ( !reconstruct )
+                return Common::MakeError( reconstruct.GetError() );
+            m_ReconstructPipeline = reconstruct.GetValue();
 
             m_TemporalShader = shaders->GetByName( "SSDTemporalAccumulation" );
             if ( !m_TemporalShader )
@@ -154,31 +182,34 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_ReconstructLayout.Get( m_ReconstructShader ),
                                     Renderer::GetPipelineRouteFill( *m_ReconstructPipeline ) )
-                          .Sampled( "u_GBufferNormal", scene.GBufferNormal, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_GBufferDepth", scene.GBufferDepth, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_Trace", in.Trace, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_TraceRay", in.TraceRay, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_TileMask", in.TileMask, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_GBufferNormal", scene.GBufferNormal, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_GBufferDepth", scene.GBufferDepth, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Texture( "u_Trace", in.Trace, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::Mip( 0 ) )
+                          .Texture( "u_TraceRay", in.TraceRay, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::Mip( 0 ) )
+                          .Texture( "u_TileMask", in.TileMask, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::Mip( 0 ) )
                           .Storage( "u_Signal", signal, RDG::Access::StorageWrite )
                           .Uniform( "DenoiserViewUB", uniforms )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
                  },
-                 [this, seed = in.TraceSeed, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [this, seed = in.TraceSeed, radius = in.ReconstructionRadius, factor = in.DownsampleFactor,
+                  width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Denoise: Reflections Reconstruction" );
-                     const glm::vec4   push( static_cast<float>( seed ), 0.0f, 0.0f, 0.0f );
+                     const glm::vec4 push( static_cast<float>( seed ), static_cast<float>( radius ),
+                                           static_cast<float>( factor ), 0.0f );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                      return Renderer::GetInstance().DispatchCompute( bindings, *m_ReconstructPipeline,
                                                                      Groups( width ), Groups( height ), 1 );
                  } );
             return AddTemporalAndConvolution( graph, signal, in.Trace, in.TraceRay, scene, frame, uniforms, width,
-                                              height );
+                                              height, MinSampleCountReflections( in.DownsampleFactor ) );
         }
 
         // UE IScreenSpaceDenoiser::DenoiseDiffuseIndirect. As DenoiseReflections, for diffuse light (the history
@@ -191,42 +222,135 @@ namespace Desert::Graphic::System
         {
             if ( m_Signal != DenoiserSignal::DiffuseIndirect || !m_ReconstructPipeline )
                 return {};
+            return DenoiseSurfaceSignal( graph, in.Signal, in.ReconstructionRadius, scene, frame, width, height,
+                                         "Denoise: Diffuse Reconstruction" );
+        }
+
+        // As DenoiseDiffuseIndirect, for MegaLights' specular direct light: the reconstruction and the history
+        // convolution weigh each tap by the agreement of the specular lobes (UE BILATERAL_TOKOYASHI), the history
+        // is reprojected through the surface (a light's highlight moves with it, not with a reflected point).
+        [[nodiscard]] RDG::TextureRef DenoiseDirectSpecular( RDG::Builder&                       graph,
+                                                             const DirectSpecularDenoiserInputs& in,
+                                                             const DenoiserSceneTextures&        scene,
+                                                             const ViewFrame& frame, const uint32_t width,
+                                                             const uint32_t height )
+        {
+            if ( m_Signal != DenoiserSignal::DirectSpecular || !m_ReconstructPipeline )
+                return {};
+            return DenoiseSurfaceSignal( graph, in.Signal, in.ReconstructionRadius, scene, frame, width, height,
+                                         "Denoise: Direct Specular Reconstruction" );
+        }
+
+    private:
+        // The full-resolution surface signals (diffuse indirect, direct specular): one reconstruction pass of this
+        // signal's program, then the shared temporal accumulation and history convolution.
+        RDG::TextureRef DenoiseSurfaceSignal( RDG::Builder& graph, const RDG::TextureRef input,
+                                              const uint32_t               reconstructionRadius,
+                                              const DenoiserSceneTextures& scene, const ViewFrame& frame,
+                                              const uint32_t width, const uint32_t height,
+                                              const std::string_view passName )
+        {
             const RDG::BufferRef  uniforms = UploadViewUniforms( graph, frame );
             const RDG::TextureRef signal =
                  graph.CreateTexture( Desc( width, height, kSignalFormat ), "SSD.Signal" );
             graph.SetFaultDefault( signal, RDG::FaultDefault::Black );
+            // x = the kernel's taps per side from the centre (SSDReconstructDiffuse /
+            // SSDReconstructDirectSpecular).
+            const glm::vec4 push( static_cast<float>( std::max( reconstructionRadius, 1u ) ), 0.0f, 0.0f, 0.0f );
             graph.AddPass(
-                 "Denoise: Diffuse Reconstruction", RDG::PassFlags::Compute,
+                 passName, RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_ReconstructLayout.Get( m_ReconstructShader ),
                                     Renderer::GetPipelineRouteFill( *m_ReconstructPipeline ) )
-                          .Sampled( "u_GBufferNormal", scene.GBufferNormal, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_GBufferDepth", scene.GBufferDepth, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_Input", in.Signal, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_GBufferNormal", scene.GBufferNormal, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_GBufferDepth", scene.GBufferDepth, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Texture( "u_Input", input, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                           .Storage( "u_Signal", signal, RDG::Access::StorageWrite )
-                          .Uniform( "DenoiserViewUB", uniforms );
+                          .Uniform( "DenoiserViewUB", uniforms )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
                  },
-                 [this, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
-                     DESERT_PROFILE_PASS( "Denoise: Diffuse Reconstruction" );
-                     const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     DESERT_PROFILE_PASS( "Denoise: Surface Reconstruction" );
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                      return Renderer::GetInstance().DispatchCompute( bindings, *m_ReconstructPipeline,
                                                                      Groups( width ), Groups( height ), 1 );
                  } );
             return AddTemporalAndConvolution( graph, signal, scene.Black, scene.Black, scene, frame, uniforms,
-                                              width, height );
+                                              width, height, 1.0f );
+        }
+
+    public:
+        // UE IScreenSpaceDenoiser::DenoiseShadowVisibilityMasks. As DenoiseDiffuseIndirect, for a light's penumbra
+        // mask: the reconstruction's kernel is the penumbra's width (closest occluder * tan(angle / 2)), the
+        // history is reprojected through the surface. Returns the denoised visibility (r; rgb equal, a = 1). A
+        // light of angle 0 casts a hard shadow from one ray per pixel - nothing stochastic to denoise: the mask
+        // itself is returned and no pass is added. Invalid: not initialised for this signal.
+        [[nodiscard]] RDG::TextureRef DenoiseShadowVisibility( RDG::Builder&                         graph,
+                                                               const ShadowVisibilityDenoiserInputs& in,
+                                                               const DenoiserSceneTextures&          scene,
+                                                               const ViewFrame& frame, const uint32_t width,
+                                                               const uint32_t height )
+        {
+            if ( m_Signal != DenoiserSignal::ShadowVisibility || !m_ReconstructPipeline )
+                return {};
+            if ( in.LightSourceAngleRadians <= 0.0f )
+                return in.Mask;
+            const RDG::BufferRef  uniforms = UploadViewUniforms( graph, frame );
+            const RDG::TextureRef signal =
+                 graph.CreateTexture( Desc( width, height, kSignalFormat ), "SSD.Signal" );
+            graph.SetFaultDefault( signal, RDG::FaultDefault::Black );
+            const glm::vec4 push( std::tan( in.LightSourceAngleRadians * 0.5f ),
+                                  static_cast<float>( in.ReconstructionRadius ), 0.0f, 0.0f );
+            graph.AddPass(
+                 "Denoise: Shadow Visibility Reconstruction", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     pass.Bindings( m_ReconstructLayout.Get( m_ReconstructShader ),
+                                    Renderer::GetPipelineRouteFill( *m_ReconstructPipeline ) )
+                          .Texture( "u_GBufferNormal", scene.GBufferNormal, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_GBufferDepth", scene.GBufferDepth, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Texture( "u_Mask", in.Mask, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Texture( "u_ClosestOccluder", in.ClosestOccluder, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Storage( "u_Signal", signal, RDG::Access::StorageWrite )
+                          .Uniform( "DenoiserViewUB", uniforms )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
+                 },
+                 [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     DESERT_PROFILE_PASS( "Denoise: Shadow Visibility Reconstruction" );
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     return Renderer::GetInstance().DispatchCompute( bindings, *m_ReconstructPipeline,
+                                                                     Groups( width ), Groups( height ), 1 );
+                 } );
+            return AddTemporalAndConvolution( graph, signal, scene.Black, scene.Black, scene, frame, uniforms,
+                                              width, height, 1.0f );
         }
 
         // The view-independent constants of a signal (UE's per-signal TARGETED_SAMPLE_COUNT): the most frames a
-        // pixel's history may hold, and the fewest a reflection's lobe targets - the trace is half resolution,
-        // one pixel of each 2x2 block per frame, so a pixel has its own sample once every four frames.
+        // pixel's history may hold.
         static constexpr float kMaxSampleCountReflections     = 16.0f;
         static constexpr float kMaxSampleCountDiffuseIndirect = 32.0f;
-        static constexpr float kMinSampleCountReflections     = 4.0f;
+        // UE's shadow-visibility history (TARGETED_SAMPLE_COUNT of the shadow mask): a penumbra follows its
+        // occluder, so it holds fewer frames than bounce light.
+        static constexpr float kMaxSampleCountShadowVisibility = 8.0f;
+        // The fewest frames a reflection's lobe targets: a trace of one pixel per factor x factor block (one per
+        // frame, rotating) gives a pixel its own sample once every factor^2 frames - 4 at half resolution, every
+        // frame at full.
+        [[nodiscard]] static constexpr float MinSampleCountReflections( const uint32_t downsampleFactor )
+        {
+            return static_cast<float>( downsampleFactor * downsampleFactor );
+        }
 
         // The formats of the denoiser's images (ViewMemory counts them).
         static constexpr Core::Formats::ImageFormat kSignalFormat      = ViewTargetFormats::kDenoiserSignal;
@@ -241,6 +365,56 @@ namespace Desert::Graphic::System
         };
 
     private:
+        // The reconstruction program of a signal (one per signal; the temporal and convolution passes are shared).
+        static std::string ReconstructShaderName( const DenoiserSignal signal )
+        {
+            switch ( signal )
+            {
+                case DenoiserSignal::Reflections:
+                    return "SSDReconstructReflections";
+                case DenoiserSignal::DiffuseIndirect:
+                    return "SSDReconstructDiffuse";
+                case DenoiserSignal::ShadowVisibility:
+                    return "SSDReconstructShadowVisibility";
+                case DenoiserSignal::DirectSpecular:
+                    return "SSDReconstructDirectSpecular";
+            }
+            return "SSDReconstructDiffuse"; // unreachable: the switch names every signal (-Wswitch)
+        }
+
+        // The graph name of a signal's output (its history slots append ".History<slot>").
+        static std::string SignalName( const DenoiserSignal signal )
+        {
+            switch ( signal )
+            {
+                case DenoiserSignal::Reflections:
+                    return "SSD.Reflections";
+                case DenoiserSignal::DiffuseIndirect:
+                    return "SSD.Diffuse";
+                case DenoiserSignal::ShadowVisibility:
+                    return "SSD.ShadowVisibility";
+                case DenoiserSignal::DirectSpecular:
+                    return "SSD.DirectSpecular";
+            }
+            return "SSD.Diffuse"; // unreachable: the switch names every signal (-Wswitch)
+        }
+
+        static float MaxSampleCount( const DenoiserSignal signal )
+        {
+            switch ( signal )
+            {
+                case DenoiserSignal::Reflections:
+                    return kMaxSampleCountReflections;
+                case DenoiserSignal::DiffuseIndirect:
+                    return kMaxSampleCountDiffuseIndirect;
+                case DenoiserSignal::ShadowVisibility:
+                    return kMaxSampleCountShadowVisibility;
+                case DenoiserSignal::DirectSpecular:
+                    return kMaxSampleCountReflections; // a highlight follows the light as fast as a reflection
+            }
+            return kMaxSampleCountDiffuseIndirect; // unreachable: the switch names every signal (-Wswitch)
+        }
+
         // One history slot: the premultiplied accumulation and its sample count, each a graph texture created
         // once (CreateTexture + Extract) and registered every frame after (RegisterExternal).
         struct HistorySlot
@@ -295,16 +469,17 @@ namespace Desert::Graphic::System
             return { accumulation, count };
         }
 
-        // @p trace / @p traceRay: the reflections' half-res trace and hit points, from which the temporal pass
+        // @p trace / @p traceRay: the reflections' trace and hit points, from which the temporal pass
         // estimates the distance to the reflected point (diffuse: the black texture - the surface itself).
+        // @p minSampleCount: the fewest frames a reflection's lobe targets (MinSampleCountReflections; 1 for the
+        // other signals, which target MaxSampleCount).
         RDG::TextureRef AddTemporalAndConvolution( RDG::Builder& graph, const RDG::TextureRef signal,
                                                    const RDG::TextureRef trace, const RDG::TextureRef traceRay,
                                                    const DenoiserSceneTextures& scene, const ViewFrame& frame,
                                                    const RDG::BufferRef uniforms, const uint32_t width,
-                                                   const uint32_t height )
+                                                   const uint32_t height, const float minSampleCount )
         {
-            const std::string prefix =
-                 m_Signal == DenoiserSignal::Reflections ? "SSD.Reflections.History" : "SSD.Diffuse.History";
+            const std::string prefix   = SignalName( m_Signal ) + ".History";
             HistorySlot& previous = m_Slots[m_Parity];
             HistorySlot& next     = m_Slots[1u - m_Parity];
             // Decided at build time: the exec runs after the frame was built and must not consult a stamp a later
@@ -318,11 +493,8 @@ namespace Desert::Graphic::System
                  AcquireSlot( graph, next, width, height, prefix + std::to_string( 1u - m_Parity ) );
             m_Parity = 1u - m_Parity;
 
-            const bool      reflections = m_Signal == DenoiserSignal::Reflections;
             const glm::vec4 temporalPush( readable ? 1.0f : 0.0f, static_cast<float>( m_Signal ),
-                                          reflections ? kMaxSampleCountReflections
-                                                      : kMaxSampleCountDiffuseIndirect,
-                                          reflections ? kMinSampleCountReflections : 1.0f );
+                                          MaxSampleCount( m_Signal ), minSampleCount );
             HistorySlot*    stamped = &next;
             graph.AddPass(
                  "Denoise: Temporal Accumulation", RDG::PassFlags::Compute,
@@ -330,22 +502,23 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_TemporalLayout.Get( m_TemporalShader ),
                                     Renderer::GetPipelineRouteFill( *m_TemporalPipeline ) )
-                          .Sampled( "u_GBufferNormal", scene.GBufferNormal, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_GBufferDepth", scene.GBufferDepth, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_Signal", signal, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_Trace", trace, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( 0 ),
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_TraceRay", traceRay, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_History", history[0], RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() )
-                          .Sampled( "u_HistoryCount", history[1], RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_Velocity", scene.Velocity, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_GBufferNormal", scene.GBufferNormal, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_GBufferDepth", scene.GBufferDepth, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Texture( "u_Signal", signal, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Texture( "u_Trace", trace, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::Mip( 0 ) )
+                          .Texture( "u_TraceRay", traceRay, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::Mip( 0 ) )
+                          .Texture( "u_History", history[0], RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+                          .Texture( "u_HistoryCount", history[1], RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Texture( "u_Velocity", scene.Velocity, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
                           .Storage( "u_NewHistory", written[0], RDG::Access::StorageWrite )
                           .Storage( "u_NewHistoryCount", written[1], RDG::Access::StorageWrite )
                           .Uniform( "DenoiserViewUB", uniforms )
@@ -364,8 +537,8 @@ namespace Desert::Graphic::System
                      return dispatched;
                  } );
 
-            const RDG::TextureRef output = graph.CreateTexture( Desc( width, height, kSignalFormat ),
-                                                                reflections ? "SSD.Reflections" : "SSD.Diffuse" );
+            const RDG::TextureRef output =
+                 graph.CreateTexture( Desc( width, height, kSignalFormat ), SignalName( m_Signal ) );
             graph.SetFaultDefault( output, RDG::FaultDefault::Black );
             const glm::vec4 convolutionPush( 0.0f, static_cast<float>( m_Signal ), 0.0f, 0.0f );
             graph.AddPass(
@@ -374,14 +547,15 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_ConvolutionLayout.Get( m_ConvolutionShader ),
                                     Renderer::GetPipelineRouteFill( *m_ConvolutionPipeline ) )
-                          .Sampled( "u_GBufferNormal", scene.GBufferNormal, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_GBufferDepth", scene.GBufferDepth, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_History", written[0], RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-                          .Sampled( "u_HistoryCount", written[1], RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_GBufferNormal", scene.GBufferNormal, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
+                          .Texture( "u_GBufferDepth", scene.GBufferDepth, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Texture( "u_History", written[0], RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Texture( "u_HistoryCount", written[1], RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
                           .Storage( "u_Output", output, RDG::Access::StorageWrite )
                           .Uniform( "DenoiserViewUB", uniforms )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );

@@ -82,7 +82,24 @@ namespace Desert::Migration
             // value is what the loader does (a key the file omits keeps the C++ default), writing it back is what
             // the saver does - so the result is the saver's bytes by construction rather than by a list kept here.
             // A wrong-typed value would come back as its default, which is data loss, not canonicalisation.
-            const Common::Json::Value statedValue( stated );
+            // A LIST of asset handles is read like the single handle below: this tool has no asset manager, and
+            // with no resolver the reader takes each element as a raw number, so a stated list of references
+            // ({Guid, Path} objects - ProceduralFoliage.FoliageTypes) would read as wrong-typed and refuse the
+            // whole file. The reader sees the block without those lists; each stated list goes back verbatim
+            // below.
+            const auto isHandleList = [&type]( const std::string& key )
+            {
+                for ( const auto& field : type.Fields )
+                    if ( field.Name == key )
+                        return static_cast<bool>( field.ContainerHandles );
+                return false;
+            };
+            rfl::Generic::Object readable;
+            for ( const auto& [key, value] : stated )
+                if ( !isHandleList( key ) )
+                    readable[key] = value;
+
+            const Common::Json::Value statedValue( readable );
             Common::Json::Issues      issues;
             Reflection::DeserializeReflected(
                  type, values, Common::Json::Root( statedValue, Common::Json::Path().Key( where ) ), issues );
@@ -117,6 +134,14 @@ namespace Desert::Migration
             //   * unstated and SET -> refused: this tool cannot name the asset.
             for ( const auto& field : type.Fields )
             {
+                // A stated list of references: its text verbatim. Unstated, the writer's form of the default (an
+                // empty list) stands - a default-constructed vector holds no handle to name.
+                if ( field.ContainerHandles )
+                {
+                    if ( const auto asStated = stated.get( field.Name ); asStated.has_value() )
+                        canonical[field.Name] = asStated.value();
+                    continue;
+                }
                 if ( field.Type != Reflection::FieldType::AssetHandle )
                     continue;
 

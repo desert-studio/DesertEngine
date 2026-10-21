@@ -25,6 +25,15 @@ namespace Desert::Editor::Tools
             // UE's Add Primitive tools have no Cancel either: each click has already placed its shape.
             case T::CreateShape:
                 return { ICON_MDI_PLUS_BOX_OUTLINE, "Create Shape", false };
+            // UE's UV tools preview until Accept; Cancel puts the mesh back (UVTool).
+            case T::AutoUV:
+                return { ICON_MDI_AUTO_FIX, "AutoUV", true };
+            case T::UVProject:
+                return { ICON_MDI_PROJECTOR, "UV Project", true };
+            case T::UVUnwrap:
+                return { ICON_MDI_CONTENT_CUT, "UV Unwrap", true };
+            case T::UVLayout:
+                return { ICON_MDI_VIEW_GRID_OUTLINE, "UV Layout", true };
         }
         return {};
     }

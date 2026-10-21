@@ -1,6 +1,9 @@
 #pragma once
 
+#include <span>
+
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Engine/Graphic/BindlessTextureTable.hpp>
 #include <Engine/Graphic/DynamicResources.hpp>
 
 #include <Engine/Graphic/MipMapGenerator.hpp>
@@ -176,10 +179,32 @@ namespace Desert::Graphic
             return Common::MakeError<bool>( "Image2D::RecordSetData not supported by this backend" );
         }
 
+        // FILLS A 2D ARRAY (Image2DSpecification::ArrayLayers) FROM 2D IMAGES: layer i is @p sources[i], every
+        // mip level, copied on the GPU (block-compressed formats included: a copy needs no blit support). The
+        // sources must all be plain 2D images of this array's width, height, format, colour space and mip
+        // count, and there must be exactly ArrayLayers of them; anything else is refused naming the source
+        // and the field (UE's UTexture2DArray build refuses the same mismatches). The copy is flushed before
+        // this returns, and every source is handed back in its own layout. Default: unsupported.
+        NO_DISCARD virtual Common::BoolResultStr CopyLayersFrom( std::span<const Image2D* const> /*sources*/ )
+        {
+            return Common::MakeError<bool>( "Image2D::CopyLayersFrom not supported by this backend" );
+        }
+
         // NO MIP GENERATOR PARAMETER. Its last non-null argument was `Texture2D`'s source-file path, which
         // blitted a chain on the GPU after decoding a PNG/HDR. A 2D image's levels come from the cooked
         // container now (`Image2DSpecification::MipLevels`) or it has one level; see Texture.hpp.
         static std::shared_ptr<Image2D> Create( const Core::Formats::Image2DSpecification& spec );
+
+        /// This image's slot in the global bindless table (BindlessTextureTable): valid for a sampled image
+        /// (Image2DUsage::Image2D), with or without uploaded pixels, that is neither storage nor multisampled;
+        /// invalid (0) otherwise. Stable until the image's GPU resource is released.
+        [[nodiscard]] BindlessTextureSlot GetBindlessSlot() const noexcept
+        {
+            return m_BindlessSlot;
+        }
+
+    protected:
+        BindlessTextureSlot m_BindlessSlot;
     };
 
     class ImageCube : public Image, public DynamicResources

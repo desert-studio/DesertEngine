@@ -5,6 +5,7 @@
 #include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
+#include <Engine/Graphic/RainOcclusion.hpp>
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
@@ -72,6 +73,8 @@ namespace Desert::Graphic
         bool      ShadowsEnabled  = true;
         // The view's contact shadows (SceneResources::ContactShadowSettings), packed into the same ShadowUB.
         SceneResources::ContactShadowSettings ContactShadow{};
+        // The sun's PCSS taps (SceneResources::ShadowFilterSettings), packed into the same ShadowUB.
+        SceneResources::ShadowFilterSettings ShadowFilter{};
         int       ShadowDebugMode = 0;
         bool      ShowNormals     = false;
         bool      LightingDebug   = false;
@@ -102,6 +105,13 @@ namespace Desert::Graphic
         // named by its row's BoneOffset / PrevBoneOffset. Bound onto every material whose template reads
         // ObjectBones (the view-pass skinned cell).
         std::shared_ptr<ShaderResources::StorageBuffer> ObjectBones;
+        // The world's parameters this frame (SceneRenderer::GetWorldParametersBuffer: the view's snapshot of
+        // Scene::GetWorldParameters, BuildWorldParameterTable), for a template whose surface reads one.
+        std::shared_ptr<ShaderResources::StorageBuffer> WorldParameters;
+        // The view's rain occlusion this frame (MeshRenderer::GetRainOcclusionUniforms): how a world position
+        // projects into the top-down map the wetted cells sample. Valid = 0 when the view has no map (no caster
+        // pipeline, shadows budgeted off): the shader then reads nothing and every surface is open to the sky.
+        RainOcclusionUniforms RainOcclusion;
 
         // Writes the whole snapshot onto @p material. One call, so a new piece of frame state can never
         // be applied at four of the five sites and forgotten at the fifth.

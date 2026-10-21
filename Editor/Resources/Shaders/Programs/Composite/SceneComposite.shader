@@ -4,28 +4,50 @@ Shader "SceneComposite"
     Fragment
     {
         In(0) vec2 v_TexCoord;
-        Uniform(2) sampler2D u_GeometryTexture;
-        Uniform(3) sampler2D u_BloomTexture;
-        Uniform(4) sampler2D u_AvgLuminance;      // 1x1 adapted luminance (eye adaptation)
-        Uniform(5) sampler2D u_LightShaftTexture; // radial sun streaks (LightShaftRenderer), half res
-        Uniform(6) sampler2D u_LensFlareTexture;  // ghosts/halo/streak (LensFlareRenderer), quarter res
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(1) sampler u_LinearRepeatSampler;
+        Uniform(7) sampler u_LinearClampSampler;
+        Uniform(2) texture2D u_GeometryTexture;
+        #define u_GeometryTexture sampler2D(u_GeometryTexture, u_LinearRepeatSampler)
+        Uniform(3) texture2D u_BloomTexture;
+        #define u_BloomTexture sampler2D(u_BloomTexture, u_LinearClampSampler)
+        Uniform(4) texture2D u_AvgLuminance;      // 1x1 adapted luminance (eye adaptation)
+        #define u_AvgLuminance sampler2D(u_AvgLuminance, u_LinearRepeatSampler)
+        Uniform(5) texture2D u_LightShaftTexture; // radial sun streaks (LightShaftRenderer), half res
+        #define u_LightShaftTexture sampler2D(u_LightShaftTexture, u_LinearClampSampler)
+        Uniform(6) texture2D u_LensFlareTexture;  // ghosts/halo/streak (LensFlareRenderer), quarter res
+        #define u_LensFlareTexture sampler2D(u_LensFlareTexture, u_LinearClampSampler)
         Out(0) vec4 oColor;
 
         Uniform(0) TonemapUB
         {
             float u_Exposure;
-            float u_Gamma;
             float u_BloomIntensity;
             float u_ExposureKey;          // middle-grey target for auto-exposure
             float u_AutoExposureEnabled;  // > 0.5 -> use measured luminance instead of manual exposure
             float u_ChromaticBloom;       // lens dispersion strength on the bloom halo (0 = off)
             float u_WhitePoint;           // REINHARD ONLY: the luminance that maps to pure white (see below)
             float u_TonemapOperator;      // Core::TonemapOperator: < 0.5 = ACES, otherwise extended Reinhard
+            float u_InvPreExposure;       // 1 / ViewFrame::PreExposure (the std140 slot before the vec4s)
             vec4  u_LightShaftTintIntensity; // rgb = the sun light's Bloom Tint, a = Bloom Scale x screen fade
             vec4  u_LensFlareTintIntensity;  // rgb = the lens's Tint, a = Intensity x screen fade
         };
 
         #include <Common/TonemapACES.glslh>
+
+        // THE DISPLAY TRANSFER: the sRGB OETF (IEC 61966-2-1), the curve the display decodes with.
+        // Ported from UE 5.8 Engine/Shaders/Private/GammaCorrectionCommon.ush:16-18 (LinearToSrgbBranchless),
+        // adapted: GLSL, input clamped to [0,1] (the tonemappers' output range). It was pow(1/Gamma) with a scene's
+        // Gamma 2.2: a pure power encode that the display's sRGB decode does not invert lifted every value below
+        // ~0.04 linear - 24/255 drew where 17/255 belongs, so shade under the grass and in the barn's corners read
+        // greyed. UE encodes with this curve for its default output device (r.HDR.Display.OutputDevice 0, sRGB);
+        // the transfer is the display's, not a per-scene look, so it is no longer a PostProcess setting.
+        vec3 LinearToSrgb(vec3 linearColor)
+        {
+            const vec3 c = clamp(linearColor, 0.0, 1.0);
+            return min(c * 12.92, pow(max(c, vec3(0.00313067)), vec3(1.0 / 2.4)) * 1.055 - 0.055);
+        }
 
         // Extended Reinhard, on luminance, preserving the colour's ratio to it.
         // see: "Photographic Tone Reproduction for Digital Images", eq. 4
@@ -88,15 +110,15 @@ Shader "SceneComposite"
             vec3 flare = texture(u_LensFlareTexture, v_TexCoord).rgb *
                          (u_LensFlareTintIntensity.rgb * u_LensFlareTintIntensity.a);
 
-            vec3 color = (scene + bloom + shafts + flare) * exposure;
+            // Scene, bloom, shafts and flare are all made from the pre-exposed scene colour: one division undoes it.
+            vec3 color = (scene + bloom + shafts + flare) * (exposure * u_InvPreExposure);
 
-        	// The scene's chosen operator. Both branches return LINEAR colour — the gamma encode below is
+        	// The scene's chosen operator. Both branches return LINEAR colour — the display encode below is
         	// the display transfer function and belongs to neither of them.
         	vec3 mappedColor = (u_TonemapOperator < 0.5) ? TonemapACES(color)
         	                                             : TonemapReinhard(color, u_WhitePoint);
 
-        	// Gamma correction.
-        	vec3 mapped = pow(mappedColor, vec3(1.0 / u_Gamma));
+        	vec3 mapped = LinearToSrgb(mappedColor);
 
         	// Ordered dithering on the FINAL 8-bit output to break gradient banding. Without it, smooth gradients
         	// (esp. the procedural sky) quantize into 8-bit steps; under camera motion those steps sweep across the

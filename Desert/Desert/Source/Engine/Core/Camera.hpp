@@ -11,6 +11,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <optional>
+
 namespace Desert::Core
 {
     // Projection kind for the viewport camera. Perspective is the default; Orthographic gives a flat
@@ -52,6 +54,14 @@ namespace Desert::Core
             return m_SourceEntity != kNoSourceEntity ? EntityCameraSource( m_SourceEntity ) : m_SourceTicket.Get();
         }
         [[nodiscard]] float            GetFOV() const { return m_FOV; }
+        // Width over height of the viewport this camera was last projected for; nullopt before the first
+        // projection (nothing has drawn through it yet, so it has no width).
+        [[nodiscard]] std::optional<float> GetViewportAspect() const
+        {
+            if ( m_ViewportWidth == 0 || m_ViewportHeight == 0 )
+                return std::nullopt;
+            return static_cast<float>( m_ViewportWidth ) / static_cast<float>( m_ViewportHeight );
+        }
         [[nodiscard]] ProjectionType   GetProjectionType() const
         {
             return m_ProjectionType;

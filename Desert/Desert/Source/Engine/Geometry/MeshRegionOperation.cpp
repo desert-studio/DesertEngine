@@ -2,6 +2,7 @@
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/MeshNormals.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshSimplification.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshTangents.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/Operations/GroupEdgeInserter.hpp"

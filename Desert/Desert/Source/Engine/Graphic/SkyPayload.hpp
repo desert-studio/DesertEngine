@@ -24,9 +24,25 @@ namespace Desert::Graphic
     // The block GREW from 7 to 13 vec4s when the physical-atmosphere medium landed (vec4s 7-12, read by
     // the transmittance / multi-scattering LUT passes), and to 15 when Phase 2 appended the model switch
     // and the two art-direction tints (vec4s 13-14, read by the physical sky pass, the Sky-View LUT fill
-    // and the IBL bake). Extension is APPEND-ONLY: every existing offset is a promise to every shader
-    // that reads the block.
-    inline constexpr uint32_t kSkyPackedVec4Count = 15;
+    // and the IBL bake), and to 17 when the physical sky started taking its sun from the atmosphere sun
+    // LIGHT (vec4s 15-16, UE's AtmosphereLight illuminance and Atmosphere Sun Disk Color Scale). Extension
+    // is APPEND-ONLY: every existing offset is a promise to every shader that reads the block.
+    inline constexpr uint32_t kSkyPackedVec4Count = 17;
+
+    // THE PHYSICAL SKY'S SUN, as UE has it: the atmosphere sun LIGHT's own numbers, not the sky
+    // component's. UE's sky atmosphere has no sun intensity of its own — the Sky-View LUT, the aerial
+    // perspective, the distant sky light and the disc all integrate the directional light's outer-space
+    // illuminance (Color x Intensity, lux) and the atmosphere contributes only its transmittance. The
+    // artistic gradient is not physical and keeps the sky component's SunColor x SunIntensity.
+    struct SkySunInputs
+    {
+        // The atmosphere sun light's Color x Intensity (lux) before the atmosphere — SunLightFx's own.
+        glm::vec3 OuterSpaceIlluminance{ 0.0f };
+        // UE UDirectionalLightComponent::AtmosphereSunDiskColorScale: the disc only, never the sky.
+        glm::vec3 DiskColorScale{ 1.0f };
+        // Graphic::SkyLuminanceCeiling for this frame's exposure (AutoExposureRules.hpp).
+        float LuminanceCeiling = 0.0f;
+    };
 
     struct SkyGpuPayload
     {
@@ -55,6 +71,11 @@ namespace Desert::Graphic
                                   //      w = sky model: 0 = ArtisticGradient, 1 = PhysicalAtmosphere
         glm::vec4 SkyApLuminance; // 224  rgb = Sky And Aerial Perspective Luminance Factor (inside
                                   //      every scattering integration), w = reserved (0)
+
+        // ---- The atmosphere sun light (appended). PhysicalAtmosphere reads these; the gradient does not.
+        glm::vec4 AtmosphereLight; // 240  rgb = sun light outer-space illuminance (lux, Color x Intensity),
+                                   //      w = on-screen sky luminance ceiling (Graphic::SkyLuminanceCeiling)
+        glm::vec4 SunDisk;         // 256  rgb = Atmosphere Sun Disk Color Scale, w = reserved (0)
     };
 
     static_assert( sizeof( SkyGpuPayload ) == kSkyPackedVec4Count * sizeof( glm::vec4 ),
@@ -74,6 +95,8 @@ namespace Desert::Graphic
     static_assert( offsetof( SkyGpuPayload, MediumTentPlanet ) == 192 );
     static_assert( offsetof( SkyGpuPayload, SkyLuminance ) == 208 );
     static_assert( offsetof( SkyGpuPayload, SkyApLuminance ) == 224 );
+    static_assert( offsetof( SkyGpuPayload, AtmosphereLight ) == 240 );
+    static_assert( offsetof( SkyGpuPayload, SunDisk ) == 256 );
 
     // Size the buffer is created with, and the size every writer must hand to SetData.
     inline constexpr uint32_t kSkyPayloadBytes =
@@ -139,7 +162,7 @@ namespace Desert::Graphic
     static_assert( sizeof( SkyAerialPerspectivePush ) == 96 );
 
     // @p towardSun must be normalized — the single normalization lives in ECS::Rules::AtmosphereSunDirection.
-    inline SkyGpuPayload PackSky( const glm::vec3& towardSun, const SkySettings& sky )
+    inline SkyGpuPayload PackSky( const glm::vec3& towardSun, const SkySettings& sky, const SkySunInputs& sun )
     {
         SkyGpuPayload payload;
         payload.SunDirection = glm::vec4( towardSun, sky.SunIntensity );
@@ -161,6 +184,8 @@ namespace Desert::Graphic
         payload.SkyLuminance =
              glm::vec4( sky.SkyLuminanceFactor, sky.Model == ECS::SkyModel::PhysicalAtmosphere ? 1.0f : 0.0f );
         payload.SkyApLuminance = glm::vec4( sky.SkyAndAerialPerspectiveLuminanceFactor, 0.0f );
+        payload.AtmosphereLight = glm::vec4( sun.OuterSpaceIlluminance, sun.LuminanceCeiling );
+        payload.SunDisk         = glm::vec4( sun.DiskColorScale, 0.0f );
         return payload;
     }
 
@@ -193,7 +218,11 @@ namespace Desert::Graphic
      * the time-of-day driver, so comparing it exactly would demand a rebake per frame — which is what
      * RebakeSunAngleThreshold exists to prevent. The sun is judged by ANGLE and everything else by
      * EQUALITY. The `w` of that vec4 is the sun's INTENSITY, is not a direction, has no threshold of its
-     * own, and is included.
+     * own, and is included — as is the atmosphere sun light's illuminance (vec4 15), which the physical bake
+     * integrates. The luminance ceiling in its `w` is the second exclusion: it is the VIEW's exposure, not the
+     * sky, and the bake does not read it. The sky light is captured once per scene for every view
+     * (SceneSkyLight), so two views with different exposures would otherwise each see "a different sky" in the
+     * other's capture and recapture it on every frame.
      *
      * @param panoramaSizeKey the bake's one input that is NOT in the block — SkySettings::
      *        EnvironmentResolution, which picks the panorama's extent. Without it, changing the
@@ -212,7 +241,9 @@ namespace Desert::Graphic
             hash *= 1099511628211ull;
         };
 
-        const auto* bytes = reinterpret_cast<const unsigned char*>( &payload );
+        SkyGpuPayload bakeInput     = payload;
+        bakeInput.AtmosphereLight.w = 0.0f; // the view's luminance ceiling, see above
+        const auto* bytes           = reinterpret_cast<const unsigned char*>( &bakeInput );
         for ( size_t i = kSkyBakeFingerprintSkippedFloats * sizeof( float ); i < sizeof( SkyGpuPayload ); ++i )
             mixByte( bytes[i] );
 

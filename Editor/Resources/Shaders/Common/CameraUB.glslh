@@ -23,7 +23,16 @@ Uniform(0) CameraUB {
     float MaterialMipBias;
     float ShadowSlopeBias;  // light views only: the caster's slope depth bias per unit tan (Common/ShadowCasterBias.glslh)
     float ShadowSlopeClamp; // light views only: the tangent where that slope term stops
-    float CameraPad0;
+    // Parallax occlusion (Mesh/Surface/SurfaceParallax.glslh): the machine's step counts (Scalability group Shading)
+    // and the main directional light's direction TOWARD the sun (zero when the scene has none) for the relief's
+    // self-shadow. Every view carries the steps (a light view marches the relief for its depth too).
+    float ParallaxMinSteps;
+    vec3  SunDirection;
+    float ParallaxMaxSteps;
+    float ParallaxShadowSteps;
+    float PreExposure;     // ViewFrame::PreExposure: every HDR scene-colour write is multiplied by it (UE View.PreExposure)
+    float PrevPreExposure; // the previous frame's; a history stored last frame is rescaled by PreExposure / PrevPreExposure
+    float CameraPad2;
 } cameraUB;
 
 #endif

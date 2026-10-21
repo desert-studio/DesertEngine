@@ -2,20 +2,22 @@
 Shader "SSDReconstructReflections"
 {
     // The screen-space denoiser's RECONSTRUCTION of the reflections signal (UE ScreenSpaceDenoiser, reflections:
-    // SSDSpatialAccumulation.usf STAGE_RECONSTRUCTION), at full resolution from SSR's half-resolution trace.
+    // SSDSpatialAccumulation.usf STAGE_RECONSTRUCTION), at full resolution from SSR's trace (full or half
+    // resolution: Reflections.DownsampleFactor, u_Params.z).
     // Each of the 5x5 trace texels around the pixel is one sample of THIS pixel's lobe - the RATIO ESTIMATOR
     // (Stachowiak 2015, "Stochastic Screen-Space Reflections"; UE SSRT): the texel lends its HIT POINT and the
     // log2 pdf it drew its ray with (u_TraceRay); the direction is re-aimed from THIS pixel at that point, and the
     // sample weighs this pixel's BRDF * cos over the neighbour's pdf (Fresnel excluded: the lighting's split sum
     // multiplies it). A mirror's BRDF is ~0 away from its own direction, so it borrows nothing and stays sharp.
     // Each sample is further weighed by
-    //  - the BILATERAL weight of the surface the texel traced from (its source pixel: the 2x2 block pixel the
-    //    trace rotates through, SSR.shader): its distance off this pixel's tangent plane (UE POSITION_BASED) and
-    //    the agreement of the two specular lobes (UE BILATERAL_TOKOYASHI) - a texel traced from another surface
-    //    (the object in front, the wall behind) answers for a different lobe and lends neither radiance nor misses;
-    //  - a gaussian of the screen distance from this pixel to that source pixel (sigma kSpatialSigma pixels), so
-    //    the four pixels of a block do not read one identical set (the 2x2 blocks of a plain half-res upsample),
-    //    yet wide enough that every texel of the set counts (a narrow one leaves one or two samples: grain).
+    //  - the BILATERAL weight of the surface the texel traced from (its source pixel, Common/SSRTrace.glslh
+    //    SSRTraceSourcePixel: the pixel itself, or the 2x2 block pixel a half-resolution trace rotates through):
+    //    its distance off this pixel's tangent plane (UE POSITION_BASED) and the agreement of the two specular
+    //    lobes (UE BILATERAL_TOKOYASHI) - a texel traced from another surface (the object in front, the wall
+    //    behind) answers for a different lobe and lends neither radiance nor misses;
+    //  - a gaussian of the screen distance from this pixel to that source pixel (sigma kSpatialSigmaTexels trace
+    //    texels), so the four pixels of a block do not read one identical set (the 2x2 blocks of a plain half-res
+    //    upsample), yet wide enough that every texel of the set counts (a narrow one leaves one or two samples: grain).
     //    5x5 texels = UE's reconstruction footprint of 8-16 samples over the lobe; the BRDF keeps a mirror sharp.
     // rgb = sum(w * a * k * L) / sum(w * a * k) (k = Karis' inverse luminance), a = sum(w * a) / sum(w); written
     // premultiplied to u_Signal.
@@ -23,13 +25,20 @@ Shader "SSDReconstructReflections"
 
     Compute
     {
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound once by the pass by name and numbered by the program build (SharedSamplerBinding.hpp).
+        // Declared before Common/ScreenSpaceDenoise.glslh, whose SSDLoadSceneInfo reads the G-buffer through u_PointClampSampler.
+        Uniform sampler u_PointClampSampler;
         #include <Common/ScreenSpaceDenoise.glslh>
 
-        Uniform(1) sampler2D u_GBufferNormal;   // rgb = world normal, a = roughness
-        Uniform(2) sampler2D u_GBufferDepth;    // device depth (nearest)
-        Uniform(3) sampler2D u_Trace;           // half resolution: rgb = hit radiance, a = coverage (SSR.shader)
-        Uniform(4) sampler2D u_TraceRay;        // half resolution: xyz = hit point, w = log2 pdf (SSR.shader)
-        Uniform(5) sampler2D u_TileMask;        // one texel per SSR tile, 1 = something in it reflects
+        Uniform(1) texture2D u_GBufferNormal;   // rgb = world normal, a = roughness
+        Uniform(2) texture2D u_GBufferDepth;    // device depth (nearest)
+        Uniform(3) texture2D u_Trace;           // 1 / u_Params.z resolution: rgb = hit radiance, a = coverage (SSR.shader)
+        #define u_Trace sampler2D(u_Trace, u_PointClampSampler)
+        Uniform(4) texture2D u_TraceRay;        // u_Trace's resolution: xyz = hit point, w = log2 pdf (SSR.shader)
+        #define u_TraceRay sampler2D(u_TraceRay, u_PointClampSampler)
+        Uniform(5) texture2D u_TileMask;        // one texel per SSR tile, 1 = something in it reflects
+        #define u_TileMask sampler2D(u_TileMask, u_PointClampSampler)
         layout(binding = 6, rgba16f) writeonly uniform image2D u_Signal;     // premultiplied (rgb * a, a)
 
         // ScreenSpaceDenoiser::ViewUniforms (std140).
@@ -42,13 +51,19 @@ Shader "SSDReconstructReflections"
 
         PushConstant PushConstants
         {
-        	vec4 u_Params; // x = the trace's frame seed (its 2x2 block rotation), yzw unused
+        	vec4 u_Params; // x = the trace's frame seed (its 2x2 block rotation), y = kernel radius in trace texels
+        	               // (Scalability Reflections.DenoiserRadius: 2 = 5x5), z = the trace's downsample factor
+        	               // (Scalability Reflections.DownsampleFactor: 1 or 2), w unused
         };
 
         LocalSize(8, 8, 1);
 
-        // The screen-distance gaussian's sigma, in pixels.
-        const float kSpatialSigma = 2.5;
+        // The screen-distance gaussian's sigma, in trace texels (x the downsample factor = pixels): the same share
+        // of the kernel at either trace resolution.
+        const float kSpatialSigmaTexels = 1.25;
+        // How far off this pixel's tangent plane a neighbour's source may lie, in pixel radii per trace texel of
+        // reach (a neighbour's source pixel is up to ~3 trace texels away).
+        const float kPlaneReachTexels = 3.0;
 
         float SmithG1(float nDotX, float a2)
         {
@@ -57,13 +72,13 @@ Shader "SSDReconstructReflections"
 
         void main()
         {
-        	const ivec2 viewSize = textureSize(u_GBufferNormal, 0);
+        	const ivec2 viewSize = textureSize(sampler2D(u_GBufferNormal, u_PointClampSampler), 0);
         	const ivec2 pixel    = ivec2(gl_GlobalInvocationID.xy);
         	if (pixel.x >= viewSize.x || pixel.y >= viewSize.y)
         		return;
         	const ivec2 grid  = textureSize(u_TileMask, 0);
         	const ivec2 tile  = min(ivec2(floor((vec2(pixel) + 0.5) * vec2(grid) / vec2(viewSize))), grid - 1);
-        	const vec4  gb    = texelFetch(u_GBufferNormal, pixel, 0);
+        	const vec4  gb    = texelFetch(sampler2D(u_GBufferNormal, u_PointClampSampler), pixel, 0);
         	if (texelFetch(u_TileMask, tile, 0).r < 0.5 || !SSDPixelHasSignal(kSSDSignalReflections, gb))
         	{
         		imageStore(u_Signal, pixel, vec4(0.0));
@@ -80,28 +95,31 @@ Shader "SSDReconstructReflections"
         	const float        nDotV = max(dot(N, V), 1e-4);
         	const float        g1V   = SmithG1(nDotV, a2);
         	const vec4         lobe  = SSDRoughnessLobe(ref.Roughness, N, V);
-        	// A neighbour texel's source pixel is up to ~6 pixels away; the plane tolerates that many pixel radii.
-        	const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(u_GBufferDepth, pixel, 0).r, ref.Position,
+        	const int   factor      = int(u_Params.z + 0.5);
+        	// A neighbour texel's source pixel is up to ~3 trace texels away; the plane tolerates that many pixel radii.
+        	const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(sampler2D(u_GBufferDepth, u_PointClampSampler), pixel, 0).r, ref.Position,
         	                                              1.0 / size, u_InvJitteredViewProjection);
-        	const float maxPlaneDistance = max(pixelRadius * 6.0, 1e-3);
+        	const float maxPlaneDistance = max(pixelRadius * kPlaneReachTexels * float(factor), 1e-3);
+        	const float sigma            = kSpatialSigmaTexels * float(factor);
 
         	const ivec2 traceSize = textureSize(u_Trace, 0);
-        	const ivec2 centre    = clamp(pixel / 2, ivec2(0), traceSize - 1);
+        	const ivec2 centre    = clamp(pixel / factor, ivec2(0), traceSize - 1);
         	const int   frame     = int(u_Params.x);
-        	const ivec2 rotation  = ivec2(frame & 1, (frame >> 1) & 1);
+        	const int   radius    = int(u_Params.y + 0.5);
+        	const ivec2 rotation  = factor == 2 ? ivec2(frame & 1, (frame >> 1) & 1) : ivec2(0);
         	vec3  radiance    = vec3(0.0);
         	float hitWeight   = 0.0;
         	float coverage    = 0.0;
         	float weightSum   = 0.0;
-        	for (int y = -2; y <= 2; ++y)
-        		for (int x = -2; x <= 2; ++x)
+        	for (int y = -radius; y <= radius; ++y)
+        		for (int x = -radius; x <= radius; ++x)
         		{
         			const ivec2 t   = clamp(centre + ivec2(x, y), ivec2(0), traceSize - 1);
         			const vec4  ray = texelFetch(u_TraceRay, t, 0);
         			if (ray.w <= -125.0)
         				continue; // the texel drew no ray (it cannot reflect, or its trace was lost)
-        			// The surface the texel traced from (SSR.shader: q * 2 + the frame's block rotation).
-        			const ivec2        src   = min(t * 2 + rotation, viewSize - 1);
+        			// The surface the texel traced from (Common/SSRTrace.glslh SSRTraceSourcePixel).
+        			const ivec2        src   = min(t * factor + rotation, viewSize - 1);
         			const SSDSceneInfo other = SSDLoadSceneInfo(u_GBufferNormal, u_GBufferDepth,
         			                                            u_InvJitteredViewProjection, src, size);
         			const vec3  otherV    = SSDViewVector((vec2(src) + 0.5) / size, other.Position,
@@ -110,7 +128,7 @@ Shader "SSDReconstructReflections"
         			                        SSDLobeSimilarity(lobe, SSDRoughnessLobe(other.Roughness, other.Normal,
         			                                                                 otherV));
         			const vec2  offset    = vec2(src - pixel);
-        			const float spatial   = exp(-dot(offset, offset) * (1.0 / (2.0 * kSpatialSigma * kSpatialSigma)));
+        			const float spatial   = exp(-dot(offset, offset) * (1.0 / (2.0 * sigma * sigma)));
         			if (bilateral * spatial <= 0.0)
         				continue;
         			// Re-aimed from THIS pixel at the neighbour's hit point (UE SSRT).

@@ -24,7 +24,11 @@ Shader "Copy"
 
         In(0) vec2 v_TexCoord;
 
-        Uniform(1) sampler2D u_Input;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(0) sampler u_LinearRepeatSampler;
+        Uniform(1) texture2D u_Input;
+        #define u_Input sampler2D(u_Input, u_LinearRepeatSampler)
 
         Out(0) vec4 oColor;
 

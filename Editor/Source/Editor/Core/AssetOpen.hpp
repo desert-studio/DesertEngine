@@ -58,6 +58,7 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::ControlRig:     // the Control Rig editor (ControlRigDocument)
             case Assets::AssetTypeID::Retarget:       // the IK Retargeter editor (RetargetDocument)
             case Assets::AssetTypeID::VFXDataChannel: // the `.dfxch` field-list editor (VFX-10c)
+            case Assets::AssetTypeID::WorldParameters: // the `.dworldparams` parameter-list editor (WTH-PARAMS)
                 return nullptr;
             case Assets::AssetTypeID::Unknown:
                 return "the asset has no type — nothing can say which editor opens it";
@@ -67,11 +68,14 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::StringTable:
             case Assets::AssetTypeID::ShaderGraph:
             case Assets::AssetTypeID::LandscapeLayerInfo: // edited in the landscape panel's layer list
+            case Assets::AssetTypeID::LandscapeGrassType: // authored as text; no grass type editor yet
             case Assets::AssetTypeID::FoliageType:        // edited in the foliage panel
             case Assets::AssetTypeID::VFXSystem:          // the VFX System editor is VFX-12
             case Assets::AssetTypeID::Fracture:           // the Fracture Mode panel arrives with DST-02
             case Assets::AssetTypeID::WaterWaves:         // edited in the water body's Details (WATER-W2)
             case Assets::AssetTypeID::Sound:              // picked into slots; UE's sound wave has no editor here
+            case Assets::AssetTypeID::WeatherPreset:      // a JSON file for now; the Weather panel is WTH-STATE's
+                                                          // REMAINDER
                 return kNoEditor;
             case Assets::AssetTypeID::Count:
                 return "AssetTypeID::Count is the number of types, not a type";

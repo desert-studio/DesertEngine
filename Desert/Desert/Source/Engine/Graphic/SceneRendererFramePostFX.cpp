@@ -147,6 +147,10 @@ namespace Desert::Graphic
         // the three nodes below. Nothing reads it the next frame.
         const RDG::BufferRef histogram =
              graph.CreateBuffer( System::AutoExposureRenderer::GetHistogramDesc(), "AutoExposure.Histogram" );
+        // The adapted luminance for the CPU (ScenePreExposure's source), read FramesInFlight frames later.
+        const RDG::BufferRef readback = autoExp->ImportReadback( graph );
+        if ( !readback.IsValid() )
+            return;
         // Prepare refused a frame without a scene image, so the dispatch size is this frame's scene size.
         const RDG::TextureRef scene      = sceneColor.front();
         // The dispatch covers the texture the nodes read (the temporal output at the output extent, or the scene
@@ -174,7 +178,7 @@ namespace Desert::Graphic
              { return autoExp->RecordHistogram( context, width, height ); } );
         graph.AddPass(
              "PostFX: AutoExposureAverage", RDG::PassFlags::Compute, [&]( RDG::PassBuilder& pass )
-             { autoExp->DeclareAverageBindings( pass, histogram, previous, adapted ); },
+             { autoExp->DeclareAverageBindings( pass, histogram, previous, adapted, readback ); },
              [autoExp]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return autoExp->RecordAverage( context ); } );
     }
@@ -194,13 +198,22 @@ namespace Desert::Graphic
         graph.SetFaultDefault( chain, RDG::FaultDefault::Black ); // lost bloom adds nothing (RDG-FAULT1)
         const RDG::TextureRef scene = sceneColor.front();
         textures.Transients.Bloom   = chain;
+        // The adapted luminance the composite exposes with (the same import AddFrameTonemap makes), so the
+        // threshold under auto-exposure is compared after exposure; white when there is no auto-exposure node.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
+        const RDG::TextureRef adaptedImport =
+             autoExp ? textures.Import( autoExp->GetAdaptedLuminanceImage(), "AutoExposure.Adapted" )
+                     : RDG::TextureRef{};
+        const RDG::TextureRef adapted = adaptedImport.IsValid() ? adaptedImport : textures.System.White;
 
         // Downsample: scene -> mip 0 (Karis + threshold), then mip i-1 -> mip i. One node per dispatch, each
         // declaring the one mip it samples and the one it writes.
         for ( uint32_t mip = 0; mip < desc->Mips; ++mip )
             graph.AddPass(
                  std::format( "PostFX: BloomDownsample{}", mip ), RDG::PassFlags::Compute,
-                 [&]( RDG::PassBuilder& pass ) { bloom->DeclareDownsampleBindings( pass, scene, chain, mip ); },
+                 [&]( RDG::PassBuilder& pass )
+                 { bloom->DeclareDownsampleBindings( pass, scene, chain, adapted, mip ); },
                  [bloom, chainDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return bloom->RecordDownsample( context, chainDesc, mip ); } );
         // Upsample (additive): mip i -> mip i-1, walking back to mip 0 (read-modify-write of the target mip).
@@ -298,7 +311,16 @@ namespace Desert::Graphic
         // The intensity is derived HERE, from the same two numbers that decide whether the nodes exist; a frame
         // without flare nodes has the tonemap read System.Black at intensity 0.
         const SunScreen& sun = values->Sun;
-        flare->SetParams( m_LensFlare );
+        // The bright pass thresholds the STORED scene colour, which is radiance x ViewFrame::PreExposure: the
+        // authored threshold (normalised to the exposure in OnUpdate) and the energy cap are scaled into that
+        // same space here.
+        System::LensFlareRenderer::Params params = m_LensFlare;
+        if ( const ViewFrame* view = GetViewFrame() )
+        {
+            params.Threshold *= view->PreExposure;
+            params.MaxBrightness *= view->PreExposure;
+        }
+        flare->SetParams( params );
         const float intensity = m_LensFlare.Enabled ? LensFlareStrength( sun.Fade, m_LensFlare.Intensity ) : 0.0f;
         tonemap->SetLensFlare( intensity, m_LensFlareTint );
         if ( !flare->Prepare( sun.Fade ) )

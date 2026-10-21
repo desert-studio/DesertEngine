@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <memory>
 #include <bit>
 #include <cmath>
 #include <cstddef>
@@ -76,22 +77,34 @@ namespace Desert::Graphic::System
         // Per layer, four to a vec4 like the pages: 1 = the layer is NoWeightBlend (UE LB_AlphaBlend), laid
         // over the weight blend.
         std::array<glm::vec4, 2> LayerAlphaBlend{};
+        // Per layer, four to a vec4 like the pages: the landscape material's input that names this layer's
+        // LayerName (TerrainLayerInputs; -1: no input does, the layer keeps its colour).
+        std::array<glm::vec4, 2> LayerInput{ glm::vec4( -1.0f ), glm::vec4( -1.0f ) };
+        // Per material input k: its slice in the albedo, normal, ARM and height arrays (x, y, z, w; -1 = the
+        // input has no map of that kind - flat colour, flat normal, AO/roughness 1, height 0.5).
+        std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> InputSlices{};
+        // x = the input the GROUND draws with (the root's first layer, by name; -1 = none), yzw unused.
+        glm::vec4 GroundInput{ -1.0f, 0.0f, 0.0f, 0.0f };
     };
 
     static_assert( World::Landscape::kLandscapeMaxWeightLayers ==
                         2u * World::Landscape::kLandscapeWeightmapChannels,
                    "TerrainInstance carries exactly two weightmap pages of layer data - LandscapeWeights.glslh "
                    "blends two RGBA8 pages" );
-    static_assert( sizeof( TerrainInstance ) == 17 * sizeof( glm::vec4 ),
-                   "TerrainInstance must stay seventeen 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
-                   "reads these offsets" );
+    static_assert(
+         sizeof( TerrainInstance ) == 28 * sizeof( glm::vec4 ),
+         "TerrainInstance must stay twenty-eight 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
+         "reads these offsets" );
     static_assert( offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, GroundColor ) == 32 &&
                         offsetof( TerrainInstance, LandscapeFrame ) == 48 &&
                         offsetof( TerrainInstance, LandscapeTile ) == 64 &&
                         offsetof( TerrainInstance, LodEdges ) == 80 &&
                         offsetof( TerrainInstance, LodCorners ) == 96 &&
                         offsetof( TerrainInstance, LayerColors ) == 112 &&
-                        offsetof( TerrainInstance, LayerAlphaBlend ) == 240,
+                        offsetof( TerrainInstance, LayerAlphaBlend ) == 240 &&
+                        offsetof( TerrainInstance, LayerInput ) == 272 &&
+                        offsetof( TerrainInstance, InputSlices ) == 304 &&
+                        offsetof( TerrainInstance, GroundInput ) == 432,
                    "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
 
     // One tile's painted weight layers, as the surface shader blends them (LandscapeWeights.glslh). Kept
@@ -103,13 +116,21 @@ namespace Desert::Graphic::System
     // ground.
     struct LandscapeWeightDraw
     {
-        Image2D*                                                           Weightmap  = nullptr;
+        std::shared_ptr<Image2D> Weightmap;
+        // Bumped by LandscapeECSSystem whenever it rewrites the weightmap's pixels (a paint stroke): the
+        // ray-tracing BLAS of the tile reclassifies its hole cells on a change.
+        uint64_t                                                           Revision   = 0;
         uint32_t                                                           LayerCount = 0;
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> Colors{};
         std::array<glm::vec4, 2>                                           AlphaBlend{};
+        // Per tile layer, its LayerName (empty for a layer the root does not name and for the visibility
+        // layer): the key TerrainRenderer matches against the material's inputs (UE's LayerBlend LayerName).
+        std::array<std::string, World::Landscape::kLandscapeMaxWeightLayers> LayerNames{};
         // The root's first layer colour (rgb) with a = 1, or a = 0 when the root names no layer - drawn
         // where the tile has no weightmap or its layers leave a pixel unclaimed.
         glm::vec4 Ground{ 0.0f };
+        // That first layer's LayerName (empty when the root names none): the ground's material input.
+        std::string GroundLayer;
         // The tile layer that is its visibility mask (LandscapeWeightChannels::Visibility), -1 for none: the
         // surface and the shadow caster discard where it reaches 0.5 (UE's Landscape Visibility Mask).
         int32_t VisibilityLayer = -1;
@@ -135,9 +156,9 @@ namespace Desert::Graphic::System
         uint32_t QuadsPerTile = 0u;
         // World::Landscape::LandscapeNeighbourMask of the neighbours whose ring row the heightmap carries.
         uint32_t NeighbourMask = 0u;
-        // The revision of the heightmap's CONTENTS (LandscapeECSSystem: raised on every rewrite — the tile's
-        // edit, a neighbour's, its ring changing). The image is rewritten in place, so its address cannot say a
-        // sculpt changed it; a cached local shadow keys on this (TerrainRenderer::LocalShadowSignature).
+        // The tile's entity (its GPU-scene motion row and ray-tracing state are keyed by it), and the revision
+        // of the heightmap's pixels, bumped whenever LandscapeECSSystem rewrites them (sculpt, neighbour ring).
+        uint32_t Entity         = 0u;
         uint64_t HeightRevision = 0u;
     };
 

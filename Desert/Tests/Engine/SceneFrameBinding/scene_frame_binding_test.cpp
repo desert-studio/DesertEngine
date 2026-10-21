@@ -170,11 +170,7 @@ namespace
             names.insert( resource.Name );
         for ( const auto& [binding, resource] : set.StorageBuffers )
             names.insert( resource.Name );
-        for ( const auto& [binding, resource] : set.Image2DSamplers )
-            names.insert( resource.Name );
-        for ( const auto& [binding, resource] : set.ImageCubeSamplers )
-            names.insert( resource.Name );
-        for ( const auto& [binding, resource] : set.Image3DSamplers )
+        for ( const auto& [binding, resource] : set.SampledImages )
             names.insert( resource.Name );
         return names;
     }
@@ -417,9 +413,9 @@ TEST_F( SceneFrameBindingShaderRoot, TheThreeMeshLitShadersDeclareOneSceneContra
 // and lands in three different descriptor sets.
 TEST_F( SceneFrameBindingShaderRoot, TheShadowBlockIsTheSameBytesInTheApplierAndInEveryMeshLitShader )
 {
-    // 4 x mat4 + 6 x vec4 (the last two: the contact shadows). Spelt out so a silently added member is visible
-    // as a number here.
-    constexpr uint32_t kExpectedBytes = SceneResources::kMaxCascades * 64u + 6u * 16u;
+    // 4 x mat4 + 7 x vec4 (the contact shadows' two, then the PCSS filter). Spelt out so a silently added member
+    // is visible as a number here.
+    constexpr uint32_t kExpectedBytes = SceneResources::kMaxCascades * 64u + 7u * 16u;
     EXPECT_EQ( sizeof( SceneResources::ShadowUBData ), kExpectedBytes );
 
     for ( const auto& shader : kMeshShaders )

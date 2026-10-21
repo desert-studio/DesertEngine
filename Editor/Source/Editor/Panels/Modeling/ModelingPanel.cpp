@@ -86,6 +86,7 @@ namespace Desert::Editor
             PolyModel,
             TriModel,
             Transform,
+            UVs,
             Collision,
         };
         struct PaletteEntry
@@ -93,12 +94,13 @@ namespace Desert::Editor
             const char* Icon;
             const char* Name;
         };
-        constexpr std::array<PaletteEntry, 7> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
+        constexpr std::array<PaletteEntry, 8> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
                                                               { ICON_MDI_SHAPE_PLUS, "Shapes" },
                                                               { ICON_MDI_PLUS_BOX_OUTLINE, "Create" },
                                                               { ICON_MDI_VECTOR_SQUARE, "PolyModel" },
                                                               { ICON_MDI_VECTOR_TRIANGLE, "TriModel" },
                                                               { ICON_MDI_ARROW_ALL, "Transform" },
+                                                              { ICON_MDI_CHECKERBOARD, "UVs" },
                                                               { ICON_MDI_SHIELD_OUTLINE, "Collision" } } };
         static_assert( kPalettes.size() == static_cast<size_t>( Palette::Collision ) + 1,
                        "one rail entry per palette" );
@@ -133,13 +135,16 @@ namespace Desert::Editor
                 m_Category = static_cast<int>( Palette::PolyModel );
             else if ( ms.ActiveTool == MS::Tool::ElementSelect )
                 m_Category = static_cast<int>( Palette::Selection );
+            else if ( ms.ActiveTool == MS::Tool::AutoUV || ms.ActiveTool == MS::Tool::UVProject ||
+                      ms.ActiveTool == MS::Tool::UVUnwrap || ms.ActiveTool == MS::Tool::UVLayout )
+                m_Category = static_cast<int>( Palette::UVs );
         }
 
         ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 6.0f, 6.0f ) );
         ImGui::PushStyleVar( ImGuiStyleVar_FramePadding, ImVec2( 8.0f, 6.0f ) );
 
         // --- Left category rail: only the palettes something of ours lives in ---
-        // UE's other palettes (Deform, MeshOps, VoxOps, Attributes, UVs, Baking, Volumes, LODs) are absent, not
+        // UE's other palettes (Deform, MeshOps, VoxOps, Attributes, Baking, Volumes, LODs) are absent, not
         // greyed out, until each has a tool behind it: a category that opens onto "not implemented" is a button
         // that does nothing (owner's decision: hide empty tabs until their tools exist).
         ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( 6.0f, 8.0f ) );
@@ -184,6 +189,9 @@ namespace Desert::Editor
                 break;
             case Palette::Transform:
                 DrawTransformPalette();
+                break;
+            case Palette::UVs:
+                DrawUVsPalette();
                 break;
             case Palette::Collision:
                 DrawCollisionPalette();
@@ -561,6 +569,164 @@ namespace Desert::Editor
         if ( ImGui::Checkbox( "Split by polygroups", &byGroups ) )
             ms.XformSplit =
                  byGroups ? Geometry::SplitMethod::PolyGroups : Geometry::SplitMethod::ConnectedComponents;
+    }
+
+    // UE's UVs palette: AutoUV, Project, Unwrap (UE's Recompute UVs) and Layout. Each is a tool on the selected
+    // mesh (UVTool): the viewport previews it with the settings below and the tool bar's Accept / Cancel end it.
+    void ModelingPanel::DrawUVsPalette()
+    {
+        using MS          = Core::ModelingState;
+        auto&        ms   = MS::Get();
+        const ImVec4 sel  = ThemeManager::GetSelectedColor();
+        const float  half = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
+        struct UVToolEntry
+        {
+            const char* Icon;
+            const char* Name;
+            MS::Tool    Tool;
+        };
+        constexpr std::array<UVToolEntry, 4> kUVTools = {
+             { { ICON_MDI_AUTO_FIX, "AutoUV", MS::Tool::AutoUV },
+               { ICON_MDI_PROJECTOR, "Project", MS::Tool::UVProject },
+               { ICON_MDI_CONTENT_CUT, "Unwrap", MS::Tool::UVUnwrap },
+               { ICON_MDI_VIEW_GRID_OUTLINE, "Layout", MS::Tool::UVLayout } } };
+        for ( size_t i = 0; i < kUVTools.size(); ++i )
+        {
+            const bool on = ms.ActiveTool == kUVTools[i].Tool;
+            if ( on )
+                ImGui::PushStyleColor( ImGuiCol_Button, sel );
+            if ( i % 2 == 1 )
+                ImGui::SameLine();
+            char uvToolLabel[64];
+            std::snprintf( uvToolLabel, sizeof( uvToolLabel ), "%s  %s", kUVTools[i].Icon, kUVTools[i].Name );
+            if ( ImGui::Button( uvToolLabel, ImVec2( half, 26.0f ) ) )
+            {
+                ms.ActiveTool = kUVTools[i].Tool;
+                Core::ViewportMode::Set( Core::EditorMode::Modeling );
+            }
+            if ( on )
+                ImGui::PopStyleColor();
+        }
+        ImGui::Separator();
+
+        const auto row = []( const char* label )
+        {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted( label );
+            ImGui::SameLine( 150.0f );
+            ImGui::SetNextItemWidth( -1.0f );
+        };
+        switch ( ms.ActiveTool )
+        {
+            case MS::Tool::AutoUV:
+            {
+                auto& s = ms.UVAuto;
+                row( "Max Deviation" );
+                ImGui::DragFloat( "##AutoUVDeviation", &s.MaxNormalDeviationDeg, 0.5f, 1.0f, 180.0f, "%.1f deg",
+                                  ImGuiSliderFlags_AlwaysClamp );
+                ImGui::Checkbox( "Respect PolyGroups##AutoUV", &s.RespectPolygroups );
+                ImGui::Checkbox( "Auto Align##AutoUV", &s.AutoAlign );
+                ImGui::Checkbox( "Auto Pack##AutoUV", &s.AutoPack );
+                row( "Resolution" );
+                ImGui::DragInt( "##AutoUVResolution", &s.PackingResolution, 8.0f, 16, 4096, "%d",
+                                ImGuiSliderFlags_AlwaysClamp );
+                break;
+            }
+            case MS::Tool::UVProject:
+            {
+                auto&                 s        = ms.UVProject;
+                constexpr const char* kTypes[] = { "Plane", "Box", "Cylinder" };
+                int                   type     = static_cast<int>( s.Type );
+                row( "Projection" );
+                if ( ImGui::Combo( "##UVProjectType", &type, kTypes, 3 ) )
+                    s.Type = static_cast<Geometry::UVProjectionType>( type );
+                ImGui::Checkbox( "Fit to Bounds##UVProject", &s.FitToBounds );
+                if ( !s.FitToBounds )
+                {
+                    row( "Dimensions" );
+                    ImGui::DragFloat3( "##UVProjectDims", &s.Dimensions.x, 1.0f, 0.001f, 1.0e6f, "%.1f cm",
+                                       ImGuiSliderFlags_AlwaysClamp );
+                }
+                row( "Center Offset" );
+                ImGui::DragFloat3( "##UVProjectOffset", &s.CenterOffset.x, 1.0f, -1.0e6f, 1.0e6f, "%.1f cm" );
+                row( "Rotation" );
+                ImGui::DragFloat3( "##UVProjectRotation", &s.RotationDeg.x, 0.5f, -360.0f, 360.0f, "%.1f deg",
+                                   ImGuiSliderFlags_AlwaysClamp );
+                if ( s.Type == Geometry::UVProjectionType::Cylinder )
+                {
+                    row( "Split Angle" );
+                    ImGui::DragFloat( "##UVProjectSplit", &s.CylinderSplitAngle, 0.5f, 0.0f, 90.0f, "%.1f deg",
+                                      ImGuiSliderFlags_AlwaysClamp );
+                }
+                ImGui::Separator();
+                ImGui::TextDisabled( "UV Transform" );
+                row( "UV Rotation" );
+                ImGui::DragFloat( "##UVProjectUVRotation", &s.UVRotationDeg, 0.5f, -360.0f, 360.0f, "%.1f deg",
+                                  ImGuiSliderFlags_AlwaysClamp );
+                row( "Scale U" );
+                ImGui::DragFloat( "##UVProjectScaleU", &s.UVScale.x, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                row( "Scale V" );
+                ImGui::DragFloat( "##UVProjectScaleV", &s.UVScale.y, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                row( "Translate U" );
+                ImGui::DragFloat( "##UVProjectTranslateU", &s.UVTranslate.x, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                row( "Translate V" );
+                ImGui::DragFloat( "##UVProjectTranslateV", &s.UVTranslate.y, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                break;
+            }
+            case MS::Tool::UVUnwrap:
+            {
+                auto&                 s          = ms.UVUnwrap;
+                constexpr const char* kSources[] = { "PolyGroups", "Existing UVs" };
+                constexpr const char* kMethods[] = { "ExpMap", "Spectral Conformal" };
+                int                   source     = static_cast<int>( s.Source );
+                int                   method     = static_cast<int>( s.Method );
+                row( "Islands" );
+                if ( ImGui::Combo( "##UVUnwrapIslands", &source, kSources, 2 ) )
+                    s.Source = static_cast<Geometry::UVIslandSource>( source );
+                row( "Method" );
+                if ( ImGui::Combo( "##UVUnwrapMethod", &method, kMethods, 2 ) )
+                    s.Method = static_cast<Geometry::UVUnwrapMethod>( method );
+                ImGui::Checkbox( "Auto Rotate##UVUnwrap", &s.AutoRotate );
+                ImGui::Checkbox( "Normalize Areas##UVUnwrap", &s.NormalizeAreas );
+                ImGui::Checkbox( "Pack##UVUnwrap", &s.Pack );
+                row( "Resolution" );
+                ImGui::DragInt( "##UVUnwrapResolution", &s.PackingResolution, 8.0f, 16, 4096, "%d",
+                                ImGuiSliderFlags_AlwaysClamp );
+                break;
+            }
+            case MS::Tool::UVLayout:
+            {
+                auto&                 s        = ms.UVLayout;
+                constexpr const char* kTypes[] = { "Repack", "Transform" };
+                int                   type     = static_cast<int>( s.Type );
+                row( "Layout Type" );
+                if ( ImGui::Combo( "##UVLayoutType", &type, kTypes, 2 ) )
+                    s.Type = static_cast<Geometry::UVLayoutType>( type );
+                if ( s.Type == Geometry::UVLayoutType::Repack )
+                {
+                    row( "Resolution" );
+                    ImGui::DragInt( "##UVLayoutResolution", &s.TextureResolution, 8.0f, 16, 4096, "%d",
+                                    ImGuiSliderFlags_AlwaysClamp );
+                    ImGui::Checkbox( "Preserve Scale##UVLayout", &s.PreserveScale );
+                    ImGui::Checkbox( "Preserve Rotation##UVLayout", &s.PreserveRotation );
+                    ImGui::Checkbox( "Allow Flips##UVLayout", &s.AllowFlips );
+                }
+                row( "Scale" );
+                ImGui::DragFloat( "##UVLayoutScale", &s.Scale, 0.01f, 0.001f, 1000.0f, "%.3f",
+                                  ImGuiSliderFlags_AlwaysClamp );
+                row( "Translate U" );
+                ImGui::DragFloat( "##UVLayoutTranslateU", &s.Translation.x, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                row( "Translate V" );
+                ImGui::DragFloat( "##UVLayoutTranslateV", &s.Translation.y, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                break;
+            }
+            default:
+                ImGui::TextDisabled( "Pick a UV tool above; it works on the selected mesh." );
+                return;
+        }
+        ImGui::Separator();
+        ImGui::TextWrapped( "%s", ms.UVStatus.c_str() );
+        ImGui::TextDisabled( "Accept / Cancel: bottom of the viewport" );
     }
 
     void ModelingPanel::DrawCollisionPalette()

@@ -340,6 +340,59 @@ namespace Desert::Editor
         return viewport->DropMeshAsset( path, target );
     }
 
+    Common::BoolResultStr ViewportPanel::DropPrefabIntoActiveViewport( const std::string&              path,
+                                                                       const std::optional<glm::vec3>& surface )
+    {
+        ViewportPanel* viewport = ActiveViewport();
+        if ( viewport == nullptr )
+            return Common::MakeFormattedError<bool>( "'{}': no viewport is live to drop it into", path );
+        return viewport->DropPrefabAsset( path, surface );
+    }
+
+    Common::BoolResultStr ViewportPanel::DropPrefabAsset( const std::string&              path,
+                                                          const std::optional<glm::vec3>& surface )
+    {
+        if ( !m_Scene || m_AssetManager == nullptr )
+            return Common::MakeFormattedError<bool>( "'{}': this viewport has no scene or no asset manager",
+                                                     path );
+        auto& mgr    = const_cast<Assets::AssetManager&>( *m_AssetManager );
+        auto  prefab = mgr.FindByPath<Assets::PrefabAsset>( path );
+        if ( !prefab )
+            prefab = mgr.CreateAsset<Assets::PrefabAsset>( path );
+        if ( !prefab )
+            return Common::MakeFormattedError<bool>( "'{}': not a prefab the asset manager can open", path );
+        if ( !prefab->IsReadyForUse() )
+            prefab->Load();
+
+        // WHERE IT LANDS DEPENDS ON WHAT IT IS. A world prefab goes to the scene root, as it always did. A UI
+        // prefab dropped into the viewport must land inside the canvas the author is looking at — at the scene
+        // root it would be a correct, selectable, serialized tree covering zero pixels, which is the silent
+        // success PrefabPlacement exists to refuse. Same answer the "UI" create menu uses, from the same two
+        // functions, so the drop and the menu cannot put things in different canvases.
+        ECS::Entity parentEntity;
+        if ( !prefab->GetEntities().empty() &&
+             Assets::ClassifyPrefabRoot( prefab->GetEntities().front() ) == Assets::PrefabRootKind::UIElement )
+        {
+            if ( const auto canvas = UICanvasForCreate( *m_Scene ) )
+                parentEntity =
+                     ECS::Entity{ UIParentForCreate( *m_Scene, canvas.GetValue() ), m_Scene->GetRegistry() };
+        }
+
+        const auto placed = prefab->Instantiate( m_Scene.get(), *m_AssetManager, parentEntity, nullptr );
+        if ( !placed )
+            return Common::MakeError<bool>( placed.GetError() );
+        const ECS::Entity root = placed.GetValue();
+        if ( !root )
+            return Common::MakeFormattedError<bool>( "'{}': the prefab instantiated no root", path );
+        // A world prefab lands on the surface met; a UI prefab keeps the layout its canvas gives it.
+        if ( !parentEntity && surface && root.HasComponent<ECS::TransformComponent>() )
+            root.GetComponent<ECS::TransformComponent>().Translation = *surface;
+        const auto uuid = root.GetComponent<ECS::UUIDComponent>().UUID;
+        Core::SelectionManager::SetSelected( uuid );
+        Commands::NotifyCreated( { uuid } );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr ViewportPanel::DropMeshAsset( const std::string& path, const ActorDrop::Target& target )
     {
         if ( !m_Scene || m_AssetManager == nullptr || !m_AsyncLoader )
@@ -382,6 +435,30 @@ namespace Desert::Editor
         return BOOLSUCCESS;
     }
 
+    namespace
+    {
+        // THE SOURCE'S LIGHTS GO DOWN WITH IT (BISTRO-LIGHTS; UE FbxSceneImport places the file's light actors
+        // beside its meshes): one light entity per light its record states, under the placed root.
+        void PlaceRecordedLights( ::Desert::Core::Scene& scene, const uint64_t rootId,
+                                  const std::string& sourcePath )
+        {
+            auto ref = scene.FindEntityByID( Common::UUID( rootId ) );
+            if ( !ref )
+                return; // the pending root was undone before the import finished
+            const auto record = Assets::Serialization::ReadImportRecord( sourcePath );
+            if ( !record )
+            {
+                LOG_ERROR( "[Viewport] '{}': its lights are not placed: {}", sourcePath, record.GetError() );
+                return;
+            }
+            const auto& stated = record.GetValue();
+            if ( !stated || !stated->Lights )
+                return;
+            const auto placed = PlaceSourceLights( scene, ref->get(), *stated->Lights );
+            LOG_INFO( "[Viewport] '{}': placed {} light(s) the file states", sourcePath, placed.size() );
+        }
+    } // namespace
+
     void ViewportPanel::UpdateAsyncLoads()
     {
         if ( !m_AsyncLoader || !m_AssetManager )
@@ -403,6 +480,7 @@ namespace Desert::Editor
             if ( !resolved.Nodes.empty() )
             {
                 PlaceSplitSource( done.UserData, done.SourcePath, resolved.Nodes, dropTarget );
+                PlaceRecordedLights( *m_Scene, done.UserData, done.SourcePath );
                 continue;
             }
             if ( resolved.Handle.IsNull() )
@@ -444,6 +522,7 @@ namespace Desert::Editor
                               Runtime::ResourceRegistry::GetMeshService()->GetAsset( resolved.Handle ) )
                         transform.Translation = ActorDrop::PlacedOrigin(
                              *dropTarget, Geometry::LocalBounds( meshAsset->GetSubmeshes() ), transform.Scale );
+                PlaceRecordedLights( *m_Scene, done.UserData, done.SourcePath );
             }
         }
 
@@ -1235,7 +1314,11 @@ namespace Desert::Editor
                 VM_ShadingModel,
                 VM_SunShadowReceive,
                 VM_Velocity,
+                VM_LightGridWorld,
                 VM_GlobalDistanceField,
+                VM_SurfaceCacheAtlas,
+                VM_SurfaceCacheScene,
+                VM_SurfaceCacheSceneLit,
                 VM_ShadowCascades,
                 VM_ShadowFactor,
                 VM_Count
@@ -1255,7 +1338,11 @@ namespace Desert::Editor
                                          ICON_MDI_PALETTE_SWATCH "  Shading Model",
                                          ICON_MDI_WEATHER_SUNNY "  Sun Shadow Receive",
                                          ICON_MDI_ARROW_ALL "  Velocity",
+                                         ICON_MDI_GRID "  Light Grid (World)",
                                          ICON_MDI_CUBE_OUTLINE "  Global Distance Field",
+                                         ICON_MDI_TEXTURE "  Surface Cache Atlas",
+                                         ICON_MDI_CUBE_OUTLINE "  Lumen Scene (Cards)",
+                                         ICON_MDI_LIGHTBULB_ON "  Lumen Scene (Lit)",
                                          ICON_MDI_LAYERS "  Shadow Cascades",
                                          ICON_MDI_BRIGHTNESS_6 "  Shadow Factor" };
             static_assert( IM_ARRAYSIZE( kViewModes ) == VM_Count,
@@ -1295,8 +1382,16 @@ namespace Desert::Editor
                 vm = VM_SunShadowReceive;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::Velocity )
                 vm = VM_Velocity;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::LightGridWorld )
+                vm = VM_LightGridWorld;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::GlobalDistanceField )
                 vm = VM_GlobalDistanceField;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::SurfaceCacheAtlas )
+                vm = VM_SurfaceCacheAtlas;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::SurfaceCacheScene )
+                vm = VM_SurfaceCacheScene;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::SurfaceCacheSceneLit )
+                vm = VM_SurfaceCacheSceneLit;
             else if ( view.ShowNormals )
                 vm = VM_Normals;
 
@@ -1342,6 +1437,7 @@ namespace Desert::Editor
                 viewChanged |= ImGui::SliderFloat( "BB Width", &view.BoundingBoxLineWidth, 1.0f, 10.0f, "%.1f" );
                 ImGui::EndDisabled();
                 viewChanged |= ImGui::Checkbox( "Colliders", &view.ShowColliders );
+                viewChanged |= ImGui::Checkbox( "Card Placement", &view.ShowCardPlacement );
                 viewChanged |= ImGui::Checkbox( "Wireframe", &view.WireframeMode );
                 viewChanged |= ImGui::Checkbox( "Disable Pass Culling", &view.DisablePassCulling );
                 if ( ImGui::IsItemHovered() )
@@ -1480,8 +1576,20 @@ namespace Desert::Editor
                     case VM_Velocity:
                         view.DeferredDebug = Graphic::DeferredDebugMode::Velocity;
                         break;
+                    case VM_LightGridWorld:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::LightGridWorld;
+                        break;
                     case VM_GlobalDistanceField:
                         view.DeferredDebug = Graphic::DeferredDebugMode::GlobalDistanceField;
+                        break;
+                    case VM_SurfaceCacheAtlas:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::SurfaceCacheAtlas;
+                        break;
+                    case VM_SurfaceCacheScene:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::SurfaceCacheScene;
+                        break;
+                    case VM_SurfaceCacheSceneLit:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::SurfaceCacheSceneLit;
                         break;
                     case VM_ShadowCascades:
                         view.ShadowDebug = Graphic::ShadowDebugMode::Cascades;
@@ -1667,6 +1775,13 @@ namespace Desert::Editor
             m_PlayerHoldsKeys = false;
         }
 
+#if DESERT_DEV_INSTRUMENTS
+        // The gameplay debugger targets the editor's selection when there is one (UE follows the selected actor);
+        // the engine cannot see the editor, so the selection is pushed. One of another scene finds no entity
+        // there and the debugger falls back to the view's centre.
+        m_Scene->GetGameplayDebugger().SetSelectedEntity( Core::SelectionManager::GetSelected() );
+#endif
+
         // Multi-scene: focusing this viewport makes ITS scene the active one (Outliner/Details/gizmo
         // follow). Idempotent on the editor side, so calling it every focused frame is fine.
         if ( m_OnActivate && ImGui::IsWindowFocused() )
@@ -1785,49 +1900,11 @@ namespace Desert::Editor
             {
                 const std::string path( static_cast<const char*>( payload->Data ),
                                         payload->DataSize > 0 ? payload->DataSize - 1 : 0 );
-                auto& mgr = const_cast<Assets::AssetManager&>( *m_AssetManager );
-                auto  prefab = mgr.FindByPath<Assets::PrefabAsset>( path );
-                if ( !prefab )
-                    prefab = mgr.CreateAsset<Assets::PrefabAsset>( path );
-                if ( prefab )
-                {
-                    if ( !prefab->IsReadyForUse() )
-                        prefab->Load();
-
-                    // WHERE IT LANDS DEPENDS ON WHAT IT IS. A world prefab goes to the scene root, as it
-                    // always did. A UI prefab dropped into the viewport must land inside the canvas the
-                    // author is looking at — at the scene root it would be a correct, selectable,
-                    // serialized tree covering zero pixels, which is the silent success PrefabPlacement
-                    // exists to refuse. Same answer the "UI" create menu above uses, from the same two
-                    // functions, so the drop and the menu cannot put things in different canvases.
-                    ECS::Entity parentEntity;
-                    if ( !prefab->GetEntities().empty() &&
-                         Assets::ClassifyPrefabRoot( prefab->GetEntities().front() ) ==
-                              Assets::PrefabRootKind::UIElement )
-                    {
-                        if ( const auto canvas = UICanvasForCreate( *m_Scene ) )
-                        {
-                            parentEntity = ECS::Entity{ UIParentForCreate( *m_Scene, canvas.GetValue() ),
-                                                        m_Scene->GetRegistry() };
-                        }
-                    }
-
-                    const auto placed =
-                         prefab->Instantiate( m_Scene.get(), *m_AssetManager, parentEntity, nullptr );
-                    if ( !placed )
-                    {
-                        LOG_ERROR( "{}", placed.GetError() );
-                    }
-                    else if ( const ECS::Entity root = placed.GetValue() )
-                    {
-                        // A world prefab lands on the surface under the cursor; a UI prefab keeps the layout
-                        // its canvas gives it.
-                        const auto surface = SurfaceAtCursor();
-                        if ( !parentEntity && surface && root.HasComponent<ECS::TransformComponent>() )
-                            root.GetComponent<ECS::TransformComponent>().Translation = surface->Point;
-                        Commands::NotifyCreated( { root.GetComponent<ECS::UUIDComponent>().UUID } );
-                    }
-                }
+                std::optional<glm::vec3> surface;
+                if ( const auto hit = SurfaceAtCursor() )
+                    surface = hit->Point;
+                if ( const auto placed = DropPrefabAsset( path, surface ); !placed )
+                    LOG_ERROR( "[Viewport] prefab drop of '{}' refused: {}", path, placed.GetError() );
             }
 
             // Drag a mesh source (.obj/.fbx/.gltf/...) from the File Explorer onto the viewport to spawn it
@@ -1968,6 +2045,8 @@ namespace Desert::Editor
                      static_cast<uint32_t>( m_ViewportData.Size.x ),
                      static_cast<uint32_t>( m_ViewportData.Size.y ) );
                 const glm::mat4 viewProj = camera->GetProjectionMatrix() * camera->GetViewMatrix();
+                // Before CubeGrid: while a UV tool is active its Accept / Cancel requests are the UV tool's.
+                m_UVTool.Update( *m_Scene );
                 m_CubeGridTool.Update( *m_Scene, Core::ModelingState::Get().CubeGridAimCentre ? centreRay : ray,
                                        viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                        m_ViewportData.IsHovered );
@@ -2028,12 +2107,17 @@ namespace Desert::Editor
             DrawViewAxisGizmo( m_ViewportData.ViewportPos, m_ViewportData.Size );
 
         // What this view renders for GI / reflections / shadows, and why a method came out lower than asked.
+        // Beside it, what this view's TLAS holds (drawn only on a frame that traced rays).
         if ( !m_Modes.UI2D && m_Scene )
             if ( const Graphic::SceneRenderer* renderer = m_Scene->GetViewRenderer( ViewIndex() ) )
-                DrawRenderMethodsOverlay( renderer->GetRenderMethods(),
-                                          ImVec2( m_ViewportData.ViewportPos.x, m_ViewportData.ViewportPos.y ),
-                                          ImVec2( m_ViewportData.ViewportPos.x + m_ViewportData.Size.x,
-                                                  m_ViewportData.ViewportPos.y + m_ViewportData.Size.y ) );
+            {
+                const ImVec2 viewportMin( m_ViewportData.ViewportPos.x, m_ViewportData.ViewportPos.y );
+                const ImVec2 viewportMax( m_ViewportData.ViewportPos.x + m_ViewportData.Size.x,
+                                          m_ViewportData.ViewportPos.y + m_ViewportData.Size.y );
+                DrawRenderMethodsOverlay( renderer->GetRenderMethods(), viewportMin, viewportMax );
+                DrawRayTracingSceneOverlay( renderer->GetRayTracingScene().GetStats(),
+                                            renderer->TakeLedgerMemory(), viewportMin, viewportMax );
+            }
 
         // Perf HUD (View -> Perf HUD): FPS + frame graph + top CPU scopes, useful in Play too.
         if ( EditorPreferences::Get().ShowPerfHud )
@@ -2470,6 +2554,11 @@ namespace Desert::Editor
                 return m_ElementSelectTool.Cursor();
             case T::CreateShape:
                 return m_CreateShapeTool.Cursor();
+            case T::AutoUV:
+            case T::UVProject:
+            case T::UVUnwrap:
+            case T::UVLayout:
+                return Tools::ToolCursor::None; // the UV tools take no click
         }
         return Tools::ToolCursor::None;
     }

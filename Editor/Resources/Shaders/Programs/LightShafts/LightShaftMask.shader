@@ -13,7 +13,11 @@ Shader "LightShaftMask"
         // Runs at half resolution: shafts are a low-frequency effect and the radial blur that follows
         // reads this image dozens of times per pixel.
 
-        Uniform(0) sampler2D u_SceneColor;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(2) sampler u_LinearClampSampler;
+        Uniform(0) texture2D u_SceneColor;
+        #define u_SceneColor sampler2D(u_SceneColor, u_LinearClampSampler)
         layout(binding = 1, rgba16f) restrict writeonly uniform image2D u_Mask;
 
         PushConstant ShaftMaskPush

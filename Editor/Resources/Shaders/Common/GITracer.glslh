@@ -1,0 +1,90 @@
+#ifndef GI_TRACER_GLSLH
+#define GI_TRACER_GLSLH
+
+// THE PERMUTATION'S TRACER — the one include a GI consumer names for the walk (Common/GITracing.glslh is the
+// contract; GlobalIllumination::TracerVariant picks the define, DeclareTracerReads binds what is declared here).
+// The tracer declares its own resources at descriptor bindings GI_TRACER_BINDING .. GI_TRACER_BINDING + 10, which
+// the includer reserves and defines before including this file, after the GI frame record `giFrame`
+// (Common/GIFrame.glslh).
+
+#include <Common/GITracing.glslh>
+
+#ifndef GI_TRACER_BINDING
+#error "GITracer.glslh: define GI_TRACER_BINDING (the first of the tracer's eleven descriptor bindings)"
+#endif
+
+#if defined( DESERT_GI_TRACER_SOFTWARE )
+// The clipmaps are separate texture3Ds read through the shared repeat state (UE shared samplers), which the tracer
+// declares itself (numbered by the program build, ShaderMapBuild.cpp AssignSharedSamplerBindings) and
+// DeclareTracerReads binds with them. A program that reads its own inputs through the same state declares it under
+// the same guard before this include (SurfaceCacheDirectLighting.shader): one sampler is one declaration.
+#ifndef DESERT_SHARED_LINEAR_REPEAT_SAMPLER
+#define DESERT_SHARED_LINEAR_REPEAT_SAMPLER
+Uniform sampler u_LinearRepeatSampler;
+#endif
+layout( binding = GI_TRACER_BINDING + 0 ) uniform texture3D u_GlobalDistanceField0;
+#define u_GlobalDistanceField0 sampler3D(u_GlobalDistanceField0, u_LinearRepeatSampler)
+layout( binding = GI_TRACER_BINDING + 1 ) uniform texture3D u_GlobalDistanceField1;
+#define u_GlobalDistanceField1 sampler3D(u_GlobalDistanceField1, u_LinearRepeatSampler)
+layout( binding = GI_TRACER_BINDING + 2 ) uniform texture3D u_GlobalDistanceField2;
+#define u_GlobalDistanceField2 sampler3D(u_GlobalDistanceField2, u_LinearRepeatSampler)
+layout( binding = GI_TRACER_BINDING + 3 ) uniform texture3D u_GlobalDistanceField3;
+#define u_GlobalDistanceField3 sampler3D(u_GlobalDistanceField3, u_LinearRepeatSampler)
+// The clipmaps' placement (centre.xyz cm, voxel cm; DistanceField::GlobalDistanceField::FrameField::Levels) and
+// the near field's froxel grid (Common/MeshSDFGrid.glslh): the software walk's own record, not the neutral GI
+// frame's (GlobalIllumination::TracerSoftwarePayload).
+#include <Common/MeshSDFGrid.glslh>
+layout( std430, binding = GI_TRACER_BINDING + 4 ) readonly buffer GITracerSoftwareUB
+{
+    vec4        giTracerGdfLevels[4];
+    MeshSDFGrid giTracerMeshSDFGrid;
+};
+// The mesh fields the near field traces (DistanceField::MeshDistanceFieldReads; Common/MeshDistanceField.glslh's
+// inputs) and the froxel grid's cells: per cell MeshSDFGridHeaderStride uints (its list's first index, its length),
+// then the compacted lists.
+layout( std430, binding = GI_TRACER_BINDING + 5 ) readonly buffer GITracerDFAssetsUB
+{
+    vec4 u_DFAssetData[];
+};
+layout( std430, binding = GI_TRACER_BINDING + 6 ) readonly buffer GITracerDFIndirectionUB
+{
+    uint u_DFIndirection[];
+};
+layout( std430, binding = GI_TRACER_BINDING + 7 ) readonly buffer GITracerDFObjectsUB
+{
+    vec4 u_DFObjects[];
+};
+// The brick atlas is a separate texture read through the same shared repeat state as the clipmaps.
+layout( binding = GI_TRACER_BINDING + 8 ) uniform texture3D u_DFBrickAtlas;
+#define u_DFBrickAtlas sampler3D(u_DFBrickAtlas, u_LinearRepeatSampler)
+layout( std430, binding = GI_TRACER_BINDING + 9 ) readonly buffer GITracerMeshSDFGridCellsUB
+{
+    uint giTracerMeshSDFGridCells[];
+};
+#include <Common/MeshDistanceField.glslh>
+// The field's object grid: per cell, the instance-table rows a hit there may belong to (GIHitInstanceRows;
+// DistanceField::GlobalDistanceField, THE OBJECT GRID). Fetched texel by texel through the includer's point-clamped
+// shared state: the includer declares u_PointClampSampler (every tracer program does, for its G-buffer reads) and
+// DeclareTracerReads binds it with the grid.
+layout( binding = GI_TRACER_BINDING + 10 ) uniform utexture3D u_GlobalDistanceFieldObjectGrid;
+#define u_GlobalDistanceFieldObjectGrid usampler3D(u_GlobalDistanceFieldObjectGrid, u_PointClampSampler)
+#include <Common/GlobalDistanceField.glslh>
+#define GI_TRACE_GDF_LEVELS giTracerGdfLevels
+#include <Common/GITraceDistanceField.glslh>
+#elif defined( DESERT_GI_TRACER_HARDWARE )
+// The TLAS and the per-segment records (C++ GlobalIllumination::kHardwareTracer*Name, DeclareTracerReads), the
+// visibility walk shared with RT-SHADOWS, then the surface cache's instance-table row per TLAS instance custom index
+// (SceneRenderer::AddFrameInstanceSurfaceCacheRows). The ray-query walk reads no distance field data and leaves
+// GI_TRACER_BINDING + 4 .. + 10 unused.
+#define RAY_QUERY_VISIBILITY_TLAS_BINDING ( GI_TRACER_BINDING + 0 )
+#define RAY_QUERY_VISIBILITY_GEOMETRY_BINDING ( GI_TRACER_BINDING + 1 )
+#define RAY_QUERY_VISIBILITY_MATERIALS_BINDING ( GI_TRACER_BINDING + 2 )
+#include <Common/RayQueryVisibility.glslh>
+layout( std430, binding = GI_TRACER_BINDING + 3 ) readonly buffer GIInstanceSurfaceCacheRows
+{
+    uint u_GIInstanceSurfaceCacheRows[];
+};
+#include <Common/GITraceRayQuery.glslh>
+#endif
+
+#endif // GI_TRACER_GLSLH

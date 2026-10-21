@@ -60,11 +60,10 @@ namespace Desert::Graphic
     class IViewResourceCopy
     {
     public:
+        // NO BYTE ACCESSOR (RT-LEDGER-3): a copy that allocates device memory opens a resource-ledger row for it
+        // (MappedBufferCopy), and the view's phase scope tags that row with the view's instance. The budget
+        // reads the rows (SceneRenderer::HeldBytes), not a number each copy restates.
         virtual ~IViewResourceCopy() = default;
-
-        // Bytes of GPU memory this copy allocated itself, which the view budget counts as the view's
-        // holding (SceneRenderer::HeldBytes). Pure, so a new kind of copy cannot join the budget uncounted.
-        [[nodiscard]] virtual uint64_t HeldBytes() const noexcept = 0;
     };
 
     /**
@@ -124,9 +123,6 @@ namespace Desert::Graphic
         void Clear();
 
         [[nodiscard]] uint32_t CopyCount() const noexcept;
-
-        /// What every copy of this view holds, over all frames in flight (IViewResourceCopy::HeldBytes).
-        [[nodiscard]] uint64_t HeldBytes() const noexcept;
 
         [[nodiscard]] const std::string& GetName() const noexcept
         {

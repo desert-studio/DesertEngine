@@ -37,6 +37,9 @@ namespace Desert::Editor
     static constexpr const char* kDocumentWellWindow =
          ICON_MDI_FILE_DOCUMENT_MULTIPLE_OUTLINE "  Documents###documentwell";
 
+    // The share of the level viewport's node a document opened beside it takes (OpensBesideViewport).
+    constexpr float kBesideViewportShare = 0.42f;
+
     // One row of the well, open or recently closed: the subject's icon, then the visible name.
     static std::string WellRowLabel( std::string_view icon, std::string_view name )
     {
@@ -398,9 +401,26 @@ namespace Desert::Editor
                                                                 rememberedLive, workPos, workSize )
                           : DocumentPlacement::Resolve( m_SubjectEditors.TypeName( subject ), remembered,
                                                         mainDockId, sceneLive, rememberedLive, workPos, workSize );
-                if ( !resolved.Report.empty() )
+                ImGuiID dockId = resolved.Place.DockId;
+                // BESIDE, NOT OVER: a document that is judged in the level viewport (OpensBesideViewport) and
+                // would otherwise land in the viewport's own node — never placed, or its remembered split
+                // closed with it (ImGui removes an emptied split node) — splits the viewport's node and takes
+                // the right-hand part. The viewport's windows stay in the left part (ImGui keeps a split
+                // node's windows in the child opposite the split direction), so the level keeps drawing.
+                const bool splitBeside =
+                     sceneLive && dockId == mainDockId && document->OpensBesideViewport() &&
+                     ( remembered == nullptr || remembered->At != DocumentPlacement::Remembered::Where::Floating );
+                if ( !resolved.Report.empty() && !splitBeside )
                     LOG_WARN( "[Documents] {}: {}", document->GetName(), resolved.Report );
-                ImGui::SetNextWindowDockID( resolved.Place.DockId, ImGuiCond_Always );
+                if ( splitBeside )
+                {
+                    ImGuiID levelSide    = 0;
+                    ImGuiID documentSide = 0;
+                    ImGui::DockBuilderSplitNode( mainDockId, ImGuiDir_Right, kBesideViewportShare, &documentSide,
+                                                 &levelSide );
+                    dockId = documentSide;
+                }
+                ImGui::SetNextWindowDockID( dockId, ImGuiCond_Always );
                 if ( !resolved.Place.Docked() )
                 {
                     ImGui::SetNextWindowPos( ImVec2( resolved.Place.Pos.x, resolved.Place.Pos.y ),

@@ -126,6 +126,8 @@ namespace Desert::Graphic
         params.LayerBottomKm    = std::max( envelope.BottomKm, 0.0f );
         params.LayerThicknessKm = std::max( envelope.TopKm - params.LayerBottomKm, 0.001f );
 
+        // COVERAGE RIDES ALONG FOR THE CPU MIRRORS OF THE MARCH ONLY (WTH-CLOUDS): the bake neither reads nor keys
+        // it — the march thresholds the baked field by the live value (CloudGpuPayload::Weather.z).
         params.Coverage         = std::clamp( look.Coverage, 0.0f, 1.0f );
         params.CoverageContrast = std::max( look.CoverageContrast, 0.01f );
         params.Seed             = static_cast<uint32_t>( look.Seed );

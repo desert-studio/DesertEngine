@@ -11,9 +11,11 @@
 
 #include <Engine/Core/Glfw.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <format>
 #include <thread>
+#include <utility>
 
 namespace Desert::Engine
 {
@@ -184,7 +186,9 @@ namespace Desert::Engine
             DESERT_PROFILE_FRAME( "Frame" );
 
             float    time     = (float)glfwGetTime();
-            const float timestep = m_FixedDeltaTime.has_value() ? *m_FixedDeltaTime : time - m_LastFrameTime;
+            const float held     = std::exchange( m_ExcludedSeconds, 0.0f );
+            const float timestep = m_FixedDeltaTime.has_value() ? *m_FixedDeltaTime
+                                                                : std::max( 0.0f, time - m_LastFrameTime - held );
             m_LastFrameTime   = time;
 
             m_EngineStats.Update();

@@ -30,10 +30,13 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Core/SceneAssetRoots.hpp>
+#include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
@@ -191,17 +194,15 @@ namespace Desert::Editor
            m_AnimationLibrary( animationLibrary ), m_Workspace( workspace ), m_SceneFiles( sceneFiles ),
            m_AssetCompiling( assetCompiling ), m_RealFrameDrawn( realFrameDrawn ), m_Splash( std::move( splash ) )
     {
-        // Cook only what's missing/stale (skips the expensive Assimp re-parse on every launch). Collections
-        // hold packs (a character + its animation FBXs), so they're imported too — their skinned assets land
-        // beside each source, where the content registry gathers them (see CookPaths::SkinnedAsset).
-        //
         // STAGED: this used to run inline here and froze the window for seconds before the first frame.
         // The stages now execute one-per-frame from OnUpdate, each announced on the splash.
         // NOTE: shaders are NOT staged — they load synchronously in OnAttach, because the render systems
         // (MeshECSSystem's default lit materials) resolve their shaders in their constructors.
         //
-        // THE MESH AND COLLECTION COOKS ARE NO LONGER STAGES (AL1-11, owner decision V2): they run on the
-        // JobSystem after the reveal (StartBackgroundCook) and the registry lists whatever cook is on the disk.
+        // NOTHING IS COOKED AT STARTUP (DDC-ON-DEMAND; UE's editor builds derived data when an asset is first
+        // loaded, never by walking the content tree). A mesh source's envelope, a texture's or mesh's platform
+        // data, a distance field and the cards are each built by the builder registered below when a load misses
+        // the DDC, so opening a scene cooks exactly what its dependency closure reaches.
         // AND THE LOOSE TEXTURES, WHICH NOTHING COOKED. A texture under `Assets/Textures/` reached its
         // cooked form only as a mesh's dependency or through a drag-and-drop, so the one cooked texture
         // this repository then committed had no producer in any automatic path -- and a stale one (a container
@@ -225,8 +226,13 @@ namespace Desert::Editor
                    // has no builder.
                    Assets::SetTexturePlatformDataBuilder( &TextureImporter::BuildPlatformData );
                    Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
+                   // A static mesh's envelope missing from the DDC is cooked from its source (UE: a DDC miss
+                   // rebuilds from the package), so a fresh checkout's scene draws without a re-import.
+                   Assets::SetMeshSourceBuilder( &Editor::BuildMeshSourceOnMiss );
                    // A mesh's distance field (UE: built beside the render data on a DDC miss, editor only).
                    Assets::SetMeshDistanceFieldBuilder( &Assets::BuildMeshDistanceFieldBytes );
+                   // Its surface-cache cards, the same way (UE CARDREPRESENTATION_DERIVEDDATA_VER).
+                   Assets::SetMeshCardsBuilder( &Assets::BuildMeshCardsBytes );
                    (void)m_ImportManager->ImportLooseTextures( SplashItems() );
                },
                kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); }, nullptr, 0 } );
@@ -482,7 +488,6 @@ namespace Desert::Editor
             LOG_INFO( "[Thumbnails] {} thumbnails resident at the hand-over; the rest are made as they are shown",
                       m_ThumbnailPool->ResidentThumbnails() );
         ReportUnproducedThumbnailKinds();
-        m_AssetCompiling.StartBackgroundCook();
         // Starts the crossfade and returns; the splash object stays until this layer is destroyed.
         m_Splash->Close();
         LOG_INFO( "[Startup] the splash is closed" );
@@ -502,7 +507,14 @@ namespace Desert::Editor
         state.ContentSettling     = ContentSettling();
         state.RealFrameDrawn      = m_RealFrameDrawn;
         state.TexturesStreaming   = Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0;
+        state.ReflectionCapturesFilling = ReflectionCapturesFilling();
         return state;
+    }
+
+    bool EditorStartup::ReflectionCapturesFilling() const
+    {
+        const auto& scene = m_Workspace.ActiveScene();
+        return scene && scene->GetReflectionCaptures().FirstFillPending();
     }
 
     void EditorStartup::ReportUnproducedThumbnailKinds()

@@ -126,9 +126,28 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
         {
+            // OnUpdate's frame decision: under "Shadows: Ray Traced Sun" the composite and the opaque programs
+            // read the screen mask, and the cascades are drawn only for the blended programs that sample them.
+            if ( m_FrameSunCascades )
+                AddFrameSunCascades( graph, textures, *mesh );
+            // The local lights' views LOAD the atlas: each clears and draws only its own tile, and a tile whose
+            // light and casters stood still keeps last frame's depth (it has no pass at all).
+            const std::vector<SystemRasterPass> local = mesh->LocalShadowPasses();
+            AddSystemRasters( graph, textures, local, false );
+            // The rain occlusion's top-down depth, when its box moved or its casters changed (it clears its own
+            // target); otherwise the map keeps the depth it was drawn with.
+            if ( const std::optional<SystemRasterPass> rain = mesh->RainOcclusionPass() )
+                AddSystemRasters( graph, textures, std::span<const SystemRasterPass>( &*rain, 1 ), true );
+        }
+    }
+
+    void SceneRenderer::AddFrameSunCascades( RDG::Builder& graph, FrameTextures& textures,
+                                             System::MeshRenderer& mesh )
+    {
+        {
             // The cascade array ImportSceneViewTextures acquired (layer c = cascade c).
             const RDG::TextureRef                          maps     = textures.Transients.ShadowCascades;
-            const System::MeshRenderer::ShadowCascadeFrame cascades = mesh->ShadowCascadePasses( maps );
+            const System::MeshRenderer::ShadowCascadeFrame cascades = mesh.ShadowCascadePasses( maps );
             AddSystemRasters( graph, textures, cascades.StaticPasses, true );
             for ( const auto& copy : cascades.Copies )
             {
@@ -146,10 +165,6 @@ namespace Desert::Graphic
                      { return Renderer::CopyGraphDepthToLayer( context, from, maps, layer ); } );
             }
             AddSystemRasters( graph, textures, cascades.MovablePasses, false );
-            // The local lights' views LOAD the atlas: each clears and draws only its own tile, and a tile whose
-            // light and casters stood still keeps last frame's depth (it has no pass at all).
-            const std::vector<SystemRasterPass> local = mesh->LocalShadowPasses();
-            AddSystemRasters( graph, textures, local, false );
         }
     }
 
@@ -200,7 +215,8 @@ namespace Desert::Graphic
                          UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
                               ->CompositePass() );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] ) )
+        if ( auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+             particles != nullptr && !m_ViewProfile.SceneCapture )
             AddSystemRaster( graph, textures, particles->DrawPass() );
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterTranslucency, {} );
     }
@@ -272,20 +288,21 @@ namespace Desert::Graphic
         // After the temporal resolve the scene target is the RENDER-extent pre-resolve scene: the overlay
         // draws into the OUTPUT-extent overlay set instead - every attachment replaced, so the render pass has
         // one extent (colour 0 the resolved colour, the velocity slot the overlay velocity, the depth the one
-        // PopulateSceneDepth filled, the responsive-AA slot the overlay mask - never read; one sample, so no
-        // resolves).
+        // PopulateSceneDepth filled, the responsive-AA and thin-geometry-coverage slots overlay textures - never
+        // read; one sample, so no resolves).
         if ( overlay.IsValid() && target == m_TargetFramebuffer )
         {
-            if ( targets->Colors.size() != kSceneTargetResponsiveAASlot + 1 )
+            if ( targets->Colors.size() != kSceneTargetThinGeometryCoverageSlot + 1 )
             {
                 LOG_ERROR( "[SceneRenderer] pass '{}' refused: the scene target has {} colours, the overlay set "
-                           "replaces exactly colour 0, the velocity slot and the responsive-AA slot",
+                           "replaces exactly colour 0, the velocity, responsive-AA and thin-geometry-coverage slots",
                            pass.Name, targets->Colors.size() );
                 return;
             }
             targets->Colors[0]                            = overlay.Color;
             targets->Colors[kSceneTargetVelocitySlot]     = overlay.Velocity;
             targets->Colors[kSceneTargetResponsiveAASlot] = overlay.ResponsiveAA;
+            targets->Colors[kSceneTargetThinGeometryCoverageSlot] = overlay.ThinGeometryCoverage;
             targets->Depth                            = overlay.Depth;
             targets->Resolves                         = {};
         }
@@ -331,7 +348,8 @@ namespace Desert::Graphic
              RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderGBufferManual( context ); },
-             [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGBufferDraws( pass ); } );
+             [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGBufferDraws( pass, view ); } );
     }
 
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
@@ -352,36 +370,39 @@ namespace Desert::Graphic
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
     }
 
-    void SceneRenderer::AddFrameRSM( RDG::Builder& graph, FrameTextures& textures,
-                                     System::MeshRenderer* meshRenderer, const glm::vec3& sunDir )
+    void SceneRenderer::AddFrameForwardDepthNormal( RDG::Builder& graph, FrameTextures& textures,
+                                                    System::MeshRenderer* meshRenderer )
     {
-        if ( glm::distance( sunDir, m_RSMLastSunDir ) > 1e-4f || m_RSMFrameCounter == 0 )
-        {
-            const auto targets = TargetsOf( textures, m_RSMBuffer, "RSM", "Deferred: RSM" );
-            if ( !targets || meshRenderer == nullptr )
-                return;
-            // Colour 0 = "no caster here" for the VPL gather. Standard-Z pass (drawn through a cascade matrix), so
-            // depth clears to 1 = far, not to the engine's reversed-Z clear.
-            AddRaster(
-                 graph, "Deferred: RSM", *targets,
-                 textures.ColorLoads( *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) ),
-                 RDG::LoadOp::ClearDepth( 1.0f ), {},
-                 [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return meshRenderer->RenderRSMManual( context ); },
-                 [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareRSMDraws( pass ); } );
-            m_RSMLastSunDir = sunDir;
-        }
+        // The generic queue's opaque draws are shaded forward over the composite, but the screen passes that run
+        // before it (the ray-traced sun trace above all, which reads G-buffer depth + normal) must see them: their
+        // depth and normal go into the G-buffer here, UE's depth prepass for what the base pass does not draw.
+        // LOAD on the static/terrain G-buffer; each program writes only the normal slot (reflection masks the
+        // others), and AddFrameDepthResolve then copies this depth to the scene target.
+        const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Deferred: Forward Depth/Normal" );
+        if ( !targets || meshRenderer == nullptr )
+            return;
+        AddRaster(
+             graph, "Deferred: Forward Depth/Normal", *targets,
+             textures.ColorLoads( *targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderForwardDepthNormalManual( context ); },
+             [meshRenderer, rayTracedSun = SunShadowIsScreenMask()]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun ); } );
     }
 
     void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures,
-                                         System::MeshRenderer* meshRenderer )
+                                         System::MeshRenderer* meshRenderer, const RDG::TextureRef sunShadowMask )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Generic" );
         if ( !targets || meshRenderer == nullptr )
             return;
         // The frame's draw list, built in the setup with one binding block per material (the scene/view inputs -
         // cascades, environment cubes, BRDF LUT, cloud shadow map - bound where its shader has slots for them).
-        const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        // Under the frame's ray-traced sun the RT permutations read the mask; a trace pass that could not be
+        // declared (AddFrameRayTracedSunShadow logged it) leaves the sun unshadowed, as in the composite.
+        if ( SunShadowIsScreenMask() )
+            view.SunShadowMask = sunShadowMask.IsValid() ? sunShadowMask : textures.GraphRefs().System.White;
         AddRaster(
              graph, "Deferred: Generic", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
@@ -389,24 +410,8 @@ namespace Desert::Graphic
              [meshRenderer, view]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGenericDraws( pass, view ); } );
     }
 
-    void SceneRenderer::AddFrameSkinned( RDG::Builder& graph, FrameTextures& textures,
-                                         System::MeshRenderer* meshRenderer )
-    {
-        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Skinned" );
-        if ( !targets || meshRenderer == nullptr )
-            return;
-        // The frame's draw list, built in the setup with one binding block per material (the scene/view inputs -
-        // cascades, environment cubes, BRDF LUT, cloud shadow map - bound where its shader has slots for them).
-        const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
-        AddRaster(
-             graph, "Deferred: Skinned", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
-             RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
-             { return meshRenderer->RenderSkinnedManual( context ); },
-             [meshRenderer, view]( RDG::PassBuilder& pass ) { meshRenderer->DeclareSkinnedDraws( pass, view ); } );
-    }
-
     void SceneRenderer::AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
-                                       System::MeshRenderer* meshRenderer )
+                                       System::MeshRenderer* meshRenderer, const FrameFrontLayer& frontLayer )
     {
         if ( !sceneCopy.IsValid() || meshRenderer == nullptr )
             return;
@@ -416,12 +421,17 @@ namespace Desert::Graphic
         // The glass samples the scene copy for its refraction and the scene/view inputs its shader has slots for:
         // its binding block, declared here (the block entries are the node's reads), resolved in the body.
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        // No front layer this frame: the graph's black texture for both, which the glass reads as "the sky alone".
+        const RDG::TextureRef                              black = textures.GraphRefs().System.Black;
+        const System::MeshRenderer::GlassFrontLayer glassFront{
+             .Reflection = frontLayer.Reflection.IsValid() ? frontLayer.Reflection : black,
+             .Depth      = frontLayer.Depth.IsValid() ? frontLayer.Depth : black };
         AddRaster(
              graph, "Deferred: Glass", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderGlassManual( context ); },
-             [meshRenderer, sceneCopy, view]( RDG::PassBuilder& pass )
-             { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view ); } );
+             [meshRenderer, sceneCopy, view, glassFront]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view, glassFront ); } );
     }
 
     void SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures )

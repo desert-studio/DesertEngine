@@ -8,7 +8,11 @@ Shader "MotionBlurNeighborMax"
         // CPU twin: Graphic::NeighborhoodMaxVelocity.
         LocalSize(8, 8, 1);
 
-        Uniform(0) sampler2D u_TileMax; // tile extent
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(3) sampler u_PointClampSampler;
+        Uniform(0) texture2D u_TileMax; // tile extent
+        #define u_TileMax sampler2D(u_TileMax, u_PointClampSampler)
         layout(binding = 1, rg16f) restrict writeonly uniform image2D u_NeighborMax;
 
         // The C++ side is Graphic::MotionBlurParams (View/MotionBlur.hpp), offsets pinned by static_asserts.

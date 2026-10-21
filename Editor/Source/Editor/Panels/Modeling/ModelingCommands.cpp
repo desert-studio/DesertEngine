@@ -21,6 +21,7 @@
 #include <Editor/Core/Selection/ModelingStateProperties.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Panels/ViewportPanel/ViewportPanel.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/ActiveToolBar.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/CubeGridTool.hpp>
 #include <Editor/Panels/Modeling/ModelingPanel.hpp>
 #include <array>
@@ -557,5 +558,94 @@ namespace Desert::Editor
                        []( MS& ms, bool on ) { ms.XformPattern.OrientToCircle = on; } );
         modelingOnOff( "Modeling", "Pattern: Separate entities",
                        []( MS& ms, bool on ) { ms.XformPatternSeparate = on; } );
+
+        // The viewport tool bar's buttons, for whichever tool is active (UE draws one overlay for every tool):
+        // Accept / Complete and Cancel go through the bar's own PressToolBar, so a refused Accept leaves the
+        // tool open exactly as the button does. The UV tools are committed only this way.
+        commands.push_back( { "Modeling", "Active tool: Accept", []
+                              {
+                                  MS&                          ms    = MS::Get();
+                                  const Tools::ActiveToolLabel label = Tools::LabelOf( ms.ActiveTool );
+                                  if ( label.Name == nullptr )
+                                      return PaletteCommandOutcome( false, "no modeling tool is active" );
+                                  Tools::PressToolBar( ms, label.HasCancel, /*finish*/ true, /*cancel*/ false );
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Modeling", "Active tool: Cancel", []
+                              {
+                                  MS&                          ms    = MS::Get();
+                                  const Tools::ActiveToolLabel label = Tools::LabelOf( ms.ActiveTool );
+                                  if ( label.Name == nullptr )
+                                      return PaletteCommandOutcome( false, "no modeling tool is active" );
+                                  if ( !label.HasCancel )
+                                      return PaletteCommandOutcome(
+                                           false, std::format( "{} has no Cancel, only Complete", label.Name ) );
+                                  Tools::PressToolBar( ms, true, /*finish*/ false, /*cancel*/ true );
+                                  return PaletteCommandDone();
+                              } } );
+
+        // UE's UVs palette: the four tools (each previews on the selected mesh until "Active tool: Accept" /
+        // "Active tool: Cancel") and their closed choices.
+        for ( const auto& [name, tool] :
+              std::initializer_list<std::pair<const char*, MS::Tool>>{ { "AutoUV", MS::Tool::AutoUV },
+                                                                       { "Project", MS::Tool::UVProject },
+                                                                       { "Unwrap", MS::Tool::UVUnwrap },
+                                                                       { "Layout", MS::Tool::UVLayout } } )
+            commands.push_back( { "Modeling", std::string( "UV tool: " ) + name, [tool]
+                                  {
+                                      MS::Get().ActiveTool = tool;
+                                      Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Modeling", "AutoUV: Respect PolyGroups",
+                       []( MS& ms, bool on ) { ms.UVAuto.RespectPolygroups = on; } );
+        modelingOnOff( "Modeling", "AutoUV: Auto Align", []( MS& ms, bool on ) { ms.UVAuto.AutoAlign = on; } );
+        modelingOnOff( "Modeling", "AutoUV: Auto Pack", []( MS& ms, bool on ) { ms.UVAuto.AutoPack = on; } );
+        for ( const Geometry::UVProjectionType type :
+              { Geometry::UVProjectionType::Plane, Geometry::UVProjectionType::Box,
+                Geometry::UVProjectionType::Cylinder } )
+            commands.push_back( { "Modeling", std::string( "UV Project type: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().UVProject.Type = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Modeling", "UV Project: Fit to Bounds",
+                       []( MS& ms, bool on ) { ms.UVProject.FitToBounds = on; } );
+        for ( const Geometry::UVIslandSource source :
+              { Geometry::UVIslandSource::PolyGroups, Geometry::UVIslandSource::ExistingUVs } )
+            commands.push_back( { "Modeling", std::string( "UV Unwrap islands: " ) + Geometry::ToString( source ),
+                                  [source]
+                                  {
+                                      MS::Get().UVUnwrap.Source = source;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::UVUnwrapMethod method :
+              { Geometry::UVUnwrapMethod::ExpMap, Geometry::UVUnwrapMethod::SpectralConformal } )
+            commands.push_back( { "Modeling", std::string( "UV Unwrap method: " ) + Geometry::ToString( method ),
+                                  [method]
+                                  {
+                                      MS::Get().UVUnwrap.Method = method;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Modeling", "UV Unwrap: Auto Rotate",
+                       []( MS& ms, bool on ) { ms.UVUnwrap.AutoRotate = on; } );
+        modelingOnOff( "Modeling", "UV Unwrap: Normalize Areas",
+                       []( MS& ms, bool on ) { ms.UVUnwrap.NormalizeAreas = on; } );
+        modelingOnOff( "Modeling", "UV Unwrap: Pack", []( MS& ms, bool on ) { ms.UVUnwrap.Pack = on; } );
+        for ( const Geometry::UVLayoutType type :
+              { Geometry::UVLayoutType::Repack, Geometry::UVLayoutType::Transform } )
+            commands.push_back( { "Modeling", std::string( "UV Layout type: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().UVLayout.Type = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Modeling", "UV Layout: Preserve Scale",
+                       []( MS& ms, bool on ) { ms.UVLayout.PreserveScale = on; } );
+        modelingOnOff( "Modeling", "UV Layout: Preserve Rotation",
+                       []( MS& ms, bool on ) { ms.UVLayout.PreserveRotation = on; } );
+        modelingOnOff( "Modeling", "UV Layout: Allow Flips",
+                       []( MS& ms, bool on ) { ms.UVLayout.AllowFlips = on; } );
     }
 } // namespace Desert::Editor

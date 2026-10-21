@@ -8,7 +8,7 @@
 
 namespace Desert::Graphic::ShaderProtocols
 {
-    // std430 layout matching `struct PointLight` in Mesh/LightSources.glslh (64 bytes). vec3 has 16-byte
+    // std430 layout matching `struct PointLight` in Mesh/LightSources.glslh (80 bytes). vec3 has 16-byte
     // alignment in std430, so each vec3 is followed by a float with no extra padding; three trailing pad
     // floats round the struct up to a multiple of 16.
     struct PointLightPayload
@@ -32,8 +32,19 @@ namespace Desert::Graphic::ShaderProtocols
         // that casts contact shadows / on one that does not (the hit texel's NO_CONTACT_SHADOW bit).
         float ContactShadowCastingIntensity    = 1.0f; // 52
         float ContactShadowNonCastingIntensity = 0.0f; // 56
-        float _pad2                            = 0.0f; // 60 -> 64
+        // 1 when the light casts shadows in this view (its CastShadows, and the view draws local shadows): a
+        // receiver with no ShadowView then is one the shadow maps do not cover (the view budget refused the
+        // light), and the surface cache traces its shadow through the global distance field instead. Written by
+        // MeshRenderer::UpdateLocalShadows with ShadowView.
+        int32_t ShadowCaster = 0; // 60
+        // UE SourceRadius (cm): the emitter sphere traced shadows aim at (MegaLights); 0 = a point.
+        float SourceRadius = 0.0f; // 64
+        // std430 rounds the array stride of a struct with a vec3 to 16 bytes: explicit, so sizeof matches.
+        float Pad0 = 0.0f;
+        float Pad1 = 0.0f;
+        float Pad2 = 0.0f; // -> 80
     };
+    static_assert( sizeof( PointLightPayload ) == 80, "struct PointLight (Mesh/LightSources.glslh) is 80 bytes" );
 
     struct PointLight
     {

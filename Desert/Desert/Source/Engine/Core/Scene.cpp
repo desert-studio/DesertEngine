@@ -3,6 +3,9 @@
 
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
+#include <Engine/Graphic/Systems/Scene/Skybox/SceneSkyLight.hpp>
+#include <Engine/Graphic/LocalShadowCache.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Math/Ray.hpp>
@@ -13,6 +16,9 @@
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
+#if DESERT_DEV_INSTRUMENTS
+#include <Engine/ECS/System/ScriptSystem.hpp>
+#endif
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
@@ -36,6 +42,7 @@
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Geometry/PosedBounds.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 namespace Desert::Core
 {
@@ -373,7 +380,11 @@ namespace Desert::Core
         return LiveSceneList();
     }
 
-    Scene::Scene() : m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>() )
+    Scene::Scene()
+         : m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance ) ),
+           m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
+           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
+           m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>() )
     {
         LiveSceneList().push_back( this );
         m_Subsystems.Begin();
@@ -381,7 +392,10 @@ namespace Desert::Core
 
     Scene::Scene( std::string&& sceneName, Graphic::SceneRenderer* sceneRenderer )
          : m_SceneName( std::move( sceneName ) ),
-           m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>() )
+           m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance ) ),
+           m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
+           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
+           m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>() )
     {
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
@@ -519,6 +533,19 @@ namespace Desert::Core
         return Common::MakeSuccess( entt::entity( m_ViewTarget ) );
     }
 
+    std::optional<glm::mat4> Scene::PlayerViewPoint()
+    {
+        if ( m_State != SceneState::Play && m_State != SceneState::Paused )
+            return std::nullopt;
+        if ( m_ViewTarget != entt::null && m_Registry.valid( m_ViewTarget ) &&
+             m_Registry.has<ECS::TransformComponent>( m_ViewTarget ) )
+            return ECS::Entity( m_ViewTarget, m_Registry ).GetWorldTransform();
+        const std::shared_ptr<Camera> camera = GetActiveCamera();
+        if ( !camera )
+            return std::nullopt;
+        return glm::inverse( camera->GetViewMatrix() );
+    }
+
     void Scene::UpdateActiveCameraSource()
     {
         // Camera source follows the play state: Edit/Paused -> EditorCamera; Play -> the view target
@@ -570,8 +597,31 @@ namespace Desert::Core
         }
     }
 
+    Common::BoolResultStr Scene::SyncWorldParameters()
+    {
+        const Common::AssetHandle named = m_Settings.WorldParameters;
+        if ( named == Common::AssetHandle{} )
+        {
+            m_WorldParameters.Adopt( named, nullptr );
+            return BOOLSUCCESS;
+        }
+        const auto data = Runtime::ResourceRegistry::GetWorldParametersService()->Get( named );
+        if ( !data )
+        {
+            m_WorldParameters.Adopt( Common::AssetHandle{}, nullptr );
+            return Common::MakeFormattedError<bool>( "the scene's world parameters {}: {}",
+                                                     static_cast<uint64_t>( named ), data.GetError() );
+        }
+        m_WorldParameters.Adopt( named, data.GetValue() );
+        return BOOLSUCCESS;
+    }
+
     NO_DISCARD Common::BoolResultStr Scene::OnUpdate( const Common::Timestep& ts )
     {
+        // The world's parameters before anything reads them: the scripts below set them, every view after them
+        // snapshots them. The service logged a refusal once; the instance then holds none.
+        (void)SyncWorldParameters();
+
         // A pinned camera is driven from OUTSIDE the scene (the Details preview orbits its own), so the
         // play-state rule must not hand the view back to the EditorCamera behind its back — that is a
         // per-frame overwrite, and it is why the preview rendered through the input-driven editor camera
@@ -637,10 +687,42 @@ namespace Desert::Core
             World::Foliage::RealizePrefabFoliage( *this );
         }
 
+        // THE WEATHER before the systems read the fog, the clouds and the wind: advanced by gameplay time (a
+        // script's Weather.set lands next frame's tick), and written at the active camera. In Edit the authored
+        // values show — the weather is world state, and the editor world does not run it.
+        if ( TicksGameplay() )
+        {
+            DESERT_PROFILE_SCOPE( "Weather" );
+            m_Weather.Tick( m_Registry, gameplayTs.GetSeconds() );
+            if ( const auto observer = GetActiveCamera() )
+                m_Weather.Apply( m_Registry, m_WorldParameters, observer->GetPosition() );
+        }
+        // THE DEBUG DRAWING AGES before the systems draw this frame's (scripts run in them): last frame's
+        // one-frame items go unless the world is paused, timed items count down by the scene's time - the editor's
+        // step in Edit, gameplay's in Play, nothing while paused - as the effects clock below.
+        m_DebugDraw.Tick( m_State == SceneState::Edit ? ts.GetSeconds() : gameplayTs.GetSeconds(),
+                          m_State != SceneState::Paused || TicksGameplay() );
+
         {
             DESERT_PROFILE_SCOPE( "ECS Systems" );
             ExecuteSystems( gameplayTs );
         }
+
+#if DESERT_DEV_INSTRUMENTS
+        // THE GAMEPLAY DEBUGGER after the systems: the scripts' switches and the player's keys of this frame (the
+        // script system ticked the local player's input) are in, and what it draws is one-frame DebugDraw, aged
+        // with the rest at the top of the next update. Keys only while played: in Edit the player has no input.
+        {
+            DESERT_PROFILE_SCOPE( "Gameplay Debugger" );
+            const Input::LocalPlayerInput* playerInput = nullptr;
+            if ( m_State != SceneState::Edit )
+                if ( auto* scripts = FindSystem<ECS::ScriptSystem>() )
+                    playerInput = &scripts->PlayerInput();
+            m_GameplayDebugger.Tick( *this, playerInput,
+                                     m_State == SceneState::Edit ? ts.GetSeconds() : gameplayTs.GetSeconds(),
+                                     m_State != SceneState::Paused || TicksGameplay() );
+        }
+#endif
 
         // THE EFFECTS CLOCK, once per scene update and never per view: every SceneRenderer of this scene
         // reads the plan made here. Its time is the scene's — the editor's delta in Edit (effects preview
@@ -742,8 +824,9 @@ namespace Desert::Core
         // the world is identical; only the camera each renderer was opened with differs.
         {
             // THE SCENE'S REFLECTION CAPTURES FIRST, ONCE: their face views are frames of their own, closed before
-            // any view opens, fed the same recorded draws. Only when a view reads them; the sky bake they are lit
-            // by is the one the first such view holds (every view bakes the one sky of this scene). A scope of
+            // any view opens, fed the same recorded draws. Only when a view reads them; the sky light they are lit
+            // by is the one the first such view holds, lent to the faces (every view bakes the one sky of this
+            // scene; a face bakes none). A scope of
             // their own, so "Scene: Views" stays the cost of the views alone.
             DESERT_PROFILE_SCOPE( "Scene: Reflection Captures" );
             for ( auto& view : m_Views.All() )
@@ -758,7 +841,7 @@ namespace Desert::Core
                              buffer->ExecuteAll( face );
                      },
                      sceneRendererInfo.Timestep, sceneRendererInfo.RealTimestep, sceneRendererInfo.DirLights,
-                     view.Renderer->GetEnvironmentIdentity() );
+                     view.Renderer->GetEnvironment() );
                 break;
             }
         }

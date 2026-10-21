@@ -32,8 +32,10 @@ namespace Desert::Graphic::System
         [[nodiscard]] std::optional<RDG::TextureDesc> GetChainDesc() const;
         // Downsample into @p mip of @p chain: mip 0 samples @p sceneColor (Karis + threshold), mip i samples
         // mip i-1, both LinearClamp. SETUP declares that block (block 0); the EXEC dispatches from it.
+        // @p adaptedLuminance is this frame's auto-exposure adapted luminance (1x1), or the system white when
+        // there is none: with auto-exposure on, the threshold is stated after exposure, as it is in manual.
         void DeclareDownsampleBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor, RDG::TextureRef chain,
-                                        uint32_t mip ) const;
+                                        RDG::TextureRef adaptedLuminance, uint32_t mip ) const;
         [[nodiscard]] Common::BoolResultStr RecordDownsample( const RDG::PassContext& context,
                                                               const RDG::TextureDesc& chainDesc, uint32_t mip );
         // Additive upsample: samples @p mip (>= 1) of @p chain (LinearClamp) and accumulates into mip - 1.
@@ -44,6 +46,19 @@ namespace Desert::Graphic::System
         void SetThreshold( float threshold )
         {
             m_Threshold = threshold;
+        }
+        // The scale the scene colour is stored at (ViewFrame::PreExposure): the bright pass compares the STORED
+        // scene, so the threshold (raw radiance, or exposed units under auto-exposure) is multiplied by it.
+        void SetPreExposure( float preExposure )
+        {
+            m_PreExposure = preExposure;
+        }
+        // Auto-exposure on: the threshold is the authored one (exposed units) and the shader divides it by
+        // this frame's exposure, key / adapted luminance — the composite's own formula.
+        void SetAutoExposure( bool enabled, float key )
+        {
+            m_AutoExposure = enabled;
+            m_ExposureKey  = key;
         }
         // The chain's mip count cap, PostProcess.BloomMips (Scalability; High = 6, the former constant). Read per
         // frame by GetChainDesc, so a change applies on the next frame's graph.
@@ -63,6 +78,9 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache  m_UpsampleLayout;
 
         float    m_Threshold = 1.0f;
+        float    m_PreExposure  = 1.0f;
+        bool     m_AutoExposure = false;
+        float    m_ExposureKey  = 0.18f;
         uint32_t m_MaxMips   = 6; // until the first SetMaxMips: the High table value
     };
 } // namespace Desert::Graphic::System

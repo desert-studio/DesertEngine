@@ -27,11 +27,13 @@ namespace Desert::Core
         void VisitFields( Self& p, Fn&& fn )
         {
             auto& [name, displayName, category, tooltip, type, widget, isTexture, timing, assetKind, isCube,
-                   engineSet, lo, hi, defaultValue, defaultTexture, slotIntent, sampler] = p;
+                   engineSet, isArray, elementOf, elementIndex, lo, hi, defaultValue, defaultTexture, slotIntent,
+                   sampler] = p;
             fn( name ), fn( displayName ), fn( category ), fn( tooltip ), fn( type ), fn( widget ),
                  fn( isTexture );
-            fn( timing ), fn( assetKind ), fn( isCube ), fn( engineSet ), fn( lo ), fn( hi ), fn( defaultValue ),
-                 fn( defaultTexture ), fn( slotIntent ), fn( sampler );
+            fn( timing ), fn( assetKind ), fn( isCube ), fn( engineSet ), fn( isArray ), fn( elementOf ),
+                 fn( elementIndex ), fn( lo ), fn( hi ), fn( defaultValue ), fn( defaultTexture ),
+                 fn( slotIntent ), fn( sampler );
         }
 
         template <class Self, class Fn>
@@ -57,9 +59,29 @@ namespace Desert::Core
             requires std::is_same_v<std::remove_const_t<Self>, Formats::ShaderProgramMeta>
         void VisitFields( Self& m, Fn&& fn )
         {
-            auto& [params, state, domain, passNames, mediumSource, particleSource, layoutBindings, blend] = m;
-            fn( params ), fn( state ), fn( domain ), fn( passNames ), fn( mediumSource ), fn( particleSource ),
-                 fn( layoutBindings ), fn( blend );
+            auto& [params, state, domain, passNames, rayTracingPassNames, defaultPassName, mediumSource,
+                   particleSource, layoutBindings, blend, opacityMask, height] = m;
+            fn( params ), fn( state ), fn( domain ), fn( passNames ), fn( rayTracingPassNames ),
+                 fn( defaultPassName ), fn( mediumSource ), fn( particleSource ), fn( layoutBindings ),
+                 fn( blend ), fn( opacityMask ), fn( height );
+        }
+
+        template <class Self, class Fn>
+            requires std::is_same_v<std::remove_const_t<Self>, Formats::SurfaceHeight>
+        void VisitFields( Self& m, Fn&& fn )
+        {
+            auto& [texture, channelParam, channel, uvSet, tiling, offset, rotation, scale, center] = m;
+            fn( texture ), fn( channelParam ), fn( channel ), fn( uvSet ), fn( tiling ), fn( offset ),
+                 fn( rotation ), fn( scale ), fn( center );
+        }
+
+        template <class Self, class Fn>
+            requires std::is_same_v<std::remove_const_t<Self>, Formats::SurfaceOpacityMask>
+        void VisitFields( Self& m, Fn&& fn )
+        {
+            auto& [texture, channelParam, channel, uvSet, tiling, offset, rotation, clip] = m;
+            fn( texture ), fn( channelParam ), fn( channel ), fn( uvSet ), fn( tiling ), fn( offset ),
+                 fn( rotation ), fn( clip );
         }
 
         template <class Self, class Fn>
@@ -104,7 +126,8 @@ namespace Desert::Core
                     Raw<uint8_t>( v ? 1 : 0 );
                 else if constexpr ( std::is_enum_v<T> )
                     Raw<uint32_t>( static_cast<uint32_t>( v ) );
-                else if constexpr ( std::is_same_v<T, float> || std::is_same_v<T, uint32_t> )
+                else if constexpr ( std::is_same_v<T, float> || std::is_same_v<T, uint32_t> ||
+                                    std::is_same_v<T, int32_t> )
                     Raw<T>( v );
                 else if constexpr ( std::is_same_v<T, std::string> )
                 {
@@ -184,7 +207,8 @@ namespace Desert::Core
                     Raw( raw );
                     v = static_cast<T>( raw );
                 }
-                else if constexpr ( std::is_same_v<T, float> || std::is_same_v<T, uint32_t> )
+                else if constexpr ( std::is_same_v<T, float> || std::is_same_v<T, uint32_t> ||
+                                    std::is_same_v<T, int32_t> )
                     Raw( v );
                 else if constexpr ( std::is_same_v<T, std::string> )
                 {

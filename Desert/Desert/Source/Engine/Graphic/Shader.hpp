@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string_view>
 #include <Engine/Graphic/RendererTypes.hpp>
 #include <Engine/Core/Formats/Shader.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
@@ -31,8 +32,12 @@ namespace Desert::Graphic
     public:
         // The ledger row — see Engine/Graphic/ResourceLedger.hpp. One row per Shader object, which on the
         // Vulkan backend is N `VkShaderModule` plus its descriptor set layouts and pools.
+        // DEVICE-OWNED AT CREATION (RT-LEDGER-4): a shader is shared by every view that draws with it and
+        // outlives any of them, so a view scope open around a lazy build must not make it that view's row
+        // (closing the view would report it as a leak). The service that loaded it re-claims it for its asset.
         Shader() : m_Accounting( ResourceOwnership::Take( ResourceKind::Shader ) )
         {
+            m_Accounting.Claim( ResourceOwner::Device );
         }
 
         virtual ~Shader() = default;
@@ -59,6 +64,10 @@ namespace Desert::Graphic
         GetUniformImageCubeModels() const = 0;
         virtual const std::vector<ShaderResources::ShaderLayout::Image2DSampler>
                                         GetUniformImage2DModels() const = 0;
+        // Whether a stage reads a separate texture (texture2D / texture2DArray / textureCube ..., outside the
+        // bindless set) of this name: what a pass binds a scene/view input to (the shadow cascades, the scene
+        // depth).
+        [[nodiscard]] virtual bool SamplesTexture( std::string_view name ) const = 0;
         // The substitution this program was COMPILED under — the one thing about a Shader object that
         // its name and its file do not say, and the thing two objects of the same name differ by.
         virtual const ShaderVariant&    GetVariant() const              = 0;
@@ -81,6 +90,14 @@ namespace Desert::Graphic
         // presented. That is an artist's typo in a shader graph, so the engine has to survive it: callers
         // ask this and skip, and the pipeline builder refuses as the last line of defence.
         [[nodiscard]] virtual bool IsCompiled() const = 0;
+        // Why THIS DEVICE cannot run the program, or empty. A program that needs a device feature the device
+        // lacks (inline ray tracing on a device without ray query, MoltenVK) is not built there at all: no module
+        // and no set layout is created, IsCompiled() is false, and this names the feature and the device. It is a
+        // refusal for the device, not a compile error: the same source builds on a device that has the feature.
+        [[nodiscard]] virtual std::string_view GetDeviceRefusal() const
+        {
+            return {};
+        }
 
         // Inline ON PURPOSE: ShaderCompiler (a device-free TU that offline cooks and tests link)
         // needs only this name mapping — defined in Shader.cpp it dragged Shader::Create and with it
@@ -99,6 +116,14 @@ namespace Desert::Graphic
                     return "TessControl";
                 case Core::Formats::ShaderStage::TessEvaluation:
                     return "TessEvaluation";
+                case Core::Formats::ShaderStage::RayGen:
+                    return "RayGen";
+                case Core::Formats::ShaderStage::AnyHit:
+                    return "AnyHit";
+                case Core::Formats::ShaderStage::ClosestHit:
+                    return "ClosestHit";
+                case Core::Formats::ShaderStage::Miss:
+                    return "Miss";
                 // `None` is the enum's zero and names no stage; the fallthrough below is its answer, and
                 // writing the case is what makes a NEW stage a compiler error here instead of "Unknown".
                 case Core::Formats::ShaderStage::None:

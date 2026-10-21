@@ -42,11 +42,20 @@ Shader "TemporalAA"
 
         #include <Common/ReconstructPosition.glslh>
 
-        Uniform(0) sampler2D u_SceneColor; // linear HDR, RenderExtent, jittered (texel fetches only)
-        Uniform(1) sampler2D u_SceneDepth; // reversed-Z device depth, RenderExtent
-        Uniform(2) sampler2D u_Velocity;   // NDC current - previous, RenderExtent
-        Uniform(3) sampler2D u_Exposure;   // 1x1 previous adapted luminance (AutoExposure)
-        Uniform(4) sampler2D u_History;    // previous resolve, this pass's extent
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(9) sampler u_LinearClampSampler;
+        Uniform(10) sampler u_PointClampSampler;
+        Uniform(0) texture2D u_SceneColor; // linear HDR, RenderExtent, jittered (texel fetches only)
+        #define u_SceneColor sampler2D(u_SceneColor, u_LinearClampSampler)
+        Uniform(1) texture2D u_SceneDepth; // reversed-Z device depth, RenderExtent
+        #define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
+        Uniform(2) texture2D u_Velocity;   // NDC current - previous, RenderExtent
+        #define u_Velocity sampler2D(u_Velocity, u_PointClampSampler)
+        Uniform(3) texture2D u_Exposure;   // 1x1 previous adapted luminance (AutoExposure)
+        #define u_Exposure sampler2D(u_Exposure, u_PointClampSampler)
+        Uniform(4) texture2D u_History;    // previous resolve, this pass's extent
+        #define u_History sampler2D(u_History, u_LinearClampSampler)
         layout(binding = 5, rgba16f) restrict writeonly uniform image2D u_HistoryOut;
         layout(binding = 6, rgba16f) restrict writeonly uniform image2D u_Output;
 
@@ -59,9 +68,14 @@ Shader "TemporalAA"
             vec2  u_OutputSize;
             vec2  u_JitterUv;           // this frame's jitter in uv (JitterNdc * (0.5, -0.5))
             float u_HistoryValid;
-            float u_Pad;
+            float u_HistoryPreExposureCorrection; // PreExposure / PrevPreExposure (UE HistoryPreExposureCorrection)
+            float u_PreExposure;                  // the scene colour arrives x this (ViewFrame::PreExposure)
+            float u_Pad0;
+            float u_Pad1;
+            float u_Pad2;
         };
-        Uniform(8) sampler2D u_ResponsiveAA; // R8 coverage of responsive translucency, RenderExtent
+        Uniform(8) texture2D u_ResponsiveAA; // R8 coverage of responsive translucency, RenderExtent
+        #define u_ResponsiveAA sampler2D(u_ResponsiveAA, u_PointClampSampler)
 
 
         const float kCurrentWeight       = 0.04;  // UE r.TemporalAA.CurrentFrameWeight
@@ -105,7 +119,7 @@ Shader "TemporalAA"
         // surface, the camera's motion included, so the object's own motion is the written velocity minus the
         // camera's reprojection of the same depth (both unjittered: the surface at p's centre sits at
         // uv - jitter). Measured in OUTPUT pixels (the real on-screen motion), dynamic above a tenth of a pixel
-        // plus the RG16F rounding of the written velocity (2^-11 relative per component). The sky (depth 0) never
+        // plus the RGBA16F rounding of the written velocity (2^-11 relative per component). The sky (depth 0) never
         // moves on its own.
         const float kDynamicPixels = 0.1;
 
@@ -246,7 +260,8 @@ Shader "TemporalAA"
         #endif
 
             const float adaptedLum = texelFetch(u_Exposure, ivec2(0), 0).r;
-            const float exposure   = 1.0 / max(adaptedLum, 1e-4);
+            // The scene colour is already x u_PreExposure: divide it out of the weight's exposure.
+            const float exposure   = 1.0 / (max(adaptedLum, 1e-4) * u_PreExposure);
 
             // 3. The filtered current frame and the neighbourhood statistics of K's 3x3. The filter scale (UE
             // InvFilterScaleFactor, TemporalAA.usf :2203-2220): 1, 0 without history (as wide as the kernel goes),
@@ -316,7 +331,7 @@ Shader "TemporalAA"
             vec3 result = filtered;
             if (!ignoreHistory)
             {
-                vec3 history = SampleHistory(historyUv, upsample);
+                vec3 history = SampleHistory(historyUv, upsample) * u_HistoryPreExposureCorrection;
                 if (any(isnan(history)) || any(isinf(history)))
                     history = filtered;
                 const float lumaHistory = Luma(history);

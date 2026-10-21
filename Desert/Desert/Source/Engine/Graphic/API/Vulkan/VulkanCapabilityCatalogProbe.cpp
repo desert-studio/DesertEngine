@@ -1,4 +1,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDeviceExtensions.hpp>
+
+#include <Engine/Graphic/API/UpscalerBuild.hpp>
 
 #include <vulkan/vulkan.h>
 
@@ -14,6 +17,14 @@ namespace Desert::Graphic::API::Vulkan
         probe.Caps        = caps;
         probe.Portability = caps.Has( Capability::PortabilitySubset );
 
+        // FSR is linked (not a runtime that loads or not): the device and the build decide, by name.
+        if ( const Common::BoolResultStr fsr = FsrDeviceSupport( caps, kFsrBuilt ); fsr )
+            probe.FsrAvailable = true;
+        else
+        {
+            LOG_INFO( "[CapabilityCatalog] {}", fsr.GetError() );
+        }
+
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties( physicalDevice, &properties );
         probe.VendorId                    = properties.vendorID;
@@ -22,6 +33,9 @@ namespace Desert::Graphic::API::Vulkan
         probe.DepthSampleCounts           = properties.limits.framebufferDepthSampleCounts;
         probe.MaxSamplerAnisotropy        = properties.limits.maxSamplerAnisotropy;
         probe.MaxImageDimension2D         = properties.limits.maxImageDimension2D;
+        probe.MaxRenderArea               = std::min(
+             { properties.limits.maxFramebufferWidth, properties.limits.maxFramebufferHeight,
+                             properties.limits.maxViewportDimensions[0], properties.limits.maxViewportDimensions[1] } );
         probe.TimestampComputeAndGraphics = properties.limits.timestampComputeAndGraphics == VK_TRUE;
 
         // The largest device-local heap, as DeviceCapabilities::VideoMemory counts it.
@@ -93,6 +107,10 @@ namespace Desert::Graphic::API::Vulkan
                     probe.PresentModes.clear();
             }
         }
+        // What a vendor runtime offers (DlssAvailable...): its own answer, given once the device's requirements
+        // were enabled or refused.
+        for ( const IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            extension->AmendCatalogProbe( probe );
         return probe;
     }
 } // namespace Desert::Graphic::API::Vulkan

@@ -18,10 +18,13 @@
 #include "Services/CloudModelling/CloudModellingService.hpp"
 #include "Services/CloudLayout/CloudLayoutService.hpp"
 #include "Services/UITheme/UIThemeService.hpp"
+#include "Services/Landscape/LandscapeGrassTypeService.hpp"
 #include "Services/Landscape/LandscapeLayerInfoService.hpp"
 #include "Services/Foliage/FoliageTypeService.hpp"
 #include "Services/Destruction/FractureService.hpp"
 #include "Services/Water/WaterWavesService.hpp"
+#include "Services/WorldParameters/WorldParametersService.hpp"
+#include "Services/Weather/WeatherPresetService.hpp"
 #include "Services/Physics/PhysicsAssetService.hpp"
 #include "Services/VFX/VFXSystemService.hpp"
 
@@ -61,6 +64,9 @@ namespace Desert::Runtime
         // The `.delayerinfo` assets a landscape's target layers name (LS-12b): read on demand, held as the
         // assets themselves so a panel edit re-read into one is what every reader sees. Owns nothing on the GPU.
         static LandscapeLayerInfoService* GetLandscapeLayerInfoService();
+        // The `.degrasstype` assets layer infos name (GRASS-GPU): read on demand, held as the assets. Owns
+        // nothing on the GPU — the generated instances are the grass renderer's, the meshes MeshService's.
+        static LandscapeGrassTypeService* GetLandscapeGrassTypeService();
 
         // The `.defoliage` types foliage fields name (FO-5): read on demand, held as the assets themselves, so
         // the renderer's cull distance follows a paint-panel edit. Owns nothing on the GPU.
@@ -72,6 +78,10 @@ namespace Desert::Runtime
         // The `.dwaves` wave sets water bodies name (WATER-W2): read on demand, each generated into its Gerstner
         // waves once per load and shared by every body naming it.
         static WaterWavesService* GetWaterWavesService();
+        // The `.dworldparams` collections scenes name (WTH-PARAMS): read on first ask, held as the assets.
+        static WorldParametersService* GetWorldParametersService();
+        // The `.dweatherpreset` presets weather zones name (WTH-STATE): read on first ask, held as the assets.
+        static WeatherPresetService* GetWeatherPresetService();
         // The `.dephysasset` physics assets ragdolls name (RAG1b): read on demand, held as the assets, matched
         // against the mesh's skeleton by GUID.
         static PhysicsAssetService* GetPhysicsAssetService();

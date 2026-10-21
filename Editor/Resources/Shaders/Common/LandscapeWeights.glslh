@@ -4,10 +4,11 @@
 //
 // Ported from UE 5.8 Engine/Source/Runtime/Landscape/Private/Materials/MaterialExpressionLandscapeLayerBlend.cpp:
 // 180-325 (UMaterialExpressionLandscapeLayerBlend::Compile), adapted: the layer inputs are the root layers'
-// flat colours instead of material graphs, LB_HeightBlend is not carried (no layer has a height input), and
-// what the weight-blended layers leave unclaimed is the ground albedo rather than zero — UE allocates a layer
-// to a component on its first stroke with every weight zero and shows its first layer where nothing is
-// painted; our tiles start with no layer at all, so the caller passes that first layer as the ground.
+// values instead of material graphs (the landscape material calls it once per attribute, with that attribute
+// of each layer: the blend is linear in them), LB_HeightBlend is LandscapeHeightBlend below (it hands this
+// one modified weights), and what the weight-blended layers leave unclaimed is the ground's value rather
+// than zero — UE allocates a layer to a component on its first stroke with every weight zero and shows its
+// first layer where nothing is painted; our tiles start with no layer at all, so the caller passes that first layer as the ground.
 #ifndef LANDSCAPE_WEIGHTS_GLSLH
 #define LANDSCAPE_WEIGHTS_GLSLH
 
@@ -47,6 +48,55 @@ vec3 LandscapeWeightBlend( vec4 w0, vec4 w1, vec4 c0, vec4 c1, vec4 c2, vec4 c3,
     albedo = mix( albedo, vec3( c6 ), laidOver1.z );
     albedo = mix( albedo, vec3( c7 ), laidOver1.w );
     return albedo;
+}
+
+// UE's per-layer blend types (ELandscapeLayerBlendType) over the weight pages: an LB_HeightBlend layer's weight w
+// becomes clamp(lerp(-1, 1, w) + height, 0.0001, 1), an LB_WeightBlend layer keeps w, and both kinds together
+// are renormalised to sum to 1, so where a height-blended layer meets another the one whose height map stands
+// higher wins the pixel (stones poke through the grass edge instead of a soft cross-fade).
+//
+// Ported from UE 5.8 Engine/Source/Runtime/Landscape/Private/Materials/MaterialExpressionLandscapeLayerBlend.cpp:
+// 218-237 and 287-291 (LB_HeightBlend, InvWeightSumCode: the renormalisation runs over the weight- and the
+// height-blended layers alike, and only when some layer is height-blended), adapted: the ground (what the
+// weight-blended layers leave unclaimed — the root's first layer, see LandscapeWeightBlend) takes part as one
+// more layer of its own blend type, and the result is handed back as weights LandscapeWeightBlend takes, so
+// every attribute (albedo, normal, roughness, ...) is blended by one statement of the blend: the renormalised
+// layers sum to 1 - the ground's share, which is what LandscapeWeightBlend then leaves to the ground.
+// LB_AlphaBlend layers keep their painted weight (UE blends them after, unmodified). The caller runs this only
+// when some layer or the ground is height-blended; with none it would only renormalise what already sums to 1.
+//
+// drawn0/1     = per layer 1 when the root names it (the colours' a), as in LandscapeWeightBlend.
+// height0/1    = per layer 1 when it is LB_HeightBlend, 0 for LB_WeightBlend (alpha0/1 = LB_AlphaBlend).
+// h0/h1        = per layer its height (0..1); groundHeight the ground's, groundHeightBlend 1 when the ground's
+//                input is LB_HeightBlend.
+struct LandscapeBlendWeights
+{
+    vec4 W0;
+    vec4 W1;
+};
+
+LandscapeBlendWeights LandscapeHeightBlend( vec4 w0, vec4 w1, vec4 drawn0, vec4 drawn1, vec4 alpha0, vec4 alpha1,
+                                            vec4 height0, vec4 height1, vec4 h0, vec4 h1, float groundHeight,
+                                            float groundHeightBlend )
+{
+    vec4  m0      = drawn0 * ( vec4( 1.0f ) - alpha0 );
+    vec4  m1      = drawn1 * ( vec4( 1.0f ) - alpha1 );
+    float claimed = dot( w0, m0 ) + dot( w1, m1 );
+    float ground  = claimed < 1.0f ? 1.0f - claimed : 0.0f;
+
+    vec4  raised0 = clamp( w0 * 2.0f - vec4( 1.0f ) + h0, 0.0001f, 1.0f );
+    vec4  raised1 = clamp( w1 * 2.0f - vec4( 1.0f ) + h1, 0.0001f, 1.0f );
+    vec4  hw0     = ( w0 + ( raised0 - w0 ) * height0 ) * m0;
+    vec4  hw1     = ( w1 + ( raised1 - w1 ) * height1 ) * m1;
+    float raisedG = clamp( ground * 2.0f - 1.0f + groundHeight, 0.0001f, 1.0f );
+    float hg      = ground + ( raisedG - ground ) * groundHeightBlend;
+    float sum     = dot( hw0, vec4( 1.0f ) ) + dot( hw1, vec4( 1.0f ) ) + hg;
+    float inv     = sum > 0.0f ? 1.0f / sum : 0.0f;
+
+    LandscapeBlendWeights r;
+    r.W0 = hw0 * inv + w0 * drawn0 * alpha0;
+    r.W1 = hw1 * inv + w1 * drawn1 * alpha1;
+    return r;
 }
 
 // Where page @p page of a tile's weightmap puts sample-space coordinate @p g (x along the tile, y along it in

@@ -25,6 +25,8 @@ Shader "ProceduralSky"
         // this engine keeps CameraUB a vertex-stage block. Constant across the triangle, so interpolation
         // returns it exactly.
         In(1) vec3 v_CameraPos;
+        // ViewFrame::PreExposure, forwarded from the vertex stage like v_CameraPos (constant across the triangle).
+        In(2) float v_PreExposure;
         Out(0) vec4 oColor;
 
         // The sky parameter block. A std430 STORAGE buffer rather than a uniform block, because the
@@ -42,18 +44,20 @@ Shader "ProceduralSky"
 
         // PhysicalAtmosphere only. When the gradient renders, both stay on their fallback descriptors
         // and the branch below never samples them.
-        Uniform(2) sampler2D u_TransmittanceLut; // cached 256x64 (SkyboxRenderer)
-        Uniform(3) sampler2D u_SkyViewLut;       // per-view 192x104, refilled every frame
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform sampler u_LinearClampSampler;
+        Uniform(2) texture2D u_TransmittanceLut; // cached 256x64 (SkyboxRenderer)
+        #define u_TransmittanceLut sampler2D(u_TransmittanceLut, u_LinearClampSampler)
+        Uniform(3) texture2D u_SkyViewLut;       // per-view 192x104, refilled every frame
+        #define u_SkyViewLut sampler2D(u_SkyViewLut, u_LinearClampSampler)
 
-        // Luminance ceiling of the physical path's ON-SCREEN pixels. The disc's true outer-space
-        // luminance (illuminance over its half-degree solid angle) is ~10^4 x the tonemapper's white
-        // point; unclamped it saturates every bloom box it touches (the Karis average only suppresses
-        // ISOLATED fireflies) and the frame gains a 25-degree white blob for a halo. 1000 keeps the
-        // disc two orders over white — still the brightest thing in any frame, still driving a
-        // visible glow — while the bloom chain stays proportionate. Raising this belongs to the
-        // deferred sun-perceptual-stack task (auto-exposure + lens flare tuned against the disc),
-        // not to the sky. The IBL bake is untouched: it excludes the disc entirely.
-        const float kSkyLuminanceClamp = 1000.0f;
+        // The physical path's ON-SCREEN luminance ceiling is UnpackSkyLuminanceCeiling (Graphic::
+        // SkyLuminanceCeiling, AutoExposureRules.hpp): the disc's true luminance (illuminance over its
+        // solid angle) is far beyond white, and unclamped it saturates every bloom box it touches. The
+        // ceiling used to be a fixed 1000 cd/m^2, which also cut the whole SKY of a 100 000 lux sun. It
+        // now follows the exposure — a fixed number of times display white — and stops at what the fp16
+        // scene target can hold. The IBL bake is untouched: it excludes the disc entirely.
 
         vec3 EvaluatePhysicalSky(SkyPacked s, vec3 dir)
         {
@@ -82,7 +86,7 @@ Shader "ProceduralSky"
             vec4 lut = texture(u_SkyViewLut, uv);
             vec3 sky = lut.rgb;
 
-            vec3 sunIlluminance = UnpackSkyConfig(s).sunColor * UnpackSunIntensity(s);
+            vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
 
             // BELOW THE HORIZON THIS PASS DRAWS ONLY AIR — never a lit ground, which is what it used to
             // do and what made the lower half of an empty scene a flat beige plate that no scene setting
@@ -121,13 +125,13 @@ Shader "ProceduralSky"
                                                                          atm.TopRadiusKm, viewHeight,
                                                                          viewZenithCos)).rgb;
 
-                    sky += sunIlluminance / max(solidAngle, 1e-7f) * viewT *
+                    sky += sunIlluminance * UnpackSunDiskColorScale(s) / max(solidAngle, 1e-7f) * viewT *
                            SkySunLimbDarkening(centerToEdge) * edge;
                 }
             }
 
-            // The on-screen-only art tint (UE's SkyLuminanceFactor), then the fp16 headroom clamp.
-            return min(sky * UnpackSkyLuminanceFactor(s), vec3(kSkyLuminanceClamp));
+            // The on-screen-only art tint (UE's SkyLuminanceFactor), then the exposure-relative ceiling.
+            return min(sky * UnpackSkyLuminanceFactor(s), vec3(UnpackSkyLuminanceCeiling(s)));
         }
 
         void main()
@@ -147,7 +151,8 @@ Shader "ProceduralSky"
 
             // (Dithering is done at the FINAL 8-bit output in the composite/tonemap pass — doing it here in linear
             // HDR is lost through Reinhard+gamma. See SceneComposite.glsl.frag.)
-            oColor = vec4(color, 1.0);
+            // Stored pre-exposed, like every scene-colour writer (ViewFrame::PreExposure).
+            oColor = vec4(color * v_PreExposure, 1.0);
         }
     }
 
@@ -160,6 +165,7 @@ Shader "ProceduralSky"
         Out(0) vec3 v_RayDir;
         // Camera position for the physical model's altitude (constant across the triangle).
         Out(1) vec3 v_CameraPos;
+        Out(2) float v_PreExposure;
 
         void main()
         {
@@ -174,6 +180,7 @@ Shader "ProceduralSky"
             vec3 viewRay = viewH.xyz / viewH.w;
             v_RayDir     = mat3(inverse(cameraUB.View)) * viewRay;
             v_CameraPos  = cameraUB.CameraPos;
+            v_PreExposure = cameraUB.PreExposure;
         }
     }
 }

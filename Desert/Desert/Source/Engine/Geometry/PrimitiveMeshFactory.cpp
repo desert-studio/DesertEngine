@@ -1,5 +1,6 @@
 #include "PrimitiveMeshFactory.hpp"
 
+#include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
@@ -51,15 +52,28 @@ namespace Desert::Geometry
                        input.GetError() );
             return;
         }
-        auto slot = std::make_shared<Assets::MeshDistanceFieldSlot>();
+        auto slot = std::make_shared<Assets::MeshDistanceFieldSlot>( Assets::MostlyTwoSided( input.GetValue() ) );
         mesh.SetDistanceField( slot );
+        // The surface-cache cards too, built in the same job from the same triangles (no asset, no DDC key).
+        auto cards = std::make_shared<Assets::MeshCardsSlot>();
+        mesh.SetCards( cards );
         Assets::EnqueueMeshDistanceField(
              std::move( slot ), std::format( "primitive '{}'", PrimitiveTypeName( type ) ),
-             [in = std::make_shared<Assets::MeshDistanceFieldBuildInput>( input.ExtractValue() )](
-                  bool& built, const Assets::MeshDistanceFieldCancel& cancel )
+             [in = std::make_shared<Assets::MeshDistanceFieldBuildInput>( input.ExtractValue() ), cards,
+              type]( bool& built, const Assets::MeshDistanceFieldCancel& cancel )
                   -> Common::ResultStr<std::shared_ptr<const Assets::MeshDistanceFieldData>>
              {
-                 built      = true;
+                 built = true;
+                 if ( auto cardBuild = Assets::BuildMeshCards( *in, Assets::MeshCardsBuildSettings{}, cancel );
+                      cardBuild.IsSuccess() )
+                     cards->Publish(
+                          std::make_shared<const Assets::MeshCardsBuildData>( cardBuild.ExtractValue() ) );
+                 else if ( cancel.IsCancelled() )
+                     return Common::MakeError<std::shared_ptr<const Assets::MeshDistanceFieldData>>(
+                          std::string( Assets::kMeshDistanceFieldCancelled ) );
+                 else
+                     LOG_ERROR( "[PrimitiveMeshFactory] '{}' has no surface-cache cards: {}",
+                                PrimitiveTypeName( type ), cardBuild.GetError() );
                  auto field =
                       Assets::BuildMeshDistanceField( *in, Assets::MeshDistanceFieldBuildSettings{}, cancel );
                  if ( !field.IsSuccess() )
@@ -75,6 +89,9 @@ namespace Desert::Geometry
         auto& mesh = s_SharedPrimitives[type];
         if ( !mesh )
         {
+            // Shared by every scene and view until ReleaseShared(), so the device's, not the view's that first
+            // drew one (RT-LEDGER-4: a view scope open here would report these buffers as its leak on close).
+            const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::Device );
             mesh = Create( type );
             if ( mesh )
             {

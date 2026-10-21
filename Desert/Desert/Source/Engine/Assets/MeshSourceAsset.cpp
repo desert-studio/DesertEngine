@@ -96,7 +96,7 @@ namespace Desert::Assets
         };
 
         // ── reading ───────────────────────────────────────────────────────────────────────────────────
-        struct Reader
+        struct MeshSourceReader
         {
             std::span<const std::byte> Bytes;
             size_t                     At = 0;
@@ -335,7 +335,7 @@ namespace Desert::Assets
 
         Common::ResultStr<MeshImportInfo> DecodeImportInfo( std::span<const std::byte> bytes )
         {
-            Reader     r{ bytes };
+            MeshSourceReader r{ bytes };
             const auto version = r.U32();
             if ( r.Ok && version != kImportInfoVersion )
                 return Common::MakeFormattedError<MeshImportInfo>(
@@ -412,7 +412,7 @@ namespace Desert::Assets
 
         Common::ResultStr<MeshSourceData> DecodeSource( std::span<const std::byte> bytes )
         {
-            Reader     r{ bytes };
+            MeshSourceReader r{ bytes };
             const auto version = r.U32();
             if ( r.Ok && version != kSourceVersion )
                 return Common::MakeFormattedError<MeshSourceData>(
@@ -662,6 +662,8 @@ namespace Desert::Assets
     {
         switch ( meaning )
         {
+            case FbxSpecularMap::FromImage:
+                return "FromImage";
             case FbxSpecularMap::Specular:
                 return "Specular";
             case FbxSpecularMap::OcclusionRoughnessMetallic:
@@ -673,8 +675,8 @@ namespace Desert::Assets
     }
     std::optional<FbxSpecularMap> FbxSpecularMapFromName( const std::string_view name )
     {
-        for ( const auto m : { FbxSpecularMap::Specular, FbxSpecularMap::OcclusionRoughnessMetallic,
-                               FbxSpecularMap::RoughnessMetallic } )
+        for ( const auto m : { FbxSpecularMap::FromImage, FbxSpecularMap::Specular,
+                               FbxSpecularMap::OcclusionRoughnessMetallic, FbxSpecularMap::RoughnessMetallic } )
             if ( FbxSpecularMapName( m ) == name )
                 return m;
         return std::nullopt;

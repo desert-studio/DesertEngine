@@ -3,6 +3,7 @@
 #include <Engine/ShaderResources/ViewCopiedBlock.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <memory>
 #include <string_view>
@@ -25,7 +26,10 @@ namespace Desert::ShaderResources::API::Vulkan
     class MappedBufferCopy final : public IBlockCopy
     {
     public:
-        MappedBufferCopy( VkBuffer buffer, VmaAllocation allocation, VkDeviceSize size );
+        // @p kind is the row this copy opens in the resource ledger (UniformBuffer or StorageBuffer), with the
+        // allocation's device bytes: the ledger is the one statement of what a view's copies hold (RT-LEDGER-3).
+        MappedBufferCopy( VkBuffer buffer, VmaAllocation allocation, VkDeviceSize size,
+                          Desert::Graphic::ResourceKind kind );
         ~MappedBufferCopy() override;
 
         MappedBufferCopy( const MappedBufferCopy& )            = delete;
@@ -36,10 +40,9 @@ namespace Desert::ShaderResources::API::Vulkan
             return m_Mapping.Write( data, size, offset );
         }
 
-        [[nodiscard]] uint64_t HeldBytes() const noexcept override
-        {
-            return m_Size;
-        }
+        // The device's bytes, after invalidating the host's view of them (a no-op on coherent memory): the
+        // caller has waited for the GPU work that wrote them (VulkanStorageBuffer::ReadBack).
+        [[nodiscard]] Common::BoolResultStr Read( void* destination, uint32_t size, uint32_t offset );
 
         [[nodiscard]] ViewCopyBinding Binding() const
         {
@@ -59,6 +62,9 @@ namespace Desert::ShaderResources::API::Vulkan
         VmaAllocation                 m_Allocation;
         VkDeviceSize                  m_Size;
         Desert::Graphic::MappedMemory m_Mapping; // persistent for the copy's life; CPU_TO_GPU stays mappable
+        // The copy's ledger row: opened under the ambient scope (a view's phase scope tags it with the view's
+        // instance, so SceneRenderer::HeldBytes reads it back), closed when the copy is dropped.
+        Desert::Graphic::ResourceOwnership m_Ledger;
     };
 
     // Allocates and maps one CPU_TO_GPU buffer of `size` bytes named `debugName`. REFUSES AS A WHOLE: a

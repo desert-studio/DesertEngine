@@ -106,14 +106,26 @@ namespace Desert::Editor
         /// an icon and filter by it; its picture is the class icon, as UE's is.
         WaterWaves,
 
+        /// A world parameter collection (`.dworldparams`, UE UMaterialParameterCollection): its own type so the
+        /// browser can colour it, give it an icon and filter by it; a list of values has no picture.
+        WorldParameters,
+
+        /// A weather preset (`.dweatherpreset`, WTH-STATE): its own type so the browser can colour it, give it an
+        /// icon and filter by it; a set of values has no picture.
+        WeatherPreset,
+
         /// A VFX data channel (`.dfxch`, UE UNiagaraDataChannel): its own type so the browser can colour it, give
         /// it an icon and filter by it; a layout of fields has no picture, so it shows the class icon as UE does.
-        VFXDataChannel
+        VFXDataChannel,
+
+        /// A landscape grass type (`.degrasstype`, UE ULandscapeGrassType): its own type for the layer info's
+        /// reason — colour, icon and filter; a list of meshes and numbers has no picture of its own.
+        LandscapeGrassType
     };
 
     /// The last enumerator: the censuses that walk the enum (ThumbnailProducers) stop here, so adding a kind
     /// is one edit of this line rather than a bound hidden in each suite.
-    inline constexpr FileType kLastFileType = FileType::VFXDataChannel;
+    inline constexpr FileType kLastFileType = FileType::LandscapeGrassType;
 
     /// ONE MAP: EXTENSION -> KIND (THM1n-3). The link before ThumbnailProducers in the chain
     /// "extension -> FileType -> producer" — the Content Browser types a file here and nowhere else, and the
@@ -178,8 +190,11 @@ namespace Desert::Editor
          { "dfx", FileType::VFXSystem },
          { "dfrac", FileType::Fracture },
          { "dwaves", FileType::WaterWaves },
+         { "dworldparams", FileType::WorldParameters },
+         { "dweatherpreset", FileType::WeatherPreset },
          { "dephysasset", FileType::PhysicsAsset },
          { "dfxch", FileType::VFXDataChannel },
+         { "degrasstype", FileType::LandscapeGrassType },
          { "deimport", FileType::ImportSettings },
          { "skmesh", FileType::SkinnedMesh },
          { "skeleton", FileType::Skeleton },

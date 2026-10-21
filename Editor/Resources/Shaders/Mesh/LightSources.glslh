@@ -10,7 +10,7 @@
 #include <Mesh/BRDF.glslh> // LightFalloffFactor, the one distance model
 #include <ShadingModels/ShadingModelContract.glslh>
 
-// std430 layout — must match ShaderProtocols::PointLightPayload (64 bytes).
+// std430 layout — must match ShaderProtocols::PointLightPayload (80 bytes).
 struct PointLight {
     vec3  color;
     float intensity;
@@ -23,10 +23,14 @@ struct PointLight {
     int   contactShadowInWorld; // 1 = contactShadowLength is in world centimetres
     float contactShadowCastingIntensity;    // UE ContactShadowCastingIntensity (a hit on a caster)
     float contactShadowNonCastingIntensity; // UE ContactShadowNonCastingIntensity (a hit on a non-caster)
-    float _pad2;
+    int   shadowCaster; // 1: casts shadows in this view (a -1 shadowView is then a light the maps refused)
+    float sourceRadius; // UE SourceRadius (cm): the sphere traced shadows aim at (MegaLights); 0 = a point
+    float pad0;
+    float pad1;
+    float pad2;
 };
 
-// std430 layout — must match ShaderProtocols::SpotLightPayload (80 bytes).
+// std430 layout — must match ShaderProtocols::SpotLightPayload (96 bytes).
 struct SpotLight {
     vec3  color;
     float intensity;
@@ -41,7 +45,11 @@ struct SpotLight {
     int   contactShadowInWorld; // 1 = contactShadowLength is in world centimetres
     float contactShadowCastingIntensity;    // UE ContactShadowCastingIntensity (a hit on a caster)
     float contactShadowNonCastingIntensity; // UE ContactShadowNonCastingIntensity (a hit on a non-caster)
-    float _pad2;
+    int   shadowCaster; // 1: casts shadows in this view (a -1 shadowView is then a light the maps refused)
+    float sourceRadius; // UE SourceRadius (cm): the sphere traced shadows aim at (MegaLights); 0 = a point
+    float minRadius;    // full intensity within this distance (cm)
+    float pad1;
+    float pad2;
 };
 
 // A local light's half of its contact shadow, as Common/ContactShadow.glslh takes it: (length, in world space,
@@ -68,13 +76,15 @@ float SpotConeFactor(SpotLight light, vec3 L)
 
 
 // The sun. `lightTravel` is the direction the light travels (away from the sun), as both paths' uniform
-// blocks carry it; `shadow` is the cascades (unless the surface does not receive them) times the cloud layer.
-DesertLight DesertSunLight( vec3 lightTravel, vec3 radiance, float shadow )
+// blocks carry it; `shadow` is the cascades (unless the surface does not receive them) times the cloud layer;
+// `transmissionShadow` is the same for the light passing through (DesertLight::TransmissionShadow).
+DesertLight DesertSunLight( vec3 lightTravel, vec3 radiance, float shadow, float transmissionShadow )
 {
     DesertLight light;
-    light.L        = normalize( -lightTravel );
-    light.Radiance = radiance;
-    light.Shadow   = shadow;
+    light.L                  = normalize( -lightTravel );
+    light.Radiance           = radiance;
+    light.Shadow             = shadow;
+    light.TransmissionShadow = transmissionShadow;
     return light;
 }
 
@@ -86,7 +96,8 @@ DesertLight DesertPointLightAt( PointLight source, vec3 worldPosition )
     light.L        = normalize( toLight );
     light.Radiance = source.color * source.intensity *
                      LightFalloffFactor( distance, source.minRadius, source.radius, source.falloff );
-    light.Shadow   = 1.0;
+    light.Shadow             = 1.0;
+    light.TransmissionShadow = 1.0;
     return light;
 }
 
@@ -96,9 +107,10 @@ DesertLight DesertSpotLightAt( SpotLight source, vec3 worldPosition )
     const float distance = length( toLight );
     DesertLight light;
     light.L        = normalize( toLight );
-    light.Radiance = source.color * source.intensity * LightFalloffFactor( distance, 0.0, source.range, source.falloff ) *
+    light.Radiance = source.color * source.intensity * LightFalloffFactor( distance, source.minRadius, source.range, source.falloff ) *
                      SpotConeFactor( source, light.L );
-    light.Shadow   = 1.0;
+    light.Shadow             = 1.0;
+    light.TransmissionShadow = 1.0;
     return light;
 }
 

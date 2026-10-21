@@ -160,8 +160,8 @@ namespace Desert::Graphic::System
         if ( !m_EdgesPipeline )
             return; // RecordEdges refuses by name
         pass.Bindings( m_EdgesLayout.Get( m_EdgesPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
-             .Sampled( "u_ColorTex", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::LinearClamp() );
+             .Texture( "u_ColorTex", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
     }
 
     Common::BoolResultStr SMAARenderer::RecordEdges( const RDG::PassContext& context )
@@ -178,12 +178,10 @@ namespace Desert::Graphic::System
         if ( !m_WeightsPipeline )
             return; // RecordWeights refuses by name
         pass.Bindings( m_WeightsLayout.Get( m_WeightsPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
-             .Sampled( "u_EdgesTex", edges, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::LinearClamp() )
-             .Sampled( "u_AreaTex", area, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::LinearClamp() )
-             .Sampled( "u_SearchTex", search, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::LinearClamp() );
+             .Texture( "u_EdgesTex", edges, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+             .Texture( "u_AreaTex", area, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Texture( "u_SearchTex", search, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
     }
 
     Common::BoolResultStr SMAARenderer::RecordWeights( const RDG::PassContext& context )
@@ -201,14 +199,11 @@ namespace Desert::Graphic::System
         if ( !m_BlendPipeline )
             return; // RecordBlend refuses by name
         pass.Bindings( m_BlendLayout.Get( m_BlendPipeline->GetSpecification().Shader ), RDG::OtherRouteFill{} )
-             .Sampled( "u_ColorTex", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::LinearClamp() )
-             .Sampled( "u_BlendTex", weights, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::LinearClamp() )
-             .Sampled( "u_EdgesTex", edges, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::LinearClamp() )
-             .Sampled( "u_AreaTex", area, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                       RDG::SamplerDesc::LinearClamp() );
+             .Texture( "u_ColorTex", input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
+             .Texture( "u_BlendTex", weights, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Texture( "u_EdgesTex", edges, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Texture( "u_AreaTex", area, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
     }
 
     Common::BoolResultStr SMAARenderer::RecordBlend( const RDG::PassContext& context )

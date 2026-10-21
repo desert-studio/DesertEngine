@@ -3,6 +3,7 @@
 #include "PackageTarget.hpp"
 #include "PackagedContentTrees.hpp"
 
+#include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
@@ -12,6 +13,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Json/Json.hpp>
 #include <Common/Project/ProjectFormat.hpp>
 #include <Common/Settings/ProductName.hpp>
 #include <Common/Utilities/ContentManifest.hpp>
@@ -37,13 +39,17 @@
 #include <bit>
 #include <cctype>
 #include <cstdint>
+#include <format>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <span>
 #include <sstream>
+#include <string>
 #include <system_error>
+#include <vector>
 
 namespace Desert::Editor
 {
@@ -65,6 +71,25 @@ namespace Desert::Editor
             size_t   Files = 0;
             uintmax_t Bytes = 0;
         };
+
+        // A vendor runtime pinned by release (ThirdParty/<Vendor>/manifest.json): the binaries are downloaded and
+        // hash-checked by scripts/Windows/FetchVendorBinaries.py, never committed. Files IS the list that ships.
+        struct VendorRuntimeFile
+        {
+            std::string Archive;
+            std::string Sha256;
+        };
+
+        struct VendorRuntimeManifest
+        {
+            std::string                    Name;
+            std::string                    Version;
+            std::string                    Url;
+            std::string                    ArchiveSha256;
+            std::string                    Destination;
+            std::vector<VendorRuntimeFile> Files;
+        };
+        DESERT_JSON_STRUCT( VendorRuntimeManifest, "VendorRuntimeManifest", 1 )
 
         // The pak key the cooked registry ships under — the one path the packager writes rather than stages.
         std::string ShippedRegistryKey()
@@ -192,8 +217,11 @@ namespace Desert::Editor
                 }
                 if ( !scene.GetValue().Scene.WorldPartition.has_value() )
                     continue;
-                auto cooked = ::Desert::Core::WorldCells::CookWorld(
-                     scene.GetValue().Scene, std::span( &Assets::ContentRegistry::Get(), 1 ) );
+                // The same mesh and landscape HLOD builders editor Play uses (WP-FAR-7, WP-FAR-6).
+                const auto registries = std::span( &Assets::ContentRegistry::Get(), 1 );
+                auto       cooked     = ::Desert::Core::WorldCells::CookWorld(
+                     scene.GetValue().Scene, registries, ::Desert::Core::MakeHLODMeshBuilder( registries ),
+                     ::Desert::Core::MakeLandscapeHLODBuilder() );
                 if ( !cooked )
                 {
                     error = "cooking the world '" + key + "': " + cooked.GetError();
@@ -809,6 +837,7 @@ namespace Desert::Editor
         // package without them is one that does not start, and a Debug Runtime (debug CRT, not
         // redistributable) is refused here by name.
         std::vector<fs::path> appLocalRuntime;
+        std::vector<fs::path> vendorRuntime;
         if ( host.Platform == TargetPlatform::Windows )
         {
             auto crtDir = FindVcCrtRedistDir();
@@ -822,6 +851,42 @@ namespace Desert::Editor
             if ( !closure )
                 return { false, "Cannot decide the app-local C++ runtime: " + closure.GetError(), "" };
             appLocalRuntime = closure.ExtractValue();
+
+            // THE VENDOR UPSCALER RUNTIMES (UE: a plugin's RuntimeDependencies, staged beside the game). DLSS
+            // loads NVIDIA Streamline from the executable's directory at run time (Graphic/API/Vulkan/Streamline/
+            // StreamlineRuntime), so without these files the packaged game has no DLSS. The manifest's Files are the
+            // list — the build copies the same list beside every executable (Desert/Dependencies.lua:
+            // DesertCopyStreamlineRuntime) — and it carries NVIDIA's redistribution licence, which must ship with
+            // nvngx_dlss.dll. The files are downloaded, not committed: one that was never fetched refuses the package
+            // by name, because a shipped game without them would only say so on the player's machine. FSR needs
+            // nothing here: the FidelityFX SDK is a static library with its shaders compiled in.
+            const fs::path streamlineManifest =
+                 Common::Constants::Path::EngineDir().parent_path() / "ThirdParty" / "Streamline" / "manifest.json";
+            auto manifest = Common::Json::ReadFile<VendorRuntimeManifest>( streamlineManifest );
+            if ( !manifest )
+                return { false,
+                         std::format( "The DLSS runtime (NVIDIA Streamline) manifest could not be read: {}",
+                                      manifest.GetError() ),
+                         "" };
+            const fs::path streamlineDir = streamlineManifest.parent_path() / manifest.GetValue().Destination;
+            std::string missing;
+            for ( const VendorRuntimeFile& entry : manifest.GetValue().Files )
+            {
+                const fs::path file = streamlineDir / fs::path( entry.Archive ).filename();
+                std::error_code fileEc;
+                if ( fs::is_regular_file( file, fileEc ) )
+                    vendorRuntime.push_back( file );
+                else
+                    std::format_to( std::back_inserter( missing ), "{}{}", missing.empty() ? "" : ", ",
+                                    file.filename().string() );
+            }
+            if ( !missing.empty() )
+                return { false,
+                         std::format( "The DLSS runtime ({} {}) is not fetched: {} missing from {}. Run "
+                                      "`python scripts/Windows/FetchVendorBinaries.py` (Setup.bat runs it)",
+                                      manifest.GetValue().Name, manifest.GetValue().Version, missing,
+                                      streamlineDir.string() ),
+                         "" };
         }
 
         // Layout: a macOS .app bundle (default there) or a plain folder. Same content either way — the
@@ -890,6 +955,20 @@ namespace Desert::Editor
             LOG_INFO( "[Package] app-local C++ runtime from {}: {}",
                       appLocalRuntime.front().parent_path().string(), names );
         }
+
+        // 2c) Windows: the vendor upscaler runtimes, beside the binary, where StreamlineRuntime loads them from.
+        for ( const fs::path& file : vendorRuntime )
+        {
+            fs::copy_file( file, gameDir / file.filename(), fs::copy_options::overwrite_existing, ec );
+            if ( ec )
+                return { false,
+                         std::format( "Cannot copy the DLSS runtime file {}: {}", file.string(), ec.message() ),
+                         "" };
+            ++stats.Files;
+        }
+        if ( !vendorRuntime.empty() )
+            LOG_INFO( "[Package] DLSS runtime (NVIDIA Streamline) from {}: {} file(s)",
+                      vendorRuntime.front().parent_path().string(), vendorRuntime.size() );
 
         // 3) The cook ran first, above the registry check — see there.
 

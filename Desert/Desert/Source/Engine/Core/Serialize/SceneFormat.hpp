@@ -92,8 +92,19 @@ namespace Desert::Core
     // GlobalIlluminationMethod and EnableSSR is ReflectionsMethod, on the method ladders of
     // Common/Settings/RenderMethods.hpp (Tools/SceneMigrator, MigrateRenderMethodsV52ToV53). v54 (SCR-DETAILS): a
     // script slot's Props are only the values that differ from the script's declared defaults
-    // (Tools/SceneMigrator, MigrateScriptDefaultsV53ToV54).
-    inline constexpr int kSceneVersion = 54;
+    // (Tools/SceneMigrator, MigrateScriptDefaultsV53ToV54). v56 (LIGHT-UNITS): point / spot lights state
+    // IntensityUnits (UE ELightUnits) and the exposure range is EV100 (Tools/SceneMigrator,
+    // MigrateLightUnitsV55ToV56); v55 is the SourceAngle step. v57 (LIGHT-UNITS-2): the Physical Atmosphere
+    // sky takes its sun from the atmosphere sun light (UE) and manual exposure is EV100 (Tools/SceneMigrator,
+    // MigrateSkySunFromLightV56ToV57). v58 (TOD1): the TimeOfDay clock has UE SunPosition's calendar - date,
+    // longitude, time zone, daylight saving (Tools/SceneMigrator, MigrateSunCalendarV57ToV58). v59..v63 are
+    // Windows' steps. v64 (GI-METHOD-RENUMBER): GlobalIlluminationMethod is stated on today's ladder, which lost
+    // ReflectiveShadowMaps (3) - every method above it is one number lower (Tools/SceneMigrator,
+    // MigrateGIMethodLadderV63ToV64). v65 (RENDER-LOOK round 05): the display transfer is the sRGB OETF and
+    // PostProcessSettings lost Gamma (Tools/SceneMigrator, MigrateDisplayTransferV64ToV65). v66 (WP22): a World
+    // Partition grid states its Name (what a RuntimeGrid block names) and Priority (Tools/SceneMigrator,
+    // MigrateGridNamesV65ToV66).
+    inline constexpr int kSceneVersion = 66;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator
@@ -132,6 +143,12 @@ namespace Desert::Core
     // kSceneVersion, and an older build refuses the file by name (SceneIsAtCurrentVersion).
     struct WorldPartitionGridSerialized
     {
+        // UE FSpatialHashRuntimeGrid::GridName. What a record names in its RuntimeGrid block to stream on this
+        // grid (UE AActor::RuntimeGrid); a record that names none streams on the FIRST grid, UE's main grid.
+        // Required, non-empty and unique within the world (Rules::PlanWorldPartition refuses the grids
+        // otherwise): a name is the only way a record reaches a grid, so two grids of one name would be a guess.
+        std::string Name;
+
         // Edge length of one level-0 cell in WORLD UNITS, and a world unit is a CENTIMETRE
         // (Common/Core/Units.hpp). Level L cells are CellSize * 2^L. The default is UE's own main grid,
         // 128 m, in our units; it is the number a world gets when switched on, nothing depends on it.
@@ -145,6 +162,10 @@ namespace Desert::Core
         // grid default, 256 m. Read by the streaming query (WP4); the partition itself does not depend
         // on it, which is why a cell's contents never change when it is edited.
         float LoadingRange = 25600.0f;
+
+        // UE FSpatialHashRuntimeGrid::Priority: among the cells one source wants at one source priority,
+        // this grid's load first when higher. It never changes WHICH cells are wanted (QueryStreamingCells).
+        int Priority = 0;
 
         // Compared, not just written: the editor's World Partition panel keeps the plan it painted and
         // the partition that plan was made from, and a plan is remade when the two stop matching. Without

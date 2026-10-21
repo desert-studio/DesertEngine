@@ -16,7 +16,8 @@
 //     {
 //         <SurfaceOutput field>;                     // every field the body's result depends on
 //     }
-//     <GLSL body: Evaluate and EvaluateAmbient, the signatures of ShadingModels/ShadingModelContract.glslh>
+//     <GLSL body: Evaluate, EvaluateSpecular and EvaluateAmbient, the signatures of
+//     ShadingModels/ShadingModelContract.glslh>
 //
 // Everything after the closing brace of Inputs, to the end of the file, is the body. Both blocks are required,
 // and may be empty (Unlit's are). `//` comments are allowed anywhere in the manifest.
@@ -44,6 +45,11 @@
 //         return S.BaseColor * L.Radiance * ( lit + rim * lit );
 //     }
 //
+//     vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
+//     {
+//         return vec3( 0.0 );
+//     }
+//
 //     vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
 //     {
 //         return S.BaseColor * A.Irradiance * A.Occlusion;
@@ -55,7 +61,7 @@
 //   * Payload with more than kMaxPayloadFloats lines, a pin that is not CustomData0..3, a pin twice;
 //   * an Inputs field that is not a SurfaceOutput field (checked by ShadingModelRegistry, which reads
 //     SurfaceOutput from Mesh/Surface/SurfaceTypes.glslh — the struct is the one list of fields);
-//   * a body that does not define both Evaluate and EvaluateAmbient.
+//   * a body that does not define Evaluate, EvaluateSpecular and EvaluateAmbient.
 
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
@@ -109,7 +115,7 @@ namespace Desert::Core::ShadingModels
 
     inline constexpr std::uint8_t kShadingWordBits = 64;
 
-    inline constexpr std::array<ShadingWordField, 8> kShadingWordFields{ {
+    inline constexpr std::array<ShadingWordField, 10> kShadingWordFields{ {
          { "INDEX", 0, 4 },              // shading-model index, 0..15
          { "TEXTURES", 4, 4 },           // sampled-texture count (Material Complexity), clamped to 15
          { "PAYLOAD0", 8, 8 },           // CustomData0, unorm8
@@ -119,7 +125,10 @@ namespace Desert::Core::ShadingModels
          { "NO_CONTACT_SHADOW", 25, 1 }, // set = the primitive casts no contact shadow (UE !bCastContactShadow,
                                          // the push PrimitiveFlags); 0, the clear value, casts
          { "PAYLOAD2", 32, 8 },          // CustomData2, unorm8 (.y)
-         { "PAYLOAD3", 40, 8 }           // CustomData3, unorm8 (.y)
+         { "PAYLOAD3", 40, 8 },          // CustomData3, unorm8 (.y)
+         { "SPECULAR", 48, 8 },          // UE's Specular pin, unorm8 (.y): F0 = 0.08 x Specular
+         { "SUN_SELF_SHADOW", 56, 8 }    // 1 - SurfaceOutput.SunSelfShadow, unorm8 (.y): the parallax relief's own
+                                         // sun shadow; 0, the clear value, lit
     } };
 
     // The value the shading-word target clears to: Unlit, no payload, receives sun shadows.
@@ -143,6 +152,13 @@ namespace Desert::Core::ShadingModels
         // model is subsurface: a light's contact shadow on it fades with the hit distance by the density that
         // opacity stands for (Common/ContactShadow.glslh, DesertSubsurfaceOpacity). Empty = not subsurface.
         std::string              SubsurfaceOpacityPin;
+        // UE GetMaterialSubsurfaceData, as the Lumen card capture reads it: the optional `SubsurfaceColor <fn>;`
+        // line (after SubsurfaceOpacity) names the body's `vec3 <fn>( DesertPayload P )` that decodes the model's
+        // subsurface colour from its payload - the light the surface lets through to its far side. The surface
+        // cache keeps it per card texel and lights the card's back side with it (DesertSubsurfaceColor;
+        // Programs/SurfaceCache). Empty = the model lets nothing through. Set = the model has UE's backface
+        // diffuse (DesertHasBackfaceDiffuse: the screen probe gather's temporal filter treats it as foliage).
+        std::string              SubsurfaceColorFunction;
         std::string              Body;    // the GLSL after the Inputs block
         std::filesystem::path    SourcePath;
     };

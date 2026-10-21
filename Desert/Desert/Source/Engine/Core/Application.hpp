@@ -136,6 +136,15 @@ namespace Desert::Engine
             return m_FixedDeltaTime;
         }
 
+        // WALL TIME THAT WAS NOT A FRAME: the next frame's Timestep leaves out @p seconds. The script debugger
+        // halts the world inside a frame (a breakpoint); without this the first frame after the resume would
+        // carry the whole stop as its delta, and every mover would jump by the seconds the user spent reading
+        // variables — UE's world likewise does not age while a Blueprint breakpoint holds it.
+        void ExcludeFromNextTimestep( float seconds )
+        {
+            m_ExcludedSeconds += seconds;
+        }
+
         // Ends the run loop after the current frame. Used by the editor's screenshot mode, which renders a
         // fixed number of frames and leaves.
         //
@@ -219,6 +228,7 @@ namespace Desert::Engine
 
     protected:
         std::shared_ptr<Window> m_Window;
+        float                   m_ExcludedSeconds = 0.0f; // ExcludeFromNextTimestep, consumed by the next frame
         FramePacer              m_FramePacer;
     };
 

@@ -417,7 +417,7 @@ namespace Desert::Assets
     };
 
     /**
-     * @brief A blank canvas: WHITE — the slider's sky everywhere, nothing carved — and NO MASK.
+     * @brief A blank canvas: BLACK — clear sky everywhere, nothing painted yet — and NO MASK.
      *
      * WHY NO MASK RATHER THAN A NEUTRAL ONE. A mask of uniform neutral changes nothing, so carrying one
      * would be a table written to every file for no effect — and the layer would pay a wrap-sampled fetch
@@ -532,11 +532,11 @@ namespace Desert::Assets
         float Hardness = 1.0f;
 
         /// 0..1, the value the stroke moves the channel TOWARD. On a pattern channel 1 is "as much of this
-        /// species as the slider allows" (the white a canvas starts at) and 0 is "none" — the default, so a
-        /// brush carves clear sky; on the mask 1 adds cloud, 0 removes it and 0.5 is the neutral an eraser
-        /// returns to. One number for painting and for erasing, because an eraser
-        /// that is not just "ink at the rest value" is a second code path doing one thing.
-        float Ink = 0.0f;
+        /// species as the slider allows" — the default, so a brush paints cloud onto the clear sky a canvas
+        /// starts at — and 0 is "none", the value an eraser returns to; on the mask 1 adds cloud, 0 removes
+        /// it and 0.5 is the neutral an eraser returns to. One number for painting and for erasing, because
+        /// an eraser that is not just "ink at the rest value" is a second code path doing one thing.
+        float Ink = 1.0f;
     };
 
     /**

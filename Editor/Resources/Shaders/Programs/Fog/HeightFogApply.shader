@@ -20,13 +20,18 @@ Shader "HeightFogApply"
         // The fog image is the target's own size, so the fetch is one texel per pixel — no filtering to
         // smear a silhouette, and nothing for a bilateral guide to fix.
         //
-        // NO TONEMAP, NO GAMMA, NO EXPOSURE: linear HDR onto linear HDR.
+        // NO TONEMAP, NO GAMMA, NO EXPOSURE here: linear HDR onto linear HDR. The view's PreExposure is already in
+        // the fog image's inscattering (HeightFog.shader writes it multiplied, FogPush::Exposure).
 
         In(0) vec2 v_TexCoord;
 
         Out(0) vec4 o_Color;
 
-        Uniform(0) sampler2D u_FogApply;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(1) sampler u_PointClampSampler;
+        Uniform(0) texture2D u_FogApply;
+        #define u_FogApply sampler2D(u_FogApply, u_PointClampSampler)
 
         void main()
         {

@@ -8,7 +8,7 @@
 #include "Editor/Core/Selection/SelectionManager.hpp"
 #include "Editor/Core/SubjectEditorRegistry.hpp"
 #include "Editor/Core/ThemeManager.hpp"
-#include "Editor/Import/BackgroundCook.hpp"
+#include "Editor/LevelEditor/AssetCompiling.hpp"
 #include "Editor/LevelEditor/DocumentHost.hpp"
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
@@ -96,10 +96,9 @@ namespace Desert::Editor
         m_DrawBottomDrawerToggle();
         ImGui::SameLine( 0.0f, 12.0f );
 
-        if ( m_BackgroundCook && m_BackgroundCook->Outstanding() > 0 )
+        if ( const std::size_t cooking = m_Compiling.RemainingAssets(); cooking > 0 )
         {
-            ImGui::TextDisabled( ICON_MDI_COG " Cooking %zu of %zu mesh source(s)",
-                                 m_BackgroundCook->Outstanding(), m_BackgroundCook->Total() );
+            ImGui::TextDisabled( ICON_MDI_COG " Cooking %zu mesh source(s)", cooking );
             ImGui::SameLine( 0.0f, 12.0f );
         }
 
@@ -163,8 +162,8 @@ namespace Desert::Editor
         ImGui::SameLine( 0.0f, 16.0f );
         {
             uint64_t held = 0;
-            for ( const Engine::ViewBudget::HeldView& view : Graphic::SceneRenderer::LiveHoldings() )
-                held += view.Bytes;
+            for ( const Engine::ViewBudget::HeldView& entry : Graphic::ReadBudgetHoldings() ) // views + scenes
+                held += entry.Bytes;
             const uint64_t                    pending = PendingViewBytes( m_Documents.Documents().Documents() );
             const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget();
 

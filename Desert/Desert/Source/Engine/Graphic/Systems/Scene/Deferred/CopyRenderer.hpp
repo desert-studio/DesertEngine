@@ -48,8 +48,8 @@ namespace Desert::Graphic::System
             if ( !m_Pipeline )
                 return;
             pass.Bindings( m_BindingLayout.Get( m_Shader ), RDG::OtherRouteFill{} )
-                 .Sampled( "u_Input", source, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::LinearRepeat() );
+                 .Texture( "u_Input", source, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
         }
 
         // Inside the render pass the graph opens on the copy: opens the block DeclareBindings declared.

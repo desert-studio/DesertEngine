@@ -3,6 +3,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
 #include <array>
 #include <limits>
 
@@ -16,6 +17,46 @@ namespace Desert::Editor
         if ( settings.UpAxis == Assets::MeshSourceUpAxis::Z )
             m = glm::rotate( glm::mat4( 1.0f ), glm::radians( -90.0f ), glm::vec3( 1.0f, 0.0f, 0.0f ) ) * m;
         return m;
+    }
+
+    std::vector<Assets::Serialization::ImportRecordLight>
+    SourceLightsToEngine( std::span<const ImportedLight> lights, const Assets::MeshImportSettings& settings )
+    {
+        const glm::mat4                                       c = SourceToEngine( settings );
+        std::vector<Assets::Serialization::ImportRecordLight> out;
+        out.reserve( lights.size() );
+        for ( const ImportedLight& light : lights )
+        {
+            Assets::Serialization::ImportRecordLight stated;
+            stated.Name = light.Name;
+            switch ( light.Type )
+            {
+                case ImportedLightType::Point:
+                    stated.Type = "Point";
+                    break;
+                case ImportedLightType::Spot:
+                    stated.Type           = "Spot";
+                    stated.InnerConeAngle = std::min( light.InnerConeDegrees, light.OuterConeDegrees );
+                    stated.OuterConeAngle = light.OuterConeDegrees;
+                    break;
+                case ImportedLightType::Directional:
+                    stated.Type = "Directional";
+                    break;
+            }
+            const glm::vec3 position  = glm::vec3( c * glm::vec4( light.Position, 1.0f ) );
+            const glm::vec3 direction = glm::normalize( glm::vec3( c * glm::vec4( light.Direction, 0.0f ) ) );
+            stated.Position           = { position.x, position.y, position.z };
+            stated.Direction          = { direction.x, direction.y, direction.z };
+            const glm::vec3 radiance  = glm::max( light.Radiance, glm::vec3( 0.0f ) );
+            const float     peak      = std::max( { radiance.r, radiance.g, radiance.b } );
+            const glm::vec3 color     = peak > 0.0f ? radiance / peak : glm::vec3( 1.0f );
+            stated.Color              = { color.r, color.g, color.b };
+            stated.Intensity          = peak;
+            if ( light.Radius && light.Type != ImportedLightType::Directional )
+                stated.Radius = *light.Radius * settings.UniformScale;
+            out.push_back( std::move( stated ) );
+        }
+        return out;
     }
 
     Common::Math::AABB SourceToEngineBounds( const Common::Math::AABB&         box,

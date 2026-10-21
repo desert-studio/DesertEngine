@@ -9,14 +9,26 @@ Shader "BloomDownsample"
         // folded in here (so no separate bright-pass is needed). u_Source is bound as a single-mip view of the
         // source mip, so the whole bloom mip-chain can live in one image while each mip keeps its own layout.
 
-        Uniform(0) sampler2D u_Source;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass and numbered by the program build (SharedSamplerBinding.hpp); a same-name
+        // macro after each texture keeps the sampled form.
+        Uniform sampler u_LinearClampSampler;
+        Uniform sampler u_PointClampSampler;
+        Uniform(0) texture2D u_Source;
+        #define u_Source sampler2D(u_Source, u_LinearClampSampler)
         layout(binding = 1, rgba16f) writeonly uniform image2D u_Output;
+        // This frame's adapted luminance (AEAverage's 1x1), or white when auto-exposure is off (then unread).
+        Uniform(2) texture2D u_AdaptedLuminance;
+        #define u_AdaptedLuminance sampler2D(u_AdaptedLuminance, u_PointClampSampler)
 
         PushConstant PushConstants
         {
             vec2  u_SrcTexelSize; // 1 / size(source mip)
             int   u_FirstPass;    // 1 => scene -> mip0 (Karis average + threshold)
-            float u_Threshold;    // bright-pass cutoff (first pass only)
+            float u_Threshold;    // bright-pass cutoff (first pass only), raw luminance unless u_AutoExposure,
+                                  // x ViewFrame::PreExposure (BloomRenderer: the scene is stored pre-exposed)
+            float u_ExposureKey;  // auto-exposure key — the composite's u_ExposureKey
+            int   u_AutoExposure; // 1 => u_Threshold is after exposure: divide by key / adapted luminance
         };
 
         LocalSize(16, 16, 1);
@@ -76,8 +88,16 @@ Shader "BloomDownsample"
                 color    = ( b0 * w0 + b1 * w1 + b2 * w2 + b3 * w3 + b4 * w4 ) / ( w0 + w1 + w2 + w3 + w4 );
 
                 // Bright-pass: keep only the energy above the threshold (preserves hue).
+                // With auto-exposure the authored threshold is in EXPOSED units, as the manual path states it
+                // (SceneRenderer divides it by the manual scale on the CPU): the exposure lives on the GPU here,
+                // so it is divided here, by the composite's own key / adapted luminance. Without this a
+                // physical scene (a 100 000 lux sun, ~10^4 cd/m^2 everywhere) was bloom from edge to edge.
+                float threshold = u_Threshold;
+                if ( u_AutoExposure == 1 )
+                    threshold *= max( textureLod( u_AdaptedLuminance, vec2( 0.5 ), 0.0 ).r, 1e-4 ) /
+                                 max( u_ExposureKey, 1e-4 );
                 float brightness   = max( color.r, max( color.g, color.b ) );
-                float contribution = max( brightness - u_Threshold, 0.0 ) / max( brightness, 1e-4 );
+                float contribution = max( brightness - threshold, 0.0 ) / max( brightness, 1e-4 );
                 color *= contribution;
             }
             else

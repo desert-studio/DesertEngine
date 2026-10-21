@@ -1,5 +1,6 @@
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanIndexBuffer.hpp>
+#include <Engine/Graphic/API/Vulkan/MeshBufferUsage.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 
@@ -73,6 +74,12 @@ namespace Desert::Graphic::API::Vulkan
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
                               ->GetVulkanAllocator()
                               .get();
+
+        // A static buffer drops its host copy once the copy is on the device (below), so a second upload would
+        // send nothing: new contents are a new buffer (every mesh rebuild makes one).
+        if ( m_HostCopyReleased )
+            return Common::MakeFormattedError<bool>(
+                 "static index buffer of {} bytes uploaded again after its host copy was released", m_Size );
 
         if ( m_VulkanBuffer )
         {
@@ -150,7 +157,7 @@ namespace Desert::Graphic::API::Vulkan
             }
 
             auto vertexBufferCreateInfo = CreateIndexBufferInfo(
-                 m_Size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                 m_Size, MeshBufferUsage( MeshBufferRole::Index, allocator->GetDeviceCaps() ),
                  VK_SHARING_MODE_EXCLUSIVE );
 
             const auto buffer = allocator->RT_AllocateBuffer( "IndexBuffer", vertexBufferCreateInfo,
@@ -175,7 +182,16 @@ namespace Desert::Graphic::API::Vulkan
             vkCmdCopyBuffer( copyCmdVal, stagingBuffer, m_VulkanBuffer, 1, &copyRegion );
 
             const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( copyCmdVal );
+            const bool uploaded = flushed.IsSuccess() && flushed.GetValue() == VK_SUCCESS;
             allocator->RT_ReleaseStaging( stagingBuffer, stagingBufferAllocationVAL, flushed );
+            // UE drops a static buffer's resource array once it is on the RHI (no bNeedsCPUAccess): nothing reads
+            // the host copy after the upload, and holding it doubled every mesh's geometry in the heap (~250 MB
+            // on B16_Bistro_Street). The mesh asset keeps its own arrays for the CPU readers.
+            if ( uploaded )
+            {
+                m_StorageBuffer.Release();
+                m_HostCopyReleased = true;
+            }
         }
         return Common::MakeSuccess( true );
     }

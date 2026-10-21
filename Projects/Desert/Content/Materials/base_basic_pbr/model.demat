@@ -37,10 +37,6 @@
             "Value": [1.0, 0.0, 0.0, 0.0]
         },
         {
-            "Name": "AlphaCutoff",
-            "Value": [0.0, 0.0, 0.0, 0.0]
-        },
-        {
             "Name": "UVTiling",
             "Value": [1.0, 1.0, 0.0, 0.0]
         }
@@ -55,11 +51,6 @@
             "Name": "u_NormalTexture",
             "Guid": "4935766ceb333c400238ec9d78b344c2",
             "Path": "assets:Meshes/texture_normal.detex"
-        },
-        {
-            "Name": "u_OpacityTexture",
-            "Guid": "",
-            "Path": ""
         },
         {
             "Name": "u_EmissiveTexture",

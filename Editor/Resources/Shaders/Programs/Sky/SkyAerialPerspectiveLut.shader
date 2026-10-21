@@ -42,8 +42,13 @@ Shader "SkyAerialPerspectiveLut"
 
         // The cached pair, valid whenever this pass runs — SkyboxRenderer dispatches them first.
         // Bindings = Graphic::kSkyTransmittanceLutBinding / kSkyMultiScatterLutBinding.
-        Uniform(2) sampler2D u_TransmittanceLut;
-        Uniform(3) sampler2D u_MultiScatterLut;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform sampler u_GlobalFilterSampler;
+        Uniform(2) texture2D u_TransmittanceLut;
+        #define u_TransmittanceLut sampler2D(u_TransmittanceLut, u_GlobalFilterSampler)
+        Uniform(3) texture2D u_MultiScatterLut;
+        #define u_MultiScatterLut sampler2D(u_MultiScatterLut, u_GlobalFilterSampler)
 
         // Mirrored by Graphic::SkyAerialPerspectivePush.
         PushConstant SkyApPush
@@ -126,7 +131,7 @@ Shader "SkyAerialPerspectiveLut"
 
             // Outer-space sun illuminance: the authored sun colour times intensity — the same pair the
             // Sky-View fill integrates, so the two results are literally the same quantity.
-            vec3 sunIlluminance = UnpackSkyConfig(s).sunColor * UnpackSunIntensity(s);
+            vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
 
             // The art-direction tint that belongs INSIDE every scattering integration (UE's
             // SkyAndAerialPerspectiveLuminanceFactor). Applied on the stored value because the integral

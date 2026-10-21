@@ -1,6 +1,11 @@
 #ifndef CONTACT_SHADOW_GLSLH
 #define CONTACT_SHADOW_GLSLH
 
+// Every fragment includer marches from its own fragment; only a compute includer names its pixel.
+#ifndef CONTACT_SHADOW_PIXEL
+#define CONTACT_SHADOW_PIXEL gl_FragCoord.xy
+#endif
+
 // CONTACT SHADOWS — a short screen-space ray from the shaded pixel toward the light, marched through the scene
 // depth (UE: ShadowRayCast in DeferredLightingCommon.ush, the light's ContactShadowLength). It catches the
 // occlusion the shadow maps are too coarse or too biased to hold: a chair leg on the floor, a frame against the
@@ -13,9 +18,14 @@
 //     #define CONTACT_SHADOW_DEPTH   <sampler2D>  the opaque scene's device depth (nearest): the deferred composite's
 //                                                 u_GBufferDepth, the forward passes' u_SceneDepth
 //     #define CONTACT_SHADOW_VP      <mat4>       the matrix that depth was rasterised with (jittered)
+//     #define CONTACT_SHADOW_PIXEL   <vec2>       the render pixel the march's dither is keyed on: a fragment
+//                                                 program's gl_FragCoord.xy; a compute pass (MegaLights) names
+//                                                 the pixel it traces for
+//     #define CONTACT_SHADOW_INV_VP  <mat4>       its inverse (the depth's world positions, Common/ReconstructPosition)
 // and declares the ShadowUB block (SceneResources::ShadowUBData), whose
 //     vec4 u_ContactShadowView;  x = ray steps (Scalability Shadows.ContactShadowSteps; 0 = off),
-//                                y = tan(vertical FOV / 2), z = dither frame (0..7), w unused
+//                                y = tan(vertical FOV / 2), z = dither frame (0..7; the cascade filter's disc
+//                                turns by it too, Mesh/CascadedShadow.glslh), w unused
 // carries the view's half of the march.
 //
 // A light's length is UE's: in WORLD centimetres when `inWorldSpace`, otherwise a fraction of the screen height
@@ -40,10 +50,51 @@ float ContactShadowWorldLength(vec3 worldPosition, float contactShadowLength, bo
 	return contactShadowLength * u_ContactShadowView.y * viewDepth;
 }
 
+#include <Common/ReconstructPosition.glslh>
+
+// The world point of the depth texel under `uv` (its centre: the depth is point-sampled, so that is the point the
+// texel stands for).
+vec3 ContactShadowTexelPosition(vec2 uv, out float deviceDepth)
+{
+	const vec2 size = vec2(textureSize(CONTACT_SHADOW_DEPTH, 0));
+	const vec2 centre = (floor(uv * size) + 0.5) / size;
+	deviceDepth       = textureLod(CONTACT_SHADOW_DEPTH, centre, 0.0).r;
+	return ReconstructWorldPosition(centre, deviceDepth, CONTACT_SHADOW_INV_VP);
+}
+
+// The receiver's GEOMETRIC normal where the depth holds it: the plane of the rasterised triangle under `uv`, from
+// the texel's neighbours (on each axis the side whose depth is closer to the centre's, so an edge beside the
+// receiver does not bend the plane). Not the G-buffer normal: a normal map tilts that by more than a low sun's
+// elevation, and the test below is about the surface the depth was rasterised from. Oriented as `N`.
+vec3 ContactShadowDepthPlaneNormal(vec2 uv, vec3 centre, float centreDepth, vec3 N)
+{
+	const vec2 texel = 1.0 / vec2(textureSize(CONTACT_SHADOW_DEPTH, 0));
+	float      dl, dr, dd, du;
+	const vec3 pl = ContactShadowTexelPosition(uv - vec2(texel.x, 0.0), dl);
+	const vec3 pr = ContactShadowTexelPosition(uv + vec2(texel.x, 0.0), dr);
+	const vec3 pu = ContactShadowTexelPosition(uv - vec2(0.0, texel.y), du);
+	const vec3 pd = ContactShadowTexelPosition(uv + vec2(0.0, texel.y), dd);
+	const vec3 dx = abs(dl - centreDepth) < abs(dr - centreDepth) ? centre - pl : pr - centre;
+	const vec3 dy = abs(du - centreDepth) < abs(dd - centreDepth) ? centre - pu : pd - centre;
+	const vec3 n  = normalize(cross(dx, dy));
+	return dot(n, N) < 0.0 ? -n : n;
+}
+
 // UE CastScreenSpaceShadowRay (ScreenSpaceShadowRayCast.ush): the distance in cm along the ray to the first scene
 // point it passes behind, or -1 on a miss; `hitUV` is that sample's screen UV. `L` points from the surface toward
-// the light.
-float ContactShadowRayCast(vec3 worldPosition, vec3 L, float rayLength, out vec2 hitUV)
+// the light, `N` is the receiver's normal.
+//
+// One test beyond UE's: a hit must stand on the light's side of the receiver's own plane by at least half the ray's
+// offset from it there (the ray at distance t is t * N.L off the plane, and a scene point the depth test accepts
+// lies within a step's thickness of the ray). UE rejects the receiver's own surface at the start pixel only. Along a ray that
+// grazes that surface (a low sun over a heightfield) each sample reads the depth at its texel centre, up to half a
+// texel of the surface's depth slope away from the ray, so the receiver's own surface a few texels on passes the
+// depth test: per-pixel grain over the whole terrain, and whole triangles of a coarse landscape patch dark. A point
+// on or under the receiver's plane cannot stand between it and a light above that plane: it is the receiver, not
+// an occluder. A blade of grass or a rise of the terrain that really crosses the ray stands above the plane by the
+// ray's height and still casts. The test applies where the start texel is the receiver itself (opaque receivers);
+// a receiver the depth does not hold (translucency) has no surface of its own in it.
+float ContactShadowRayCast(vec3 worldPosition, vec3 N, vec3 L, float rayLength, out vec2 hitUV)
 {
 	hitUV           = vec2(0.0);
 	const int steps = int(u_ContactShadowView.x + 0.5);
@@ -82,8 +133,18 @@ float ContactShadowRayCast(vec3 worldPosition, vec3 L, float rayLength, out vec2
 	// The start pixel's own depth: a sample that reads it exactly is the receiver itself, never its occluder
 	// (UE: "avoid self-intersection with the start pixel", exact because the depth is point-sampled).
 	const float startDepth = textureLod(CONTACT_SHADOW_DEPTH, rayStartUVz.xy, 0.0).r;
+	// The receiver's plane (see above): only when the start texel is the receiver itself.
+	const bool receiverInDepth = abs(startDepth - rayStartScreen.z) <= compareTolerance;
+	vec3       planeN          = N;
+	if (receiverInDepth)
+	{
+		float      centreDepth;
+		const vec3 centre = ContactShadowTexelPosition(rayStartUVz.xy, centreDepth);
+		planeN            = ContactShadowDepthPlaneNormal(rayStartUVz.xy, centre, centreDepth, N);
+	}
+	const float planeNoL = dot(planeN, L);
 
-	const float stepOffset = ContactShadowDither(gl_FragCoord.xy, u_ContactShadowView.z) - 0.5;
+	const float stepOffset = ContactShadowDither(CONTACT_SHADOW_PIXEL, u_ContactShadowView.z) - 0.5;
 	float       sampleTime = stepOffset * stepFraction + stepFraction;
 
 	for (int i = 0; i < steps; i++)
@@ -96,6 +157,19 @@ float ContactShadowRayCast(vec3 worldPosition, vec3 L, float rayLength, out vec2
 		if (sampleDepth != startDepth && abs(depthDiff + compareTolerance) < compareTolerance)
 		{
 			hitUV = sampleUVz.xy;
+			if (receiverInDepth)
+			{
+				float      hitDepth;
+				const vec3 hitPosition = ContactShadowTexelPosition(sampleUVz.xy, hitDepth);
+				// On the light's side of the plane by half the ray's offset from it (below it when the light is
+				// behind the receiver: a leaf's transmitted light, whose ray leaves through the leaf's back).
+				const float height = dot(hitPosition - worldPosition, planeN);
+				if (height * planeNoL <= 0.5 * rayLength * sampleTime * planeNoL * planeNoL)
+				{
+					sampleTime += stepFraction;
+					continue;
+				}
+			}
 			// Off-screen masking: a hit outside the view has no depth behind it to trust.
 			const bool onScreen = all(greaterThan(sampleUVz.xy, vec2(0.0))) && all(lessThan(sampleUVz.xy, vec2(1.0)));
 			return onScreen ? rayLength * sampleTime : -1.0;
@@ -105,12 +179,7 @@ float ContactShadowRayCast(vec3 worldPosition, vec3 L, float rayLength, out vec2
 	return -1.0;
 }
 
-// UE SubsurfaceDensityFromOpacity (DeferredShadingCommon.ush): the density per cm a subsurface receiver's opacity
-// stands for, tuned for a linear depth falloff with opacity.
-float ContactShadowSubsurfaceDensity(float opacity)
-{
-	return -0.05 * log(1.0 - min(opacity, 0.99));
-}
+#include <Common/SubsurfaceDensity.glslh> // ContactShadowSubsurfaceDensity
 
 // UE ApplyContactShadowWithShadowTerms (DeferredLightingCommon.ush): a light's contact shadow at `worldPosition`,
 // 1 = lit. `light` is the light's half: x = ContactShadowLength (0 = none), y = in world space (> 0.5),
@@ -121,14 +190,16 @@ float ContactShadowSubsurfaceDensity(float opacity)
 //                                                       bCastContactShadow (ShadingModelContract.glslh, included
 //                                                       before this header). `subsurfaceOpacity` is the RECEIVER's (DesertSubsurfaceOpacity, < 0 =
 // not a subsurface model): a subsurface receiver lets the light through a near occluder, so its occlusion fades
-// with the hit distance as its shadow-map path does. A receiver facing away from the light marches nothing.
+// with the hit distance as its shadow-map path does. A receiver facing away from the light marches nothing unless it
+// is a subsurface model: the light it lets through (DesertLight::TransmissionShadow) takes the same contact
+// occlusion (UE GetShadowTerms applies the contact shadow to the transmission whatever the N.L).
 float ContactShadowFactor(vec3 worldPosition, vec3 N, vec3 L, vec4 light, float subsurfaceOpacity)
 {
-	if (light.x <= 0.0 || dot(N, L) <= 0.0)
+	if (light.x <= 0.0 || (dot(N, L) <= 0.0 && subsurfaceOpacity < 0.0))
 		return 1.0;
 	vec2        hitUV;
 	const float hitDistance =
-	     ContactShadowRayCast(worldPosition, L, ContactShadowWorldLength(worldPosition, light.x, light.y > 0.5), hitUV);
+	     ContactShadowRayCast(worldPosition, N, L, ContactShadowWorldLength(worldPosition, light.x, light.y > 0.5), hitUV);
 	if (hitDistance <= 0.0)
 		return 1.0;
 

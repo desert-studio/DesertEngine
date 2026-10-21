@@ -1,0 +1,69 @@
+{
+    "Header": {
+        "Kind": "WeatherPreset",
+        "Guid": "0e389dd7478643f898e8e1cf3b5707c1",
+        "Versions": {
+            "WTHP": 1
+        },
+        "Dependencies": []
+    },
+    "Parameters": [
+        {
+            "Name": "RainIntensity",
+            "Value": [
+                0.4,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "SnowIntensity",
+            "Value": [
+                0.4,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "Wetness",
+            "Value": [
+                0.8,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "PuddleLevel",
+            "Value": [
+                0.3,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "SnowCover",
+            "Value": [
+                0.2,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "Lightning",
+            "Value": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        }
+    ],
+    "CloudCoverage": 0.9,
+    "FogDensity": 0.06,
+    "WindSpeed": 700.0
+}

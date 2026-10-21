@@ -43,8 +43,13 @@ Shader "SkyDistantLight"
 
         // The cached pair, valid whenever this pass runs — SkyboxRenderer dispatches them first.
         // Bindings = Graphic::kSkyTransmittanceLutBinding / kSkyMultiScatterLutBinding.
-        Uniform(2) sampler2D u_TransmittanceLut;
-        Uniform(3) sampler2D u_MultiScatterLut;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform sampler u_GlobalFilterSampler;
+        Uniform(2) texture2D u_TransmittanceLut;
+        #define u_TransmittanceLut sampler2D(u_TransmittanceLut, u_GlobalFilterSampler)
+        Uniform(3) texture2D u_MultiScatterLut;
+        #define u_MultiScatterLut sampler2D(u_MultiScatterLut, u_GlobalFilterSampler)
 
         // The same read-side mappings every other consumer of the cached pair uses: raw uv for the
         // transmittance LUT, texel-centre remap for the multi-scatter LUT — each the exact inverse of
@@ -92,7 +97,7 @@ Shader "SkyDistantLight"
             vec3  sunDir       = vec3(sunZenithSin, sunZenithCos, 0.0f);
 
             // Outer-space sun illuminance — the same pair every other physical pass reads.
-            vec3 sunIlluminance = UnpackSkyConfig(s).sunColor * UnpackSunIntensity(s);
+            vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
 
             vec3 direction = SkyDistantLightDirection(int(index));
 

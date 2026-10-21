@@ -72,13 +72,28 @@ namespace Desert::Core
     // from the frame graph (BindSceneViewInputs), like the deferred composite's copy of the same two blocks.
     inline constexpr uint32_t kLightGridParamsBinding = kSceneReadBindingFirst + 4u;
     inline constexpr uint32_t kLightGridCellsBinding  = kSceneReadBindingFirst + 5u;
-    // The view's point/spot shadows (Graphic/LocalShadows.hpp), read by the forward cell through the same reader
+    // The view's MegaLights translucency volume (Common/MegaLightsVolume.glslh, Graphic::MegaLightsVolumeRefs),
+    // read by the forward and translucent cells: its block, then its three volumes (R, G, B). Bound by name from
+    // the frame graph (BindSceneViewInputs).
+    inline constexpr uint32_t kMegaLightsVolumeParamsBinding = kSceneReadBindingFirst + 6u;
+    inline constexpr uint32_t kMegaLightsVolumeFirstBinding  = kSceneReadBindingFirst + 7u;
+    // The world's parameters (`WorldParameters`, Common/WorldParameters.glslh): declared only into the cells whose
+    // surface reads one (DShaderParser lowers `WorldParameter( "Name" )`), bound by SceneFrameBinding::ApplyTo.
+    inline constexpr uint32_t kWorldParametersBinding = kSceneReadBindingFirst + 10u;
+    // The view's rain occlusion (Graphic/RainOcclusion.hpp, Common/RainOcclusion.glslh): the top-down depth
+    // of what stands over the camera's surroundings (`u_RainOcclusionMap`) and the block that projects a world
+    // position into it (`RainOcclusionUB`). Declared only into the cells that wet a surface
+    // (DESERT_SURFACE_WEATHER: the Forward and GBuffer mesh cells); the map is bound from the frame graph
+    // (BindSceneViewInputs), the block by SceneFrameBinding::ApplyTo.
+    inline constexpr uint32_t kRainOcclusionMapBinding   = kSceneReadBindingFirst + 11u;
+    inline constexpr uint32_t kRainOcclusionBlockBinding = kSceneReadBindingFirst + 12u;
+    // The view's point/spot shadows (Graphic/LocalShadows.hpp), read by the forward cells through the same reader
     // the deferred composite uses (Mesh/LocalLightShadow.glslh): the atlas (`u_LocalShadowAtlas`), then the table
     // of its views (`LocalShadowViewsUB`) each light's shadowView names. Bound by name from the frame graph
-    // (BindSceneViewInputs); declared in Mesh/Surface/Pass_Forward.glslh.
-    inline constexpr uint32_t kLocalShadowAtlasBinding = kSceneReadBindingFirst + 6u;
-    inline constexpr uint32_t kLocalShadowViewsBinding = kSceneReadBindingFirst + 7u;
-    inline constexpr uint32_t kSceneReadBindingCount   = 8u;
+    // (BindSceneViewInputs); declared in Mesh/ForwardLocalLights.glslh.
+    inline constexpr uint32_t kLocalShadowAtlasBinding = kSceneReadBindingFirst + 13u;
+    inline constexpr uint32_t kLocalShadowViewsBinding = kSceneReadBindingFirst + 14u;
+    inline constexpr uint32_t kSceneReadBindingCount   = 15u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
     {
@@ -86,8 +101,10 @@ namespace Desert::Core
     }
 
     // Raised from 24 (TAA1 step 4), then from 27 (the scene depth joined the range), then from 28 (the scene
-    // shading word and the light grid joined it), then from 31 (the local shadow atlas and its views joined it),
-    // to sit above the scene-read range; see the paragraph on moving it above.
+    // shading word and the light grid joined it), then from 31 (the MegaLights volume joined it), then from 35 (the
+    // world parameters joined it), then from 36 (the rain occlusion's map and block joined it), then from 38 (the
+    // local shadow atlas and its views joined it), to sit above the scene-read range; see the paragraph on moving it
+    // above.
     inline constexpr uint32_t kGraphOwnedBindingFirst = kSceneReadBindingFirst + kSceneReadBindingCount;
-    static_assert( kGraphOwnedBindingFirst == 33u, "the graph's window opens right above the scene-read range" );
+    static_assert( kGraphOwnedBindingFirst == 40u, "the graph's window opens right above the scene-read range" );
 } // namespace Desert::Core

@@ -37,7 +37,7 @@ namespace Desert::Graphic
             return { sinTheta * std::cos( phi ), sinTheta * std::sin( phi ), cosTheta };
         }
 
-        // Smith geometry term with the IBL k remapping (k = a^2 / 2).
+        // Smith geometry term with the IBL k remapping (k = alpha / 2, alpha = roughness^2).
         float GeometrySchlickGGX( float NdotX, float k )
         {
             return NdotX / ( NdotX * ( 1.0f - k ) + k );
@@ -48,8 +48,13 @@ namespace Desert::Graphic
         {
             const Vec3 V = { std::sqrt( std::max( 0.0f, 1.0f - NdotV * NdotV ) ), 0.0f, NdotV };
 
+            // Karis 2013's IBL remapping k = alpha / 2 with alpha = roughness^2 (LearnOpenGL's k = roughness^2 /
+            // 2, UE's preintegrated EnvBRDF). It was alpha^2 / 2 = roughness^4 / 2: G barely attenuated a grazing
+            // view, and the LUT's scale + bias reached 1.44 at N.V -> 0, roughness 0.74 - a split sum that
+            // reflected 44 % more than it received and doubled every grazing reflection (FOLIAGE-LOOK-3: the pale
+            // sheen of Bistro's bush leaves).
             const float a = roughness * roughness;
-            const float k = ( a * a ) / 2.0f;
+            const float k = a / 2.0f;
 
             float scale = 0.0f, bias = 0.0f;
             for ( uint32_t i = 0; i < samples; ++i )

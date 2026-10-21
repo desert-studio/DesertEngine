@@ -55,10 +55,15 @@ namespace Desert::ECS
 
                      Graphic::ShaderProtocols::PointLightPayload light{};
                      light.Color     = pointlight.Data.Color;
-                     light.Intensity = pointlight.Data.Intensity;
+                     // The authored value in its units, as the multiplier the shader's falloff scales (UE
+                     // ULocalLightComponent::ComputeLightBrightness).
+                     light.Intensity = ECS::LightPhotometry::ShaderIntensity(
+                          pointlight.Data.Intensity, pointlight.Data.IntensityUnits, pointlight.Data.Falloff,
+                          pointlight.Data.MinRadius, ECS::LightPhotometry::kPointLightCosHalfCone );
                      light.Position  = glm::vec3(worldTransform[3]); // Extract translation from world matrix
                      light.Radius    = pointlight.Data.Radius;
                      light.MinRadius = pointlight.Data.MinRadius;
+                     light.SourceRadius = pointlight.Data.SourceRadius;
                      light.Falloff   = static_cast<int32_t>( pointlight.Data.Falloff );
                      // UE: contact shadows are part of the light's shadowing, so a light that casts none has none.
                      light.ContactShadowLength =

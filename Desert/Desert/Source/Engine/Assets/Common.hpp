@@ -126,6 +126,17 @@ namespace Desert::Assets
         // A VFX DATA CHANNEL (`.dfxch`): UE's UNiagaraDataChannel - the payload layout gameplay writes entries of
         // and Spawn from Channel emitters read. See Engine/Assets/VFXDataChannelAsset.hpp.
         VFXDataChannel,
+        // A LANDSCAPE GRASS TYPE (`.degrasstype`): UE's ULandscapeGrassType — the varieties (mesh, density,
+        // scale, cull distances) a layer info grows. The instances are never stored: the GPU generates them
+        // around the camera every frame — see Engine/Assets/LandscapeGrassTypeAsset.hpp and
+        // Graphic/Systems/Scene/Grass/GrassRenderer.hpp.
+        LandscapeGrassType,
+        // A WORLD PARAMETER COLLECTION (`.dworldparams`): UE's UMaterialParameterCollection — named world values
+        // every material can read and gameplay can set. See Engine/Assets/WorldParametersAsset.hpp.
+        WorldParameters,
+        // A WEATHER PRESET (`.dweatherpreset`): one weather as data, named by weather zones and SetWeather.
+        // See Engine/Assets/WeatherPresetAsset.hpp.
+        WeatherPreset,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -209,6 +220,9 @@ namespace Desert::Assets
             // A LAYER INFO IS SCENE-SCOPED for the retarget's reason: `LandscapeComponent::Layers` holds
             // `AssetHandle`s the reachability walk sees (SceneAssetRoots).
             case AssetTypeID::LandscapeLayerInfo:
+            // A GRASS TYPE IS SCENE-SCOPED for the layer info's reason: it is reached through the layer info
+            // that names it, and a layer info is itself scene-scoped.
+            case AssetTypeID::LandscapeGrassType:
             // A LEVEL SEQUENCE IS SCENE-SCOPED for the retarget's reason: `LevelSequenceComponent::Sequence`
             // is an `AssetHandle` held by a live entity.
             case AssetTypeID::LevelSequence:
@@ -238,6 +252,11 @@ namespace Desert::Assets
             // A VFX DATA CHANNEL IS SCENE-SCOPED for the retarget's reason: the scene's VFXWorld registers it by
             // handle (VFXDataChannels::Register) and a channel no scene uses has no entries to carry.
             case AssetTypeID::VFXDataChannel:
+            // A WORLD PARAMETER COLLECTION IS SCENE-SCOPED for the retarget's reason: the scene's settings name it
+            // by `AssetHandle` (SceneSettings::WorldParameters), and a collection no scene names has no world.
+            case AssetTypeID::WorldParameters:
+            // A WEATHER PRESET IS SCENE-SCOPED likewise: weather zones name it by `AssetHandle`.
+            case AssetTypeID::WeatherPreset:
             case AssetTypeID::Count:
                 return false;
         }
@@ -302,6 +321,8 @@ namespace Desert::Assets
                 return "FoliageType";
             case AssetTypeID::LandscapeLayerInfo:
                 return "LandscapeLayerInfo";
+            case AssetTypeID::LandscapeGrassType:
+                return "LandscapeGrassType";
             case AssetTypeID::LevelSequence:
                 return "LevelSequence";
             case AssetTypeID::VFXSystem:
@@ -320,6 +341,10 @@ namespace Desert::Assets
                 return "Sound";
             case AssetTypeID::VFXDataChannel:
                 return "VFXDataChannel";
+            case AssetTypeID::WorldParameters:
+                return "WorldParameters";
+            case AssetTypeID::WeatherPreset:
+                return "WeatherPreset";
             case AssetTypeID::Count:
                 return "Count";
         }
