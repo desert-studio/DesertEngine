@@ -75,6 +75,7 @@ project "WorldCook"
         "Optick",
         "MeshOptimizer",
         "Voro",
+        "MikkTSpace",
         "OpenSubdiv",
         "OpenEXRCore",
         "Dav1d",

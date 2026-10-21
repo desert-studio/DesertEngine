@@ -10,6 +10,8 @@
 
 #include <algorithm>
 #include <limits>
+#include <new>
+#include <type_traits>
 #include <functional>
 #include <optional>
 
@@ -24,6 +26,7 @@
 
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Serialization/Mesh.hpp>
+#include <Engine/Geometry/MikkTangents.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 
@@ -679,7 +682,8 @@ namespace Desert::Editor
             if ( !skinnedVertices )
             {
                 // -------- STATIC -------- (bake the node world transform so orientation/placement match the
-                // DCC tool; normals/tangents use the 3x3 part, renormalized to survive any scale.)
+                // DCC tool; normals use the 3x3 part, renormalized to survive any scale. Tangents are generated
+                // over the baked vertices below.)
                 const glm::mat4 world     = placement.World;
                 const glm::mat3 normalMat = glm::mat3( world );
 
@@ -695,16 +699,6 @@ namespace Desert::Editor
                         v.Normal = glm::normalize(
                              normalMat * glm::vec3( mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z ) );
 
-                    if ( mesh->HasTangentsAndBitangents() )
-                    {
-                        v.Tangent = glm::normalize( normalMat * glm::vec3( mesh->mTangents[i].x,
-                                                                           mesh->mTangents[i].y,
-                                                                           mesh->mTangents[i].z ) );
-                        v.Bitangent = glm::normalize( normalMat * glm::vec3( mesh->mBitangents[i].x,
-                                                                            mesh->mBitangents[i].y,
-                                                                            mesh->mBitangents[i].z ) );
-                    }
-
                     if ( mesh->HasTextureCoords( 0 ) )
                         v.TexCoord = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
 
@@ -718,8 +712,7 @@ namespace Desert::Editor
                 // vertices where the bind pose draws them, the same rest space BakeBindPose takes the skinned
                 // vertices to; one bone, full weight.
                 const glm::mat4 world      = placement.World;
-                const glm::mat3 tangentMat = glm::mat3( world );
-                const glm::mat3 normalMat  = glm::transpose( glm::inverse( tangentMat ) );
+                const glm::mat3 normalMat  = glm::transpose( glm::inverse( glm::mat3( world ) ) );
                 const auto      unit       = []( const glm::vec3& d )
                 { return glm::length( d ) > 0.0f ? glm::normalize( d ) : d; };
 
@@ -732,13 +725,6 @@ namespace Desert::Editor
                     if ( mesh->HasNormals() )
                         v.Normal = unit( normalMat * glm::vec3( mesh->mNormals[i].x, mesh->mNormals[i].y,
                                                                 mesh->mNormals[i].z ) );
-                    if ( mesh->HasTangentsAndBitangents() )
-                    {
-                        v.Tangent   = unit( tangentMat * glm::vec3( mesh->mTangents[i].x, mesh->mTangents[i].y,
-                                                                    mesh->mTangents[i].z ) );
-                        v.Bitangent = unit( tangentMat * glm::vec3( mesh->mBitangents[i].x, mesh->mBitangents[i].y,
-                                                                    mesh->mBitangents[i].z ) );
-                    }
                     if ( mesh->HasTextureCoords( 0 ) )
                         v.TexCoord = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
                     v.BoneIDs[0]     = *rigidBone;
@@ -761,12 +747,6 @@ namespace Desert::Editor
 
                     if ( mesh->HasNormals() )
                         v.Normal = { mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z };
-
-                    if ( mesh->HasTangentsAndBitangents() )
-                    {
-                        v.Tangent   = { mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z };
-                        v.Bitangent = { mesh->mBitangents[i].x, mesh->mBitangents[i].y, mesh->mBitangents[i].z };
-                    }
 
                     if ( mesh->HasTextureCoords( 0 ) )
                         v.TexCoord = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
@@ -833,6 +813,8 @@ namespace Desert::Editor
                 }
                 AppendVertexStreams( *mesh, streams, meshData.Colors, meshData.UV1 );
             }
+
+            const size_t firstMorph = morphContribs.size();
 
             // ============================
             // MORPH TARGETS (blendshapes)
@@ -909,6 +891,90 @@ namespace Desert::Editor
                 }
 
                 submesh.BoundingBox = { aabbMin, aabbMax };
+            }
+
+            // ============================
+            // TANGENTS (MikkTSpace)
+            // ============================
+            // The engine's one generator (Engine/Geometry/MikkTangents.hpp) over the vertices as stored: static
+            // and rigid ones with the node transform baked, skinned ones in mesh space (BakeBindPose turns the
+            // frame with them). A vertex whose corners disagree is split, and every per-vertex array of this
+            // submesh (vertices, colour / UV1 streams, rigid flags, morph deltas) and its triangles follow the
+            // split. Without UV0 there is no tangent space to derive; the frame stays zero, as no normal map
+            // can be sampled on such a mesh.
+            if ( mesh->HasTextureCoords( 0 ) && mesh->mNumFaces > 0 )
+            {
+                const size_t           first = submesh.VertexOffset;
+                const size_t           count = mesh->mNumVertices;
+                std::vector<glm::vec3> positions( count );
+                std::vector<glm::vec3> normals( count );
+                std::vector<glm::vec2> uvs( count );
+                const auto             gather = [&]( const auto& vertices )
+                {
+                    for ( size_t i = 0; i < count; ++i )
+                    {
+                        positions[i] = vertices[first + i].Position;
+                        normals[i]   = vertices[first + i].Normal;
+                        uvs[i]       = vertices[first + i].TexCoord;
+                    }
+                };
+                if ( skinnedVertices )
+                    gather( meshData.SkinnedVertices );
+                else
+                    gather( meshData.StaticVertices );
+
+                const size_t            firstTriangle = meshData.Indices.size() - mesh->mNumFaces;
+                std::vector<glm::uvec3> triangles( mesh->mNumFaces );
+                for ( size_t f = 0; f < triangles.size(); ++f )
+                {
+                    const IndexData& tri = meshData.Indices[firstTriangle + f];
+                    triangles[f]         = glm::uvec3( tri.V1, tri.V2, tri.V3 );
+                }
+
+                Geometry::IndexedMikkTangents frames;
+                // MikkTSpace fails only when its working set cannot be allocated.
+                if ( !Geometry::ComputeIndexedMikkTangents( positions, normals, uvs, triangles, frames ) )
+                    throw std::bad_alloc();
+
+                const auto follow = [&]( auto& values, size_t offset )
+                {
+                    using Value = typename std::decay_t<decltype( values )>::value_type;
+                    std::vector<Value> remapped;
+                    remapped.reserve( frames.SourceVertex.size() );
+                    for ( const uint32_t source : frames.SourceVertex )
+                        remapped.push_back( values[offset + source] );
+                    values.resize( offset );
+                    values.insert( values.end(), remapped.begin(), remapped.end() );
+                };
+                const auto writeFrames = [&]( auto& vertices )
+                {
+                    follow( vertices, first );
+                    for ( size_t k = 0; k < frames.SourceVertex.size(); ++k )
+                    {
+                        vertices[first + k].Tangent   = frames.Tangents[k];
+                        vertices[first + k].Bitangent = frames.Bitangents[k];
+                    }
+                };
+                if ( skinnedVertices )
+                    writeFrames( meshData.SkinnedVertices );
+                else
+                    writeFrames( meshData.StaticVertices );
+                if ( streams.Colors )
+                    follow( meshData.Colors, first );
+                if ( streams.UV1 )
+                    follow( meshData.UV1, first );
+                if ( skinnedVertices && rigidVertices.size() >= first + count )
+                    follow( rigidVertices, first );
+                for ( size_t m = firstMorph; m < morphContribs.size(); ++m )
+                {
+                    follow( morphContribs[m].DeltaPos, 0 );
+                    if ( !morphContribs[m].DeltaNorm.empty() )
+                        follow( morphContribs[m].DeltaNorm, 0 );
+                }
+                for ( size_t f = 0; f < triangles.size(); ++f )
+                    meshData.Indices[firstTriangle + f] = { frames.Triangles[f].x, frames.Triangles[f].y,
+                                                            frames.Triangles[f].z };
+                submesh.VertexCount = static_cast<uint32_t>( frames.SourceVertex.size() );
             }
 
             meshData.Submeshes.push_back( submesh );
@@ -1325,7 +1391,7 @@ namespace Desert::Editor
         // that lands the geometry in centimetres. Scaling it ourselves is not the cheaper option:
         // ScaleProcess also scales bone offset matrices, node translations and animation position keys,
         // and a second implementation of that is a second thing to keep in agreement.
-        const uint32_t readFlags = aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_CalcTangentSpace |
+        const uint32_t readFlags = aiProcess_Triangulate | aiProcess_GenNormals |
                                    aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights;
 
         // The source is read where its outputs are written: a relative path is off the project (FullPath),

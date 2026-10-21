@@ -159,6 +159,7 @@ project "Editor"
         "Optick",
         "MeshOptimizer",
         "Voro",
+        "MikkTSpace",
         "OpenSubdiv",
         -- THE TOOLKIT ITSELF, NAMED HERE RATHER THAN INHERITED. It used to arrive through Desert.vcxproj,
         -- because the engine listed it and MSVC links project references transitively; the engine does not
