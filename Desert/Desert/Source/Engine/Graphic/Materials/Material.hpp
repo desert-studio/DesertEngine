@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
+#include <Engine/Core/Formats/MaterialParamRow.hpp>
+#include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
@@ -14,6 +16,25 @@
 
 namespace Desert::Graphic
 {
+    // The binding kind of each material property type: what Material::Get's parameter must be declared as.
+    template <typename T>
+    inline constexpr RDG::ShaderResourceKind MaterialPropertyKind = []
+    {
+        if constexpr ( std::is_same_v<T, UniformBufferProperty> )
+            return RDG::ShaderResourceKind::UniformBuffer;
+        else if constexpr ( std::is_same_v<T, StorageBufferProperty> )
+            return RDG::ShaderResourceKind::StorageBuffer;
+        else
+        {
+            static_assert( std::is_same_v<T, Texture2DProperty> || std::is_same_v<T, TextureCubeProperty>,
+                           "a material property is a uniform block, a storage block or a texture" );
+            return RDG::ShaderResourceKind::Texture;
+        }
+    }();
+
+    // The material row block (Core::Formats::kMaterialRowBlockName) as the parameter Material::Get takes.
+    inline constexpr RDG::StorageBufferParameter kMaterialRowBlock{ Core::Formats::kMaterialRowBlockName };
+
     // The bits of the push field PrimitiveFlags (Common/MaterialTransport.glslh, DESERT_PRIMITIVE_FLAG_*): what a
     // G-buffer draw carries about its primitive into the shading word. A set bit is the NON-default, so a draw
     // that pushes 0 is a default primitive.
@@ -143,31 +164,22 @@ namespace Desert::Graphic
             return m_RegisteredProperties;
         }
 
+        // A property of the cell's shader, named by its parameter (RDGShaderParameters.hpp): a struct member or a
+        // named engine constant whose kind is the property's (a block: UniformBuffer / StorageBuffer, a texture:
+        // Texture), so the name is spelled once and a property of the wrong kind does not compile. Names an
+        // asset authors (DataDrivenMaterial) reach the executor directly; engine code never looks up by string.
         template <typename T>
-        T* Get( const std::string& name ) const
+        T* Get( RDG::ShaderParameterOf<MaterialPropertyKind<T>> parameter ) const
         {
+            const std::string name = parameter.SlotName();
             if constexpr ( std::is_same_v<T, UniformBufferProperty> )
-            {
                 return m_MaterialExecutor->GetUniformBufferProperty( name ).get();
-            }
-
             else if constexpr ( std::is_same_v<T, StorageBufferProperty> )
-            {
                 return m_MaterialExecutor->GetStorageBufferProperty( name ).get();
-            }
-
             else if constexpr ( std::is_same_v<T, Texture2DProperty> )
-            {
                 return m_MaterialExecutor->GetTexture2DProperty( name ).get();
-            }
-
-            else if constexpr ( std::is_same_v<T, TextureCubeProperty> )
-            {
+            else
                 return m_MaterialExecutor->GetTextureCubeProperty( name ).get();
-            }
-
-            DESERT_VERIFY( false, "Unsupported MaterialProperty type" );
-            return nullptr;
         }
 
         const std::vector<std::string>& GetPropertyNames() const

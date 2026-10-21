@@ -13,6 +13,25 @@
 #include <span>
 #include <string>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct TemporalAAShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
+        DESERT_SHADER_PARAMETER( Texture, ExposureTexture );
+        DESERT_SHADER_PARAMETER( Texture, PreviousResolvedColorTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, HistoryOutTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, ResolvedColorTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, TemporalAABuffer );
+        DESERT_SHADER_PARAMETER( Texture, ResponsiveAaTexture );
+    };
+} // namespace
+
 namespace Desert::Graphic
 {
     namespace
@@ -162,23 +181,25 @@ namespace Desert::Graphic
                  // Every texture is read at texel centres or filtered inside the shader; the linear sampler on
                  // the history is its bilinear fetch (Low / Medium) and the Catmull-Rom taps (High).
                  pass.Bindings( TemporalAALayout(), RDG::OtherRouteFill{} )
-                      .Texture( "SceneColorTexture", inputs.SceneColor, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                      .Texture( "SceneDepthTexture", inputs.SceneDepth, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Texture( "VelocityTexture", inputs.Velocity, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Texture( "ExposureTexture", inputs.Exposure, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Texture( "PreviousResolvedColorTexture", history.Previous, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Storage( "HistoryOutTexture", history.Current, RDG::Access::StorageWrite, 0 )
-                      .Storage( "ResolvedColorTexture", output, RDG::Access::StorageWrite, 0 )
-                      .Storage( "TemporalAABuffer", buffer, RDG::Access::StorageRead )
-                      .Texture( "ResponsiveAaTexture", inputs.ResponsiveAA, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() );
+                      .Texture( TemporalAAShaderParameters::SceneColorTexture, inputs.SceneColor,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( TemporalAAShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                      .Texture( TemporalAAShaderParameters::SceneDepthTexture, inputs.SceneDepth,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( TemporalAAShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                      .Texture( TemporalAAShaderParameters::VelocityTexture, inputs.Velocity,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( TemporalAAShaderParameters::ExposureTexture, inputs.Exposure,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( TemporalAAShaderParameters::PreviousResolvedColorTexture, history.Previous,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Storage( TemporalAAShaderParameters::HistoryOutTexture, history.Current,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( TemporalAAShaderParameters::ResolvedColorTexture, output,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( TemporalAAShaderParameters::TemporalAABuffer, buffer, RDG::Access::StorageRead )
+                      .Texture( TemporalAAShaderParameters::ResponsiveAaTexture, inputs.ResponsiveAA,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
              },
              [this, quality, extent]( RDG::PassContext& context ) -> Common::BoolResultStr
              {

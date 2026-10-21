@@ -12,6 +12,42 @@
 #include <array>
 #include <string>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct IrradianceFieldGatherShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, GIFrameUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheParamsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheIndirectionUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheProbesUB );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferBTexture );
+        DESERT_SHADER_PARAMETER( Texture, RadianceCacheIrradianceTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, RadianceCacheDepthTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GiHalfDiffuseOutTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GiHalfSpecularOutTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GiHalfBackfaceOutTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct IrradianceFieldGatherUpsampleShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, GIFrameUB );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferBTexture );
+        DESERT_SHADER_PARAMETER( Texture, GiHalfDiffuseTexture );
+        DESERT_SHADER_PARAMETER( Texture, GiHalfSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GiDiffuseOutTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GiSpecularOutTexture );
+        DESERT_SHADER_PARAMETER( Texture, GiHalfBackfaceTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GiBackfaceOutTexture );
+    };
+} // namespace
+
 namespace Desert::Graphic::GlobalIllumination
 {
     namespace
@@ -106,19 +142,31 @@ namespace Desert::Graphic::GlobalIllumination
                  {
                      auto block = builder.Bindings( m_Layouts[Gather].Get( m_Shaders[Gather] ),
                                                     Renderer::GetPipelineRouteFill( *pipeline ) );
-                     block.Storage( "GIFrameUB", inputs.GIFrame, kR )
-                          .Storage( "RadianceCacheParamsUB", inputs.RadianceCache.Params, kR )
-                          .Storage( "RadianceCacheIndirectionUB", inputs.RadianceCache.Indirection, kR )
-                          .Storage( "RadianceCacheProbesUB", inputs.RadianceCache.Probes, kR )
-                          .Texture( "GBufferDepthTexture", inputs.GBufferDepth, kS, all )
-                          .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Texture( "GBufferBTexture", inputs.GBufferB, kS, all )
-                          .Texture( "RadianceCacheIrradianceTexture", inputs.RadianceCache.Irradiance, kS, all )
-                          .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                          .Texture( "RadianceCacheDepthTexture", inputs.RadianceCache.Depth, kS, all )
-                          .Storage( "GiHalfDiffuseOutTexture", halfDiffuse, kW )
-                          .Storage( "GiHalfSpecularOutTexture", halfSpecular, kW )
-                          .Storage( "GiHalfBackfaceOutTexture", halfBackface, kW );
+                     block.Storage( IrradianceFieldGatherShaderParameters::GIFrameUB, inputs.GIFrame, kR )
+                          .Storage( IrradianceFieldGatherShaderParameters::RadianceCacheParamsUB,
+                                    inputs.RadianceCache.Params, kR )
+                          .Storage( IrradianceFieldGatherShaderParameters::RadianceCacheIndirectionUB,
+                                    inputs.RadianceCache.Indirection, kR )
+                          .Storage( IrradianceFieldGatherShaderParameters::RadianceCacheProbesUB,
+                                    inputs.RadianceCache.Probes, kR )
+                          .Texture( IrradianceFieldGatherShaderParameters::GBufferDepthTexture,
+                                    inputs.GBufferDepth, kS, all )
+                          .Sampler( IrradianceFieldGatherShaderParameters::PointClampSampler,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Texture( IrradianceFieldGatherShaderParameters::GBufferBTexture, inputs.GBufferB, kS,
+                                    all )
+                          .Texture( IrradianceFieldGatherShaderParameters::RadianceCacheIrradianceTexture,
+                                    inputs.RadianceCache.Irradiance, kS, all )
+                          .Sampler( IrradianceFieldGatherShaderParameters::LinearClampSampler,
+                                    RDG::SamplerDesc::LinearClamp() )
+                          .Texture( IrradianceFieldGatherShaderParameters::RadianceCacheDepthTexture,
+                                    inputs.RadianceCache.Depth, kS, all )
+                          .Storage( IrradianceFieldGatherShaderParameters::GiHalfDiffuseOutTexture, halfDiffuse,
+                                    kW )
+                          .Storage( IrradianceFieldGatherShaderParameters::GiHalfSpecularOutTexture, halfSpecular,
+                                    kW )
+                          .Storage( IrradianceFieldGatherShaderParameters::GiHalfBackfaceOutTexture, halfBackface,
+                                    kW );
                  },
                  [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -135,17 +183,27 @@ namespace Desert::Graphic::GlobalIllumination
                  {
                      auto block = builder.Bindings( m_Layouts[Upsample].Get( m_Shaders[Upsample] ),
                                                     Renderer::GetPipelineRouteFill( *pipeline ) );
-                     block.Storage( "GIFrameUB", inputs.GIFrame, kR )
-                          .Texture( "GBufferDepthTexture", inputs.GBufferDepth, kS, all )
-                          .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Texture( "GBufferBTexture", inputs.GBufferB, kS, all )
-                          .Texture( "GiHalfDiffuseTexture", halfDiffuse, kS, all )
-                          .Texture( "GiHalfSpecularTexture", halfSpecular, kS, all )
-                          .Storage( "GiDiffuseOutTexture", diffuse, kW )
-                          .Storage( "GiSpecularOutTexture", specular, kW )
-                          .Texture( "GiHalfBackfaceTexture", halfBackface, kS, all )
-                          .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Storage( "GiBackfaceOutTexture", backface, kW );
+                     block.Storage( IrradianceFieldGatherUpsampleShaderParameters::GIFrameUB, inputs.GIFrame, kR )
+                          .Texture( IrradianceFieldGatherUpsampleShaderParameters::GBufferDepthTexture,
+                                    inputs.GBufferDepth, kS, all )
+                          .Sampler( IrradianceFieldGatherUpsampleShaderParameters::PointClampSampler,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Texture( IrradianceFieldGatherUpsampleShaderParameters::GBufferBTexture,
+                                    inputs.GBufferB, kS, all )
+                          .Texture( IrradianceFieldGatherUpsampleShaderParameters::GiHalfDiffuseTexture,
+                                    halfDiffuse, kS, all )
+                          .Texture( IrradianceFieldGatherUpsampleShaderParameters::GiHalfSpecularTexture,
+                                    halfSpecular, kS, all )
+                          .Storage( IrradianceFieldGatherUpsampleShaderParameters::GiDiffuseOutTexture, diffuse,
+                                    kW )
+                          .Storage( IrradianceFieldGatherUpsampleShaderParameters::GiSpecularOutTexture, specular,
+                                    kW )
+                          .Texture( IrradianceFieldGatherUpsampleShaderParameters::GiHalfBackfaceTexture,
+                                    halfBackface, kS, all )
+                          .Sampler( IrradianceFieldGatherUpsampleShaderParameters::PointClampSampler,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Storage( IrradianceFieldGatherUpsampleShaderParameters::GiBackfaceOutTexture, backface,
+                                    kW );
                  },
                  [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {

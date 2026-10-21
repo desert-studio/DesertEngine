@@ -5,6 +5,36 @@
 #include <string>
 #include <vector>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceMipTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationMipTexture );
+        DESERT_SHADER_PARAMETER( Texture, u_Sorce );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct RenderGraphVulkanPassBindingsTestBloomUpsample1ReadShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, DestinationMipTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct RenderGraphVulkanPassBindingsTestBloomUpsample1WriteShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, SourceMipTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct RenderGraphVulkanPassBindingsTestRayQueryShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( AccelerationStructure, SceneColorTexture );
+    };
+} // namespace
+
 // RDG-A2 - the consumer side of RDG::PassBindings: what Renderer::DispatchCompute / DrawFullscreen refuse before
 // anything is recorded. The resolution is pure over reflection data, so these run with no device; the graph
 // executes on a backend that records nothing and only provides the PassContext the block is built from.
@@ -254,9 +284,12 @@ namespace
 
     void FillComplete( BindingBlockBuilder& block, TextureRef chain )
     {
-        block.Texture( "SourceMipTexture", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
-             .Sampler( "LinearClampSampler", SamplerDesc::LinearClamp() )
-             .Storage( "DestinationMipTexture", chain, Access::StorageWrite, 0 );
+        block.Texture( RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters::SourceMipTexture, chain,
+                       Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+             .Sampler( RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters::LinearClampSampler,
+                       SamplerDesc::LinearClamp() )
+             .Storage( RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters::DestinationMipTexture,
+                       chain, Access::StorageWrite, 0 );
     }
 } // namespace
 
@@ -286,8 +319,11 @@ TEST( RenderGraphVulkanPassBindings, ANameTheShaderDoesNotDeclareIsRefused )
          []( BindingBlockBuilder& bindings, TextureRef chain )
          {
              FillComplete( bindings, chain );
-             bindings.Texture( "u_Sorce", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
-                  .Sampler( "LinearClampSampler", SamplerDesc::LinearClamp() );
+             bindings
+                  .Texture( RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters::u_Sorce, chain,
+                            Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+                  .Sampler( RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters::LinearClampSampler,
+                            SamplerDesc::LinearClamp() );
          } );
     ASSERT_FALSE( resolved.IsSuccess() );
     const std::string error = resolved.GetError();
@@ -300,14 +336,19 @@ TEST( RenderGraphVulkanPassBindings, AKindOtherThanTheReflectedOneIsRefused )
 {
     const Verdict resolved = ResolveInPass(
          UpsampleReflection(), MaterialFillsParams(),
-         Believed(
-              { { "DestinationMipTexture", ShaderResourceKind::Texture }, { "SourceMipTexture", ShaderResourceKind::StorageTexture } },
-              12 ),
+         Believed( { { "DestinationMipTexture", ShaderResourceKind::Texture },
+                     { "SourceMipTexture", ShaderResourceKind::StorageTexture } },
+                   12 ),
          []( BindingBlockBuilder& bindings, TextureRef chain )
          {
-             bindings.Texture( "DestinationMipTexture", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
-                  .Sampler( "LinearClampSampler", SamplerDesc::LinearClamp() )
-                  .Storage( "SourceMipTexture", chain, Access::StorageWrite, 0 );
+             bindings
+                  .Texture(
+                       RenderGraphVulkanPassBindingsTestBloomUpsample1ReadShaderParameters::DestinationMipTexture,
+                       chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+                  .Sampler( RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters::LinearClampSampler,
+                            SamplerDesc::LinearClamp() )
+                  .Storage( RenderGraphVulkanPassBindingsTestBloomUpsample1WriteShaderParameters::SourceMipTexture,
+                            chain, Access::StorageWrite, 0 );
          } );
     ASSERT_FALSE( resolved.IsSuccess() );
     const std::string error = resolved.GetError();
@@ -324,8 +365,11 @@ TEST( RenderGraphVulkanPassBindings, AnUnfilledSlotIsRefused )
          Believed( { { "SourceMipTexture", ShaderResourceKind::Texture } }, 12 ),
          []( BindingBlockBuilder& bindings, TextureRef chain )
          {
-             bindings.Texture( "SourceMipTexture", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
-                  .Sampler( "LinearClampSampler", SamplerDesc::LinearClamp() );
+             bindings
+                  .Texture( RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters::SourceMipTexture,
+                            chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+                  .Sampler( RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters::LinearClampSampler,
+                            SamplerDesc::LinearClamp() );
          } );
     ASSERT_FALSE( noOutput.IsSuccess() );
     EXPECT_NE( noOutput.GetError().find( "'DestinationMipTexture' (set 0 binding 1)" ), std::string::npos )
@@ -397,8 +441,13 @@ TEST( RenderGraphVulkanPassBindings, ATlasEntryResolvesToTheReflectedAcceleratio
     const ShaderBindingLayout believed{ .ShaderName = "RayQuery",
                                         .Slots = { { "SceneColorTexture", ShaderResourceKind::AccelerationStructure } } };
     graph.AddPass(
-         "RayQuery", PassFlags::Compute | PassFlags::NeverCull, [&]( PassBuilder& pass )
-         { pass.Bindings( believed, OtherRouteFill{} ).AccelerationStructure( "SceneColorTexture", tlas ); },
+         "RayQuery", PassFlags::Compute | PassFlags::NeverCull,
+         [&]( PassBuilder& pass )
+         {
+             pass.Bindings( believed, OtherRouteFill{} )
+                  .AccelerationStructure(
+                       RenderGraphVulkanPassBindingsTestRayQueryShaderParameters::SceneColorTexture, tlas );
+         },
          [&]( PassContext& context ) -> Common::BoolResultStr
          {
              PassBindings bindings( context, context.GetBindingBlock( 0 ) );

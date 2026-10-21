@@ -102,6 +102,16 @@
 
 namespace
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct RuntimeLayerBlitShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, FinalColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+    };
+} // namespace
+
+namespace
+{
     // The runtime present reports every failed import/pass under one prefix.
     constexpr std::string_view kRuntimePresentErrorFormat = "[Runtime] present: {}";
 
@@ -1243,9 +1253,10 @@ namespace Desert::Player
                  {
                      pass.Bindings( m_BlitLayout.Get( m_BlitPipeline->GetSpecification().Shader ),
                                     m_BlitExecutor->GetRouteFill() )
-                          .Texture( "FinalColorTexture", sceneRef, Graphic::RDG::Access::SampledGraphics,
-                                    Graphic::RDG::SubresourceRange::All() )
-                          .Sampler( "LinearClampSampler", Graphic::RDG::SamplerDesc::LinearClamp() );
+                          .Texture( RuntimeLayerBlitShaderParameters::FinalColorTexture, sceneRef,
+                                    Graphic::RDG::Access::SampledGraphics, Graphic::RDG::SubresourceRange::All() )
+                          .Sampler( RuntimeLayerBlitShaderParameters::LinearClampSampler,
+                                    Graphic::RDG::SamplerDesc::LinearClamp() );
                  }
                  // The runtime has no backdrop pyramid: a glass panel draws as its flat tinted fill.
                  if ( drawUI )

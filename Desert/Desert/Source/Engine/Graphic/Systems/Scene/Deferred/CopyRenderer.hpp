@@ -10,6 +10,13 @@
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct CopyBindingShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+    };
+
     // Full-screen copy: snapshots the composited scene colour into this frame's scene-copy transient
     // (FrameTransients::SceneColorCopy) that the glass (refraction) and SSR (reflection source) sample, so the
     // glass pass never reads + writes the same attachment (feedback loop).
@@ -48,8 +55,9 @@ namespace Desert::Graphic::System
             if ( !m_Pipeline )
                 return;
             pass.Bindings( m_BindingLayout.Get( m_Shader ), RDG::OtherRouteFill{} )
-                 .Texture( "SourceColorTexture", source, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
+                 .Texture( CopyBindingShaderParameters::SourceColorTexture, source, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( CopyBindingShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() );
         }
 
         // Inside the render pass the graph opens on the copy: opens the block DeclareBindings declared.

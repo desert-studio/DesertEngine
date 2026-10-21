@@ -19,6 +19,27 @@
 #include <cmath>
 #include <format>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SkyboxLutReadShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, TransmittanceLutTexture );
+        DESERT_SHADER_PARAMETER( Sampler, GlobalFilterSampler );
+        DESERT_SHADER_PARAMETER( Texture, MultiScatterLutTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, SkyViewLutTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, AerialPerspectiveLutTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DistantSkyLightTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SkyboxLutWriteShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, TransmittanceLutTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, MultiScatterLutTexture );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -453,11 +474,11 @@ namespace Desert::Graphic::System
         { return DeclareLutBlock( declared, pipeline, layout, pushBytes ); };
         const auto sampledLuts = [this]( RenderPassDeclaration::BlockDeclaration block )
         {
-            block.Texture( "TransmittanceLutTexture", m_TransmittanceLut, RDG::Access::SampledCompute,
-                           "Sky.TransmittanceLut" )
-                 .Sampler( "GlobalFilterSampler", GlobalTextureFilterSampler() )
-                 .Texture( "MultiScatterLutTexture", m_MultiScatterLut, RDG::Access::SampledCompute,
-                           "Sky.MultiScatterLut" );
+            block.Texture( SkyboxLutReadShaderParameters::TransmittanceLutTexture, m_TransmittanceLut,
+                           RDG::Access::SampledCompute, "Sky.TransmittanceLut" )
+                 .Sampler( SkyboxLutReadShaderParameters::GlobalFilterSampler, GlobalTextureFilterSampler() )
+                 .Texture( SkyboxLutReadShaderParameters::MultiScatterLutTexture, m_MultiScatterLut,
+                           RDG::Access::SampledCompute, "Sky.MultiScatterLut" );
             return block;
         };
 
@@ -468,8 +489,8 @@ namespace Desert::Graphic::System
             ComputeNodeDeclaration transmittance;
             transmittance.Name = "Sky: TransmittanceLut";
             declareBlock( transmittance.Access, m_TransmittanceLutPipeline.get(), m_TransmittanceLutLayout, 0 )
-                 .Storage( "TransmittanceLutTexture", m_TransmittanceLut, RDG::Access::StorageWrite,
-                           "Sky.TransmittanceLut" );
+                 .Storage( SkyboxLutWriteShaderParameters::TransmittanceLutTexture, m_TransmittanceLut,
+                           RDG::Access::StorageWrite, "Sky.TransmittanceLut" );
             transmittance.Record = [this]( RDG::PassContext& context,
                                            const FrameGraphRefs& ) -> Common::BoolResultStr
             {
@@ -481,11 +502,11 @@ namespace Desert::Graphic::System
             ComputeNodeDeclaration multiScatter;
             multiScatter.Name = "Sky: MultiScatterLut";
             declareBlock( multiScatter.Access, m_MultiScatterLutPipeline.get(), m_MultiScatterLutLayout, 0 )
-                 .Texture( "TransmittanceLutTexture", m_TransmittanceLut, RDG::Access::SampledCompute,
-                           "Sky.TransmittanceLut" )
-                 .Sampler( "GlobalFilterSampler", GlobalTextureFilterSampler() )
-                 .Storage( "MultiScatterLutTexture", m_MultiScatterLut, RDG::Access::StorageWrite,
-                           "Sky.MultiScatterLut" );
+                 .Texture( SkyboxLutReadShaderParameters::TransmittanceLutTexture, m_TransmittanceLut,
+                           RDG::Access::SampledCompute, "Sky.TransmittanceLut" )
+                 .Sampler( SkyboxLutReadShaderParameters::GlobalFilterSampler, GlobalTextureFilterSampler() )
+                 .Storage( SkyboxLutWriteShaderParameters::MultiScatterLutTexture, m_MultiScatterLut,
+                           RDG::Access::StorageWrite, "Sky.MultiScatterLut" );
             multiScatter.Record = [this]( RDG::PassContext& context,
                                           const FrameGraphRefs& ) -> Common::BoolResultStr
             { return DispatchMultiScatterLut( context ); };
@@ -571,7 +592,8 @@ namespace Desert::Graphic::System
             skyView.Name = "Sky: SkyViewLut";
             sampledLuts( declareBlock( skyView.Access, m_SkyViewLutPipeline.get(), m_SkyViewLutLayout,
                                        static_cast<uint32_t>( sizeof( SkyViewLutPush ) ) ) )
-                 .Storage( "SkyViewLutTexture", m_SkyViewLut, RDG::Access::StorageWrite, "Sky.SkyViewLut" );
+                 .Storage( SkyboxLutReadShaderParameters::SkyViewLutTexture, m_SkyViewLut,
+                           RDG::Access::StorageWrite, "Sky.SkyViewLut" );
             skyView.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS( "Sky: SkyViewLut" );
@@ -589,8 +611,8 @@ namespace Desert::Graphic::System
             aerial.Name = "Sky: AerialPerspectiveLut";
             sampledLuts( declareBlock( aerial.Access, m_AerialPerspectivePipeline.get(), m_AerialPerspectiveLayout,
                                        static_cast<uint32_t>( sizeof( SkyAerialPerspectivePush ) ) ) )
-                 .Storage( "AerialPerspectiveLutTexture", m_AerialPerspectiveLut, RDG::Access::StorageWrite,
-                           "Sky.AerialPerspectiveLut" );
+                 .Storage( SkyboxLutReadShaderParameters::AerialPerspectiveLutTexture, m_AerialPerspectiveLut,
+                           RDG::Access::StorageWrite, "Sky.AerialPerspectiveLut" );
             aerial.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS( "Sky: AerialPerspectiveLut" );

@@ -16,6 +16,17 @@
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleSortShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeFloats );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DrawLayout );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AliveList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Counters );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SortKeys );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SortedAlive );
+    };
+
     // THE GRAPH SIDE of the translucent sprite sort (VFX-08), device-free so RenderGraphCompile builds the same
     // nodes from the same declarations. Per VIEW (the key is the view depth): every emitter whose sprite cell
     // blends (Translucent / Additive) gets one Compute node per ParticleSortStages stage, named
@@ -112,13 +123,13 @@ namespace Desert::Graphic::System
     {
         const bool writesSorted = kind == ParticleSortStageKind::Write;
         pass.Bindings( layout, std::move( fill ) )
-             .Storage( "AttributeFloats", buffers.Floats, RDG::Access::StorageRead )
-             .Storage( "DrawLayout", buffers.DrawLayout, RDG::Access::StorageRead )
-             .Storage( "AliveList", buffers.Alive, RDG::Access::StorageRead )
-             .Storage( "Counters", buffers.Counters, RDG::Access::StorageRead )
-             .Storage( "SortKeys", buffers.Keys,
+             .Storage( ParticleSortShaderParameters::AttributeFloats, buffers.Floats, RDG::Access::StorageRead )
+             .Storage( ParticleSortShaderParameters::DrawLayout, buffers.DrawLayout, RDG::Access::StorageRead )
+             .Storage( ParticleSortShaderParameters::AliveList, buffers.Alive, RDG::Access::StorageRead )
+             .Storage( ParticleSortShaderParameters::Counters, buffers.Counters, RDG::Access::StorageRead )
+             .Storage( ParticleSortShaderParameters::SortKeys, buffers.Keys,
                        writesSorted ? RDG::Access::StorageRead : RDG::Access::StorageWrite )
-             .Storage( "SortedAlive", buffers.Sorted, RDG::Access::StorageWrite )
+             .Storage( ParticleSortShaderParameters::SortedAlive, buffers.Sorted, RDG::Access::StorageWrite )
              .PushConstantBytes( kParticleSortPushBytes );
     }
 } // namespace Desert::Graphic::System

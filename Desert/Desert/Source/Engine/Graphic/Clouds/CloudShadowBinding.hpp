@@ -46,7 +46,7 @@ namespace Desert::Graphic
 
         const CloudShadowUniforms data = CloudShadowPackUniforms( cloudShadow );
 
-        if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kCloudShadowBlockName ) )
+        if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kCloudShadowBlock ) )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
     }
 } // namespace Desert::Graphic

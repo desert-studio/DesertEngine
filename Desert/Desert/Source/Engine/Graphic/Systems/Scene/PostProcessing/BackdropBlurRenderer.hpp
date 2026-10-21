@@ -19,6 +19,14 @@
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct BackdropBlurDownsampleShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceMipTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationMipTexture );
+    };
+
     // A blurred snapshot of the scene colour, for UI "glass" (backdrop blur).
     //
     // WHY a snapshot at all: the UI canvas is drawn INTO the HDR scene target as a load overlay, and a
@@ -79,16 +87,20 @@ namespace Desert::Graphic::System
                                         Renderer::GetPipelineRouteFill( *m_DownsamplePipeline ) );
             if ( mip == 0 )
             {
-                block.Texture( "SourceMipTexture", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                     .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
+                block.Texture( BackdropBlurDownsampleShaderParameters::SourceMipTexture, sceneColor,
+                               RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                     .Sampler( BackdropBlurDownsampleShaderParameters::LinearClampSampler,
+                               RDG::SamplerDesc::LinearClamp() );
             }
             else
             {
-                block.Texture( "SourceMipTexture", pyramid, RDG::Access::SampledCompute,
-                               RDG::SubresourceRange::Mip( mip - 1 ) )
-                     .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
+                block.Texture( BackdropBlurDownsampleShaderParameters::SourceMipTexture, pyramid,
+                               RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) )
+                     .Sampler( BackdropBlurDownsampleShaderParameters::LinearClampSampler,
+                               RDG::SamplerDesc::LinearClamp() );
             }
-            block.Storage( "DestinationMipTexture", pyramid, RDG::Access::StorageWrite, mip )
+            block.Storage( BackdropBlurDownsampleShaderParameters::DestinationMipTexture, pyramid,
+                           RDG::Access::StorageWrite, mip )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( DownsamplePush ) ) );
         }
 

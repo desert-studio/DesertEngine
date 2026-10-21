@@ -5,6 +5,16 @@
 
 #include <format>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MeshShadowShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, InstanceTransforms );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Materials );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     using MeshRendererDetail::SignatureHash;
@@ -1081,17 +1091,18 @@ namespace Desert::Graphic::System
             // A skinned caster also reads its row's skin-cache fields from the view's rows (Vertex_Skinned.glslh).
             if ( path == MeshVertexPath::Skinned )
             {
-                auto*      rows  = set.Caster->Get<StorageBufferProperty>( SceneResources::kObjectMotionsName );
+                auto*      rows  = set.Caster->Get<StorageBufferProperty>( SceneResources::kObjectMotions );
                 const bool bound = rows != nullptr && m_ObjectMotions != nullptr;
                 DESERT_VERIFY( bound, "a skinned masked caster reads ObjectMotions but the view carries none" );
                 rows->SetBuffer( m_ObjectMotions );
             }
-            const std::string own  = path ? MeshPathOwnBufferName( *path ) : std::string();
-            if ( own.empty() )
+            const std::optional<RDG::StorageBufferParameter> own =
+                 path ? MeshPathOwnBuffer( *path ) : std::nullopt;
+            if ( !own )
             {
                 continue;
             }
-            if ( auto* sb = set.Caster->Get<StorageBufferProperty>( own ) )
+            if ( auto* sb = set.Caster->Get<StorageBufferProperty>( *own ) )
             {
                 sb->SetRawData( set.Transforms.data(),
                                 static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );

@@ -55,6 +55,14 @@ namespace Desert::Graphic
 namespace Desert::Graphic::DistanceField
 {
     inline constexpr int kGlobalDistanceFieldClipmaps = 4;
+    // The clipmaps' slots, one named texture per level (Common/GITracer.glslh,
+    // Debug/GlobalDistanceFieldView.shader declare GlobalDistanceField<level>Texture): every reader binds level i
+    // through element i.
+    inline constexpr std::array<RDG::TextureParameter, kGlobalDistanceFieldClipmaps>
+         kGlobalDistanceFieldClipmapTextures{ RDG::TextureParameter( "GlobalDistanceField0Texture" ),
+                                              RDG::TextureParameter( "GlobalDistanceField1Texture" ),
+                                              RDG::TextureParameter( "GlobalDistanceField2Texture" ),
+                                              RDG::TextureParameter( "GlobalDistanceField3Texture" ) };
 
     // THE OBJECT GRID (UE GlobalDistanceFieldPageObjectGridBuffer, GlobalDistanceFieldObjectGrid.ush): per clipmap
     // a toroidal grid of cells of two voxels, each listing up to four instance-table rows whose mesh distance

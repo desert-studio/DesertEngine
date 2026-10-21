@@ -15,6 +15,38 @@
 #include <string>
 #include <type_traits>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct PassBindingsContractTestBloomShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceMipTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationMipTexture );
+        DESERT_SHADER_PARAMETER( Texture, u_Sorce );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct PassBindingsContractTestBloomReadShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, DestinationMipTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct PassBindingsContractTestBloomWriteShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, SourceMipTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct PassBindingsContractTestReadsSystemBlackShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceMipTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+    };
+} // namespace
+
 using namespace Desert::Graphic::RDG;
 using Desert::Core::Formats::ImageFormat;
 
@@ -176,9 +208,12 @@ namespace
     BindingBlockBuilder DeclareBloomBlock( PassBuilder& pass, TextureRef chain )
     {
         BindingBlockBuilder block = pass.Bindings( BloomLayout(), OtherRouteFill{} );
-        block.Texture( "SourceMipTexture", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
-             .Sampler( "LinearClampSampler", SamplerDesc::LinearClamp() )
-             .Storage( "DestinationMipTexture", chain, Access::StorageWrite, 0 )
+        block.Texture( PassBindingsContractTestBloomShaderParameters::SourceMipTexture, chain,
+                       Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+             .Sampler( PassBindingsContractTestBloomShaderParameters::LinearClampSampler,
+                       SamplerDesc::LinearClamp() )
+             .Storage( PassBindingsContractTestBloomShaderParameters::DestinationMipTexture, chain,
+                       Access::StorageWrite, 0 )
              .PushConstantBytes( 12 );
         return block;
     }
@@ -296,9 +331,12 @@ TEST( RenderGraphPassBindings, ASlotOrKindTheShaderDoesNotDeclareFaultsThePassBe
          []( PassBuilder& pass, TextureRef chain )
          {
              pass.Bindings( BloomLayout(), OtherRouteFill{} )
-                  .Texture( "u_Sorce", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
-                  .Sampler( "LinearClampSampler", SamplerDesc::LinearClamp() )
-                  .Storage( "DestinationMipTexture", chain, Access::StorageWrite, 0 )
+                  .Texture( PassBindingsContractTestBloomShaderParameters::u_Sorce, chain, Access::SampledCompute,
+                            SubresourceRange::Mip( 1 ) )
+                  .Sampler( PassBindingsContractTestBloomShaderParameters::LinearClampSampler,
+                            SamplerDesc::LinearClamp() )
+                  .Storage( PassBindingsContractTestBloomShaderParameters::DestinationMipTexture, chain,
+                            Access::StorageWrite, 0 )
                   .PushConstantBytes( 12 );
          },
          failIfRun );
@@ -314,9 +352,12 @@ TEST( RenderGraphPassBindings, ASlotOrKindTheShaderDoesNotDeclareFaultsThePassBe
          []( PassBuilder& pass, TextureRef chain )
          {
              pass.Bindings( BloomLayout(), OtherRouteFill{} )
-                  .Texture( "DestinationMipTexture", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
-                  .Sampler( "LinearClampSampler", SamplerDesc::LinearClamp() )
-                  .Storage( "SourceMipTexture", chain, Access::StorageWrite, 0 )
+                  .Texture( PassBindingsContractTestBloomReadShaderParameters::DestinationMipTexture, chain,
+                            Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+                  .Sampler( PassBindingsContractTestBloomShaderParameters::LinearClampSampler,
+                            SamplerDesc::LinearClamp() )
+                  .Storage( PassBindingsContractTestBloomWriteShaderParameters::SourceMipTexture, chain,
+                            Access::StorageWrite, 0 )
                   .PushConstantBytes( 12 );
          },
          failIfRun );
@@ -336,8 +377,10 @@ TEST( RenderGraphPassBindings, ASlotDeclaredTwiceFaultsThePassBeforeItsExec )
          []( PassBuilder& pass, TextureRef chain )
          {
              DeclareBloomBlock( pass, chain )
-                  .Texture( "SourceMipTexture", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
-                  .Sampler( "LinearClampSampler", SamplerDesc::LinearClamp() );
+                  .Texture( PassBindingsContractTestBloomShaderParameters::SourceMipTexture, chain,
+                            Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+                  .Sampler( PassBindingsContractTestBloomShaderParameters::LinearClampSampler,
+                            SamplerDesc::LinearClamp() );
          },
          []( PassContext&, TextureRef ) -> Common::BoolResultStr
          { return Common::MakeError( std::string( "the exec of a refused block ran" ) ); } );
@@ -361,9 +404,12 @@ TEST( RenderGraphPassBindings, ASampledEntryCarriesItsSampler )
          []( PassBuilder& pass, TextureRef chain )
          {
              pass.Bindings( BloomLayout(), OtherRouteFill{} )
-                  .Texture( "SourceMipTexture", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
-                  .Sampler( "PointClampSampler", SamplerDesc::PointClamp() )
-                  .Storage( "DestinationMipTexture", chain, Access::StorageWrite, 0 )
+                  .Texture( PassBindingsContractTestBloomShaderParameters::SourceMipTexture, chain,
+                            Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+                  .Sampler( PassBindingsContractTestBloomShaderParameters::PointClampSampler,
+                            SamplerDesc::PointClamp() )
+                  .Storage( PassBindingsContractTestBloomShaderParameters::DestinationMipTexture, chain,
+                            Access::StorageWrite, 0 )
                   .PushConstantBytes( 12 );
          },
          []( PassContext& context, TextureRef ) -> Common::BoolResultStr
@@ -407,11 +453,14 @@ TEST( RenderGraphPassBindings, SystemBlackIsAValidImportedRefOfAFreshGraph )
          "Reads System.Black", PassFlags::Compute,
          [&]( PassBuilder& pass )
          {
-             pass.Bindings( ShaderBindingLayout{ .ShaderName = "ReadsBlack",
-                                                 .Slots      = { { "SourceMipTexture", ShaderResourceKind::Texture } } },
-                            OtherRouteFill{} )
-                  .Texture( "SourceMipTexture", system.Black, Access::SampledCompute, SubresourceRange::Mip( 0 ) )
-                  .Sampler( "LinearClampSampler", SamplerDesc::LinearClamp() );
+             pass.Bindings(
+                      ShaderBindingLayout{ .ShaderName = "ReadsBlack",
+                                           .Slots      = { { "SourceMipTexture", ShaderResourceKind::Texture } } },
+                      OtherRouteFill{} )
+                  .Texture( PassBindingsContractTestReadsSystemBlackShaderParameters::SourceMipTexture,
+                            system.Black, Access::SampledCompute, SubresourceRange::Mip( 0 ) )
+                  .Sampler( PassBindingsContractTestReadsSystemBlackShaderParameters::LinearClampSampler,
+                            SamplerDesc::LinearClamp() );
          },
          [&]( PassContext& context ) -> Common::BoolResultStr
          {

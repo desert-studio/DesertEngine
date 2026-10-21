@@ -12,6 +12,21 @@
 #include <format>
 #include <iterator>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MeshForwardShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, Materials );
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, InstanceTransforms );
+        DESERT_SHADER_PARAMETER( Texture, FrontLayerReflectionTexture );
+        DESERT_SHADER_PARAMETER( Texture, FrontLayerDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -443,7 +458,7 @@ namespace Desert::Graphic::System
             frameState.ApplyTo( material );
             if ( rows.Bytes.empty() )
                 continue; // a shader with no parameters declares no Materials block to fill
-            if ( auto* sb = material->Get<StorageBufferProperty>( Core::Formats::kMaterialRowBlockName ) )
+            if ( auto* sb = material->Get<StorageBufferProperty>( kMaterialRowBlock ) )
                 sb->SetRawData( rows.Bytes.data(),
                                 static_cast<uint32_t>( rows.Bytes.size() * sizeof( glm::vec4 ) ) );
         }
@@ -793,7 +808,7 @@ namespace Desert::Graphic::System
         const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
         for ( auto& [state, cellRows] : rows )
         {
-            if ( auto* sb = state->Material->Get<StorageBufferProperty>( "Materials" ) )
+            if ( auto* sb = state->Material->Get<StorageBufferProperty>( MeshForwardShaderParameters::Materials ) )
             {
                 sb->SetRawData( cellRows.data(), static_cast<uint32_t>( cellRows.size() * sizeof( glm::vec4 ) ) );
             }
@@ -836,17 +851,20 @@ namespace Desert::Graphic::System
              [sceneCopy, frontLayer]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& layout )
              {
                  if ( SceneViewDetail::LayoutSamples( layout, "SceneColorTexture" ) )
-                     block.Texture( "SceneColorTexture", sceneCopy, RDG::Access::SampledGraphics,
-                                    RDG::SubresourceRange::All() )
-                          .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
+                     block.Texture( MeshForwardShaderParameters::SceneColorTexture, sceneCopy,
+                                    RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                          .Sampler( MeshForwardShaderParameters::LinearRepeatSampler,
+                                    RDG::SamplerDesc::LinearRepeat() );
                  // The front layer's reflection where this fragment is the front layer
                  // (Pass_Forward_Translucent.glslh), fetched by texel through the state its declaration names.
                  if ( SceneViewDetail::LayoutSamples( layout, "FrontLayerReflectionTexture" ) )
-                     block.Texture( "FrontLayerReflectionTexture", frontLayer.Reflection, RDG::Access::SampledGraphics,
+                     block.Texture( MeshForwardShaderParameters::FrontLayerReflectionTexture,
+                                    frontLayer.Reflection, RDG::Access::SampledGraphics,
                                     RDG::SubresourceRange::All() )
-                          .Texture( "FrontLayerDepthTexture", frontLayer.Depth, RDG::Access::SampledGraphics,
-                                    RDG::SubresourceRange::All() )
-                          .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
+                          .Texture( MeshForwardShaderParameters::FrontLayerDepthTexture, frontLayer.Depth,
+                                    RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                          .Sampler( MeshForwardShaderParameters::LinearClampSampler,
+                                    RDG::SamplerDesc::LinearClamp() );
              } );
     }
 
@@ -1412,7 +1430,7 @@ namespace Desert::Graphic::System
                 AppendRow( gpuMaterials, row );
             }
 
-            if ( auto* sb = drawMat->Get<StorageBufferProperty>( "Materials" ) )
+            if ( auto* sb = drawMat->Get<StorageBufferProperty>( MeshForwardShaderParameters::Materials ) )
                 sb->SetRawData( gpuMaterials.data(),
                                 static_cast<uint32_t>( gpuMaterials.size() * sizeof( glm::vec4 ) ) );
 
@@ -1593,10 +1611,11 @@ namespace Desert::Graphic::System
                 // is per SET and no longer per pass, and that is not a weakening: a set's buffers are
                 // only ever written here, once, and the draws that read them are recorded immediately
                 // after, before any other set touches its own.
-                if ( auto* sb = set.Mat->Get<StorageBufferProperty>( "InstanceTransforms" ) )
+                if ( auto* sb =
+                          set.Mat->Get<StorageBufferProperty>( MeshForwardShaderParameters::InstanceTransforms ) )
                     sb->SetRawData( set.Transforms.data(),
                                     static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
-                if ( auto* sb = set.Mat->Get<StorageBufferProperty>( "Materials" ) )
+                if ( auto* sb = set.Mat->Get<StorageBufferProperty>( MeshForwardShaderParameters::Materials ) )
                     sb->SetRawData( set.Materials.data(),
                                     static_cast<uint32_t>( set.Materials.size() * sizeof( glm::vec4 ) ) );
 
@@ -1753,7 +1772,7 @@ namespace Desert::Graphic::System
 
             // At FINAL size before any draw is recorded, so the descriptor points at the buffer the draws will
             // actually read (a later grow reallocates it).
-            if ( auto* sb = mat->Get<StorageBufferProperty>( "Materials" ) )
+            if ( auto* sb = mat->Get<StorageBufferProperty>( MeshForwardShaderParameters::Materials ) )
                 sb->SetRawData( gpuMaterials.data(),
                                 static_cast<uint32_t>( gpuMaterials.size() * sizeof( glm::vec4 ) ) );
 

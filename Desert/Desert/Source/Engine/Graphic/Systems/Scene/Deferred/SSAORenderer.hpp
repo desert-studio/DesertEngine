@@ -13,6 +13,15 @@
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SSAOBindingShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferNormalTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+    };
+
     // Screen-space ambient occlusion (GTAO, SSAO.shader). Fullscreen: reads the G-buffer (depth + normal) and
     // writes an AO factor into a per-frame graph transient (FrameTransients::SSAO, SceneRendererFrameDeferred.cpp
     // "Deferred: SSAO"), which the deferred Composite then multiplies into the ambient term. Deferred only.
@@ -62,10 +71,12 @@ namespace Desert::Graphic::System
                 return;
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
-                 .Texture( "GBufferDepthTexture", depth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                 .Texture( "GBufferNormalTexture", normal, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "LinearRepeatSampler", kSampler );
+                 .Texture( SSAOBindingShaderParameters::GBufferDepthTexture, depth, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( SSAOBindingShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                 .Texture( SSAOBindingShaderParameters::GBufferNormalTexture, normal, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( SSAOBindingShaderParameters::LinearRepeatSampler, kSampler );
         }
 
         [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext&     context,

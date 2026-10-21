@@ -4,6 +4,16 @@
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MeshDebugOverdrawResolveShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, OverdrawTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     bool MeshRenderer::SetupSilhouettePass()
@@ -256,8 +266,10 @@ namespace Desert::Graphic::System
         const MaterialExecutor& executor = *m_OverdrawResolveMaterial->GetMaterialExecutor();
         pass.Bindings( m_OverdrawResolveLayout.Get( m_OverdrawResolvePipeline->GetSpecification().Shader ),
                        executor.GetRouteFill() )
-             .Texture( "OverdrawTexture", overdraw, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-             .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
+             .Texture( MeshDebugOverdrawResolveShaderParameters::OverdrawTexture, overdraw,
+                       RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Sampler( MeshDebugOverdrawResolveShaderParameters::LinearRepeatSampler,
+                       RDG::SamplerDesc::LinearRepeat() );
     }
 
     Common::BoolResultStr MeshRenderer::RecordOverdrawResolve( const RDG::PassContext& context ) const

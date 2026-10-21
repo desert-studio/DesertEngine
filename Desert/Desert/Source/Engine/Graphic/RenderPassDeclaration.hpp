@@ -130,10 +130,10 @@ namespace Desert::Graphic
             }
             // A separate texture slot (RDG::ShaderResourceKind::Texture), read through a Sampler slot of the
             // block.
-            BlockDeclaration& Texture( std::string_view shaderName, RDG::TextureRef texture, RDG::Access access,
-                                       RDG::SubresourceRange range )
+            BlockDeclaration& Texture( RDG::TextureParameter parameter, RDG::TextureRef texture,
+                                       RDG::Access access, RDG::SubresourceRange range )
             {
-                Block().Entries.push_back( { std::string( shaderName ),
+                Block().Entries.push_back( { parameter.SlotName(),
                                              RDG::ShaderResourceKind::Texture,
                                              texture,
                                              {},
@@ -147,13 +147,13 @@ namespace Desert::Graphic
             // A separate sampler slot (RDG::ShaderResourceKind::Sampler): a state, no resource, shared by every
             // Texture entry read through it - named again with the same state it adds nothing (see
             // RDG::BindingBlockBuilder::Sampler).
-            BlockDeclaration& Sampler( std::string_view shaderName, RDG::SamplerDesc sampler )
+            BlockDeclaration& Sampler( RDG::SamplerParameter parameter, RDG::SamplerDesc sampler )
             {
                 for ( const BlockEntry& e : Block().Entries )
-                    if ( e.Kind == RDG::ShaderResourceKind::Sampler && e.ShaderName == shaderName &&
+                    if ( e.Kind == RDG::ShaderResourceKind::Sampler && e.ShaderName == parameter.SlotName() &&
                          e.Sampler == sampler )
                         return *this;
-                Block().Entries.push_back( { std::string( shaderName ),
+                Block().Entries.push_back( { parameter.SlotName(),
                                              RDG::ShaderResourceKind::Sampler,
                                              {},
                                              {},
@@ -166,10 +166,10 @@ namespace Desert::Graphic
             }
             // An engine image its system owns as a separate texture, read whole (resolved to its import, see
             // BlockEntry) through a Sampler slot of the block.
-            BlockDeclaration& Texture( std::string_view shaderName, std::shared_ptr<Image> image,
+            BlockDeclaration& Texture( RDG::TextureParameter parameter, std::shared_ptr<Image> image,
                                        RDG::Access access, std::string importName )
             {
-                Block().Entries.push_back( { std::string( shaderName ),
+                Block().Entries.push_back( { parameter.SlotName(),
                                              RDG::ShaderResourceKind::Texture,
                                              {},
                                              std::move( image ),
@@ -180,10 +180,10 @@ namespace Desert::Graphic
                                              std::nullopt } );
                 return *this;
             }
-            BlockDeclaration& Storage( std::string_view shaderName, RDG::TextureRef texture, RDG::Access access,
-                                       uint32_t mip = 0 )
+            BlockDeclaration& Storage( RDG::StorageTextureParameter parameter, RDG::TextureRef texture,
+                                       RDG::Access access, uint32_t mip = 0 )
             {
-                Block().Entries.push_back( { std::string( shaderName ),
+                Block().Entries.push_back( { parameter.SlotName(),
                                              RDG::ShaderResourceKind::StorageTexture,
                                              texture,
                                              {},
@@ -196,10 +196,10 @@ namespace Desert::Graphic
             }
             // An engine image its system owns, as a storage image on @p mip: StorageWrite for a dispatch that
             // writes it, StorageRead for one that only reads it (resolved to its import, see BlockEntry).
-            BlockDeclaration& Storage( std::string_view shaderName, std::shared_ptr<Image> image,
+            BlockDeclaration& Storage( RDG::StorageTextureParameter parameter, std::shared_ptr<Image> image,
                                        RDG::Access access, std::string importName, uint32_t mip = 0 )
             {
-                Block().Entries.push_back( { std::string( shaderName ),
+                Block().Entries.push_back( { parameter.SlotName(),
                                              RDG::ShaderResourceKind::StorageTexture,
                                              {},
                                              std::move( image ),
@@ -210,9 +210,9 @@ namespace Desert::Graphic
                                              std::nullopt } );
                 return *this;
             }
-            BlockDeclaration& Uniform( std::string_view shaderName, RDG::BufferRef buffer )
+            BlockDeclaration& Uniform( RDG::UniformBufferParameter parameter, RDG::BufferRef buffer )
             {
-                Block().Entries.push_back( { std::string( shaderName ),
+                Block().Entries.push_back( { parameter.SlotName(),
                                              RDG::ShaderResourceKind::UniformBuffer,
                                              {},
                                              {},
@@ -223,9 +223,10 @@ namespace Desert::Graphic
                                              std::nullopt } );
                 return *this;
             }
-            BlockDeclaration& Storage( std::string_view shaderName, RDG::BufferRef buffer, RDG::Access access )
+            BlockDeclaration& Storage( RDG::StorageBufferParameter parameter, RDG::BufferRef buffer,
+                                       RDG::Access access )
             {
-                Block().Entries.push_back( { std::string( shaderName ),
+                Block().Entries.push_back( { parameter.SlotName(),
                                              RDG::ShaderResourceKind::StorageBuffer,
                                              {},
                                              {},
@@ -237,9 +238,10 @@ namespace Desert::Graphic
                 return *this;
             }
             // The view's TLAS (RayTracingSceneFrame::Tlas), ray-queried by the pass's shader.
-            BlockDeclaration& AccelerationStructure( std::string_view shaderName, RDG::BufferRef tlas )
+            BlockDeclaration& AccelerationStructure( RDG::AccelerationStructureParameter parameter,
+                                                     RDG::BufferRef                      tlas )
             {
-                Block().Entries.push_back( { std::string( shaderName ),
+                Block().Entries.push_back( { parameter.SlotName(),
                                              RDG::ShaderResourceKind::AccelerationStructure,
                                              {},
                                              {},
@@ -399,6 +401,8 @@ namespace Desert::Graphic
         // (PassContext::GetBindingBlock).
         for ( const RenderPassDeclaration::BlockUse& block : declared.Blocks() )
         {
+            // Each entry replays the slot name its declaration took from a parameter (BlockEntry::ShaderName is
+            // that parameter's SlotName), so the replay re-forms the parameter of the entry's kind.
             RDG::BindingBlockBuilder bindings = pass.Bindings( block.Layout, block.Other );
             for ( const RenderPassDeclaration::BlockEntry& entry : block.Entries )
             {
@@ -410,25 +414,29 @@ namespace Desert::Graphic
                 switch ( entry.Kind )
                 {
                     case RDG::ShaderResourceKind::Texture:
-                        bindings.Texture( entry.ShaderName, texture, entry.Access, entry.Range );
+                        bindings.Texture( RDG::TextureParameter( entry.ShaderName ), texture, entry.Access,
+                                          entry.Range );
                         break;
                     case RDG::ShaderResourceKind::Sampler:
                         // BlockDeclaration::Sampler always carries the state. An entry without one is not
                         // replayed, and ValidatePassBindings names its slot as filled by neither route.
                         if ( entry.Sampler )
-                            bindings.Sampler( entry.ShaderName, *entry.Sampler );
+                            bindings.Sampler( RDG::SamplerParameter( entry.ShaderName ), *entry.Sampler );
                         break;
                     case RDG::ShaderResourceKind::StorageTexture:
-                        bindings.Storage( entry.ShaderName, texture, entry.Access, entry.Range.BaseMip );
+                        bindings.Storage( RDG::StorageTextureParameter( entry.ShaderName ), texture, entry.Access,
+                                          entry.Range.BaseMip );
                         break;
                     case RDG::ShaderResourceKind::UniformBuffer:
-                        bindings.Uniform( entry.ShaderName, entry.Buffer );
+                        bindings.Uniform( RDG::UniformBufferParameter( entry.ShaderName ), entry.Buffer );
                         break;
                     case RDG::ShaderResourceKind::StorageBuffer:
-                        bindings.Storage( entry.ShaderName, entry.Buffer, entry.Access );
+                        bindings.Storage( RDG::StorageBufferParameter( entry.ShaderName ), entry.Buffer,
+                                          entry.Access );
                         break;
                     case RDG::ShaderResourceKind::AccelerationStructure:
-                        bindings.AccelerationStructure( entry.ShaderName, entry.Buffer );
+                        bindings.AccelerationStructure( RDG::AccelerationStructureParameter( entry.ShaderName ),
+                                                        entry.Buffer );
                         break;
                 }
             }

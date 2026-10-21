@@ -202,7 +202,7 @@ namespace Desert::Graphic
             // leaves those slots to the pass. Only the counts the shader loops to are written here.
             const ShaderProtocols::LightsMetadata counts{
                  .DirectionLightsCount = 0U, .PointLightsCount = pointCount, .SpotLightsCount = spotCount };
-            if ( auto* meta = Get<UniformBufferProperty>( ShaderProtocols::LightsMetadata::Name ) )
+            if ( auto* meta = Get<UniformBufferProperty>( ShaderProtocols::LightsMetadata::Parameter ) )
                 meta->SetRawData( reinterpret_cast<const std::byte*>( &counts ), sizeof( counts ) );
 
             UploadRegisteredProperties();
@@ -220,7 +220,7 @@ namespace Desert::Graphic
         {
             const SceneResources::ShadowUBData data = PackDeferredShadow( shadow );
 
-            if ( auto* ub = Get<UniformBufferProperty>( "ShadowUB" ) )
+            if ( auto* ub = Get<UniformBufferProperty>( SceneResources::kShadowBlock ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
         }
 

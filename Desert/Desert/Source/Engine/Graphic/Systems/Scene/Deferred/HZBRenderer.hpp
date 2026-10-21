@@ -17,6 +17,14 @@
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct HZBBuildShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceMipTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationMipTexture );
+    };
+
     // THE CLOSEST-DEPTH HIERARCHICAL Z-BUFFER of the view (UE: BuildHZB's ClosestHZB), built from the scene depth
     // once per frame as a transient of the frame graph: mip 0 the depth at full resolution, each mip above it the
     // closest depth of the texels it covers (Programs/Deferred/HZB.shader, one dispatch per mip). Screen tracing
@@ -62,9 +70,12 @@ namespace Desert::Graphic::System
                          const RDG::SubresourceRange range =
                               mip == 0u ? RDG::SubresourceRange::All() : RDG::SubresourceRange::Mip( mip - 1u );
                          pass.Bindings( m_Layout.Get( m_Shader ), Renderer::GetPipelineRouteFill( *m_Pipeline ) )
-                              .Texture( "SourceMipTexture", source, RDG::Access::SampledCompute, range )
-                              .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                              .Storage( "DestinationMipTexture", hzb, RDG::Access::StorageWrite, mip );
+                              .Texture( HZBBuildShaderParameters::SourceMipTexture, source,
+                                        RDG::Access::SampledCompute, range )
+                              .Sampler( HZBBuildShaderParameters::PointClampSampler,
+                                        RDG::SamplerDesc::PointClamp() )
+                              .Storage( HZBBuildShaderParameters::DestinationMipTexture, hzb,
+                                        RDG::Access::StorageWrite, mip );
                      },
                      [pipeline = m_Pipeline, mip, width,
                       height]( RDG::PassContext& context ) -> Common::BoolResultStr

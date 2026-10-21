@@ -64,7 +64,7 @@ namespace Desert::Graphic
         if ( material == nullptr )
             return;
 
-        if ( auto* ub = material->Get<UniformBufferProperty>( ShaderProtocols::Camera::Name ) )
+        if ( auto* ub = material->Get<UniformBufferProperty>( ShaderProtocols::Camera::Parameter ) )
         {
             const auto data  = ShaderProtocols::MakeCameraUB( frame );
             const auto bytes = std::as_bytes( std::span{ &data, 1 } );
@@ -78,7 +78,7 @@ namespace Desert::Graphic
     {
         if ( !material )
             return;
-        if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kTimeBlockName ) )
+        if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kTimeBlock ) )
         {
             const glm::vec4 data( seconds, 0.0f, 0.0f, 0.0f );
             const size_t    size = std::min( sizeof( data ), static_cast<size_t>( ub->GetUniform()->GetSize() ) );
@@ -101,19 +101,20 @@ namespace Desert::Graphic
         // buffer unfilled by either route, and a lit forward pass with no point light in the scene
         // (the skinned forward draw over StandardSurface/Skinned.Forward) was refused at setup.
         if ( auto* sb =
-                  material->Get<StorageBufferProperty>( Desert::Graphic::ShaderProtocols::PointLight::Name ) )
+                  material->Get<StorageBufferProperty>( Desert::Graphic::ShaderProtocols::PointLight::Parameter ) )
         {
             const auto bytes = ShaderProtocols::LightPayloadBytes( point.PointLights );
             sb->SetRawData( bytes.data(), static_cast<uint32_t>( bytes.size() ) );
         }
-        if ( auto* sb = material->Get<StorageBufferProperty>( Desert::Graphic::ShaderProtocols::SpotLight::Name ) )
+        if ( auto* sb =
+                  material->Get<StorageBufferProperty>( Desert::Graphic::ShaderProtocols::SpotLight::Parameter ) )
         {
             const auto bytes = ShaderProtocols::LightPayloadBytes( spot.SpotLights );
             sb->SetRawData( bytes.data(), static_cast<uint32_t>( bytes.size() ) );
         }
 
         if ( !dir.DirectionLights.empty() )
-            if ( auto* ub = material->Get<UniformBufferProperty>( dir.Name ) )
+            if ( auto* ub = material->Get<UniformBufferProperty>( ShaderProtocols::DirectionLight::Parameter ) )
             {
                 const size_t size =
                      std::min( dir.DirectionLights.size() * sizeof( ShaderProtocols::DirectionLightPayload ),
@@ -125,7 +126,7 @@ namespace Desert::Graphic
              .DirectionLightsCount = static_cast<uint32_t>( dir.DirectionLights.size() ),
              .PointLightsCount     = static_cast<uint32_t>( point.PointLights.size() ),
              .SpotLightsCount      = static_cast<uint32_t>( spot.SpotLights.size() ) };
-        if ( auto* ub = material->Get<UniformBufferProperty>( ShaderProtocols::LightsMetadata::Name ) )
+        if ( auto* ub = material->Get<UniformBufferProperty>( ShaderProtocols::LightsMetadata::Parameter ) )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &counts ), sizeof( counts ) );
     }
 
@@ -165,7 +166,7 @@ namespace Desert::Graphic
         SceneResources::PackContactShadow( data, contact );
         SceneResources::PackShadowFilter( data, filter );
 
-        if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kShadowBlockName ) )
+        if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kShadowBlock ) )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
     }
 
@@ -178,7 +179,7 @@ namespace Desert::Graphic
     {
         if ( material == nullptr )
             return;
-        if ( auto* ub = material->Get<UniformBufferProperty>( kSkyLookBlockName ) )
+        if ( auto* ub = material->Get<UniformBufferProperty>( kSkyLookBlock ) )
         {
             const SkyLookGPU data = ToGPU( look );
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );

@@ -241,7 +241,7 @@ namespace Desert::Graphic::Render2D
         // executor owns its own descriptor set, so switching textures across batches never overwrites a live
         // binding. @p sampler is the shader's sampler2D name the texture is bound to.
         MaterialExecutor* ExecutorFor( ExecutorCache& cache, const std::shared_ptr<Shader>& shader,
-                                       const char* sampler, const void* texture, Image2D* image );
+                                       RDG::TextureParameter property, const void* texture, Image2D* image );
 
         std::shared_ptr<Shader>           m_Shader;      // UI2D  (solid / image)
         std::shared_ptr<Shader>           m_TextShader;  // UIText (SDF glyphs)

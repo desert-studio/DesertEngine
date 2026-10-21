@@ -6,6 +6,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneMetadata.hpp>
 
 #include <glm/glm.hpp>
@@ -226,6 +227,12 @@ namespace Desert::Graphic::GlobalIllumination
     inline constexpr std::string_view kHardwareTracerGeometryName                 = "RayTracingGeometryRecords";
     inline constexpr std::string_view kHardwareTracerMaterialsName                = "RayTracingMaterialRecords";
     inline constexpr std::string_view kHardwareTracerInstanceSurfaceCacheRowsName = "GIInstanceSurfaceCacheRows";
+    // Their binding form (RDGShaderParameters.hpp), from the names above.
+    inline constexpr RDG::AccelerationStructureParameter kHardwareTracerTlas{ kHardwareTracerTlasName };
+    inline constexpr RDG::StorageBufferParameter         kHardwareTracerGeometry{ kHardwareTracerGeometryName };
+    inline constexpr RDG::StorageBufferParameter         kHardwareTracerMaterials{ kHardwareTracerMaterialsName };
+    inline constexpr RDG::StorageBufferParameter         kHardwareTracerInstanceSurfaceCacheRows{
+         kHardwareTracerInstanceSurfaceCacheRowsName };
 
     // THE GI FRAME RECORD — what every GI pass knows of the frame, neutral to the tracer. std430 — must match
     // `struct GIFrame` in Common/GIFrame.glslh. 224 bytes. Uploaded once per frame by the frame's owner and bound

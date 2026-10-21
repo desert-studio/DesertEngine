@@ -30,6 +30,13 @@ namespace Desert::Graphic
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct GraphColorResolveBindingShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, MultisampledColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+    };
+
     // THE SHADER RESOLVE OF A SampleZero GRAPH COLOUR (ViewRasterTargets.hpp GraphColorResolve). Vulkan resolves a
     // float colour attachment in a render pass only by averaging, which is wrong for vector data; a graph colour
     // declared SampleZero gets no in-pass resolve and this system records the raster node the graph adds for it
@@ -84,8 +91,10 @@ namespace Desert::Graphic::System
             if ( !IsReady() || !multisample.IsValid() )
                 return;
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
-                 .Texture( "MultisampledColorTexture", multisample, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                 .Texture( GraphColorResolveBindingShaderParameters::MultisampledColorTexture, multisample,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( GraphColorResolveBindingShaderParameters::PointClampSampler,
+                           RDG::SamplerDesc::PointClamp() );
         }
 
         // Inside the render pass the graph opens on the single-sample colour of @p format: opens block 0.

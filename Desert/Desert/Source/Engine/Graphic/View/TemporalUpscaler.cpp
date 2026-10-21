@@ -19,6 +19,17 @@
 #include <format>
 #include <mutex>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct TemporalUpscalerSupersampleResolveShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationColorTexture );
+    };
+} // namespace
+
 namespace Desert::Graphic
 {
     namespace
@@ -267,9 +278,12 @@ namespace Desert::Graphic
                  {
                      // texelFetch only: the Catmull-Rom weights are the filter, the sampler filters nothing.
                      pass.Bindings( SupersampleResolveLayout(), RDG::OtherRouteFill{} )
-                          .Texture( "SourceColorTexture", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                          .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Storage( "DestinationColorTexture", destination, RDG::Access::StorageWrite, 0 )
+                          .Texture( TemporalUpscalerSupersampleResolveShaderParameters::SourceColorTexture, source,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Sampler( TemporalUpscalerSupersampleResolveShaderParameters::PointClampSampler,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Storage( TemporalUpscalerSupersampleResolveShaderParameters::DestinationColorTexture,
+                                    destination, RDG::Access::StorageWrite, 0 )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( SupersampleResolvePush ) ) );
                  },
                  [holder, push]( RDG::PassContext& context ) -> Common::BoolResultStr

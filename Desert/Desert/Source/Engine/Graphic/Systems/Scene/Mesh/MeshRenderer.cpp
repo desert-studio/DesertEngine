@@ -125,19 +125,19 @@ namespace Desert::Graphic::System
 
         // The storage buffer the path adds to a caster cell (MeshPathOwnBinding): instance matrices or bone
         // poses; empty for the static path, which has none.
-        std::string MeshPathOwnBufferName( MeshVertexPath path )
+        std::optional<RDG::StorageBufferParameter> MeshPathOwnBuffer( MeshVertexPath path )
         {
             switch ( path )
             {
                 case MeshVertexPath::Instanced:
                 case MeshVertexPath::GrassBlade:
-                    return "InstanceTransforms";
+                    return RDG::StorageBufferParameter( "InstanceTransforms" );
                 case MeshVertexPath::Skinned:
-                    return ShaderProtocols::SkinnedUB::Name;
+                    return ShaderProtocols::SkinnedUB::Parameter;
                 case MeshVertexPath::Static:
-                    return {};
+                    return std::nullopt;
             }
-            return {};
+            return std::nullopt;
         }
     } // namespace MeshRendererDetail
 

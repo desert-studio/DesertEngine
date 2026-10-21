@@ -22,6 +22,33 @@
 #include <format>
 #include <span>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ReflectionCaptureAssembleShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ReflectionCaptureFacesUB );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationCubeTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ReflectionCaptureDownsampleShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceCubeTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationCubeTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ReflectionCaptureFilterShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, RadianceTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationCubeTexture );
+    };
+} // namespace
+
 namespace Desert::Graphic
 {
     namespace
@@ -39,6 +66,7 @@ namespace Desert::Graphic
                                                                    glm::vec3( 0, 1, 0 ), glm::vec3( 0, 1, 0 ) };
         constexpr std::array<std::string_view, 6> kFaceNames   = { "FacePositiveXTexture", "FaceNegativeXTexture", "FacePositiveYTexture",
                                                                    "FaceNegativeYTexture", "FacePositiveZTexture", "FaceNegativeZTexture" };
+        constexpr auto kFaceTextures = RDG::ParametersOf<RDG::ShaderResourceKind::Texture>( kFaceNames );
 
         // A face view has settled once it held one sky environment for this many consecutive renders of its own
         // after its first. The sky is the scene's (lent, never baked by the face), so what is left to converge is
@@ -596,11 +624,15 @@ namespace Desert::Graphic
                                                 Renderer::GetPipelineRouteFill( *m_Assemble ) );
                  for ( size_t f = 0; f < faces.size(); ++f )
                      bindings
-                          .Texture( kFaceNames[f], faces[f], RDG::Access::SampledCompute,
+                          .Texture( kFaceTextures[f], faces[f], RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
-                 bindings.Storage( "ReflectionCaptureFacesUB", facesBuffer, RDG::Access::StorageRead )
-                      .Storage( "DestinationCubeTexture", radiance, RDG::Access::StorageWrite, 0 );
+                          .Sampler( ReflectionCaptureAssembleShaderParameters::LinearClampSampler,
+                                    RDG::SamplerDesc::LinearClamp() );
+                 bindings
+                      .Storage( ReflectionCaptureAssembleShaderParameters::ReflectionCaptureFacesUB, facesBuffer,
+                                RDG::Access::StorageRead )
+                      .Storage( ReflectionCaptureAssembleShaderParameters::DestinationCubeTexture, radiance,
+                                RDG::Access::StorageWrite, 0 );
              },
              [pipeline = m_Assemble, faceSize]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
@@ -616,10 +648,12 @@ namespace Desert::Graphic
                  {
                      pass.Bindings( m_DownsampleLayout.Get( m_Downsample->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_Downsample ) )
-                          .Texture( "SourceCubeTexture", radiance, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::Mip( mip - 1 ) )
-                          .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                          .Storage( "DestinationCubeTexture", radiance, RDG::Access::StorageWrite, mip );
+                          .Texture( ReflectionCaptureDownsampleShaderParameters::SourceCubeTexture, radiance,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) )
+                          .Sampler( ReflectionCaptureDownsampleShaderParameters::LinearClampSampler,
+                                    RDG::SamplerDesc::LinearClamp() )
+                          .Storage( ReflectionCaptureDownsampleShaderParameters::DestinationCubeTexture, radiance,
+                                    RDG::Access::StorageWrite, mip );
                  },
                  [pipeline = m_Downsample, mip, faceSize]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -636,10 +670,12 @@ namespace Desert::Graphic
                  {
                      pass.Bindings( m_FilterLayout.Get( m_Filter->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_Filter ) )
-                          .Texture( "RadianceTexture", radiance, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
-                          .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                          .Storage( "DestinationCubeTexture", array, RDG::Access::StorageWrite, mip )
+                          .Texture( ReflectionCaptureFilterShaderParameters::RadianceTexture, radiance,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Sampler( ReflectionCaptureFilterShaderParameters::LinearClampSampler,
+                                    RDG::SamplerDesc::LinearClamp() )
+                          .Storage( ReflectionCaptureFilterShaderParameters::DestinationCubeTexture, array,
+                                    RDG::Access::StorageWrite, mip )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( FilterPush ) ) );
                  },
                  [pipeline = m_Filter, mip, mips, cube,

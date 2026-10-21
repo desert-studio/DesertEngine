@@ -27,6 +27,13 @@ namespace Desert::Graphic
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SceneDepthResolveBindingShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+    };
+
     // The compute passes that read scene depth (height fog, volumetric clouds) sample a SINGLE-SAMPLE depth: a
     // sampler2D over a multisampled image is invalid (VUID-RuntimeSpirv-samples-08725). At MSAA > 1 this system
     // owns SceneDepthResolved, a 1x depth-only framebuffer resized with the scene target, and records the raster
@@ -108,8 +115,10 @@ namespace Desert::Graphic::System
             if ( !IsReady() || !sceneDepth.IsValid() )
                 return;
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
-                 .Texture( "SourceDepthTexture", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                 .Texture( SceneDepthResolveBindingShaderParameters::SourceDepthTexture, sceneDepth,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( SceneDepthResolveBindingShaderParameters::PointClampSampler,
+                           RDG::SamplerDesc::PointClamp() );
         }
 
         // Inside the render pass the frame graph opens on SceneDepthResolved: opens block 0.

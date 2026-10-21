@@ -58,14 +58,14 @@ namespace Desert::Graphic
         // A view-pass vertex stage with no rows would read an unbound buffer: the producer always fills them.
         if ( Reads( groups, SceneRead::ObjectMotion ) )
         {
-            auto*      rows  = material->Get<StorageBufferProperty>( SceneResources::kObjectMotionsName );
+            auto*      rows  = material->Get<StorageBufferProperty>( SceneResources::kObjectMotions );
             const bool bound = rows != nullptr && ObjectMotions != nullptr;
             DESERT_VERIFY( bound, "a view-pass material reads ObjectMotions but the frame carries none" );
             rows->SetBuffer( ObjectMotions );
         }
         if ( Reads( groups, SceneRead::ObjectBones ) )
         {
-            auto*      palettes = material->Get<StorageBufferProperty>( SceneResources::kObjectBonesName );
+            auto*      palettes = material->Get<StorageBufferProperty>( SceneResources::kObjectBones );
             const bool bound    = palettes != nullptr && ObjectBones != nullptr;
             DESERT_VERIFY( bound, "a skinned view-pass material reads ObjectBones but the frame carries none" );
             palettes->SetBuffer( ObjectBones );
@@ -74,7 +74,7 @@ namespace Desert::Graphic
         // writes one each frame, an empty collection included.
         if ( Reads( groups, SceneRead::WorldParameters ) )
         {
-            auto*      table = material->Get<StorageBufferProperty>( SceneResources::kWorldParametersName );
+            auto*      table = material->Get<StorageBufferProperty>( SceneResources::kWorldParameters );
             const bool bound = table != nullptr && WorldParameters != nullptr;
             DESERT_VERIFY( bound, "a material reads WorldParameters but the frame carries none" );
             table->SetBuffer( WorldParameters );
@@ -83,7 +83,7 @@ namespace Desert::Graphic
         // materials (SceneViewInputs::RainOcclusionMap through BindSceneViewInputs).
         if ( Reads( groups, SceneRead::RainOcclusion ) )
         {
-            if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kRainOcclusionBlockName ) )
+            if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kRainOcclusionBlock ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &RainOcclusion ), sizeof( RainOcclusion ) );
         }
     }

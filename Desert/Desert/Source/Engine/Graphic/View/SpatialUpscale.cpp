@@ -11,6 +11,25 @@
 #include <mutex>
 #include <string>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SpatialUpscaleShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationColorTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SpatialUpscaleSharpenShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationColorTexture );
+    };
+} // namespace
+
 namespace Desert::Graphic
 {
     namespace
@@ -140,9 +159,11 @@ namespace Desert::Graphic
              {
                  // texelFetch only: the EASU lobes are the filter, the sampler filters nothing.
                  pass.Bindings( SpatialUpscaleLayout(), RDG::OtherRouteFill{} )
-                      .Texture( "SourceColorTexture", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                      .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Storage( "DestinationColorTexture", output, RDG::Access::StorageWrite, 0 )
+                      .Texture( SpatialUpscaleShaderParameters::SourceColorTexture, sceneColor,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( SpatialUpscaleShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                      .Storage( SpatialUpscaleShaderParameters::DestinationColorTexture, output,
+                                RDG::Access::StorageWrite, 0 )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( SpatialUpscalePush ) ) );
              },
              [holder, push]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -197,9 +218,12 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( SharpenLayout(), RDG::OtherRouteFill{} )
-                      .Texture( "SourceColorTexture", color, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                      .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Storage( "DestinationColorTexture", output, RDG::Access::StorageWrite, 0 )
+                      .Texture( SpatialUpscaleSharpenShaderParameters::SourceColorTexture, color,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( SpatialUpscaleSharpenShaderParameters::PointClampSampler,
+                                RDG::SamplerDesc::PointClamp() )
+                      .Storage( SpatialUpscaleSharpenShaderParameters::DestinationColorTexture, output,
+                                RDG::Access::StorageWrite, 0 )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( SharpenPush ) ) );
              },
              [holder, push]( RDG::PassContext& context ) -> Common::BoolResultStr

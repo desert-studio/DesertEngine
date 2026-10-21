@@ -17,6 +17,20 @@
 #include <format>
 #include <string>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct LandscapeRayTracingShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeRayTracingRows );
+        DESERT_SHADER_PARAMETER( Texture, HeightmapTexture );
+        DESERT_SHADER_PARAMETER( Texture, WeightmapTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeRayTracingVertexData );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeRayTracingIndexData );
+    };
+} // namespace
+
 namespace Desert::Graphic::RayTracing
 {
     namespace
@@ -248,18 +262,22 @@ namespace Desert::Graphic::RayTracing
                                                    std::format( "Landscape.RayTracing.Indices.{}", job.Entity ) );
             vertices.Access.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Pipeline ) )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::uvec4 ) ) )
-                 .Storage( "LandscapeRayTracingRows", rowBuffer, RDG::Access::StorageRead )
+                 .Storage( LandscapeRayTracingShaderParameters::LandscapeRayTracingRows, rowBuffer,
+                           RDG::Access::StorageRead )
                  // Both maps are read only by texelFetch (Common/LandscapeHeight.glslh decodes the exact R16
                  // integer; the weights are fetched per vertex): separate textures through the point-clamped
                  // shared state.
-                 .Texture( "HeightmapTexture", job.Heightmap, RDG::Access::SampledCompute,
-                           std::format( "Landscape.Heightmap.{}", job.Entity ) )
-                 .Texture( "WeightmapTexture", job.Weightmap, RDG::Access::SampledCompute,
+                 .Texture( LandscapeRayTracingShaderParameters::HeightmapTexture, job.Heightmap,
+                           RDG::Access::SampledCompute, std::format( "Landscape.Heightmap.{}", job.Entity ) )
+                 .Texture( LandscapeRayTracingShaderParameters::WeightmapTexture, job.Weightmap,
+                           RDG::Access::SampledCompute,
                            job.HasWeightmap ? std::format( "Landscape.Weightmap.{}", job.Entity )
                                             : std::string( "Landscape.RayTracing.WeightmapFallback" ) )
-                 .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                 .Storage( "LandscapeRayTracingVertexData", job.Vertices, RDG::Access::StorageWrite )
-                 .Storage( "LandscapeRayTracingIndexData", job.Indices, RDG::Access::StorageWrite );
+                 .Sampler( LandscapeRayTracingShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                 .Storage( LandscapeRayTracingShaderParameters::LandscapeRayTracingVertexData, job.Vertices,
+                           RDG::Access::StorageWrite )
+                 .Storage( LandscapeRayTracingShaderParameters::LandscapeRayTracingIndexData, job.Indices,
+                           RDG::Access::StorageWrite );
         }
         std::vector<glm::uvec4> pushes;
         std::vector<uint32_t>   groups;

@@ -12,6 +12,13 @@
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct DepthExpandBindingShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+    };
+
     // "Deferred: DepthExpand": the scene target is multisampled while the G-buffer is not, and a copy between
     // different sample counts does not exist. A full-screen triangle samples the single-sample G-buffer depth
     // and writes it through gl_FragDepth into every sample of the multisampled scene depth (depth test ALWAYS,
@@ -74,8 +81,9 @@ namespace Desert::Graphic::System
             if ( !IsReady() || !gbufferDepth.IsValid() )
                 return;
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
-                 .Texture( "SourceDepthTexture", gbufferDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                 .Texture( DepthExpandBindingShaderParameters::SourceDepthTexture, gbufferDepth,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( DepthExpandBindingShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
         }
 
         // Inside the render pass the frame graph opens on the multisampled scene depth: opens block 0.

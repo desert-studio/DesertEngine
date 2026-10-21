@@ -825,9 +825,10 @@ namespace Desert::Graphic::DistanceField
              {
                  auto block = pass.Bindings( m_ViewLayout.Get( m_ViewShader ), RDG::OtherRouteFill{} );
                  for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
-                     block.Texture( std::format( "u_GlobalDistanceField{}", level ), field.Clipmaps[level],
+                     block.Texture( kGlobalDistanceFieldClipmapTextures[level], field.Clipmaps[level],
                                     RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                          .Sampler( GlobalDistanceFieldViewShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() );
+                          .Sampler( GlobalDistanceFieldViewShaderParameters::LinearRepeatSampler,
+                                    RDG::SamplerDesc::LinearRepeat() );
                  block.PushConstantBytes( static_cast<uint32_t>( sizeof( GdfViewPush ) ) );
                  pass.ColorTarget( 0, target, load );
              },

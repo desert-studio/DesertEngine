@@ -333,7 +333,7 @@ namespace Desert::Graphic::Render2D
         const std::shared_ptr<Shader>& shader   = entry.Pipeline->GetSpecification().Shader;
         if ( !shader )
             return "the pipeline has no shader";
-        auto*       rowBuffer = material.Get<StorageBufferProperty>( Core::Formats::kMaterialRowBlockName );
+        auto*       rowBuffer = material.Get<StorageBufferProperty>( kMaterialRowBlock );
         const auto& row       = material.GetParamRow();
         std::string fault =
              UIMaterialFallback::RowFault( rowBuffer != nullptr, RowFields( shader->GetProgramMeta() ),

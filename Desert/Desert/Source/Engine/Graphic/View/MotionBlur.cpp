@@ -11,6 +11,49 @@
 #include <format>
 #include <string>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MotionBlurFlattenShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, FlattenedVelocityTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MotionBlurBuffer );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MotionBlurTileMaxShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, FlattenedVelocityTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, TileMaxTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MotionBlurBuffer );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MotionBlurNeighborMaxShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, TileMaxTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, NeighborMaxTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MotionBlurBuffer );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MotionBlurGatherShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, FlattenedVelocityTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, NeighborMaxTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, BlurredSceneColorTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MotionBlurBuffer );
+    };
+} // namespace
+
 namespace Desert::Graphic
 {
     namespace
@@ -245,14 +288,16 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( MotionBlurFlattenLayout(), RDG::OtherRouteFill{} )
-                      .Texture( "VelocityTexture", inputs.Velocity, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Sampler( "PointClampSampler", point )
-                      .Texture( "SceneDepthTexture", inputs.SceneDepth, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Sampler( "PointClampSampler", point )
-                      .Storage( "FlattenedVelocityTexture", flat, RDG::Access::StorageWrite, 0 )
-                      .Storage( "MotionBlurBuffer", buffer, RDG::Access::StorageRead );
+                      .Texture( MotionBlurFlattenShaderParameters::VelocityTexture, inputs.Velocity,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( MotionBlurFlattenShaderParameters::PointClampSampler, point )
+                      .Texture( MotionBlurFlattenShaderParameters::SceneDepthTexture, inputs.SceneDepth,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( MotionBlurFlattenShaderParameters::PointClampSampler, point )
+                      .Storage( MotionBlurFlattenShaderParameters::FlattenedVelocityTexture, flat,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( MotionBlurFlattenShaderParameters::MotionBlurBuffer, buffer,
+                                RDG::Access::StorageRead );
              },
              exec( Kernel::Flatten, render ) );
 
@@ -261,10 +306,13 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( MotionBlurTileMaxLayout(), RDG::OtherRouteFill{} )
-                      .Texture( "FlattenedVelocityTexture", flat, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                      .Sampler( "PointClampSampler", point )
-                      .Storage( "TileMaxTexture", tileMax, RDG::Access::StorageWrite, 0 )
-                      .Storage( "MotionBlurBuffer", buffer, RDG::Access::StorageRead );
+                      .Texture( MotionBlurTileMaxShaderParameters::FlattenedVelocityTexture, flat,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( MotionBlurTileMaxShaderParameters::PointClampSampler, point )
+                      .Storage( MotionBlurTileMaxShaderParameters::TileMaxTexture, tileMax,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( MotionBlurTileMaxShaderParameters::MotionBlurBuffer, buffer,
+                                RDG::Access::StorageRead );
              },
              exec( Kernel::TileMax, tileExtent ) );
 
@@ -273,10 +321,13 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( MotionBlurNeighborMaxLayout(), RDG::OtherRouteFill{} )
-                      .Texture( "TileMaxTexture", tileMax, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                      .Sampler( "PointClampSampler", point )
-                      .Storage( "NeighborMaxTexture", neighborMax, RDG::Access::StorageWrite, 0 )
-                      .Storage( "MotionBlurBuffer", buffer, RDG::Access::StorageRead );
+                      .Texture( MotionBlurNeighborMaxShaderParameters::TileMaxTexture, tileMax,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( MotionBlurNeighborMaxShaderParameters::PointClampSampler, point )
+                      .Storage( MotionBlurNeighborMaxShaderParameters::NeighborMaxTexture, neighborMax,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( MotionBlurNeighborMaxShaderParameters::MotionBlurBuffer, buffer,
+                                RDG::Access::StorageRead );
              },
              exec( Kernel::NeighborMax, tileExtent ) );
 
@@ -287,16 +338,20 @@ namespace Desert::Graphic
                  // The colour taps are bilinear (sub-pixel positions along the velocity); the flattened velocity
                  // and the tiles are read at texel centres.
                  pass.Bindings( MotionBlurGatherLayout(), RDG::OtherRouteFill{} )
-                      .Texture( "SceneColorTexture", inputs.SceneColor, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                      .Texture( "FlattenedVelocityTexture", flat, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                      .Sampler( "PointClampSampler", point )
-                      .Texture( "NeighborMaxTexture", neighborMax, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Sampler( "PointClampSampler", point )
-                      .Storage( "BlurredSceneColorTexture", blurred, RDG::Access::StorageWrite, 0 )
-                      .Storage( "MotionBlurBuffer", buffer, RDG::Access::StorageRead );
+                      .Texture( MotionBlurGatherShaderParameters::SceneColorTexture, inputs.SceneColor,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( MotionBlurGatherShaderParameters::LinearClampSampler,
+                                RDG::SamplerDesc::LinearClamp() )
+                      .Texture( MotionBlurGatherShaderParameters::FlattenedVelocityTexture, flat,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( MotionBlurGatherShaderParameters::PointClampSampler, point )
+                      .Texture( MotionBlurGatherShaderParameters::NeighborMaxTexture, neighborMax,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( MotionBlurGatherShaderParameters::PointClampSampler, point )
+                      .Storage( MotionBlurGatherShaderParameters::BlurredSceneColorTexture, blurred,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( MotionBlurGatherShaderParameters::MotionBlurBuffer, buffer,
+                                RDG::Access::StorageRead );
              },
              exec( Kernel::Gather, output ) );
 

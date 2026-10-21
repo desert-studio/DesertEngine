@@ -116,6 +116,14 @@ namespace Desert::Graphic::SceneResources
     inline constexpr const char* kWorldParametersName          = "WorldParameters";
     inline constexpr const char* kRainOcclusionBlockName       = "RainOcclusionUB";
     inline constexpr const char* kRainOcclusionMapName         = "RainOcclusionMapTexture";
+    // The blocks a material property is looked up by (Material::Get), in their parameter form.
+    inline constexpr RDG::UniformBufferParameter kShadowBlock{ kShadowBlockName };
+    inline constexpr RDG::UniformBufferParameter kTimeBlock{ kTimeBlockName };
+    inline constexpr RDG::UniformBufferParameter kCloudShadowBlock{ kCloudShadowBlockName };
+    inline constexpr RDG::StorageBufferParameter kObjectMotions{ kObjectMotionsName };
+    inline constexpr RDG::StorageBufferParameter kObjectBones{ kObjectBonesName };
+    inline constexpr RDG::StorageBufferParameter kWorldParameters{ kWorldParametersName };
+    inline constexpr RDG::UniformBufferParameter kRainOcclusionBlock{ kRainOcclusionBlockName };
 
     struct Entry
     {

@@ -12,6 +12,16 @@
 #include <format>
 #include <unordered_map>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MeshCardCaptureShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, Materials );
+        DESERT_SHADER_PARAMETER( StorageBuffer, InstanceTransforms );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -365,11 +375,13 @@ namespace Desert::Graphic::System
                 }
 
                 if ( !rows.empty() )
-                    if ( auto* sb = material->Get<StorageBufferProperty>( "Materials" ) )
+                    if ( auto* sb =
+                              material->Get<StorageBufferProperty>( MeshCardCaptureShaderParameters::Materials ) )
                         sb->SetRawData( rows.data(), static_cast<uint32_t>( rows.size() * sizeof( glm::vec4 ) ) );
                 // An instance's one transform (the instanced cell reads its world from InstanceTransforms).
                 if ( path == MeshVertexPath::Instanced )
-                    if ( auto* sb = material->Get<StorageBufferProperty>( "InstanceTransforms" ) )
+                    if ( auto* sb = material->Get<StorageBufferProperty>(
+                              MeshCardCaptureShaderParameters::InstanceTransforms ) )
                         sb->SetRawData( &source.World, static_cast<uint32_t>( sizeof( glm::mat4 ) ) );
                 CaptureFrameState( &cardView ).ApplyTo( static_cast<Material*>( material ) );
 

@@ -79,7 +79,7 @@ namespace Desert::Graphic
     {
         if ( matrices == nullptr || count == 0 )
             return;
-        auto* bones = Get<StorageBufferProperty>( ShaderProtocols::SkinnedUB::Name );
+        auto* bones = Get<StorageBufferProperty>( ShaderProtocols::SkinnedUB::Parameter );
         DESERT_VERIFY( bones, "UploadSkinnedBones on a cell with no skinned vertex stage (no Bones buffer)" );
         bones->SetRawData( matrices, static_cast<uint32_t>( count * sizeof( glm::mat4 ) ) );
     }

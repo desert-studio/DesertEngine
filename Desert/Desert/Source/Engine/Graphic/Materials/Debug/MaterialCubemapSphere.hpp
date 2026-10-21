@@ -10,6 +10,13 @@
 
 namespace Desert::Graphic
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MaterialCubemapSphereShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( UniformBuffer, CubemapSphereUB );
+        DESERT_SHADER_PARAMETER( Texture, CubeMapTexture );
+    };
+
     // Feeds the "CubemapSphere" shader: the Material Editor's cubemap-on-a-sphere presenter (the pane's
     // answer for a Skybox-domain material — see the shader for why the ball is ray-traced from a quad).
     // One UB with the camera matrices + inverses for the per-pixel world ray, the sphere radius, and the
@@ -38,9 +45,9 @@ namespace Desert::Graphic
             data.CameraPos     = glm::vec4( camera->GetPosition(), 1.0f );
             data.Params = glm::vec4( radiusWorldUnits, cubeIsBackdrop ? 1.0f : 0.0f, lod, longLat ? 1.0f : 0.0f );
 
-            if ( auto* ub = Get<UniformBufferProperty>( "CubemapSphereUB" ) )
+            if ( auto* ub = Get<UniformBufferProperty>( MaterialCubemapSphereShaderParameters::CubemapSphereUB ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
-            if ( auto* tex = Get<TextureCubeProperty>( "CubeMapTexture" ) )
+            if ( auto* tex = Get<TextureCubeProperty>( MaterialCubemapSphereShaderParameters::CubeMapTexture ) )
                 tex->SetTexture( cube );
             // The ball shows the sky the scene shows: a Details-panel preview beside a Rotation slider
             // that did not turn would read as a slider that does nothing.

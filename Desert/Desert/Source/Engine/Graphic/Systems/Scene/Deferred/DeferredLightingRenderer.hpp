@@ -32,6 +32,35 @@
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct DeferredLightingWorldViewShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, DeviceDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LightGridWorldViewUB );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct DeferredLightingCompositeShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferATexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferBTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferShadingWordTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferEmissiveTexture );
+        DESERT_SHADER_PARAMETER( Texture, SsaoTexture );
+        DESERT_SHADER_PARAMETER( Texture, SsrTexture );
+        DESERT_SHADER_PARAMETER( Texture, GiDiffuseTexture );
+        DESERT_SHADER_PARAMETER( Texture, GiSpecularTexture );
+        DESERT_SHADER_PARAMETER( Texture, MegaLightsDiffuseTexture );
+        DESERT_SHADER_PARAMETER( Texture, MegaLightsSpecularTexture );
+        DESERT_SHADER_PARAMETER( Texture, ScreenShadowMaskTexture );
+        DESERT_SHADER_PARAMETER( Texture, GiBackfaceTexture );
+    };
+
     // The graph textures the deferred composite samples, as refs of THIS frame's graph that the Composite node
     // declared reads of. An input not produced this frame is the system texture neutral for it (UE
     // GSystemTextures): never an unbound slot, never a skipped draw.
@@ -69,6 +98,7 @@ namespace Desert::Graphic::System
 
     // The block name of the local shadow view table in the composite shader (Mesh/LocalLightShadow.glslh).
     inline constexpr std::string_view kLocalShadowViewsBlockName = "LocalShadowViewsUB";
+    inline constexpr RDG::StorageBufferParameter kLocalShadowViewsBlock{ kLocalShadowViewsBlockName };
 
     // Deferred lighting + G-buffer debug pass. Fullscreen: reads the scene renderer's MRT G-buffer and writes
     // the shaded (or debug) result into the scene target framebuffer, which the post chain then tonemaps.
@@ -204,11 +234,14 @@ namespace Desert::Graphic::System
             if ( !m_WorldView )
                 return;
             pass.Bindings( m_WorldViewLayout.Get( m_WorldViewShader ), RDG::OtherRouteFill{} )
-                 .Texture( "DeviceDepthTexture", depth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                 .Storage( "LightGridWorldViewUB", view, RDG::Access::StorageRead )
-                 .Storage( kLightGridParamsBlockName, lights.WorldGridParams, RDG::Access::StorageRead )
-                 .Storage( kLightGridWorldCellsBlockName, lights.WorldGridCells, RDG::Access::StorageRead );
+                 .Texture( DeferredLightingWorldViewShaderParameters::DeviceDepthTexture, depth,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( DeferredLightingWorldViewShaderParameters::LinearRepeatSampler,
+                           RDG::SamplerDesc::LinearRepeat() )
+                 .Storage( DeferredLightingWorldViewShaderParameters::LightGridWorldViewUB, view,
+                           RDG::Access::StorageRead )
+                 .Storage( kLightGridParamsBlock, lights.WorldGridParams, RDG::Access::StorageRead )
+                 .Storage( kLightGridWorldCellsBlock, lights.WorldGridCells, RDG::Access::StorageRead );
         }
 
         [[nodiscard]] Common::BoolResultStr RecordWorldView( const RDG::PassContext& context ) const
@@ -281,11 +314,11 @@ namespace Desert::Graphic::System
                 return;
             const bool world = layout == LightGridLayout::WorldClipmaps;
             pass.Bindings( m_GridLayout.Get( m_GridShader ), Renderer::GetPipelineRouteFill( *m_GridPipeline ) )
-                 .Storage( kLightGridParamsBlockName, world ? lights.WorldGridParams : lights.GridParams,
+                 .Storage( kLightGridParamsBlock, world ? lights.WorldGridParams : lights.GridParams,
                            RDG::Access::StorageRead )
-                 .Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
-                 .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
-                 .Storage( kLightGridCellsBlockName, world ? lights.WorldGridCells : lights.GridCells,
+                 .Storage( ShaderProtocols::PointLight::Parameter, lights.Point, RDG::Access::StorageRead )
+                 .Storage( ShaderProtocols::SpotLight::Parameter, lights.Spot, RDG::Access::StorageRead )
+                 .Storage( kLightGridCellsBlock, world ? lights.WorldGridCells : lights.GridCells,
                            RDG::Access::StorageWrite );
         }
 
@@ -342,32 +375,46 @@ namespace Desert::Graphic::System
             constexpr RDG::SubresourceRange kWhole = RDG::SubresourceRange::All();
             const auto&                     layout = program.Layout.Get( program.Shader );
             auto block = pass.Bindings( layout, program.Material->GetMaterialExecutor()->GetRouteFill() );
-            block.Sampler( "LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                 .Sampler( "LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                 .Sampler( "PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                 .Texture( "GBufferATexture", inputs.GBufferA, kRead, kWhole )
-                 .Texture( "GBufferBTexture", inputs.GBufferB, kRead, kWhole )
-                 .Texture( "GBufferShadingWordTexture", inputs.GBufferShadingWord, kRead, kWhole )
-                 .Texture( "GBufferDepthTexture", inputs.GBufferDepth, kRead, kWhole )
-                 .Texture( "GBufferEmissiveTexture", inputs.GBufferEmissive, kRead, kWhole )
-                 .Texture( "SsaoTexture", inputs.SSAO, kRead, kWhole )
+            block.Sampler( DeferredLightingCompositeShaderParameters::LinearRepeatSampler,
+                           RDG::SamplerDesc::LinearRepeat() )
+                 .Sampler( DeferredLightingCompositeShaderParameters::LinearClampSampler,
+                           RDG::SamplerDesc::LinearClamp() )
+                 .Sampler( DeferredLightingCompositeShaderParameters::PointClampSampler,
+                           RDG::SamplerDesc::PointClamp() )
+                 .Texture( DeferredLightingCompositeShaderParameters::GBufferATexture, inputs.GBufferA, kRead,
+                           kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GBufferBTexture, inputs.GBufferB, kRead,
+                           kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GBufferShadingWordTexture,
+                           inputs.GBufferShadingWord, kRead, kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GBufferDepthTexture, inputs.GBufferDepth,
+                           kRead, kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GBufferEmissiveTexture,
+                           inputs.GBufferEmissive, kRead, kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::SsaoTexture, inputs.SSAO, kRead, kWhole )
                  // The resolved reflections, read through the clamped state (UE: the SSR composite input).
-                 .Texture( "SsrTexture", inputs.SSR, kRead, kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::SsrTexture, inputs.SSR, kRead, kWhole )
                  // One texel per pixel, read through the point-clamped state like the depth.
-                 .Texture( "GiDiffuseTexture", inputs.GIDiffuse, kRead, kWhole )
-                 .Texture( "GiSpecularTexture", inputs.GISpecular, kRead, kWhole )
-                 .Texture( "GiBackfaceTexture", inputs.GIBackface, kRead, kWhole );
+                 .Texture( DeferredLightingCompositeShaderParameters::GiDiffuseTexture, inputs.GIDiffuse, kRead,
+                           kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GiSpecularTexture, inputs.GISpecular, kRead,
+                           kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GiBackfaceTexture, inputs.GIBackface, kRead,
+                           kWhole );
             // The light rows and their shadow views: the light-grid loop's. The MegaLights program reads
             // MegaLights' lighting instead.
             if ( m_Active == kMegaLightsProgram )
-                block.Texture( "MegaLightsDiffuseTexture", inputs.MegaLightsDiffuse, kRead, kWhole )
-                     .Texture( "MegaLightsSpecularTexture", inputs.MegaLightsSpecular, kRead, kWhole );
+                block.Texture( DeferredLightingCompositeShaderParameters::MegaLightsDiffuseTexture,
+                               inputs.MegaLightsDiffuse, kRead, kWhole )
+                     .Texture( DeferredLightingCompositeShaderParameters::MegaLightsSpecularTexture,
+                               inputs.MegaLightsSpecular, kRead, kWhole );
             else
-                block.Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
-                     .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
-                     .Storage( kLocalShadowViewsBlockName, lights.ShadowViews, RDG::Access::StorageRead );
+                block.Storage( ShaderProtocols::PointLight::Parameter, lights.Point, RDG::Access::StorageRead )
+                     .Storage( ShaderProtocols::SpotLight::Parameter, lights.Spot, RDG::Access::StorageRead )
+                     .Storage( kLocalShadowViewsBlock, lights.ShadowViews, RDG::Access::StorageRead );
             if ( m_Active == kScreenMaskSunProgram || m_Active == kMegaLightsProgram )
-                block.Texture( "ScreenShadowMaskTexture", inputs.SunShadowMask, kRead, kWhole );
+                block.Texture( DeferredLightingCompositeShaderParameters::ScreenShadowMaskTexture,
+                               inputs.SunShadowMask, kRead, kWhole );
             if ( layout )
                 BindSceneViewInputs( block, inputs.View, *layout );
         }

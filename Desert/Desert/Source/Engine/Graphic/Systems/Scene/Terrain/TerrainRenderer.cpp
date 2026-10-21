@@ -25,6 +25,16 @@
 #include <unordered_set>
 #include <vector>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct TerrainShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( UniformBuffer, TerrainUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, TerrainInstances );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -424,19 +434,20 @@ namespace Desert::Graphic::System
                   { surface, materials.Shadow.get(), materials.VirtualShadow.get() } )
             {
                 // The shadow programs have no TerrainUB: its vertices are the camera's (the LOD rides in the row).
-                if ( auto* terrainUB = material->Get<UniformBufferProperty>( "TerrainUB" ) )
+                if ( auto* terrainUB = material->Get<UniformBufferProperty>( TerrainShaderParameters::TerrainUB ) )
                     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a uniform block uploaded as
                     // bytes
                     // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
                     terrainUB->SetRawData( reinterpret_cast<const std::byte*>( &ub ), sizeof( ub ) );
                 // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 
-                if ( auto* rows = material->Get<StorageBufferProperty>( Core::Formats::kMaterialRowBlockName ) )
+                if ( auto* rows = material->Get<StorageBufferProperty>( kMaterialRowBlock ) )
                     if ( !group.ParamRows.empty() )
                         rows->SetRawData( group.ParamRows.data(),
                                           static_cast<uint32_t>( group.ParamRows.size() * sizeof( glm::vec4 ) ) );
 
-                if ( auto* instances = material->Get<StorageBufferProperty>( "TerrainInstances" ) )
+                if ( auto* instances =
+                          material->Get<StorageBufferProperty>( TerrainShaderParameters::TerrainInstances ) )
                     instances->SetRawData(
                          group.Instances.data(),
                          static_cast<uint32_t>( group.Instances.size() * sizeof( TerrainInstance ) ) );

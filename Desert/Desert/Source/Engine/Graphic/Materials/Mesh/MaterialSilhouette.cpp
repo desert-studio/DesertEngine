@@ -28,7 +28,7 @@ namespace Desert::Graphic
     {
         if ( packedBoneMatrices.empty() )
             return;
-        if ( auto* sb = Get<StorageBufferProperty>( ShaderProtocols::SkinnedUB::Name ) )
+        if ( auto* sb = Get<StorageBufferProperty>( ShaderProtocols::SkinnedUB::Parameter ) )
             sb->SetRawData( packedBoneMatrices.data(),
                             static_cast<uint32_t>( packedBoneMatrices.size() * sizeof( glm::mat4 ) ) );
     }

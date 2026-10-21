@@ -742,7 +742,8 @@ TEST( GBufferShadingWord, NoFloatSamplerBindsTheShadingWord )
     EXPECT_EQ( binders, std::vector<std::string>{ "DeferredLightingRenderer.hpp" } );
     const std::string renderer = strip( read(
          root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp" ) );
-    EXPECT_NE( renderer.find( ".Texture(\"GBufferShadingWordTexture\",inputs.GBufferShadingWord,kRead,kWhole)" ),
+    EXPECT_NE( renderer.find( ".Texture(DeferredLightingCompositeShaderParameters::GBufferShadingWordTexture,"
+                              "inputs.GBufferShadingWord,kRead,kWhole)" ),
                std::string::npos );
     const std::string deferred =
          strip( read( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" ) );

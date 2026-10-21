@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
+
 #include <glm/glm.hpp>
 
 #include <string>
@@ -16,7 +18,9 @@ namespace Desert::Graphic::ShaderProtocols
 
     struct DirectionLight
     {
-        inline const static std::string Name = "DirectionLightsUB";
+        // The block as a binding parameter (RDGShaderParameters.hpp) - the one spelling; Name is its string form.
+        static constexpr RDG::UniformBufferParameter Parameter{ "DirectionLightsUB" };
+        inline const static std::string              Name = std::string( Parameter.Name );
 
         std::vector<DirectionLightPayload> DirectionLights;
     };
