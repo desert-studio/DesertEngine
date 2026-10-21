@@ -677,7 +677,7 @@ namespace Desert::Graphic::System
                                     ve.Sorted ? m_SortedRef : m_Pool.AliveRef, RDG::Access::StorageRead );
                 const bool fades = SceneViewDetail::LayoutSamples( *layout, kSceneViewSceneDepthName );
                 if ( fades && depth )
-                    block.Texture( kSceneViewSceneDepthName, depth, RDG::Access::SampledGraphics,
+                    block.Texture( kSceneViewSceneDepth, depth, RDG::Access::SampledGraphics,
                                    "SceneDepth.Compute" )
                          .Sampler( ParticleSpriteShaderParameters::PointClampSampler,
                                    RDG::SamplerDesc::PointClamp() );
