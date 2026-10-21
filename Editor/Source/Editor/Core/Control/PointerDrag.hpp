@@ -58,16 +58,16 @@ namespace Desert::Editor::Control
 
         /// @p from / @p to are in the target's image PIXELS (what shot-viewport writes); the target's own
         /// image size over its on-screen size converts them to ImGui points.
-        [[nodiscard]] static Common::ResultStr<PointerDrag> Plan( const PointerTargetRect&    target,
-                                                                  const std::array<float, 4>& fromTo,
-                                                                  uint32_t                    steps )
+        [[nodiscard]] static Common::ResultStr<PointerDrag>
+        Plan( const PointerTargetRect& target, const std::array<float, 4>& fromTo, uint32_t steps )
         {
             if ( steps == 0 || steps > kMaxSteps )
                 return Common::MakeFormattedError<PointerDrag>(
                      "a drag takes 1..{} steps, not {}: zero would press and release on one spot, and "
                      "more would hold the channel for seconds.",
                      kMaxSteps, steps );
-            if ( target.Width <= 0.0f || target.Height <= 0.0f || target.ImageWidth == 0 || target.ImageHeight == 0 )
+            if ( target.Width <= 0.0f || target.Height <= 0.0f || target.ImageWidth == 0 ||
+                 target.ImageHeight == 0 )
                 return Common::MakeFormattedError<PointerDrag>(
                      "the target's image is {}x{} pixels drawn over {}x{} points; there is nothing to drag on.",
                      target.ImageWidth, target.ImageHeight, target.Width, target.Height );

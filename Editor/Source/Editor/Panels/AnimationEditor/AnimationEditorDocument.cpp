@@ -891,9 +891,8 @@ namespace Desert::Editor
         {
             const ImVec2 origin = ImGui::GetCursorScreenPos();
             Control::PointerInjection::PublishTarget(
-                 Control::Subject::Document,
-                 { origin.x, origin.y, view.x, view.y, ImGui::GetWindowViewport()->ID, ImGui::GetFrameCount(),
-                   m_RenderSize.x, m_RenderSize.y } );
+                 Control::Subject::Document, { origin.x, origin.y, view.x, view.y, ImGui::GetWindowViewport()->ID,
+                                               ImGui::GetFrameCount(), m_RenderSize.x, m_RenderSize.y } );
             // The gizmo is evaluated BEFORE the preview's button and painted on a channel above it: the preview
             // then knows in the same frame that the pointer is on the gizmo and yields the press (a hover read
             // one frame late let the orbit take the drag). Animation mode's gizmo poses into the clip; Skeleton
