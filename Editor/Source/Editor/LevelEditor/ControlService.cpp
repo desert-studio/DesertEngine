@@ -602,9 +602,12 @@ namespace Desert::Editor
                              std::format( "entity {} has no reflected component '{}'; ask 'properties'",
                                           request.Entity, typeName ) );
 
+                    // Selected first, as a person editing it in Details has it selected: the undo record
+                    // and the panel's view of the edit are then the ones a hand edit produces.
+                    const Common::UUID entityId( std::stoull( request.Entity ) );
+                    Core::SelectionManager::SetSelected( entityId );
                     // Only this entity's file is rewritten by the next save (WP17), as from Details.
-                    const CommandHistory::FieldSubject fieldSubject(
-                         Common::UUID( std::stoull( request.Entity ) ) );
+                    const CommandHistory::FieldSubject fieldSubject( entityId );
                     Common::BoolResultStr written = Common::MakeSuccess( true );
                     const auto            edit    = [&]( void* data )
                     {

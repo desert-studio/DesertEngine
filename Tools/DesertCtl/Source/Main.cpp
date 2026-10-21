@@ -52,6 +52,11 @@ namespace
                       "  run <group> <label>           run one of them, addressed as the palette shows it\n"
                       "  properties                    list the subject's properties and their values\n"
                       "  set <name> <v1[,v2,v3,v4]>    write one of them (the drag a mouse would do)\n"
+                      "  properties <uuid|world>       one entity's reflected components (by its UUID) or\n"
+                      "                                the open scene's World Settings, as text\n"
+                      "  set <uuid|world> <Type.Field[.Sub]> <text>\n"
+                      "                                write one reflected field as Details would (one undo\n"
+                      "                                step); the text is parsed by the field's own type\n"
                       "  state [section ...]           read the editor's state as JSON (default: all)\n"
                       "  shot-window <file.png>        capture the WHOLE editor, interface included\n"
                       "  shot-viewport <file.png>      capture the 3D viewport only, no interface\n"
@@ -137,6 +142,15 @@ namespace
     std::string SubjectField( const std::string& subject )
     {
         return R"(,"subject":")" + Escape( subject.empty() ? std::string( "document" ) : subject ) + R"(")";
+    }
+
+    /// `,"subject":"world"` or `,"subject":"entity","entity":"<uuid>"` -- the reflected subjects, named
+    /// on the command line in place of --subject because the entity's UUID travels with it.
+    std::string ReflectedSubjectFields( const std::string& who )
+    {
+        if ( who == "world" )
+            return R"(,"subject":"world")";
+        return R"(,"subject":"entity","entity":")" + Escape( who ) + R"(")";
     }
 
     /// "0.05,0.35,0.95" -> "[0.05,0.35,0.95]", or false having said what was wrong.
@@ -367,9 +381,21 @@ static int RunTool( int argc, char** argv )
         }
         request = R"({"id":1,"op":"save-as","name":")" + Escape( rest[1] ) + R"("})";
     }
+    else if ( operation == "properties" && rest.size() == 2 )
+    {
+        request = R"({"id":1,"op":"properties")" + ReflectedSubjectFields( rest[1] ) + "}";
+    }
     else if ( operation == "properties" )
     {
         request = R"({"id":1,"op":"properties")" + SubjectField( subject ) + "}";
+    }
+    else if ( operation == "set" && rest.size() == 4 )
+    {
+        // The reflected form: told apart from the numeric one by its arity (a subject before the name),
+        // and its value goes as TEXT -- the editor parses it by the field's own type, so an asset id or
+        // an enum name is not squeezed through a float array.
+        request = R"({"id":1,"op":"set")" + ReflectedSubjectFields( rest[1] ) + R"(,"property":")" +
+                  Escape( rest[2] ) + R"(","text":")" + Escape( rest[3] ) + R"("})";
     }
     else if ( operation == "set" )
     {
