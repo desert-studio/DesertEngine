@@ -3,30 +3,18 @@
         "Kind": "VFXSystem",
         "Guid": "a0f8d89f476e4abfb22847b902230cb7",
         "Versions": {
-            "VFXS": 1
+            "VFXS": 2
         },
         "Dependencies": []
     },
     "Category": "Dust",
-    "Tags": [
-        "destruction",
-        "dust",
-        "debris"
-    ],
+    "Tags": ["destruction", "dust", "debris"],
     "Duration": 1.0,
     "Loop": true,
     "Seed": 4242,
     "Bounds": {
-        "Min": [
-            -2000.0,
-            -2000.0,
-            -2000.0
-        ],
-        "Max": [
-            2000.0,
-            2000.0,
-            2000.0
-        ]
+        "Min": [-2000.0, -2000.0, -2000.0],
+        "Max": [2000.0, 2000.0, 2000.0]
     },
     "UserParams": [],
     "LocalModules": [],
@@ -58,23 +46,13 @@
                                 "Name": "ParticlesPerEntry",
                                 "Type": "Int",
                                 "Source": "Value",
-                                "Value": [
-                                    24.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [24.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "MaxEntriesPerFrame",
                                 "Type": "Int",
                                 "Source": "Value",
-                                "Value": [
-                                    32.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [32.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "Position",
@@ -107,18 +85,8 @@
                                 "Type": "Float",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [
-                                        1.0,
-                                        0.0,
-                                        0.0,
-                                        0.0
-                                    ],
-                                    "Max": [
-                                        2.5,
-                                        0.0,
-                                        0.0,
-                                        0.0
-                                    ]
+                                    "Min": [1.0, 0.0, 0.0, 0.0],
+                                    "Max": [2.5, 0.0, 0.0, 0.0]
                                 }
                             }
                         ]
@@ -132,52 +100,27 @@
                                 "Type": "Float",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [
-                                        40,
-                                        0.0,
-                                        0.0,
-                                        0.0
-                                    ],
-                                    "Max": [
-                                        160,
-                                        0.0,
-                                        0.0,
-                                        0.0
-                                    ]
+                                    "Min": [40.0, 0.0, 0.0, 0.0],
+                                    "Max": [160.0, 0.0, 0.0, 0.0]
                                 }
                             },
                             {
                                 "Name": "Angle",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    70,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [70.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "Falloff",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "Axis",
                                 "Type": "Vec3",
                                 "Source": "Value",
-                                "Value": [
-                                    0,
-                                    1,
-                                    0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 1.0, 0.0, 0.0]
                             }
                         ]
                     },
@@ -190,18 +133,8 @@
                                 "Type": "Vec2",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [
-                                        40,
-                                        40,
-                                        0.0,
-                                        0.0
-                                    ],
-                                    "Max": [
-                                        90,
-                                        90,
-                                        0.0,
-                                        0.0
-                                    ]
+                                    "Min": [40.0, 40.0, 0.0, 0.0],
+                                    "Max": [90.0, 90.0, 0.0, 0.0]
                                 }
                             }
                         ]
@@ -214,12 +147,7 @@
                                 "Name": "Color",
                                 "Type": "Vec4",
                                 "Source": "Value",
-                                "Value": [
-                                    0.55,
-                                    0.5,
-                                    0.45,
-                                    0.6
-                                ]
+                                "Value": [0.550000011920929, 0.5, 0.44999998807907104, 0.6000000238418579]
                             }
                         ]
                     }
@@ -238,12 +166,7 @@
                                 "Name": "Gravity",
                                 "Type": "Vec3",
                                 "Source": "Value",
-                                "Value": [
-                                    0,
-                                    -30,
-                                    0,
-                                    0.0
-                                ]
+                                "Value": [0.0, -30.0, 0.0, 0.0]
                             }
                         ]
                     },
@@ -255,23 +178,13 @@
                                 "Name": "Drag",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    1.5,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [1.5, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "RotationalDrag",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 0.0, 0.0, 0.0]
                             }
                         ]
                     },
@@ -283,12 +196,7 @@
                                 "Name": "SpeedLimit",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 0.0, 0.0, 0.0]
                             }
                         ]
                     }
@@ -328,23 +236,13 @@
                                 "Name": "ParticlesPerEntry",
                                 "Type": "Int",
                                 "Source": "Value",
-                                "Value": [
-                                    6.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [6.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "MaxEntriesPerFrame",
                                 "Type": "Int",
                                 "Source": "Value",
-                                "Value": [
-                                    64.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [64.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "Position",
@@ -368,23 +266,13 @@
                                 "Name": "FilterOp",
                                 "Type": "Int",
                                 "Source": "Value",
-                                "Value": [
-                                    3.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [3.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "FilterValue",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    5000.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [5000.0, 0.0, 0.0, 0.0]
                             }
                         ]
                     }
@@ -399,18 +287,8 @@
                                 "Type": "Float",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [
-                                        0.4,
-                                        0.0,
-                                        0.0,
-                                        0.0
-                                    ],
-                                    "Max": [
-                                        0.9,
-                                        0.0,
-                                        0.0,
-                                        0.0
-                                    ]
+                                    "Min": [0.4000000059604645, 0.0, 0.0, 0.0],
+                                    "Max": [0.8999999761581421, 0.0, 0.0, 0.0]
                                 }
                             }
                         ]
@@ -424,52 +302,27 @@
                                 "Type": "Float",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [
-                                        150,
-                                        0.0,
-                                        0.0,
-                                        0.0
-                                    ],
-                                    "Max": [
-                                        400,
-                                        0.0,
-                                        0.0,
-                                        0.0
-                                    ]
+                                    "Min": [150.0, 0.0, 0.0, 0.0],
+                                    "Max": [400.0, 0.0, 0.0, 0.0]
                                 }
                             },
                             {
                                 "Name": "Angle",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    45,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [45.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "Falloff",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "Axis",
                                 "Type": "Vec3",
                                 "Source": "Value",
-                                "Value": [
-                                    0,
-                                    1,
-                                    0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 1.0, 0.0, 0.0]
                             }
                         ]
                     },
@@ -482,18 +335,8 @@
                                 "Type": "Vec2",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [
-                                        4,
-                                        4,
-                                        0.0,
-                                        0.0
-                                    ],
-                                    "Max": [
-                                        10,
-                                        10,
-                                        0.0,
-                                        0.0
-                                    ]
+                                    "Min": [4.0, 4.0, 0.0, 0.0],
+                                    "Max": [10.0, 10.0, 0.0, 0.0]
                                 }
                             }
                         ]
@@ -506,12 +349,7 @@
                                 "Name": "Color",
                                 "Type": "Vec4",
                                 "Source": "Value",
-                                "Value": [
-                                    0.35,
-                                    0.32,
-                                    0.3,
-                                    1.0
-                                ]
+                                "Value": [0.3499999940395355, 0.3199999928474426, 0.30000001192092896, 1.0]
                             }
                         ]
                     }
@@ -530,12 +368,7 @@
                                 "Name": "Gravity",
                                 "Type": "Vec3",
                                 "Source": "Value",
-                                "Value": [
-                                    0,
-                                    -981,
-                                    0,
-                                    0.0
-                                ]
+                                "Value": [0.0, -981.0, 0.0, 0.0]
                             }
                         ]
                     },
@@ -547,23 +380,13 @@
                                 "Name": "Drag",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    0.2,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.20000000298023224, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "RotationalDrag",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 0.0, 0.0, 0.0]
                             }
                         ]
                     },
@@ -575,12 +398,7 @@
                                 "Name": "SpeedLimit",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 0.0, 0.0, 0.0]
                             }
                         ]
                     }
@@ -620,23 +438,13 @@
                                 "Name": "ParticlesPerEntry",
                                 "Type": "Int",
                                 "Source": "Value",
-                                "Value": [
-                                    8.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [8.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "MaxEntriesPerFrame",
                                 "Type": "Int",
                                 "Source": "Value",
-                                "Value": [
-                                    64.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [64.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "Position",
@@ -657,18 +465,8 @@
                                 "Type": "Float",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [
-                                        0.6,
-                                        0.0,
-                                        0.0,
-                                        0.0
-                                    ],
-                                    "Max": [
-                                        1.2,
-                                        0.0,
-                                        0.0,
-                                        0.0
-                                    ]
+                                    "Min": [0.6000000238418579, 0.0, 0.0, 0.0],
+                                    "Max": [1.2000000476837158, 0.0, 0.0, 0.0]
                                 }
                             }
                         ]
@@ -682,52 +480,27 @@
                                 "Type": "Float",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [
-                                        20,
-                                        0.0,
-                                        0.0,
-                                        0.0
-                                    ],
-                                    "Max": [
-                                        80,
-                                        0.0,
-                                        0.0,
-                                        0.0
-                                    ]
+                                    "Min": [20.0, 0.0, 0.0, 0.0],
+                                    "Max": [80.0, 0.0, 0.0, 0.0]
                                 }
                             },
                             {
                                 "Name": "Angle",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    80,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [80.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "Falloff",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "Axis",
                                 "Type": "Vec3",
                                 "Source": "Value",
-                                "Value": [
-                                    0,
-                                    1,
-                                    0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 1.0, 0.0, 0.0]
                             }
                         ]
                     },
@@ -740,18 +513,8 @@
                                 "Type": "Vec2",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [
-                                        30,
-                                        30,
-                                        0.0,
-                                        0.0
-                                    ],
-                                    "Max": [
-                                        60,
-                                        60,
-                                        0.0,
-                                        0.0
-                                    ]
+                                    "Min": [30.0, 30.0, 0.0, 0.0],
+                                    "Max": [60.0, 60.0, 0.0, 0.0]
                                 }
                             }
                         ]
@@ -764,12 +527,7 @@
                                 "Name": "Color",
                                 "Type": "Vec4",
                                 "Source": "Value",
-                                "Value": [
-                                    0.6,
-                                    0.58,
-                                    0.55,
-                                    0.4
-                                ]
+                                "Value": [0.6000000238418579, 0.5799999833106995, 0.550000011920929, 0.4000000059604645]
                             }
                         ]
                     }
@@ -788,12 +546,7 @@
                                 "Name": "Gravity",
                                 "Type": "Vec3",
                                 "Source": "Value",
-                                "Value": [
-                                    0,
-                                    -20,
-                                    0,
-                                    0.0
-                                ]
+                                "Value": [0.0, -20.0, 0.0, 0.0]
                             }
                         ]
                     },
@@ -805,23 +558,13 @@
                                 "Name": "Drag",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    2.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [2.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "RotationalDrag",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 0.0, 0.0, 0.0]
                             }
                         ]
                     },
@@ -833,12 +576,7 @@
                                 "Name": "SpeedLimit",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 0.0, 0.0, 0.0]
                             }
                         ]
                     }
