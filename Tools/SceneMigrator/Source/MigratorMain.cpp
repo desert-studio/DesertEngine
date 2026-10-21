@@ -543,7 +543,8 @@ namespace
         if ( report.AssetKeysRaised && report.AssetKeys.Keyed > 0 )
             out << " scene v" << Desert::Migration::kSceneVersionLandscapeHeightKeys << "->v"
                 << Desert::Migration::kSceneVersionAssetKeys << " (" << report.AssetKeys.Keyed
-                << " bare asset reference(s) restated as content keys)";
+                << " bare asset reference(s) restated as content keys, " << report.AssetKeys.PrefabPathsKeyed
+                << " of them PrefabPath)";
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

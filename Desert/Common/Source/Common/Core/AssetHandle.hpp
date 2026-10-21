@@ -2,6 +2,7 @@
 
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/UUID.hpp>
 
 #include <array>
@@ -250,10 +251,14 @@ namespace Common
         // sibling of it in a project, so no one relative spelling names both. The tag is what carries the
         // missing bit, and it is a bit no path can carry.
         //
-        // A string with no known tag is returned unchanged. That covers three real cases and is not a
-        // fallback: a plain relative path written before this form existed, an absolute path to a file
-        // genuinely outside the project (StableKeyForPath returns those verbatim too), and the synthetic
-        // `procedural://` / `memory://` keys that are identities rather than locations.
+        // THREE FORMS ARE READ, EACH RECOGNISED BY ITS OWN MARK, and nothing else (PATH1): a root-tagged
+        // key (`assets:...`, `engine:...`) expands under its root; a synthetic `scheme://` key
+        // (`procedural://`, `memory://`) is an identity rather than a location and comes back as spelled; an
+        // ABSOLUTE path names a file genuinely outside the project (StableKeyForPath mints exactly those for
+        // such a file) and comes back normalised. A BARE relative string ("Textures/T.png") is none of
+        // them: it used to be handed back verbatim, i.e. resolved against the process's working directory,
+        // which is a root the reader guesses. It is REFUSED, naming it, and the answer is an empty path —
+        // "names no file". SCNE v68 (MigrateAssetKeysV67ToV68) restated every stored bare path as its key.
         static std::filesystem::path PathForStableKey( std::string_view key )
         {
             for ( const PathRoot& candidate : ContentRoots() )
@@ -264,14 +269,26 @@ namespace Common
 
                 const std::string_view relative = key.substr( prefix.size() );
                 // A tag with nothing after it names the root itself, which is not an asset; returning the
-                // root would silently hand back a directory, so the key is treated as untagged text.
+                // root would silently hand back a directory, so the key is refused below.
                 if ( relative.empty() )
                     break;
 
                 return ( *candidate.Root / std::filesystem::path( relative ) ).lexically_normal();
             }
 
-            return std::filesystem::path( key );
+            if ( key.find( "://" ) != std::string_view::npos )
+                return std::filesystem::path( key );
+
+            const std::filesystem::path named( key );
+            if ( named.is_absolute() )
+                return named.lexically_normal();
+
+            if ( !key.empty() )
+                LOG_ERROR( "[Asset] '{0}' is neither a content key (\"{1}:<path>\"), a synthetic \"scheme://\" key "
+                           "nor an absolute path, so it names no file. Restate it as \"{1}:{0}\" if it is "
+                           "relative to the assets root.",
+                           key, AssetsTag() );
+            return {};
         }
 
         // Deterministic handle from an asset's path, keyed on its location RELATIVE to the project (see
