@@ -28,9 +28,7 @@
 #include <map>
 #include <tuple>
 #include <optional>
-#include <format>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace Desert::ECS
@@ -125,27 +123,6 @@ namespace Desert::ECS
 
         // Unloaded tiles are in neither list (the loader said why; the sweep below frees them).
         const DrawableLandscape landscape = DrawableLandscapeTiles( registry );
-        // TEMPORARY DIAGNOSTIC (WP-FAR-6B 8f): drawable / refused / hidden / emitted tiles, per system, on change.
-        size_t traceHidden  = 0;
-        size_t traceEmitted = 0;
-        struct TraceReport
-        {
-            const void*  Self;
-            const size_t Drawable, Refused;
-            size_t&      Hidden;
-            size_t&      Emitted;
-            ~TraceReport()
-            {
-                static std::unordered_map<const void*, std::string> lastTrace;
-                std::string line = std::format( "drawable {} refused {} hidden {} emitted {}", Drawable, Refused,
-                                                Hidden, Emitted );
-                if ( std::string& last = lastTrace[Self]; last != line )
-                {
-                    LOG_INFO( "[LandscapeTrace {}] {}", Self, line );
-                    last = std::move( line );
-                }
-            }
-        } traceReport{ this, landscape.Tiles.size(), landscape.Refused.size(), traceHidden, traceEmitted };
         for ( const RefusedLandscapeTile& refused : landscape.Refused )
         {
             if ( !m_Warned.insert( refused.Entity ).second )
@@ -311,11 +288,7 @@ namespace Desert::ECS
             UpdateWeightmap( gpu, heights, d.Entity, tileComp, d.WeightsDirty );
 
             if ( ECS::IsHidden( registry, d.Entity ) )
-            {
-                ++traceHidden; // TEMPORARY DIAGNOSTIC (WP-FAR-6B 8f)
                 continue;
-            }
-            ++traceEmitted; // TEMPORARY DIAGNOSTIC (WP-FAR-6B 8f)
 
             const Landscape::LandscapeRoot&    root = d.Root;
             Graphic::System::LandscapeTileDraw draw;

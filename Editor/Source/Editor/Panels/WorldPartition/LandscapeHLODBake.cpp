@@ -6,6 +6,7 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/SceneRenderCollectors.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
@@ -21,7 +22,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <format>
 #include <fstream>
 #include <iterator>
@@ -148,6 +148,9 @@ namespace Desert::Editor
     Common::BoolResultStr LandscapeHLODBake::StartScene()
     {
         m_Scene = std::make_shared<::Desert::Core::Scene>( "LandscapeHLODBake", m_Renderer.get() );
+        // A Scene has no systems of its own: without the render collectors LandscapeECSSystem never runs, the
+        // bake renderer's terrain queue stays empty and every tile bakes the clear colour.
+        ::Desert::Core::AddSceneRenderCollectors( *m_Scene );
         if ( auto inited = m_Scene->Init( ::Desert::Core::Scene::InitPurpose::Offscreen ); !inited )
             return Common::MakeError( "the bake scene failed to initialise: " + inited.GetError() );
         auto loaded = ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets )
@@ -156,10 +159,7 @@ namespace Desert::Editor
         if ( !loaded )
             return Common::MakeError( "the landscape did not load into the bake scene: " + loaded.GetError() );
         m_Camera = std::make_shared<::Desert::Core::GameplayCamera>();
-        // TEMPORARY DIAGNOSTIC (WP-FAR-6B 8f): DESERT_HLOD_BAKE_PERSPECTIVE=1 bakes through a FOV-20 perspective.
-        m_Camera->SetProjectionType( std::getenv( "DESERT_HLOD_BAKE_PERSPECTIVE" ) != nullptr
-                                          ? ::Desert::Core::ProjectionType::Perspective
-                                          : ::Desert::Core::ProjectionType::Orthographic );
+        m_Camera->SetProjectionType( ::Desert::Core::ProjectionType::Orthographic );
         return BOOLSUCCESS;
     }
 
@@ -179,15 +179,11 @@ namespace Desert::Editor
         world[0] = glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f );  // right
         world[1] = glm::vec4( 0.0f, 0.0f, -1.0f, 0.0f ); // up
         world[2] = glm::vec4( 0.0f, 1.0f, 0.0f, 0.0f );  // backward (the camera looks down -Y)
-        // TEMPORARY DIAGNOSTIC (WP-FAR-6B 8f): the perspective eye sits where FOV 20 spans the tile's Z side.
-        const bool  perspective = std::getenv( "DESERT_HLOD_BAKE_PERSPECTIVE" ) != nullptr;
-        const float eyeHeight = perspective ? tile.SizeZ * 0.5f / std::tan( glm::radians( 10.0f ) ) : kEyeHeightCm;
         world[3] =
-             glm::vec4( tile.OriginX + tile.SizeX * 0.5f, eyeHeight, tile.OriginZ + tile.SizeZ * 0.5f, 1.0f );
+             glm::vec4( tile.OriginX + tile.SizeX * 0.5f, kEyeHeightCm, tile.OriginZ + tile.SizeZ * 0.5f, 1.0f );
         m_Camera->SetOrthoSize( tile.SizeZ * 0.5f );
-        m_Camera->SetView(
-             ::Desert::Core::CameraEntityViewOf( world, perspective ? 20.0f : 45.0f, kNearCm, kFarCm ), width,
-             height, ::Desert::Core::Camera::kNoSourceEntity );
+        m_Camera->SetView( ::Desert::Core::CameraEntityViewOf( world, 45.0f, kNearCm, kFarCm ), width, height,
+                           ::Desert::Core::Camera::kNoSourceEntity );
         m_Scene->PinActiveCamera( m_Camera );
         m_WarmFrames = kWarmFrames;
         m_Phase      = Phase::Frame;
@@ -202,18 +198,6 @@ namespace Desert::Editor
                                                    rgba.size(), width, height ) );
         // The G-buffer albedo is LINEAR (TerrainGBuffer writes Albedo * Tint into an RGBA8 UNORM target); the
         // texture is stated sRGB, as every authored BaseColor is.
-        {
-            // TEMPORARY DIAGNOSTIC (WP-FAR-6B 8d): the readback's channel range.
-            uint8_t lo = 255, hi = 0;
-            for ( std::size_t i = 0; i < rgba.size(); i += 4 )
-                for ( std::size_t c = 0; c < 3; ++c )
-                {
-                    lo = std::min( lo, rgba[i + c] );
-                    hi = std::max( hi, rgba[i + c] );
-                }
-            LOG_INFO( "[Build HLODs] bake readback {0}x{1}: rgb min {2} max {3} (final image: {4})", width, height,
-                      lo, hi, std::getenv( "DESERT_HLOD_BAKE_READ_FINAL" ) != nullptr );
-        }
         std::vector<uint8_t> srgb( rgba.size() );
         for ( std::size_t i = 0; i < rgba.size(); i += 4 )
         {
@@ -310,11 +294,7 @@ namespace Desert::Editor
                 }
                 // The previous frame's render is on the queue; the copy is recorded behind it (no wait).
                 const auto& gbuffer = m_Renderer->GetGBuffer();
-                // TEMPORARY DIAGNOSTIC (WP-FAR-6B 8d, remove once the bake is not black): read the FINAL lit
-                // image instead of the G-buffer albedo — black there too = camera/landscape/render never ran.
-                const bool readFinal = std::getenv( "DESERT_HLOD_BAKE_READ_FINAL" ) != nullptr;
-                const auto albedo    = readFinal ? m_Scene->GetFinalImage()
-                                                 : ( gbuffer ? gbuffer->GetColorAttachmentImage( 0 ) : nullptr );
+                const auto  albedo  = gbuffer ? gbuffer->GetColorAttachmentImage( 0 ) : nullptr;
                 if ( !albedo )
                 {
                     Fail( "the bake renderer has no G-buffer albedo (is the scene's rendering path Deferred?)" );
