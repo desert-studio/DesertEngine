@@ -3,6 +3,8 @@
 #include "ParticleEmitterRetire.hpp"
 
 #include <Engine/Core/Scene.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 #include <Engine/VFX/VFXCurveLUT.hpp>
@@ -289,7 +291,8 @@ namespace Desert::Graphic::System
                      offset += gpu.Capacity;
                      if ( !EnsureTickBuffers( gpu, stepCapacity ) )
                          continue;
-                     if ( !PrepareEmitter( gpu, *instance, range, entityId, worldPos, stepSeconds, stepSerial ) )
+                     if ( !PrepareEmitter( gpu, *instance, instances->System->Emitters[k], range, entityId,
+                                           worldPos, stepSeconds, stepSerial ) )
                          continue;
                  }
              } );
@@ -299,7 +302,26 @@ namespace Desert::Graphic::System
         return true;
     }
 
+    // THE ONE RULE for a renderer row's material (VFXS 2): the GUID the row states, or - the row states none - the
+    // null handle, which every drawing path reads as the engine's particle material for the row's kind (UE: the
+    // renderer properties' DefaultSpriteMaterial / DefaultRibbonMaterial; a Mesh row's absent override = the
+    // mesh's own materials). A stated GUID that does not parse is refused here, not drawn with the default.
+    static Common::ResultStr<Common::AssetHandle>
+    ParticleRendererMaterial( const Assets::Serialization::VFXRendererData& row )
+    {
+        if ( !row.Material )
+            return Common::MakeSuccess( Common::AssetHandle::Null() );
+        const auto guid = Common::Content::AssetGuidFromText( row.Material->Guid );
+        if ( !guid || guid.GetValue().IsNull() )
+            return Common::MakeError<Common::AssetHandle>(
+                 std::format( "its Material GUID '{}' ({}) is not a well-formed asset GUID", row.Material->Guid,
+                              row.Material->Path ) );
+        return Common::MakeSuccess(
+             Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) ) );
+    }
+
     bool ParticleWorldGpu::PrepareEmitter( ParticleEmitterGpu& gpu, const VFX::EmitterInstance& emitter,
+                                           const Assets::Serialization::VFXEmitterData& data,
                                            const ParticlePoolRange& range, const uint32_t entityId,
                                            const glm::vec3& worldPos, const float stepSeconds,
                                            const uint32_t stepSerial )
@@ -414,6 +436,22 @@ namespace Desert::Graphic::System
         fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
         fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, gpu.Local ? 1u : 0u );
         fe.Push.Stack      = glm::uvec4( stepSerial, 0u, 0u, 0u );
+        fe.Renderers.reserve( data.Renderers.size() );
+        for ( std::size_t r = 0; r < data.Renderers.size(); ++r )
+        {
+            const Assets::Serialization::VFXRendererData& row = data.Renderers[r];
+            if ( !row.Enabled )
+                continue;
+            const auto material = ParticleRendererMaterial( row );
+            if ( !material )
+            {
+                LOG_ERROR( "[Particles] emitter {} renderer row {} does not draw: {}", entityId, r,
+                           material.GetError() );
+                continue;
+            }
+            fe.Renderers.push_back( { row.Kind, static_cast<uint32_t>( r ), material.GetValue(),
+                                      row.Ribbon ? &*row.Ribbon : nullptr, row.Mesh ? &*row.Mesh : nullptr } );
+        }
         m_FrameEmitters.push_back( fe );
         return true;
     }

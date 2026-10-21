@@ -121,8 +121,14 @@ namespace Desert::Graphic::System
         {
             EmitterMaterial& material = m_Materials[fe.EntityId];
             ViewEmitter      ve;
-            ve.Frame    = &fe;
-            ve.Sprite   = ResolveSprite( fe.EntityId, fe.Material, material );
+            ve.Frame = &fe;
+            // The view draws the emitter's first Sprite row; a list of draws, one per row (Ribbon and Mesh rows
+            // included), replaces this one draw next (VFX-09 step 3). No Sprite row = not drawn here.
+            const auto sprite =
+                 std::find_if( fe.Renderers.begin(), fe.Renderers.end(), []( const ParticleFrameRenderer& r )
+                               { return r.Kind == Assets::Serialization::VFXRendererKind::Sprite; } );
+            ve.Sprite =
+                 sprite != fe.Renderers.end() ? ResolveSprite( fe.EntityId, sprite->Material, material ) : nullptr;
             ve.Instance = ve.Sprite != nullptr ? material.Instance.get() : nullptr;
             m_ViewEmitters.push_back( ve );
         }
