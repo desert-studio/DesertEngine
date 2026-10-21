@@ -62,8 +62,8 @@
         // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
         // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
         Uniform(10) texture2D WeightmapTexture;
-        Uniform(12) sampler WeightmapSampler;
-        #define WeightmapTexture sampler2D(WeightmapTexture, WeightmapSampler)
+        Uniform(12) sampler WeightmapTextureSampler;
+        #define WeightmapTexture sampler2D(WeightmapTexture, WeightmapTextureSampler)
 
         #include <Common/LandscapeSurface.glslh>
         #include <Common/TangentNormal.glslh>
@@ -80,14 +80,14 @@
         Uniform(14) texture2DArray LayerNormalTexture;
         Uniform(15) texture2DArray LayerArmTexture;
         Uniform(16) texture2DArray LayerHeightTexture;
-        Uniform(17) sampler LayerAlbedoSampler;
-        Uniform(18) sampler LayerNormalSampler;
-        Uniform(19) sampler LayerArmSampler;
-        Uniform(20) sampler LayerHeightSampler;
-        #define LayerAlbedoTexture sampler2DArray(LayerAlbedoTexture, LayerAlbedoSampler)
-        #define LayerNormalTexture sampler2DArray(LayerNormalTexture, LayerNormalSampler)
-        #define LayerArmTexture sampler2DArray(LayerArmTexture, LayerArmSampler)
-        #define LayerHeightTexture sampler2DArray(LayerHeightTexture, LayerHeightSampler)
+        Uniform(17) sampler LayerAlbedoTextureSampler;
+        Uniform(18) sampler LayerNormalTextureSampler;
+        Uniform(19) sampler LayerArmTextureSampler;
+        Uniform(20) sampler LayerHeightTextureSampler;
+        #define LayerAlbedoTexture sampler2DArray(LayerAlbedoTexture, LayerAlbedoTextureSampler)
+        #define LayerNormalTexture sampler2DArray(LayerNormalTexture, LayerNormalTextureSampler)
+        #define LayerArmTexture sampler2DArray(LayerArmTexture, LayerArmTextureSampler)
+        #define LayerHeightTexture sampler2DArray(LayerHeightTexture, LayerHeightTextureSampler)
 
         // ELandscapeLayerBlendType, the material's per-input `LayerKBlend` (an Int: the row stores it as one,
         // MaterialRowSlotValue).

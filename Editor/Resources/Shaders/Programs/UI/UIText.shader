@@ -46,8 +46,8 @@ Shader "UIText"
         // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
         // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
         Uniform(0) texture2D SdfAtlasTexture;
-        Uniform(1) sampler SdfAtlasSampler;
-        #define SdfAtlasTexture sampler2D(SdfAtlasTexture, SdfAtlasSampler)
+        Uniform(1) sampler SdfAtlasTextureSampler;
+        #define SdfAtlasTexture sampler2D(SdfAtlasTexture, SdfAtlasTextureSampler)
 
         Out(0) vec4 o_Color;
 

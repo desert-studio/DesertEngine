@@ -176,15 +176,24 @@ namespace Desert::Graphic
         T* Get( RDG::ShaderParameterOf<MaterialPropertyKind<T>> parameter ) const
         {
             const std::string name = parameter.SlotName();
+            T*                found = nullptr;
             if constexpr ( std::is_same_v<T, UniformBufferProperty> )
-                return m_MaterialExecutor->GetUniformBufferProperty( name ).get();
+                found = m_MaterialExecutor->GetUniformBufferProperty( name ).get();
             else if constexpr ( std::is_same_v<T, StorageBufferProperty> )
-                return m_MaterialExecutor->GetStorageBufferProperty( name ).get();
+                found = m_MaterialExecutor->GetStorageBufferProperty( name ).get();
             else if constexpr ( std::is_same_v<T, Texture2DProperty> )
-                return m_MaterialExecutor->GetTexture2DProperty( name ).get();
+                found = m_MaterialExecutor->GetTexture2DProperty( name ).get();
             else
-                return m_MaterialExecutor->GetTextureCubeProperty( name ).get();
+                found = m_MaterialExecutor->GetTextureCubeProperty( name ).get();
+            // A parameter that names no property of the shader is a named error, not a silent null: the caller's
+            // write would otherwise land nowhere and the slot keep its default (a renamed slot rendered black).
+            if ( found == nullptr )
+                ReportMissingProperty( name );
+            return found;
         }
+
+        // Logs once that @p name is not a property of this material's shader (Get's miss).
+        void ReportMissingProperty( const std::string& name ) const;
 
         const std::vector<std::string>& GetPropertyNames() const
         {
@@ -255,6 +264,8 @@ namespace Desert::Graphic
         void CachePropertyNames();
 
         std::vector<std::string>          m_PropertyNames;
+        // Slots already reported by ReportMissingProperty: each (material, name) is logged once, not per frame.
+        mutable std::unordered_set<std::string> m_ReportedMissing;
         std::unique_ptr<MaterialExecutor> m_MaterialExecutor;
         std::vector<IProperty*>           m_RegisteredProperties;
 

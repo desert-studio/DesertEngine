@@ -27,8 +27,8 @@
         // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
         // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
         Uniform(9) texture2D HeightmapTexture;
-        Uniform(11) sampler HeightmapSampler;
-        #define HeightmapTexture sampler2D(HeightmapTexture, HeightmapSampler)
+        Uniform(11) sampler HeightmapTextureSampler;
+        #define HeightmapTexture sampler2D(HeightmapTexture, HeightmapTextureSampler)
 
         #include <Common/LandscapeHeight.glslh>
         #include <Common/LandscapeLod.glslh>

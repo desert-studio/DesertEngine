@@ -9,6 +9,16 @@
 
 namespace Desert::Graphic
 {
+    void Material::ReportMissingProperty( const std::string& name ) const
+    {
+        if ( !m_ReportedMissing.insert( name ).second )
+            return;
+        LOG_ERROR( "Material '{}': '{}' is not a resource of shader '{}'; the write is dropped",
+                   m_MaterialExecutor->GetDubugName(), name,
+                   m_MaterialExecutor->GetShader() ? m_MaterialExecutor->GetShader()->GetName()
+                                                   : std::string( "<none>" ) );
+    }
+
     bool Material::WritePushField( std::string_view field, const void* value, uint32_t size )
     {
         if ( !m_MaterialExecutor || !m_MaterialExecutor->GetShader() )

@@ -38,8 +38,8 @@ Shader "CubemapSphere"
         // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
         // which the material writes from the property (VulkanMaterialBackend::ApplyTextureCube).
         Uniform(1) textureCube CubeMapTexture;
-        Uniform(3) sampler CubeMapSampler;
-        #define CubeMapTexture samplerCube(CubeMapTexture, CubeMapSampler)
+        Uniform(3) sampler CubeMapTextureSampler;
+        #define CubeMapTexture samplerCube(CubeMapTexture, CubeMapTextureSampler)
         // The sky's look — how the two cubes above are read (Common/SkyLook.glslh). The Details
         // panel's ball beside the Rotation slider must turn with it.
         Uniform(2) SkyLookUB

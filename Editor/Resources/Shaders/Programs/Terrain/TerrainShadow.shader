@@ -53,8 +53,8 @@ Shader "TerrainShadow"
         // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
         // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
         Uniform(10) texture2D WeightmapTexture;
-        Uniform(12) sampler WeightmapSampler;
-        #define WeightmapTexture sampler2D(WeightmapTexture, WeightmapSampler)
+        Uniform(12) sampler WeightmapTextureSampler;
+        #define WeightmapTexture sampler2D(WeightmapTexture, WeightmapTextureSampler)
 
         #include <Common/LandscapeWeights.glslh>
         #include <Programs/Terrain/TerrainCasterHole.glslh>
