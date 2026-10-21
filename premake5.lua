@@ -27,7 +27,6 @@ include "Tools/DShaderTool/"
 include "Tools/PakTool/"
 include "Tools/SceneMigrator/"
 include "Tools/WorldGen/"
-include "Tools/WorldCook/"
 include "Tools/ImageStat/"
 include "Tools/LineJump/"
 include "Tools/ImageDiff/"
@@ -62,6 +61,9 @@ include "Tools/AssetRegistryTool/"
 -- translation units into itself and links the engine libraries, never the Editor project, so the
 -- Shipping leg that builds Runtime builds no editor for it (see Tools/GamePackager/premake5.lua).
 include "Tools/GamePackager/"
+-- WorldCook links the engine libraries the same way, for the HLOD builders its cook shares with Play and the
+-- packager (see Tools/WorldCook/premake5.lua).
+include "Tools/WorldCook/"
 -- TextureCook compiles the editor's TextureImporter into itself for the same reason, and cooks the one
 -- texture a script has to: the editor splash that scripts/MacOS/Package.sh puts in the engine drop.
 include "Tools/TextureCook/"

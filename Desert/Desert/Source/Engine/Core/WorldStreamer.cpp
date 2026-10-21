@@ -137,17 +137,15 @@ namespace Desert::Core
                 return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
                                                   "': " + layers.GetError() );
             const HLODLayerSerialized* const hlodLayer = Rules::CellHLODLayer( *partition );
-            const Rules::HLODMeshBuilder     meshBuilder =
-                 MakeHLODMeshBuilder( std::span( &Assets::ContentRegistry::Get(), 1 ) );
             // The landscape HLOD (WP-FAR-6): every tile of a cell stands in as a mesh of its own heights.
-            const Rules::LandscapeHLODBuilder landscapeBuilder = MakeLandscapeHLODBuilder();
+            const HLODBuilders builders = MakeHLODBuilders( std::span( &Assets::ContentRegistry::Get(), 1 ) );
             for ( std::size_t unit = plan.AlwaysLoaded.size();
                   hlodLayer != nullptr && unit < Rules::ResidencyUnitCount( plan ); ++unit )
             {
                 auto builtCell = Rules::BuildCellHLOD(
                      *hlodLayer, snapshot->Entities, world, Rules::ResidencyUnitMembers( plan, unit ),
                      Rules::HLODMinVisibleDistance( *partition, plan, unit ), customShader, issues, foliageInHLOD,
-                     meshBuilder, landscapeBuilder );
+                     builders.Mesh, builders.Landscape );
                 if ( !builtCell )
                     return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName + "', " +
                                                       Rules::DescribeResidencyUnit( plan, unit ) + ": " +

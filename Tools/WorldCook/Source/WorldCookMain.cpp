@@ -1,5 +1,6 @@
 #include "WorldCookMain.hpp"
 
+#include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
@@ -131,7 +132,11 @@ namespace Desert::WorldCook
         out << "WorldCook: descriptors " << descriptors.GetValue().Described << " described, "
             << descriptors.GetValue().Reused << " reused, " << descriptors.GetValue().Dropped << " dropped\n";
         const auto planned = Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
-        auto       cooked  = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries );
+        // The same mesh and landscape HLOD builders editor Play and the packager use (WP-FAR-6/7): a cooked
+        // world's stand-ins do not depend on which cook built them.
+        const Core::HLODBuilders builders = Core::MakeHLODBuilders( registries );
+        auto cooked = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries, builders.Mesh,
+                                                   builders.Landscape );
         if ( !cooked )
         {
             err << "WorldCook: " << cooked.GetError() << "\n";

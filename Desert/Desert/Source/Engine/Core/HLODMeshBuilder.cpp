@@ -255,12 +255,6 @@ namespace Desert::Core
         return Common::MakeSuccess( std::move( block ) );
     }
 
-    Rules::HLODMeshBuilder MakeHLODMeshBuilder( std::span<const Common::Utils::AssetRegistry> registries )
-    {
-        return [registries]( const Rules::HLODMeshRequest& request )
-        { return BuildHLODMesh( request, registries ); };
-    }
-
     Common::ResultStr<Assets::StaticMeshComponentSer>
     BuildLandscapeHLODMesh( const Rules::LandscapeHLODRequest& request )
     {
@@ -465,8 +459,13 @@ namespace Desert::Core
         return Common::MakeSuccess( std::move( block ) );
     }
 
-    Rules::LandscapeHLODBuilder MakeLandscapeHLODBuilder()
+    HLODBuilders MakeHLODBuilders( std::span<const Common::Utils::AssetRegistry> registries )
     {
-        return []( const Rules::LandscapeHLODRequest& request ) { return BuildLandscapeHLODMesh( request ); };
+        return HLODBuilders{
+             .Mesh = [registries]( const Rules::HLODMeshRequest& request )
+             { return BuildHLODMesh( request, registries ); },
+             .Landscape = []( const Rules::LandscapeHLODRequest& request )
+             { return BuildLandscapeHLODMesh( request ); },
+        };
     }
 } // namespace Desert::Core

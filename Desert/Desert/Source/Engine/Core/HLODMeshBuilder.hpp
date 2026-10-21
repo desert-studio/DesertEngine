@@ -24,10 +24,19 @@
 
 namespace Desert::Core
 {
-    [[nodiscard]] Rules::HLODMeshBuilder
-    MakeHLODMeshBuilder( std::span<const Common::Utils::AssetRegistry> registries );
+    // THE HLOD BUILDERS OF A COOK, in one place: every world cook - editor Play (WorldStreamer), the packager
+    // (GamePackager) and the WorldCook tool - takes its builders from here, so the three cannot build different
+    // stand-ins for one world. Mesh binds @p registries (the caller keeps them alive for the cook); Landscape
+    // reads the tile's height file itself.
+    struct HLODBuilders
+    {
+        Rules::HLODMeshBuilder      Mesh;
+        Rules::LandscapeHLODBuilder Landscape;
+    };
 
-    // The build itself, for one request; MakeHLODMeshBuilder binds @p registries into it.
+    [[nodiscard]] HLODBuilders MakeHLODBuilders( std::span<const Common::Utils::AssetRegistry> registries );
+
+    // The build itself, for one request; MakeHLODBuilders binds @p registries into it.
     [[nodiscard]] Common::ResultStr<Assets::StaticMeshComponentSer>
     BuildHLODMesh( const Rules::HLODMeshRequest&                 request,
                    std::span<const Common::Utils::AssetRegistry> registries );
@@ -44,6 +53,4 @@ namespace Desert::Core
     // read, the height file is missing or does not decode, the tile does not match its root's size.
     [[nodiscard]] Common::ResultStr<Assets::StaticMeshComponentSer>
     BuildLandscapeHLODMesh( const Rules::LandscapeHLODRequest& request );
-
-    [[nodiscard]] Rules::LandscapeHLODBuilder MakeLandscapeHLODBuilder();
 } // namespace Desert::Core
