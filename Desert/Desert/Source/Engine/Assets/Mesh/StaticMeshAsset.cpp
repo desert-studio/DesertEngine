@@ -4,6 +4,9 @@
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
+
+#include <format>
+#include <functional>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 
@@ -175,6 +178,61 @@ namespace Desert::Assets
         return BOOLSUCCESS;
     }
 
+    namespace
+    {
+        // The two inputs of a static mesh's distance field and cards: every submesh's material sidedness (a slot
+        // naming no material draws the engine's Default Surface, MeshECSSystem::DefaultInstance, a one-sided
+        // template) and the LOD0 triangles.
+        struct FieldInputs
+        {
+            std::vector<uint8_t>        SubmeshTwoSided;
+            MeshDistanceFieldBuildInput Input;
+        };
+
+        Common::ResultStr<FieldInputs>
+        ResolveFieldInputs( AssetManager& manager, const std::vector<Common::Content::AssetGuid>& materials,
+                            const std::vector<Vertex>& vertices, const std::vector<Index>& indices,
+                            const std::vector<Submesh>& submeshes )
+        {
+            std::vector<uint8_t> twoSided( materials.size(), 0 );
+            for ( size_t i = 0; i < materials.size(); ++i )
+            {
+                if ( materials[i].IsNull() )
+                    continue;
+                const auto sided = ResolveMaterialTwoSided( manager, materials[i] );
+                if ( !sided )
+                    return Common::MakeFormattedError<FieldInputs>(
+                         "submesh {} has no distance field material sidedness ({})", i, sided.GetError() );
+                twoSided[i] = sided.GetValue() ? 1 : 0;
+            }
+            auto input = MeshDistanceFieldInputOf( vertices, indices, submeshes, twoSided );
+            if ( !input )
+                return Common::MakeError<FieldInputs>( std::string( input.GetError() ) );
+            return Common::MakeSuccess( FieldInputs{ std::move( twoSided ), input.ExtractValue() } );
+        }
+
+        // THE ONE DERIVATION of a static mesh's cards and distance field (UE FCardRepresentationAsyncQueue +
+        // FDistanceFieldAsyncQueue): ResolveDependencies' queued job and the package cook
+        // (DeriveDistanceFieldAndCardsNow) both run it, so a packaged game asks for exactly the DDC keys the cook
+        // wrote. The cards first (a DDC hit or a build from the same triangles), handed to @p cardsOutcome; a
+        // cancelled card build is the job's cancel (DfRun: not a failure, nothing logged) and is not handed over.
+        Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>> DeriveCardsThenField(
+             const std::filesystem::path& path, uint64_t key, const std::vector<uint8_t>& sided,
+             const MeshDistanceFieldBuildInput& input, const MeshDistanceFieldCancel& cancel, bool& built,
+             const std::function<void( Common::ResultStr<std::shared_ptr<const MeshCardsBuildData>> )>&
+                  cardsOutcome )
+        {
+            auto cards = LoadMeshCards( path, key, sided, input, cancel );
+            if ( !cards.IsSuccess() && cards.GetError().find( kMeshCardsCancelled ) != std::string::npos )
+                return Common::MakeError<std::shared_ptr<const MeshDistanceFieldData>>(
+                     std::string( kMeshDistanceFieldCancelled ) );
+            cardsOutcome( std::move( cards ) );
+            return LoadMeshDistanceField(
+                 path, key, sided, [&input]() -> Common::ResultStr<MeshDistanceFieldBuildInput>
+                 { return Common::MakeSuccess( input ); }, &built, cancel );
+        }
+    } // namespace
+
     void StaticMeshAsset::ResolveDependencies( AssetManager& manager )
     {
         m_DistanceField.reset();
@@ -184,65 +242,70 @@ namespace Desert::Assets
             return;
         m_DependenciesResolved = true;
 
-        // EVERY SUBMESH'S MATERIAL SIDEDNESS, the field's second input. A slot naming no material draws the
-        // engine's Default Surface (MeshECSSystem::DefaultInstance), a one-sided template.
-        std::vector<uint8_t> twoSided( m_MaterialGuids.size(), 0 );
-        for ( size_t i = 0; i < m_MaterialGuids.size(); ++i )
-        {
-            if ( m_MaterialGuids[i].IsNull() )
-                continue;
-            const auto sided = ResolveMaterialTwoSided( manager, m_MaterialGuids[i] );
-            if ( !sided )
-            {
-                LOG_ERROR( "StaticMeshAsset '{}': submesh {} has no distance field material sidedness ({}); the "
-                           "mesh is left out of every distance-field trace",
-                           m_Metadata.Filepath.string(), i, sided.GetError() );
-                return;
-            }
-            twoSided[i] = sided.GetValue() ? 1 : 0;
-        }
-
-        // THE MESH'S DISTANCE FIELD, derived from exactly this render data and these materials - a DDC hit, or
-        // built where the editor registered the builder - ON A WORKER (UE FDistanceFieldAsyncQueue): the mesh
-        // draws at once and joins the distance-field scene when its field lands in the slot. One that cannot be
-        // had is an error naming the mesh (the queue logs it), never a field guessed from a different input.
-        // The job owns copies of what it reads: this asset may be reloaded or unloaded while it runs, and a
-        // reload makes a new slot, so a late field lands in a slot nothing reads any more.
-        auto input = MeshDistanceFieldInputOf( m_Vertices, m_Indices, m_Submeshes, twoSided );
-        if ( !input )
+        // EVERY SUBMESH'S MATERIAL SIDEDNESS and the triangles (ResolveFieldInputs), then THE MESH'S CARDS AND
+        // DISTANCE FIELD, derived from exactly this render data and these materials - a DDC hit, or built where
+        // the editor registered the builders - ON A WORKER (UE FDistanceFieldAsyncQueue): the mesh draws at once
+        // and joins the distance-field scene when its field lands in the slot. One that cannot be had is an error
+        // naming the mesh (the queue logs it), never a field guessed from a different input. The job owns copies
+        // of what it reads: this asset may be reloaded or unloaded while it runs, and a reload makes a new slot,
+        // so a late field lands in a slot nothing reads any more.
+        auto inputs = ResolveFieldInputs( manager, m_MaterialGuids, m_Vertices, m_Indices, m_Submeshes );
+        if ( !inputs )
         {
             LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh is left out of every distance-field trace",
-                       m_Metadata.Filepath.string(), input.GetError() );
+                       m_Metadata.Filepath.string(), inputs.GetError() );
             return;
         }
-        auto slot       = std::make_shared<MeshDistanceFieldSlot>( MostlyTwoSided( input.GetValue() ) );
-        m_DistanceField = slot;
-        auto cards      = std::make_shared<MeshCardsSlot>();
-        m_Cards         = cards;
+        FieldInputs in   = inputs.ExtractValue();
+        auto        slot = std::make_shared<MeshDistanceFieldSlot>( MostlyTwoSided( in.Input ) );
+        m_DistanceField  = slot;
+        auto cards       = std::make_shared<MeshCardsSlot>();
+        m_Cards          = cards;
         EnqueueMeshDistanceField(
              slot, m_Metadata.Filepath.string(),
-             [path = m_Metadata.Filepath, key = m_RenderDataKey, sided = std::move( twoSided ),
-              in = std::make_shared<MeshDistanceFieldBuildInput>( input.ExtractValue() ),
+             [path = m_Metadata.Filepath, key = m_RenderDataKey, sided = std::move( in.SubmeshTwoSided ),
+              input = std::make_shared<MeshDistanceFieldBuildInput>( std::move( in.Input ) ),
               cards]( bool& built, const MeshDistanceFieldCancel& cancel )
                   -> Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>>
              {
-                 // The cards first (UE FCardRepresentationAsyncQueue, here the same job): a DDC hit or a build
-                 // from the same triangles. A failure leaves the mesh without cards - out of the surface cache,
-                 // lit in place by a trace that hits it - and is logged naming the mesh, never guessed.
-                 // A cancelled card build is the job's cancel (DfRun: not a failure, nothing logged; a flight
-                 // that followed another owner's cancelled leader is derived again).
-                 if ( auto loaded = LoadMeshCards( path, key, sided, *in, cancel ); loaded.IsSuccess() )
-                     cards->Publish( loaded.ExtractValue() );
-                 else if ( loaded.GetError().find( kMeshCardsCancelled ) != std::string::npos )
-                     return Common::MakeError<std::shared_ptr<const MeshDistanceFieldData>>(
-                          std::string( kMeshDistanceFieldCancelled ) );
-                 else
-                     LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh has no surface-cache cards", path.string(),
-                                loaded.GetError() );
-                 return LoadMeshDistanceField(
-                      path, key, sided, [&in]() -> Common::ResultStr<MeshDistanceFieldBuildInput>
-                      { return Common::MakeSuccess( *in ); }, &built, cancel );
+                 // A card failure leaves the mesh without cards - out of the surface cache, lit in place by a
+                 // trace that hits it - and is logged naming the mesh, never guessed.
+                 return DeriveCardsThenField(
+                      path, key, sided, *input, cancel, built,
+                      [&path, &cards]( Common::ResultStr<std::shared_ptr<const MeshCardsBuildData>> loaded )
+                      {
+                          if ( loaded.IsSuccess() )
+                              cards->Publish( loaded.ExtractValue() );
+                          else
+                              LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh has no surface-cache cards",
+                                         path.string(), loaded.GetError() );
+                      } );
              } );
+    }
+
+    Common::BoolResultStr StaticMeshAsset::DeriveDistanceFieldAndCardsNow( AssetManager& manager ) const
+    {
+        if ( !m_IsReadyForUse )
+            return Common::MakeError(
+                 std::format( "static mesh '{}' has no render data loaded", m_Metadata.Filepath.string() ) );
+        const auto inputs = ResolveFieldInputs( manager, m_MaterialGuids, m_Vertices, m_Indices, m_Submeshes );
+        if ( !inputs )
+            return Common::MakeError( std::string( inputs.GetError() ) );
+        const FieldInputs& in = inputs.GetValue();
+        std::string        cardsError;
+        bool               built = false;
+        const auto         field = DeriveCardsThenField(
+             m_Metadata.Filepath, m_RenderDataKey, in.SubmeshTwoSided, in.Input, MeshDistanceFieldCancel{}, built,
+             [&cardsError]( Common::ResultStr<std::shared_ptr<const MeshCardsBuildData>> loaded )
+             {
+                 if ( !loaded.IsSuccess() )
+                     cardsError = loaded.GetError();
+             } );
+        if ( !cardsError.empty() )
+            return Common::MakeError( "cards: " + cardsError );
+        if ( !field )
+            return Common::MakeError( "distance field: " + std::string( field.GetError() ) );
+        return BOOLSUCCESS;
     }
 
 } // namespace Desert::Assets

@@ -10,11 +10,16 @@
 #include <Engine/Text/FontCache.hpp>
 #include <Engine/Vector/IconBake.hpp>
 
+#include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/DDCShipRegister.hpp>
+#include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
+#include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Editor/Import/ImportManager.hpp>
@@ -353,6 +358,40 @@ namespace Desert::Editor
                 }
                 ++stats.MeshesCooked;
             }
+
+            // EVERY COOKED MESH'S DISTANCE FIELD AND CARDS (UE: the cooker builds them with the mesh): a packaged
+            // game registers no builder, so a field or cards no editor session happened to derive was a miss
+            // there and the mesh left the distance-field scene / the surface cache. Derived through
+            // StaticMeshAsset::DeriveDistanceFieldAndCardsNow - the very derivation the editor's
+            // ResolveDependencies queues, so the keys are the ones the runtime asks for - with the editor's two
+            // builders (EditorStartup). Its material sidedness input reads the materials and their templates, so
+            // this cook's own asset manager holds every registry shader parsed (CPU only, no device).
+            Assets::SetMeshDistanceFieldBuilder( &Assets::BuildMeshDistanceFieldBytes );
+            Assets::SetMeshCardsBuilder( &Assets::BuildMeshCardsBytes );
+            const auto manager = std::make_shared<Assets::AssetManager>();
+            for ( const auto& shader :
+                  Assets::ContentRegistry::FilesOfKind( Common::Content::ContentKind::Shader ) )
+                (void)manager->CreateAsset<Assets::ShaderAsset>( shader );
+            for ( const fs::path& asset : assets )
+            {
+                const auto mesh = std::make_shared<Assets::StaticMeshAsset>( asset );
+                if ( const auto loaded = mesh->Load(); !loaded )
+                {
+                    LOG_ERROR(
+                         "[PackageCook] static mesh '{}' could not be read for its distance field and cards: {}",
+                         asset.string(), loaded.GetError() );
+                    ++stats.Failures;
+                    continue;
+                }
+                if ( const auto derived = mesh->DeriveDistanceFieldAndCardsNow( *manager ); !derived )
+                {
+                    LOG_ERROR( "[PackageCook] static mesh '{}' has no cooked distance field / cards: {}",
+                               asset.string(), derived.GetError() );
+                    ++stats.Failures;
+                    continue;
+                }
+                ++stats.MeshFieldsCooked;
+            }
         }
 
         // Copies the DDC buckets a game reads into the cooked tree under the key the runtime asks for:
@@ -433,11 +472,13 @@ namespace Desert::Editor
         StageCookedEntries( stats );
 
         LOG_INFO( "[PackageCook] shaders {} compiled / {} cached, fonts {} baked / {} cached, icons {} "
-                  "baked / {} cached, textures {} cooked / {} cached, static meshes {} cooked, {} failure(s), {} "
+                  "baked / {} cached, textures {} cooked / {} cached, static meshes {} cooked ({} with distance "
+                  "field + "
+                  "cards), {} failure(s), {} "
                   "unwritten",
                   stats.ShadersCompiled, stats.ShadersCached, stats.FontsBaked, stats.FontsCached,
                   stats.IconsBaked, stats.IconsCached, stats.TexturesCooked, stats.TexturesCached,
-                  stats.MeshesCooked, stats.Failures, stats.StoreFailures );
+                  stats.MeshesCooked, stats.MeshFieldsCooked, stats.Failures, stats.StoreFailures );
         if ( stats.StoreFailures > 0 )
         {
             // Loud on its own line: this one is never normal, and a package built over it ships a
