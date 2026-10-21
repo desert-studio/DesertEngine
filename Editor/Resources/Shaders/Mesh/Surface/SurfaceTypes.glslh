@@ -114,7 +114,11 @@ SurfaceSubUV DesertParticleSubUV( SurfaceParticleInput p, vec2 uv, float columns
 // SceneViewInputs::SceneDepth, the opaque G-buffer depth, or a black texture where the view has none). A separate
 // texture read through the point-clamped shared state (ParticleRenderer / Graphic::BindSceneViewInputs bind both),
 // numbered by the program build (SharedSamplerBinding.hpp).
-#if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) &&      ( defined( DESERT_SURFACE_PARTICLE_SPRITE ) || defined( DESERT_SURFACE_PASS_Forward ) )
+// A sprite cell declares it only when its surface calls DesertDepthFade (DESERT_SURFACE_DEPTH_FADE, defined by the
+// parser like UE's material compiler noting a scene-depth read): an unread shared sampler is refused by the build.
+#if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) &&                                                                    \
+     ( ( defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_DEPTH_FADE ) ) ||                      \
+       ( defined( DESERT_SURFACE_PASS_Forward ) && !defined( DESERT_SURFACE_PARTICLE_SPRITE ) ) )
 Uniform sampler u_PointClampSampler;
 layout( binding = 27 ) uniform texture2D u_SceneDepth; // 27 = Core::kSceneDepthBinding, the scene-read range's third slot (ShaderGraphBindings.hpp)
 #define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
@@ -122,12 +126,14 @@ layout( binding = 27 ) uniform texture2D u_SceneDepth; // 27 = Core::kSceneDepth
 // THE SCENE SHADING WORD beside it, for the Forward cells only: the contact-shadow ray's hit texel's NO_CONTACT_SHADOW
 // bit (UE CastContactShadow( GBuffer ); SceneViewInputs::SceneShadingWord, the G-buffer's, or an integer zero). Read
 // with texelFetch through the same point-clamped state.
-#if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) && defined( DESERT_SURFACE_PASS_Forward )
+#if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) && defined( DESERT_SURFACE_PASS_Forward ) &&                          \
+     !defined( DESERT_SURFACE_PARTICLE_SPRITE )
 layout( binding = 28 ) uniform utexture2D u_SceneShadingWord; // 28 = Core::kSceneShadingWordBinding, the range's fourth slot
 #define u_SceneShadingWord usampler2D(u_SceneShadingWord, u_PointClampSampler)
 #endif
 
-#if defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
+#if defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL ) &&                     \
+     defined( DESERT_SURFACE_DEPTH_FADE )
 #include <Common/ReconstructPosition.glslh>
 float DesertDepthFade( vec3 worldPosition, float opacity, float fadeDistance )
 {
