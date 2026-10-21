@@ -119,11 +119,14 @@ namespace Desert::Editor
             const auto      edge = []( const glm::vec2& a, const glm::vec2& b, const glm::vec2& p )
             { return ( b.x - a.x ) * ( p.y - a.y ) - ( b.y - a.y ) * ( p.x - a.x ); };
             for ( const auto& submesh : mesh.Submeshes )
-                for ( uint32_t t = 0; t + 2 < submesh.IndexCount; t += 3 )
+                for ( uint32_t t = submesh.IndexOffset / 3; t < ( submesh.IndexOffset + submesh.IndexCount ) / 3;
+                      ++t )
                 {
-                    const ::Desert::Vertex* v[3];
-                    for ( int k = 0; k < 3; ++k )
-                        v[k] = &mesh.Vertices[submesh.VertexOffset + mesh.Indices[submesh.IndexOffset + t + k]];
+                    // Index = one triangle; the submesh range is in uint32_t units (DynamicMeshRenderConversion).
+                    const ::Desert::Index&  triangle = mesh.Indices[t];
+                    const ::Desert::Vertex* v[3]     = { &mesh.Vertices[submesh.VertexOffset + triangle.V1],
+                                                         &mesh.Vertices[submesh.VertexOffset + triangle.V2],
+                                                         &mesh.Vertices[submesh.VertexOffset + triangle.V3] };
                     const glm::vec2 p[3] = { v[0]->TexCoord * extent, v[1]->TexCoord * extent,
                                              v[2]->TexCoord * extent };
                     const float     area = edge( p[0], p[1], p[2] );
