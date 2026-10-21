@@ -1,15 +1,22 @@
--- GamePackager — the player's artifact, built with no editor and no GPU.
+-- GamePackager — the player's artifact, built with no editor UI and no GPU.
 --
--- THE FILE LIST IS NOT A DESIGN, IT IS A COPY OF ONE THAT IS ALREADY GREEN. Every entry below is in
--- Desert/Tests/Editor/PackagedContent/premake5.lua, which has been calling the real PackageGame()
--- inside a gtest binary on both platforms for weeks — that suite is the evidence that the packer
--- and its cook need no device, and this tool is that same closure with a main() instead of a test
--- (and without Runtime/Source/PackagedContent.cpp, which is the PLAYER's half).
+-- THE ENGINE IS LINKED, NOT COPIED. The packer and its cook are four editor translation units (below); what they
+-- call is the engine, linked as every engine user links it: one library per module through
+-- DesertModuleLibs.Link() (BuildScripts/DesertModuleLibs.lua), so the archives carry their own closure and the
+-- linker takes only the members the packager reaches.
 --
--- What it links that AssetClosure does not: shaderc and spirv-cross, because packaging COOKS. No
--- VkDevice is ever created — `DesertSpecific` carries the Vulkan loader only because shaderc sits
--- beside it in the SDK, and the one Vulkan token in the compiled path is a shaderc target-env enum.
-local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
+-- It used to compile a hand-kept list of ~30 engine sources instead, "a copy of" the PackagedContent suite's
+-- premake. BUILD1 folded that suite into the Editor runner, which links the whole engine, so nothing held the
+-- list to the code any more: when the packaged cook started building HLODs with the engine's builders
+-- (Engine/Core/HLODMeshBuilder.cpp: MakeHLODMeshBuilder, MakeLandscapeHLODBuilder - WP-FAR-6/7) the list did not
+-- grow and the tool stopped linking.
+--
+-- The editor half is compiled here, not taken from EditorCore: the Shipping CI leg builds Runtime + this tool
+-- and no editor, and linking EditorCore would compile the whole editor into that leg for four files.
+--
+-- No VkDevice is ever created: the Vulkan loader is on the link line because shaderc sits beside it in the
+-- SDK and the engine archives hold the renderer, not because packaging touches a GPU.
+local engineDeps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
 project "GamePackager"
     kind "ConsoleApp"
@@ -20,42 +27,9 @@ project "GamePackager"
         "Source/**.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Packaging/GamePackager.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Packaging/PackageCook.cpp",
-        -- The packager cuts a partitioned world into its cells (WP9): the world cook and what it reads with.
-        -- The same four files Tests/Editor/PackagedContent compiles, so the suite links what the tool links.
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/ExternalEntities.cpp", -- a partitioned world is read joined (WP16)
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/EntityDescriptorIndex.cpp", -- every scene write refreshes the index (WP18)
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/ProjectContext.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCompiler.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCacheKey.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderSpirvCache.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/Includer/ShaderIncluder.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelRegistry.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Text/FontBaker.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Text/Msdf.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Text/FontCache.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Vector/VectorImage.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Vector/IconBake.cpp",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_truetype.cpp",
-        -- THE TEXTURE COOK (PK1): the editor's importer itself, the container it writes, the BC7 gates it
-        -- measures its own output against, and stb_image as the one decoder in the closure. The same
-        -- four files Tests/Editor/TextureImport compiles, so nothing here is a second texture cook.
+        -- THE TEXTURE COOK (PK1): the editor's importer and the .dds source decoder it calls (bcdec inside).
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureImporter.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/DdsSource.cpp", -- the .dds source decoder TextureImporter calls (bcdec inside)
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/DdsSource.cpp",
     }
 
     includedirs {
@@ -73,15 +47,13 @@ project "GamePackager"
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/openexr/src/lib/OpenEXRCore", -- <openexr.h> (OpenEXRCore), for the texture import
         "%{_MAIN_SCRIPT_DIR}/build/generated/openexr/include",  -- its generated config headers (BuildScripts/ThirdParty/OpenEXR.lua)
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/Imath/src/Imath",
-        -- <Common/LandscapeHeight.glslh>: LandscapeData.cpp decodes heights with the shader's own maths.
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
 
-    for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
+    for name, path in DesertSortedPairs(engineDeps.Common.IncludeDir) do
         externalincludedirs { path }
     end
 
-    for name, path in DesertSortedPairs(deps.DesertSpecific.IncludeDir) do
+    for name, path in DesertSortedPairs(engineDeps.DesertSpecific.IncludeDir) do
         externalincludedirs { path }
     end
 
@@ -98,35 +70,56 @@ project "GamePackager"
 
     filter {}
 
-    links { "Common", "Optick" } -- Common's JobSystem registers its workers with Optick
-    links { "OpenEXRCore" } -- .exr texture sources (BuildScripts/ThirdParty/OpenEXR.lua)
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
-
-    filter {}
-
-    -- The engine defines this for its own Debug TUs, and the shader-compiler TUs compiled in here
-    -- must see the same value: otherwise this tool would key cooked SPIR-V differently from the
-    -- engine built in the same configuration, and every artifact it produced would be a cache miss.
+    -- The engine defines this for its own Debug TUs; Main.cpp sees the same engine headers the libraries
+    -- were compiled with.
     filter "configurations:Debug"
         defines { "DESERT_CONFIG_DEBUG" }
         symbols "On"
-        for name, path in DesertSortedPairs(deps.DesertSpecific.Libraries.Debug) do
-            links { path }
-        end
 
-    -- `or Shipping`: there is no third flavour of prebuilt third-party libraries, and inventing one
-    -- would mean pinning Vulkan and reflect-cpp twice (the argument Runtime/premake5.lua makes).
-    -- Without the `or`, the filter matches nothing in Shipping and the link is thousands of
-    -- unresolved shaderc symbols -- which is exactly how the 257 test scripts failed that build.
     filter "configurations:Release or Shipping"
         optimize "On"
-        for name, path in DesertSortedPairs(deps.DesertSpecific.Libraries.Release) do
-            links { path }
-        end
 
     filter "configurations:Release"
         defines { "DESERT_CONFIG_RELEASE" }
+
+    filter {}
+
+    -- What the engine archives use, as Runtime/premake5.lua names it, plus OpenEXRCore for the texture import.
+    links {
+        "GLFW",
+        "Optick",
+        "MeshOptimizer",
+        "Voro",
+        "OpenSubdiv",
+        "OpenEXRCore", -- .exr texture sources (BuildScripts/ThirdParty/OpenEXR.lua)
+        "Dav1d",
+        "Opus",
+    }
+    -- The engine, one library per module, then the prebuilt archives (Vulkan, shaderc, SPIRV-Cross,
+    -- reflect-cpp) per configuration, Shipping included.
+    DesertModuleLibs.Link()
+
+    -- gmake does not link a static library's dependencies transitively (Visual Studio does, through the
+    -- project references): the executable names what the engine libraries use, as the Editor does.
+    filter "system:macosx"
+        links {
+            "Common",
+            "Jolt",
+            "LuauCodeGen",
+            "LuauCompiler",
+            "LuauAst",
+            "LuauBytecode",
+            "LuauVM",
+            "LuauCommon",
+            "ReflectCpp",
+            "Cocoa.framework",
+            "IOKit.framework",
+            "CoreFoundation.framework",
+            "CoreVideo.framework",
+            "CoreMedia.framework",
+            "AVFoundation.framework",
+            "QuartzCore.framework",
+            "Foundation.framework",
+        }
 
     filter {}
