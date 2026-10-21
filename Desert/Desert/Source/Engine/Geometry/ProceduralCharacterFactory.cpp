@@ -59,8 +59,11 @@ namespace Desert::Geometry
                     Assets::Serialization::SkinnedVertexData v{};
                     v.Position               = c + r * dir;
                     v.Normal                 = glm::normalize( dir );
-                    v.Tangent                = axis;
-                    v.Bitangent              = glm::cross( v.Normal, axis );
+                    // The frame follows the UVs: U runs AROUND the axis (s / radial), so the tangent is
+                    // dPos/dU's direction, the circumference; V runs along the axis, so the bitangent,
+                    // cross( N, T ), is the axis. The seam column s == radial is its own vertex (U = 1).
+                    v.Tangent                = -std::sin( a ) * u + std::cos( a ) * w;
+                    v.Bitangent              = glm::cross( v.Normal, v.Tangent );
                     v.TexCoord               = { static_cast<float>( s ) / static_cast<float>( radial ),
                                                  static_cast<float>( ring ) };
                     v.BoneIDs[0]             = bone;
@@ -111,8 +114,12 @@ namespace Desert::Geometry
                 {
                     const uint32_t a = base + i * stride + j, b = base + i * stride + j + 1;
                     const uint32_t c = base + ( i + 1 ) * stride + j, d = base + ( i + 1 ) * stride + j + 1;
-                    indices.push_back( { a, b, d } ); // outward
-                    indices.push_back( { a, d, c } ); // outward
+                    // The first stack's a, b and the last stack's c, d are the same pole point: that half of
+                    // the quad has no area and no tangent frame, so it is not emitted.
+                    if ( i != 0 )
+                        indices.push_back( { a, b, d } ); // outward
+                    if ( i != stacks - 1 )
+                        indices.push_back( { a, d, c } ); // outward
                 }
         }
     } // namespace
