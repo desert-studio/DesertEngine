@@ -16,8 +16,9 @@ namespace Desert::Runtime
      * A layer info names its grass types by GUID (LandscapeLayerInfoData::GrassTypes). The first reader that asks
      * for a handle creates the asset from its registry row and requests the read through the AsyncAssetLoader;
      * until it lands the type is Pending and grows nothing. A type that failed stays Failed for the session and
-     * says why once in the log. The service holds the ASSET, so a hot reload re-read into it is what every reader
-     * sees on the next ask (AssetHotReload::PollLandscapeGrassTypes).
+     * says why once in the log. A type an eviction sweep released is read again into the same shell on the next
+     * ask. The service holds the ASSET, so a hot reload re-read into it is what every reader sees on the next ask
+     * (AssetHotReload::PollLandscapeGrassTypes).
      */
     class LandscapeGrassTypeService
     {
@@ -44,6 +45,10 @@ namespace Desert::Runtime
 
     private:
         void Request( const Assets::AssetHandle& handle );
+        void Fail( const Assets::AssetHandle& handle, const std::string& why );
+        /// Reads @p shell through the AsyncAssetLoader: the first read, or a re-read after an eviction.
+        void Read( const Assets::AssetHandle&                            handle,
+                   const Assets::Asset<Assets::LandscapeGrassTypeAsset>& shell );
 
         std::weak_ptr<Assets::AssetManager>                                                     m_Assets;
         std::unordered_map<Assets::AssetHandle, Assets::LoadRequest>                            m_Requests;

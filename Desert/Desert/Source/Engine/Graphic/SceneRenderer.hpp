@@ -1206,7 +1206,11 @@ namespace Desert::Graphic
         void AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
-        void AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures );
+        // The selection outline composited over @p scene (the post input: the temporal resolve's output with the
+        // overlays, or the scene colour). Returns what the tonemap reads - the outlined scene - or an invalid ref
+        // when the outline system cannot record this frame (the tonemap then reads @p scene).
+        [[nodiscard]] RDG::TextureRef AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures,
+                                                         RDG::TextureRef scene );
         // @p previous: PrepareFrameAutoExposure's result (nothing is added when it is invalid).
         void AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
                                    const std::vector<RDG::TextureRef>& sceneColor, RDG::TextureRef previous );
