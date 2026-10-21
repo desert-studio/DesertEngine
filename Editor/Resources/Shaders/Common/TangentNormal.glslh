@@ -32,10 +32,13 @@
 // itself), and the same texture cooked uncompressed instead of BC5 differs by an RMSE of 1.1 against
 // the 14.5 the normal map itself is worth — close, and not identical, which is what a lossy encode in a
 // path that works looks like. `NRM_WitnessDeferred` and `NRM_WitnessInstanced` carry the G-buffer and
-// the two instanced readings, so four of the six shaders that include this file are now drawn by a
-// committed scene. StaticMeshGlass and SkinnedMeshLit are NOT — one needs a transmissive material and
-// the other a rigged mesh — and both are still held only by the census in
-// `Desert/Tests/Engine/ShippedShaderPasses`, which also fails if no scene draws a bound normal map.
+// the two instanced readings. `NRM_WitnessGlass` carries the translucent one: StaticMeshGlass (UE: a
+// Translucent DefaultLit material whose normal bends the refraction) binds the same texture through
+// `Materials/M_NormalWitness_Glass.demat`, beside `Starter_Glass` — the same glass with the slot empty —
+// in the same frame. The skinned reading (StandardSurface's Vertex_Skinned cell, which replaced the
+// hand-written SkinnedMeshLit program) is drawn by the ANIM_/MESH_ probe scenes of Desert/Tests/Data
+// with an un-mapped material only; it is held by the census in `Desert/Tests/Engine/ShippedShaderPasses`,
+// which also fails if no scene draws a bound normal map.
 
 // The tangent-space normal a normal-map texel's R and G encode, ready for the TBN multiply.
 //
