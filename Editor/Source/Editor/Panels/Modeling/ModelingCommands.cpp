@@ -652,6 +652,84 @@ namespace Desert::Editor
                                       Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                       return PaletteCommandDone();
                                   } } );
+        // UE's VoxOps palette: VoxWrap (MeshProcessingTool session).
+        commands.push_back( { "Modeling", "VoxOps tool: VoxWrap", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::VoxWrap;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        // VoxBoolean (UE UVoxelCSGMeshesTool): the tool on the two selected entities, its operation and what
+        // Accept does with the inputs.
+        commands.push_back( { "Modeling", "VoxOps tool: VoxBoolean", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::VoxBoolean;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::VoxBooleanOperation op :
+              { Geometry::VoxBooleanOperation::DifferenceAB, Geometry::VoxBooleanOperation::DifferenceBA,
+                Geometry::VoxBooleanOperation::Intersect, Geometry::VoxBooleanOperation::Union } )
+            commands.push_back( { "Modeling", std::string( "VoxBoolean operation: " ) + Geometry::ToString( op ),
+                                  [op]
+                                  {
+                                      MS::Get().VoxBoolean.Operation = op;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Core::BooleanInputs in :
+              { Core::BooleanInputs::Delete, Core::BooleanInputs::Hide, Core::BooleanInputs::Keep } )
+            commands.push_back( { "Modeling", std::string( "VoxBoolean inputs: " ) + Core::ToString( in ), [in]
+                                  {
+                                      MS::Get().VoxBooleanInputs = in;
+                                      return PaletteCommandDone();
+                                  } } );
+        // VoxMorph (UE UVoxelMorphologyMeshesTool): the tool on the selected entity, its operation and what
+        // Accept does with the input.
+        commands.push_back( { "Modeling", "VoxOps tool: VoxMorph", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::VoxMorph;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::VoxMorphOperation op :
+              { Geometry::VoxMorphOperation::Dilate, Geometry::VoxMorphOperation::Contract,
+                Geometry::VoxMorphOperation::Close, Geometry::VoxMorphOperation::Open } )
+            commands.push_back( { "Modeling", std::string( "VoxMorph operation: " ) + Geometry::ToString( op ),
+                                  [op]
+                                  {
+                                      MS::Get().VoxMorph.Operation = op;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Core::BooleanInputs in :
+              { Core::BooleanInputs::Delete, Core::BooleanInputs::Hide, Core::BooleanInputs::Keep } )
+            commands.push_back( { "Modeling", std::string( "VoxMorph inputs: " ) + Core::ToString( in ), [in]
+                                  {
+                                      MS::Get().VoxMorphInputs = in;
+                                      return PaletteCommandDone();
+                                  } } );
+        // VoxBlend (UE UVoxelBlendMeshesTool): the tool on the two selected entities, its operation and what
+        // Accept does with the inputs.
+        commands.push_back( { "Modeling", "VoxOps tool: VoxBlend", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::VoxBlend;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::VoxBlendOperation op :
+              { Geometry::VoxBlendOperation::Union, Geometry::VoxBlendOperation::Subtract } )
+            commands.push_back( { "Modeling", std::string( "VoxBlend operation: " ) + Geometry::ToString( op ),
+                                  [op]
+                                  {
+                                      MS::Get().VoxBlend.Operation = op;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Core::BooleanInputs in :
+              { Core::BooleanInputs::Delete, Core::BooleanInputs::Hide, Core::BooleanInputs::Keep } )
+            commands.push_back( { "Modeling", std::string( "VoxBlend inputs: " ) + Core::ToString( in ), [in]
+                                  {
+                                      MS::Get().VoxBlendInputs = in;
+                                      return PaletteCommandDone();
+                                  } } );
         // UE's Attributes palette: Normals (MeshProcessingTool session) and its closed choices / toggles.
         commands.push_back( { "Modeling", "Attributes tool: Normals", []
                               {
@@ -935,6 +1013,10 @@ namespace Desert::Editor
                        []( MS& ms, bool on ) { ms.DeformSmooth.SmoothBoundary = on; } );
         modelingOnOff( "Modeling", "Smooth: Pin UV Seams",
                        []( MS& ms, bool on ) { ms.DeformSmooth.PinUVSeams = on; } );
+        modelingOnOff( "Modeling", "VoxWrap: Solid At Boundaries",
+                       []( MS& ms, bool on ) { ms.VoxWrap.SolidAtBoundaries = on; } );
+        modelingOnOff( "Modeling", "VoxWrap: Apply Thicken Shells",
+                       []( MS& ms, bool on ) { ms.VoxWrap.ThickenShells = on; } );
         modelingOnOff( "Modeling", "Offset: Offset Boundary",
                        []( MS& ms, bool on ) { ms.DeformOffset.OffsetBoundary = on; } );
         modelingOnOff( "Modeling", "Offset: Pin UV Seams",

@@ -54,6 +54,18 @@ namespace Desert::Editor::Tools
                 return { ICON_MDI_ARROW_TOP_RIGHT_THICK, "Normals", true };
             case T::Tangents:
                 return { ICON_MDI_ARROW_TOP_RIGHT_THICK, "Tangents", true };
+            // UE's Voxel Solidify (VoxWrap) previews until Accept; Cancel puts the mesh back (MeshProcessingTool).
+            case T::VoxWrap:
+                return { ICON_MDI_CUBE_OUTLINE, "VoxWrap", true };
+            // UE's Voxel Boolean previews until Accept, which creates the result entity (MeshProcessingTool).
+            case T::VoxBoolean:
+                return { ICON_MDI_CUBE_OUTLINE, "VoxBoolean", true };
+            // UE's Voxel Morphology previews until Accept, which creates the result entity (MeshProcessingTool).
+            case T::VoxMorph:
+                return { ICON_MDI_CUBE_SEND, "VoxMorph", true };
+            // UE's Voxel Blend previews until Accept, which creates the result entity (MeshProcessingTool).
+            case T::VoxBlend:
+                return { ICON_MDI_VECTOR_UNION, "VoxBlend", true };
             // UE's Edit Materials previews until Accept; Cancel puts mesh and slots back (EditMaterialsTool).
             case T::EditMaterials:
                 return { ICON_MDI_BRUSH, "Edit Materials", true };

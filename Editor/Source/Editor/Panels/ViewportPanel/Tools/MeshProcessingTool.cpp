@@ -1,11 +1,13 @@
 #include "MeshProcessingTool.hpp"
 
 #include <Editor/Core/Commands/SceneCommands.hpp>
+#include <Editor/Core/Selection/MeshBooleanTool.hpp>
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/GizmoController.hpp>
 
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -16,6 +18,7 @@
 #include <Engine/Geometry/MeshHoleFillOperation.hpp>
 #include <Engine/Geometry/MeshJacketOperation.hpp>
 #include <Engine/Geometry/MeshProjectOperation.hpp>
+#include <Engine/Geometry/MeshVoxelOperations.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 
 #include <ImGui/imgui.h>
@@ -23,6 +26,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <span>
+#include <chrono>
 
 #include <format>
 #include <string>
@@ -57,6 +62,14 @@ namespace Desert::Editor::Tools
                     return "Project";
                 case MS::Tool::WeldEdges:
                     return "Weld Edges";
+                case MS::Tool::VoxWrap:
+                    return "VoxWrap";
+                case MS::Tool::VoxBoolean:
+                    return "VoxBoolean";
+                case MS::Tool::VoxMorph:
+                    return "VoxMorph";
+                case MS::Tool::VoxBlend:
+                    return "VoxBlend";
                 default:
                     return "?";
             }
@@ -125,8 +138,26 @@ namespace Desert::Editor::Tools
     {
         return tool == MS::Tool::Smooth || tool == MS::Tool::Offset || tool == MS::Tool::Warp ||
                tool == MS::Tool::Lattice || tool == MS::Tool::Normals || tool == MS::Tool::Tangents ||
-               tool == MS::Tool::HoleFill || tool == MS::Tool::Jacket ||
-               tool == MS::Tool::Project || tool == MS::Tool::WeldEdges;
+               tool == MS::Tool::VoxWrap || tool == MS::Tool::VoxBoolean || tool == MS::Tool::VoxMorph ||
+               tool == MS::Tool::HoleFill || tool == MS::Tool::Jacket || tool == MS::Tool::Project ||
+               tool == MS::Tool::WeldEdges || tool == MS::Tool::VoxWrap || tool == MS::Tool::VoxBoolean ||
+               tool == MS::Tool::VoxMorph || tool == MS::Tool::VoxBlend;
+    }
+
+    bool MeshProcessingTool::SelectionStillMatches() const
+    {
+        if ( m_Session->Tool == MS::Tool::VoxBoolean || m_Session->Tool == MS::Tool::VoxBlend )
+        {
+            const auto& selection = Core::SelectionManager::GetSelection();
+            return selection.size() == 2 && selection[0] == m_Session->Entity && selection[1] == m_Session->Other;
+        }
+        // Project: the source is still the first of the two selected and the target the second.
+        const auto selected = SessionEntity( m_Session->Tool );
+        if ( m_Session->Tool == MS::Tool::Project &&
+             ( Core::SelectionManager::GetSelection().size() != 2 ||
+               Core::SelectionManager::GetSelection()[1] != m_Session->Target ) )
+            return false;
+        return selected.has_value() && *selected == m_Session->Entity;
     }
 
     void MeshProcessingTool::Update( ::Desert::Core::Scene& scene )
@@ -138,13 +169,9 @@ namespace Desert::Editor::Tools
         // tool and raises ReqCancel, which was this tool's) or the selection moved to another entity.
         if ( m_Session )
         {
-            const auto selected      = SessionEntity( m_Session->Tool );
-            const bool targetChanged = m_Session->Tool == MS::Tool::Project &&
-                                       ( Core::SelectionManager::GetSelection().size() != 2 ||
-                                         Core::SelectionManager::GetSelection()[1] != m_Session->Target ||
-                                         MeshOf( scene, m_Session->Target ) == nullptr );
-            if ( ms.ActiveTool != m_Session->Tool || !selected.has_value() || *selected != m_Session->Entity ||
-                 MeshOf( scene, m_Session->Entity ) == nullptr || targetChanged )
+            if ( ms.ActiveTool != m_Session->Tool || !SelectionStillMatches() ||
+                 MeshOf( scene, m_Session->Entity ) == nullptr ||
+                 ( m_Session->Tool == MS::Tool::Project && MeshOf( scene, m_Session->Target ) == nullptr ) )
             {
                 if ( ms.ActiveTool != m_Session->Tool && ms.ReqCancel )
                     ms.ReqCancel = false;
@@ -184,15 +211,40 @@ namespace Desert::Editor::Tools
         }
         ms.HoleFillReqSelectAll = false;
         ms.HoleFillReqClear     = false;
+        // UE UMeshOpPreviewWithBackgroundCompute::InvalidateResult: a settings change cancels the compute in
+        // flight (its result, even one already landed, is stale and never shown) and starts the next at once.
+        // The preview on screen stays the last one that was current (UE keeps it while recomputing).
         if ( m_Session && SettingsChanged( ms ) )
+        {
+            if ( m_Session->Pending.valid() )
+            {
+                LOG_INFO( "[Modeling] {0}: settings changed, the compute running for {1:.1f} ms is cancelled",
+                          ToolName( m_Session->Tool ),
+                          std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
+                                                                     m_Session->PendingStarted )
+                               .count() );
+                m_Session->PendingCancel.Raise();
+                m_Session->Pending = {};
+            }
             Recompute( scene, ms );
+        }
+        if ( m_Session && m_Session->Pending.valid() &&
+             m_Session->Pending.wait_for( std::chrono::seconds( 0 ) ) == std::future_status::ready )
+            ApplyResult( scene, ms );
 
         if ( ms.ReqAccept )
         {
+            // Accept takes the result of the settings on the panel: it waits (the request stays raised) until
+            // that compute has landed - UE disables Accept for the same reason (HaveValidResult).
+            if ( m_Session && m_Session->Pending.valid() )
+                return;
             ms.ReqAccept         = false;
             const bool endTool   = ms.ReqAcceptEndsTool;
             ms.ReqAcceptEndsTool = false;
-            if ( !Accept( scene, ms ) )
+            const bool createsEntity =
+                 m_Session && ( m_Session->Tool == MS::Tool::VoxBoolean || m_Session->Tool == MS::Tool::VoxMorph ||
+                                m_Session->Tool == MS::Tool::VoxBlend );
+            if ( !( createsEntity ? AcceptCreateFromSelected( scene, ms ) : Accept( scene, ms ) ) )
                 return; // refused: the tool stays open with its preview, and says why
             if ( endTool )
                 ms.ActiveTool = MS::Tool::None;
@@ -204,6 +256,25 @@ namespace Desert::Editor::Tools
     void MeshProcessingTool::Begin( ::Desert::Core::Scene& scene, MS& ms )
     {
         m_Session.reset();
+        if ( ms.ActiveTool == MS::Tool::VoxBoolean || ms.ActiveTool == MS::Tool::VoxBlend )
+        {
+            auto pair = Core::SelectedPairInSpaceOfA( scene, ms.ActiveTool == MS::Tool::VoxBlend ? "VoxBlend"
+                                                                                                 : "VoxBoolean" );
+            if ( !pair.IsSuccess() )
+            {
+                ms.DeformStatus = pair.GetError();
+                return;
+            }
+            Core::SelectedMeshPair p = pair.ExtractValue();
+            m_Session = Session{ ms.ActiveTool, p.A, std::move( p.MeshA ), std::move( p.CommittedA ), nullptr };
+            m_Session->Other          = p.B;
+            m_Session->OtherInput     = std::move( p.MeshBInA );
+            m_Session->OtherCommitted = std::move( p.CommittedB );
+            m_Session->NameA          = std::move( p.NameA );
+            HideOther( scene );
+            Recompute( scene, ms );
+            return;
+        }
         const auto selected = SessionEntity( ms.ActiveTool );
         if ( !selected.has_value() )
         {
@@ -250,6 +321,10 @@ namespace Desert::Editor::Tools
             m_Session->TargetToInput = glm::inverse( glm::dmat4( WorldOf( scene, *selected ) ) ) *
                                        glm::dmat4( WorldOf( scene, targetId ) );
         }
+        if ( ms.ActiveTool == MS::Tool::VoxMorph ) // names its new entity after the input
+            if ( const auto ref = scene.FindEntityByID( *selected );
+                 ref && ref->get().HasComponent<ECS::TagComponent>() )
+                m_Session->NameA = ref->get().GetComponent<ECS::TagComponent>().Tag;
         if ( ms.ActiveTool == MS::Tool::Warp )
             PlaceWarpGizmo( *m_Session->Input, WorldOf( scene, *selected ), ms );
         if ( ms.ActiveTool == MS::Tool::HoleFill )
@@ -301,51 +376,86 @@ namespace Desert::Editor::Tools
 
     void MeshProcessingTool::Recompute( ::Desert::Core::Scene& scene, MS& ms )
     {
-        m_Smooth                                             = ms.DeformSmooth;
-        m_Offset                                             = ms.DeformOffset;
-        m_Normals                                            = ms.AttribNormals;
-        m_Tangents = ms.AttribTangents;
+        m_Smooth        = ms.DeformSmooth;
+        m_Offset        = ms.DeformOffset;
+        m_VoxWrap       = ms.VoxWrap;
+        m_VoxBoolean    = ms.VoxBoolean;
+        m_VoxMorph      = ms.VoxMorph;
+        m_VoxBlend      = ms.VoxBlend;
+        m_Normals       = ms.AttribNormals;
+        m_Tangents      = ms.AttribTangents;
         m_HoleFill         = ms.MeshHoleFill;
         m_HoleFillSelected = ms.HoleFillSelected;
         m_Jacket           = ms.MeshJacket;
         m_Project          = ms.MeshProject;
         m_WeldEdges        = ms.MeshWeldEdges;
-        m_Warp                                               = ms.DeformWarp;
-        m_WarpGizmo                                          = ms.WarpGizmo;
-        m_Lattice                                            = ms.DeformLattice;
-        m_LatticePoints                                      = ms.LatticePoints;
-        const Geometry::DynamicMesh3&              input     = *m_Session->Input;
-        Common::ResultStr<Geometry::DeformOutcome> out       = [&]
-        {
-            switch ( m_Session->Tool )
-            {
-                case MS::Tool::Smooth:
-                    return Geometry::Smooth( input, ms.DeformSmooth );
-                case MS::Tool::Offset:
-                    return Geometry::Offset( input, ms.DeformOffset );
-                case MS::Tool::Normals:
-                    return Geometry::EditNormals( input, ms.AttribNormals );
-                case MS::Tool::Tangents:
-                    return Geometry::ComputeTangents( input, ms.AttribTangents );
-                case MS::Tool::HoleFill:
-                    return Geometry::HoleFill( input, ms.HoleFillSelected, ms.MeshHoleFill );
-                case MS::Tool::Jacket:
-                    return Geometry::Jacket( input, ms.MeshJacket );
-                case MS::Tool::WeldEdges:
-                    return Geometry::WeldMeshEdges( input, ms.MeshWeldEdges );
-                case MS::Tool::Project:
-                    return Geometry::ProjectToTarget( input, *m_Session->TargetMesh, m_Session->TargetToInput,
-                                                      ms.MeshProject );
-                case MS::Tool::Lattice:
-                    return Geometry::LatticeDeform( input, *m_Session->Lattice, ms.LatticePoints,
-                                                    ms.DeformLattice );
-                default: // Warp: object space -> the gizmo's frame, as UE's FMeshSpaceDeformerOp::ObjectToGizmo
-                    return Geometry::Warp( input, ms.DeformWarp,
-                                           glm::inverse( glm::dmat4( ms.WarpGizmo ) ) *
-                                                glm::dmat4( WorldOf( scene, m_Session->Entity ) ) );
-            }
-        }();
-        ECS::StaticMeshComponent*                  component = MeshOf( scene, m_Session->Entity );
+        m_Warp          = ms.DeformWarp;
+        m_WarpGizmo     = ms.WarpGizmo;
+        m_Lattice       = ms.DeformLattice;
+        m_LatticePoints = ms.LatticePoints;
+        // Everything the operator reads is copied here, on the main thread: the worker never touches the scene
+        // or the panel (UE's FDynamicMeshOperator gets the same snapshot from its factory, MakeNewOperator).
+        // Warp: object space -> the gizmo's frame, as UE's FMeshSpaceDeformerOp::ObjectToGizmo.
+        const glm::dmat4 objectToGizmo =
+             m_Session->Tool == MS::Tool::Warp
+                  ? glm::inverse( glm::dmat4( ms.WarpGizmo ) ) * glm::dmat4( WorldOf( scene, m_Session->Entity ) )
+                  : glm::dmat4( 1.0 );
+        std::optional<Geometry::FFDLattice> lattice = m_Session->Lattice;
+        auto cancel                                 = std::make_shared<Geometry::ProgressCancel>();
+        m_Session->PendingCancel                    = CancelOnDrop( cancel );
+        m_Session->PendingStarted                   = std::chrono::steady_clock::now();
+        m_Session->Pending                          = Common::JobSystem::Get().Async(
+             [cancel = std::move( cancel ), tool = m_Session->Tool, input = m_Session->Input, smooth = m_Smooth,
+              offset = m_Offset, voxWrap = m_VoxWrap, voxBoolean = m_VoxBoolean, voxMorph = m_VoxMorph,
+              voxBlend = m_VoxBlend, other = m_Session->OtherInput, normals = m_Normals, tangents = m_Tangents,
+              holeFill = m_HoleFill, holes = m_HoleFillSelected, jacket = m_Jacket, project = m_Project,
+              weldEdges = m_WeldEdges, targetMesh = m_Session->TargetMesh, targetToInput = m_Session->TargetToInput,
+              warp = m_Warp, latticeSettings = m_Lattice, points = m_LatticePoints, lattice = std::move( lattice ),
+              objectToGizmo]() -> Common::ResultStr<Geometry::DeformOutcome>
+             {
+                 switch ( tool )
+                 {
+                     case MS::Tool::Smooth:
+                         return Geometry::Smooth( *input, smooth );
+                     case MS::Tool::Offset:
+                         return Geometry::Offset( *input, offset );
+                     case MS::Tool::Normals:
+                         return Geometry::EditNormals( *input, normals );
+                     case MS::Tool::Tangents:
+                         return Geometry::ComputeTangents( *input, tangents );
+                     case MS::Tool::VoxWrap:
+                         return Geometry::VoxWrap( *input, voxWrap, cancel.get() );
+                     case MS::Tool::VoxBoolean:
+                         return Geometry::VoxBoolean( *input, *other, voxBoolean, cancel.get() );
+                     case MS::Tool::VoxMorph:
+                         return Geometry::VoxMorph( *input, voxMorph, cancel.get() );
+                     case MS::Tool::VoxBlend:
+                         return Geometry::VoxBlend( *input, *other, voxBlend, cancel.get() );
+                     case MS::Tool::HoleFill:
+                         return Geometry::HoleFill( *input, holes, holeFill );
+                     case MS::Tool::Jacket:
+                         return Geometry::Jacket( *input, jacket );
+                     case MS::Tool::WeldEdges:
+                         return Geometry::WeldMeshEdges( *input, weldEdges );
+                     case MS::Tool::Project:
+                         return Geometry::ProjectToTarget( *input, *targetMesh, targetToInput, project );
+                     case MS::Tool::Lattice:
+                         return Geometry::LatticeDeform( *input, *lattice, points, latticeSettings );
+                     default:
+                         return Geometry::Warp( *input, warp, objectToGizmo );
+                 }
+             } );
+        ms.DeformStatus = std::format( "{}: computing...", ToolName( m_Session->Tool ) );
+    }
+
+    void MeshProcessingTool::ApplyResult( ::Desert::Core::Scene& scene, MS& ms )
+    {
+        Common::ResultStr<Geometry::DeformOutcome> out = m_Session->Pending.get();
+        LOG_INFO( "[Modeling] {0} computed in the background in {1:.1f} ms", ToolName( m_Session->Tool ),
+                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
+                                                             m_Session->PendingStarted )
+                       .count() );
+        ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
         if ( !out.IsSuccess() )
         {
             // A refused setting shows the input, not a stale preview.
@@ -367,8 +477,39 @@ namespace Desert::Editor::Tools
         ms.DeformStatus    = std::move( report );
     }
 
+    void MeshProcessingTool::HideOther( ::Desert::Core::Scene& scene )
+    {
+        const auto ref = scene.FindEntityByID( m_Session->Other );
+        if ( !ref )
+            return;
+        ECS::Entity b = ref->get();
+        if ( b.HasComponent<ECS::VisibilityComponent>() )
+        {
+            m_Session->OtherVisibility = b.GetComponent<ECS::VisibilityComponent>().Visible;
+            b.GetComponent<ECS::VisibilityComponent>().Visible = false;
+        }
+        else
+            b.AddComponent<ECS::VisibilityComponent>().Visible = false;
+        m_Session->OtherHidden = true;
+    }
+
     void MeshProcessingTool::Restore( ::Desert::Core::Scene& scene )
     {
+        if ( m_Session->OtherHidden )
+        {
+            m_Session->OtherHidden = false;
+            if ( const auto ref = scene.FindEntityByID( m_Session->Other ); ref )
+            {
+                ECS::Entity b = ref->get();
+                if ( !m_Session->OtherVisibility )
+                {
+                    if ( b.HasComponent<ECS::VisibilityComponent>() )
+                        b.RemoveComponent<ECS::VisibilityComponent>();
+                }
+                else if ( b.HasComponent<ECS::VisibilityComponent>() )
+                    b.GetComponent<ECS::VisibilityComponent>().Visible = *m_Session->OtherVisibility;
+            }
+        }
         ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
         if ( component == nullptr )
             return;
@@ -407,6 +548,73 @@ namespace Desert::Editor::Tools
                                     m_Session->Committed );
         LOG_INFO( "[Modeling] {0} accepted: {1}", ToolName( m_Session->Tool ), ms.DeformStatus );
         m_Session.reset();
+        return true;
+    }
+
+    bool MeshProcessingTool::AcceptCreateFromSelected( ::Desert::Core::Scene& scene, MS& ms )
+    {
+        const char* tool   = ToolName( ms.ActiveTool );
+        const auto  refuse = [&]( const std::string& why )
+        {
+            LOG_ERROR( "[Modeling] {0} Accept refused: {1}", tool, why );
+            ToastManager::Push( std::format( "{} Accept refused: {}", tool, why ), ToastLevel::Error, 10.0f );
+            return false;
+        };
+        if ( !m_Session || !m_Session->Preview )
+            return refuse( ms.DeformStatus.empty() ? std::string( "select the input entities with a mesh" )
+                                                   : ms.DeformStatus );
+        // VoxBoolean and VoxBlend have inputs A and B; VoxMorph has one (A).
+        const bool                isBlend   = m_Session->Tool == MS::Tool::VoxBlend;
+        const bool                twoInputs = m_Session->Tool == MS::Tool::VoxBoolean || isBlend;
+        const Core::BooleanInputs handling =
+             isBlend ? ms.VoxBlendInputs : ( twoInputs ? ms.VoxBooleanInputs : ms.VoxMorphInputs );
+        const auto                refA      = scene.FindEntityByID( m_Session->Entity );
+        const auto                refB      = twoInputs ? scene.FindEntityByID( m_Session->Other ) : refA;
+        if ( !refA || !refB )
+            return refuse( "an input is no longer in the scene" );
+        // A goes back to what it held; the result lands on a copy of A, in A's frame (the operator ran there).
+        Restore( scene );
+        const auto&                tc = refA->get().GetComponent<ECS::TransformComponent>();
+        Commands::XformEntityState state{ m_Session->Entity, m_Session->Preview, tc.Translation, tc.Rotation,
+                                          tc.Scale,          std::nullopt,       std::nullopt };
+        std::vector<Commands::XformEntityState> changes;
+        std::vector<Commands::XformNewEntity>   creates{
+               { m_Session->Entity, std::format( "{} {}", m_Session->NameA, tool ), std::move( state ) } };
+        std::vector<Common::UUID> deletes;
+        const struct
+        {
+            Common::UUID                                  Id;
+            ECS::Entity                                   Entity;
+            std::shared_ptr<const Geometry::DynamicMesh3> Committed;
+        } inputs[2] = { { m_Session->Entity, refA->get(), m_Session->Committed },
+                        { m_Session->Other, refB->get(), m_Session->OtherCommitted } };
+        for ( const auto& in : std::span( inputs, twoInputs ? 2 : 1 ) )
+        {
+            if ( handling == Core::BooleanInputs::Delete )
+                deletes.push_back( in.Id );
+            else if ( handling == Core::BooleanInputs::Hide )
+            {
+                const auto& itc = in.Entity.GetComponent<ECS::TransformComponent>();
+                changes.push_back(
+                     { in.Id, in.Committed, itc.Translation, itc.Rotation, itc.Scale, std::nullopt, false } );
+            }
+        }
+        const std::string label   = std::format( "Modeling: {} {}", tool,
+                                               isBlend     ? Geometry::ToString( m_VoxBlend.Operation )
+                                                 : twoInputs ? Geometry::ToString( m_VoxBoolean.Operation )
+                                                             : Geometry::ToString( m_VoxMorph.Operation ) );
+        auto applied = Commands::ApplyXformEdit( label, changes, creates, deletes );
+        if ( !applied.IsSuccess() )
+        {
+            ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
+            if ( component != nullptr )
+                (void)ECS::SetEditableMesh( *component, m_Session->Preview ); // the preview stays on screen
+            return refuse( applied.GetError() );
+        }
+        LOG_INFO( "[Modeling] {0} accepted as a new entity, inputs: {1}: {2}", label, Core::ToString( handling ),
+                  ms.DeformStatus );
+        m_Session.reset();
+        Core::SelectionManager::SetSelection( applied.GetValue() );
         return true;
     }
 
@@ -676,6 +884,14 @@ namespace Desert::Editor::Tools
                 return !( ms.MeshProject == m_Project );
             case MS::Tool::WeldEdges:
                 return !( ms.MeshWeldEdges == m_WeldEdges );
+            case MS::Tool::VoxWrap:
+                return !( ms.VoxWrap == m_VoxWrap );
+            case MS::Tool::VoxBoolean:
+                return !( ms.VoxBoolean == m_VoxBoolean );
+            case MS::Tool::VoxMorph:
+                return !( ms.VoxMorph == m_VoxMorph );
+            case MS::Tool::VoxBlend:
+                return !( ms.VoxBlend == m_VoxBlend );
             case MS::Tool::Warp:
                 return !( ms.DeformWarp == m_Warp ) || ms.WarpGizmo != m_WarpGizmo;
             case MS::Tool::Lattice:

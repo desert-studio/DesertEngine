@@ -17,6 +17,7 @@
 #include <Engine/Geometry/MeshJacketOperation.hpp>
 #include <Engine/Geometry/MeshProjectOperation.hpp>
 #include <Engine/Geometry/MeshWeldEdgesOperation.hpp>
+#include <Engine/Geometry/MeshVoxelOperations.hpp>
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
 #include <Engine/Geometry/MeshAttributeOperations.hpp>
@@ -344,6 +345,21 @@ namespace Desert::Editor::Core
         // sets; the tool previews the selected mesh with them and recomputes whenever they change.
         Geometry::SmoothSettings DeformSmooth;
         Geometry::OffsetSettings DeformOffset;
+        // VoxOps -> VoxWrap (UE UVoxelSolidifyMeshesTool, Geometry/MeshVoxelOperations.hpp).
+        Geometry::VoxWrapSettings VoxWrap;
+        // VoxOps -> VoxBoolean (UE UVoxelCSGMeshesTool): its operation and voxel settings, and what Accept does
+        // with the two inputs (UE's HandleSourcesProperties; the result is always a new entity, UE
+        // Create-From-Selected).
+        Geometry::VoxBooleanSettings VoxBoolean;
+        BooleanInputs                VoxBooleanInputs = BooleanInputs::Delete;
+        // VoxOps -> VoxMorph (UE UVoxelMorphologyMeshesTool, also a Create-From-Selected tool): its operation,
+        // distance and voxel settings, and what Accept does with the input.
+        Geometry::VoxMorphSettings VoxMorph;
+        BooleanInputs              VoxMorphInputs = BooleanInputs::Delete;
+        // VoxOps -> VoxBlend (UE UVoxelBlendMeshesTool, Create-From-Selected on two inputs): its operation, blend
+        // falloff/power and voxel settings, and what Accept does with the inputs.
+        Geometry::VoxBlendSettings VoxBlend;
+        BooleanInputs              VoxBlendInputs = BooleanInputs::Delete;
         // Warp (UE UMeshSpaceDeformerTool): its operation settings and its gizmo - a rigid world frame whose Z is
         // the deformation axis and whose origin the bounds are measured from. The tool places it on the mesh's
         // bounds centre with Z along the longest side when it starts (UE Setup), then the viewport gizmo moves it.

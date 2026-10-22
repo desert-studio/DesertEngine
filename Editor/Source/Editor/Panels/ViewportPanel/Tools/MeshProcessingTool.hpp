@@ -9,6 +9,11 @@
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 #include <Engine/Geometry/MeshAttributeOperations.hpp>
 
+#include <Engine/Geometry/MeshDeformOperations.hpp>
+#include <Engine/Geometry/ProgressCancel.hpp>
+
+#include <chrono>
+#include <future>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -95,6 +100,31 @@ namespace Desert::Editor::Tools
                                            const glm::vec2& viewportPos, const glm::vec2& viewportSize );
 
     private:
+        // UE FBackgroundComputeSource's per-compute FProgressCancel: the token the running operator polls,
+        // raised when that compute is superseded (a settings change) or its session ends, so the worker stops.
+        struct CancelOnDrop
+        {
+            std::shared_ptr<Geometry::ProgressCancel> Token;
+
+            CancelOnDrop() = default;
+            explicit CancelOnDrop( std::shared_ptr<Geometry::ProgressCancel> token ) : Token( std::move( token ) ) {}
+            CancelOnDrop( CancelOnDrop&& ) noexcept = default;
+            CancelOnDrop& operator=( CancelOnDrop&& other ) noexcept
+            {
+                Raise();
+                Token = std::move( other.Token );
+                return *this;
+            }
+            CancelOnDrop( const CancelOnDrop& )            = delete;
+            CancelOnDrop& operator=( const CancelOnDrop& ) = delete;
+            ~CancelOnDrop() { Raise(); }
+            void Raise()
+            {
+                if ( Token )
+                    Token->Cancel();
+            }
+        };
+
         struct Session
         {
             Core::ModelingState::Tool                     Tool = Core::ModelingState::Tool::None;
@@ -108,12 +138,42 @@ namespace Desert::Editor::Tools
             Common::UUID                                  Target;
             std::shared_ptr<const Geometry::DynamicMesh3> TargetMesh;
             glm::dmat4                                    TargetToInput{ 1.0 };
+            // VoxBoolean (UE UBaseCreateFromSelectedTool): Entity is input A and draws the preview, Other is
+            // input B, OtherInput its mesh baked into A's object space, OtherCommitted what B's component holds.
+            Common::UUID                                  Other;
+            std::shared_ptr<const Geometry::DynamicMesh3> OtherInput;
+            std::shared_ptr<const Geometry::DynamicMesh3> OtherCommitted;
+            std::string NameA; // VoxBoolean's A / VoxMorph's input: names the result
+            // UE UBaseCreateFromSelectedTool hides its inputs while the preview shows: B is hidden for the session
+            // (A draws the preview) and put back by Restore - on Cancel, on a selection change, and before Accept
+            // records its undo step. OtherHidden: B was hidden by the session; OtherVisibility: B's
+            // VisibilityComponent before that (nullopt = it had none, so Restore removes the one added).
+            bool                OtherHidden = false;
+            std::optional<bool> OtherVisibility;
+            // UE UMeshOpPreviewWithBackgroundCompute: the operator runs on a JobSystem worker on copies of the
+            // input and the settings; the last preview stays on screen until it lands. A settings change while it
+            // runs cancels it (PendingCancel) and starts the next one at once; dropping the session cancels it
+            // too. A cancelled compute's future is dropped, so its result goes nowhere (the task owns its inputs).
+            std::future<Common::ResultStr<Geometry::DeformOutcome>> Pending;
+            CancelOnDrop                                            PendingCancel;
+            std::chrono::steady_clock::time_point                   PendingStarted;
         };
 
         void               Begin( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
+        // Starts the operator in the background with the panel's settings (they become the "computed with" ones).
         void               Recompute( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
+        // The background operator finished: its mesh becomes the preview, or its refusal the status.
+        void               ApplyResult( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
+        // VoxBoolean: hides input B for the session (Restore shows it again).
+        void               HideOther( ::Desert::Core::Scene& scene );
         void               Restore( ::Desert::Core::Scene& scene );
         [[nodiscard]] bool Accept( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
+        // VoxBoolean's and VoxMorph's Accept (UE UBaseCreateFromSelectedTool::OnShutdown): the preview becomes a
+        // NEW entity (a copy of A carrying the result), the inputs are deleted / hidden / kept - all one undo
+        // step.
+        [[nodiscard]] bool AcceptCreateFromSelected( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
+        // The session's inputs are still what the scene selection is (one entity, or A and B for VoxBoolean).
+        [[nodiscard]] bool SelectionStillMatches() const;
         [[nodiscard]] bool SettingsChanged( const Core::ModelingState& ms ) const;
         // Lattice: (re)builds the rest lattice for the panel's resolution and resets the points to it.
         [[nodiscard]] bool BuildLattice( Core::ModelingState& ms );
@@ -126,6 +186,10 @@ namespace Desert::Editor::Tools
         // The settings the preview was computed with.
         Geometry::SmoothSettings m_Smooth;
         Geometry::OffsetSettings m_Offset;
+        Geometry::VoxWrapSettings m_VoxWrap;
+        Geometry::VoxBooleanSettings m_VoxBoolean;
+        Geometry::VoxMorphSettings   m_VoxMorph;
+        Geometry::VoxBlendSettings   m_VoxBlend;
         Geometry::NormalsSettings m_Normals;
         Geometry::TangentsSettings m_Tangents;
         Geometry::HoleFillSettings m_HoleFill;
