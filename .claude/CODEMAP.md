@@ -89,7 +89,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Graphic/Render` — 3 files, 190 lines: Page, RenderCommand, RenderCommandBuffer
 - `Graphic/Render/Commands` — 13 files, 609 lines: DrawGenericMeshCommand, DrawInstancedStaticMeshCommand, DrawLandscapeGrassCommand, DrawLandscapeTileCommand, DrawSkinnedMeshCommand, DrawSlotMaterialMeshCommand, DrawStaticMeshCommand, HeightFogCommand, PointLightCommand, ProceduralSkyCommand, SkyboxCommand, SpotLightCommand, … (+2)
 - `Graphic/Render2D` — 10 files, 2,550 lines: CachedExecutor, Capture, Demand, Draw, Entry, PreparedDraws, Render2D, ResolvedCommand, RetainedJob, RetainedPicture, RetainedTarget, RetiredBuild, … (+4)
-- `Graphic/ShaderProtocols` — 9 files, 692 lines: DirectionLight, PointLight, SkinnedUB, SpotLight, Std140Field
+- `Graphic/ShaderProtocols` — 9 files, 750 lines: DirectionLight, PointLight, SkinnedUB, SpotLight, Std140Field
 - `Graphic/StaticLighting` — 2 files, 235 lines: BakeProgress, ILightmassBake, LightmapRowGpu, LightmassSettings, StaticLightingFrame, StaticLightingRenderer
 - `Graphic/Systems` — 1 files, 38 lines: RenderSystem
 - `Graphic/Systems/RayTracing` — 25 files, 4,297 lines: EmissiveLightsBuildShaderParameters, EmissiveLightsFrame, EmissiveLightsPart, EmissiveLightsReduceShaderParameters, EmissiveLightsRenderer, EmissiveSegmentGpu, EmissiveTriangleList, EmptyPart, Entry, Kept, Key, KeyHash, … (+49)
@@ -252,7 +252,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Generated` — 2 files, 81 lines
 - `Mesh` — 15 files, 1,525 lines
 - `Mesh/Generic` — 1 files, 19 lines
-- `Mesh/Surface` — 19 files, 2,160 lines
+- `Mesh/Surface` — 19 files, 2,164 lines
 - `Programs/AutoExposure` — 3 files, 187 lines
 - `Programs/Bloom` — 2 files, 173 lines
 - `Programs/Clouds` — 5 files, 1,945 lines
