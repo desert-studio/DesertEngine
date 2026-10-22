@@ -6,6 +6,10 @@
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 #include <Engine/Geometry/MeshAttributeOperations.hpp>
 
+#include <Engine/Geometry/MeshDeformOperations.hpp>
+
+#include <chrono>
+#include <future>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -80,10 +84,18 @@ namespace Desert::Editor::Tools
             std::shared_ptr<const Geometry::DynamicMesh3> Committed; // what the component held: the "before"
             std::shared_ptr<const Geometry::DynamicMesh3> Preview;   // null while the settings are refused
             std::optional<Geometry::FFDLattice>           Lattice;   // Lattice: the rest lattice over Input
+            // UE UMeshOpPreviewWithBackgroundCompute: the operator runs on a JobSystem worker on copies of the
+            // input and the settings; the last preview stays on screen until it lands. Dropping the session
+            // drops the future, and the worker's result goes nowhere (the task owns its inputs).
+            std::future<Common::ResultStr<Geometry::DeformOutcome>> Pending;
+            std::chrono::steady_clock::time_point                   PendingStarted;
         };
 
         void               Begin( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
+        // Starts the operator in the background with the panel's settings (they become the "computed with" ones).
         void               Recompute( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
+        // The background operator finished: its mesh becomes the preview, or its refusal the status.
+        void               ApplyResult( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
         void               Restore( ::Desert::Core::Scene& scene );
         [[nodiscard]] bool Accept( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
         [[nodiscard]] bool SettingsChanged( const Core::ModelingState& ms ) const;

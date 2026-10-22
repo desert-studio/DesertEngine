@@ -6,6 +6,7 @@
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/GizmoController.hpp>
 
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -145,11 +146,20 @@ namespace Desert::Editor::Tools
             }
             ApplyLatticeGizmo( scene, ms );
         }
-        if ( m_Session && SettingsChanged( ms ) )
+        if ( m_Session && m_Session->Pending.valid() &&
+             m_Session->Pending.wait_for( std::chrono::seconds( 0 ) ) == std::future_status::ready )
+            ApplyResult( scene, ms );
+        // One operator in flight at a time; a change made meanwhile starts the next one when it lands, and the
+        // preview on screen is the last finished one (UE keeps the previous result while recomputing).
+        if ( m_Session && !m_Session->Pending.valid() && SettingsChanged( ms ) )
             Recompute( scene, ms );
 
         if ( ms.ReqAccept )
         {
+            // Accept takes the result of the settings on the panel: it waits (the request stays raised) until
+            // that compute has landed - UE disables Accept for the same reason (HaveValidResult).
+            if ( m_Session && m_Session->Pending.valid() )
+                return;
             ms.ReqAccept         = false;
             const bool endTool   = ms.ReqAcceptEndsTool;
             ms.ReqAcceptEndsTool = false;
@@ -227,43 +237,59 @@ namespace Desert::Editor::Tools
 
     void MeshProcessingTool::Recompute( ::Desert::Core::Scene& scene, MS& ms )
     {
-        m_Smooth                                             = ms.DeformSmooth;
-        m_Offset                                             = ms.DeformOffset;
-        m_VoxWrap                                            = ms.VoxWrap;
-        m_Normals                                            = ms.AttribNormals;
-        m_Tangents = ms.AttribTangents;
-        m_Warp                                               = ms.DeformWarp;
-        m_WarpGizmo                                          = ms.WarpGizmo;
-        m_Lattice                                            = ms.DeformLattice;
-        m_LatticePoints                                      = ms.LatticePoints;
-        const Geometry::DynamicMesh3&              input     = *m_Session->Input;
-        const auto                                 started   = std::chrono::steady_clock::now();
-        Common::ResultStr<Geometry::DeformOutcome> out       = [&]
-        {
-            switch ( m_Session->Tool )
-            {
-                case MS::Tool::Smooth:
-                    return Geometry::Smooth( input, ms.DeformSmooth );
-                case MS::Tool::Offset:
-                    return Geometry::Offset( input, ms.DeformOffset );
-                case MS::Tool::Normals:
-                    return Geometry::EditNormals( input, ms.AttribNormals );
-                case MS::Tool::Tangents:
-                    return Geometry::ComputeTangents( input, ms.AttribTangents );
-                case MS::Tool::VoxWrap:
-                    return Geometry::VoxWrap( input, ms.VoxWrap );
-                case MS::Tool::Lattice:
-                    return Geometry::LatticeDeform( input, *m_Session->Lattice, ms.LatticePoints,
-                                                    ms.DeformLattice );
-                default: // Warp: object space -> the gizmo's frame, as UE's FMeshSpaceDeformerOp::ObjectToGizmo
-                    return Geometry::Warp( input, ms.DeformWarp,
-                                           glm::inverse( glm::dmat4( ms.WarpGizmo ) ) *
-                                                glm::dmat4( WorldOf( scene, m_Session->Entity ) ) );
-            }
-        }();
-        LOG_INFO( "[Modeling] {0} recomputed in {1:.1f} ms", ToolName( m_Session->Tool ),
-                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - started ).count() );
-        ECS::StaticMeshComponent*                  component = MeshOf( scene, m_Session->Entity );
+        m_Smooth        = ms.DeformSmooth;
+        m_Offset        = ms.DeformOffset;
+        m_VoxWrap       = ms.VoxWrap;
+        m_Normals       = ms.AttribNormals;
+        m_Tangents      = ms.AttribTangents;
+        m_Warp          = ms.DeformWarp;
+        m_WarpGizmo     = ms.WarpGizmo;
+        m_Lattice       = ms.DeformLattice;
+        m_LatticePoints = ms.LatticePoints;
+        // Everything the operator reads is copied here, on the main thread: the worker never touches the scene
+        // or the panel (UE's FDynamicMeshOperator gets the same snapshot from its factory, MakeNewOperator).
+        // Warp: object space -> the gizmo's frame, as UE's FMeshSpaceDeformerOp::ObjectToGizmo.
+        const glm::dmat4 objectToGizmo = m_Session->Tool == MS::Tool::Warp
+                                              ? glm::inverse( glm::dmat4( ms.WarpGizmo ) ) *
+                                                     glm::dmat4( WorldOf( scene, m_Session->Entity ) )
+                                              : glm::dmat4( 1.0 );
+        std::optional<Geometry::FFDLattice> lattice = m_Session->Lattice;
+        m_Session->PendingStarted                   = std::chrono::steady_clock::now();
+        m_Session->Pending                          = Common::JobSystem::Get().Async(
+             [tool = m_Session->Tool, input = m_Session->Input, smooth = m_Smooth, offset = m_Offset,
+              voxWrap = m_VoxWrap, normals = m_Normals, tangents = m_Tangents, warp = m_Warp,
+              latticeSettings = m_Lattice, points = m_LatticePoints, lattice = std::move( lattice ),
+              objectToGizmo]() -> Common::ResultStr<Geometry::DeformOutcome>
+             {
+                 switch ( tool )
+                 {
+                     case MS::Tool::Smooth:
+                         return Geometry::Smooth( *input, smooth );
+                     case MS::Tool::Offset:
+                         return Geometry::Offset( *input, offset );
+                     case MS::Tool::Normals:
+                         return Geometry::EditNormals( *input, normals );
+                     case MS::Tool::Tangents:
+                         return Geometry::ComputeTangents( *input, tangents );
+                     case MS::Tool::VoxWrap:
+                         return Geometry::VoxWrap( *input, voxWrap );
+                     case MS::Tool::Lattice:
+                         return Geometry::LatticeDeform( *input, *lattice, points, latticeSettings );
+                     default:
+                         return Geometry::Warp( *input, warp, objectToGizmo );
+                 }
+             } );
+        ms.DeformStatus = std::format( "{}: computing...", ToolName( m_Session->Tool ) );
+    }
+
+    void MeshProcessingTool::ApplyResult( ::Desert::Core::Scene& scene, MS& ms )
+    {
+        Common::ResultStr<Geometry::DeformOutcome> out = m_Session->Pending.get();
+        LOG_INFO( "[Modeling] {0} computed in the background in {1:.1f} ms", ToolName( m_Session->Tool ),
+                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
+                                                             m_Session->PendingStarted )
+                       .count() );
+        ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
         if ( !out.IsSuccess() )
         {
             // A refused setting shows the input, not a stale preview.
