@@ -63,7 +63,7 @@
 Когда --subject viewport set Camera.Direction 0,-0.1,1
 Тогда-вид 3_pair_ao low (RIGHT, Sphere2 at x=130, baked Normal + ORM) shows the plateau with a dark band at its foot (occlusion), the high on the left
 Когда run Panel "Open Logs"
-Тогда 3_pair_window the same with the Bake palette listing Normal, Ambient Occlusion and Curvature maps and the bake lines in the log
+Тогда 3_pair_window the same with the bake lines in the log (Normal, AO and Curvature assets named)
 Когда run Open "Textures/Baked/Sphere2_AO.detex"
 Тогда 1_ao_png the AO map: near-white, a dark ring band at the plateau foot (the crease between the ramp and the sphere)
 Когда run Open "Textures/Baked/Sphere2_Curvature.detex"

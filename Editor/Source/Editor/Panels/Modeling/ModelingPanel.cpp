@@ -794,7 +794,8 @@ namespace Desert::Editor
         const Core::BakeNormalMapOutcome& last = LastBake();
         if ( !last.TextureAsset.empty() )
         {
-            ImGui::SeparatorText( "Baked Maps" );
+            ImGui::Separator();
+            ImGui::TextUnformatted( "Baked Maps" );
             const auto map = [&]( const char* label, const std::filesystem::path& asset )
             {
                 if ( asset.empty() )
