@@ -113,6 +113,11 @@ namespace Desert::Graphic::System
             {
                 return m_Commands.empty();
             }
+            // The triangles this list sends to the GPU: per draw, the index count of the LOD level it was built
+            // with (clamped to the chain the submesh has, as RenderMesh draws it), for each visible submesh, times
+            // its instances. A GPU-generated draw (IndirectArgs) is not counted: its instance count is the
+            // GPU's, unknown here. UE: the "Triangles drawn" of stat RHI, for one pass.
+            [[nodiscard]] uint64_t Triangles() const;
             // The binding blocks Declare declares (one per distinct executor + recording shader): a node declaring
             // more blocks after the list's numbers them from here.
             [[nodiscard]] uint32_t BlockCount() const
@@ -784,6 +789,10 @@ namespace Desert::Graphic::System
         {
             return m_IsmInstancesDrawn;
         }
+        /// Triangles the last frame's VIEW pass sent to the GPU (forward geometry, or the deferred G-buffer +
+        /// forward generic), at the LOD each draw was built with: UE's stat "Triangles drawn" for the base pass.
+        /// Shadow and debug passes are not counted.
+        [[nodiscard]] uint64_t GetViewTrianglesDrawn() const;
         void ClearQueues();
 
         // THE BOUNDARY IS DRAWN INSIDE THIS HEADER, not at the call sites, and Common/Core/Profiler.hpp

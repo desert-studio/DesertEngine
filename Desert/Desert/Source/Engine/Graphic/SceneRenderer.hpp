@@ -356,6 +356,9 @@ namespace Desert::Graphic
 
         /// ISM instances the last geometry pass drew (MeshRenderer::GetIsmInstancesDrawn).
         [[nodiscard]] uint32_t GetIsmInstancesDrawn() const;
+        /// Triangles the last frame's view pass drew, at the LOD each mesh was drawn with
+        /// (MeshRenderer::GetViewTrianglesDrawn).
+        [[nodiscard]] uint64_t GetViewTrianglesDrawn() const;
 
         // UE-style Instanced Static Mesh: one mesh + one lit material drawn for every transform in
         // @p transforms. Material and transforms are both co-owned handles for the reason SubmitMesh's

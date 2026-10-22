@@ -211,6 +211,18 @@ namespace Desert::Editor
         return viewport->StrokeFoliageAtCentre();
     }
 
+    std::optional<uint64_t> ViewportPanel::ActiveViewportTrianglesDrawn()
+    {
+        auto* viewport = ActiveViewport();
+        if ( !viewport || !viewport->m_Scene )
+            return std::nullopt;
+        auto* renderer =
+             viewport->m_ViewRenderer ? viewport->m_ViewRenderer : viewport->m_Scene->GetSceneRenderer();
+        if ( !renderer )
+            return std::nullopt;
+        return renderer->GetViewTrianglesDrawn();
+    }
+
     Common::BoolResultStr ViewportPanel::PreviewLODInActiveViewport( const uint32_t entity, const int level )
     {
         auto* viewport = ActiveViewport();

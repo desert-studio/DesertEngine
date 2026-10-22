@@ -14,6 +14,7 @@
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/Panels/Logs/LogsPanel.hpp"
 #include "Editor/Panels/LuaConsole/LuaConsolePanel.hpp"
+#include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include <Common/Core/Version.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -154,6 +155,16 @@ namespace Desert::Editor
             ImGui::TextDisabled( ICON_MDI_TRIANGLE_OUTLINE " %s tris", FormatThousands( tris ).c_str() );
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "Triangles in the VISIBLE meshes of this scene (LOD 0)." );
+        }
+        // What the active view actually DREW last frame, at the level each mesh was drawn with (Auto, or a
+        // forced / previewed LOD): UE's stat "Triangles drawn" beside the scene's content count.
+        if ( const std::optional<uint64_t> drawn = ViewportPanel::ActiveViewportTrianglesDrawn() )
+        {
+            ImGui::SameLine( 0.0f, 8.0f );
+            ImGui::TextDisabled( "(%s drawn)", FormatThousands( *drawn ).c_str() );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Triangles the active viewport drew last frame, at the LOD each mesh was "
+                                   "drawn with (view pass; shadows and GPU-instanced foliage not counted)." );
         }
 
         // HOW MANY DOCUMENTS, AND HOW MUCH OF THE VIEW BUDGET IS GONE. A count of documents is not the number

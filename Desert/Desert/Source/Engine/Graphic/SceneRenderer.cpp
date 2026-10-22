@@ -2711,6 +2711,14 @@ namespace Desert::Graphic
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
     }
 
+    uint64_t SceneRenderer::GetViewTrianglesDrawn() const
+    {
+        const auto found = m_RenderSystems.find( "MeshSystem" );
+        if ( found == m_RenderSystems.end() )
+            return 0;
+        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetViewTrianglesDrawn();
+    }
+
     void SceneRenderer::SubmitInstancedMesh( const uint32_t entity, Mesh* mesh,
                                              const MaterialInstancePtr& material, uint64_t hiddenSubmeshes,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
