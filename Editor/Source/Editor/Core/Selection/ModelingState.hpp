@@ -50,6 +50,7 @@ namespace Desert::Editor::Core
             Tangents, // UE's UMeshTangentsTool: MikkTSpace / Fast tangent frames, previewed as lines
             Normals, // UE's UEditNormalsTool: recompute / split / invert the normal overlay
             EditMaterials, // UE's UEditMeshMaterialsTool: selected triangles -> a material slot (EditMaterialsTool)
+            PaintGroups,   // UE's UMeshGroupPaintTool: a brush / flood fill paints triangle groups (PaintGroupsTool)
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
@@ -350,6 +351,19 @@ namespace Desert::Editor::Core
         std::string              EditMaterialsReqSlotMaterial; // a material asset path for the active slot
         std::vector<std::string> EditMaterialsSlotNames;
         std::string              EditMaterialsStatus;
+        // Attributes palette -> Paint PolyGroups (UE UMeshGroupPaintTool / UGroupPaintBrushFilterProperties,
+        // PaintGroupsTool): Brush paints the triangles under the brush, Fill floods the clicked group's connected
+        // region; the group they write, the brush radius (world cm), New Group, and the tool's report.
+        enum class PaintGroupsModeKind
+        {
+            Brush,
+            Fill,
+        };
+        PaintGroupsModeKind PaintGroupsMode        = PaintGroupsModeKind::Brush;
+        int                 PaintGroupsCurrent     = 0;
+        float               PaintGroupsRadius      = 25.0f;
+        bool                PaintGroupsReqNewGroup = false;
+        std::string         PaintGroupsStatus;
         // What the active Deform tool's preview did (its report), or why there is none - the panel shows it.
         std::string DeformStatus;
 

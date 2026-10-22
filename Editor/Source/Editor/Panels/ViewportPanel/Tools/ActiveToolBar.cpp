@@ -55,6 +55,9 @@ namespace Desert::Editor::Tools
             // UE's Edit Materials previews until Accept; Cancel puts mesh and slots back (EditMaterialsTool).
             case T::EditMaterials:
                 return { ICON_MDI_BRUSH, "Edit Materials", true };
+            // UE's group paint keeps its strokes until Accept; Cancel drops them (PaintGroupsTool).
+            case T::PaintGroups:
+                return { ICON_MDI_BRUSH, "Paint PolyGroups", true };
         }
         return {};
     }

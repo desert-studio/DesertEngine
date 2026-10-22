@@ -147,7 +147,7 @@ namespace Desert::Editor
                       ms.ActiveTool == MS::Tool::VertexSculpt )
                 m_Category = static_cast<int>( Palette::Deform );
             else if ( ms.ActiveTool == MS::Tool::Normals || ms.ActiveTool == MS::Tool::Tangents ||
-                      ms.ActiveTool == MS::Tool::EditMaterials )
+                      ms.ActiveTool == MS::Tool::EditMaterials || ms.ActiveTool == MS::Tool::PaintGroups )
                 m_Category = static_cast<int>( Palette::Attributes );
         }
 
@@ -835,7 +835,8 @@ namespace Desert::Editor
         // UE's Attributes palette buttons: Normals (UEditNormalsTool), Tangents (UMeshTangentsTool).
         for ( const auto& [tool, name] : { std::pair{ MS::Tool::Normals, "Normals" },
                                            std::pair{ MS::Tool::Tangents, "Tangents" },
-                                           std::pair{ MS::Tool::EditMaterials, "Edit Materials" } } )
+                                           std::pair{ MS::Tool::EditMaterials, "Edit Materials" },
+                                           std::pair{ MS::Tool::PaintGroups, "Paint PolyGroups" } } )
         {
             const bool on = ms.ActiveTool == tool;
             if ( on )
@@ -857,6 +858,28 @@ namespace Desert::Editor
             ImGui::SameLine( 150.0f );
             ImGui::SetNextItemWidth( -1.0f );
         };
+        if ( ms.ActiveTool == MS::Tool::PaintGroups )
+        {
+            // UE UMeshGroupPaintTool: the brush / fill choice, the group painted, New Group, the radius.
+            ImGui::Separator();
+            ImGui::TextWrapped( "Paint the current group onto the mesh with the left button; Accept keeps it as "
+                                "one undo step." );
+            row( "Mode" );
+            int mode = static_cast<int>( ms.PaintGroupsMode );
+            if ( ImGui::Combo( "##PaintGroupsMode", &mode, "Brush\0Fill Connected\0" ) )
+                ms.PaintGroupsMode = static_cast<MS::PaintGroupsModeKind>( mode );
+            row( "Current Group" );
+            if ( ImGui::InputInt( "##PaintGroupsCurrent", &ms.PaintGroupsCurrent ) )
+                ms.PaintGroupsCurrent = std::max( ms.PaintGroupsCurrent, 0 );
+            if ( ImGui::Button( "New Group##PaintGroups", ImVec2( full, 0.0f ) ) )
+                ms.PaintGroupsReqNewGroup = true;
+            row( "Brush Radius" );
+            ImGui::SliderFloat( "##PaintGroupsRadius", &ms.PaintGroupsRadius, 1.0f, 500.0f, "%.0f cm",
+                                ImGuiSliderFlags_Logarithmic );
+            ImGui::Separator();
+            ImGui::TextWrapped( "%s", ms.PaintGroupsStatus.c_str() );
+            return;
+        }
         if ( ms.ActiveTool == MS::Tool::EditMaterials )
         {
             // UE UEditMeshMaterialsTool: the material list (active slot), Assign / Add / Remove, the status.

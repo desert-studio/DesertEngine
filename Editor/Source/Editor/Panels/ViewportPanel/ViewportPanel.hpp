@@ -30,6 +30,7 @@
 #include "Tools/ElementSelectTool.hpp"
 #include "Tools/MeshProcessingTool.hpp"
 #include "Tools/EditMaterialsTool.hpp"
+#include "Tools/PaintGroupsTool.hpp"
 #include "Tools/VertexSculptTool.hpp"
 #include "Tools/UVTool.hpp"
 #include "Tools/PolyEditTool.hpp"
@@ -437,6 +438,7 @@ namespace Desert::Editor
         Tools::UVTool                         m_UVTool;            // UVs palette (Modeling mode)
         Tools::MeshProcessingTool             m_MeshProcessingTool; // Deform palette (Modeling mode)
         Tools::EditMaterialsTool              m_EditMaterialsTool;  // Attributes -> Edit Materials
+        Tools::PaintGroupsTool                m_PaintGroupsTool;   // Attributes -> Paint PolyGroups
         Tools::VertexSculptTool               m_VertexSculptTool;  // Vertex Sculpt brush (Modeling mode)
         Tools::GizmoController                m_Gizmo;       // object + bone transform gizmos (extracted)
         Tools::PickingController              m_Picking;     // ray-pick + select (extracted)

@@ -700,6 +700,31 @@ namespace Desert::Editor
                                               return PaletteCommandDone();
                                           } } );
         }
+        // UE's Attributes palette: Paint PolyGroups (UMeshGroupPaintTool, PaintGroupsTool) and its choices.
+        commands.push_back( { "Modeling", "Attributes tool: Paint PolyGroups", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::PaintGroups;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Modeling", "Paint PolyGroups: New Group", []
+                              {
+                                  MS::Get().PaintGroupsReqNewGroup = true;
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const auto& [name, mode] : { std::pair{ "Brush", MS::PaintGroupsModeKind::Brush },
+                                           std::pair{ "Fill Connected", MS::PaintGroupsModeKind::Fill } } )
+            commands.push_back( { "Modeling", std::string( "Paint PolyGroups mode: " ) + name, [mode]
+                                  {
+                                      MS::Get().PaintGroupsMode = mode;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const int radius : { 10, 25, 50, 100, 200 } )
+            commands.push_back( { "Modeling", std::format( "Paint PolyGroups radius: {} cm", radius ), [radius]
+                                  {
+                                      MS::Get().PaintGroupsRadius = static_cast<float>( radius );
+                                      return PaletteCommandDone();
+                                  } } );
         // UE's Attributes palette: Tangents (UMeshTangentsTool, the same session) and its choices / display.
         commands.push_back( { "Modeling", "Attributes tool: Tangents", []
                               {

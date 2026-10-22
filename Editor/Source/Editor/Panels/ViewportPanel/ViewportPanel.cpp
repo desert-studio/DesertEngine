@@ -2049,6 +2049,8 @@ namespace Desert::Editor
                 m_UVTool.Update( *m_Scene );
                 m_MeshProcessingTool.Update( *m_Scene );
                 m_EditMaterialsTool.Update( *m_Scene, m_AssetManager );
+                m_PaintGroupsTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
+                                          m_ViewportData.IsHovered );
                 m_VertexSculptTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                            m_ViewportData.IsHovered );
                 // Warp's frame: UE's transform gizmo on the deformer (UMeshSpaceDeformerTool TransformProxy).
@@ -2595,6 +2597,7 @@ namespace Desert::Editor
             case T::Lattice:
             case T::Normals:
             case T::VertexSculpt: // draws its own brush ring (VertexSculptTool)
+            case T::PaintGroups:  // draws its own brush ring (PaintGroupsTool)
                 return Tools::ToolCursor::None; // the UV and Deform tools take no click
         }
         return Tools::ToolCursor::None;
@@ -2771,6 +2774,9 @@ namespace Desert::Editor
             return false;
         // Vertex Sculpt owns a left click on the mesh it brushes (the stroke), so the click does not reselect.
         if ( e.GetMouseButton() == Common::MouseButton::Left && m_VertexSculptTool.OwnsClick() && overImage )
+            return false;
+        // Paint PolyGroups owns a left click on the mesh it paints, likewise.
+        if ( e.GetMouseButton() == Common::MouseButton::Left && m_PaintGroupsTool.OwnsClick() && overImage )
             return false;
 
         if ( e.GetMouseButton() == Common::MouseButton::Left && !m_UIPreview &&
