@@ -34,7 +34,8 @@ namespace Desert::Assets
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
-         3; // 3: vertex colour and UV1 streams; 2: sections named by slot
+         4; // 4: LODs reduced to the ratio with normal/UV attributes, no error cap; 3: vertex colour and UV1
+            // streams; 2: sections named by slot
 
     // The settings image the key hashes (UE SerializeForKey): fixed order, little-endian, one u32 per field.
     struct MeshBuildSettings
