@@ -264,7 +264,7 @@ namespace Desert::Editor
                               std::max( avail.y, 1.0f ) );
         m_ViewSize = glm::uvec2( static_cast<uint32_t>( view.x ), static_cast<uint32_t>( view.y ) );
 
-        if ( ImGui::BeginChild( "##vfxsystem", ImVec2( kSystemWidth, view.y ), ImGuiChildFlags_Borders ) )
+        if ( ImGui::BeginChild( "##vfxsystem", ImVec2( kSystemWidth, view.y ), true ) )
             DrawSystemColumn();
         ImGui::EndChild();
         ImGui::SameLine();
@@ -277,7 +277,7 @@ namespace Desert::Editor
         }
         ImGui::EndChild();
         ImGui::SameLine();
-        if ( ImGui::BeginChild( "##vfxstack", ImVec2( kStackWidth, view.y ), ImGuiChildFlags_Borders ) )
+        if ( ImGui::BeginChild( "##vfxstack", ImVec2( kStackWidth, view.y ), true ) )
             DrawStackColumn();
         ImGui::EndChild();
     }

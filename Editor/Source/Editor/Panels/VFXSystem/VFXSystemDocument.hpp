@@ -16,7 +16,7 @@ namespace Desert::Assets
     class AssetManager;
 }
 
-namespace Desert::UI
+namespace Desert::Editor::UI
 {
     class UIHelper;
 }
