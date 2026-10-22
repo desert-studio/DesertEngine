@@ -1,8 +1,8 @@
 # M29 Mesh To Volume: a Sphere becomes a Trigger volume (outline, Volume component); Undo restores the Sphere; a falling 20 cm Box passes through the volume in Play and the log names its entry and exit
 # Play and Stop clear the undo history (PlaySession), so Undo is checked BEFORE Play and Redo brings the volume back.
 Дано run View "View mode: Lit"
-Дано --subject viewport set Camera.Position 0,150,700
-Дано --subject viewport set Camera.Direction 0,-0.1,-1
+Дано --subject viewport set Camera.Position 300,400,500
+Дано --subject viewport set Camera.Direction -0.45,-0.45,-0.77
 Дано run Scene "Add shape: Cube"
 Дано run Entity Cube
 Дано --subject selection set Translation 0,330,0
