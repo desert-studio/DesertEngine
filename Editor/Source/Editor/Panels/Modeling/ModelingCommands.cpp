@@ -483,6 +483,14 @@ namespace Desert::Editor
                                   } } );
         modelingOnOff( "Modeling", "Create shape: Maintain Dimension",
                        []( MS& ms, bool on ) { ms.CreateShape.Rectangle.MaintainDimension = on; } );
+        modelingOnOff( "Modeling", "Create shape: Revolve Reverse Direction",
+                       []( MS& ms, bool on ) { ms.CreateShape.Revolve.ReverseDirection = on; } );
+        modelingOnOff( "Modeling", "Create shape: Revolve Profile At Midpoint",
+                       []( MS& ms, bool on ) { ms.CreateShape.Revolve.ProfileAtMidpoint = on; } );
+        modelingOnOff( "Modeling", "Create shape: Spiral Reverse Direction",
+                       []( MS& ms, bool on ) { ms.CreateShape.Spiral.ReverseDirection = on; } );
+        modelingOnOff( "Modeling", "Create shape: Spiral Profile At Midpoint",
+                       []( MS& ms, bool on ) { ms.CreateShape.Spiral.ProfileAtMidpoint = on; } );
         for ( const Geometry::ShapePivot pivot :
               { Geometry::ShapePivot::Base, Geometry::ShapePivot::Centre, Geometry::ShapePivot::Top } )
             commands.push_back( { "Modeling", std::string( "Create shape pivot: " ) + Geometry::ToString( pivot ),

@@ -75,7 +75,8 @@ namespace Desert::Editor::Core
             Sculpt,
         };
 
-        // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
+        // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid, and UE's
+        // revolve generators (FRevolvePlanarPolygonGenerator, FSpiralRevolvePlanarPolygonGenerator) as Revolve, Spiral. Plane
         // is not here: it is an upright card for the scene's Add menu; the palette's flat card is Rectangle.
         enum class Shape
         {
@@ -90,10 +91,13 @@ namespace Desert::Editor::Core
             Arrow,
             Disc,
             Rectangle,
+            Revolve,
+            Spiral,
         };
         static constexpr Shape kShapes[] = { Shape::Box,     Shape::Sphere,  Shape::Cylinder, Shape::Cone,
                                              Shape::Capsule, Shape::Pyramid, Shape::Stairs,   Shape::Torus,
-                                             Shape::Arrow,   Shape::Disc,    Shape::Rectangle };
+                                             Shape::Arrow,   Shape::Disc,    Shape::Rectangle, Shape::Revolve,
+                                             Shape::Spiral };
 
         static constexpr const char* ShapeName( Shape shape )
         {
@@ -121,6 +125,10 @@ namespace Desert::Editor::Core
                     return "Disc";
                 case Shape::Rectangle:
                     return "Rectangle";
+                case Shape::Revolve:
+                    return "Revolve";
+                case Shape::Spiral:
+                    return "Spiral";
             }
             return "Box";
         }
@@ -175,6 +183,8 @@ namespace Desert::Editor::Core
             Geometry::ArrowShape         Arrow;
             Geometry::DiscShape          Disc;
             Geometry::RectangleShape     Rectangle;
+            Geometry::RevolveShape       Revolve;
+            Geometry::SpiralShape        Spiral;
             Geometry::ShapePolygroupMode Groups = Geometry::ShapePolygroupMode::PerFace;
             Geometry::ShapePivot         Pivot  = Geometry::ShapePivot::Base;
             Placement                    Place  = Placement::OnScene;

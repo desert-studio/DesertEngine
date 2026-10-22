@@ -73,6 +73,10 @@ namespace Desert::Editor
                     return ICON_MDI_CIRCLE_OUTLINE;
                 case S::Rectangle:
                     return ICON_MDI_RECTANGLE_OUTLINE;
+                case S::Revolve:
+                    return ICON_MDI_ROTATE_360;
+                case S::Spiral:
+                    return ICON_MDI_ROTATE_3D_VARIANT;
             }
             return ICON_MDI_SHAPE_PLUS;
         }
@@ -2086,6 +2090,42 @@ namespace Desert::Editor
                     if ( s.Disc.Type == Geometry::DiscType::PuncturedDisc )
                         cm( "Hole Radius", &s.Disc.HoleRadius, "Radius of the hole; kept inside the rim." );
                     break;
+                case Shape::Revolve:
+                case Shape::Spiral:
+                {
+                    // UE's FBaseRevolveGenerator / URevolveProperties fields; a planar revolve stops at one turn
+                    // (RevolveGenerator.cpp clamps it to 0.1..360), a spiral turns as often as it likes.
+                    const bool spiral  = s.Kind == Shape::Spiral;
+                    float&     degrees = spiral ? s.Spiral.RevolveDegrees : s.Revolve.RevolveDegrees;
+                    float&     offset  = spiral ? s.Spiral.DegreesOffset : s.Revolve.DegreesOffset;
+                    if ( spiral )
+                    {
+                        cm( "Spiral Radius", &s.Spiral.SpiralRadius, "From the axis to the middle of the profile." );
+                        cm( "Profile Radius", &s.Spiral.ProfileRadius, "Radius of the round profile." );
+                        count( "Profile Slices", &s.Spiral.ProfileSlices, 3, 128, 3, 500 );
+                        cm( "Rise Per Revolution", &s.Spiral.RisePerFullRevolution, "Height gained per full turn." );
+                    }
+                    else
+                    {
+                        cm( "Inner Radius", &s.Revolve.InnerRadius, "From the axis to the profile's inner side." );
+                        cm( "Width", &s.Revolve.Width, "Radial extent of the rectangle profile." );
+                        cm( "Height", &s.Revolve.Height, "Height of the rectangle profile." );
+                    }
+                    ImGui::SetNextItemWidth( 110.0f );
+                    if ( ImGui::DragFloat( "Degrees", &degrees, 1.0f, 0.0f, spiral ? 3600.0f : 360.0f, "%.1f deg" ) )
+                        degrees = std::clamp( degrees, spiral ? 0.01f : 0.1f, spiral ? 360000.0f : 360.0f );
+                    if ( ImGui::IsItemHovered() )
+                        ImGui::SetTooltip( "How far the profile turns; less than a full turn caps both ends." );
+                    ImGui::SetNextItemWidth( 110.0f );
+                    if ( ImGui::DragFloat( "Degrees Offset", &offset, 1.0f, -360.0f, 360.0f, "%.1f deg" ) )
+                        offset = std::clamp( offset, -36000.0f, 36000.0f );
+                    count( "Steps", spiral ? &s.Spiral.Steps : &s.Revolve.Steps, 1, 100, 1, 500 );
+                    ImGui::Checkbox( "Reverse Direction", spiral ? &s.Spiral.ReverseDirection : &s.Revolve.ReverseDirection );
+                    ImGui::Checkbox( "Profile At Midpoint", spiral ? &s.Spiral.ProfileAtMidpoint : &s.Revolve.ProfileAtMidpoint );
+                    if ( ImGui::IsItemHovered() )
+                        ImGui::SetTooltip( "The profile sits half a step into the turn, so the steps straddle it." );
+                    break;
+                }
                 case Shape::Rectangle:
                     combo( "Rectangle Type", s.Rectangle.Type,
                            { Geometry::RectangleType::Rectangle, Geometry::RectangleType::RoundedRectangle } );

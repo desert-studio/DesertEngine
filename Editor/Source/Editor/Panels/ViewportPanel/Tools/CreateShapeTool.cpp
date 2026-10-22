@@ -78,6 +78,10 @@ namespace Desert::Editor::Tools
                 return Geometry::MakeDisc( s.Disc, options );
             case MS::Shape::Rectangle:
                 return Geometry::MakeRectangle( s.Rectangle, options );
+            case MS::Shape::Revolve:
+                return Geometry::MakeRevolve( s.Revolve, options );
+            case MS::Shape::Spiral:
+                return Geometry::MakeSpiral( s.Spiral, options );
         }
         return Geometry::MakeBox( { s.Box.Width, s.Box.Height, s.Box.Depth }, glm::ivec3( 1 ), options );
     }
