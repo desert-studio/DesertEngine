@@ -12,7 +12,7 @@
 
 // THE SCENE DIRECTIONAL LIGHT AS THE FORWARD PASSES READ IT, listed ONCE: the members expand into
 // DirectionLightPayload and into kDirectionLightPayloadFields, from which the includer GENERATES
-// Common/DirectionLightsUB.glslh (struct DirectionLight + the DirectionLightsUB block at binding 3; no file on
+// Common/DirectionLightsUB.glslh (struct DirectionLight + the DirectionLightsUB block at binding 14; no file on
 // disk). Engine-filled by reflection name (Graphic::SceneFrameBinding::ApplyTo -> SceneLightsBind).
 //
 // FIELD( C++ type, member, GLSL name, initialiser )
@@ -46,7 +46,7 @@ namespace Desert::Graphic::ShaderProtocols
         static const std::string glsl = GenerateGuardedGlsl(
              "DESERT_DIRECTION_LIGHTS_UB_GLSLH", "Engine/Graphic/ShaderProtocols/DirectionLight.hpp",
              GenerateGlslStruct( "DirectionLight", kDirectionLightPayloadFields ) + "\n" +
-                  GenerateGlslBlock( "Uniform", 3, DirectionLight::Name, "    DirectionLight directionLights;\n",
+                  GenerateGlslBlock( "Uniform", 14, DirectionLight::Name, "    DirectionLight directionLights;\n",
                                      "directionLights" ) );
         return glsl;
     }
