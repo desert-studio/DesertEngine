@@ -11,6 +11,7 @@
 
 #include <format>
 #include <iterator>
+#include <set>
 
 namespace Desert::Graphic::System
 {
@@ -281,11 +282,8 @@ namespace Desert::Graphic::System
                     // Ready); until then the prepass counted its compiling pipelines and nothing of it is drawn.
                     if ( opaque && !OpaqueGenericAdmitted( g ) )
                         continue;
-                    if ( slice == GenericSlice::DeferredForwardRayTracedSun &&
-                         ReadsSunShadowScreenMask( *shader, opaque ) )
-                        permutation.Defines = { std::string( kSunShadowScreenMaskDefine ) };
-                    if ( m_GenericLocalShadowMasks && ReadsLocalShadowScreenMask( *shader, opaque ) )
-                        permutation.Defines.push_back( std::string( kLocalShadowScreenMaskDefine ) );
+                    permutation = ForwardShadowMaskVariant(
+                        *shader, slice == GenericSlice::DeferredForwardRayTracedSun, m_GenericLocalShadowMasks );
                     break;
             }
             const std::shared_ptr<Shader> templateShader = shader;
@@ -530,14 +528,82 @@ namespace Desert::Graphic::System
         }
     }
 
-    bool MeshRenderer::ReadsSunShadowScreenMask( const Shader& shader, const bool opaque )
+    Core::ShaderVariant MeshRenderer::ForwardShadowMaskVariant( const Shader& shader, const bool rayTracedSun,
+                                                                const bool localShadowMasks )
     {
-        return opaque && shader.SamplesTexture( kSceneViewShadowCascadesName );
+        const auto&         state  = shader.GetProgramMeta().State;
+        const bool          opaque = !state.Blend.value_or( false ) && state.DepthWrite.value_or( true );
+        Core::ShaderVariant permutation;
+        if ( !opaque )
+            return permutation;
+        if ( rayTracedSun && shader.SamplesTexture( kSceneViewShadowCascadesName ) )
+            permutation.Defines.emplace_back( kSunShadowScreenMaskDefine );
+        if ( localShadowMasks && shader.SamplesTexture( kSceneViewLocalShadowAtlasName ) )
+            permutation.Defines.emplace_back( kLocalShadowScreenMaskDefine );
+        permutation.ShippedByCook = !permutation.IsDefault();
+        return permutation;
     }
 
-    bool MeshRenderer::ReadsLocalShadowScreenMask( const Shader& shader, const bool opaque )
+    namespace
     {
-        return opaque && shader.SamplesTexture( kSceneViewLocalShadowAtlasName );
+        // Every ForwardShadowMaskVariant the renderer can select for @p program (sun only, local only, both),
+        // defaults omitted, each distinct permutation of @p programName once.
+        void AppendForwardShadowMaskVariants( const Shader& program, const std::string& programName,
+                                              std::set<std::pair<std::string, uint64_t>>& listed,
+                                              std::vector<Core::CookedProgramVariant>&     variants )
+        {
+            constexpr std::pair<bool, bool> kSelectable[] = { { true, false }, { false, true }, { true, true } };
+            for ( const auto& [rayTracedSun, localShadowMasks] : kSelectable )
+            {
+                Core::ShaderVariant permutation =
+                    MeshRenderer::ForwardShadowMaskVariant( program, rayTracedSun, localShadowMasks );
+                if ( permutation.IsDefault() || !listed.emplace( programName, permutation.Hash() ).second )
+                    continue;
+                variants.push_back( { programName, std::move( permutation ) } );
+            }
+        }
+    } // namespace
+
+    std::vector<Core::CookedProgramVariant>
+    MeshRenderer::MaterialProgramVariants( const Runtime::MaterialService& materials,
+                                           const Runtime::ShaderService&   shaders,
+                                           std::span<const ::Common::AssetHandle> handles )
+    {
+        std::vector<Core::CookedProgramVariant> variants;
+        std::set<std::pair<std::string, uint64_t>> listed; // materials sharing a template share its cell
+        for ( const ::Common::AssetHandle& handle : handles )
+        {
+            // The cell MaterialService::GetVariant builds the forward sibling in (CreateSurfaceMaterial's rule).
+            const auto cell = materials.CellShaderNameOf( handle, MeshVertexPath::Static, MeshPass::Forward );
+            if ( !cell )
+                continue;
+            const auto program = shaders.GetByName( cell.GetValue() );
+            if ( program == nullptr )
+                continue; // CellShaderNameOf resolves registered cells only
+            AppendForwardShadowMaskVariants( *program, cell.GetValue(), listed, variants );
+        }
+        return variants;
+    }
+
+    std::vector<Core::CookedProgramVariant>
+    MeshRenderer::OverrideProgramVariants( const Runtime::ShaderService& shaders,
+                                           std::span<const std::string>  shaderNames )
+    {
+        const auto isRegistered = [&shaders]( std::string_view name )
+        { return shaders.GetByName( std::string( name ) ) != nullptr; };
+        std::vector<Core::CookedProgramVariant>    variants;
+        std::set<std::pair<std::string, uint64_t>> listed; // an override named twice is listed once
+        for ( const std::string& shaderName : shaderNames )
+        {
+            // BuildGenericDraws' surfaceOverride: drawn in the G-buffer through its cell, never forward.
+            if ( TemplateCellShader( shaderName, MeshVertexPath::Static, MeshPass::GBuffer, isRegistered ) )
+                continue;
+            const auto program = shaders.GetByName( shaderName );
+            if ( program == nullptr )
+                continue; // the scene load names an override no loaded shader has
+            AppendForwardShadowMaskVariants( *program, shaderName, listed, variants );
+        }
+        return variants;
     }
 
     bool MeshRenderer::SunCascadeReadersQueued() const
@@ -622,12 +688,7 @@ namespace Desert::Graphic::System
     {
         std::shared_ptr<Shader> program    = shader;
         std::string             programKey = shaderName;
-        // The defines in BuildGenericDraws' order (sun, then local), so the key is the forward pass's.
-        Core::ShaderVariant permutation;
-        if ( rayTracedSun && ReadsSunShadowScreenMask( *shader, /*opaque*/ true ) )
-            permutation.Defines.push_back( std::string( kSunShadowScreenMaskDefine ) );
-        if ( localShadowMasks && ReadsLocalShadowScreenMask( *shader, /*opaque*/ true ) )
-            permutation.Defines.push_back( std::string( kLocalShadowScreenMaskDefine ) );
+        const Core::ShaderVariant permutation = ForwardShadowMaskVariant( *shader, rayTracedSun, localShadowMasks );
         if ( !permutation.IsDefault() )
         {
             program = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( shaderName, permutation );

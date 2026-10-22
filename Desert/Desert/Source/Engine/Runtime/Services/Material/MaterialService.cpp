@@ -843,15 +843,23 @@ namespace Desert::Runtime
         return MaterialTemplate{ base->GetShaderHandle(), base->GetShaderName() };
     }
 
-    Common::BoolResultStr MaterialService::CellOf( const Assets::AssetHandle& handle, Graphic::MeshVertexPath path,
-                                                   Graphic::MeshPass pass ) const
+    Common::ResultStr<std::string> MaterialService::CellShaderNameOf( const Assets::AssetHandle& handle,
+                                                                      Graphic::MeshVertexPath    path,
+                                                                      Graphic::MeshPass          pass ) const
     {
         const auto* base = BaseOf( handle );
         if ( base == nullptr )
-            return Common::MakeFormattedError( "material {} (or a parent in its instance chain) is not registered "
-                                               "or not readable, so it has no cell to draw with",
-                                               static_cast<uint64_t>( handle ) );
-        if ( const auto cell = CellShaderOf( *base, path, pass ); !cell )
+            return Common::MakeError<std::string>( std::format(
+                 "material {} (or a parent in its instance chain) is not registered or not readable, so it has no "
+                 "cell to draw with",
+                 static_cast<uint64_t>( handle ) ) );
+        return CellShaderOf( *base, path, pass );
+    }
+
+    Common::BoolResultStr MaterialService::CellOf( const Assets::AssetHandle& handle, Graphic::MeshVertexPath path,
+                                                   Graphic::MeshPass pass ) const
+    {
+        if ( const auto cell = CellShaderNameOf( handle, path, pass ); !cell )
             return Common::MakeFormattedError( "{}", cell.GetError() );
         return BOOLSUCCESS;
     }
