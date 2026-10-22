@@ -167,7 +167,8 @@ namespace Desert::Editor
                 Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset,
                 Core::MeshOperation::Bevel, Core::MeshOperation::InsertEdgeLoop, Core::MeshOperation::Clean,
                 Core::MeshOperation::Subdivide, Core::MeshOperation::Mirror, Core::MeshOperation::PlaneCut,
-                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges, Core::MeshOperation::Simplify } )
+                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges, Core::MeshOperation::Simplify,
+                Core::MeshOperation::Disconnect } )
         {
             commands.push_back( { "Modeling", std::string( "Mesh operation: " ) + Core::ToString( op ),
                                   [&scene, op]
@@ -726,6 +727,74 @@ namespace Desert::Editor
                                       MS::Get().PaintGroupsRadius = static_cast<float>( radius );
                                       return PaletteCommandDone();
                                   } } );
+        // UE's MeshOps palette: Hole Fill (UHoleFillTool, the MeshProcessingTool session), its fill type and its
+        // Select All / Clear actions.
+        commands.push_back( { "Modeling", "Mesh tool: Hole Fill", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::HoleFill;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::HoleFillType type :
+              { Geometry::HoleFillType::Trivial, Geometry::HoleFillType::Minimal, Geometry::HoleFillType::Smooth } )
+            commands.push_back( { "Modeling", std::string( "Hole Fill type: " ) + Geometry::ToString( type ), [type]
+                                  {
+                                      MS::Get().MeshHoleFill.Type = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        // UE's MeshOps palette: Jacket (URemoveOccludedTrianglesTool, the MeshProcessingTool session) and its
+        // closed choices.
+        commands.push_back( { "Modeling", "Mesh tool: Jacket", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::Jacket;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        // UE's MeshOps palette: Project (UProjectToTargetTool): the first selected mesh onto the second.
+        commands.push_back( { "Modeling", "Mesh tool: Project", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::Project;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        // UE's MeshOps palette: Weld Edges (UWeldMeshEdgesTool) and its two options.
+        commands.push_back( { "Modeling", "Mesh tool: Weld Edges", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::WeldEdges;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        modelingOnOff( "Modeling", "Weld Edges: Only Unique Pairs",
+                       []( MS& ms, bool on ) { ms.MeshWeldEdges.OnlyUniquePairs = on; } );
+        modelingOnOff( "Modeling", "Weld Edges: Weld Attributes",
+                       []( MS& ms, bool on ) { ms.MeshWeldEdges.WeldAttributes = on; } );
+        for ( const Geometry::JacketOcclusionMode mode :
+              { Geometry::JacketOcclusionMode::WindingNumber, Geometry::JacketOcclusionMode::RaycastOcclusionSamples } )
+            commands.push_back( { "Modeling", std::string( "Jacket occlusion mode: " ) + Geometry::ToString( mode ),
+                                  [mode]
+                                  {
+                                      MS::Get().MeshJacket.OcclusionMode = mode;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::JacketTriangleSampling sampling :
+              { Geometry::JacketTriangleSampling::Vertices, Geometry::JacketTriangleSampling::VerticesAndCentroids } )
+            commands.push_back( { "Modeling",
+                                  std::string( "Jacket triangle sampling: " ) + Geometry::ToString( sampling ),
+                                  [sampling]
+                                  {
+                                      MS::Get().MeshJacket.TriangleSampling = sampling;
+                                      return PaletteCommandDone();
+                                  } } );
+        commands.push_back( { "Modeling", "Hole Fill: Select All Holes", []
+                              {
+                                  MS::Get().HoleFillReqSelectAll = true;
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Modeling", "Hole Fill: Clear Selection", []
+                              {
+                                  MS::Get().HoleFillReqClear = true;
+                                  return PaletteCommandDone();
+                              } } );
         // UE's Attributes palette: Tangents (UMeshTangentsTool, the same session) and its choices / display.
         commands.push_back( { "Modeling", "Attributes tool: Tangents", []
                               {

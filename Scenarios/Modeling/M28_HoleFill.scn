@@ -1,0 +1,22 @@
+# M28 Hole Fill (UE UHoleFillTool, MeshOps palette "Mesh"): Box 100 cm with its top face deleted in PolyModel -> Hole Fill Minimal, Select All Holes (preview) -> Accept -> Undo. Lit, seen from above and to the side.
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Direction 0.3,-0.9,0.3
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,0,0
+Дано run Entity Box
+Дано run "Level Viewport" "Focus Selected"
+Дано run Modeling "Select Elements tool"
+Дано run Modeling "Mesh selection mode: PolyGroup"
+Дано run Modeling "Mesh selection: pick at the viewport centre"
+Дано run Modeling "Mesh operation: Delete"
+Тогда-вид 0_hole the Box has no top: its inside walls and floor are seen through the open top
+Когда run Modeling "Mesh tool: Hole Fill"
+Когда run Modeling "Hole Fill type: Minimal"
+Когда run Modeling "Hole Fill: Select All Holes"
+Тогда 0b_panel the Mesh palette shows Hole Fill, Fill Type Minimal, "Holes: 1 selected of 1", the status reports the fill
+Тогда-вид 1_fill_preview the hole is closed by the preview face; the hole's rim is drawn in the selection colour
+Когда run Modeling "Active tool: Accept"
+Тогда-вид 1_fill after Accept the Box's top is closed (no rim drawn: the tool ended)
+Когда run Action Undo
+Тогда-вид 2_undo after Undo the hole is open again: the inside is visible

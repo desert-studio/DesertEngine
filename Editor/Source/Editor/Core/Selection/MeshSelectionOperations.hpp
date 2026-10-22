@@ -40,6 +40,7 @@ namespace Desert::Editor::Core
         FillHole,  // the open loops through a selected edge, or every loop
         WeldEdges, // mesh-wide, UE's coincidence tolerance: no distance
         Simplify,  // mesh-wide, UE's Simplify tool (QEM)
+        Disconnect, // UE PolyEdit Disconnect: the selected faces cut loose along their border, nothing moves
     };
 
     // What an operation reads besides the selection. The panel, the hotkeys and the palette build it from

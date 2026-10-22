@@ -11,7 +11,11 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/Geometry/MeshCore/MeshBoundaryLoops.hpp>
 #include <Engine/Geometry/MeshDeformOperations.hpp>
+#include <Engine/Geometry/MeshHoleFillOperation.hpp>
+#include <Engine/Geometry/MeshJacketOperation.hpp>
+#include <Engine/Geometry/MeshProjectOperation.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 
 #include <ImGui/imgui.h>
@@ -45,6 +49,14 @@ namespace Desert::Editor::Tools
                     return "Normals";
                 case MS::Tool::Tangents:
                     return "Tangents";
+                case MS::Tool::HoleFill:
+                    return "Hole Fill";
+                case MS::Tool::Jacket:
+                    return "Jacket";
+                case MS::Tool::Project:
+                    return "Project";
+                case MS::Tool::WeldEdges:
+                    return "Weld Edges";
                 default:
                     return "?";
             }
@@ -88,6 +100,18 @@ namespace Desert::Editor::Tools
             ms.DeformWarp.LowerBound = -0.5f * major;
         }
 
+        // The entity a session edits: the primary selection; for Project (UE UProjectToTargetTool) the FIRST of
+        // exactly two selected entities, the second being the projection target (UE: first = source).
+        std::optional<Common::UUID> SessionEntity( MS::Tool tool )
+        {
+            if ( tool != MS::Tool::Project )
+                return Core::SelectionManager::GetSelected();
+            const std::vector<Common::UUID>& selection = Core::SelectionManager::GetSelection();
+            if ( selection.size() != 2 )
+                return std::nullopt;
+            return selection[0];
+        }
+
         ECS::StaticMeshComponent* MeshOf( ::Desert::Core::Scene& scene, const Common::UUID& id )
         {
             auto ref = scene.FindEntityByID( id );
@@ -100,7 +124,9 @@ namespace Desert::Editor::Tools
     bool MeshProcessingTool::IsMeshProcessingTool( MS::Tool tool )
     {
         return tool == MS::Tool::Smooth || tool == MS::Tool::Offset || tool == MS::Tool::Warp ||
-               tool == MS::Tool::Lattice || tool == MS::Tool::Normals || tool == MS::Tool::Tangents;
+               tool == MS::Tool::Lattice || tool == MS::Tool::Normals || tool == MS::Tool::Tangents ||
+               tool == MS::Tool::HoleFill || tool == MS::Tool::Jacket ||
+               tool == MS::Tool::Project || tool == MS::Tool::WeldEdges;
     }
 
     void MeshProcessingTool::Update( ::Desert::Core::Scene& scene )
@@ -112,9 +138,13 @@ namespace Desert::Editor::Tools
         // tool and raises ReqCancel, which was this tool's) or the selection moved to another entity.
         if ( m_Session )
         {
-            const auto selected = Core::SelectionManager::GetSelected();
+            const auto selected      = SessionEntity( m_Session->Tool );
+            const bool targetChanged = m_Session->Tool == MS::Tool::Project &&
+                                       ( Core::SelectionManager::GetSelection().size() != 2 ||
+                                         Core::SelectionManager::GetSelection()[1] != m_Session->Target ||
+                                         MeshOf( scene, m_Session->Target ) == nullptr );
             if ( ms.ActiveTool != m_Session->Tool || !selected.has_value() || *selected != m_Session->Entity ||
-                 MeshOf( scene, m_Session->Entity ) == nullptr )
+                 MeshOf( scene, m_Session->Entity ) == nullptr || targetChanged )
             {
                 if ( ms.ActiveTool != m_Session->Tool && ms.ReqCancel )
                     ms.ReqCancel = false;
@@ -140,6 +170,20 @@ namespace Desert::Editor::Tools
             }
             ApplyLatticeGizmo( scene, ms );
         }
+        if ( m_Session && m_Session->Tool == MS::Tool::HoleFill )
+        {
+            // UE UHoleFillTool's Select All / Clear actions.
+            if ( ms.HoleFillReqSelectAll )
+            {
+                ms.HoleFillSelected.clear();
+                for ( int32_t i = 0; i < static_cast<int32_t>( m_Session->Holes.size() ); ++i )
+                    ms.HoleFillSelected.push_back( i );
+            }
+            if ( ms.HoleFillReqClear )
+                ms.HoleFillSelected.clear();
+        }
+        ms.HoleFillReqSelectAll = false;
+        ms.HoleFillReqClear     = false;
         if ( m_Session && SettingsChanged( ms ) )
             Recompute( scene, ms );
 
@@ -160,10 +204,12 @@ namespace Desert::Editor::Tools
     void MeshProcessingTool::Begin( ::Desert::Core::Scene& scene, MS& ms )
     {
         m_Session.reset();
-        const auto selected = Core::SelectionManager::GetSelected();
+        const auto selected = SessionEntity( ms.ActiveTool );
         if ( !selected.has_value() )
         {
-            ms.DeformStatus = "Select an entity with a static mesh.";
+            ms.DeformStatus = ms.ActiveTool == MS::Tool::Project
+                                   ? "Project: select the mesh to project, then the target mesh (two entities)."
+                                   : "Select an entity with a static mesh.";
             return;
         }
         ECS::StaticMeshComponent* component = MeshOf( scene, *selected );
@@ -180,8 +226,41 @@ namespace Desert::Editor::Tools
         }
         m_Session =
              Session{ ms.ActiveTool, *selected, target.GetValue().Mesh, target.GetValue().Committed, nullptr };
+        if ( ms.ActiveTool == MS::Tool::Project )
+        {
+            // UE UProjectToTargetTool::Setup: the second target is the projection target, carried into the first's
+            // object space.
+            const Common::UUID        targetId        = Core::SelectionManager::GetSelection()[1];
+            ECS::StaticMeshComponent* targetComponent = MeshOf( scene, targetId );
+            if ( targetComponent == nullptr )
+            {
+                ms.DeformStatus = "Project: the target entity has no static mesh.";
+                m_Session.reset();
+                return;
+            }
+            auto targetMesh = GetToolTargetMesh( *targetComponent );
+            if ( !targetMesh.IsSuccess() )
+            {
+                ms.DeformStatus = targetMesh.GetError();
+                m_Session.reset();
+                return;
+            }
+            m_Session->Target        = targetId;
+            m_Session->TargetMesh    = targetMesh.GetValue().Mesh;
+            m_Session->TargetToInput = glm::inverse( glm::dmat4( WorldOf( scene, *selected ) ) ) *
+                                       glm::dmat4( WorldOf( scene, targetId ) );
+        }
         if ( ms.ActiveTool == MS::Tool::Warp )
             PlaceWarpGizmo( *m_Session->Input, WorldOf( scene, *selected ), ms );
+        if ( ms.ActiveTool == MS::Tool::HoleFill )
+        {
+            // UE UHoleFillTool::Setup: the holes are the input's boundary loops, none selected.
+            const Geometry::MeshBoundaryLoops loops( m_Session->Input.get() );
+            for ( const Geometry::EdgeLoop& loop : loops.m_Loops )
+                m_Session->Holes.push_back( loop.Vertices );
+            ms.HoleFillLoopCount = static_cast<int32_t>( m_Session->Holes.size() );
+            ms.HoleFillSelected.clear();
+        }
         if ( ms.ActiveTool == MS::Tool::Lattice && !BuildLattice( ms ) )
         {
             m_Session.reset();
@@ -226,6 +305,11 @@ namespace Desert::Editor::Tools
         m_Offset                                             = ms.DeformOffset;
         m_Normals                                            = ms.AttribNormals;
         m_Tangents = ms.AttribTangents;
+        m_HoleFill         = ms.MeshHoleFill;
+        m_HoleFillSelected = ms.HoleFillSelected;
+        m_Jacket           = ms.MeshJacket;
+        m_Project          = ms.MeshProject;
+        m_WeldEdges        = ms.MeshWeldEdges;
         m_Warp                                               = ms.DeformWarp;
         m_WarpGizmo                                          = ms.WarpGizmo;
         m_Lattice                                            = ms.DeformLattice;
@@ -243,6 +327,15 @@ namespace Desert::Editor::Tools
                     return Geometry::EditNormals( input, ms.AttribNormals );
                 case MS::Tool::Tangents:
                     return Geometry::ComputeTangents( input, ms.AttribTangents );
+                case MS::Tool::HoleFill:
+                    return Geometry::HoleFill( input, ms.HoleFillSelected, ms.MeshHoleFill );
+                case MS::Tool::Jacket:
+                    return Geometry::Jacket( input, ms.MeshJacket );
+                case MS::Tool::WeldEdges:
+                    return Geometry::WeldMeshEdges( input, ms.MeshWeldEdges );
+                case MS::Tool::Project:
+                    return Geometry::ProjectToTarget( input, *m_Session->TargetMesh, m_Session->TargetToInput,
+                                                      ms.MeshProject );
                 case MS::Tool::Lattice:
                     return Geometry::LatticeDeform( input, *m_Session->Lattice, ms.LatticePoints,
                                                     ms.DeformLattice );
@@ -477,6 +570,92 @@ namespace Desert::Editor::Tools
         PlaceLatticeGizmo( scene, ms );
     }
 
+    void MeshProcessingTool::DrawHoleFillControls( ::Desert::Core::Scene& scene, const glm::mat4& viewProj,
+                                                   const glm::vec2& viewportPos, const glm::vec2& viewportSize,
+                                                   bool hovered )
+    {
+        if ( !HasHoleFillSession() )
+            return;
+        MS&                     ms    = MS::Get();
+        const glm::dmat4        world( WorldOf( scene, m_Session->Entity ) );
+        const auto              project = [&]( int v, ImVec2& out )
+        {
+            const glm::vec4 clip =
+                 viewProj * glm::vec4( glm::vec3( world * glm::dvec4( m_Session->Input->GetVertex( v ), 1.0 ) ), 1.0f );
+            if ( clip.w <= 0.0001f )
+                return false;
+            out = ImVec2( viewportPos.x + ( clip.x / clip.w * 0.5f + 0.5f ) * viewportSize.x,
+                          viewportPos.y + ( 0.5f - clip.y / clip.w * 0.5f ) * viewportSize.y );
+            return true;
+        };
+        const ImVec2 mouse     = ::ImGui::GetMousePos();
+        const bool   overImage = mouse.x >= viewportPos.x && mouse.y >= viewportPos.y &&
+                               mouse.x < viewportPos.x + viewportSize.x && mouse.y < viewportPos.y + viewportSize.y;
+        ImDrawList*  dl        = ::ImGui::GetWindowDrawList();
+        int          hit       = -1;
+        float        hitDist   = 8.0f; // pixels
+        for ( int h = 0; h < static_cast<int>( m_Session->Holes.size() ); ++h )
+        {
+            const std::vector<int>& loop = m_Session->Holes[static_cast<size_t>( h )];
+            const bool selected = std::find( ms.HoleFillSelected.begin(), ms.HoleFillSelected.end(), h ) !=
+                                  ms.HoleFillSelected.end();
+            for ( size_t i = 0; i < loop.size(); ++i )
+            {
+                ImVec2 a{}, b{};
+                if ( !project( loop[i], a ) || !project( loop[( i + 1 ) % loop.size()], b ) )
+                    continue;
+                dl->AddLine( a, b, selected ? IM_COL32( 255, 220, 0, 255 ) : IM_COL32( 240, 60, 60, 230 ),
+                             selected ? 3.5f : 2.5f );
+                const glm::vec2 ab( b.x - a.x, b.y - a.y ), am( mouse.x - a.x, mouse.y - a.y );
+                const float     len2 = glm::dot( ab, ab );
+                const float     t    = len2 > 0.0f ? std::clamp( glm::dot( am, ab ) / len2, 0.0f, 1.0f ) : 0.0f;
+                const float     d    = glm::length( am - ab * t );
+                if ( d < hitDist )
+                {
+                    hitDist = d;
+                    hit     = h;
+                }
+            }
+        }
+        if ( !hovered || !overImage || hit < 0 || !::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+            return;
+        auto it = std::find( ms.HoleFillSelected.begin(), ms.HoleFillSelected.end(), hit );
+        if ( it != ms.HoleFillSelected.end() )
+            ms.HoleFillSelected.erase( it );
+        else
+            ms.HoleFillSelected.push_back( hit );
+    }
+
+    void MeshProcessingTool::DrawWeldEdgesOpenEdges( ::Desert::Core::Scene& scene, const glm::mat4& viewProj,
+                                                     const glm::vec2& viewportPos,
+                                                     const glm::vec2& viewportSize ) const
+    {
+        if ( !HasWeldEdgesSession() )
+            return;
+        const Geometry::DynamicMesh3& mesh = *m_Session->Preview;
+        const glm::dmat4              world( WorldOf( scene, m_Session->Entity ) );
+        const auto                    project = [&]( int v, ImVec2& out )
+        {
+            const glm::vec4 clip =
+                 viewProj * glm::vec4( glm::vec3( world * glm::dvec4( mesh.GetVertex( v ), 1.0 ) ), 1.0f );
+            if ( clip.w <= 0.0001f )
+                return false;
+            out = ImVec2( viewportPos.x + ( clip.x / clip.w * 0.5f + 0.5f ) * viewportSize.x,
+                          viewportPos.y + ( 0.5f - clip.y / clip.w * 0.5f ) * viewportSize.y );
+            return true;
+        };
+        ImDrawList* dl = ::ImGui::GetWindowDrawList();
+        for ( const int e : mesh.EdgeIndicesItr() )
+        {
+            if ( !mesh.IsBoundaryEdge( e ) )
+                continue;
+            const Geometry::Index2i ev = mesh.GetEdgeV( e );
+            ImVec2                  a{}, b{};
+            if ( project( ev.A, a ) && project( ev.B, b ) )
+                dl->AddLine( a, b, IM_COL32( 240, 15, 15, 255 ), 3.0f ); // UE's boundary edge colour
+        }
+    }
+
     bool MeshProcessingTool::SettingsChanged( const MS& ms ) const
     {
         switch ( m_Session->Tool )
@@ -489,6 +668,14 @@ namespace Desert::Editor::Tools
                 return !( ms.AttribNormals == m_Normals );
             case MS::Tool::Tangents:
                 return ms.AttribTangents.CalculationMethod != m_Tangents.CalculationMethod;
+            case MS::Tool::HoleFill:
+                return !( ms.MeshHoleFill == m_HoleFill ) || ms.HoleFillSelected != m_HoleFillSelected;
+            case MS::Tool::Jacket:
+                return !( ms.MeshJacket == m_Jacket );
+            case MS::Tool::Project:
+                return !( ms.MeshProject == m_Project );
+            case MS::Tool::WeldEdges:
+                return !( ms.MeshWeldEdges == m_WeldEdges );
             case MS::Tool::Warp:
                 return !( ms.DeformWarp == m_Warp ) || ms.WarpGizmo != m_WarpGizmo;
             case MS::Tool::Lattice:

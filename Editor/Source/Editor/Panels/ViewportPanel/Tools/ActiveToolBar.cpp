@@ -60,6 +60,18 @@ namespace Desert::Editor::Tools
             // UE's group paint keeps its strokes until Accept; Cancel drops them (PaintGroupsTool).
             case T::PaintGroups:
                 return { ICON_MDI_BRUSH, "Paint PolyGroups", true };
+            // UE's Hole Fill previews until Accept; Cancel puts the mesh back (MeshProcessingTool).
+            case T::HoleFill:
+                return { ICON_MDI_VECTOR_SQUARE_CLOSE, "Hole Fill", true };
+            // UE's Jacket previews the removal until Accept; Cancel puts the mesh back (MeshProcessingTool).
+            case T::Jacket:
+                return { ICON_MDI_LAYERS_MINUS, "Jacket", true };
+            // UE's Project previews the remeshed, projected source until Accept; Cancel puts it back.
+            case T::Project:
+                return { ICON_MDI_VECTOR_COMBINE, "Project", true };
+            // UE's Weld Edges previews the merge (the open edges left in red) until Accept; Cancel undoes it.
+            case T::WeldEdges:
+                return { ICON_MDI_VECTOR_LINK, "Weld Edges", true };
         }
         return {};
     }

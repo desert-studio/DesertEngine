@@ -87,6 +87,7 @@ namespace Desert::Editor
             TriModel,
             Deform,
             Transform,
+            MeshOps,
             Attributes,
             UVs,
             Collision,
@@ -96,13 +97,14 @@ namespace Desert::Editor
             const char* Icon;
             const char* Name;
         };
-        constexpr std::array<PaletteEntry, 10> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
+        constexpr std::array<PaletteEntry, 11> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
                                                                { ICON_MDI_SHAPE_PLUS, "Shapes" },
                                                                { ICON_MDI_PLUS_BOX_OUTLINE, "Create" },
                                                                { ICON_MDI_VECTOR_SQUARE, "PolyModel" },
                                                                { ICON_MDI_VECTOR_TRIANGLE, "TriModel" },
                                                                { ICON_MDI_BLUR, "Deform" },
                                                                { ICON_MDI_ARROW_ALL, "Transform" },
+                                                               { ICON_MDI_WRENCH, "Mesh" },
                                                                { ICON_MDI_PALETTE_SWATCH, "Attributes" },
                                                                { ICON_MDI_CHECKERBOARD, "UVs" },
                                                                { ICON_MDI_SHIELD_OUTLINE, "Collision" } } };
@@ -150,13 +152,16 @@ namespace Desert::Editor
             else if ( ms.ActiveTool == MS::Tool::Normals || ms.ActiveTool == MS::Tool::Tangents ||
                       ms.ActiveTool == MS::Tool::EditMaterials || ms.ActiveTool == MS::Tool::PaintGroups )
                 m_Category = static_cast<int>( Palette::Attributes );
+            else if ( ms.ActiveTool == MS::Tool::HoleFill || ms.ActiveTool == MS::Tool::Jacket ||
+                      ms.ActiveTool == MS::Tool::Project || ms.ActiveTool == MS::Tool::WeldEdges )
+                m_Category = static_cast<int>( Palette::MeshOps );
         }
 
         ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 6.0f, 6.0f ) );
         ImGui::PushStyleVar( ImGuiStyleVar_FramePadding, ImVec2( 8.0f, 6.0f ) );
 
         // --- Left category rail: only the palettes something of ours lives in ---
-        // UE's other palettes (MeshOps, VoxOps, Attributes, Baking, Volumes, LODs) are absent, not
+        // UE's other palettes (VoxOps, Attributes, Baking, Volumes, LODs) are absent, not
         // greyed out, until each has a tool behind it: a category that opens onto "not implemented" is a button
         // that does nothing (owner's decision: hide empty tabs until their tools exist).
         ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( 6.0f, 8.0f ) );
@@ -204,6 +209,9 @@ namespace Desert::Editor
                 break;
             case Palette::Transform:
                 DrawTransformPalette();
+                break;
+            case Palette::MeshOps:
+                DrawMeshOpsPalette();
                 break;
             case Palette::Attributes:
                 DrawAttributesPalette();
@@ -828,6 +836,143 @@ namespace Desert::Editor
     // UE's Attributes palette. Normals = UE UEditNormalsTool (UEditNormalsProperties, its defaults and ranges): a
     // tool on the selected mesh previewed by MeshProcessingTool's session, recomputed on every change, committed by the
     // bar's Accept as one undo step.
+    // UE's MeshOps palette ("Mesh" on the rail). Jacket = UE URemoveOccludedTrianglesTool: the same session, the
+    // preview showing the mesh with its hidden triangles removed. Hole Fill = UE UHoleFillTool (UHoleFillToolProperties,
+    // USmoothHoleFillProperties, its Select All / Clear actions): a tool on the selected mesh previewed by
+    // MeshProcessingTool's session, the viewport drawing the holes (selected ones highlighted, a click on a
+    // hole's edge toggles it), committed by the bar's Accept as one undo step.
+    void ModelingPanel::DrawMeshOpsPalette()
+    {
+        using MS         = Core::ModelingState;
+        auto&       ms   = MS::Get();
+        const float full = ImGui::GetContentRegionAvail().x;
+        const auto  toolButton = [&]( MS::Tool tool, const char* icon, const char* name )
+        {
+            const bool on = ms.ActiveTool == tool;
+            if ( on )
+                ImGui::PushStyleColor( ImGuiCol_Button, ThemeManager::GetSelectedColor() );
+            char label[64];
+            std::snprintf( label, sizeof( label ), "%s  %s", icon, name );
+            if ( ImGui::Button( label, ImVec2( full, 26.0f ) ) )
+            {
+                ms.ActiveTool = tool;
+                Core::ViewportMode::Set( Core::EditorMode::Modeling );
+            }
+            if ( on )
+                ImGui::PopStyleColor();
+        };
+        toolButton( MS::Tool::HoleFill, ICON_MDI_VECTOR_SQUARE_CLOSE, "Hole Fill" );
+        toolButton( MS::Tool::Jacket, ICON_MDI_LAYERS_MINUS, "Jacket" );
+        toolButton( MS::Tool::Project, ICON_MDI_VECTOR_COMBINE, "Project" );
+        toolButton( MS::Tool::WeldEdges, ICON_MDI_VECTOR_LINK, "Weld Edges" );
+        // The label above its control: the palette column is too narrow for UE's label-beside-value rows.
+        const auto row = []( const char* label )
+        {
+            ImGui::TextUnformatted( label );
+            ImGui::SetNextItemWidth( -1.0f );
+        };
+        if ( ms.ActiveTool == MS::Tool::WeldEdges )
+        {
+            // UE UWeldMeshEdgesToolProperties: Tolerance, Only Unique Pairs; the open edges before and after
+            // (UE InitialEdges / RemainingEdges) are in the status. The open edges left are drawn in red.
+            ImGui::Separator();
+            Geometry::WeldEdgesSettings& w = ms.MeshWeldEdges;
+            row( "Tolerance (cm)" );
+            ImGui::DragFloat( "##WeldTolerance", &w.Tolerance, 0.0001f, 1e-8f, 1000.0f, "%.6f",
+                              ImGuiSliderFlags_Logarithmic );
+            ImGui::Checkbox( "Only Unique Pairs", &w.OnlyUniquePairs );
+            ImGui::Checkbox( "Weld Attributes", &w.WeldAttributes );
+            ImGui::Separator();
+            ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+            return;
+        }
+        if ( ms.ActiveTool == MS::Tool::Project )
+        {
+            // UE UProjectToTargetTool (URemeshMeshToolProperties): the first selected mesh is remeshed and
+            // projected onto the second; Target Triangle Count or Target Edge Length, Smoothing Strength, Remesh
+            // Iterations, the edge edits, Projection, Discard Attributes.
+            ImGui::Separator();
+            Geometry::ProjectSettings& p = ms.MeshProject;
+            ImGui::Checkbox( "Use Target Edge Length", &p.UseTargetEdgeLength );
+            if ( p.UseTargetEdgeLength )
+            {
+                row( "Target Edge Length (cm)" );
+                ImGui::DragFloat( "##ProjectEdge", &p.TargetEdgeLength, 0.1f, 0.01f, 10000.0f, "%.2f" );
+            }
+            else
+            {
+                row( "Target Triangle Count" );
+                ImGui::DragInt( "##ProjectTris", &p.TargetTriangleCount, 10.0f, 1, 1000000 );
+            }
+            row( "Smoothing Strength" );
+            ImGui::SliderFloat( "##ProjectSmooth", &p.SmoothingStrength, 0.0f, 1.0f, "%.2f" );
+            row( "Remesh Iterations" );
+            ImGui::SliderInt( "##ProjectIter", &p.RemeshIterations, 0, 100 );
+            ImGui::Checkbox( "Flips", &p.Flips );
+            ImGui::Checkbox( "Splits", &p.Splits );
+            ImGui::Checkbox( "Collapses", &p.Collapses );
+            ImGui::Checkbox( "Projection", &p.Projection );
+            ImGui::Checkbox( "Discard Attributes", &p.DiscardAttributes );
+            ImGui::Separator();
+            ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+            return;
+        }
+        if ( ms.ActiveTool == MS::Tool::Jacket )
+        {
+            // UE URemoveOccludedTrianglesToolProperties: Occlusion Mode, Triangle Sampling, Winding Iso Value,
+            // Add Random Rays (Raycast only), Add Triangle Samples; the status line counts the removed triangles.
+            ImGui::Separator();
+            Geometry::JacketSettings& j = ms.MeshJacket;
+            row( "Occlusion Mode" );
+            int mode = static_cast<int>( j.OcclusionMode );
+            if ( ImGui::Combo( "##JacketMode", &mode, "Winding Number\0Raycast Occlusion Samples\0" ) )
+                j.OcclusionMode = static_cast<Geometry::JacketOcclusionMode>( mode );
+            row( "Triangle Sampling" );
+            int sampling = static_cast<int>( j.TriangleSampling );
+            if ( ImGui::Combo( "##JacketSampling", &sampling, "Vertices\0Vertices and Centroids\0" ) )
+                j.TriangleSampling = static_cast<Geometry::JacketTriangleSampling>( sampling );
+            if ( j.OcclusionMode == Geometry::JacketOcclusionMode::WindingNumber )
+            {
+                row( "Winding Iso Value" );
+                ImGui::SliderFloat( "##JacketIso", &j.WindingIsoValue, 0.0f, 1.0f, "%.2f" );
+            }
+            else
+            {
+                row( "Add Random Rays" );
+                ImGui::SliderInt( "##JacketRays", &j.AddRandomRays, 0, 1000 );
+            }
+            row( "Add Triangle Samples" );
+            ImGui::SliderInt( "##JacketSamples", &j.AddTriangleSamples, 0, 1000 );
+            ImGui::Separator();
+            ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+            return;
+        }
+        if ( ms.ActiveTool != MS::Tool::HoleFill )
+            return;
+        ImGui::Separator();
+        Geometry::HoleFillSettings& h = ms.MeshHoleFill;
+        row( "Fill Type" );
+        int type = static_cast<int>( h.Type );
+        if ( ImGui::Combo( "##HoleFillType", &type, "Trivial\0Minimal\0Smooth\0" ) )
+            h.Type = static_cast<Geometry::HoleFillType>( type );
+        if ( h.Type == Geometry::HoleFillType::Smooth )
+        {
+            row( "Fill Density" );
+            ImGui::SliderFloat( "##HoleFillDensity", &h.FillDensity, 0.1f, 4.0f, "%.2f" );
+            row( "Interior Smoothness" );
+            ImGui::SliderFloat( "##HoleFillSmoothness", &h.InteriorSmoothness, 0.0f, 1.0f, "%.2f" );
+        }
+        ImGui::Text( "Holes: %d selected of %d", static_cast<int>( ms.HoleFillSelected.size() ),
+                     ms.HoleFillLoopCount );
+        if ( ImGui::Button( "Select All##HoleFill", ImVec2( full * 0.5f - 3.0f, 0.0f ) ) )
+            ms.HoleFillReqSelectAll = true;
+        ImGui::SameLine();
+        if ( ImGui::Button( "Clear##HoleFill", ImVec2( -1.0f, 0.0f ) ) )
+            ms.HoleFillReqClear = true;
+        ImGui::Separator();
+        ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+    }
+
     void ModelingPanel::DrawAttributesPalette()
     {
         using MS         = Core::ModelingState;
@@ -1731,6 +1876,9 @@ namespace Desert::Editor
             if ( ImGui::Button( Core::ToString( row[1] ), ImVec2( half, 0.0f ) ) )
                 operate( row[1] );
         }
+        // UE PolyEdit's Faces > Disconnect.
+        if ( ImGui::Button( Core::ToString( MO::Disconnect ), ImVec2( -1.0f, 0.0f ) ) )
+            operate( MO::Disconnect );
         ImGui::SetNextItemWidth( -1.0f );
         ImGui::SliderFloat( "##ElementLoopPosition", &ms.ElementLoopPosition, 0.01f, 0.99f, "Loop at %.2f" );
         ImGui::SetNextItemWidth( half );
