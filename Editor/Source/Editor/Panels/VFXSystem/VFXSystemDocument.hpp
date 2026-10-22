@@ -105,6 +105,11 @@ namespace Desert::Editor
 
         void ExtendToolbar( AssetEditorToolbar& toolbar ) override;
 
+        /// The stack's structure as palette / control-socket actions, for the selected emitter (UE's stack row
+        /// menu): `Add <module> to <Emitter>.<Stage>` for every library module of a particle stage, and
+        /// `Remove` / `Move Up` / `Move Down` `<Emitter>.<Stage>.<Module>` per row. Each is one undo step.
+        [[nodiscard]] std::vector<DocumentAction> Actions() override;
+
     private:
         void EnsurePreview();
         void DrawSystemColumn();
@@ -122,6 +127,18 @@ namespace Desert::Editor
         // Ends a gesture that began from @p before: one undo step labelled @p label, or - when the result is not a
         // valid system - m_Working back to @p before and the refusal shown.
         Common::BoolResultStr Commit( Assets::Serialization::VFXSystemData before, const std::string& label );
+
+        // THE STACK'S STRUCTURE (12d, UE's stack: add from the module library, delete, reorder, the row's
+        // enable checkbox). Each is one Commit - one undo step - and, being a change of m_Working, restarts the
+        // preview. A module added gets its inputs from the module's own declarations (ResolveParticleModule),
+        // each a Value at zero.
+        Common::BoolResultStr AddModule( std::size_t emitter, std::size_t stage, const std::string& module );
+        Common::BoolResultStr RemoveModule( std::size_t emitter, std::size_t stage, std::size_t module );
+        Common::BoolResultStr MoveModule( std::size_t emitter, std::size_t stage, std::size_t module, int delta );
+        Common::BoolResultStr SetModuleEnabled( std::size_t emitter, std::size_t stage, std::size_t module,
+                                                bool enabled );
+        // The modules a particle stage's picker offers: the engine library, then this system's LocalModules.
+        [[nodiscard]] std::vector<std::string> ModuleLibrary() const;
 
         Assets::AssetManager*             m_Assets = nullptr;
         bool                              m_Loaded = false;

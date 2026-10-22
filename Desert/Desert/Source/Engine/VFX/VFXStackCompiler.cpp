@@ -14,6 +14,7 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <system_error>
 
 namespace Desert::VFX
 {
@@ -233,6 +234,32 @@ namespace Desert::VFX
             return Common::MakeSuccess( std::move( resolved ) );
         }
     } // namespace
+
+    Common::ResultStr<VFXParticleModule> ResolveParticleModule( const S::VFXSystemData&      system,
+                                                                const std::string&           ref,
+                                                                const std::filesystem::path& engineModuleDir )
+    {
+        auto resolved = ResolveModule( system, ref, engineModuleDir, ref );
+        if ( !resolved.IsSuccess() )
+            return Common::MakeError<VFXParticleModule>( resolved.GetError() );
+        return Common::MakeSuccess( std::move( resolved.ExtractValue().Module ) );
+    }
+
+    std::vector<std::string> ListParticleModules( const S::VFXSystemData&      system,
+                                                  const std::filesystem::path& engineModuleDir )
+    {
+        std::vector<std::string> engine;
+        std::error_code          ec;
+        for ( const auto& entry : std::filesystem::directory_iterator( engineModuleDir, ec ) )
+        {
+            if ( entry.is_regular_file( ec ) && entry.path().extension() == ".shader" )
+                engine.push_back( std::format( "{}{}", S::kVFXEnginePrefix, entry.path().stem().string() ) );
+        }
+        std::sort( engine.begin(), engine.end() );
+        for ( const S::VFXLocalModule& local : system.LocalModules )
+            engine.push_back( std::format( "{}{}", S::kVFXLocalPrefix, local.Id ) );
+        return engine;
+    }
 
     std::string_view GlslTypeName( VFXValueType type )
     {

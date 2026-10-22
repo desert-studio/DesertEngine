@@ -15,6 +15,7 @@
 #include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
+#include <Engine/VFX/VFXStackCompiler.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -25,6 +26,9 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <functional>
+#include <optional>
+#include <utility>
 #include <system_error>
 #include <unordered_map>
 
@@ -182,6 +186,22 @@ namespace Desert::Editor
         const S::VFXModuleInput& InputAt( const S::VFXSystemData& data, const InputAddress& a )
         {
             return StageModules( data.Emitters[a.Emitter].Stack, a.Stage )[a.Module].Inputs[a.Input];
+        }
+
+        // A stack row's address word: the module's name without its prefix, `<Name>#2`.. for a repeat in one
+        // stage - the same words AddressInputs builds input names from.
+        std::string ModuleKey( const std::vector<S::VFXModuleUse>& modules, const std::size_t module )
+        {
+            const auto name = []( const std::string& full )
+            {
+                const auto colon = full.find( ':' );
+                return colon == std::string::npos ? full : full.substr( colon + 1 );
+            };
+            const std::string own    = name( modules[module].Module );
+            int               repeat = 0;
+            for ( std::size_t m = 0; m <= module; ++m )
+                repeat += name( modules[m].Module ) == own ? 1 : 0;
+            return repeat > 1 ? std::format( "{}#{}", own, repeat ) : own;
         }
 
         // The vec4 a part of @p input stores, or null when the input holds none (a Curve or Binding input).
@@ -512,16 +532,41 @@ namespace Desert::Editor
         ImGui::PushID( title );
         if ( ImGui::CollapsingHeader( title, ImGuiTreeNodeFlags_DefaultOpen ) )
         {
-            // Sizes and names re-read per row, never held: a refused edit puts back a whole earlier system.
+            // Sizes and names re-read per row, never held: a refused edit puts back a whole earlier system. A
+            // structural edit is applied after the rows are drawn, so no row reads a stage that moved under it.
             const std::size_t count = StageModules( m_Working.Emitters[emitter].Stack, stage ).size();
             if ( count == 0 )
                 ImGui::TextDisabled( "  (no modules)" );
+            std::function<void()> structural;
             for ( std::size_t m = 0; m < count; ++m )
             {
                 const auto& use = StageModules( m_Working.Emitters[emitter].Stack, stage )[m];
                 ImGui::PushID( static_cast<int>( m ) );
+                // UE's stack row: the enable checkbox, the module, then its row menu (reorder, delete).
+                bool enabled = use.Enabled;
+                if ( ImGui::Checkbox( "##enabled", &enabled ) )
+                    structural = [this, emitter, stage, m, enabled]
+                    { (void)SetModuleEnabled( emitter, stage, m, enabled ); };
+                ImGui::SameLine();
                 const std::string label = std::format( "{}{}", use.Module, use.Enabled ? "" : "  (disabled)" );
-                if ( ImGui::TreeNodeEx( "##module", ImGuiTreeNodeFlags_DefaultOpen, "%s", label.c_str() ) )
+                const bool        open  = ImGui::TreeNodeEx(
+                     "##module", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowOverlap, "%s",
+                     label.c_str() );
+                ImGui::SameLine(
+                     std::max( ImGui::GetContentRegionMax().x - 3.0f * ImGui::GetFrameHeight(), 0.0f ) );
+                ImGui::BeginDisabled( m == 0 );
+                if ( ImGui::SmallButton( ICON_MDI_ARROW_UP ) )
+                    structural = [this, emitter, stage, m] { (void)MoveModule( emitter, stage, m, -1 ); };
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                ImGui::BeginDisabled( m + 1 == count );
+                if ( ImGui::SmallButton( ICON_MDI_ARROW_DOWN ) )
+                    structural = [this, emitter, stage, m] { (void)MoveModule( emitter, stage, m, +1 ); };
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                if ( ImGui::SmallButton( ICON_MDI_DELETE ) )
+                    structural = [this, emitter, stage, m] { (void)RemoveModule( emitter, stage, m ); };
+                if ( open )
                 {
                     const std::size_t inputs = use.Inputs.size();
                     for ( std::size_t i = 0; i < inputs; ++i )
@@ -530,6 +575,25 @@ namespace Desert::Editor
                 }
                 ImGui::PopID();
             }
+            // The stage's module picker (UE's "+" on a stack group). Particle stages only: Emitter Update rows
+            // are the CPU spawn modules, which have no library to pick from yet.
+            if ( stage != 0 )
+            {
+                if ( ImGui::SmallButton( ICON_MDI_PLUS " Module" ) )
+                    ImGui::OpenPopup( "##addmodule" );
+                if ( ImGui::BeginPopup( "##addmodule" ) )
+                {
+                    for ( const std::string& module : ModuleLibrary() )
+                    {
+                        if ( ImGui::Selectable( module.c_str() ) )
+                            structural = [this, emitter, stage, module]
+                            { (void)AddModule( emitter, stage, module ); };
+                    }
+                    ImGui::EndPopup();
+                }
+            }
+            if ( structural )
+                structural();
         }
         ImGui::PopID();
     }
@@ -701,6 +765,26 @@ namespace Desert::Editor
             }
             out.push_back( std::move( row ) );
         }
+        // Each stack row's enable checkbox: `<Emitter>.<Stage>.<Module>` (three words, an input has four).
+        for ( std::size_t e = 0; e < m_Working.Emitters.size(); ++e )
+        {
+            for ( std::size_t st = 0; st < kStageKeys.size(); ++st )
+            {
+                const auto& modules = StageModules( m_Working.Emitters[e].Stack, st );
+                for ( std::size_t m = 0; m < modules.size(); ++m )
+                {
+                    EditableProperty row;
+                    row.Name       = std::format( "{}.{}.{}", m_Working.Emitters[e].Name, kStageKeys[st],
+                                                  ModuleKey( modules, m ) );
+                    row.Label      = modules[m].Module;
+                    row.Group      = std::format( "{}.{}", m_Working.Emitters[e].Name, kStageKeys[st] );
+                    row.Type       = "bool";
+                    row.Components = 1;
+                    row.Value[0]   = modules[m].Enabled ? 1.0f : 0.0f;
+                    out.push_back( std::move( row ) );
+                }
+            }
+        }
         // The transport: the window's, not the asset's - setting it is never an undo step.
         const auto transport = [&out]( const char* name, const char* label, const char* type, const float value )
         {
@@ -755,6 +839,23 @@ namespace Desert::Editor
                      "the transport has no '{}'; it offers Time, Playing, Speed, Loop and Step", name );
             return BOOLSUCCESS;
         }
+        for ( std::size_t e = 0; e < m_Working.Emitters.size(); ++e )
+        {
+            for ( std::size_t st = 0; st < kStageKeys.size(); ++st )
+            {
+                const auto& modules = StageModules( m_Working.Emitters[e].Stack, st );
+                for ( std::size_t m = 0; m < modules.size(); ++m )
+                {
+                    if ( name != std::format( "{}.{}.{}", m_Working.Emitters[e].Name, kStageKeys[st],
+                                              ModuleKey( modules, m ) ) )
+                        continue;
+                    if ( value.size() != 1 )
+                        return Common::MakeFormattedError<bool>( "'{}' is a bool and takes one number, not {}",
+                                                                 name, value.size() );
+                    return SetModuleEnabled( e, st, m, value[0] != 0.0f );
+                }
+            }
+        }
         const auto addresses = AddressInputs( m_Working );
         const auto found     = std::find_if( addresses.begin(), addresses.end(),
                                              [&name]( const InputAddress& a ) { return a.Name == name; } );
@@ -775,6 +876,149 @@ namespace Desert::Editor
             ( *target )[c] = value[static_cast<std::size_t>( c )];
         // The same end of a gesture the widget reaches: one undo step, or refused and put back.
         return Commit( std::move( before ), std::format( "Set {}", name ) );
+    }
+
+    std::vector<std::string> VFXSystemDocument::ModuleLibrary() const
+    {
+        return VFX::ListParticleModules( m_Working, VFX::EngineModuleDir() );
+    }
+
+    Common::BoolResultStr VFXSystemDocument::AddModule( const std::size_t emitter, const std::size_t stage,
+                                                        const std::string& module )
+    {
+        if ( emitter >= m_Working.Emitters.size() || stage == 0 || stage >= kStageKeys.size() )
+            return Common::MakeFormattedError<bool>( "'{}' can be added only to a particle stage of an emitter",
+                                                     module );
+        auto resolved = VFX::ResolveParticleModule( m_Working, module, VFX::EngineModuleDir() );
+        if ( !resolved.IsSuccess() )
+        {
+            m_Refusal = std::format( "Add {}: {}", module, resolved.GetError() );
+            return Common::MakeError<bool>( m_Refusal );
+        }
+        S::VFXModuleUse use;
+        use.Module = module;
+        for ( const auto& decl : resolved.GetValue().Inputs )
+        {
+            S::VFXModuleInput input;
+            input.Name   = decl.Name;
+            input.Type   = decl.Type;
+            input.Source = S::VFXInputSource::Value;
+            input.Value  = glm::vec4( 0.0f );
+            use.Inputs.push_back( std::move( input ) );
+        }
+        auto before = m_Working;
+        StageModules( m_Working.Emitters[emitter].Stack, stage ).push_back( std::move( use ) );
+        return Commit( std::move( before ), std::format( "Add {} to {}.{}", module,
+                                                         m_Working.Emitters[emitter].Name, kStageKeys[stage] ) );
+    }
+
+    Common::BoolResultStr VFXSystemDocument::RemoveModule( const std::size_t emitter, const std::size_t stage,
+                                                           const std::size_t module )
+    {
+        if ( emitter >= m_Working.Emitters.size() || stage >= kStageKeys.size() ||
+             module >= StageModules( m_Working.Emitters[emitter].Stack, stage ).size() )
+            return Common::MakeError<bool>( "there is no such stack row to remove" );
+        auto        before  = m_Working;
+        auto&       modules = StageModules( m_Working.Emitters[emitter].Stack, stage );
+        std::string label   = std::format( "Remove {}.{}.{}", m_Working.Emitters[emitter].Name, kStageKeys[stage],
+                                           ModuleKey( modules, module ) );
+        modules.erase( modules.begin() + static_cast<std::ptrdiff_t>( module ) );
+        return Commit( std::move( before ), label );
+    }
+
+    Common::BoolResultStr VFXSystemDocument::MoveModule( const std::size_t emitter, const std::size_t stage,
+                                                         const std::size_t module, const int delta )
+    {
+        if ( emitter >= m_Working.Emitters.size() || stage >= kStageKeys.size() )
+            return Common::MakeError<bool>( "there is no such stack row to move" );
+        auto&                modules = StageModules( m_Working.Emitters[emitter].Stack, stage );
+        const std::ptrdiff_t target  = static_cast<std::ptrdiff_t>( module ) + delta;
+        if ( module >= modules.size() || target < 0 || target >= static_cast<std::ptrdiff_t>( modules.size() ) )
+            return Common::MakeError<bool>( "the stack row cannot move past the end of its stage" );
+        auto              before = m_Working;
+        const std::string label  = std::format( "Move {}.{}.{}", m_Working.Emitters[emitter].Name,
+                                                kStageKeys[stage], ModuleKey( modules, module ) );
+        std::swap( modules[module], modules[static_cast<std::size_t>( target )] );
+        return Commit( std::move( before ), label );
+    }
+
+    Common::BoolResultStr VFXSystemDocument::SetModuleEnabled( const std::size_t emitter, const std::size_t stage,
+                                                               const std::size_t module, const bool enabled )
+    {
+        if ( emitter >= m_Working.Emitters.size() || stage >= kStageKeys.size() ||
+             module >= StageModules( m_Working.Emitters[emitter].Stack, stage ).size() )
+            return Common::MakeError<bool>( "there is no such stack row to enable" );
+        auto        before  = m_Working;
+        auto&       modules = StageModules( m_Working.Emitters[emitter].Stack, stage );
+        std::string label =
+             std::format( "{} {}.{}.{}", enabled ? "Enable" : "Disable", m_Working.Emitters[emitter].Name,
+                          kStageKeys[stage], ModuleKey( modules, module ) );
+        modules[module].Enabled = enabled;
+        return Commit( std::move( before ), label );
+    }
+
+    std::vector<ISubjectDocument::DocumentAction> VFXSystemDocument::Actions()
+    {
+        std::vector<DocumentAction> out;
+        if ( !m_Loaded || m_Working.Emitters.empty() )
+            return out;
+        const std::size_t e    = std::min( m_SelectedEmitter, m_Working.Emitters.size() - 1 );
+        const std::string name = m_Working.Emitters[e].Name;
+        // Rows are addressed by words, not captured indices: the list is built once and run later, and a stack
+        // that moved in between must refuse rather than act on whatever row now sits at the index.
+        const auto locate = [this,
+                             name]( const std::size_t  st,
+                                    const std::string& key ) -> std::optional<std::pair<std::size_t, std::size_t>>
+        {
+            for ( std::size_t em = 0; em < m_Working.Emitters.size(); ++em )
+            {
+                if ( m_Working.Emitters[em].Name != name )
+                    continue;
+                const auto& modules = StageModules( m_Working.Emitters[em].Stack, st );
+                for ( std::size_t m = 0; m < modules.size(); ++m )
+                    if ( ModuleKey( modules, m ) == key )
+                        return std::pair{ em, m };
+            }
+            return std::nullopt;
+        };
+        for ( std::size_t st = 0; st < kStageKeys.size(); ++st )
+        {
+            const auto& modules = StageModules( m_Working.Emitters[e].Stack, st );
+            for ( std::size_t m = 0; m < modules.size(); ++m )
+            {
+                const std::string key   = ModuleKey( modules, m );
+                const std::string where = std::format( "{}.{}.{}", name, kStageKeys[st], key );
+                out.push_back( { std::format( "Remove {}", where ), [this, locate, st, key]
+                                 {
+                                     if ( const auto at = locate( st, key ) )
+                                         (void)RemoveModule( at->first, st, at->second );
+                                 } } );
+                out.push_back( { std::format( "Move Up {}", where ), [this, locate, st, key]
+                                 {
+                                     if ( const auto at = locate( st, key ) )
+                                         (void)MoveModule( at->first, st, at->second, -1 );
+                                 } } );
+                out.push_back( { std::format( "Move Down {}", where ), [this, locate, st, key]
+                                 {
+                                     if ( const auto at = locate( st, key ) )
+                                         (void)MoveModule( at->first, st, at->second, +1 );
+                                 } } );
+            }
+            if ( st == 0 )
+                continue;
+            for ( const std::string& module : ModuleLibrary() )
+                out.push_back( { std::format( "Add {} to {}.{}", module, name, kStageKeys[st] ),
+                                 [this, name, st, module]
+                                 {
+                                     for ( std::size_t em = 0; em < m_Working.Emitters.size(); ++em )
+                                         if ( m_Working.Emitters[em].Name == name )
+                                         {
+                                             (void)AddModule( em, st, module );
+                                             return;
+                                         }
+                                 } } );
+        }
+        return out;
     }
 
     SubjectEditorRegistry::PathOpenOutcome RequestVFXSystemDocument( Assets::AssetManager*        assets,

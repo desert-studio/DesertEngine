@@ -139,6 +139,19 @@ namespace Desert::VFX
     /// Where the engine module library lives: ShaderDir()/VFX/Modules; `engine:<Name>` is `<Name>.shader` there.
     [[nodiscard]] std::filesystem::path EngineModuleDir();
 
+    /// Resolves one stack row's module reference (`engine:<Name>` from @p engineModuleDir, `local:<Id>` from the
+    /// system's LocalModules) and parses it - the same lookup CompileEmitterStack does, so the editor's module
+    /// picker builds a row's inputs from exactly what the compiler will read.
+    Common::ResultStr<VFXParticleModule> ResolveParticleModule( const Assets::Serialization::VFXSystemData& system,
+                                                                const std::string&                          ref,
+                                                                const std::filesystem::path& engineModuleDir );
+
+    /// The particle-stage module library (UE's module picker): every `engine:<Name>` whose `.shader` is in
+    /// @p engineModuleDir, sorted, then the system's `local:<Id>` rows in their order. A missing directory lists
+    /// only the local rows.
+    [[nodiscard]] std::vector<std::string> ListParticleModules( const Assets::Serialization::VFXSystemData& system,
+                                                                const std::filesystem::path& engineModuleDir );
+
     /**
      * @brief Compiles emitter @p emitterIndex of @p system.
      *
