@@ -769,9 +769,8 @@ namespace Desert::Editor
         ImGui::TextDisabled( "Select the target (low) first, then the detail (high)." );
         if ( ImGui::Button( "Bake Normal Map", ImVec2( -1.0f, 0.0f ) ) )
         {
-            const auto done = BakeNormalMap( m_Scene, m_Assets );
-            if ( !done.IsSuccess() )
-                LOG_WARN( "Bake Normal Map: {}", done.GetError() );
+            // BakeNormalMap logs its own refusal (the palette and DesertCtl reach it too).
+            (void)BakeNormalMap( m_Scene, m_Assets );
         }
     }
 
@@ -782,7 +781,12 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "no {} to bake in", !scene ? "scene" : "asset manager" );
         const auto baked = Core::ApplyBakeNormalMap( *scene, *assets, Core::BakeNormalMapSettings() );
         if ( !baked.IsSuccess() )
+        {
+            // The refusal is the user's answer, whichever door ran the bake (button, palette, DesertCtl): it goes
+            // to the log, not only to the caller.
+            LOG_WARN( "Bake Normal Map refused: {}", baked.GetError() );
             return Common::MakeFormattedError<bool>( "{}", baked.GetError() );
+        }
         const auto& out = baked.GetValue();
         LOG_INFO( "Bake Normal Map: {} -> {} ({} of {} texels hit)", out.TextureAsset.generic_string(),
                   out.Material.generic_string(), out.HitTexels, out.CoveredTexels );
