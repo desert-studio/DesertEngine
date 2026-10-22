@@ -174,8 +174,7 @@ namespace Desert::Editor
                       ms.ActiveTool == MS::Tool::UVTransform )
                 m_Category = static_cast<int>( Palette::UVs );
             else if ( ms.ActiveTool == MS::Tool::Smooth || ms.ActiveTool == MS::Tool::Offset ||
-                      ms.ActiveTool == MS::Tool::Warp || ms.ActiveTool == MS::Tool::Lattice ||
-                      ms.ActiveTool == MS::Tool::VertexSculpt )
+                      ms.ActiveTool == MS::Tool::Warp || ms.ActiveTool == MS::Tool::Lattice )
                 m_Category = static_cast<int>( Palette::Deform );
             else if ( ms.ActiveTool == MS::Tool::Normals || ms.ActiveTool == MS::Tool::Tangents ||
                       ms.ActiveTool == MS::Tool::EditMaterials || ms.ActiveTool == MS::Tool::PaintGroups )
@@ -624,23 +623,17 @@ namespace Desert::Editor
         using MS          = Core::ModelingState;
         auto&      ms     = MS::Get();
         const bool active = ms.ActiveTool == MS::Tool::Sculpt;
-        // Sculpt (UE UMeshVertexSculptTool) and Dynamic Sculpt (UE UDynamicMeshSculptTool): one viewport tool,
-        // the second remeshing the brush's region before every stamp.
-        for ( const bool dynamic : { false, true } )
+        // ONE Sculpt entry (UE UMeshVertexSculptTool); Dynamic Topology below it is UE's UDynamicMeshSculptTool,
+        // the same viewport tool remeshing the brush's region before every stamp.
+        if ( active )
+            ImGui::PushStyleColor( ImGuiCol_Button, ThemeManager::GetSelectedColor() );
+        if ( ImGui::Button( ICON_MDI_BRUSH "  Sculpt", ImVec2( -1.0f, 30.0f ) ) )
         {
-            const bool lit = active && ms.SculptDynamic == dynamic;
-            if ( lit )
-                ImGui::PushStyleColor( ImGuiCol_Button, ThemeManager::GetSelectedColor() );
-            if ( ImGui::Button( dynamic ? ICON_MDI_BRUSH "  Dynamic Sculpt" : ICON_MDI_BRUSH "  Sculpt",
-                                ImVec2( -1.0f, 30.0f ) ) )
-            {
-                ms.ActiveTool    = MS::Tool::Sculpt;
-                ms.SculptDynamic = dynamic;
-                Core::ViewportMode::Set( Core::EditorMode::Modeling );
-            }
-            if ( lit )
-                ImGui::PopStyleColor();
+            ms.ActiveTool = MS::Tool::Sculpt;
+            Core::ViewportMode::Set( Core::EditorMode::Modeling );
         }
+        if ( active )
+            ImGui::PopStyleColor();
         // UE's Remesh tool (URemeshMeshTool): the whole selected mesh to a uniform edge length, one undo step.
         if ( Utils::ImGuiUtilities::SectionHeader( "Remesh" ) )
         {
@@ -660,6 +653,9 @@ namespace Desert::Editor
         }
         if ( !active )
             return;
+        ImGui::Checkbox( "Dynamic Topology", &ms.SculptDynamic );
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "Refine / collapse the edges under the brush before each stamp (Dynamic Sculpt)." );
         if ( ms.SculptDynamic && Utils::ImGuiUtilities::SectionHeader( "Dynamic Topology" ) )
         {
             auto& t = ms.DynamicSculptTopology;
@@ -676,10 +672,9 @@ namespace Desert::Editor
         auto& s = ms.Sculpt;
         if ( Utils::ImGuiUtilities::SectionHeader( "Brush" ) )
         {
-            constexpr std::array kBrushes = { Geometry::SculptBrushType::Standard, Geometry::SculptBrushType::Smooth };
             if ( ImGui::BeginCombo( "Brush Type", Geometry::ToString( s.Brush ) ) )
             {
-                for ( const auto brush : kBrushes )
+                for ( const auto brush : Geometry::kSculptBrushTypes )
                     if ( ImGui::Selectable( Geometry::ToString( brush ), brush == s.Brush ) )
                         s.Brush = brush;
                 ImGui::EndCombo();
@@ -693,6 +688,9 @@ namespace Desert::Editor
             ImGui::Checkbox( "Invert", &s.Invert );
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "Standard pulls the surface in instead of pushing it out (Ctrl held flips it)." );
+            if ( s.Brush == Geometry::SculptBrushType::Move )
+                ImGui::TextDisabled(
+                     "Move drags the surface on the plane through the first hit, facing the view." );
         }
         ImGui::Separator();
         ImGui::TextDisabled( "Select a static mesh, then LMB-drag over it." );
@@ -748,12 +746,11 @@ namespace Desert::Editor
             const char* Name;
             MS::Tool    Tool;
         };
-        constexpr std::array<DeformToolEntry, 5> kMeshProcessingTools = {
+        constexpr std::array<DeformToolEntry, 4> kMeshProcessingTools = {
              { { ICON_MDI_BLUR, "Smooth", MS::Tool::Smooth },
                { ICON_MDI_ARROW_EXPAND_ALL, "Offset", MS::Tool::Offset },
                { ICON_MDI_ROTATE_ORBIT, "Warp", MS::Tool::Warp },
-               { ICON_MDI_GRID, "Lattice", MS::Tool::Lattice },
-               { ICON_MDI_BRUSH, "VSculpt", MS::Tool::VertexSculpt } } };
+               { ICON_MDI_GRID, "Lattice", MS::Tool::Lattice } } };
         for ( size_t i = 0; i < kMeshProcessingTools.size(); ++i )
         {
             const bool on = ms.ActiveTool == kMeshProcessingTools[i].Tool;
@@ -923,38 +920,6 @@ namespace Desert::Editor
                 ImGui::Checkbox( "##LatticeSoft", &s.SoftDeformation );
                 ImGui::Text( "%zu of %zu points selected", ms.LatticeSelection.size(), ms.LatticePoints.size() );
                 ImGui::TextDisabled( "Click a point (Shift adds, Ctrl toggles); the gizmo moves the selection." );
-                break;
-            }
-            case MS::Tool::VertexSculpt:
-            {
-                // UE UMeshVertexSculptTool: brush type + USculptBrushProperties (size, strength, falloff).
-                auto&                 s        = ms.DeformSculpt;
-                int                   brush    = static_cast<int>( s.Brush );
-                int                   falloff  = static_cast<int>( s.FalloffType );
-                constexpr const char* kFall[]  = { "Smooth", "Linear", "Inverse", "Round" };
-                row( "Brush" );
-                if ( ImGui::Combo(
-                          "##SculptBrush", &brush,
-                          []( void*, int i, const char** out )
-                          {
-                              *out = Geometry::ToString( Geometry::kSculptBrushes[i] );
-                              return true;
-                          },
-                          nullptr, static_cast<int>( std::size( Geometry::kSculptBrushes ) ) ) )
-                    s.Brush = Geometry::kSculptBrushes[brush];
-                row( "Brush Radius" );
-                ImGui::DragFloat( "##SculptRadius", &s.Radius, 0.5f, Geometry::kSculptMinRadius,
-                                  Geometry::kSculptMaxRadius, "%.1f cm", ImGuiSliderFlags_AlwaysClamp );
-                row( "Strength" );
-                ImGui::SliderFloat( "##SculptStrength", &s.Strength, 0.0f, 1.0f, "%.2f",
-                                    ImGuiSliderFlags_AlwaysClamp );
-                row( "Falloff" );
-                ImGui::SliderFloat( "##SculptFalloff", &s.FalloffAmount, 0.0f, 1.0f, "%.2f",
-                                    ImGuiSliderFlags_AlwaysClamp );
-                row( "Falloff Type" );
-                if ( ImGui::Combo( "##SculptFalloffType", &falloff, kFall, 4 ) )
-                    s.FalloffType = static_cast<Geometry::SculptFalloff>( falloff );
-                ImGui::TextDisabled( "Drag on the mesh; each stroke is one undo step." );
                 break;
             }
             default:

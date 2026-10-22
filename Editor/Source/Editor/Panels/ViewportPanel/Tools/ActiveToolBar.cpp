@@ -49,10 +49,6 @@ namespace Desert::Editor::Tools
                 return { ICON_MDI_ROTATE_ORBIT, "Warp", true };
             case T::Lattice:
                 return { ICON_MDI_GRID, "Lattice", true };
-            // UE's VSculpt keeps its strokes until Accept; ours commits each stroke as its own undo step, so
-            // there is nothing for Cancel to drop - Complete is the honest button (as PolyEdit).
-            case T::VertexSculpt:
-                return { ICON_MDI_BRUSH, "Vertex Sculpt", false };
             // UE's Normals tool previews until Accept; Cancel puts the mesh back (MeshProcessingTool).
             case T::Normals:
                 return { ICON_MDI_ARROW_TOP_RIGHT_THICK, "Normals", true };

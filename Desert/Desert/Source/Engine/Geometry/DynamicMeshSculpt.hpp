@@ -20,12 +20,16 @@ namespace Desert::Geometry
 {
     class DynamicMesh3;
 
-    // UE's EMeshVertexSculptBrushType, the two this port carries so far.
+    // UE's EMeshVertexSculptBrushType, the ones this port carries so far.
     enum class SculptBrushType : uint8_t
     {
         Standard, // FSurfaceSculptBrushOp: push the surface along the brush normal (Ctrl / Invert pulls it in)
         Smooth,   // FSmoothBrushOp: pull each vertex toward its one-ring centroid
+        Move, // FMoveBrushOp: the vertices under the brush follow it, weighted by the falloff (Strength unused)
     };
+    // Every brush, in the order the panel's combo and the command palette list them (one list for both).
+    inline constexpr SculptBrushType kSculptBrushTypes[] = { SculptBrushType::Standard, SculptBrushType::Smooth,
+                                                             SculptBrushType::Move };
 
     [[nodiscard]] const char* ToString( SculptBrushType type );
 
@@ -45,11 +49,14 @@ namespace Desert::Geometry
     // UE BaseBrushTool falloff: 1 inside (1 - Falloff) of the radius, then (1 - t^2)^3 to zero at the rim.
     [[nodiscard]] double SurfaceSculptFalloff( double distance, double radius, double falloff );
 
-    // One stamp in world space: the hit point and the surface normal there.
+    // One stamp in world space: the hit point and the surface normal there. Move also reads PrevCenter, where
+    // the brush was at the previous stamp of the stroke (UE FSculptBrushStamp's PrevStamp): it weighs the
+    // vertices by their distance to it and carries them by Center - PrevCenter.
     struct SurfaceSculptStamp
     {
         glm::dvec3 Center{ 0.0 };
         glm::dvec3 Normal{ 0.0, 1.0, 0.0 };
+        glm::dvec3 PrevCenter{ 0.0 };
     };
 
     // Applies one stamp to `mesh` (placed by `localToWorld`). Returns the vertex ids it moved, and refreshes

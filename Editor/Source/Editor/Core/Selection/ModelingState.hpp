@@ -22,7 +22,6 @@
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
 #include <Engine/Geometry/MeshAttributeOperations.hpp>
-#include <Engine/Geometry/MeshSculptBrushes.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
 #include <glm/glm.hpp>
@@ -52,9 +51,8 @@ namespace Desert::Editor::Core
             // UE's Deform palette (MeshProcessingTool): previews on the selected mesh and commits on Accept.
             Smooth,
             Offset,
-            Warp,         // UE's UMeshSpaceDeformerTool: Bend / Twist / Flare in the frame of its gizmo
-            Lattice,      // UE's ULatticeDeformerTool: a control-point lattice over the mesh's bounds (FFD)
-            VertexSculpt, // UE's UMeshVertexSculptTool: brush strokes on the mesh's vertices (Move, Smooth)
+            Warp,    // UE's UMeshSpaceDeformerTool: Bend / Twist / Flare in the frame of its gizmo
+            Lattice, // UE's ULatticeDeformerTool: a control-point lattice over the mesh's bounds (FFD)
             // UE's Attributes palette (same preview/Accept session as Deform, MeshProcessingTool).
             Tangents,      // UE's UMeshTangentsTool: MikkTSpace / Fast tangent frames, previewed as lines
             Normals,       // UE's UEditNormalsTool: recompute / split / invert the normal overlay
@@ -62,9 +60,9 @@ namespace Desert::Editor::Core
                            // (EditMaterialsTool)
             PaintGroups, // UE's UMeshGroupPaintTool: a brush / flood fill paints triangle groups (PaintGroupsTool)
             // UE's MeshOps palette (same preview/Accept session as Deform, MeshProcessingTool).
-            HoleFill, // UE's UHoleFillTool: the selected boundary loops closed Trivial / Minimal / Smooth
-            Jacket,   // UE's URemoveOccludedTrianglesTool: the triangles hidden inside the mesh removed
-            Project,  // UE's UProjectToTargetTool: the first selected mesh remeshed onto the second's surface
+            HoleFill,  // UE's UHoleFillTool: the selected boundary loops closed Trivial / Minimal / Smooth
+            Jacket,    // UE's URemoveOccludedTrianglesTool: the triangles hidden inside the mesh removed
+            Project,   // UE's UProjectToTargetTool: the first selected mesh remeshed onto the second's surface
             WeldEdges, // UE's UWeldMeshEdgesTool: coincident open edges merged (FMergeCoincidentMeshEdges)
             // UE's VoxOps palette (same preview/Accept session, MeshProcessingTool).
             VoxWrap,    // UE's UVoxelSolidifyMeshesTool: winding-number solid of the mesh, re-meshed closed
@@ -72,7 +70,8 @@ namespace Desert::Editor::Core
             VoxMorph,   // UE's UVoxelMorphologyMeshesTool: Dilate/Contract/Close/Open of the mesh's field -> a new
                         // entity
             VoxBlend,   // UE's UVoxelBlendMeshesTool: the two selected meshes' fields blended -> a new entity
-            // UE's Deform palette: Sculpt (UMeshVertexSculptTool) - brush strokes on the selected mesh.
+            // UE's Deform palette: Sculpt (UMeshVertexSculptTool) - brush strokes on the selected mesh
+            // (Standard, Smooth, Move; Geometry/DynamicMeshSculpt.hpp).
             Sculpt,
         };
 
@@ -383,9 +382,6 @@ namespace Desert::Editor::Core
         std::vector<glm::dvec3>   LatticePoints;
         std::vector<int32_t>      LatticeSelection;
         glm::mat4                 LatticeGizmo{ 1.0f };
-        // Vertex Sculpt (UE UMeshVertexSculptTool / USculptBrushProperties): the brush, its radius, strength and
-        // falloff. Each stroke edits a copy of the mesh and is committed at its end as ONE undo step.
-        Geometry::SculptSettings DeformSculpt;
         // Attributes palette -> Normals (UE UEditNormalsProperties, Geometry/MeshAttributeOperations.hpp);
         // previewed by MeshProcessingTool like the Deform tools, its report in DeformStatus.
         Geometry::NormalsSettings AttribNormals;
