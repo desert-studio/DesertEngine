@@ -98,6 +98,16 @@ def brief_size_denial(prompt):
     if not section:
         return f"[agent_guard] Тимлид: в брифе {found.group(0)} нет раздела «## Сделать»."
     body = section.group(1)
+    # Owner 10-22 «спеки = сценарии, сразу и до конца»: every brief carries the card's spec as «## Сценарий» —
+    # Дано / Когда / Тогда [кадр] lines, written BEFORE the code; the agent commits it as Scenarios/<Sub>/<CODE>.scn and
+    # proves the feature only with ~/.claude/tools/play_scenario.sh. «## Чем доказать» was the replaced free-text proof.
+    if re.search(r"^## Чем доказать", text, re.M):
+        return (f"[agent_guard] Тимлид: в брифе {found.group(0)} старый раздел «## Чем доказать» — заменён «## Сценарий» "
+                "(владелец 10-22).")
+    scen = re.search(r"^## Сценарий[^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+    if not scen or not re.search(r"^\s*(Тогда|Then)[^\n]*\[[\w.-]+\]", scen.group(1), re.M):
+        return (f"[agent_guard] Тимлид: в брифе {found.group(0)} нет «## Сценарий» с хотя бы одной строкой "
+                "«Тогда [имя_кадра]: что видно» (владелец 10-22: спека карточки = сценарий Дано/Когда/Тогда до кода).")
     items = re.findall(r"^\s*\d+[.)]\s", body, re.M)
     if len(items) > MAX_BRIEF_ITEMS or len(body) > MAX_BRIEF_DO_CHARS:
         return (f"[agent_guard] Тимлид: задача крупнее одного агента — «## Сделать» {len(items)} пунктов / {len(body)} знаков "
@@ -365,6 +375,7 @@ def self_check():
         "migrator directly": {"tool_name": "Bash", "tool_input": {"command": "./build/Bin/Debug/SceneMigrator a"}},
         "own test loop": {"tool_name": "Bash", "tool_input": {"command": "bash scripts/MacOS/RunTests.sh"}},
         "agent waits for CI": {"tool_name": "Bash", "tool_input": {"command": "gh run watch 1 --exit-status"}},
+        "editor outside a scenario": {"tool_name": "Bash", "tool_input": {"command": "DESERT_EDITOR_MANUAL=1 bash ~/.claude/tools/run_capped.sh build/Bin/Debug/Editor --control-socket /tmp/x.sock"}},
         "CI poll loop": {"tool_name": "Bash", "tool_input": {"command": "for i in $(seq 20); do gh run view 1 --json status; sleep 10; done"}},
     }
     failed = []
@@ -775,6 +786,11 @@ def main():
                      "make в ту же команду: for i in $(seq 27); do pgrep -x make >/dev/null || break; sleep 10; "
                      "done; make ...",
                      data, agent)
+        if re.search(r"DESERT_EDITOR_MANUAL|DESERT_SCENARIO\s*=", cmd):
+            save_state(state, path)
+            deny("[agent_guard] Живой редактор агент поднимает только ~/.claude/tools/play_scenario.sh <ДЕРЕВО> "
+                 "<Scenarios/…/КОД.scn> [--hold] (владелец 10-22: доказательство = сценарий); обходной флаг — только тимлиду.",
+                 data, agent)
         if runs_editor(cmd) and "run_capped" not in cmd:
             save_state(state, path)
             deny("[agent_guard] Редактор/рантайм запускается только через ограничитель памяти: "
