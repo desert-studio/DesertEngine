@@ -313,6 +313,10 @@ namespace Desert::Graphic::System
             const GpuInstanceRefs*                          Refs = nullptr; // the producer's, this frame
             // Stable per section across frames: the view-variant key (several cascades: Key * kMaxCascades + c).
             uint32_t Key = 0;
+            // Where Instances holds each instance's LAST frame transform: instance i's previous world sits at
+            // i + PrevInstanceOffset (a producer whose instances move, e.g. particle Mesh rows). 0 = the instances
+            // do not move (grass: only the wind moves them), the previous world is the world.
+            uint32_t PrevInstanceOffset = 0;
         };
 
         // A static mesh drawn with a generic data-driven material. Two producers:

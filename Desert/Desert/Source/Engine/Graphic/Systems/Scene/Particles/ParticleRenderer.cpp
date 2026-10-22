@@ -804,7 +804,18 @@ namespace Desert::Graphic::System
             state.Capacity  = capacity;
             state.Submeshes = count;
             state.Instances = ShaderResources::StorageBuffer::Create( "ParticleMeshInstances",
-                                                                      capacity * sizeof( glm::mat4 ), 3, true );
+                                                                      2u * capacity * sizeof( glm::mat4 ), 3, true );
+            // Zeroed: frame stamp 0 is no frame's (m_MeshFrame starts at 1), so no particle reads a stale row.
+            constexpr uint32_t kHistoryRow = sizeof( glm::mat4 ) + sizeof( glm::uvec4 );
+            state.History = ShaderResources::StorageBuffer::Create( "ParticleMeshHistory", capacity * kHistoryRow, 6,
+                                                                    true );
+            const std::vector<uint8_t> zeros( capacity * kHistoryRow, uint8_t{ 0 } );
+            if ( const auto cleared = state.History->SetData( zeros.data(), capacity * kHistoryRow );
+                 !cleared.IsSuccess() )
+            {
+                state.Instances = nullptr;
+                return refuse( std::format( "its transform history was not cleared: {}", cleared.GetError() ) );
+            }
             const auto argBytes = static_cast<uint32_t>( GpuInstanceArgsOffset( count ) );
             state.Args          = ShaderResources::StorageBuffer::Create( "ParticleMeshArgs", argBytes, 4, true );
             // The records' static half: each submesh's level-0 index range; instanceCount and firstInstance are
@@ -841,6 +852,8 @@ namespace Desert::Graphic::System
     {
         if ( !m_Pool.Declared || !m_MeshPipeline )
             return;
+        // One view frame: a history row stamped with the previous value is the particle's last drawn transform.
+        const uint32_t frame = ++m_MeshFrame;
         for ( uint32_t i = 0; i < static_cast<uint32_t>( m_ViewEmitters.size() ); ++i )
         {
             const ViewEmitter& ve = m_ViewEmitters[i];
@@ -854,6 +867,8 @@ namespace Desert::Graphic::System
                 Common::BoolResultStr imported = Renderer::ImportBuffer( state.Instances, state.InstancesImport );
                 if ( imported )
                     imported = Renderer::ImportBuffer( state.Args, state.ArgsImport );
+                if ( imported )
+                    imported = Renderer::ImportBuffer( state.History, state.HistoryImport );
                 if ( !imported )
                 {
                     LOG_ERROR( "[Particles] emitter {} Mesh row {} sits out this frame: {}", i, vm.Row,
@@ -864,21 +879,24 @@ namespace Desert::Graphic::System
                                                                std::format( "ParticleMeshInstances{}.{}", i, vm.Row ) );
                 state.Refs.Args =
                      graph.RegisterExternal( state.ArgsImport, std::format( "ParticleMeshArgs{}.{}", i, vm.Row ) );
+                const RDG::BufferRef history =
+                     graph.RegisterExternal( state.HistoryImport, std::format( "ParticleMeshHistory{}.{}", i, vm.Row ) );
 
                 struct MeshPush
                 {
                     glm::uvec4 Range;
                     glm::vec4  Scale;
+                    glm::uvec4 Frame;
                 };
                 const MeshPush push{ glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, half,
                                                  state.Submeshes, state.Capacity ),
-                                     glm::vec4( vm.Scale, 0.0f ) };
+                                     glm::vec4( vm.Scale, 0.0f ), glm::uvec4( frame, 0u, 0u, 0u ) };
                 const uint32_t       groups = ( state.Capacity + 63u ) / 64u;
                 const RDG::BufferRef floats = ve.FloatsRef, layout = ve.DrawLayoutRef, counters = ve.CountersRef;
                 const GpuInstanceRefs refs  = state.Refs;
                 graph.AddPass(
                      std::format( "Particles: Mesh Instances {}.{}", i, vm.Row ), RDG::PassFlags::Compute,
-                     [this, floats, layout, counters, refs]( RDG::PassBuilder& pass )
+                     [this, floats, layout, counters, refs, history]( RDG::PassBuilder& pass )
                      {
                          pass.Bindings( m_MeshLayout.Get( m_MeshPipeline->GetSpecification().Shader ),
                                         Renderer::GetPipelineRouteFill( *m_MeshPipeline ) )
@@ -888,6 +906,7 @@ namespace Desert::Graphic::System
                               .Storage( "Counters", counters, RDG::Access::StorageRead )
                               .Storage( "Instances", refs.Instances, RDG::Access::StorageWrite )
                               .Storage( "Args", refs.Args, RDG::Access::StorageWrite )
+                              .Storage( "History", history, RDG::Access::StorageWrite )
                               .PushConstantBytes( static_cast<uint32_t>( sizeof( MeshPush ) ) );
                      },
                      [this, push, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -907,7 +926,8 @@ namespace Desert::Graphic::System
                                                  .CastShadows     = true,
                                                  .Instances       = state.Instances,
                                                  .Refs            = &state.Refs,
-                                                 .Key             = 0x08000000u + state.Key * 64u + s } );
+                                                 .Key                = 0x08000000u + state.Key * 64u + s,
+                                                 .PrevInstanceOffset = state.Capacity } );
             }
         }
     }

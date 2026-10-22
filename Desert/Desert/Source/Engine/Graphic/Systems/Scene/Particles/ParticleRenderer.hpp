@@ -173,10 +173,17 @@ namespace Desert::Graphic::System
             uint64_t                                        Version = ~uint64_t{ 0 };
             uint32_t                                        Key     = 0; // stable view-variant key base
             std::vector<Section>                            Sections;
+            // 2 x Capacity transforms: [0, Capacity) this frame's, [Capacity, 2 Capacity) the same instances' last
+            // frame's (the view pass's previous world, Vertex_Instanced.glslh through the push's previous-instance
+            // offset; UE NiagaraMeshVertexFactory's PrevPosition / PrevScale / PrevRotation).
             std::shared_ptr<ShaderResources::StorageBuffer> Instances;
             std::shared_ptr<ShaderResources::StorageBuffer> Args;
+            // One row per particle of the range (ParticleMeshHistory in ParticleMeshInstances.shader): the transform
+            // the particle was last drawn with, the view frame (m_MeshFrame) and its age then.
+            std::shared_ptr<ShaderResources::StorageBuffer> History;
             RDG::ExternalBuffer                             InstancesImport;
             RDG::ExternalBuffer                             ArgsImport;
+            RDG::ExternalBuffer                             HistoryImport;
             GpuInstanceRefs                                 Refs;
         };
 
@@ -281,6 +288,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<ComputePipeline> m_MeshPipeline; // ParticleMeshInstances
         mutable ShaderBindingLayoutCache m_MeshLayout;
         uint32_t                         m_NextMeshKey = 0;
+        uint32_t                         m_MeshFrame   = 0; // AddMeshInstances calls: the history's frame stamp
         mutable ShaderBindingLayoutCache m_SortLayout;
         RDG::BufferRef                   m_SortKeysRef;
         RDG::BufferRef                   m_SortedRef; // this view's SortedAlive, valid while any ve.Sorted

@@ -64,11 +64,15 @@ void main()
     v_Surface.TBN            = mat3( T, B, N );
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
-    // An instanced batch is world-static by construction (moving an instance rebuilds the batch), so its previous
-    // world is its world; only the wind moves it, evaluated again at the view's previous time (WindB.z,
-    // Graphic::InstanceWindPush). No motion row is read.
-    const vec3 prevWorldPosition = InstancedWorldPosition(
-         model, a_Position, m_PushConstants.WindA, vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
+    // The instance's previous world: transforms[i + offset], the offset in WindB.w's bits
+    // (Graphic::InstanceWindPush, GpuInstancedRenderData::PrevInstanceOffset). A producer whose instances move
+    // (particle Mesh rows: ParticleMeshInstances writes last frame's transforms after this frame's, UE
+    // NiagaraMeshVertexFactory's PrevPosition) states it; a batch that is world-static by construction (moving an
+    // instance rebuilds it; grass) pushes 0 = its own transform. The wind is evaluated again at the view's previous
+    // time (WindB.z). No motion row is read.
+    const mat4 prevModel         = transforms[DESERT_INSTANCE_INDEX + floatBitsToUint( m_PushConstants.WindB.w )];
+    const vec3 prevWorldPosition = InstancedWorldPosition( prevModel, a_Position, m_PushConstants.WindA,
+                                                           vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPosition, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( prevWorldPosition, 1.0 );
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )
