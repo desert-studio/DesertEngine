@@ -136,8 +136,8 @@ namespace Desert::Graphic::System
             m_Programs[kCascadeProgram].Shader = shaders->GetByName( "DeferredLighting" );
             if ( !m_Programs[kCascadeProgram].Shader )
                 return Common::MakeError( "DeferredLighting shader not found" );
-            // The screen-mask permutation (the ray-traced sun, the virtual shadow map): u_ScreenShadowMask in
-            // place of u_ShadowCascades.
+            // The screen-mask permutation (the ray-traced sun, the virtual shadow map): ScreenShadowMaskTexture in
+            // place of ShadowCascadesTexture.
             // Shadows Stochastic: the ray-traced sun's mask, and the local lights from MegaLights in place of the
             // light-grid loop and its shadow maps. Shadows HardwareTraced: the ray-traced sun's mask, and the local
             // lights' ray-traced masks by slot. Each from the one list the cook ships (ProgramVariants).

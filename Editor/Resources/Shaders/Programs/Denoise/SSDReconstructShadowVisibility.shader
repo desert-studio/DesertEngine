@@ -41,8 +41,8 @@ Shader "SSDReconstructShadowVisibility"
         {
         	vec4 Params; // x = tan(light source angle / 2), y = kernel radius in taps per side (Scalability
         	               // Shadows.RayTracedDenoiserRadius: 2 = 5x5), zw unused
-        	vec4 u_LocalLight; // a local light's emitter sphere: xyz = position cm, w = source radius cm (0 = the
-        	                   // angle in u_Params.x sizes the penumbra)
+        	vec4 LocalLightSphere; // a local light's emitter sphere: xyz = position cm, w = source radius cm (0 = the
+        	                   // angle in Params.x sizes the penumbra)
         };
 
         LocalSize(8, 8, 1);
@@ -82,9 +82,9 @@ Shader "SSDReconstructShadowVisibility"
         		}
         	// A sphere light of radius R at distance d behind an occluder at t from the receiver: a penumbra
         	// R * t / (d - t) wide; a directional light: t * tan(angle / 2).
-        	const float penumbra = u_LocalLight.w > 0.0
-        	                           ? occluder * u_LocalLight.w / max(distance(ref.Position, u_LocalLight.xyz) - occluder, 1e-3)
-        	                           : occluder * u_Params.x;
+        	const float penumbra = LocalLightSphere.w > 0.0
+        	                           ? occluder * LocalLightSphere.w / max(distance(ref.Position, LocalLightSphere.xyz) - occluder, 1e-3)
+        	                           : occluder * Params.x;
         	const float kernelPixels = clamp(penumbra / pixelRadius, 0.0, kMaxKernelPixels);
         	if (kernelPixels < 0.5)
         	{

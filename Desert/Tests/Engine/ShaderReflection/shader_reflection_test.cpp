@@ -739,7 +739,7 @@ TEST( ShaderReflection, AnAccelerationStructureIsReflectedOnItsSetAndBinding )
     const char*             source = R"(#version 460
 #extension GL_EXT_ray_query : require
 layout(set = 1, binding = 3) uniform accelerationStructureEXT SceneColorTexture;
-layout(binding = 0, r8) writeonly uniform image2D u_Visibility;
+layout(binding = 0, r8) writeonly uniform image2D VisibilityTexture;
 layout(local_size_x = 8, local_size_y = 8) in;
 void main()
 {
@@ -747,7 +747,7 @@ void main()
     rayQueryInitializeEXT(q, SceneColorTexture, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, vec3(0.0), 0.0, vec3(0.0, 1.0, 0.0), 1000.0);
     while (rayQueryProceedEXT(q)) {}
     float lit = rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
-    imageStore(u_Visibility, ivec2(gl_GlobalInvocationID.xy), vec4(lit));
+    imageStore(VisibilityTexture, ivec2(gl_GlobalInvocationID.xy), vec4(lit));
 }
 )";
     shaderc::Compiler       compiler;

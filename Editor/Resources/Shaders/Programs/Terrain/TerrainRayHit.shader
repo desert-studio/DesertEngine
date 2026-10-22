@@ -27,7 +27,7 @@ Shader "TerrainRayHit"
 
             void main()
             {
-                LandscapeRayHitRowRef row      = LandscapeRayHitRowRef( u_RayHitRecord.MaterialRow );
+                LandscapeRayHitRowRef row      = LandscapeRayHitRowRef( RayHitRecord.MaterialRow );
                 g_LandscapeRayHitRow           = row;
                 const TerrainInstance tile     = row.Tile;
                 const vec3            position = LandscapeRayHitPosition();

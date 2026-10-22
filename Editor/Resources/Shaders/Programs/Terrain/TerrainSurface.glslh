@@ -98,12 +98,12 @@
         vec4 LandscapeLayerMapSample( int k, int kind, float slice, vec2 uv, float uvPerCm )
         {
             if ( kind == 0 )
-                return texture( u_LayerAlbedo, vec3( uv, slice ) );
+                return texture( LayerAlbedoTexture, vec3( uv, slice ) );
             if ( kind == 1 )
-                return texture( u_LayerNormal, vec3( uv, slice ) );
+                return texture( LayerNormalTexture, vec3( uv, slice ) );
             if ( kind == 2 )
-                return texture( u_LayerARM, vec3( uv, slice ) );
-            return texture( u_LayerHeight, vec3( uv, slice ) );
+                return texture( LayerArmTexture, vec3( uv, slice ) );
+            return texture( LayerHeightTexture, vec3( uv, slice ) );
         }
 
         // The landscape material's values the ground reads, from this draw's material row (the hit group's row
@@ -111,24 +111,24 @@
         LandscapeMaterial TerrainMaterial()
         {
             LandscapeMaterial m;
-            m.Tiling = vec4( u_Material.FarTilingDistance, u_Material.FarTilingScale, u_Material.MacroVariationSize,
-                             u_Material.MacroVariationStrength );
-            m.LayerTint[0]   = u_Material.Layer0Tint;
-            m.LayerTint[1]   = u_Material.Layer1Tint;
-            m.LayerTint[2]   = u_Material.Layer2Tint;
-            m.LayerTint[3]   = u_Material.Layer3Tint;
-            m.LayerTint[4]   = u_Material.Layer4Tint;
-            m.LayerTint[5]   = u_Material.Layer5Tint;
-            m.LayerTint[6]   = u_Material.Layer6Tint;
-            m.LayerTint[7]   = u_Material.Layer7Tint;
-            m.LayerParams[0] = vec4( u_Material.Layer0TileSize, float( u_Material.Layer0Blend ), 0.0, 0.0 );
-            m.LayerParams[1] = vec4( u_Material.Layer1TileSize, float( u_Material.Layer1Blend ), 0.0, 0.0 );
-            m.LayerParams[2] = vec4( u_Material.Layer2TileSize, float( u_Material.Layer2Blend ), 0.0, 0.0 );
-            m.LayerParams[3] = vec4( u_Material.Layer3TileSize, float( u_Material.Layer3Blend ), 0.0, 0.0 );
-            m.LayerParams[4] = vec4( u_Material.Layer4TileSize, float( u_Material.Layer4Blend ), 0.0, 0.0 );
-            m.LayerParams[5] = vec4( u_Material.Layer5TileSize, float( u_Material.Layer5Blend ), 0.0, 0.0 );
-            m.LayerParams[6] = vec4( u_Material.Layer6TileSize, float( u_Material.Layer6Blend ), 0.0, 0.0 );
-            m.LayerParams[7] = vec4( u_Material.Layer7TileSize, float( u_Material.Layer7Blend ), 0.0, 0.0 );
+            m.Tiling = vec4( Material.FarTilingDistance, Material.FarTilingScale, Material.MacroVariationSize,
+                             Material.MacroVariationStrength );
+            m.LayerTint[0]   = Material.Layer0Tint;
+            m.LayerTint[1]   = Material.Layer1Tint;
+            m.LayerTint[2]   = Material.Layer2Tint;
+            m.LayerTint[3]   = Material.Layer3Tint;
+            m.LayerTint[4]   = Material.Layer4Tint;
+            m.LayerTint[5]   = Material.Layer5Tint;
+            m.LayerTint[6]   = Material.Layer6Tint;
+            m.LayerTint[7]   = Material.Layer7Tint;
+            m.LayerParams[0] = vec4( Material.Layer0TileSize, float( Material.Layer0Blend ), 0.0, 0.0 );
+            m.LayerParams[1] = vec4( Material.Layer1TileSize, float( Material.Layer1Blend ), 0.0, 0.0 );
+            m.LayerParams[2] = vec4( Material.Layer2TileSize, float( Material.Layer2Blend ), 0.0, 0.0 );
+            m.LayerParams[3] = vec4( Material.Layer3TileSize, float( Material.Layer3Blend ), 0.0, 0.0 );
+            m.LayerParams[4] = vec4( Material.Layer4TileSize, float( Material.Layer4Blend ), 0.0, 0.0 );
+            m.LayerParams[5] = vec4( Material.Layer5TileSize, float( Material.Layer5Blend ), 0.0, 0.0 );
+            m.LayerParams[6] = vec4( Material.Layer6TileSize, float( Material.Layer6Blend ), 0.0, 0.0 );
+            m.LayerParams[7] = vec4( Material.Layer7TileSize, float( Material.Layer7Blend ), 0.0, 0.0 );
             return m;
         }
 
@@ -140,18 +140,18 @@
         {
             vec4 w0 = vec4( 0.0 );
             vec4 w1 = vec4( 0.0 );
-            if ( LandscapeTileHasLayers( u_T ) )
+            if ( LandscapeTileHasLayers( CurrentTerrain ) )
             {
-                vec2  g     = LandscapeTileSampleCoord( u_T, v_WorldPos );
-                vec2  size  = vec2( textureSize( u_Weightmap, 0 ) );
-                float pages = LandscapeTilePages( u_T );
-                w0          = texture( u_Weightmap, LandscapeWeightmapPageUV( g, 0.0, size, pages ) );
+                vec2  g     = LandscapeTileSampleCoord( CurrentTerrain, v_WorldPos );
+                vec2  size  = vec2( textureSize( WeightmapTexture, 0 ) );
+                float pages = LandscapeTilePages( CurrentTerrain );
+                w0          = texture( WeightmapTexture, LandscapeWeightmapPageUV( g, 0.0, size, pages ) );
                 if ( pages > 1.5 )
-                    w1 = texture( u_Weightmap, LandscapeWeightmapPageUV( g, 1.0, size, pages ) );
-                if ( LandscapeTileIsHole( u_T, w0, w1 ) )
+                    w1 = texture( WeightmapTexture, LandscapeWeightmapPageUV( g, 1.0, size, pages ) );
+                if ( LandscapeTileIsHole( CurrentTerrain, w0, w1 ) )
                     discard;
             }
             // Distance to the camera for the far tiling: the view-space length, from the matrix the frame has.
             float dist = length( ( u.View * vec4( v_WorldPos, 1.0 ) ).xyz );
-            return EvaluateLandscapeSurface( u_T, TerrainMaterial(), v_WorldPos, normalize( v_Normal ), dist, w0, w1 );
+            return EvaluateLandscapeSurface( CurrentTerrain, TerrainMaterial(), v_WorldPos, normalize( v_Normal ), dist, w0, w1 );
         }

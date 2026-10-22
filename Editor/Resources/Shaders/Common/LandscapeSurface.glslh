@@ -3,7 +3,7 @@
 // paths of a tile read - the raster fragment (Programs/Terrain/TerrainSurface.glslh, Terrain = forward and
 // TerrainGBuffer = deferred) and the landscape's ray tracing hit group (Programs/Terrain/TerrainRayHit.shader, UE: the
 // landscape material's hit shaders, which evaluate the SAME material graph). Each caller samples the weightmap its own
-// way (a bound texture, or the bindless table at a LOD), hands in the material's values (the raster's u_Material, the
+// way (a bound texture, or the bindless table at a LOD), hands in the material's values (the raster's Material, the
 // hit group's row) and fetches the layer maps its own way (LandscapeLayerMapSample, below); every line between those
 // samples and the surface is here, once.
 //
@@ -44,7 +44,7 @@ bool LandscapeTileIsHole( TerrainInstance t, vec4 w0, vec4 w1 )
 }
 
 // THE LANDSCAPE MATERIAL'S VALUES the ground reads (Terrain.shader / TerrainGBuffer.shader Properties): the raster
-// builds it from u_Material (TerrainSurface.glslh TerrainMaterial), the hit group reads it from its row. C++ twin:
+// builds it from Material (TerrainSurface.glslh TerrainMaterial), the hit group reads it from its row. C++ twin:
 // Graphic/Systems/Scene/Terrain/TerrainLayerInputs.hpp LandscapeMaterialValues (vec4 slots only: one layout in
 // std140, std430 and the C++ struct).
 struct LandscapeMaterial

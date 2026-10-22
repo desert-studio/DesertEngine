@@ -13,6 +13,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <algorithm>
+#include <array>
 #include <format>
 #include <iterator>
 #include <unordered_set>
@@ -48,6 +49,16 @@ namespace Desert::Graphic::RayTracing
         };
         constexpr uint32_t kGpuInstanceRowsGroupSize = 64; // the program's LocalSize
 
+        // RayTracingGpuInstances.shader's buffers: bound through these members, checked against the shader's
+        // reflected layout when the program is created.
+        struct GpuInstanceRowsShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, Transforms );
+            DESERT_SHADER_PARAMETER( StorageBuffer, Args );
+            DESERT_SHADER_PARAMETER( StorageBuffer, TlasRows );
+            static constexpr std::array kAll{ RDG::Erase( Transforms ), RDG::Erase( Args ), RDG::Erase( TlasRows ) };
+        };
+
         class GpuInstanceRows final : public RayTracingGpuInstanceRows
         {
         public:
@@ -68,6 +79,8 @@ namespace Desert::Graphic::RayTracing
                     const auto made = ComputePipeline::Create( { .Shader = shader, .DebugName = kProgramName } );
                     if ( !made )
                         return Common::MakeError( made.GetError() );
+                    if ( auto checked = m_Layout.Validate( shader, GpuInstanceRowsShaderParameters::kAll ); !checked )
+                        return Common::MakeError( checked.GetError() );
                     m_Program = made.GetValue();
                 }
                 const auto skip = [&list]( RayTracingSkip reason )
@@ -133,9 +146,9 @@ namespace Desert::Graphic::RayTracing
                          const auto& layout = m_Layout.Get( m_Program->GetSpecification().Shader );
                          for ( const Source& source : sources )
                              pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Program ) )
-                                  .Storage( "Transforms", source.Refs.Instances, RDG::Access::StorageRead )
-                                  .Storage( "Args", source.Refs.Args, RDG::Access::StorageRead )
-                                  .Storage( "TlasRows", instances, RDG::Access::StorageWrite )
+                                  .Storage( GpuInstanceRowsShaderParameters::Transforms, source.Refs.Instances, RDG::Access::StorageRead )
+                                  .Storage( GpuInstanceRowsShaderParameters::Args, source.Refs.Args, RDG::Access::StorageRead )
+                                  .Storage( GpuInstanceRowsShaderParameters::TlasRows, instances, RDG::Access::StorageWrite )
                                   .PushConstantBytes( static_cast<uint32_t>( sizeof( GpuInstanceRowsPush ) ) );
                      },
                      [program = m_Program, sources]( RDG::PassContext& context ) -> Common::BoolResultStr

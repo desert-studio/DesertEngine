@@ -73,12 +73,12 @@ Shader "PathTracer"
             // The cloud layer's shadow map (VolumetricCloudRenderer, CloudShadowMapOrWhite) and its block
             // (CloudShadowPackUniforms): the sun's transmittance through the clouds, the receiver text every lit
             // pass compiles (Common/CloudShadowReceiver.glslh).
-            Uniform sampler u_LinearRepeatSampler;
-            Uniform(16) texture2D u_CloudShadowMap;
-            #define u_CloudShadowMap sampler2D(u_CloudShadowMap, u_LinearRepeatSampler)
+            Uniform sampler LinearRepeatSampler;
+            Uniform(16) texture2D CloudShadowMapTexture;
+            #define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearRepeatSampler)
             Uniform(17) CloudShadowUB {
-                mat4 u_CloudShadowWorldToMap;
-                vec4 u_CloudShadowParams;
+                mat4 CloudShadowWorldToMap;
+                vec4 CloudShadowParams;
             };
             #include <Common/CloudShadowReceiver.glslh>
 
@@ -297,9 +297,9 @@ Shader "PathTracer"
             {
                 payload.HitT         = -1.0;
                 payload.ConeWidth    = coneWidth;
-                payload.ConeSpread   = u_Sun.y;
+                payload.ConeSpread   = SunParams.y;
                 payload.Transmission = vec3(0.0);
-                traceRayEXT(u_SceneTLAS, gl_RayFlagsNoneEXT, cullMask, 0u, 1u, 0u, origin, tMin, direction, distance, 0);
+                traceRayEXT(SceneTlas, gl_RayFlagsNoneEXT, cullMask, 0u, 1u, 0u, origin, tMin, direction, distance, 0);
             }
             void PathTracingTraceMaterialTo(vec3 origin, vec3 direction, float coneWidth, float distance)
             {
@@ -318,7 +318,7 @@ Shader "PathTracer"
             vec3 PathTracingTransmittance(vec3 origin, vec3 direction, float distance)
             {
                 payload.HitT = 1.0;
-                traceRayEXT(u_SceneTLAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT,
+                traceRayEXT(SceneTlas, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT,
                             kPathTracingMaskOpaque, 0u, 1u, 0u, origin, 0.0, direction, distance, 0);
                 if (payload.HitT >= 0.0)
                     return vec3(0.0);
@@ -451,7 +451,7 @@ Shader "PathTracer"
                 }
                 if (chosen == 1u)
                 {
-                    const PathTracingSkySample s = PathTracingSkySampleLight(u, u_Sky.x, u_Sky.y);
+                    const PathTracingSkySample s = PathTracingSkySampleLight(u, SkyParams.x, SkyParams.y);
                     if (s.Pdf <= 0.0 || dot(N, s.Direction) <= 0.0)
                         return vec3(0.0);
                     const vec3 transmittance = PathTracingTransmittance(origin, s.Direction, 1.0e9);
@@ -615,7 +615,7 @@ Shader "PathTracer"
                         radiance += throughput * payload.Emissive *
                                     PathTracingEmissiveHitWeight(dir, pastGlass ? -1.0 : bsdfPdf);
 
-                    coneWidth += u_Sun.y * payload.HitT;
+                    coneWidth += SunParams.y * payload.HitT;
                     // The next rays leave the surface by an offset that grows with the distance travelled, so they do
                     // not meet the triangle they start on.
                     const float offset = 0.05 + 1.0e-5 * length(P - cameraUB.CameraPos);
@@ -623,7 +623,7 @@ Shader "PathTracer"
                     {
                         // A glass interface: reflect with the Fresnel probability, otherwise transmit; each choice's
                         // weight is its probability, so the throughput keeps only the tint and the absorption.
-                        if (bounce >= u_Counts.w)
+                        if (bounce >= Counts.w)
                             break;
                         const bool  front = (payload.Flags & kDesertRayPayloadFrontFace) != 0u;
                         const bool  thin  = payload.Ior <= 1.0;

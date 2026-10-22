@@ -150,7 +150,7 @@ namespace Desert::ECS
                      renderCommandBuffer.Emplace<Graphic::Render::DrawGenericMeshCommand>(
                           static_cast<uint32_t>( entity ), text.RuntimeMesh.get(), worldTransform,
                           std::string( "TextSDF" ), std::move( overrides ), /*outlined*/ false, font->Atlas.get(),
-                          std::string( "u_SDFAtlas" ), /*castShadows*/ false, /*maxDrawDistance*/ 0.0f,
+                          std::string( "SdfAtlasTexture" ), /*castShadows*/ false, /*maxDrawDistance*/ 0.0f,
                           /*visibleInRayTracing*/ traced, std::move( rayHit ) );
                  } );
         }

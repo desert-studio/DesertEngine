@@ -309,9 +309,6 @@ namespace Desert::Graphic::DistanceField
         if ( const auto valid = m_CompositeLayout.Validate( m_CompositeShader, GlobalDistanceFieldCompositeShaderParameters::kAll );
              !valid )
             return valid;
-        if ( const auto valid = m_ViewLayout.Validate( m_ViewShader, GlobalDistanceFieldViewShaderParameters::kAll );
-             !valid )
-            return valid;
         // Last: IsInitialized() reads the composite pipeline, so a field is initialised only once everything is.
         m_CompositePipeline = pipeline.GetValue();
         return BOOLSUCCESS;
@@ -326,6 +323,9 @@ namespace Desert::Graphic::DistanceField
         m_ViewShader       = shaders->GetByName( "GlobalDistanceFieldView" );
         if ( !m_ViewShader )
             return Common::MakeError<bool>( "global distance field view: shader GlobalDistanceFieldView not found" );
+        if ( const auto valid = m_ViewLayout.Validate( m_ViewShader, GlobalDistanceFieldViewShaderParameters::kAll );
+             !valid )
+            return valid;
         for ( const auto& [name, shader, cullPipeline] :
               { std::tuple{ "MeshSDFCullObjects", &m_CullObjectsShader, &m_CullObjectsPipeline },
                 std::tuple{ "MeshSDFCullGrid", &m_CullGridShader, &m_CullGridPipeline },

@@ -93,7 +93,7 @@ namespace Desert::Core
     // (BindSceneViewInputs); declared in Mesh/ForwardLocalLights.glslh.
     inline constexpr uint32_t kLocalShadowAtlasBinding = kSceneReadBindingFirst + 13u;
     inline constexpr uint32_t kLocalShadowViewsBinding = kSceneReadBindingFirst + 14u;
-    // The view's ray-traced local shadow masks (`u_LocalShadowMasks`, Graphic/RayTracedLocalShadow.hpp: one layer per
+    // The view's ray-traced local shadow masks (`LocalShadowMasksTexture`, Graphic/RayTracedLocalShadow.hpp: one layer per
     // shadowed light, by its shadowMaskSlot), read by the OPAQUE forward cells instead of the atlas when the local
     // shadows are ray traced (DESERT_LOCAL_SHADOW_SCREEN_MASK, as the deferred composite reads them). Bound by name
     // from the frame graph (BindSceneViewInputs); declared in Mesh/ForwardLocalLights.glslh.
@@ -107,7 +107,7 @@ namespace Desert::Core
 
     /**
      * THE VIRTUAL SHADOW RASTER'S OWN SLOTS ("VSM: Raster", MeshRenderer::AddVirtualShadowRasterPasses): the frame's
-     * level table (`VsmFrameData`), the page table (`VsmPageTable`), the physical pool (`u_PhysicalPool`) and the
+     * level table (`VsmFrameData`), the page table (`VsmPageTable`), the physical pool (`PhysicalPoolTexture`) and the
      * level the draw rasterizes (`VsmRasterLevel`), declared by Common/VirtualShadowRaster.glslh, and the level's
      * instance remap (`VsmInstanceRemap`, Mesh/Surface/Vertex_Instanced.glslh). Bound by name.
      *

@@ -576,7 +576,7 @@ namespace Desert::Graphic::System
         // The mesh part of SceneRenderer::SunCascadesRead ("does a program of this frame sample the sun's cascades
         // while the sun is a screen mask"): a blended draw of the generic queue, or a translucent section of the
         // static queue (glass, its front layer cell), in the camera's frustum, whose program declares
-        // u_ShadowCascades (the opaque generic ones read the screen mask through their
+        // ShadowCascadesTexture (the opaque generic ones read the screen mask through their
         // DESERT_SUN_SHADOW_SCREEN_MASK permutation, the lit queue is shaded by the composite).
         [[nodiscard]] bool SunCascadeReadersQueued() const;
         // The mesh part of SceneRenderer::LocalShadowMapsRead ("does a program of this frame sample the local shadow
@@ -1192,7 +1192,7 @@ namespace Desert::Graphic::System
         // that builds or cooks it: "Deferred: Generic" (BuildGenericDraws), the prepass's readiness check
         // (GenericForwardPipelineReady) and the cook (MaterialProgramVariants, OverrideProgramVariants). An
         // opaque program reads DESERT_SUN_SHADOW_SCREEN_MASK when @p rayTracedSun and it samples the sun's shadow
-        // (declares u_ShadowCascades), and DESERT_LOCAL_SHADOW_SCREEN_MASK when @p localShadowMasks (the view has
+        // (declares ShadowCascadesTexture), and DESERT_LOCAL_SHADOW_SCREEN_MASK when @p localShadowMasks (the view has
         // SceneViewInputs.LocalShadowMasks) and it samples the local shadow atlas; defines in that order (sun,
         // then local), ShippedByCook. A blended program (TextSDF) or one that reads neither is the default
         // permutation (shaded through itself).

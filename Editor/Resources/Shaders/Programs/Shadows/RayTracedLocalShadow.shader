@@ -19,69 +19,69 @@ Shader "RayTracedLocalShadow"
         #include <Common/LightSourceSampling.glslh>
         #include <Common/ReconstructPosition.glslh>
 
-        Uniform sampler u_PointClampSampler;
-        Uniform(1) texture2D u_GBufferDepth;  // device depth, reversed-Z (0 = far: no surface)
-        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
-        Uniform(2) texture2D u_GBufferNormal; // rgb = world normal, a = roughness
-        #define u_GBufferNormal sampler2D(u_GBufferNormal, u_PointClampSampler)
-        layout(binding = 5, rgba16f) writeonly uniform image2D u_ShadowMask;     // r = visibility, 1 = lit
-        layout(binding = 6, rgba16f) writeonly uniform image2D u_ShadowOccluder; // r = closest occluder, cm; -1 = none
+        Uniform sampler PointClampSampler;
+        Uniform(1) texture2D GBufferDepthTexture;  // device depth, reversed-Z (0 = far: no surface)
+        #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+        Uniform(2) texture2D GBufferNormalTexture; // rgb = world normal, a = roughness
+        #define GBufferNormalTexture sampler2D(GBufferNormalTexture, PointClampSampler)
+        layout(binding = 5, rgba16f) writeonly uniform image2D ShadowMaskTexture;     // r = visibility, 1 = lit
+        layout(binding = 6, rgba16f) writeonly uniform image2D ShadowOccluderTexture; // r = closest occluder, cm; -1 = none
 
         // RayTracedLocalShadowPush (RayTracedLocalShadow.hpp).
         PushConstant PushConstants
         {
-        	mat4 u_InvJitteredViewProjection;
-        	vec4 u_Light;       // xyz = position cm, w = attenuation radius cm
-        	vec4 u_TraceParams; // x = source radius cm, y = normal bias cm, z = samples per pixel, w = frame index
-        	vec4 u_Spot;        // xyz = direction out of the cone apex, w = cos outer (-2 = a point light)
+        	mat4 InverseJitteredViewProjection;
+        	vec4 LightSphere;       // xyz = position cm, w = attenuation radius cm
+        	vec4 TraceParams; // x = source radius cm, y = normal bias cm, z = samples per pixel, w = frame index
+        	vec4 SpotCone;        // xyz = direction out of the cone apex, w = cos outer (-2 = a point light)
         };
 
         LocalSize(8, 8, 1);
 
         void WriteUnoccluded(ivec2 pixel)
         {
-            imageStore( u_ShadowMask, pixel, vec4( 1.0 ) );
-            imageStore( u_ShadowOccluder, pixel, vec4( -1.0 ) );
+            imageStore( ShadowMaskTexture, pixel, vec4( 1.0 ) );
+            imageStore( ShadowOccluderTexture, pixel, vec4( -1.0 ) );
         }
 
         void main()
         {
             const ivec2 pixel = ivec2( gl_GlobalInvocationID.xy );
-            const ivec2 size  = imageSize( u_ShadowMask );
+            const ivec2 size  = imageSize( ShadowMaskTexture );
             if ( pixel.x >= size.x || pixel.y >= size.y )
                 return;
 
-            const float depth = texelFetch( u_GBufferDepth, pixel, 0 ).r;
+            const float depth = texelFetch( GBufferDepthTexture, pixel, 0 ).r;
             if ( depth <= 0.0 )
             {
                 WriteUnoccluded( pixel );
                 return;
             }
             const vec2 uv       = ( vec2( pixel ) + 0.5 ) / vec2( size );
-            const vec3 position = ReconstructWorldPosition( uv, depth, u_InvJitteredViewProjection );
-            const vec3 toLight  = u_Light.xyz - position;
+            const vec3 position = ReconstructWorldPosition( uv, depth, InverseJitteredViewProjection );
+            const vec3 toLight  = LightSphere.xyz - position;
             const float distance = length( toLight );
-            if ( distance > u_Light.w || distance <= 0.0 )
+            if ( distance > LightSphere.w || distance <= 0.0 )
             {
                 WriteUnoccluded( pixel );
                 return;
             }
             const vec3 axis = toLight / distance;
-            if ( dot( -axis, normalize( u_Spot.xyz ) ) < u_Spot.w )
+            if ( dot( -axis, normalize( SpotCone.xyz ) ) < SpotCone.w )
             {
                 WriteUnoccluded( pixel );
                 return;
             }
-            const vec3  normal  = normalize( texelFetch( u_GBufferNormal, pixel, 0 ).rgb );
-            const float bias    = u_TraceParams.y;
-            const uint  samples = max( uint( u_TraceParams.z ), 1u );
+            const vec3  normal  = normalize( texelFetch( GBufferNormalTexture, pixel, 0 ).rgb );
+            const float bias    = TraceParams.y;
+            const uint  samples = max( uint( TraceParams.z ), 1u );
             float       visible  = 0.0;
             float       occluder = -1.0;
             for ( uint s = 0u; s < samples; ++s )
             {
                 float      reach;
-                const vec3 dir = SampleLightSourceSphere( axis, distance, u_TraceParams.x,
-                                                          ConeRandom2( uvec2( pixel ), uint( u_TraceParams.w ), s ), reach );
+                const vec3 dir = SampleLightSourceSphere( axis, distance, TraceParams.x,
+                                                          ConeRandom2( uvec2( pixel ), uint( TraceParams.w ), s ), reach );
                 // UE r.RayTracing.NormalBias: off the surface along its normal, on the side facing the ray; the
                 // ray stops short of the emitter by the same bias at both ends.
                 const vec3  origin = position + normal * ( dot( normal, dir ) >= 0.0 ? 1.0 : -1.0 ) * bias;
@@ -92,8 +92,8 @@ Shader "RayTracedLocalShadow"
                 if ( v == 0.0 )
                     occluder = occluder < 0.0 ? hitT : min( occluder, hitT );
             }
-            imageStore( u_ShadowMask, pixel, vec4( visible / float( samples ) ) );
-            imageStore( u_ShadowOccluder, pixel, vec4( occluder ) );
+            imageStore( ShadowMaskTexture, pixel, vec4( visible / float( samples ) ) );
+            imageStore( ShadowOccluderTexture, pixel, vec4( occluder ) );
         }
     }
 }

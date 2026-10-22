@@ -905,7 +905,7 @@ namespace Desert::Graphic
         // why turning it on in the default Deferred path did nothing at all.
         //
         // LightingDebug is the per-light attribution view, and it is a BRANCH IN THE Lit MESH SHADERS
-        // (u_DebugParams.y, StaticMeshLit / StaticMeshLit_Instanced / StandardSurface's Vertex_Skinned cell). The deferred
+        // (DebugParams.y, StaticMeshLit / StaticMeshLit_Instanced / StandardSurface's Vertex_Skinned cell). The deferred
         // lighting pass writes `DebugParams = vec4(0)` unconditionally — MaterialDeferredLighting's
         // UploadShadow — so the flag reaches no shader on that path. Forty-six of this repository's
         // forty-nine scenes state Deferred and the struct's default is Deferred, so WITHOUT this line the
@@ -1790,7 +1790,7 @@ namespace Desert::Graphic
             // The sun's cascades this frame: always under CascadedMaps; under a ray-traced sun only when a program
             // of this frame samples them (SunCascadesRead: blended/glass mesh draws, forward terrain, particles,
             // whose program
-            // declares u_ShadowCascades - the low-detail sun CSM, budgeted by the Shadows.RayTracedTranslucency*
+            // declares ShadowCascadesTexture - the low-detail sun CSM, budgeted by the Shadows.RayTracedTranslucency*
             // rows). Not drawn -> the view binds the far-plane stand-in, never last drawn frame's maps; drawn
             // after a gap -> every cascade's static cache is redrawn (it went stale while nothing drew it). A
             // path-traced frame reads no cascade: its paths trace the sun's visibility through the TLAS, and the

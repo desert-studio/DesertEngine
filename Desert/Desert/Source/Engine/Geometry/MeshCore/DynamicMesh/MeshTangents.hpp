@@ -102,6 +102,10 @@ namespace Desert::Geometry
                                        const DynamicMeshUVOverlay* UVOverlay, const ComputeTangentsOptions& Options );
         void ComputeMikkTStyleTangents( const DynamicMeshNormalOverlay* NormalOverlay,
                                         const DynamicMeshUVOverlay* UVOverlay, const ComputeTangentsOptions& Options );
+        // UE ComputeSeparatePerTriangleTangents: each corner's frame from its own triangle, in the plane of the
+        // corner's overlay normal. Triangles unset in @p UVOverlay are left unwritten.
+        void ComputeSeparatePerTriangleTangents( const DynamicMeshNormalOverlay* NormalOverlay,
+                                                 const DynamicMeshUVOverlay*     UVOverlay );
         const std::vector<int>& GetDegenerateTris() const
         {
             return m_DegenerateTris;

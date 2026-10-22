@@ -274,17 +274,17 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewSceneDepthName       = "SceneDepthTexture";
     inline constexpr std::string_view kSceneViewSceneShadingWordName = "SceneShadingWordTexture";
     // DeferredLighting.shader and Mesh/Surface/Pass_Forward.glslh's DESERT_SUN_SHADOW_SCREEN_MASK branch.
-    inline constexpr std::string_view kSceneViewSunShadowMaskName = "u_ScreenShadowMask";
+    inline constexpr std::string_view kSceneViewSunShadowMaskName = "ScreenShadowMaskTexture";
     // DeferredLighting.shader and Mesh/ForwardLocalLights.glslh's DESERT_LOCAL_SHADOW_SCREEN_MASK branch.
-    inline constexpr std::string_view kSceneViewLocalShadowMasksName = "u_LocalShadowMasks";
-    inline constexpr std::string_view kSceneViewRainOcclusionMapName = "u_RainOcclusionMap";
+    inline constexpr std::string_view kSceneViewLocalShadowMasksName = "LocalShadowMasksTexture";
+    inline constexpr std::string_view kSceneViewRainOcclusionMapName = "RainOcclusionMapTexture";
     // Its own shared sampler state (SharedSamplerBinding.hpp): the G-buffer cells declare none of the others.
     inline constexpr std::string_view kSceneViewRainOcclusionSamplerName = "RainOcclusionSampler";
     // The permutation define of every program that reads kSceneViewSunShadowMaskName in place of the cascades
     // (DeferredLighting.shader, Mesh/Surface/Pass_Forward.glslh): one name for every renderer that acquires it.
     inline constexpr std::string_view kSunShadowScreenMaskDefine = "DESERT_SUN_SHADOW_SCREEN_MASK";
     // The deferred composite's ray-traced local lights (Shadows HardwareTraced): each light with a ShadowMaskSlot
-    // reads its layer of u_LocalShadowMasks (System::RayTracedLocalShadowRenderer) in place of its shadow map.
+    // reads its layer of LocalShadowMasksTexture (System::RayTracedLocalShadowRenderer) in place of its shadow map.
     inline constexpr std::string_view kLocalShadowScreenMaskDefine = "DESERT_LOCAL_SHADOW_SCREEN_MASK";
     // The deferred composite's MegaLights program (Shadows Stochastic): the local lights from MegaLights'
     // MegaLightsDiffuseTexture / MegaLightsSpecularTexture (System::MegaLightsRenderer) in place of the light-grid loop.
@@ -320,6 +320,7 @@ namespace Desert::Graphic
     inline constexpr RDG::TextureParameter       kSceneViewSceneDepth{ kSceneViewSceneDepthName };
     inline constexpr RDG::TextureParameter       kSceneViewSceneShadingWord{ kSceneViewSceneShadingWordName };
     inline constexpr RDG::TextureParameter       kSceneViewSunShadowMask{ kSceneViewSunShadowMaskName };
+    inline constexpr RDG::TextureParameter       kSceneViewLocalShadowMasks{ kSceneViewLocalShadowMasksName };
     inline constexpr RDG::StorageBufferParameter kLightGridParamsBlock{ kLightGridParamsBlockName };
     inline constexpr RDG::StorageBufferParameter kLightGridCellsBlock{ kLightGridCellsBlockName };
     inline constexpr RDG::StorageBufferParameter kLocalShadowViewsBlock{ kLocalShadowViewsBlockName };
@@ -426,12 +427,10 @@ namespace Desert::Graphic
             // Read with texelFetch at the fragment (the mask is the render resolution the forward draws raster
             // at).
             if ( inputs.SunShadowMask.IsValid() )
-                bind( kSceneViewSunShadowMaskName, inputs.SunShadowMask, kPoint, RDG::SamplerDesc::PointClamp() );
+                bind( kSceneViewSunShadowMask, inputs.SunShadowMask, kPoint, RDG::SamplerDesc::PointClamp() );
             // Read with texelFetch at the fragment, layer = the light's ShadowMaskSlot.
             if ( inputs.LocalShadowMasks.IsValid() )
-                bind( kSceneViewLocalShadowMasksName, inputs.LocalShadowMasks, kPoint,
-                      RDG::SamplerDesc::PointClamp() );
-                bind( kSceneViewSunShadowMask, inputs.SunShadowMask, kPoint, RDG::SamplerDesc::PointClamp() );
+                bind( kSceneViewLocalShadowMasks, inputs.LocalShadowMasks, kPoint, RDG::SamplerDesc::PointClamp() );
             // Read with texelFetch at the hit texel (an integer format is never filtered).
             bind( kSceneViewSceneShadingWord, inputs.SceneShadingWord, kPoint, RDG::SamplerDesc::PointClamp() );
             // Trilinear between froxel centres, clamped at the frustum's edges (Common/MegaLightsVolume.glslh).

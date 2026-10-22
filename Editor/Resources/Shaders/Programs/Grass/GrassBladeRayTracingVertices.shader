@@ -21,28 +21,28 @@ Shader "GrassBladeRayTracingVertices"
         // The variety's shape, the same GrassBladeShapeGpu the raster's GrassBladeShape buffer holds.
         ReadBuffer(0) GrassBladeShape
         {
-            GrassBladeShapeData u_Blade;
+            GrassBladeShapeData Blade;
         };
         ReadBuffer(1) GrassBladeStripVertices
         {
-            uint u_StripVertices[]; // Desert::Vertex, 14 words each
+            uint StripVertices[]; // Desert::Vertex, 14 words each
         };
         ReadBuffer(2) GrassBladeStripIndices
         {
-            uint u_StripIndices[];
+            uint StripIndices[];
         };
         Buffer(3) GrassBladeRayTracingVertexData
         {
-            uint u_Vertices[]; // Desert::Vertex, 14 words each
+            uint Vertices[]; // Desert::Vertex, 14 words each
         };
         Buffer(4) GrassBladeRayTracingIndexData
         {
-            uint u_Indices[];
+            uint Indices[];
         };
 
         PushConstant PushConstants
         {
-            uvec4 u_Counts; // x = the level's vertices, y = its indices
+            uvec4 Counts; // x = the level's vertices, y = its indices
         };
 
         const uint kVertexWords = 14u;
@@ -54,26 +54,26 @@ Shader "GrassBladeRayTracingVertices"
         void main()
         {
             const uint i = gl_GlobalInvocationID.x;
-            if ( i < u_Counts.y )
-                u_Indices[i] = u_StripIndices[i];
-            if ( i >= u_Counts.x )
+            if ( i < Counts.y )
+                Indices[i] = StripIndices[i];
+            if ( i >= Counts.x )
                 return;
             const uint  r    = i * kVertexWords;
-            const float side = uintBitsToFloat( u_StripVertices[r + 0u] );
-            const float t    = uintBitsToFloat( u_StripVertices[r + 1u] );
+            const float side = uintBitsToFloat( StripVertices[r + 0u] );
+            const float t    = uintBitsToFloat( StripVertices[r + 1u] );
             const mat4  model =
                  mat4( vec4( 1.0, 0.0, 0.0, 0.0 ), vec4( 0.0, 1.0, 0.0, kMedianCurvatureDraw ),
                        vec4( 0.0, 0.0, 1.0, 0.0 ), vec4( 0.0, 0.0, 0.0, 1.0 ) );
-            const BladePoint blade  = BladeAt( u_Blade, model, side, t, vec4( 0.0 ), vec4( 0.0 ) );
+            const BladePoint blade  = BladeAt( Blade, model, side, t, vec4( 0.0 ), vec4( 0.0 ) );
             const vec3       normal = BladeNormal( blade, side );
             const vec3       along  = normalize( blade.Along );
             const float      words[12] = float[12]( blade.Position.x, blade.Position.y, blade.Position.z, normal.x,
                                                     normal.y, normal.z, blade.Right.x, blade.Right.y, blade.Right.z,
                                                     along.x, along.y, along.z );
             for ( uint w = 0u; w < 12u; ++w )
-                u_Vertices[r + w] = floatBitsToUint( words[w] );
-            u_Vertices[r + 12u] = u_StripVertices[r + 12u];
-            u_Vertices[r + 13u] = u_StripVertices[r + 13u];
+                Vertices[r + w] = floatBitsToUint( words[w] );
+            Vertices[r + 12u] = StripVertices[r + 12u];
+            Vertices[r + 13u] = StripVertices[r + 13u];
         }
     }
 }

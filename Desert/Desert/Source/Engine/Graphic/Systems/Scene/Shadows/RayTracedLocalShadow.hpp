@@ -14,6 +14,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string_view>
@@ -64,6 +65,31 @@ namespace Desert::Graphic::System
     };
     static_assert( sizeof( RayTracedLocalShadowPackPush ) == 16 );
 
+    // RayTracedLocalShadow.shader's parameters: bound through these members, checked against the shader's reflected layout
+    // when the pipeline is created (Initialize).
+    struct RayTracedLocalShadowShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( AccelerationStructure, SceneTlas );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferNormalTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RayTracingGeometryRecords );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RayTracingMaterialRecords );
+        DESERT_SHADER_PARAMETER( StorageTexture, ShadowMaskTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, ShadowOccluderTexture );
+        static constexpr std::array kAll{ RDG::Erase( SceneTlas ), RDG::Erase( GBufferDepthTexture ), RDG::Erase( PointClampSampler ), RDG::Erase( GBufferNormalTexture ), RDG::Erase( RayTracingGeometryRecords ), RDG::Erase( RayTracingMaterialRecords ), RDG::Erase( ShadowMaskTexture ), RDG::Erase( ShadowOccluderTexture ) };
+    };
+
+    // RayTracedLocalShadowPack.shader's parameters: bound through these members, checked against the shader's reflected layout
+    // when the pipeline is created (Initialize).
+    struct RayTracedLocalShadowPackShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, VisibilityTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, LocalShadowMasksTexture );
+        static constexpr std::array kAll{ RDG::Erase( PointClampSampler ), RDG::Erase( VisibilityTexture ), RDG::Erase( LocalShadowMasksTexture ) };
+    };
+
     class RayTracedLocalShadowRenderer
     {
     public:
@@ -83,6 +109,10 @@ namespace Desert::Graphic::System
                  ComputePipeline::Create( { .Shader = m_PackShader, .DebugName = "RayTracedLocalShadowPack" } );
             if ( !pack )
                 return Common::MakeError( pack.GetError() );
+            if ( auto checked = m_TraceLayout.Validate( m_TraceShader, RayTracedLocalShadowShaderParameters::kAll ); !checked )
+                return Common::MakeError( checked.GetError() );
+            if ( auto checked = m_PackLayout.Validate( m_PackShader, RayTracedLocalShadowPackShaderParameters::kAll ); !checked )
+                return Common::MakeError( checked.GetError() );
             m_TracePipeline = trace.GetValue();
             m_PackPipeline  = pack.GetValue();
             return BOOLSUCCESS;
@@ -139,16 +169,16 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_TraceLayout.Get( m_TraceShader ),
                                     Renderer::GetPipelineRouteFill( *m_TracePipeline ) )
-                          .AccelerationStructure( "u_SceneTLAS", in.Tlas )
-                          .Texture( "u_GBufferDepth", in.Depth, RDG::Access::SampledCompute,
+                          .AccelerationStructure( RayTracedLocalShadowShaderParameters::SceneTlas, in.Tlas )
+                          .Texture( RayTracedLocalShadowShaderParameters::GBufferDepthTexture, in.Depth, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Texture( "u_GBufferNormal", in.Normal, RDG::Access::SampledCompute,
+                          .Sampler( RayTracedLocalShadowShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                          .Texture( RayTracedLocalShadowShaderParameters::GBufferNormalTexture, in.Normal, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Storage( "RayTracingGeometryRecords", in.Metadata.Geometry, RDG::Access::StorageRead )
-                          .Storage( "RayTracingMaterialRecords", in.Metadata.Materials, RDG::Access::StorageRead )
-                          .Storage( "u_ShadowMask", out.Mask, RDG::Access::StorageWrite )
-                          .Storage( "u_ShadowOccluder", out.ClosestOccluder, RDG::Access::StorageWrite )
+                          .Storage( RayTracedLocalShadowShaderParameters::RayTracingGeometryRecords, in.Metadata.Geometry, RDG::Access::StorageRead )
+                          .Storage( RayTracedLocalShadowShaderParameters::RayTracingMaterialRecords, in.Metadata.Materials, RDG::Access::StorageRead )
+                          .Storage( RayTracedLocalShadowShaderParameters::ShadowMaskTexture, out.Mask, RDG::Access::StorageWrite )
+                          .Storage( RayTracedLocalShadowShaderParameters::ShadowOccluderTexture, out.ClosestOccluder, RDG::Access::StorageWrite )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( RayTracedLocalShadowPush ) ) );
                  },
                  [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -180,10 +210,10 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_PackLayout.Get( m_PackShader ),
                                     Renderer::GetPipelineRouteFill( *m_PackPipeline ) )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Texture( "u_Visibility", visibility, RDG::Access::SampledCompute,
+                          .Sampler( RayTracedLocalShadowPackShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                          .Texture( RayTracedLocalShadowPackShaderParameters::VisibilityTexture, visibility, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .StorageLayer( "u_LocalShadowMasks", masks, RDG::Access::StorageWrite, 0, layer )
+                          .StorageLayer( RayTracedLocalShadowPackShaderParameters::LocalShadowMasksTexture, masks, RDG::Access::StorageWrite, 0, layer )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( RayTracedLocalShadowPackPush ) ) );
                  },
                  [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr

@@ -82,7 +82,7 @@ namespace Desert::Graphic::System
      * @brief THE LANDSCAPE MATERIAL'S VALUES the ground reads (Terrain.shader / TerrainGBuffer.shader Properties).
      *
      * GLSL twin: Common/LandscapeSurface.glslh `LandscapeMaterial`, the struct the one statement of the ground
-     * (EvaluateLandscapeSurface) takes - the raster builds it from its u_Material, the landscape's ray tracing hit
+     * (EvaluateLandscapeSurface) takes - the raster builds it from its Material, the landscape's ray tracing hit
      * group reads it from its row. vec4 slots only, so one layout in std140, std430 and here.
      */
     struct LandscapeMaterialValues

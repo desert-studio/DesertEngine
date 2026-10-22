@@ -34,7 +34,7 @@ layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 // The variety's shape (GrassBladeShapeGpu), std430.
 layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 {
-    GrassBladeShapeData u_Blade;
+    GrassBladeShapeData Blade;
 };
 
 #include <Common/MaterialTransport.glslh>
@@ -48,7 +48,7 @@ void main()
     const mat4       model  = transforms[gl_InstanceIndex];
     const float      side   = a_Position.x;
     const float      t      = a_Position.y;
-    const BladePoint blade  = BladeAt( u_Blade, model, side, t, m_PushConstants.WindA, m_PushConstants.WindB );
+    const BladePoint blade  = BladeAt( Blade, model, side, t, m_PushConstants.WindA, m_PushConstants.WindB );
     const vec3       along  = normalize( blade.Along );
     const vec3       normal = BladeNormal( blade, side );
 #ifdef DESERT_SURFACE_HAS_VARYINGS
@@ -68,7 +68,7 @@ void main()
 #ifdef DESERT_SURFACE_VIEW_PASS
     // The blade is world-static but for the wind, evaluated again at the wind clock's previous step (WindB.z,
     // Graphic::InstanceWindPush), as Vertex_Instanced.glslh.
-    const BladePoint previous = BladeAt( u_Blade, model, side, t, m_PushConstants.WindA,
+    const BladePoint previous = BladeAt( Blade, model, side, t, m_PushConstants.WindA,
                                          vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( blade.Position, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( previous.Position, 1.0 );

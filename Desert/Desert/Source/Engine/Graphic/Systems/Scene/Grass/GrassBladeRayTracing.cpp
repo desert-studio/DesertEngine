@@ -2,10 +2,12 @@
 
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <format>
 
@@ -14,6 +16,21 @@ namespace Desert::Graphic::System
     namespace
     {
         constexpr const char* kProgramName = "GrassBladeRayTracingVertices";
+
+        // GrassBladeRayTracingVertices.shader's buffers: bound through these members, checked against the shader's
+        // reflected layout when the pipeline is created.
+        struct GrassBladeRayTracingVerticesShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, GrassBladeShape );
+            DESERT_SHADER_PARAMETER( StorageBuffer, GrassBladeStripVertices );
+            DESERT_SHADER_PARAMETER( StorageBuffer, GrassBladeStripIndices );
+            DESERT_SHADER_PARAMETER( StorageBuffer, GrassBladeRayTracingVertexData );
+            DESERT_SHADER_PARAMETER( StorageBuffer, GrassBladeRayTracingIndexData );
+            static constexpr std::array kAll{ RDG::Erase( GrassBladeShape ), RDG::Erase( GrassBladeStripVertices ),
+                                              RDG::Erase( GrassBladeStripIndices ),
+                                              RDG::Erase( GrassBladeRayTracingVertexData ),
+                                              RDG::Erase( GrassBladeRayTracingIndexData ) };
+        };
         constexpr uint32_t    kLocalSize   = 64; // the program's LocalSize
     } // namespace
 
@@ -67,6 +84,8 @@ namespace Desert::Graphic::System
         const auto made = ComputePipeline::Create( { .Shader = shader, .DebugName = kProgramName } );
         if ( !made )
             return Common::MakeError( made.GetError() );
+        if ( auto checked = m_Layout.Validate( shader, GrassBladeRayTracingVerticesShaderParameters::kAll ); !checked )
+            return Common::MakeError( std::format( "{}: {}", kGrassBladeRayTracingVerticesPass, checked.GetError() ) );
         m_Pipeline = made.GetValue();
         return BOOLSUCCESS;
     }
@@ -197,11 +216,11 @@ namespace Desert::Graphic::System
                  const auto& layout = m_Layout.Get( m_Pipeline->GetSpecification().Shader );
                  for ( const LevelWork& job : m_Work )
                      pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Pipeline ) )
-                          .Storage( "GrassBladeShape", job.Shape, RDG::Access::StorageRead )
-                          .Storage( "GrassBladeStripVertices", job.StripVertices, RDG::Access::StorageRead )
-                          .Storage( "GrassBladeStripIndices", job.StripIndices, RDG::Access::StorageRead )
-                          .Storage( "GrassBladeRayTracingVertexData", job.Vertices, RDG::Access::StorageWrite )
-                          .Storage( "GrassBladeRayTracingIndexData", job.Indices, RDG::Access::StorageWrite )
+                          .Storage( GrassBladeRayTracingVerticesShaderParameters::GrassBladeShape, job.Shape, RDG::Access::StorageRead )
+                          .Storage( GrassBladeRayTracingVerticesShaderParameters::GrassBladeStripVertices, job.StripVertices, RDG::Access::StorageRead )
+                          .Storage( GrassBladeRayTracingVerticesShaderParameters::GrassBladeStripIndices, job.StripIndices, RDG::Access::StorageRead )
+                          .Storage( GrassBladeRayTracingVerticesShaderParameters::GrassBladeRayTracingVertexData, job.Vertices, RDG::Access::StorageWrite )
+                          .Storage( GrassBladeRayTracingVerticesShaderParameters::GrassBladeRayTracingIndexData, job.Indices, RDG::Access::StorageWrite )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::uvec4 ) ) );
              },
              [pipeline = m_Pipeline, counts]( RDG::PassContext& context ) -> Common::BoolResultStr

@@ -348,5 +348,44 @@ namespace Desert::Geometry
         }
     }
 
+    // UE MeshTangents.cpp ComputeSeparatePerTriangleTangents: each corner's frame from its own triangle alone (the
+    // face tangent from positions and UVs), projected into the plane of the corner's overlay normal, so one vertex
+    // may carry a different frame on every triangle. Triangles unset in @p UVOverlay are left unwritten.
+    template <typename RealType>
+    void MeshTangents<RealType>::ComputeSeparatePerTriangleTangents( const DynamicMeshNormalOverlay* NormalOverlay,
+                                                                     const DynamicMeshUVOverlay*     UVOverlay )
+    {
+        const int MaxTriangleID = m_Mesh->MaxTriangleID();
+        InitializeTriVertexTangents( false );
+        for ( int TriangleID = 0; TriangleID < MaxTriangleID; ++TriangleID )
+        {
+            if ( !m_Mesh->IsTriangle( TriangleID ) || !UVOverlay->IsSetTriangle( TriangleID ) )
+                continue;
+            const Index3i    Triangle = m_Mesh->GetTriangle( TriangleID );
+            const glm::dvec3 TriVertices[3]{ m_Mesh->GetVertex( Triangle.A ), m_Mesh->GetVertex( Triangle.B ),
+                                             m_Mesh->GetVertex( Triangle.C ) };
+            const auto       UVTriangle = UVOverlay->GetTriangle( TriangleID );
+            const glm::dvec2 TriUVs[3]{ glm::dvec2( UVOverlay->GetElement( UVTriangle[0] ) ),
+                                        glm::dvec2( UVOverlay->GetElement( UVTriangle[1] ) ),
+                                        glm::dvec2( UVOverlay->GetElement( UVTriangle[2] ) ) };
+            glm::dvec3       Tangent( 0.0 ), Bitangent( 0.0 );
+            glm::dvec2       Magnitudes( 0.0 );
+            bool             bIsDegenerate = false;
+            ComputeFaceTangentWeighted( TriVertices, TriUVs, Tangent, Bitangent, Magnitudes, bIsDegenerate );
+            for ( int Corner = 0; Corner < 3; ++Corner )
+            {
+                const glm::dvec3 Normal =
+                     NormalOverlay->IsSetTriangle( TriangleID )
+                          ? glm::dvec3( NormalOverlay->GetElement( NormalOverlay->GetTriangle( TriangleID )[Corner] ) )
+                          : TriNormalOf( *m_Mesh, TriangleID );
+                const glm::dvec3 Projected = PlaneProjectionNormalized( Tangent, Normal );
+                // UE VectorUtil::BitangentSign / Bitangent
+                const double Sign = glm::dot( glm::cross( Normal, Projected ), Bitangent ) < 0 ? -1.0 : 1.0;
+                SetPerTriangleTangent( TriangleID, Corner, glm::vec<3, RealType>( Projected ),
+                                       glm::vec<3, RealType>( SafeNormalized( Sign * glm::cross( Normal, Projected ) ) ) );
+            }
+        }
+    }
+
     template class MeshTangents<double>;
 } // namespace Desert::Geometry

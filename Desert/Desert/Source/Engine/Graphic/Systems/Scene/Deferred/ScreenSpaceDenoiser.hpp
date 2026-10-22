@@ -361,7 +361,7 @@ namespace Desert::Graphic::System
             const RDG::TextureRef signal =
                  graph.CreateTexture( Desc( width, height, kSignalFormat ), "SSD.Signal" );
             graph.SetFaultDefault( signal, RDG::FaultDefault::Black );
-            // SSDReconstructShadowVisibility.shader's push: u_Params, u_LocalLight.
+            // SSDReconstructShadowVisibility.shader's push: Params, LocalLightSphere.
             const std::array<glm::vec4, 2> push{
                  glm::vec4( std::tan( std::max( in.LightSourceAngleRadians, 0.0f ) * 0.5f ),
                             static_cast<float>( in.ReconstructionRadius ), 0.0f, 0.0f ),

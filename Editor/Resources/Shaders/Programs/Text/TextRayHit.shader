@@ -23,7 +23,7 @@ Shader "TextRayHit"
 
             void main()
             {
-                TextRayHitRowRef           row = TextRayHitRowRef( u_RayHitRecord.MaterialRow );
+                TextRayHitRowRef           row = TextRayHitRowRef( RayHitRecord.MaterialRow );
                 const DesertRayHitTriangle t   = DesertRayHitFetch();
                 vec3 N = normalize( ( t.Normal * gl_WorldToObjectEXT ).xyz );
                 if ( dot( N, gl_WorldRayDirectionEXT ) > 0.0 )
@@ -46,7 +46,7 @@ Shader "TextRayHit"
 
             void main()
             {
-                TextRayHitRowRef row = TextRayHitRowRef( u_RayHitRecord.MaterialRow );
+                TextRayHitRowRef row = TextRayHitRowRef( RayHitRecord.MaterialRow );
                 if ( !TextRayHitCovered( row, DesertRayHitFetch().UV ) )
                     ignoreIntersectionEXT;
             }

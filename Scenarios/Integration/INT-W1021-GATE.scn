@@ -1,0 +1,6 @@
+# INT-W1021-GATE: int/w1021 (gate + w1021 + dev) builds, renders Starter whole and loads a v68 scene migrated to v69
+# Starter.desce is itself stored at SCNE 68, so the boot load is the first v68 -> v69 migration; the drop opens a second one.
+Дано state
+Тогда 0_starter сцена нарисована целиком — террейн с тенями, трава, без чёрных/розовых поверхностей; в editor.log нет ошибок привязки шейдеров (u_*/missing binding)
+Когда input drop - - ../Projects/Desert/Content/Scenes/LocalShadows_Room.desce
+Тогда 1_v68_loaded сцена LocalShadows_Room (SCNE 68 на диске) загрузилась мигрированной до v69, объекты на месте

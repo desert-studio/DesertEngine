@@ -84,6 +84,16 @@ namespace
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleDebugReadbackShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, Counters );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AliveList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeFloats );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeInts );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Readback );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
     struct ParticleShaderParameters
     {
         DESERT_SHADER_PARAMETER( StorageBuffer, Materials );
@@ -558,11 +568,11 @@ namespace Desert::Graphic::System
             if ( !RunsDebug( ve ) )
                 continue; // DebugReadback skips it the same way
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_DebugPipeline ) )
-                 .Storage( "Counters", ve.CountersRef, RDG::Access::StorageRead )
-                 .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageRead )
-                 .Storage( "AttributeFloats", ve.FloatsRef, RDG::Access::StorageRead )
-                 .Storage( "AttributeInts", ve.IntsRef, RDG::Access::StorageRead )
-                 .Storage( "Readback", ve.DebugRef, RDG::Access::StorageWrite )
+                 .Storage( ParticleDebugReadbackShaderParameters::Counters, ve.CountersRef, RDG::Access::StorageRead )
+                 .Storage( ParticleDebugReadbackShaderParameters::AliveList, m_Pool.AliveRef, RDG::Access::StorageRead )
+                 .Storage( ParticleDebugReadbackShaderParameters::AttributeFloats, ve.FloatsRef, RDG::Access::StorageRead )
+                 .Storage( ParticleDebugReadbackShaderParameters::AttributeInts, ve.IntsRef, RDG::Access::StorageRead )
+                 .Storage( ParticleDebugReadbackShaderParameters::Readback, ve.DebugRef, RDG::Access::StorageWrite )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleDebugPush ) ) );
         }
     }

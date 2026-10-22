@@ -291,9 +291,9 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
         const std::map<std::string, uint32_t> forwardSceneRead{
              { "LightGridParamsUB", Desert::Core::kLightGridParamsBinding },
              { "LightGridCellsUB", Desert::Core::kLightGridCellsBinding },
-             { "u_LocalShadowAtlas", Desert::Core::kLocalShadowAtlasBinding },
+             { "LocalShadowAtlasTexture", Desert::Core::kLocalShadowAtlasBinding },
              { "LocalShadowViewsUB", Desert::Core::kLocalShadowViewsBinding },
-             { "u_LocalShadowMasks", Desert::Core::kLocalShadowMasksBinding } };
+             { "LocalShadowMasksTexture", Desert::Core::kLocalShadowMasksBinding } };
         const bool viewPassLayout = std::any_of(
              declared.begin(), declared.end(),
              [&forwardSceneRead]( const std::pair<uint32_t, std::string>& d )
@@ -328,7 +328,7 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
     }
     EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
     ASSERT_EQ( sceneRead.size(), 13u );
-    EXPECT_EQ( sceneRead["u_LocalShadowAtlas"], Desert::Core::kLocalShadowAtlasBinding );
+    EXPECT_EQ( sceneRead["LocalShadowAtlasTexture"], Desert::Core::kLocalShadowAtlasBinding );
     EXPECT_EQ( sceneRead["LocalShadowViewsUB"], Desert::Core::kLocalShadowViewsBinding );
     EXPECT_EQ( sceneRead["MegaLightsVolumeUB"], Desert::Core::kMegaLightsVolumeParamsBinding );
     EXPECT_EQ( sceneRead["MegaLightsVolumeRTexture"], Desert::Core::kMegaLightsVolumeFirstBinding );

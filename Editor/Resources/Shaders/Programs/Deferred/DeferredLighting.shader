@@ -312,8 +312,8 @@ Shader "DeferredLighting"
         #ifdef DESERT_LOCAL_SHADOW_SCREEN_MASK
         // "Shadows: Ray Traced Local" (Shadows HardwareTraced): one layer per shadowed light, by its shadowMaskSlot
         // (Mesh/LocalLightShadow.glslh reads it before the light's shadow view). 32 is MegaLights' only.
-        Uniform(32) texture2DArray u_LocalShadowMasks;
-        #define DesertLocalShadowScreenMask(slot) texelFetch(sampler2DArray(u_LocalShadowMasks, u_PointClampSampler), ivec3(ivec2(gl_FragCoord.xy), slot), 0).r
+        Uniform(32) texture2DArray LocalShadowMasksTexture;
+        #define DesertLocalShadowScreenMask(slot) texelFetch(sampler2DArray(LocalShadowMasksTexture, PointClampSampler), ivec3(ivec2(gl_FragCoord.xy), slot), 0).r
         #endif
         #include <Mesh/LocalLightShadow.glslh>
         #else
@@ -545,15 +545,15 @@ Shader "DeferredLighting"
         	// The reflection environment along the lobe: what a traced ray's miss sees (the captures, over the traced
         	// gather's specular in GI modes 2 and 3, else over the sky).
         	const vec3 environment     = sampled.Prefiltered;
-        	const int  reflectionInput = int(u_CameraPos.w + 0.5);
-        	// DeferredDebugMode::Reflections (18): the traced reflection alone - u_SSR's radiance by its coverage over
+        	const int  reflectionInput = int(CameraPosition.w + 0.5);
+        	// DeferredDebugMode::Reflections (18): the traced reflection alone - SsrTexture's radiance by its coverage over
         	// black, so a miss, the environment, the GI's rough specular and the direct light are all absent. Any other
         	// input is not a traced reflection: black, never the screen trace (SceneRenderer::AddFrameComposite refuses
         	// it by name).
         	if (dbg == 18)
         	{
         		oColor = reflectionInput == REFLECTION_INPUT_TRACED
-        		             ? vec4(DesertComposeTracedReflection(textureLod(u_SSR, v_TexCoord, 0.0), vec3(0.0)), 1.0)
+        		             ? vec4(DesertComposeTracedReflection(textureLod(SsrTexture, v_TexCoord, 0.0), vec3(0.0)), 1.0)
         		             : vec4(0.0, 0.0, 0.0, 1.0);
         		return;
         	}
