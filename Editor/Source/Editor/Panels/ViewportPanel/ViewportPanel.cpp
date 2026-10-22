@@ -2053,8 +2053,13 @@ namespace Desert::Editor
                 if ( m_DeformTool.HasWarpSession() )
                 {
                     auto& ms = Core::ModelingState::Get();
+                    const bool intervalOwns = m_Gizmo.IntervalOwnsInput();
+                    if ( intervalOwns )
+                        ImGuizmo::Enable( false );
                     m_Gizmo.RenderFrame( "WarpFrame", ms.WarpGizmo, ViewCamera(), m_ViewportData.ViewportPos,
                                          m_ViewportData.Size );
+                    if ( intervalOwns )
+                        ImGuizmo::Enable( true );
                     Tools::DeformTool::DrawWarpVisualization( ms, viewProj, m_ViewportData.ViewportPos,
                                                               m_ViewportData.Size );
                     m_Gizmo.RenderInterval( ms.WarpGizmo, ms.DeformWarp.LowerBound, ms.DeformWarp.UpperBound,

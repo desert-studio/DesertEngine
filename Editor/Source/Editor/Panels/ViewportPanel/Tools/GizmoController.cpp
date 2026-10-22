@@ -111,15 +111,20 @@ namespace Desert::Editor::Tools
         ImVec2 lo, hi;
         if ( !toScreen( origin + axis * lower, lo ) || !toScreen( origin + axis * upper, hi ) )
         {
-            m_IntervalDrag = 0;
+            m_IntervalDrag  = 0;
+            m_IntervalHover = false;
             return false;
         }
         const ImVec2 mouse  = ::ImGui::GetMousePos();
         auto         isNear = [&]( const ImVec2& p )
         { return ( p.x - mouse.x ) * ( p.x - mouse.x ) + ( p.y - mouse.y ) * ( p.y - mouse.y ) <= 81.0f; };
+        // The handles sit ON the frame's axis arrow; like UE's input router (nearest hit wins, and the
+        // interval handle is the smaller target), a handle under the cursor outranks the transform gizmo:
+        // m_IntervalHover disables ImGuizmo on the next frame (IntervalOwnsInput), before it is rendered.
         int hover = m_IntervalDrag;
-        if ( hover == 0 && !ImGuizmo::IsOver() && !ImGuizmo::IsUsing() )
+        if ( hover == 0 && !ImGuizmo::IsUsing() )
             hover = isNear( hi ) ? 2 : isNear( lo ) ? 1 : 0;
+        m_IntervalHover = hover != 0;
         if ( hover != 0 )
             m_Hovered = true;
 

@@ -48,6 +48,11 @@ namespace Desert::Editor::Tools
         // and @p upper (cm from the frame origin) with a handle at each end, dragged along the axis; upper stays
         // >= 0 and lower <= 0, as UE clamps them. A hovered or held handle stands picking down like the gizmo.
         // True on a frame a drag changed a bound.
+        // A handle is hovered or held: the caller disables ImGuizmo for the frame gizmo this frame.
+        bool IntervalOwnsInput() const
+        {
+            return m_IntervalHover || m_IntervalDrag != 0;
+        }
         bool RenderInterval( const glm::mat4& frame, float& lower, float& upper,
                              const std::shared_ptr<::Desert::Core::Camera>& camera, const glm::vec2& viewportPos,
                              const glm::vec2& viewportSize );
@@ -59,6 +64,8 @@ namespace Desert::Editor::Tools
         bool m_Hovered = false;
         // RenderInterval's held handle: 0 none, 1 lower, 2 upper.
         int m_IntervalDrag = 0;
+        // The cursor was over a handle last frame: the frame gizmo stands down so the handle gets the click.
+        bool m_IntervalHover = false;
 
         // One undo entry per gizmo drag: pre-drag TRS of every selected top-level root captured when the
         // drag starts, committed as one (possibly composite) command on release.
