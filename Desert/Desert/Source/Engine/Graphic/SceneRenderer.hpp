@@ -899,6 +899,13 @@ namespace Desert::Graphic
         // This frame's point/spot shadows are ray traced (Shadows resolved to HardwareTraced, not path traced):
         // "Shadows: Ray Traced Local" per slot, read by the composite's RayTracedLocal program.
         [[nodiscard]] bool LocalShadowsAreRayTraced() const;
+        // THE ONE ANSWER TO "does a program of this frame read the point/spot shadow maps" while the composite
+        // reads the ray-traced masks: a mesh forward draw (MeshRenderer::LocalShadowMapReadersQueued), the forward
+        // terrain (TerrainRenderer::ForwardReadsTexture) or a view emitter's sprite (ParticleRenderer::
+        // ViewEmittersSample) whose program samples u_LocalShadowAtlas. OnUpdate draws the maps only when true.
+        [[nodiscard]] bool LocalShadowMapsRead() const;
+        // The same derivation for the sun's cascades (u_ShadowCascades) while the sun is a screen mask.
+        [[nodiscard]] bool SunCascadesRead() const;
         // Every point/spot light that casts in this view gets a ShadowMaskSlot (and a record of
         // m_LocalShadowMaskLights) when LocalShadowsAreRayTraced and its attenuation sphere meets @p view (the
         // frame's unjittered frustum), every other -1. After UpdateLocalShadows.

@@ -84,6 +84,11 @@ namespace Desert::Graphic::System
             return m_Simulates;
         }
 
+        // The particle part of SceneRenderer::LocalShadowMapsRead / SunCascadesRead: an emitter of this view
+        // (PrepareFrame's m_ViewEmitters) draws with a sprite program that samples @p textureName. Emitters carry
+        // no bounds here, so every view emitter counts (conservative: the maps are drawn, never missed).
+        [[nodiscard]] bool ViewEmittersSample( std::string_view textureName ) const;
+
         // How many fixed steps this frame simulates: the most any declared emitter runs (0 in a view that does not
         // simulate).
         [[nodiscard]] uint32_t SimulationStepCount() const;

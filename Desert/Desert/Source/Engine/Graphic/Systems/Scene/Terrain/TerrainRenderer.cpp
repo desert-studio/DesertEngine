@@ -264,6 +264,15 @@ namespace Desert::Graphic::System
         }
     } // namespace
 
+    bool TerrainRenderer::ForwardReadsTexture( const std::string_view textureName ) const
+    {
+        if ( m_SceneRenderer == nullptr || m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
+             m_Queue.empty() || !m_Pipeline )
+            return false;
+        const auto& shader = m_Pipeline->GetSpecification().Shader;
+        return shader && shader->SamplesTexture( textureName );
+    }
+
     Common::BoolResultStr TerrainRenderer::Initialize()
     {
         std::string error;

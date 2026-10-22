@@ -559,15 +559,19 @@ namespace Desert::Graphic::System
         };
         // @p maps is this frame's AcquireCascadeMaps.
         [[nodiscard]] ShadowCascadeFrame ShadowCascadePasses( RDG::TextureRef maps );
-        // THE ONE ANSWER TO "does a program of this frame sample the sun's cascades while the sun is ray traced":
-        // a blended draw of the generic queue, in the camera's frustum, whose program declares u_ShadowCascades
-        // (the opaque ones read the screen mask through their DESERT_SUN_SHADOW_SCREEN_MASK permutation, the lit
-        // queue is shaded by the composite). SceneRenderer::OnUpdate draws the low-detail cascades only when true.
+        // The mesh part of SceneRenderer::SunCascadesRead ("does a program of this frame sample the sun's cascades
+        // while the sun is a screen mask"): a blended draw of the generic queue, or a translucent section of the
+        // static queue (glass, its front layer cell), in the camera's frustum, whose program declares
+        // u_ShadowCascades (the opaque generic ones read the screen mask through their
+        // DESERT_SUN_SHADOW_SCREEN_MASK permutation, the lit queue is shaded by the composite).
         [[nodiscard]] bool SunCascadeReadersQueued() const;
-        // A visible queued forward draw (blended or opaque) whose program samples the local shadow atlas: under
-        // Shadows HardwareTraced only the deferred composite reads the ray-traced masks, so SceneRenderer keeps
-        // drawing the point/spot maps while this is true (no surface loses its local shadows).
+        // The mesh part of SceneRenderer::LocalShadowMapsRead: a visible blended generic draw or static translucent
+        // section, or an opaque generic draw, whose program samples the local shadow atlas (the lit queue is
+        // shaded by the composite, which reads the ray-traced masks).
         [[nodiscard]] bool LocalShadowMapReadersQueued() const;
+        // The visible translucent sections of the static queue (RenderGlassManual's cells, TranslucentDrawFor) and
+        // their front layer cells (FrontLayerShaderFor) whose compiled program samples @p textureName.
+        [[nodiscard]] bool QueuedStaticTranslucentSamples( std::string_view textureName ) const;
         // The visible queued forward draws whose compiled program samples @p textureName (blended ones only when
         // @p blendedOnly).
         [[nodiscard]] bool QueuedForwardDrawSamples( std::string_view textureName, bool blendedOnly ) const;
