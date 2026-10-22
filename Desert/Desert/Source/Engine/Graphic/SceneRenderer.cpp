@@ -1257,7 +1257,13 @@ namespace Desert::Graphic
         // nothing: its Declare and record only read the matrices).
         {
             DESERT_PROFILE_PASS( "Shadow: UpdateCascades" );
-            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateCascades();
+            auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            // The particles' Mesh rows submit their casters from the render graph, after this plan (VFX-09).
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+            meshes->ExpectGpuInstancedCasters( !m_ViewProfile.SceneCapture && particles != nullptr &&
+                                               particles->HasMeshRows() );
+            meshes->UpdateCascades();
         }
         // The rain occlusion's box, and whether its map is redrawn this frame (the same boundary: its pass only
         // reads the matrix).

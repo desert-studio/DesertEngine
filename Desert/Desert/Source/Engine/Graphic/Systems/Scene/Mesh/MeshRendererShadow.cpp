@@ -351,6 +351,8 @@ namespace Desert::Graphic::System
         for ( const auto& gpu : m_GpuInstancedQueue )
             if ( gpu.CastShadows )
                 movable = true; // regenerated around the camera every frame
+        if ( m_GpuInstancedCastersExpected )
+            movable = true; // submitted later this frame (ExpectGpuInstancedCasters)
         return hash.Value;
     }
 

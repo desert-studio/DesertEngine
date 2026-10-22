@@ -831,6 +831,12 @@ namespace Desert::Graphic::System
         return true;
     }
 
+    bool ParticleRenderer::HasMeshRows() const
+    {
+        return std::any_of( m_ViewEmitters.begin(), m_ViewEmitters.end(),
+                            []( const ViewEmitter& ve ) { return !ve.Meshes.empty(); } );
+    }
+
     void ParticleRenderer::AddMeshInstances( RDG::Builder& graph, MeshRenderer& meshes )
     {
         if ( !m_Pool.Declared || !m_MeshPipeline )

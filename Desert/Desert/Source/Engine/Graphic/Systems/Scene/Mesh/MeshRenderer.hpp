@@ -764,6 +764,10 @@ namespace Desert::Graphic::System
         void SubmitGenericMesh( const GenericMeshRenderData& data );
         void SubmitInstancedMesh( const InstancedMeshRenderData& data );
         void SubmitGpuInstanced( const GpuInstancedRenderData& data );
+        // A producer that submits its GPU-instanced casters after UpdateCascades (the particles' Mesh rows, from
+        // the render graph) says so before it: the cascade plan then keeps the movable layer for them.
+        void ExpectGpuInstancedCasters( const bool expected ) { m_GpuInstancedCastersExpected = expected; }
+        bool m_GpuInstancedCastersExpected = false;
 
         /// ISM instances the last geometry pass drew, after the frustum and the cull distance: what a
         /// foliage type's CullDistance is measured by (FO-5). The shadow cascades are not counted.

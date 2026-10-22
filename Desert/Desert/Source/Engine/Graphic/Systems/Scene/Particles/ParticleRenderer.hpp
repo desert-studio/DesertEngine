@@ -138,6 +138,8 @@ namespace Desert::Graphic::System
         // cascades like the grass, lit and shadowed. Every view adds its own (after ImportFrameBuffers, before the
         // mesh renderer's passes are built).
         void AddMeshInstances( RDG::Builder& graph, MeshRenderer& meshes );
+        // Whether this frame's view has a Mesh row (PrepareFrame): its instances cast into the cascades.
+        NO_DISCARD bool HasMeshRows() const;
 
     private:
         // One sprite draw per material cell shader in this view: the cell's own DataDrivenMaterial (its descriptor
