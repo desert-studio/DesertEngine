@@ -47,6 +47,7 @@
 Когда --subject modeling set Bake.ProjectionDistance 20
 Когда --subject modeling set Bake.AmbientOcclusion 1
 Когда --subject modeling set Bake.Curvature 0
+Когда --subject modeling set Bake.OcclusionRays 64
 Когда run Modeling "Bake Normal Map"
 Когда run Modeling "Create shape tool: Sphere"
 Когда run Modeling "Create shape sphere: Lat Long"

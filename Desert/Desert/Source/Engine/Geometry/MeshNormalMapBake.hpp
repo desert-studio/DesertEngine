@@ -36,7 +36,9 @@ namespace Desert::Geometry
     // AMBIENT OCCLUSION AND CURVATURE (UE FMeshOcclusionMapEvaluator / FMeshCurvatureMapEvaluator, the same
     // FMeshMapBaker texel loop and the same detail correspondence as the normal map):
     // - Occlusion: from the detail point the ray found (pushed off the surface along its normal), OcclusionRays
-    //   directions over the hemisphere around the detail normal - UE's spherical-Fibonacci set, narrowed by
+    //   directions over the hemisphere on the detail TRIANGLE plane (the face normal, oriented by the
+    //   interpolated one: an averaged normal at a sharp crease tilts the hemisphere out of the corner) - UE's
+    //   spherical-Fibonacci set, narrowed by
     //   SpreadAngle (180 = the whole hemisphere) and with the rays closer than BiasAngle to the tangent plane
     //   dropped - are cast against the detail BVH within OcclusionMaxDistance (0 = unbounded, UE's default);
     //   each ray weighs cos(theta) (UE's cosine distribution), and the texel stores 1 - occluded weight / total

@@ -405,18 +405,27 @@ namespace Desert::Geometry
 
                 if ( settings.Occlusion )
                 {
-                    // Frisvad's branchless frame around the detail normal.
-                    const double     sgn = dn.z >= 0.0 ? 1.0 : -1.0;
-                    const double     a   = -1.0 / ( sgn + dn.z );
-                    const double     b   = dn.x * dn.y * a;
-                    const glm::dvec3 tx( 1.0 + sgn * dn.x * dn.x * a, sgn * b, -sgn * dn.x );
-                    const glm::dvec3 ty( b, sgn + dn.y * dn.y * a, -dn.y );
-                    const glm::dvec3 start = hp + dn * 1e-3; // off the surface, UE's normal offset
+                    // The hemisphere stands on the detail TRIANGLE's plane, not on the interpolated normal: at a
+                    // sharp crease whose vertices share one averaged normal (an Extrude's foot) the interpolated
+                    // normal leans up to 45 degrees away from the wall, the hemisphere tilts out of the corner and
+                    // the occlusion there halves (p8: 0.6 at the foot of a vertical 15 cm wall instead of <= 0.5).
+                    // Visibility is a property of the surface, so its plane decides; the shading normal only
+                    // picks the side.
+                    glm::dvec3   fn = glm::cross( bvh.E1[ht], bvh.E2[ht] );
+                    const double fl = glm::length( fn );
+                    fn              = fl < 1e-12 ? dn : fn / fl * ( glm::dot( fn, dn ) < 0.0 ? -1.0 : 1.0 );
+                    // Frisvad's branchless frame around that normal.
+                    const double     sgn = fn.z >= 0.0 ? 1.0 : -1.0;
+                    const double     a   = -1.0 / ( sgn + fn.z );
+                    const double     b   = fn.x * fn.y * a;
+                    const glm::dvec3 tx( 1.0 + sgn * fn.x * fn.x * a, sgn * b, -sgn * fn.x );
+                    const glm::dvec3 ty( b, sgn + fn.y * fn.y * a, -fn.y );
+                    const glm::dvec3 start = hp + fn * 1e-3; // off the surface, UE's normal offset
                     const double     so[3] = { start.x, start.y, start.z };
                     double           total = 0.0, blocked = 0.0;
                     for ( const glm::dvec3& l : occlusionDirs )
                     {
-                        const glm::dvec3 w     = tx * l.x + ty * l.y + dn * l.z;
+                        const glm::dvec3 w     = tx * l.x + ty * l.y + fn * l.z;
                         const double     wd[3] = { w.x, w.y, w.z };
                         total += l.z;
                         if ( bvh.ClosestHit( so, wd, 0.0, occlusionReach, hit.Triangle ).Triangle >= 0 )
