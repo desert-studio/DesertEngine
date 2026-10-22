@@ -3,7 +3,11 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/VFX/VFXRandom.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Utilities/FileSystem.hpp>
+#include <Common/Utilities/VFS.hpp>
 
 #include <algorithm>
 #include <limits>
@@ -91,23 +95,37 @@ namespace Desert::VFX
         for ( auto& entry : m_Systems )
             entry.second.Seen = false;
 
-        // THE SCALABILITY DECISION (UE FNiagaraScalabilityManager, per world): the views reported since the last
-        // tick. The most demanding view wins the spawn scale; a system is culled only when it is past the
-        // MaxDistance of EVERY view (a view with MaxDistance 0 culls nothing).
+        // THE SCALABILITY DECISION (UE FNiagaraScalabilityManager, per world and per EFFECT TYPE): the views
+        // reported since the last tick, each reading its Effects level of the system's type. The most demanding
+        // view wins the spawn scale; a system is culled only when it is past its type's MaxDistance at EVERY
+        // view's level (a level with MaxDistance 0 culls nothing). No view (headless) = the system as authored.
         std::vector<VFXViewReport> views;
         views.swap( m_PendingViews );
-        double spawnCountScale = views.empty() ? 1.0 : 0.0;
-        for ( const VFXViewReport& v : views )
-            spawnCountScale = std::max( spawnCountScale, v.SpawnCountScale );
-        const auto outOfRange = [&views]( const glm::vec3& at, float& nearestCm )
+        using Level        = Assets::Serialization::VFXEffectTypeLevel;
+        const auto levelOf = []( const Assets::Serialization::VFXEffectTypeData& type,
+                                 const int                                       level ) -> const Level&
         {
-            nearestCm = std::numeric_limits<float>::infinity();
+            return type.Levels[static_cast<std::size_t>( std::clamp(
+                 level, 0, static_cast<int>( Assets::Serialization::kVFXEffectTypeLevelCount ) - 1 ) )];
+        };
+        const auto spawnScaleOf = [&views, &levelOf]( const Assets::Serialization::VFXEffectTypeData& type )
+        {
+            double scale = views.empty() ? 1.0 : 0.0;
+            for ( const VFXViewReport& v : views )
+                scale = std::max( scale, v.SpawnCountScale * levelOf( type, v.EffectsLevel ).SpawnCountScale );
+            return scale;
+        };
+        const auto outOfRange = [&views, &levelOf]( const Assets::Serialization::VFXEffectTypeData& type,
+                                                    const glm::vec3& at, float& nearestCm )
+        {
+            nearestCm   = std::numeric_limits<float>::infinity();
             bool culled = !views.empty();
             for ( const VFXViewReport& v : views )
             {
-                const float d = glm::distance( at, v.Origin );
-                nearestCm     = std::min( nearestCm, d );
-                culled        = culled && v.MaxDistanceCm > 0.0f && d > v.MaxDistanceCm;
+                const float d   = glm::distance( at, v.Origin );
+                const float max = levelOf( type, v.EffectsLevel ).MaxDistance;
+                nearestCm       = std::min( nearestCm, d );
+                culled          = culled && max > 0.0f && d > max;
             }
             return culled;
         };
@@ -168,12 +186,17 @@ namespace Desert::VFX
                  const auto*     transform = registry.try_get<ECS::TransformComponent>( entity );
                  const glm::vec3 emitterCm =
                       transform ? glm::vec3( transform->GetTransform()[3] ) : glm::vec3( 0.0f );
+                 // The system's effect type (ValidateVFXSystemData requires one); a missing type spawns nothing.
+                 const std::string&                              typeName  = data->EffectType.value();
+                 const Assets::Serialization::VFXEffectTypeData* type      = EffectType( typeName );
                  float      nearestCm = 0.0f;
-                 const bool culled    = outOfRange( emitterCm, nearestCm );
-                 if ( culled != system.Culled )
-                     LOG_INFO( "[VFX] entity {} {}: nearest view {:.0f} cm (Effects.MaxDistance)", uuid,
-                               culled ? "culled, spawning stops" : "back in range, spawning resumes", nearestCm );
-                 system.Culled = culled;
+                 const bool culled = !type || outOfRange( *type, emitterCm, nearestCm );
+                 if ( type && culled != system.Culled )
+                     LOG_INFO( "[VFX] entity {} {}: nearest view {:.0f} cm (effect type '{}' MaxDistance)", uuid,
+                               culled ? "culled, spawning stops" : "back in range, spawning resumes", nearestCm,
+                               typeName );
+                 system.Culled                = culled;
+                 const double spawnCountScale = type ? spawnScaleOf( *type ) : 0.0;
                  m_CulledSystems += culled ? 1u : 0u;
                  for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
                  {
@@ -194,5 +217,37 @@ namespace Desert::VFX
 
         std::erase_if( m_Systems, []( const auto& entry ) { return !entry.second.Seen; } );
         m_Channels.ClearEntries(); // a channel holds one frame of entries (UE: a data channel is cleared per tick)
+    }
+
+    const Assets::Serialization::VFXEffectTypeData* VFXWorld::EffectType( const std::string& name )
+    {
+        if ( const auto found = m_EffectTypes.find( name ); found != m_EffectTypes.end() )
+            return found->second.get();
+        auto& slot = m_EffectTypes[name];
+
+        const std::filesystem::path file = Assets::ContentRegistry::FileToOpen(
+             Common::Constants::Path::VFX_PATH / ( name + Assets::Serialization::kVFXEffectTypeExtension ) );
+        std::string text;
+        if ( const auto packed =
+                  Common::Utils::VFS::Exists( file ) ? Common::Utils::VFS::ReadFile( file ) : std::nullopt;
+             packed.has_value() )
+            text = packed.value();
+        else if ( auto read = Common::Utils::FileSystem::ReadFileContent( file ); read )
+            text = read.ExtractValue();
+        if ( text.empty() )
+        {
+            LOG_ERROR( "[VFX] effect type '{}': '{}' is missing or empty - its systems spawn nothing", name,
+                       file.string() );
+            return nullptr;
+        }
+        auto parsed = Assets::Serialization::ParseVFXEffectType( text );
+        if ( !parsed )
+        {
+            LOG_ERROR( "[VFX] effect type '{}' ('{}') is not usable: {} - its systems spawn nothing", name,
+                       file.string(), parsed.GetError() );
+            return nullptr;
+        }
+        slot = std::make_shared<const Assets::Serialization::VFXEffectTypeData>( parsed.ExtractValue() );
+        return slot.get();
     }
 } // namespace Desert::VFX

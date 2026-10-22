@@ -1604,21 +1604,23 @@ namespace Desert::Migration
                     continue;
                 }
             }
-            // VFXS 1 -> 2 (VFX-09): renderer rows state their Material / Ribbon / Mesh.
+            // VFXS 1 -> 2 (VFX-09): renderer rows state their Material / Ribbon / Mesh; 2 -> 3 (VFX-11): the
+            // system names the Default effect type.
             if ( path.extension() == Desert::Assets::Serialization::kVFXSystemExtension )
             {
                 const auto stated = ReadStatedVersion( path, text, "VFXS" );
-                if ( stated && stated.GetValue() == 1u )
+                if ( stated && stated.GetValue() < Desert::Assets::kVFXSystemSchemaVersion )
                 {
-                    const auto raised = Desert::Migration::MigrateVFXSystemV1ToV2( text );
+                    const auto raised = Desert::Migration::MigrateVFXSystemToV3( text );
                     if ( !raised )
                     {
-                        err << "FAIL   " << path.string() << " — VFXS 1 -> 2: " << raised.GetError() << "\n";
+                        err << "FAIL   " << path.string() << " — VFXS " << stated.GetValue() << " -> "
+                            << Desert::Assets::kVFXSystemSchemaVersion << ": " << raised.GetError() << "\n";
                         ++failed;
                         continue;
                     }
-                    out << ( check ? "would raise " : "raised " ) << path.string() << " VFXS 1 -> "
-                        << Desert::Assets::kVFXSystemSchemaVersion << "\n";
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " VFXS " << stated.GetValue()
+                        << " -> " << Desert::Assets::kVFXSystemSchemaVersion << "\n";
                     if ( !check && !WriteText( path, raised.GetValue(), err ) )
                     {
                         ++failed;

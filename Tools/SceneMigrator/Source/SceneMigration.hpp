@@ -879,12 +879,13 @@ namespace Desert::Migration
     // state CLTY 6 is an error naming what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateCloudTypeV6ToV7( const std::string& text );
 
-    // The v2 text of a v1 `.dfx` (VFX-09): every v1 value kept, a Ribbon row given the default ribbon settings
-    // (one ribbon per emitter, 10 cm wide, U stretched), no row a Material (v1 drew the engine's particle
-    // material), the header's GUID kept and its Dependencies stamped. A v1 Mesh row names no mesh, so it is an
-    // error naming the emitter; a file that does not state VFXS 1 is an error naming what it states. PURE - no
-    // filesystem access.
-    Common::ResultStr<std::string> MigrateVFXSystemV1ToV2( const std::string& text );
+    // The VFXS 3 text of a v1 or v2 `.dfx`. 1 -> 2 (VFX-09): every v1 value kept, a Ribbon row given the default
+    // ribbon settings (one ribbon per emitter, 10 cm wide, U stretched), no row a Material (v1 drew the engine's
+    // particle material); a v1 Mesh row names no mesh, so it is an error naming the emitter. 2 -> 3 (VFX-11): the
+    // system names the project's `Default` effect type (UE UNiagaraSettings::DefaultEffectType; the project's
+    // VFX/Default.dfxtype must exist for it to play). The header's GUID kept and its Dependencies stamped; a file
+    // that states neither VFXS 1 nor 2 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateVFXSystemToV3( const std::string& text );
 
     // A MATL 4 `PatchStrength` s — the slope of the ramp W = saturate(1 - 2 s u) — as the MATL 5 clear share of
     // the sky that ramp left: max(0, 1 - 1/(2s)), the fraction of the sky with W = 0 (FIELD-GRAIN-b).

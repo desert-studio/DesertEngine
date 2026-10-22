@@ -37,6 +37,7 @@ namespace Desert::Assets::Serialization
      *       emitters with lifecycle, the three-group module stack and renderer rows.
      *   2 - VFX-09: a renderer row states its Material, a Ribbon row its Ribbon settings, a Mesh row its Mesh;
      *       the header's Dependencies are those rows' assets.
+     *   3 - VFX-11: the system names its EffectType (a `.dfxtype` stem; older files get `Default`).
      *
      * An unknown value is refused in both directions; a later layout raises its files through a SceneMigrator
      * step, not through defaults in the reader.
@@ -309,6 +310,10 @@ namespace Desert::Assets::Serialization
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
 
         std::string                 Category;
+        // VFXS 3: the stem of the system's effect type (Serialization/VFXEffectType.hpp; UE
+        // UNiagaraSystem::EffectType), resolved in the project's VFX folder. Optional only so a VFXS 2 body reads
+        // for the migrator; ValidateVFXSystemData requires it.
+        std::optional<std::string>  EffectType;
         std::vector<std::string>    Tags;
         float                       Duration = 1.0f; ///< seconds of one system loop, >= 0; > 0 when Loop
         bool                        Loop     = true;

@@ -1,0 +1,32 @@
+{
+    "Header": {
+        "Kind": "VFXEffectType",
+        "Guid": "c0864e00e2c14a128b89ba2492aeafaf",
+        "Versions": {
+            "VFXT": 1
+        },
+        "Dependencies": []
+    },
+    "Levels": [
+        {
+            "MaxDistance": 5000.0,
+            "SpawnCountScale": 1.0
+        },
+        {
+            "MaxDistance": 10000.0,
+            "SpawnCountScale": 1.0
+        },
+        {
+            "MaxDistance": 20000.0,
+            "SpawnCountScale": 1.0
+        },
+        {
+            "MaxDistance": 50000.0,
+            "SpawnCountScale": 1.0
+        },
+        {
+            "MaxDistance": 0.0,
+            "SpawnCountScale": 1.0
+        }
+    ]
+}

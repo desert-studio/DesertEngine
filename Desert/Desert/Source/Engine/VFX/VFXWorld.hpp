@@ -4,6 +4,7 @@
 #include <Engine/VFX/VFXDataChannel.hpp>
 #include <Engine/VFX/VFXEmitterSpawn.hpp>
 
+#include <Engine/Assets/Serialization/VFXEffectType.hpp>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 
 #include <glm/glm.hpp>
@@ -12,6 +13,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -81,9 +83,9 @@ namespace Desert::VFX
     /// from every view of the PREVIOUS frame, never per view, so two viewports cannot disagree.
     struct VFXViewReport
     {
-        glm::vec3 Origin{ 0.0f };          // centimetres
-        double    SpawnCountScale = 1.0;   // Effects.SpawnCountScalePercent / 100
-        float     MaxDistanceCm   = 0.0f;  // Effects.MaxDistance; 0 = this view culls nothing
+        glm::vec3 Origin{ 0.0f };        // centimetres
+        double    SpawnCountScale = 1.0; // Effects.SpawnCountScalePercent / 100
+        int       EffectsLevel    = 0;   // Effects.QualityLevel: the level of every effect type this view reads
     };
 
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, std::uint32_t stepCount,
@@ -163,6 +165,12 @@ namespace Desert::VFX
             return m_CulledSystems;
         }
 
+        /// The effect type NAMED @p name (a `.dfxtype` stem in the project's VFX folder; UE UNiagaraEffectType),
+        /// read once per world; nullptr when it is missing or unreadable (logged once, naming the file) - a system
+        /// of that type then spawns nothing: no type is no scalability, and a missing one is an error, not a
+        /// default.
+        const Assets::Serialization::VFXEffectTypeData* EffectType( const std::string& name );
+
         // Counts Tick calls: a renderer runs one tick's simulation once, in the first view that sees its serial.
         [[nodiscard]] std::uint64_t GetTickSerial() const
         {
@@ -192,5 +200,8 @@ namespace Desert::VFX
         mutable std::unique_ptr<WorldGpuState>             m_GpuState;
         mutable std::vector<VFXViewReport>                 m_PendingViews; // this frame's views (SubmitView)
         std::size_t                                        m_CulledSystems = 0;
+        // Read effect types by name; a null entry is a type that failed to read (logged once).
+        std::unordered_map<std::string, std::shared_ptr<const Assets::Serialization::VFXEffectTypeData>>
+             m_EffectTypes;
     };
 } // namespace Desert::VFX

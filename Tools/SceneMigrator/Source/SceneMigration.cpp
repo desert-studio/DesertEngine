@@ -3549,11 +3549,11 @@ namespace Desert::Migration
         return Common::MakeSuccess( std::move( written ) );
     }
 
-    Common::ResultStr<std::string> MigrateVFXSystemV1ToV2( const std::string& text )
+    Common::ResultStr<std::string> MigrateVFXSystemToV3( const std::string& text )
     {
         namespace S = Assets::Serialization;
-        // VFXS 2 IS VFXS 1 PLUS OPTIONAL KEYS, so the v1 body reads as the current type; what a v1 row lacks is
-        // filled on the typed data, not by splicing text.
+        // VFXS 3 IS VFXS 2 IS VFXS 1 PLUS OPTIONAL KEYS, so the v1 body reads as the current type; what a v1 row
+        // lacks is filled on the typed data, not by splicing text.
         const auto v1 = Common::Json::Read<S::VFXSystemData>( text );
         if ( !v1 )
             return Common::MakeFormattedError<std::string>( "VFXS 1 body does not read: {}", v1.GetError() );
@@ -3562,15 +3562,18 @@ namespace Desert::Migration
             return Common::MakeFormattedError<std::string>(
                  "the file states no header, and this step raises VFXS 1 only" );
         const auto stated = data.Header->Versions.find( "VFXS" );
-        if ( stated == data.Header->Versions.end() || stated->second != 1u )
+        if ( stated == data.Header->Versions.end() || ( stated->second != 1u && stated->second != 2u ) )
             return Common::MakeFormattedError<std::string>(
-                 "the header states VFXS {}, and this step raises VFXS 1 only",
+                 "the header states VFXS {}, and this step raises VFXS 1 and 2 only",
                  stated == data.Header->Versions.end() ? std::string( "nothing" )
                                                        : std::to_string( stated->second ) );
 
+        const bool fromV1 = stated->second == 1u;
         for ( S::VFXEmitterData& e : data.Emitters )
             for ( S::VFXRendererData& r : e.Renderers )
             {
+                if ( !fromV1 )
+                    break;
                 if ( r.Material || r.Ribbon || r.Mesh )
                     return Common::MakeFormattedError<std::string>(
                          "emitter '{}': a VFXS 1 renderer row states VFXS 2 keys", e.Name );
@@ -3580,16 +3583,22 @@ namespace Desert::Migration
                     return Common::MakeFormattedError<std::string>(
                          "emitter '{}': a VFXS 1 Mesh row names no mesh, and VFXS 2 needs one", e.Name );
             }
+        if ( data.EffectType )
+            return Common::MakeFormattedError<std::string>(
+                 "a VFXS {} system already names EffectType '{}', a VFXS 3 key", stated->second,
+                 *data.EffectType );
+        data.EffectType = "Default";
 
         // WriteVFXSystem stamps the header at the engine's VFXS, keeps the loaded GUID and states the
         // Dependencies.
         std::string written = S::WriteVFXSystem( data );
         const auto  reread  = Common::Json::Read<S::VFXSystemData>( written );
         if ( !reread )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as VFXS 2: {}",
-                                                            reread.GetError() );
+            return Common::MakeFormattedError<std::string>( "" the raised file does not read as VFXS 3
+                                                            : {} ",
+                                                              reread.GetError() );
         if ( auto valid = S::ValidateVFXSystemData( reread.GetValue() ); !valid )
-            return Common::MakeFormattedError<std::string>( "the raised file is not a valid VFXS 2 system: {}",
+            return Common::MakeFormattedError<std::string>( "the raised file is not a valid VFXS 3 system: {}",
                                                             valid.GetError() );
         return Common::MakeSuccess( std::move( written ) );
     }

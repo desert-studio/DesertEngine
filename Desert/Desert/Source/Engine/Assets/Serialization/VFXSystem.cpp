@@ -238,6 +238,11 @@ namespace Desert::Assets::Serialization
 
     Common::BoolResultStr ValidateVFXSystemData( const VFXSystemData& data )
     {
+        if ( !data.EffectType || data.EffectType->empty() ||
+             data.EffectType->find_first_of( "/\\." ) != std::string::npos )
+            return Common::MakeFormattedError<bool>( "EffectType '{}' is not an effect type name (a .dfxtype stem "
+                                                     "in the VFX folder, e.g. \"Default\")",
+                                                     data.EffectType.value_or( "" ) );
         if ( !std::isfinite( data.Duration ) || data.Duration < 0.0f )
             return Common::MakeFormattedError<bool>( "Duration {} is not a finite non-negative time",
                                                      data.Duration );

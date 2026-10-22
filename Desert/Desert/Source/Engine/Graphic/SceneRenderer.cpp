@@ -1038,7 +1038,7 @@ namespace Desert::Graphic
                 scene.GetVFXWorld().SubmitView(
                      { .Origin          = cam->GetPosition(),
                        .SpawnCountScale = quality.As<double>( Parameter::EffectsSpawnCountScalePercent ) / 100.0,
-                       .MaxDistanceCm   = quality.As<float>( Parameter::EffectsMaxDistance ) } );
+                       .EffectsLevel    = quality.As<int>( Parameter::EffectsQualityLevel ) } );
             UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
         }
 
