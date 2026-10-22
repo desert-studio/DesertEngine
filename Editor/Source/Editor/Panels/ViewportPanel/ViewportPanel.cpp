@@ -2048,6 +2048,8 @@ namespace Desert::Editor
                 // Before CubeGrid: while a UV or Deform tool is active its Accept / Cancel requests are its own.
                 m_UVTool.Update( *m_Scene );
                 m_DeformTool.Update( *m_Scene );
+                m_VertexSculptTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
+                                           m_ViewportData.IsHovered );
                 // Warp's frame: UE's transform gizmo on the deformer (UMeshSpaceDeformerTool TransformProxy).
                 // Its Upper / Lower bounds: UE's interval gizmo on the frame's axis; Bend draws the bent axis.
                 if ( m_DeformTool.HasWarpSession() )
@@ -2759,6 +2761,9 @@ namespace Desert::Editor
         // Lattice owns the scene's left clicks (UE: the tool's click behaviour selects control points, an empty
         // click clears them); the entity selection stays, or the session would end.
         if ( e.GetMouseButton() == Common::MouseButton::Left && m_DeformTool.HasLatticeSession() && overImage )
+            return false;
+        // Vertex Sculpt owns a left click on the mesh it brushes (the stroke), so the click does not reselect.
+        if ( e.GetMouseButton() == Common::MouseButton::Left && m_VertexSculptTool.OwnsClick() && overImage )
             return false;
 
         if ( e.GetMouseButton() == Common::MouseButton::Left && !m_UIPreview &&
