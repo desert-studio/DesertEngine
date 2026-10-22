@@ -446,7 +446,11 @@ namespace Desert::Graphic::API::Vulkan
         VkPipeline      variant = VK_NULL_HANDLE;
         VkPipelineCache cache =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetPipelineCache();
-        const VkResult result = vkCreateGraphicsPipelines( device, cache, 1, &info, nullptr, &variant );
+        VkResult result{};
+        {
+            const PipelineCreateScope creating( m_Specification.DebugName, info.pColorBlendState );
+            result = vkCreateGraphicsPipelines( device, cache, 1, &info, nullptr, &variant );
+        }
         vkDestroyRenderPass( device, pass.GetValue(), nullptr );
         if ( result != VK_SUCCESS )
         {
@@ -609,6 +613,7 @@ namespace Desert::Graphic::API::Vulkan
         VkResult   result{};
         {
             const Core::ScopedShaderPhase timer( Core::ShaderPhase::PipelineCreate );
+            const PipelineCreateScope     creating( m_Specification.DebugName, m_PipelineInfo.pColorBlendState );
             result = vkCreateGraphicsPipelines( device, pipelineCache, 1, &m_PipelineInfo, nullptr, &built );
         }
         if ( result != VK_SUCCESS )
