@@ -1,12 +1,21 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Core/UUID.hpp>
+
+#include <memory>
+#include <string>
 
 #include <cstdint>
 
 namespace Desert::Core
 {
     class Scene;
+}
+
+namespace Desert::Geometry
+{
+    class DynamicMesh3;
 }
 
 namespace Desert::Editor::Core
@@ -86,4 +95,17 @@ namespace Desert::Editor::Core
     // does not cross the trimmed mesh). The result is selected.
     [[nodiscard]] Common::BoolResultStr ApplyBooleanTool( ::Desert::Core::Scene& scene, BooleanTool tool,
                                                           const BooleanToolArgs& args );
+    // UE UBaseCreateFromSelectedTool's two inputs, for an operator that runs on them in the background (VoxBoolean,
+    // MeshProcessingTool): A and B of the scene selection with the same refusals as ApplyBooleanTool, A's tool
+    // target mesh and B's baked into A's object space (material IDs are not carried: the voxel result has none).
+    struct SelectedMeshPair
+    {
+        Common::UUID                                  A, B;
+        std::string                                   NameA, NameB;
+        std::shared_ptr<const Geometry::DynamicMesh3> MeshA, MeshBInA;
+        // What each component holds now (ToolTargetMesh::Committed): the "before" a hidden input keeps.
+        std::shared_ptr<const Geometry::DynamicMesh3> CommittedA, CommittedB;
+    };
+    [[nodiscard]] Common::ResultStr<SelectedMeshPair> SelectedPairInSpaceOfA( ::Desert::Core::Scene& scene,
+                                                                             const char* toolName );
 } // namespace Desert::Editor::Core

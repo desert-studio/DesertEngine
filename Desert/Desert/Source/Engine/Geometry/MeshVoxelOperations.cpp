@@ -82,6 +82,31 @@ namespace Desert::Geometry
                     result.push_back( tid );
             return result;
         }
+
+        // Attributes of a Marching Cubes result: per-vertex normals (UE PostProcessResult recomputes them) and
+        // box-projected UVs, 1 UV unit per metre, so the result draws with the entity's material.
+        void FinishVoxelMesh( DynamicMesh3& result )
+        {
+            result.EnableAttributes();
+            DynamicMeshAttributeSet* attributes = result.Attributes();
+            MeshNormals::InitializeOverlayToPerVertexNormals( attributes->PrimaryNormals(), false );
+            DynamicMeshUVOverlay* uvs = attributes->PrimaryUV();
+            std::vector<int>      uvOf( static_cast<size_t>( result.MaxVertexID() ), -1 );
+            for ( int vid : result.VertexIndicesItr() )
+            {
+                const glm::dvec3 n = glm::abs( MeshNormals::ComputeVertexNormal( result, vid ) );
+                const glm::dvec3 p = result.GetVertex( vid ) * 0.01;
+                const glm::vec2  uv = n.x >= n.y && n.x >= n.z ? glm::vec2( p.y, p.z )
+                                      : n.y >= n.z             ? glm::vec2( p.x, p.z )
+                                                               : glm::vec2( p.x, p.y );
+                uvOf[static_cast<size_t>( vid )] = uvs->AppendElement( &uv.x );
+            }
+            for ( int tid : result.TriangleIndicesItr() )
+            {
+                const Index3i t = result.GetTriangle( tid );
+                uvs->SetTriangle( tid, Index3i( uvOf[size_t( t[0] )], uvOf[size_t( t[1] )], uvOf[size_t( t[2] )] ) );
+            }
+        }
     } // namespace
 
     Common::ResultStr<DeformOutcome> VoxWrap( const DynamicMesh3& mesh, const VoxWrapSettings& s,
@@ -165,32 +190,125 @@ namespace Desert::Geometry
         if ( result.TriangleCount() == 0 )
             return Common::MakeError<DeformOutcome>( "the solid is empty at this Winding Threshold" );
 
-        // Attributes: per-vertex normals (UE PostProcessResult recomputes them) and box-projected UVs, 1 UV unit
-        // per metre, so the result draws with the entity's material.
-        result.EnableAttributes();
-        DynamicMeshAttributeSet* attributes = result.Attributes();
-        MeshNormals::InitializeOverlayToPerVertexNormals( attributes->PrimaryNormals(), false );
-        DynamicMeshUVOverlay* uvs = attributes->PrimaryUV();
-        std::vector<int>      uvOf( static_cast<size_t>( result.MaxVertexID() ), -1 );
-        for ( int vid : result.VertexIndicesItr() )
-        {
-            const glm::dvec3 n = glm::abs( MeshNormals::ComputeVertexNormal( result, vid ) );
-            const glm::dvec3 p = result.GetVertex( vid ) * 0.01;
-            const glm::vec2  uv = n.x >= n.y && n.x >= n.z ? glm::vec2( p.y, p.z )
-                                  : n.y >= n.z             ? glm::vec2( p.x, p.z )
-                                                           : glm::vec2( p.x, p.y );
-            uvOf[static_cast<size_t>( vid )] = uvs->AppendElement( &uv.x );
-        }
-        for ( int tid : result.TriangleIndicesItr() )
-        {
-            const Index3i t = result.GetTriangle( tid );
-            uvs->SetTriangle( tid, Index3i( uvOf[size_t( t[0] )], uvOf[size_t( t[1] )], uvOf[size_t( t[2] )] ) );
-        }
+        FinishVoxelMesh( result );
 
         DeformOutcome out;
         out.MovedVertices = result.VertexCount();
         out.Report        = std::format( "VoxWrap: {}^3 cells of {:.2f} cm -> {} vertices, {} triangles{}", s.VoxelCount,
                                          cell, result.VertexCount(), result.TriangleCount(),
+                                         mc.RejectedTriangles > 0
+                                             ? std::format( " ({} non-manifold triangles dropped)", mc.RejectedTriangles )
+                                             : std::string() );
+        out.Mesh = std::move( result );
+        return Common::MakeSuccess( std::move( out ) );
+    }
+
+    const char* ToString( VoxBooleanOperation operation )
+    {
+        switch ( operation )
+        {
+            case VoxBooleanOperation::DifferenceAB:
+                return "Difference A - B";
+            case VoxBooleanOperation::DifferenceBA:
+                return "Difference B - A";
+            case VoxBooleanOperation::Intersect:
+                return "Intersect";
+            case VoxBooleanOperation::Union:
+                return "Union";
+        }
+        return "Unknown";
+    }
+
+    // UE FVoxelBooleanMeshesOp::CalculateResult, adapted: UE samples each input into a narrow-band
+    // TSweepingMeshSDF and meshes TImplicitBoolean of the two; here each field is evaluated where Marching Cubes
+    // asks (nearest-triangle distance from the input's AABB tree, the sign from its fast winding number), which
+    // is the same field without the band's grid. The field is "inside positive" (MarchingCubes' convention, as
+    // VoxWrap's winding number), so Union = max, Intersect = min, Difference = min( A, -B ).
+    Common::ResultStr<DeformOutcome> VoxBoolean( const DynamicMesh3& a, const DynamicMesh3& b,
+                                                 const VoxBooleanSettings& s, const ProgressCancel* progress )
+    {
+        const auto cancelled = [progress] { return progress != nullptr && progress->Cancelled(); };
+        if ( a.TriangleCount() == 0 || b.TriangleCount() == 0 )
+            return Common::MakeError<DeformOutcome>( std::format( "input {} has no triangles",
+                                                                  a.TriangleCount() == 0 ? "A" : "B" ) );
+        if ( s.VoxelCount < 8 || s.VoxelCount > 1024 )
+            return Common::MakeError<DeformOutcome>( std::format( "Voxel Count {} is outside 8..1024", s.VoxelCount ) );
+        if ( s.SurfaceSearchSteps < 0 || s.SurfaceSearchSteps > 10 )
+            return Common::MakeError<DeformOutcome>( std::format( "Surface Search Steps {} is outside 0..10", s.SurfaceSearchSteps ) );
+
+        struct Field
+        {
+            DynamicMesh3         Mesh;
+            DynamicMeshAABBTree3 Spatial;
+            FastWindingTree      Winding;
+
+            explicit Field( DynamicMesh3 mesh ) : Mesh( std::move( mesh ) ), Spatial( &Mesh ), Winding( &Spatial ) {}
+
+            // Inside positive: the distance to the surface, signed by the winding number (UE's 0.5 threshold).
+            double operator()( const glm::dvec3& p ) const
+            {
+                double d2 = 0.0;
+                Spatial.FindNearestTriangle( p, d2 );
+                const double d = std::sqrt( d2 );
+                return Winding.FastWindingNumber( p ) > 0.5 ? d : -d;
+            }
+        };
+        // Built in place (the trees point at the mesh they index).
+        const auto fa = std::make_unique<Field>( GeometryOf( a, nullptr ) );
+        if ( cancelled() )
+            return Common::MakeError<DeformOutcome>( kVoxBooleanCancelled );
+        const auto fb = std::make_unique<Field>( GeometryOf( b, nullptr ) );
+        if ( cancelled() )
+            return Common::MakeError<DeformOutcome>( kVoxBooleanCancelled );
+
+        const AxisAlignedBox3d ba = fa->Mesh.GetBounds(), bb = fb->Mesh.GetBounds();
+        AxisAlignedBox3d       bounds;
+        bounds.Min                = glm::min( ba.Min, bb.Min );
+        bounds.Max                = glm::max( ba.Max, bb.Max );
+        const glm::dvec3 size     = bounds.Max - bounds.Min;
+        const double     maxDim   = std::max( { size.x, size.y, size.z } );
+        const double     cell     = maxDim / double( s.VoxelCount );
+        if ( !( cell > 0.0 ) || !std::isfinite( cell ) )
+            return Common::MakeError<DeformOutcome>( "the inputs have no extent" );
+
+        MarchingCubes mc;
+        mc.CubeSize = cell;
+        mc.Bounds   = bounds; // two cells of margin so a surface on the bounds is closed
+        mc.Bounds.Min -= glm::dvec3( cell * 2.0 );
+        mc.Bounds.Max += glm::dvec3( cell * 2.0 );
+        mc.RootMode      = MarchingCubesRootMode::Bisection;
+        mc.RootModeSteps = s.SurfaceSearchSteps;
+        mc.IsoValue      = 0.0;
+        mc.Cancel        = cancelled;
+        const VoxBooleanOperation op = s.Operation;
+        mc.Implicit                  = [&]( const glm::dvec3& p )
+        {
+            const double va = ( *fa )( p ), vb = ( *fb )( p );
+            switch ( op )
+            {
+                case VoxBooleanOperation::DifferenceAB:
+                    return std::min( va, -vb );
+                case VoxBooleanOperation::DifferenceBA:
+                    return std::min( vb, -va );
+                case VoxBooleanOperation::Intersect:
+                    return std::min( va, vb );
+                case VoxBooleanOperation::Union:
+                    break;
+            }
+            return std::max( va, vb );
+        };
+        DynamicMesh3 result = mc.Generate();
+        if ( mc.Cancelled || cancelled() )
+            return Common::MakeError<DeformOutcome>( kVoxBooleanCancelled );
+        if ( result.TriangleCount() == 0 )
+            return Common::MakeError<DeformOutcome>( std::format( "the {} of the inputs is empty", ToString( op ) ) );
+        FinishVoxelMesh( result );
+
+        DeformOutcome out;
+        out.MovedVertices = result.VertexCount();
+        out.Report        = std::format( "VoxBoolean {}: {}^3 cells of {:.2f} cm -> {} vertices, {} triangles{}",
+                                         ToString( op ), s.VoxelCount, cell, result.VertexCount(),
+                                         result.TriangleCount(),
                                          mc.RejectedTriangles > 0
                                              ? std::format( " ({} non-manifold triangles dropped)", mc.RejectedTriangles )
                                              : std::string() );

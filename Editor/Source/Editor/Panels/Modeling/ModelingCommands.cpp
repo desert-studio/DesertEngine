@@ -634,6 +634,29 @@ namespace Desert::Editor
                                   Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                   return PaletteCommandDone();
                               } } );
+        // VoxBoolean (UE UVoxelCSGMeshesTool): the tool on the two selected entities, its operation and what
+        // Accept does with the inputs.
+        commands.push_back( { "Modeling", "VoxOps tool: VoxBoolean", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::VoxBoolean;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::VoxBooleanOperation op :
+              { Geometry::VoxBooleanOperation::DifferenceAB, Geometry::VoxBooleanOperation::DifferenceBA,
+                Geometry::VoxBooleanOperation::Intersect, Geometry::VoxBooleanOperation::Union } )
+            commands.push_back( { "Modeling", std::string( "VoxBoolean operation: " ) + Geometry::ToString( op ), [op]
+                                  {
+                                      MS::Get().VoxBoolean.Operation = op;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Core::BooleanInputs in :
+              { Core::BooleanInputs::Delete, Core::BooleanInputs::Hide, Core::BooleanInputs::Keep } )
+            commands.push_back( { "Modeling", std::string( "VoxBoolean inputs: " ) + Core::ToString( in ), [in]
+                                  {
+                                      MS::Get().VoxBooleanInputs = in;
+                                      return PaletteCommandDone();
+                                  } } );
         // UE's Attributes palette: Normals (MeshProcessingTool session) and its closed choices / toggles.
         commands.push_back( { "Modeling", "Attributes tool: Normals", []
                               {

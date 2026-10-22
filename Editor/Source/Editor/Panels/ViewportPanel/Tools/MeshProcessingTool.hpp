@@ -110,6 +110,12 @@ namespace Desert::Editor::Tools
             std::shared_ptr<const Geometry::DynamicMesh3> Committed; // what the component held: the "before"
             std::shared_ptr<const Geometry::DynamicMesh3> Preview;   // null while the settings are refused
             std::optional<Geometry::FFDLattice>           Lattice;   // Lattice: the rest lattice over Input
+            // VoxBoolean (UE UBaseCreateFromSelectedTool): Entity is input A and draws the preview, Other is
+            // input B, OtherInput its mesh baked into A's object space, OtherCommitted what B's component holds.
+            Common::UUID                                  Other;
+            std::shared_ptr<const Geometry::DynamicMesh3> OtherInput;
+            std::shared_ptr<const Geometry::DynamicMesh3> OtherCommitted;
+            std::string                                   NameA;
             // UE UMeshOpPreviewWithBackgroundCompute: the operator runs on a JobSystem worker on copies of the
             // input and the settings; the last preview stays on screen until it lands. A settings change while it
             // runs cancels it (PendingCancel) and starts the next one at once; dropping the session cancels it
@@ -126,6 +132,11 @@ namespace Desert::Editor::Tools
         void               ApplyResult( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
         void               Restore( ::Desert::Core::Scene& scene );
         [[nodiscard]] bool Accept( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
+        // VoxBoolean's Accept (UE UBaseCreateFromSelectedTool::OnShutdown): the preview becomes a NEW entity
+        // (a copy of A carrying the result), the inputs are deleted / hidden / kept - all one undo step.
+        [[nodiscard]] bool AcceptCreateFromSelected( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
+        // The session's inputs are still what the scene selection is (one entity, or A and B for VoxBoolean).
+        [[nodiscard]] bool SelectionStillMatches() const;
         [[nodiscard]] bool SettingsChanged( const Core::ModelingState& ms ) const;
         // Lattice: (re)builds the rest lattice for the panel's resolution and resets the points to it.
         [[nodiscard]] bool BuildLattice( Core::ModelingState& ms );
@@ -139,6 +150,7 @@ namespace Desert::Editor::Tools
         Geometry::SmoothSettings m_Smooth;
         Geometry::OffsetSettings m_Offset;
         Geometry::VoxWrapSettings m_VoxWrap;
+        Geometry::VoxBooleanSettings m_VoxBoolean;
         Geometry::NormalsSettings m_Normals;
         Geometry::TangentsSettings m_Tangents;
         Geometry::WarpSettings   m_Warp;

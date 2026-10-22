@@ -303,6 +303,11 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.VoxWrap.SurfaceSearchSteps; } },
          { "VoxWrap.ThickenShells",     "Thicken Shells",     "VoxWrap", 1, false, 0.0f, 1000.0f,
            []( ModelingState& s ) { return &s.VoxWrap.ShellThickness; }, nullptr },
+         // VoxBoolean (UE UVoxelProperties).
+         { "VoxBoolean.VoxelCount",     "Voxel Count",        "VoxBoolean", 1, true, 8.0f, 1024.0f, nullptr,
+           []( ModelingState& s ) { return &s.VoxBoolean.VoxelCount; } },
+         { "VoxBoolean.SurfaceSearchSteps", "Surface Search Steps", "VoxBoolean", 1, true, 0.0f, 10.0f, nullptr,
+           []( ModelingState& s ) { return &s.VoxBoolean.SurfaceSearchSteps; } },
     } };
     // clang-format on
 
