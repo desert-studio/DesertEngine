@@ -333,6 +333,13 @@ namespace Desert::Physics
         [[nodiscard]] std::optional<RayHit> CastRay( const glm::vec3& origin, const glm::vec3& direction,
                                                      float maxDistance ) const;
 
+        /// UE LineTraceSingleByChannel: the nearest body within @p maxDistance whose profile BLOCKS
+        /// @p traceChannel (CollisionProfiles::QueryResponse); Overlap and Ignore bodies are passed through.
+        /// DECLARED BY THE AI-STATETREE CONTRACT (Q8), implemented by CHANNELS, which also moves every caller of
+        /// the channel-less CastRay above to this form (Visibility) and removes it - one ray query, not two.
+        [[nodiscard]] std::optional<RayHit> CastRay( const glm::vec3& origin, const glm::vec3& direction,
+                                                     float maxDistance, CollisionChannelId traceChannel ) const;
+
         /// UE SweepSingleByChannel with a sphere: the first body a sphere of @p radius meets travelling from
         /// @p origin along @p direction (normalised here) within @p maxDistance, or nullopt. RayHit::Distance
         /// is how far the sphere's CENTRE travelled before touching; Point / Normal are the contact's (Normal
