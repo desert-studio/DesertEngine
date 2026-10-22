@@ -2,7 +2,7 @@
 # Play and Stop clear the undo history (PlaySession), so Undo is checked BEFORE Play and Redo brings the volume back.
 Дано --subject viewport set Camera.Position 0,150,700
 Дано --subject viewport set Camera.Direction 0,-0.1,-1
-Дано run Scene "Add shape: Box"
+Дано run Scene "Add shape: Cube"
 Дано --subject selection set Translation 0,330,0
 Дано --subject selection set Scale 0.2,0.2,0.2
 Дано add-component selected "Rigid Body"
@@ -21,5 +21,5 @@
 Когда state
 Когда state
 Когда state
-Тогда 2_overlap Box пролетел сквозь контур объёма (лежит ниже сферы или падает под ней); в логе editor.log строки [Volume] 'TriggerVolume' entered by / left by
+Тогда 2_overlap Cube пролетел сквозь контур объёма (лежит ниже сферы или падает под ней); в логе editor.log строки [Volume] 'TriggerVolume' entered by / left by
 Когда run Action Stop
