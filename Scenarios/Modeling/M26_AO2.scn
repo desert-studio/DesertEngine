@@ -59,12 +59,13 @@
 Когда run Entity Sphere
 Когда --subject selection set Translation 0,60,-3000
 Когда run Entity Sphere2
-Когда --subject selection set Translation -65,60,0
-Когда run Entity Sphere3
 Когда --subject selection set Translation 65,60,0
+Когда run Entity Sphere3
+Когда --subject selection set Translation -65,60,0
+Когда run View "View mode: Lit"
 Когда --subject viewport set Camera.Position 0,90,-200
 Когда --subject viewport set Camera.Direction 0,-0.1,1
-Тогда-вид 2_pair_ao two lows: LEFT (Sphere2) baked with AO - the plateau's foot darkened by a band; RIGHT (Sphere3) Normal only - no darkening at the foot
+Тогда-вид 2_pair_ao two lows (the view looks along +z, so +x is screen-LEFT): LEFT (Sphere2, x=65) baked with AO - the plateau reads, a dark band under its foot; RIGHT (Sphere3, x=-65) Normal only - the plateau barely shows, no darkening at the foot
 Когда run Panel "Open Logs"
 Тогда 2_pair_window the same with the bake log lines (Sphere2: Normal + AO; Sphere3: Normal)
 Когда run Open "Textures/Baked/Sphere2_AO.detex"
