@@ -13,6 +13,7 @@
 #include <Engine/Geometry/MeshDeformOperations.hpp>
 #include <Engine/Geometry/MeshHoleFillOperation.hpp>
 #include <Engine/Geometry/MeshJacketOperation.hpp>
+#include <Engine/Geometry/MeshProjectOperation.hpp>
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
 #include <Engine/Geometry/MeshAttributeOperations.hpp>
@@ -58,6 +59,7 @@ namespace Desert::Editor::Core
             // UE's MeshOps palette (same preview/Accept session as Deform, MeshProcessingTool).
             HoleFill, // UE's UHoleFillTool: the selected boundary loops closed Trivial / Minimal / Smooth
             Jacket,   // UE's URemoveOccludedTrianglesTool: the triangles hidden inside the mesh removed
+            Project,  // UE's UProjectToTargetTool: the first selected mesh remeshed onto the second's surface
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
@@ -365,6 +367,8 @@ namespace Desert::Editor::Core
         int32_t                    HoleFillLoopCount    = 0;
         // MeshOps palette -> Jacket (UE URemoveOccludedTrianglesToolProperties), the same session.
         Geometry::JacketSettings MeshJacket;
+        // MeshOps palette -> Project (UE UProjectToTargetTool's URemeshMeshToolProperties), the same session.
+        Geometry::ProjectSettings MeshProject;
         // Attributes palette -> Edit Materials (UE UEditMeshMaterialsTool, EditMaterialsTool): the slot Assign
         // writes, the tool's one-shot requests, and what it reports for the panel (its slots, its status).
         int                      EditMaterialsActiveSlot    = 0;

@@ -749,6 +749,13 @@ namespace Desert::Editor
                                   Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                   return PaletteCommandDone();
                               } } );
+        // UE's MeshOps palette: Project (UProjectToTargetTool): the first selected mesh onto the second.
+        commands.push_back( { "Modeling", "Mesh tool: Project", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::Project;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
         for ( const Geometry::JacketOcclusionMode mode :
               { Geometry::JacketOcclusionMode::WindingNumber, Geometry::JacketOcclusionMode::RaycastOcclusionSamples } )
             commands.push_back( { "Modeling", std::string( "Jacket occlusion mode: " ) + Geometry::ToString( mode ),

@@ -152,7 +152,8 @@ namespace Desert::Editor
             else if ( ms.ActiveTool == MS::Tool::Normals || ms.ActiveTool == MS::Tool::Tangents ||
                       ms.ActiveTool == MS::Tool::EditMaterials || ms.ActiveTool == MS::Tool::PaintGroups )
                 m_Category = static_cast<int>( Palette::Attributes );
-            else if ( ms.ActiveTool == MS::Tool::HoleFill || ms.ActiveTool == MS::Tool::Jacket )
+            else if ( ms.ActiveTool == MS::Tool::HoleFill || ms.ActiveTool == MS::Tool::Jacket ||
+                      ms.ActiveTool == MS::Tool::Project )
                 m_Category = static_cast<int>( Palette::MeshOps );
         }
 
@@ -862,12 +863,44 @@ namespace Desert::Editor
         };
         toolButton( MS::Tool::HoleFill, ICON_MDI_VECTOR_SQUARE_CLOSE, "Hole Fill" );
         toolButton( MS::Tool::Jacket, ICON_MDI_LAYERS_MINUS, "Jacket" );
+        toolButton( MS::Tool::Project, ICON_MDI_VECTOR_COMBINE, "Project" );
         // The label above its control: the palette column is too narrow for UE's label-beside-value rows.
         const auto row = []( const char* label )
         {
             ImGui::TextUnformatted( label );
             ImGui::SetNextItemWidth( -1.0f );
         };
+        if ( ms.ActiveTool == MS::Tool::Project )
+        {
+            // UE UProjectToTargetTool (URemeshMeshToolProperties): the first selected mesh is remeshed and
+            // projected onto the second; Target Triangle Count or Target Edge Length, Smoothing Strength, Remesh
+            // Iterations, the edge edits, Projection, Discard Attributes.
+            ImGui::Separator();
+            Geometry::ProjectSettings& p = ms.MeshProject;
+            ImGui::Checkbox( "Use Target Edge Length", &p.UseTargetEdgeLength );
+            if ( p.UseTargetEdgeLength )
+            {
+                row( "Target Edge Length (cm)" );
+                ImGui::DragFloat( "##ProjectEdge", &p.TargetEdgeLength, 0.1f, 0.01f, 10000.0f, "%.2f" );
+            }
+            else
+            {
+                row( "Target Triangle Count" );
+                ImGui::DragInt( "##ProjectTris", &p.TargetTriangleCount, 10.0f, 1, 1000000 );
+            }
+            row( "Smoothing Strength" );
+            ImGui::SliderFloat( "##ProjectSmooth", &p.SmoothingStrength, 0.0f, 1.0f, "%.2f" );
+            row( "Remesh Iterations" );
+            ImGui::SliderInt( "##ProjectIter", &p.RemeshIterations, 0, 100 );
+            ImGui::Checkbox( "Flips", &p.Flips );
+            ImGui::Checkbox( "Splits", &p.Splits );
+            ImGui::Checkbox( "Collapses", &p.Collapses );
+            ImGui::Checkbox( "Projection", &p.Projection );
+            ImGui::Checkbox( "Discard Attributes", &p.DiscardAttributes );
+            ImGui::Separator();
+            ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+            return;
+        }
         if ( ms.ActiveTool == MS::Tool::Jacket )
         {
             // UE URemoveOccludedTrianglesToolProperties: Occlusion Mode, Triangle Sampling, Winding Iso Value,

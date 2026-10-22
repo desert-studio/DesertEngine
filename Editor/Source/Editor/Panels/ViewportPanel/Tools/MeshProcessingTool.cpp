@@ -15,6 +15,7 @@
 #include <Engine/Geometry/MeshDeformOperations.hpp>
 #include <Engine/Geometry/MeshHoleFillOperation.hpp>
 #include <Engine/Geometry/MeshJacketOperation.hpp>
+#include <Engine/Geometry/MeshProjectOperation.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 
 #include <ImGui/imgui.h>
@@ -52,6 +53,8 @@ namespace Desert::Editor::Tools
                     return "Hole Fill";
                 case MS::Tool::Jacket:
                     return "Jacket";
+                case MS::Tool::Project:
+                    return "Project";
                 default:
                     return "?";
             }
@@ -95,6 +98,18 @@ namespace Desert::Editor::Tools
             ms.DeformWarp.LowerBound = -0.5f * major;
         }
 
+        // The entity a session edits: the primary selection; for Project (UE UProjectToTargetTool) the FIRST of
+        // exactly two selected entities, the second being the projection target (UE: first = source).
+        std::optional<Common::UUID> SessionEntity( MS::Tool tool )
+        {
+            if ( tool != MS::Tool::Project )
+                return Core::SelectionManager::GetSelected();
+            const std::vector<Common::UUID>& selection = Core::SelectionManager::GetSelection();
+            if ( selection.size() != 2 )
+                return std::nullopt;
+            return selection[0];
+        }
+
         ECS::StaticMeshComponent* MeshOf( ::Desert::Core::Scene& scene, const Common::UUID& id )
         {
             auto ref = scene.FindEntityByID( id );
@@ -108,7 +123,8 @@ namespace Desert::Editor::Tools
     {
         return tool == MS::Tool::Smooth || tool == MS::Tool::Offset || tool == MS::Tool::Warp ||
                tool == MS::Tool::Lattice || tool == MS::Tool::Normals || tool == MS::Tool::Tangents ||
-               tool == MS::Tool::HoleFill || tool == MS::Tool::Jacket;
+               tool == MS::Tool::HoleFill || tool == MS::Tool::Jacket ||
+               tool == MS::Tool::Project;
     }
 
     void MeshProcessingTool::Update( ::Desert::Core::Scene& scene )
@@ -120,9 +136,13 @@ namespace Desert::Editor::Tools
         // tool and raises ReqCancel, which was this tool's) or the selection moved to another entity.
         if ( m_Session )
         {
-            const auto selected = Core::SelectionManager::GetSelected();
+            const auto selected      = SessionEntity( m_Session->Tool );
+            const bool targetChanged = m_Session->Tool == MS::Tool::Project &&
+                                       ( Core::SelectionManager::GetSelection().size() != 2 ||
+                                         Core::SelectionManager::GetSelection()[1] != m_Session->Target ||
+                                         MeshOf( scene, m_Session->Target ) == nullptr );
             if ( ms.ActiveTool != m_Session->Tool || !selected.has_value() || *selected != m_Session->Entity ||
-                 MeshOf( scene, m_Session->Entity ) == nullptr )
+                 MeshOf( scene, m_Session->Entity ) == nullptr || targetChanged )
             {
                 if ( ms.ActiveTool != m_Session->Tool && ms.ReqCancel )
                     ms.ReqCancel = false;
@@ -182,10 +202,12 @@ namespace Desert::Editor::Tools
     void MeshProcessingTool::Begin( ::Desert::Core::Scene& scene, MS& ms )
     {
         m_Session.reset();
-        const auto selected = Core::SelectionManager::GetSelected();
+        const auto selected = SessionEntity( ms.ActiveTool );
         if ( !selected.has_value() )
         {
-            ms.DeformStatus = "Select an entity with a static mesh.";
+            ms.DeformStatus = ms.ActiveTool == MS::Tool::Project
+                                   ? "Project: select the mesh to project, then the target mesh (two entities)."
+                                   : "Select an entity with a static mesh.";
             return;
         }
         ECS::StaticMeshComponent* component = MeshOf( scene, *selected );
@@ -202,6 +224,30 @@ namespace Desert::Editor::Tools
         }
         m_Session =
              Session{ ms.ActiveTool, *selected, target.GetValue().Mesh, target.GetValue().Committed, nullptr };
+        if ( ms.ActiveTool == MS::Tool::Project )
+        {
+            // UE UProjectToTargetTool::Setup: the second target is the projection target, carried into the first's
+            // object space.
+            const Common::UUID        targetId        = Core::SelectionManager::GetSelection()[1];
+            ECS::StaticMeshComponent* targetComponent = MeshOf( scene, targetId );
+            if ( targetComponent == nullptr )
+            {
+                ms.DeformStatus = "Project: the target entity has no static mesh.";
+                m_Session.reset();
+                return;
+            }
+            auto targetMesh = GetToolTargetMesh( *targetComponent );
+            if ( !targetMesh.IsSuccess() )
+            {
+                ms.DeformStatus = targetMesh.GetError();
+                m_Session.reset();
+                return;
+            }
+            m_Session->Target        = targetId;
+            m_Session->TargetMesh    = targetMesh.GetValue().Mesh;
+            m_Session->TargetToInput = glm::inverse( glm::dmat4( WorldOf( scene, *selected ) ) ) *
+                                       glm::dmat4( WorldOf( scene, targetId ) );
+        }
         if ( ms.ActiveTool == MS::Tool::Warp )
             PlaceWarpGizmo( *m_Session->Input, WorldOf( scene, *selected ), ms );
         if ( ms.ActiveTool == MS::Tool::HoleFill )
@@ -260,6 +306,7 @@ namespace Desert::Editor::Tools
         m_HoleFill         = ms.MeshHoleFill;
         m_HoleFillSelected = ms.HoleFillSelected;
         m_Jacket           = ms.MeshJacket;
+        m_Project          = ms.MeshProject;
         m_Warp                                               = ms.DeformWarp;
         m_WarpGizmo                                          = ms.WarpGizmo;
         m_Lattice                                            = ms.DeformLattice;
@@ -281,6 +328,9 @@ namespace Desert::Editor::Tools
                     return Geometry::HoleFill( input, ms.HoleFillSelected, ms.MeshHoleFill );
                 case MS::Tool::Jacket:
                     return Geometry::Jacket( input, ms.MeshJacket );
+                case MS::Tool::Project:
+                    return Geometry::ProjectToTarget( input, *m_Session->TargetMesh, m_Session->TargetToInput,
+                                                      ms.MeshProject );
                 case MS::Tool::Lattice:
                     return Geometry::LatticeDeform( input, *m_Session->Lattice, ms.LatticePoints,
                                                     ms.DeformLattice );
@@ -587,6 +637,8 @@ namespace Desert::Editor::Tools
                 return !( ms.MeshHoleFill == m_HoleFill ) || ms.HoleFillSelected != m_HoleFillSelected;
             case MS::Tool::Jacket:
                 return !( ms.MeshJacket == m_Jacket );
+            case MS::Tool::Project:
+                return !( ms.MeshProject == m_Project );
             case MS::Tool::Warp:
                 return !( ms.DeformWarp == m_Warp ) || ms.WarpGizmo != m_WarpGizmo;
             case MS::Tool::Lattice:

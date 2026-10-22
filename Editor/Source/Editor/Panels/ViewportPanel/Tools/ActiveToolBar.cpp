@@ -66,6 +66,9 @@ namespace Desert::Editor::Tools
             // UE's Jacket previews the removal until Accept; Cancel puts the mesh back (MeshProcessingTool).
             case T::Jacket:
                 return { ICON_MDI_LAYERS_MINUS, "Jacket", true };
+            // UE's Project previews the remeshed, projected source until Accept; Cancel puts it back.
+            case T::Project:
+                return { ICON_MDI_VECTOR_COMBINE, "Project", true };
         }
         return {};
     }

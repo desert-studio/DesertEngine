@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Geometry/MeshJacketOperation.hpp>
+#include <Engine/Geometry/MeshProjectOperation.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
 
 #include <Common/Core/UUID.hpp>
@@ -92,6 +93,10 @@ namespace Desert::Editor::Tools
             std::shared_ptr<const Geometry::DynamicMesh3> Preview;   // null while the settings are refused
             std::optional<Geometry::FFDLattice>           Lattice;   // Lattice: the rest lattice over Input
             std::vector<std::vector<int>>                 Holes;     // Hole Fill: Input's boundary loops' vertices
+            // Project: the second selected entity, its mesh, and its object space -> Input's object space.
+            Common::UUID                                  Target;
+            std::shared_ptr<const Geometry::DynamicMesh3> TargetMesh;
+            glm::dmat4                                    TargetToInput{ 1.0 };
         };
 
         void               Begin( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
@@ -115,6 +120,7 @@ namespace Desert::Editor::Tools
         Geometry::HoleFillSettings m_HoleFill;
         std::vector<int32_t>       m_HoleFillSelected;
         Geometry::JacketSettings   m_Jacket;
+        Geometry::ProjectSettings  m_Project;
         Geometry::WarpSettings   m_Warp;
         glm::mat4                m_WarpGizmo{ 1.0f };
         Geometry::LatticeSettings m_Lattice;
