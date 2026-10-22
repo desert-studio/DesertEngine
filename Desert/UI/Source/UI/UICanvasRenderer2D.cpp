@@ -438,7 +438,11 @@ namespace Desert::UI
                     if ( focusables )
                         focusables->push_back(
                              { e, ScreenBoundsOf( dl, Rect{ mn.x, mn.y, mx.x - mn.x, mx.y - mn.y } ) } );
-                    if ( focused != nullptr && *focused == e && !tree.Has<UIInputFieldData>( e ) )
+                    // The ring answers WHY focus is here (ShowsFocusRing): a row the pointer moved onto or a
+                    // screen's initial focus shows its hovered plate only; a keyboard / gamepad step shows
+                    // the ring too.
+                    if ( focused != nullptr && *focused == e && !tree.Has<UIInputFieldData>( e ) &&
+                         ShowsFocusRing( FocusCauseOf( ctx.View.FocusCause, e ) ) )
                         dl.AddRect(
                              mn, mx,
                              glm::vec4( st.Color( StyleSlot::FocusRing, glm::vec3( 0.30f, 0.62f, 0.98f ) ), 1.0f ),
@@ -1030,9 +1034,10 @@ namespace Desert::UI
         // the topmost writer in draw order wins, across canvases. Doing this per walk gave the answer to
         // whichever canvas happened to be drawn last. HotNext is cleared by the next BeginUIFrame rather
         // than here, so it stays readable between the two.
-        view.Hot           = view.HotNext;
-        view.PointerTarget = Walk::PointerTargetOf( tree, view.Hot );
-        view.WheelTarget   = Walk::WheelTargetOf( tree, view.Hot );
+        const NodeId prevPointerTarget = view.PointerTarget;
+        view.Hot                       = view.HotNext;
+        view.PointerTarget             = Walk::PointerTargetOf( tree, view.Hot );
+        view.WheelTarget               = Walk::WheelTargetOf( tree, view.Hot );
 
         // Keyboard / gamepad navigation (UIFocus.hpp): Tab / Shift+Tab walk the draw-order list across every
         // canvas of the frame (wrapping), arrows move spatially to the nearest control in that direction.
@@ -1041,20 +1046,38 @@ namespace Desert::UI
         // control already used this frame are not navigation, and neither are W/S typed into a text field.
         // Then the focus scopes (UpdateFocusScopes): an overlay or screen that appeared takes focus, one that
         // closed gives it back. Whatever focus ends on is scrolled into view.
+        // Before navigation, the pointer: a button it ENTERED takes focus (PointerFocusTarget), so a key
+        // pressed in the same frame still wins, and a pointer resting still never pulls focus back.
+        // Each move records its cause (UIFocusCause) with the control, for the focus ring.
         if ( focused != nullptr )
         {
             const NodeId before = *focused;
+            UIFocusCause cause  = FocusCauseOf( view.FocusCause, *focused );
             if ( input != nullptr )
             {
+                if ( const NodeId hovered =
+                          PointerFocusTarget( tree, view.Focusables, view.PointerTarget, prevPointerTarget, *focused );
+                     hovered != NodeId::Null )
+                {
+                    *focused = hovered;
+                    cause    = UIFocusCause::Pointer;
+                }
                 const bool textEntry =
                      *focused != NodeId::Null && tree.Valid( *focused ) && tree.Has<UIInputFieldData>( *focused );
                 const NodeId next =
                      ResolveNavigation( tree, view.Focusables, view.NavigationBoxes, *focused,
                                         NavigationOf( *input, textEntry, view.ConsumedKeys ), view.ViewportPx );
                 if ( next != NodeId::Null )
+                {
                     *focused = next;
+                    cause    = UIFocusCause::Navigation;
+                }
             }
-            *focused = UpdateFocusScopes( tree, view.Focusables, *focused, view.Focus );
+            const NodeId navigated = *focused;
+            *focused               = UpdateFocusScopes( tree, view.Focusables, *focused, view.Focus );
+            if ( *focused != navigated )
+                cause = UIFocusCause::SetDirectly;
+            view.FocusCause = FocusRecord{ *focused, cause };
             if ( *focused != before )
                 ScrollIntoView( tree, view.Focusables, view.ScrollPorts, *focused );
         }
