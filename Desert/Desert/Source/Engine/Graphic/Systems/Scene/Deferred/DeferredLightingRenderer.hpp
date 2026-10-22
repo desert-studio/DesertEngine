@@ -77,6 +77,29 @@ namespace Desert::Graphic::System
     public:
         using RenderSystem::RenderSystem;
 
+        // The permutation of the composite program @p program (kScreenMaskSunProgram..kRayTracedLocalProgram; the
+        // cascades' program is the default one), cooked: ShippedByCook - the one statement Initialize acquires and
+        // ProgramVariants lists.
+        [[nodiscard]] static Core::ShaderVariant ProgramVariant( const std::size_t program )
+        {
+            Core::ShaderVariant variant{ .Defines = { std::string( kSunShadowScreenMaskDefine ) } };
+            if ( program == kMegaLightsProgram )
+                variant.Defines.emplace_back( kMegaLightsDefine );
+            if ( program == kRayTracedLocalProgram )
+                variant.Defines.emplace_back( kLocalShadowScreenMaskDefine );
+            variant.ShippedByCook = true;
+            return variant;
+        }
+
+        // Every permutation the renderer acquires, cooked by the package (PackageCook CookShaderVariants).
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants()
+        {
+            std::vector<Core::CookedProgramVariant> variants;
+            for ( std::size_t index = kScreenMaskSunProgram; index < kProgramDebugNames.size(); ++index )
+                variants.push_back( { "DeferredLighting", ProgramVariant( index ) } );
+            return variants;
+        }
+
         virtual Common::BoolResultStr Initialize() override
         {
             auto* const shaders                = Runtime::ResourceRegistry::GetShaderService();
@@ -85,19 +108,11 @@ namespace Desert::Graphic::System
                 return Common::MakeError( "DeferredLighting shader not found" );
             // The screen-mask permutation (the ray-traced sun, the virtual shadow map): u_ScreenShadowMask in
             // place of u_ShadowCascades.
-            m_Programs[kScreenMaskSunProgram].Shader = shaders->AcquireVariant(
-                 "DeferredLighting",
-                 Core::ShaderVariant{ .Defines = { std::string( kSunShadowScreenMaskDefine ) } } );
             // Shadows Stochastic: the ray-traced sun's mask, and the local lights from MegaLights in place of the
-            // light-grid loop and its shadow maps.
-            m_Programs[kMegaLightsProgram].Shader = shaders->AcquireVariant(
-                 "DeferredLighting", Core::ShaderVariant{ .Defines = { std::string( kSunShadowScreenMaskDefine ),
-                                                                       std::string( kMegaLightsDefine ) } } );
-            // Shadows HardwareTraced: the ray-traced sun's mask, and the local lights' ray-traced masks by slot.
-            m_Programs[kRayTracedLocalProgram].Shader = shaders->AcquireVariant(
-                 "DeferredLighting",
-                 Core::ShaderVariant{ .Defines = { std::string( kSunShadowScreenMaskDefine ),
-                                                   std::string( kLocalShadowScreenMaskDefine ) } } );
+            // light-grid loop and its shadow maps. Shadows HardwareTraced: the ray-traced sun's mask, and the local
+            // lights' ray-traced masks by slot. Each from the one list the cook ships (ProgramVariants).
+            for ( std::size_t index = kScreenMaskSunProgram; index < m_Programs.size(); ++index )
+                m_Programs[index].Shader = shaders->AcquireVariant( "DeferredLighting", ProgramVariant( index ) );
 
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target )

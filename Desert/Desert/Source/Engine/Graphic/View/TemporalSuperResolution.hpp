@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/View/TemporalUpscaler.hpp>
 
@@ -11,6 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 // Ported from UE 5.8 Engine/Source/Runtime/Renderer/Private/PostProcess/TemporalSuperResolution.cpp (pass chain
 // :2420-3470, history sample-count parameters :3218-3227, BaseScalability.ini [AntiAliasingQuality@N] r.TSR.*
@@ -106,6 +108,13 @@ namespace Desert::Graphic
         [[nodiscard]] Common::ResultStr<RDG::TextureRef>
         AddOpaquePasses( RDG::Builder& graph, const ViewFrame& frame,
                          const TemporalUpscalerOpaqueInputs& inputs ) const override;
+
+        // The permutation of a program's defines ("NAME=VALUE;NAME=VALUE"), cooked: ShippedByCook - the one
+        // statement PipelineFor acquires and ProgramVariants lists.
+        [[nodiscard]] static Core::ShaderVariant DefinesVariant( const std::string& defines );
+        // Every varying TSR program's permutation any quality can dispatch, cooked by the package (PackageCook
+        // CookShaderVariants).
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants();
 
     private:
         // The pipeline of @p shaderName with @p defines ("" for the default program), made on first use (record

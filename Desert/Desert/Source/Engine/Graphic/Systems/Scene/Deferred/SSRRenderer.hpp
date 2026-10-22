@@ -97,7 +97,7 @@ namespace Desert::Graphic::System
         {
             m_TraceShader = m_Surface == ReflectingSurface::TranslucentFrontLayer
                                  ? Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
-                                        "SSR", Core::ShaderVariant{ .Defines = { std::string( kFrontLayerDefine ) } } )
+                                        "SSR", FrontLayerVariant() )
                                  : Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSR" );
             if ( !m_TraceShader )
                 return Common::MakeError( m_Surface == ReflectingSurface::TranslucentFrontLayer
@@ -152,12 +152,20 @@ namespace Desert::Graphic::System
             return variant;
         }
 
-        // Every traced variant the renderer can acquire, cooked by the package (PackageCook CookShaderVariants):
-        // "SSR" under each tracer permutation (GlobalIllumination::kTracerPermutations) from either surface, and on
-        // the hardware tracer the hit-lit permutation with its ray generation ("SSR/HitLighting").
+        // The untraced front layer's permutation (screen trace of the translucent front layer), cooked:
+        // ShippedByCook - the one statement Initialize acquires and ProgramVariants lists.
+        [[nodiscard]] static Core::ShaderVariant FrontLayerVariant()
+        {
+            return Core::ShaderVariant{ .Defines = { std::string( kFrontLayerDefine ) }, .ShippedByCook = true };
+        }
+
+        // Every variant the renderer can acquire, cooked by the package (PackageCook CookShaderVariants): the
+        // untraced front layer (FrontLayerVariant); "SSR" under each tracer permutation
+        // (GlobalIllumination::kTracerPermutations) from either surface, and on the hardware tracer the hit-lit
+        // permutation with its ray generation ("SSR/HitLighting").
         [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants()
         {
-            std::vector<Core::CookedProgramVariant> variants;
+            std::vector<Core::CookedProgramVariant> variants{ { "SSR", FrontLayerVariant() } };
             for ( const ReflectingSurface surface : { ReflectingSurface::Opaque, ReflectingSurface::TranslucentFrontLayer } )
                 for ( const GlobalIllumination::Pipeline& pipeline : GlobalIllumination::kTracerPermutations )
                 {
