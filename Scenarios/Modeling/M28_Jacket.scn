@@ -25,4 +25,5 @@
 Когда run Modeling "Active tool: Accept"
 Тогда 1_jacket Wireframe after Accept: only the outer box is drawn, the inner box is gone; the status line keeps the removed count (>= 12)
 Когда run Action Undo
+Когда run "Level Viewport" "Focus Selected"
 Тогда-вид 2_undo after Undo the inner box is drawn again through the outer one
