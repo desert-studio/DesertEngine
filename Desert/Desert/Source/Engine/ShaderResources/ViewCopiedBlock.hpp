@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 
 #include <algorithm>
@@ -8,6 +9,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -148,8 +150,19 @@ namespace Desert::ShaderResources
 
             // Every refusal is produced BEFORE Acquire: Acquire throws on a null copy, and a view must never
             // be handed a copy that could not be seeded.
+            // A COPY'S ROW BELONGS TO THE VIEWRESOURCES IT IS FILED IN. A copy made outside every
+            // ActiveViewScope is the frame context's, which lives for the process; made inside a view's
+            // ledger scope (Init, the staged build, Resize, the Ensure* builders) it would otherwise carry
+            // that view's instance and outlive the view's close as the view's rows. So the frame context's
+            // copies are the device's rows, with no view instance — the way LocalShadowCache books its atlas
+            // to the scene. Redirecting the write into the view instead (ActiveViewScope around those entry
+            // points) blacked the sky (bisected to that change): writes keep going where they went.
+            std::optional<Graphic::ResourceAttributionScope> frameContextRows;
+            if ( &view == &Graphic::ViewResourceRegistry::FrameContext() )
+                frameContextRows.emplace( Graphic::ResourceOwner::Device );
             std::unique_ptr<IBlockCopy> made;
             auto                        created = make( view.GetName(), frameIndex, made );
+            frameContextRows.reset();
             if ( !created.IsSuccess() )
                 return created;
             if ( !made )
