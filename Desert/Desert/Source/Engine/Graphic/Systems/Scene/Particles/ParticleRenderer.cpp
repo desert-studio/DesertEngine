@@ -808,7 +808,8 @@ namespace Desert::Graphic::System
             state.Submeshes = count;
             state.Instances = ShaderResources::StorageBuffer::Create(
                  "ParticleMeshInstances", 2u * capacity * sizeof( glm::mat4 ), 3, true );
-            // Zeroed: frame stamp 0 is no frame's (the first frame stamped is 2), so no particle reads a stale row.
+            // Zeroed: frame stamp 0 is no frame's (the first frame stamped is 2), so no particle reads a stale
+            // row.
             constexpr uint32_t kHistoryRow = sizeof( glm::mat4 ) + sizeof( glm::uvec4 );
             state.History =
                  ShaderResources::StorageBuffer::Create( "ParticleMeshHistory", capacity * kHistoryRow, 6, true );
@@ -822,11 +823,12 @@ namespace Desert::Graphic::System
             // The mesh's levels as the mesh component draws them (Geometry::SelectLODFromBounds): every level a
             // submesh carries, each with its screen size; a mesh without a LOD chain has one.
             const std::vector<float>& sizes = mesh->GetLODScreenSizes();
-            state.Levels   = std::max( 1u, std::min( Geometry::MaxAvailableLOD( submeshes ) + 1u,
-                                                     static_cast<uint32_t>( sizes.size() ) ) );
-            state.LodTable = static_cast<uint32_t>( GpuInstanceArgsOffset( count ) / 4u );
-            const auto local  = Geometry::LocalBounds( submeshes );
-            state.LocalSphere = glm::vec4( 0.5f * ( local.Min + local.Max ), 0.5f * glm::length( local.Max - local.Min ) );
+            state.Levels                    = std::max( 1u, std::min( Geometry::MaxAvailableLOD( submeshes ) + 1u,
+                                                                      static_cast<uint32_t>( sizes.size() ) ) );
+            state.LodTable                  = static_cast<uint32_t>( GpuInstanceArgsOffset( count ) / 4u );
+            const auto local                = Geometry::LocalBounds( submeshes );
+            state.LocalSphere =
+                 glm::vec4( 0.5f * ( local.Min + local.Max ), 0.5f * glm::length( local.Max - local.Min ) );
             const uint32_t argWords = state.LodTable + state.Levels * count * 2u + state.Levels + 1u;
             const uint32_t argBytes = argWords * 4u;
             state.Args = ShaderResources::StorageBuffer::Create( "ParticleMeshArgs", argBytes, 4, true );
@@ -890,12 +892,12 @@ namespace Desert::Graphic::System
         const uint32_t frame = ++m_MeshFrame;
         // The view the level is chosen from (UE ComputeBoundsScreenRadiusSquared through
         // Geometry::BoundsScreenRadiusSquared): the eye, the lens' focal scale, and whether it is perspective.
-        const auto&      camera = m_SceneRenderer->GetMainCamera();
+        const auto& camera = m_SceneRenderer->GetMainCamera();
         if ( camera == nullptr )
             return;
         const glm::mat4& projection = camera->GetProjectionMatrix();
-        const glm::vec4  lens( camera->GetPosition(),
-                               std::max( 0.5f * std::abs( projection[0][0] ), 0.5f * std::abs( projection[1][1] ) ) );
+        const glm::vec4  lens( camera->GetPosition(), std::max( 0.5f * std::abs( projection[0][0] ),
+                                                                0.5f * std::abs( projection[1][1] ) ) );
         const float      perspective = std::abs( projection[2][3] );
         for ( uint32_t i = 0; i < static_cast<uint32_t>( m_ViewEmitters.size() ); ++i )
         {
@@ -934,13 +936,14 @@ namespace Desert::Graphic::System
                     glm::vec4  Lens;
                     glm::uvec4 Lod;
                 };
-                MeshPush push{ glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, half, state.Submeshes,
-                                           state.Capacity ),
-                               glm::vec4( vm.Scale, 0.0f ),
-                               glm::uvec4( frame, 0u, 0u, 0u ),
-                               state.LocalSphere,
-                               lens,
-                               glm::uvec4( state.Levels, state.LodTable, 0u, std::bit_cast<uint32_t>( perspective ) ) };
+                MeshPush push{
+                     glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, half, state.Submeshes,
+                                 state.Capacity ),
+                     glm::vec4( vm.Scale, 0.0f ),
+                     glm::uvec4( frame, 0u, 0u, 0u ),
+                     state.LocalSphere,
+                     lens,
+                     glm::uvec4( state.Levels, state.LodTable, 0u, std::bit_cast<uint32_t>( perspective ) ) };
                 const uint32_t       groups = ( state.Capacity + 63u ) / 64u;
                 const RDG::BufferRef floats = ve.FloatsRef, layout = ve.DrawLayoutRef, counters = ve.CountersRef;
                 const GpuInstanceRefs refs  = state.Refs;
