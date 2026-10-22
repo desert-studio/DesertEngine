@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "2da2387a87064ed6bd33c61d6d5a7fc7",
         "Versions": {
-            "SCNE": 68,
+            "SCNE": 69,
             "UNIT": 1
         },
         "Dependencies": [
@@ -528,7 +528,7 @@
         "Gravity": 981.0,
         "DefaultPawn": {
             "Guid": "1a86d3093e55483bbdd7804f23589465",
-            "Path": "Prefabs/Pawn_Test.deprefab"
+            "Path": "assets:Prefabs/Pawn_Test.deprefab"
         },
         "PlayerController": {
             "Guid": "",

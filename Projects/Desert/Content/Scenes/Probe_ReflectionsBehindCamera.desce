@@ -3,61 +3,58 @@
         "Kind": "Scene",
         "Guid": "d9978ac8f65c5ebb1a132c5b9783d434",
         "Versions": {
-            "SCNE": 66,
+            "SCNE": 69,
             "UNIT": 1
         },
-        "Dependencies": [
-            "582f0def2b00efe8f1018b02af8340dd",
-            "b272c29047a884c02a065b782ae62ea5",
-            "b33524f57b8f411039fb457c1c34be51",
-            "f6f923426f71eb4a270b1db46ebceeff"
-        ]
+        "Dependencies": ["582f0def2b00efe8f1018b02af8340dd", "b272c29047a884c02a065b782ae62ea5", "b33524f57b8f411039fb457c1c34be51", "f6f923426f71eb4a270b1db46ebceeff"]
     },
     "SceneName": "Probe_ReflectionsBehindCamera",
     "Entities": [
         {
+            "id": 3049923770816476717,
+            "siblingIndex": 7,
+            "Tag": "BehindCamera_Emissive",
+            "Translation": [0.0, 150.0, 500.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "StaticMesh": {
+                "MaterialPaths": ["assets:Materials/Starter_Emissive.demat"],
+                "MaterialGuids": ["b272c29047a884c02a065b782ae62ea5"],
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 3204656530734242941,
+            "siblingIndex": 6,
+            "Tag": "InFront",
+            "Translation": [150.0, 50.0, -50.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.6000000238418579, 1.0, 0.6000000238418579],
+            "StaticMesh": {
+                "MaterialPaths": ["assets:Materials/Starter_Prop.demat"],
+                "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
+                "Primitive": "Cylinder"
+            }
+        },
+        {
             "id": 3651295826201078030,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [
-                -35.08782958984375,
-                -90.2258529663086,
-                -25.06273651123047
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                100.0,
-                100.0,
-                100.0
-            ],
+            "Translation": [-35.08782958984375, -90.2258529663086, -25.06273651123047],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
             "DirectionLight": {
-                "Color": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "Color": [1.0, 1.0, 1.0],
                 "Intensity": 1.0,
                 "AtmosphereSunLight": true,
                 "AtmosphereSunLightIndex": 0,
                 "AffectedByAtmosphereTransmittance": true,
-                "AtmosphereSunDiskColorScale": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "AtmosphereSunDiskColorScale": [1.0, 1.0, 1.0],
                 "LightShaftBloom": false,
                 "BloomScale": 0.20000000298023224,
                 "BloomThreshold": 0.0,
                 "BloomMaxBrightness": 100.0,
-                "BloomTint": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "BloomTint": [1.0, 1.0, 1.0],
                 "CastShadows": true,
                 "SourceAngle": 0.5357000231742859,
                 "ShadowBias": 1.0,
@@ -71,61 +68,38 @@
             }
         },
         {
+            "id": 3922436832198409948,
+            "siblingIndex": 2,
+            "Tag": "Ground",
+            "Translation": [0.0, -10.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [24.0, 0.20000000298023224, 24.0],
+            "StaticMesh": {
+                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
+                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
+                "Primitive": "Cube"
+            }
+        },
+        {
             "id": 4576059197435775655,
             "siblingIndex": 1,
             "Tag": "Sky",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                100.0,
-                100.0,
-                100.0
-            ],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
             "SkyAtmosphere": {
                 "Enabled": true,
                 "SkyBrightness": 1.0,
                 "HorizonFalloff": 0.8500000238418579,
-                "ZenithColor": [
-                    0.07999999821186066,
-                    0.25999999046325684,
-                    0.699999988079071
-                ],
-                "HorizonColor": [
-                    0.5,
-                    0.6600000262260437,
-                    0.9200000166893005
-                ],
-                "GroundColor": [
-                    0.1599999964237213,
-                    0.1899999976158142,
-                    0.23999999463558197
-                ],
-                "NightColor": [
-                    0.009999999776482582,
-                    0.019999999552965164,
-                    0.05000000074505806
-                ],
+                "ZenithColor": [0.07999999821186066, 0.25999999046325684, 0.699999988079071],
+                "HorizonColor": [0.5, 0.6600000262260437, 0.9200000166893005],
+                "GroundColor": [0.1599999964237213, 0.1899999976158142, 0.23999999463558197],
+                "NightColor": [0.009999999776482582, 0.019999999552965164, 0.05000000074505806],
                 "SunIntensity": 22.0,
-                "SunColor": [
-                    1.0,
-                    0.9599999785423279,
-                    0.8799999952316284
-                ],
+                "SunColor": [1.0, 0.9599999785423279, 0.8799999952316284],
                 "SunAngularDiameter": 2.2918310165405273,
                 "SunGlow": 1.0,
-                "SunsetColor": [
-                    1.0,
-                    0.41999998688697815,
-                    0.18000000715255737
-                ],
+                "SunsetColor": [1.0, 0.41999998688697815, 0.18000000715255737],
                 "SunsetIntensity": 1.0,
                 "StarIntensity": 1.0,
                 "AutoRebakeEnvironment": true,
@@ -136,51 +110,23 @@
                 "Model": 0,
                 "AtmosphereHeight": 60.0,
                 "MultiScatteringFactor": 1.0,
-                "GroundAlbedo": [
-                    0.4019779860973358,
-                    0.4019779860973358,
-                    0.4019779860973358
-                ],
+                "GroundAlbedo": [0.4019779860973358, 0.4019779860973358, 0.4019779860973358],
                 "RayleighScatteringScale": 0.03310000151395798,
-                "RayleighScattering": [
-                    0.17528699338436127,
-                    0.4096069931983948,
-                    1.0
-                ],
+                "RayleighScattering": [0.17528699338436127, 0.4096069931983948, 1.0],
                 "RayleighExponentialDistribution": 8.0,
                 "MieScatteringScale": 0.003996000159531832,
-                "MieScattering": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "MieScattering": [1.0, 1.0, 1.0],
                 "MieAbsorptionScale": 0.0004440000047907233,
-                "MieAbsorption": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "MieAbsorption": [1.0, 1.0, 1.0],
                 "MieAnisotropy": 0.800000011920929,
                 "MieExponentialDistribution": 1.2000000476837158,
                 "OtherAbsorptionScale": 0.0018810000037774444,
-                "OtherAbsorption": [
-                    0.3455609977245331,
-                    1.0,
-                    0.04518900066614151
-                ],
+                "OtherAbsorption": [0.3455609977245331, 1.0, 0.04518900066614151],
                 "AbsorptionTipAltitude": 25.0,
                 "AbsorptionTipValue": 1.0,
                 "AbsorptionTentWidth": 15.0,
-                "SkyLuminanceFactor": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
-                "SkyAndAerialPerspectiveLuminanceFactor": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "SkyLuminanceFactor": [1.0, 1.0, 1.0],
+                "SkyAndAerialPerspectiveLuminanceFactor": [1.0, 1.0, 1.0],
                 "AerialPerspectiveViewDistanceScale": 1.0,
                 "AerialPerspectiveStartDepth": 0.10000000149011612,
                 "AerialPerspectiveDistance": 96.0
@@ -192,11 +138,7 @@
                 },
                 "Intensity": 1.0,
                 "Rotation": 0.0,
-                "Tint": [
-                    1.0,
-                    1.0,
-                    1.0
-                ]
+                "Tint": [1.0, 1.0, 1.0]
             },
             "TimeOfDay": {
                 "DriveSunFromTimeOfDay": false,
@@ -213,86 +155,15 @@
             }
         },
         {
-            "id": 3922436832198409948,
-            "siblingIndex": 2,
-            "Tag": "Ground",
-            "Translation": [
-                0.0,
-                -10.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                24.0,
-                0.20000000298023224,
-                24.0
-            ],
-            "StaticMesh": {
-                "MaterialPaths": [
-                    "assets:Materials/Starter_Ground.demat"
-                ],
-                "MaterialGuids": [
-                    "b33524f57b8f411039fb457c1c34be51"
-                ],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 10144312751783984541,
-            "siblingIndex": 3,
-            "Tag": "Camera",
-            "Translation": [
-                0.0,
-                150.0,
-                200.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                100.0,
-                100.0,
-                100.0
-            ],
-            "Camera": {
-                "AutoActivateForPlayer": true,
-                "FOV": 45.0,
-                "Near": 10.0,
-                "Far": 5000000.0
-            }
-        },
-        {
             "id": 6039035132485441499,
             "siblingIndex": 4,
             "Tag": "PostProcessVolume",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "PostProcessVolume": {
                 "Unbound": true,
-                "Extent": [
-                    500.0,
-                    500.0,
-                    500.0
-                ],
+                "Extent": [500.0, 500.0, 500.0],
                 "BlendRadius": 100.0,
                 "Priority": 0.0,
                 "BlendWeight": 1.0,
@@ -327,26 +198,14 @@
                     "MotionBlurTargetFPS": 30.0,
                     "EnableLensFlare": false,
                     "LensFlareIntensity": 0.3499999940395355,
-                    "LensFlareTint": [
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
+                    "LensFlareTint": [1.0, 1.0, 1.0],
                     "LensFlareThreshold": 4.0,
                     "LensFlareGhostCount": 4,
                     "LensFlareGhostSpacing": 0.3499999940395355,
                     "LensFlareGhostSizeNear": 1.0,
                     "LensFlareGhostSizeFar": 3.0,
-                    "LensFlareGhostTintInner": [
-                        1.0,
-                        0.8600000143051147,
-                        0.6200000047683716
-                    ],
-                    "LensFlareGhostTintOuter": [
-                        0.44999998807907104,
-                        0.6800000071525574,
-                        1.0
-                    ],
+                    "LensFlareGhostTintInner": [1.0, 0.8600000143051147, 0.6200000047683716],
+                    "LensFlareGhostTintOuter": [0.44999998807907104, 0.6800000071525574, 1.0],
                     "LensFlareHaloIntensity": 0.25,
                     "LensFlareHaloRadius": 0.18000000715255737,
                     "LensFlareStreakIntensity": 8.0,
@@ -360,86 +219,12 @@
             "id": 8983684702233928048,
             "siblingIndex": 5,
             "Tag": "Mirror",
-            "Translation": [
-                0.0,
-                150.0,
-                -300.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                4.0,
-                3.0,
-                0.05
-            ],
+            "Translation": [0.0, 150.0, -300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [4.0, 3.0, 0.05000000074505806],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "assets:Materials/M_Metal_R0.demat"
-                ],
-                "MaterialGuids": [
-                    "582f0def2b00efe8f1018b02af8340dd"
-                ],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 3204656530734242941,
-            "siblingIndex": 6,
-            "Tag": "InFront",
-            "Translation": [
-                150.0,
-                50.0,
-                -50.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.6,
-                1.0,
-                0.6
-            ],
-            "StaticMesh": {
-                "MaterialPaths": [
-                    "assets:Materials/Starter_Prop.demat"
-                ],
-                "MaterialGuids": [
-                    "f6f923426f71eb4a270b1db46ebceeff"
-                ],
-                "Primitive": "Cylinder"
-            }
-        },
-        {
-            "id": 3049923770816476717,
-            "siblingIndex": 7,
-            "Tag": "BehindCamera_Emissive",
-            "Translation": [
-                0.0,
-                150.0,
-                500.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "StaticMesh": {
-                "MaterialPaths": [
-                    "assets:Materials/Starter_Emissive.demat"
-                ],
-                "MaterialGuids": [
-                    "b272c29047a884c02a065b782ae62ea5"
-                ],
+                "MaterialPaths": ["assets:Materials/M_Metal_R0.demat"],
+                "MaterialGuids": ["582f0def2b00efe8f1018b02af8340dd"],
                 "Primitive": "Cube"
             }
         },
@@ -447,29 +232,27 @@
             "id": 9018180349016416077,
             "siblingIndex": 8,
             "Tag": "BehindCamera_Prop",
-            "Translation": [
-                -130.0,
-                60.0,
-                450.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.8,
-                0.8,
-                0.8
-            ],
+            "Translation": [-130.0, 60.0, 450.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.800000011920929, 0.800000011920929, 0.800000011920929],
             "StaticMesh": {
-                "MaterialPaths": [
-                    "assets:Materials/Starter_Prop.demat"
-                ],
-                "MaterialGuids": [
-                    "f6f923426f71eb4a270b1db46ebceeff"
-                ],
+                "MaterialPaths": ["assets:Materials/Starter_Prop.demat"],
+                "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
                 "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 10144312751783984541,
+            "siblingIndex": 3,
+            "Tag": "Camera",
+            "Translation": [0.0, 150.0, 200.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
+            "Camera": {
+                "AutoActivateForPlayer": true,
+                "FOV": 45.0,
+                "Near": 10.0,
+                "Far": 5000000.0
             }
         }
     ],

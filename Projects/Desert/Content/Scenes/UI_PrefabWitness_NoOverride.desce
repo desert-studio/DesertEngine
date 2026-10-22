@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "13e76af44c8a39bbb5f8bce9d0939162",
         "Versions": {
-            "SCNE": 68,
+            "SCNE": 69,
             "UNIT": 1
         },
         "Dependencies": ["37d52634d940d6c1be0f623515668528"]
@@ -40,7 +40,7 @@
             "id": 5383751921808863294,
             "parent": 8000,
             "siblingIndex": 0,
-            "PrefabPath": "Prefabs/UI_Card.deprefab",
+            "PrefabPath": "assets:Prefabs/UI_Card.deprefab",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
@@ -58,7 +58,7 @@
             "id": 11835270700432038809,
             "parent": 8000,
             "siblingIndex": 1,
-            "PrefabPath": "Prefabs/UI_Card.deprefab",
+            "PrefabPath": "assets:Prefabs/UI_Card.deprefab",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],

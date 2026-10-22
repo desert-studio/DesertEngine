@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "1b25e5962572299205cfc8b195cd32bd",
         "Versions": {
-            "SCNE": 67,
+            "SCNE": 69,
             "UNIT": 1
         },
         "Dependencies": ["40e8fc4221d33289cca9e025f87dab0a", "578b193247b5c6380061ca73aadde74e", "e0792c5065612c4f073796096540f18a"]
@@ -123,7 +123,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [10.0, 0.20000000298023224, 10.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_NormalWitness.demat"],
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
                 "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"],
                 "Primitive": "Cube"
             }
@@ -134,11 +134,11 @@
             "Tag": "Skinned_NormalMapped",
             "Translation": [160.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.6000000238418579, 1.6000000238418579, 1.6000000238418579],
+            "Scale": [1.600000023841858, 1.600000023841858, 1.600000023841858],
             "SkinnedMesh": {
                 "MeshPath": "assets:Meshes/Skinned/NRM_SkinProbe.skmesh",
                 "MeshGuid": "578b193247b5c6380061ca73aadde74e",
-                "MaterialPaths": ["Materials/M_NormalWitness.demat"],
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
                 "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
             }
         },
@@ -148,11 +148,11 @@
             "Tag": "Skinned_Flat",
             "Translation": [-160.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.6000000238418579, 1.6000000238418579, 1.6000000238418579],
+            "Scale": [1.600000023841858, 1.600000023841858, 1.600000023841858],
             "SkinnedMesh": {
                 "MeshPath": "assets:Meshes/Skinned/NRM_SkinProbe.skmesh",
                 "MeshGuid": "578b193247b5c6380061ca73aadde74e",
-                "MaterialPaths": ["Materials/M_NormalWitness_Flat.demat"],
+                "MaterialPaths": ["assets:Materials/M_NormalWitness_Flat.demat"],
                 "MaterialGuids": ["e0792c5065612c4f073796096540f18a"]
             }
         },

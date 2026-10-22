@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "9f6174036d8b88429df5ff712f042697",
         "Versions": {
-            "SCNE": 68,
+            "SCNE": 69,
             "UNIT": 1
         },
         "Dependencies": [
@@ -242,15 +242,15 @@
                 "Layers": [
                     {
                         "Guid": "f1310680ea846d17141c59441b901b55",
-                        "Path": "Landscape/Layers/FieldBarn/FieldDirt.delayerinfo"
+                        "Path": "assets:Landscape/Layers/FieldBarn/FieldDirt.delayerinfo"
                     },
                     {
                         "Guid": "0e67a9bfdff1b3cd7ed50e27dadc465e",
-                        "Path": "Landscape/Layers/FieldBarn/FieldGrass.delayerinfo"
+                        "Path": "assets:Landscape/Layers/FieldBarn/FieldGrass.delayerinfo"
                     },
                     {
                         "Guid": "c39ddb7d5965f1c080b50b71c51a6db6",
-                        "Path": "Landscape/Layers/FieldBarn/FieldDry.delayerinfo"
+                        "Path": "assets:Landscape/Layers/FieldBarn/FieldDry.delayerinfo"
                     }
                 ]
             },
@@ -333,11 +333,11 @@
                 "FoliageTypes": [
                     {
                         "Guid": "29c0297bfae66c14e7be6532e7ce1963",
-                        "Path": "Foliage/FieldBarn/FB_PathEdge.defoliage"
+                        "Path": "assets:Foliage/FieldBarn/FB_PathEdge.defoliage"
                     },
                     {
                         "Guid": "ef6e7c4e137113f552595c56bedcb909",
-                        "Path": "Foliage/FieldBarn/FB_ShrubA.defoliage"
+                        "Path": "assets:Foliage/FieldBarn/FB_ShrubA.defoliage"
                     }
                 ]
             }
@@ -361,15 +361,15 @@
                 "FoliageTypes": [
                     {
                         "Guid": "0987b34baece1a37e6f3e932edfde3ee",
-                        "Path": "Foliage/FieldBarn/FB_TreeA.defoliage"
+                        "Path": "assets:Foliage/FieldBarn/FB_TreeA.defoliage"
                     },
                     {
                         "Guid": "4179fa72563a1de20aa8d5c9ed952532",
-                        "Path": "Foliage/FieldBarn/FB_TreeB.defoliage"
+                        "Path": "assets:Foliage/FieldBarn/FB_TreeB.defoliage"
                     },
                     {
                         "Guid": "89f24c160b149347c112214c4f1582bf",
-                        "Path": "Foliage/FieldBarn/FB_TreeShrub.defoliage"
+                        "Path": "assets:Foliage/FieldBarn/FB_TreeShrub.defoliage"
                     }
                 ]
             }
@@ -1143,7 +1143,7 @@
             "Scale": [1.0, 1.0, 1.0],
             "Foliage": {
                 "FoliageTypeGuid": "89f24c160b149347c112214c4f1582bf",
-                "FoliageTypePath": "Foliage/FieldBarn/FB_TreeShrub.defoliage"
+                "FoliageTypePath": "assets:Foliage/FieldBarn/FB_TreeShrub.defoliage"
             },
             "InstancedStaticMesh": {
                 "MeshPath": "assets:Environments/FieldBarn/Meshes/shrub_02/shrub_02_shrub_02_b.stmesh",
@@ -1286,7 +1286,7 @@
             "Scale": [1.0, 1.0, 1.0],
             "Foliage": {
                 "FoliageTypeGuid": "4179fa72563a1de20aa8d5c9ed952532",
-                "FoliageTypePath": "Foliage/FieldBarn/FB_TreeB.defoliage"
+                "FoliageTypePath": "assets:Foliage/FieldBarn/FB_TreeB.defoliage"
             },
             "InstancedStaticMesh": {
                 "MeshPath": "assets:Environments/FieldBarn/Meshes/island_tree_02/island_tree_02.stmesh",
@@ -1493,7 +1493,7 @@
             "Scale": [1.0, 1.0, 1.0],
             "Foliage": {
                 "FoliageTypeGuid": "0987b34baece1a37e6f3e932edfde3ee",
-                "FoliageTypePath": "Foliage/FieldBarn/FB_TreeA.defoliage"
+                "FoliageTypePath": "assets:Foliage/FieldBarn/FB_TreeA.defoliage"
             },
             "InstancedStaticMesh": {
                 "MeshPath": "assets:Environments/FieldBarn/Meshes/island_tree_01/island_tree_01.stmesh",

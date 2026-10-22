@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "8452786c623ccda05a4aaaddbf354abd",
         "Versions": {
-            "SCNE": 68,
+            "SCNE": 69,
             "UNIT": 1
         },
         "Dependencies": ["257318dcaa1cff2f324f80faacec0fe4"]
@@ -28,7 +28,7 @@
                 "Visible": true,
                 "SortOrder": 0,
                 "SafeArea": [0.0, 0.0, 0.0, 0.0],
-                "Theme": "UI/Themes/Desert_Light.detheme",
+                "Theme": "assets:UI/Themes/Desert_Light.detheme",
                 "FontScale": 1.0,
                 "HighContrast": false
             }
