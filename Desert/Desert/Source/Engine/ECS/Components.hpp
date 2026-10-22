@@ -2015,6 +2015,21 @@ namespace Desert::ECS
                   Tooltip( "The World Partition grids this source streams, by name; empty = every grid." ),
                   Hidden )
         std::vector<std::string> TargetGrids;
+
+        // THE LOOK-AHEAD (Rules::StreamingSource): a plane or a car streams the cells it is about to reach, not
+        // only those around it. UE has no such setting; there a game adds a predicted source by hand.
+        PROPERTY( DisplayName( "Look Ahead Time" ), Category( "Streaming Source" ), Units( "s" ),
+                  Range( 0.0f, 120.0f ),
+                  Tooltip( "Cells along the entity's path load ahead of time: the loading shape reaches as far "
+                           "as the entity travels in this many seconds at its present speed (on the ground). "
+                           "0 = only around where it is. About how long a cell takes to load." ) )
+        float LookAheadTime = 0.0f;
+
+        PROPERTY( DisplayName( "Max Look Ahead" ), Category( "Streaming Source" ), Length,
+                  Range( 0.0f, 10000000.0f ),
+                  Tooltip( "The farthest ahead the loading shape reaches however fast the entity moves (cm), "
+                           "so a teleport or a burst of speed does not request half the world." ) )
+        float MaxLookAhead = 100000.0f;
     };
 
     struct StreamingSourceComponent

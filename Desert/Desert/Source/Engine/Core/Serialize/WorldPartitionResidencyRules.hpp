@@ -33,8 +33,8 @@
 // ── HYSTERESIS: A DISTANCE, NOT A TIMER ───────────────────────────────────────────────────────────
 //
 // A unit is WANTED when the query wants it. A resident unit is KEPT while the same query with every source's
-// range grown by `UnloadMargin` still wants it, and unloaded the frame it is not. The band between the two
-// radii is where nothing changes: no load starts there and nothing resident leaves.
+// range (and look-ahead sweep) grown by `UnloadMargin` still wants it, and unloaded the frame it is not. The band
+// between the two radii is where nothing changes: no load starts there and nothing resident leaves.
 //
 // Why distance and not "N seconds out of range": that is how UE does it. Its policy unloads a cell the frame
 // the cell is outside every source's shape (WorldPartitionStreamingPolicy.cpp, the ToUnloadCells block) and
@@ -122,7 +122,7 @@ namespace Desert::Core::Rules
         // instances, skinned meshes) is a new measurement, and the streamer's log line is where it comes from.
         double MsPerRecord = 0.02;
         // The hysteresis band: a resident unit is kept while within LoadingRange·RangeScale·(1 + UnloadMargin),
-        // and a sector's angle is widened by the same factor.
+        // and a sector's angle and a look-ahead's sweep length are widened by the same factor.
         float UnloadMargin = 0.25f;
         // Loads in flight at once.
         std::uint32_t MaxConcurrentLoads = 4;
@@ -351,6 +351,11 @@ namespace Desert::Core::Rules
             source.RangeScale *= 1.0f + settings.UnloadMargin;
             source.AngleScale *=
                  1.0f + settings.UnloadMargin; // a sector's edge has the same band (UE's ExtraAngle)
+            // The look-ahead's tip has the same band: the sweep (speed x LookAheadTime, capped at MaxLookAhead)
+            // grows by the same factor, so a speed that jitters less than the margin does not unload the cell
+            // the path's tip has just loaded.
+            source.LookAheadTime *= 1.0f + settings.UnloadMargin;
+            source.MaxLookAhead *= 1.0f + settings.UnloadMargin;
         }
         auto keptWish = QueryStreamingCells( plan, partition, widened );
         if ( !keptWish.IsSuccess() )

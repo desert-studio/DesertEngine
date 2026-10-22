@@ -1000,6 +1000,8 @@ namespace
          { "ShapeOffset", kWorldStreamer },
          { "ShapeYaw", kWorldStreamer },
          { "UseVelocityForSorting", kWorldStreamer },
+         { "LookAheadTime", kWorldStreamer },
+         { "MaxLookAhead", kWorldStreamer },
     };
 
     constexpr Row kRetargetRows[] = {
