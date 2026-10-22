@@ -7,19 +7,30 @@
 // ONE system, two steps in a fixed order each Play frame:
 //   1. PERCEPTION. Noise and damage events queued since the last frame are delivered (range, affiliation).
 //      Sight: for each perceiver, candidate sources inside SightRadius (LoseSightRadius for one already seen)
-//      and inside the cone; then line-of-sight traces through Scene::Raycast from the eye to the target point,
+//      and inside the cone; then line-of-sight traces on the SIGHT trace channel (lead decision 10-22 Q8;
+//      the dependency the CHANNELS card adds to Physics/CollisionProfiles.hpp: project trace channels
+//      Visibility / Camera / Sight with per-profile responses, PhysicsWorld::CastRay by channel; translucent
+//      glass ignores Sight, a foliage type blocks it only with BlocksSight, default false) from the pawn's eye
+//      to the target point,
 //      at most `MaxSightTracesPerFrame` across ALL perceivers (UE MaxTracesPerTick, round-robin so no NPC
-//      starves). The traces run on the JobSystem (Scene::Raycast is const); results are applied on the main
+//      starves). The traces run on the JobSystem (queries are const); results are applied on the main
 //      thread. Ages advance; a lost stimulus past MaxAge is forgotten.
 //      Every change becomes a tree event on that NPC: "Perception.Sight.Gained" / ".Lost" / ".Forgotten",
-//      "Perception.Hearing.<Tag>", "Perception.Damage.<Tag>", Subject = the source.
+//      the noise / damage event's own GameplayTag (below Perception.Hearing / Perception.Damage), Subject =
+//      the source. The five Perception.* tags are native (GameplayTagRegistry::RegisterNative at startup).
 //   2. DECISIONS. For each StateTreeComponent: (re)start when needed (Play began, asset revision changed,
 //      hot reload), then Tick when the execution ShouldTick (scheduled tick).
 // Movement (NAV-FOLLOW) runs after this system and executes the move requests tasks made; this system never
 // moves an entity itself.
 //
-// Play only, and only where the world is authoritative: when the server line (ENG-SERVER) lands, a client
-// world does not register this system (UE: AI exists on the server only).
+// SERVER ONLY (lead decision 10-22 Q7, UE: AI exists on the authority only). The world that registers systems
+// registers this one only when it is authoritative; today every world is (standalone / editor PIE), and a
+// client world of ENG-SERVER never registers it - enforced at registration, not by a check inside Update.
+//
+// TICK LOD + BATCHING (Q2): each controller ticks at the interval of the first AISystemSettings::LodBands row
+// whose MaxDistance covers its pawn's distance to the nearest player view; the delta it gets is the time since
+// ITS previous tick (StateTreeComponent::SinceLastTick). Trees are ticked grouped by node set (one per tree
+// asset), so the shared nodes stay hot. Measurement budget: 1000 NPCs per server (AI-ST-EXEC measures it).
 
 #include <Engine/AI/AIPerceptionComponent.hpp>
 #include <Engine/AI/Perception/PerceptionTypes.hpp>
@@ -44,8 +55,20 @@ namespace Desert::ECS
 {
     struct AISystemSettings
     {
-        /// UE AIPerceptionSystem MaxTracesPerTick (project setting). Owner sets the NPC target (open question 2).
+        /// UE AIPerceptionSystem MaxTracesPerTick (project setting), shared by all perceivers.
         std::uint32_t MaxSightTracesPerFrame = 64;
+
+        /// One tick-LOD band: controllers whose pawn is within MaxDistance (cm) of the nearest player view tick
+        /// every TickInterval seconds (0 = every frame). Rows ascend by MaxDistance; beyond the last = last row.
+        struct LodBand
+        {
+            float MaxDistance  = 0.0f;
+            float TickInterval = 0.0f;
+        };
+        std::vector<LodBand> LodBands = { { 3000.0f, 0.0f }, { 10000.0f, 0.1f }, { 30000.0f, 0.5f } };
+
+        /// The NPC count the frame cost is measured at (Q2: 1000 per server).
+        std::uint32_t BudgetNpcs = 1000;
     };
 
     class AISystem final : public System

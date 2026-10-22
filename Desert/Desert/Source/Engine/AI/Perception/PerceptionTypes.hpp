@@ -5,6 +5,8 @@
 // PERCEPTION VOCABULARY (UE AIModule/Classes/Perception: AIPerceptionTypes.h FAIStimulus, AISenseConfig_Sight.h,
 // AISenseConfig_Hearing.h, AISenseConfig_Damage.h). Units: centimetres, seconds, degrees.
 
+#include <Engine/GameplayTags/GameplayTag.hpp>
+
 #include <CoreReflection/ReflectionMacros.hpp>
 
 #include <entt/entt.hpp>
@@ -119,7 +121,9 @@ namespace Desert::AI::Perception
         float        Strength   = 0.0f; // sight 1; hearing: loudness; damage: amount
         float        AgeSeconds = 0.0f;
         bool         Sensed     = false; // false = lost, remembered until MaxAge (UE WasSuccessfullySensed)
-        std::string  Tag;                // noise / damage tag ("Gunshot", "Horn"); empty for sight
+        /// Hearing / damage: the event's tag (below Perception.Hearing / Perception.Damage, lead decision 10-22
+        /// Q5); the empty tag for sight.
+        GameplayTags::GameplayTag Tag;
     };
 
     /// A noise reported by gameplay (UE UAISense_Hearing::ReportNoiseEvent, AISense_Hearing.h:64). From game
@@ -131,7 +135,9 @@ namespace Desert::AI::Perception
         float        Loudness   = 1.0f; // multiplies the listener's HearingRange
         entt::entity Instigator = entt::null;
         float        MaxRange   = 0.0f; // UE MaxRange: hard cap on distance regardless of listener; 0 = none
-        std::string  Tag;
+        /// Must lie below Perception.Hearing ("Perception.Hearing.Gunshot"); ReportNoiseEvent refuses any other
+        /// tag; the empty tag means Perception.Hearing itself. It is the tree event the listener receives.
+        GameplayTags::GameplayTag Tag;
     };
 
     struct DamageEvent
@@ -141,6 +147,7 @@ namespace Desert::AI::Perception
         float        Amount     = 0.0f;
         glm::vec3    EventLocation{ 0.0f };
         glm::vec3    HitLocation{ 0.0f };
-        std::string  Tag;
+        /// Must lie below Perception.Damage; ReportDamageEvent refuses any other; empty = Perception.Damage.
+        GameplayTags::GameplayTag Tag;
     };
 } // namespace Desert::AI::Perception

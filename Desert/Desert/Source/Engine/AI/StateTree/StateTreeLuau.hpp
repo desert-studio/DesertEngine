@@ -14,22 +14,30 @@
 //     Node = "Task"                                   -- "Task" | "Condition" | "Evaluator"
 //     Properties = { Radius = Property.Float(500, { Units = "cm" }) }
 //
-//     function EnterState(actor, transition)  return Status.Running end
-//     function Tick(actor, dt)                return Status.Succeeded end
-//     function ExitState(actor, transition)   end
-//     -- Condition:  function TestCondition(actor) return true end
-//     -- Evaluator:  function TreeStart(actor) end; function Tick(actor, dt) end; function TreeStop(actor) end
-//     --             Outputs = { Target = Property.Entity() }   -- read by bindings, written by the script
+//     function InstanceData()                       return { elapsed = 0 } end   -- per-NPC state, optional
+//     function EnterState(self, ctx, transition)    return Status.Running end
+//     function Tick(self, ctx)                      self.elapsed += ctx.dt; return Status.Succeeded end
+//     function ExitState(self, ctx, transition)     end
+//     -- Condition:  function TestCondition(self, ctx) return true end
+//     -- Evaluator:  function TreeStart(self, ctx) end; function Tick(self, ctx) end; function TreeStop(self, ctx)
+//     end
+//     --             Outputs = { Target = Property.Entity() }   -- read by bindings, written into self.outputs
 //
-// Globals the binding sets before the top level runs: `Status` (Running / Succeeded / Failed), `tree`
-// (tree:sendEvent(tag, payload), tree:activeStates()), `params` (the node's bound parameter values, refreshed
-// before every call), `perception` (the actor's AIPerceptionComponent queries). `actor` is a LuauEntityRef,
-// so `actor:component("Transform")` works as in every entity script.
+// `self` is THIS NPC's instance table (what InstanceData() returned; an empty table when the module defines
+// none). `ctx` is the call's NodeContext: ctx.controller and ctx.pawn (LuauEntityRef of the AI controller and
+// its possessed pawn, lead decision 10-22 Q4 - `ctx.pawn:component("Transform")` works as in every entity
+// script; ctx.pawn is nil while nothing is possessed), ctx.dt, ctx.params (the node's bound parameter values
+// for this NPC), ctx.events, ctx.tree (sendEvent(tag, payload), activeStates()), ctx.perception (the
+// controller's AIPerceptionComponent queries). The module's only globals are `Status` and `Property`; there is
+// no `actor` global.
 //
-// ONE SANDBOX PER NODE INSTANCE: each NPC's copy of a Luau node is its own LuauRuntime slot (compile-once cache
-// keyed by script and source, so a hundred NPCs compile the module once), so script globals ARE the node's
-// instance data - the same rule a ScriptSlot has. Hot reload re-runs the slot (LuauRuntime::Reload); the
-// execution then restarts the tree, since a reloaded task's state is gone.
+// ONE LUAU ENVIRONMENT PER SCRIPT CLASS (lead decision 10-22 Q6, UE: one Blueprint class, per-actor instance
+// data): the module runs once in one LuauRuntime slot per script key, and that slot backs the ONE shared node
+// of every tree node using the script. Per-NPC state lives only in `self`, never in module globals - a module
+// global written from a node function is shared by every NPC, so ValidateScript refuses a module whose
+// functions assign globals (Luau --!strict + the host's global-write check). Hot reload re-runs the class slot
+// (LuauRuntime::Reload), the AI system rebuilds the node sets that use it and restarts their trees, since the
+// instance tables of the old class are gone.
 //
 // Errors: a missing function the kind needs is a COMPILE error (StateTree::Compile, via ValidateScript);
 // a runtime script error or a Tick returning anything but a Status fails the task (RunStatus::Failed), is
@@ -57,6 +65,7 @@ namespace Desert::AI::StateTree
         NodeKind                Kind = NodeKind::Task;
         Scripting::ScriptSchema Parameters; // `Properties`
         Scripting::ScriptSchema Outputs;    // Evaluator only: `Outputs`
+        bool                    DefinesInstanceData   = false; // `InstanceData()`; else `self` starts as {}
         bool                    DefinesTick           = false;
         bool                    DefinesExitState      = false;
         bool                    DefinesStateCompleted = false;
@@ -75,12 +84,14 @@ namespace Desert::AI::StateTree
         virtual Common::ResultStr<LuauNodeSchema> ValidateScript( const std::string& scriptKey,
                                                                   NodeKind           kind ) = 0;
 
-        /// A new sandboxed instance of the module for one NPC. Released when the returned object dies.
-        virtual Common::ResultStr<std::unique_ptr<IStateTreeTask>> MakeTask( const std::string& scriptKey,
-                                                                             entt::entity       actor ) = 0;
+        /// The SHARED node of the script class `scriptKey` (StateTreeNodeSet::Build calls it once per tree
+        /// node; the class environment itself is one per script key). Its MakeInstanceData calls the module's
+        /// InstanceData() and wraps the returned table's reference in an INodeInstanceData; the slot is
+        /// released when the last node of the class dies.
+        virtual Common::ResultStr<std::unique_ptr<IStateTreeTask>> MakeTask( const std::string& scriptKey ) = 0;
         virtual Common::ResultStr<std::unique_ptr<IStateTreeCondition>>
-        MakeCondition( const std::string& scriptKey, entt::entity actor ) = 0;
+        MakeCondition( const std::string& scriptKey ) = 0;
         virtual Common::ResultStr<std::unique_ptr<IStateTreeEvaluator>>
-        MakeEvaluator( const std::string& scriptKey, entt::entity actor ) = 0;
+        MakeEvaluator( const std::string& scriptKey ) = 0;
     };
 } // namespace Desert::AI::StateTree
