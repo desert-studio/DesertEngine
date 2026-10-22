@@ -88,10 +88,10 @@ namespace
         if ( held == wanted )
             return;
         constexpr std::pair<int32_t, ImGuiKey> kKeys[] = {
-             { Ctl::kModShift, ImGuiMod_Shift },
-             { Ctl::kModControl, ImGuiMod_Ctrl },
-             { Ctl::kModAlt, ImGuiMod_Alt },
-             { Ctl::kModSuper, ImGuiMod_Super },
+             { Ctl::kModShift, ImGuiKey_ModShift },
+             { Ctl::kModControl, ImGuiKey_ModCtrl },
+             { Ctl::kModAlt, ImGuiKey_ModAlt },
+             { Ctl::kModSuper, ImGuiKey_ModSuper },
         };
         for ( const auto& [bit, key] : kKeys )
             if ( ( held & bit ) != ( wanted & bit ) )
