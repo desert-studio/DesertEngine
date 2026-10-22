@@ -20,34 +20,34 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Animation/Rig` — 12 files, 4,517 lines: ControlBoneDrive, ControlDrag, ControlElement, ControlHierarchy, ControlKeyTarget, ControlKeyer, ControlLimit, ControlRigStage, ControlShape, ControlShapeDraw, ControlShapeLibrary, ControlShapePolyline, … (+16)
 - `Animation/Solvers` — 2 files, 270 lines: TwoBoneIKChain, TwoBoneIKGoal, TwoBoneIKSolution
 - `Animation/Timeline` — 18 files, 4,768 lines: AnimationSample, AnimationSectionContent, ApplyReport, AudioCommand, AudioSample, AudioSectionContent, AudioVoices, Binding, BindingGuid, BoneBindingTable, BoneRename, BoolChannel, … (+24)
-- `Assets` — 122 files, 27,975 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetGuidRef, AssetKey, AssetManager, AssetMetadata, AssetRef, AssetRefSite, AssetRootPin, … (+123)
+- `Assets` — 124 files, 28,189 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetGuidRef, AssetKey, AssetManager, AssetMetadata, AssetRef, AssetRefSite, AssetRootPin, … (+124)
 - `Assets/Mesh` — 14 files, 2,454 lines: AnimationAsset, MeshAsset, ReloadTwinTag, SkeletonAsset, SkeletonReferrers, SkinnedMeshAsset, StaticMeshAsset, SurfaceMaterialAsset
-- `Assets/Prefab` — 9 files, 1,470 lines: AnimationComponentSer, EntityData, InstanceRootTransform, InstancedStaticMeshComponentSer, MaterialComponentSer, MaterialParamSer, MaterialTextureSer, PrefabAsset, PrefabBoundsSer, PrefabData, PrefabDiffReport, PrefabOverrideData, … (+6)
-- `Assets/Serialization` — 40 files, 10,466 lines: AnimationAssetData, Box, ControlDriveData, ControlElementData, ControlLimitData, ControlRigData, ControlSpaceData, CookedPanorama, Document, FoliageFloatInterval, FoliageProcedural, FoliageScaleCurveKey, … (+71)
+- `Assets/Prefab` — 9 files, 1,491 lines: AnimationComponentSer, EntityData, InstanceRootTransform, InstancedStaticMeshComponentSer, MaterialComponentSer, MaterialParamSer, MaterialTextureSer, PrefabAsset, PrefabBoundsSer, PrefabData, PrefabDiffReport, PrefabOverrideData, … (+6)
+- `Assets/Serialization` — 42 files, 10,781 lines: AnimationAssetData, Box, ControlDriveData, ControlElementData, ControlLimitData, ControlRigData, ControlSpaceData, CookedPanorama, Document, FoliageFloatInterval, FoliageProcedural, FoliageScaleCurveKey, … (+75)
 - `Assets/Shader` — 2 files, 325 lines: ShaderAsset
 - `Assets/Skybox` — 2 files, 123 lines: SkyboxAsset
 - `Audio` — 4 files, 442 lines: AudioEngine, AudioMix
-- `Core` — 72 files, 11,637 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CameraSourceTicket, CellHLOD, CookedWorldStart, DebugDrawCanvasLine, DebugDrawLine, DebugDrawPanelStyle, … (+64)
+- `Core` — 72 files, 11,656 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CameraSourceTicket, CellHLOD, CookedWorldStart, DebugDrawCanvasLine, DebugDrawLine, DebugDrawPanelStyle, … (+64)
 - `Core/Formats` — 11 files, 3,614 lines: BC6HCeilingCensus, BlockPolicy, Image2DSpecification, Image3DSpecification, ImageCubeSpecification, MaterialLayout, MaterialLayoutBindings, MaterialLayoutParam, MaterialLayoutPushField, MaterialLayoutTexture, MipLevelSpan, ReflectedLayoutMember, … (+8)
 - `Core/IO` — 2 files, 89 lines: ImageReader, ImageReaderGifInfo
-- `Core/Serialize` — 47 files, 13,926 lines: AxisSpan, BuiltHLODCell, BuiltHLODIndex, BuiltHLODs, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, … (+86)
+- `Core/Serialize` — 47 files, 14,091 lines: AxisSpan, BuiltHLODCell, BuiltHLODIndex, BuiltHLODs, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, … (+87)
 - `Core/ShaderCompiler` — 16 files, 2,300 lines: BindlessShaderDefine, ScopedShaderPhase, ShaderCacheCounts, ShaderCompiler, ShaderMap, ShaderMapLookup, ShaderMapOutcome, ShaderMapRequest, ShaderMapStage, ShaderPhaseTimes, ShaderVariant, ShaderVirtualSource
-- `Core/ShaderCompiler/DShader` — 2 files, 3,351 lines: DShaderParseResult, DShaderParser, DShaderPass, SurfaceTemplateInfo
+- `Core/ShaderCompiler/DShader` — 2 files, 3,378 lines: DShaderParseResult, DShaderParser, DShaderPass, SurfaceTemplateInfo
 - `Core/ShaderCompiler/Includer` — 2 files, 256 lines: ShaderIncluder
 - `Core/ShaderCompiler/ShaderPreprocess` — 2 files, 141 lines: PreprocessedPass, ShaderPreprocess
 - `Core/ShaderCompiler/ShadingModels` — 6 files, 1,047 lines: LoadedShadingModels, PayloadSlot, ShadingModelEntry, ShadingModelManifest, ShadingModelRegistry, ShadingWordField
 - `Core/Traits` — 1 files, 17 lines
 - `Destruction` — 16 files, 3,478 lines: BodyRef, BodyState, BoxFalloff, BrickSettings, CellBounds, ConvexCell, CutPlane, DestructibleDesc, DestructionEvent, DestructionSettings, DestructionWorld, FieldCommand, … (+25)
-- `ECS` — 42 files, 8,347 lines: AlwaysLoadedComponent, AnchorFieldComponent, AnchorFieldData, AnimationComponent, AppliedLayerLink, AtmosphereSunPick, AudioSourceComponent, AudioSourceData, Bound, CameraComponent, CameraData, CharacterControllerComponent, … (+167)
+- `ECS` — 42 files, 8,356 lines: AlwaysLoadedComponent, AnchorFieldComponent, AnchorFieldData, AnimationComponent, AppliedLayerLink, AtmosphereSunPick, AudioSourceComponent, AudioSourceData, Bound, CameraComponent, CameraData, CharacterControllerComponent, … (+167)
 - `ECS/System` — 49 files, 9,099 lines: Actor, AnimationECSSystem, ArmSolve, AtmosphereSunSelection, AttachPoint, AttachmentSystem, AudioECSSystem, ColliderMesh, ComponentEventCursor, ComponentEventSystem, DecomposedTransform, DestructibleLifetime, … (+39)
 - `GameplayDebugger` — 5 files, 566 lines: CategorySlot, GameplayDebugger, GameplayDebuggerCategoryBasic, GameplayDebuggerCategoryData, GameplayDebuggerShape, IGameplayDebuggerCategory
-- `Generated` — 31 files, 2,243 lines
-- `Geometry` — 60 files, 11,834 lines: AutoUVSettings, BakeOptions, BoneBounds, BooleanOutcome, Cell, CutPlane, DynamicMesh, ElementHit, ElementSelection, FaceVert, GridFrame, GroupAssigner, … (+63)
+- `Generated` — 31 files, 2,244 lines
+- `Geometry` — 66 files, 13,862 lines: AutoUVSettings, BakeOptions, BoneBounds, BooleanOutcome, Cell, CutPlane, DeformOutcome, DynamicMesh, ElementHit, ElementSelection, FFDLattice, FaceVert, … (+75)
 - `Geometry/Errors` — 1 files, 20 lines
 - `Geometry/MeshCore` — 26 files, 6,410 lines: AxisAlignedBox3, BaseIterator, BaseValueIterator, Block, ConstIterator, DynamicMeshCompactMaps, DynamicMeshEditResult, DynamicMeshEditor, DynamicSubmesh3, DynamicVector, DynamicVectorN, EdgeLoop, … (+35)
 - `Geometry/MeshCore/CompGeom` — 2 files, 204 lines
 - `Geometry/MeshCore/Distance` — 2 files, 339 lines: DistLine3Line3, DistPoint3Triangle3
-- `Geometry/MeshCore/DynamicMesh` — 22 files, 14,782 lines: AppendInfo, BoundaryConstraintFlags, ChangeStamp, CollapseEdgeOptions, Corner, DynamicAttributeBase, DynamicAttributeSetBase, DynamicMesh3, DynamicMeshAttributeSet, DynamicMeshOverlay, DynamicMeshScalarTriangleAttribute, DynamicMeshSingleTriangleAttribute, … (+29)
+- `Geometry/MeshCore/DynamicMesh` — 22 files, 15,026 lines: AppendInfo, BoundaryConstraintFlags, ChangeStamp, CollapseEdgeOptions, ComputeTangentsOptions, Corner, DynamicAttributeBase, DynamicAttributeSetBase, DynamicMesh3, DynamicMeshAttributeSet, DynamicMeshOverlay, DynamicMeshScalarTriangleAttribute, … (+30)
 - `Geometry/MeshCore/DynamicMesh/Operations` — 27 files, 7,407 lines: ArcSplineCurve, BevelEdge, BevelLoop, BevelVertex, BevelVertex_InteriorVertex, EdgeLoopInsertionParams, GroupEdgeInserter, GroupEdgeInserterOptionalOutputParams, GroupEdgeInsertionParams, GroupEdgeSplitPoint, IHoleFiller, InsetInfo, … (+13)
 - `Geometry/MeshCore/DynamicMesh/Parameterization` — 2 files, 889 lines: DynamicMeshUVEditor, UVEditResult
 - `Geometry/MeshCore/Intersection` — 1 files, 393 lines: IntrTriangle3Triangle3
@@ -56,53 +56,53 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Geometry/MeshCore/Polygroups` — 2 files, 345 lines: PolygroupLayer, PolygroupSet
 - `Geometry/MeshCore/Selections` — 4 files, 411 lines: Component, MeshConnectedComponents, QuadGridPatch
 - `Geometry/MeshCore/Solvers` — 2 files, 528 lines: SparseLDLT, SparseMatrixD, SpectralConformalMeshUVSolver, Triplet
-- `Geometry/MeshCore/Spatial` — 3 files, 1,101 lines: BoxesSet, DynamicMeshAABBTree3, FastWindingTree, IntersectionsQueryResult, MeshQueryOptions, MeshTriInfoCache, PointHashGrid3, SegmentIntersection, WNInfo
-- `Graphic` — 119 files, 23,885 lines: ActiveViewScope, AllocationLedger, AtlasTile, AtmosphereEnv, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, BindlessTextureTable, BlockDeclaration, BlockEntry, BlockUse, … (+184)
+- `Geometry/MeshCore/Spatial` — 3 files, 1,208 lines: BoxesSet, DynamicMeshAABBTree3, FastWindingTree, IntersectionsQueryResult, MeshQueryOptions, MeshTriInfoCache, PointHashGrid3, SegmentIntersection, WNInfo
+- `Graphic` — 119 files, 24,057 lines: ActiveViewScope, AllocationLedger, AtlasTile, AtmosphereEnv, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, BindlessTextureTable, BlockDeclaration, BlockEntry, BlockUse, … (+184)
 - `Graphic/API` — 2 files, 31 lines
-- `Graphic/API/Vulkan` — 86 files, 23,564 lines: AccelerationStructureDeletionEntry, AllocatedData, BindlessBindingFlags, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CatalogProbe, CommandBufferAllocator, DescriptorIndexingLimits, DescriptorPoolDeletionEntry, DescriptorSetInfo, DeviceCaps, … (+100)
+- `Graphic/API/Vulkan` — 86 files, 23,611 lines: AccelerationStructureDeletionEntry, AllocatedData, BindlessBindingFlags, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CatalogProbe, CommandBufferAllocator, DescriptorIndexingLimits, DescriptorPoolDeletionEntry, DescriptorSetInfo, DeviceCaps, … (+100)
 - `Graphic/API/Vulkan/FidelityFX` — 2 files, 225 lines: DeviceRequirements
 - `Graphic/API/Vulkan/Streamline` — 2 files, 1,364 lines: DlssEvaluation, DlssImage, DlssOptions, DlssRenderRange, FeatureState, Runtime
 - `Graphic/API/Vulkan/VulkanUtils` — 4 files, 563 lines: DescriptorSetBuilder
-- `Graphic/Clouds` — 13 files, 4,119 lines: Bake, BakedBytes, CloudAuthoredInstanceGpu, CloudAuthoredPackResult, CloudAuthoredPayload, CloudBakeBinding, CloudBakeLayerInputs, CloudEnvelopeKm, CloudEnvironmentBake, CloudGpuPayload, CloudMaterialValues, CloudMediumValues, … (+18)
-- `Graphic/DistanceField` — 5 files, 1,776 lines: BrickAllocator, DistanceFieldSceneData, DistanceFieldStreamingStats, FrameField, GlobalDistanceField, GlobalDistanceFieldObject, MeshDistanceFieldReads, MeshSDFGridPlacement, NearFieldView, PendingBrick, RangeAllocator, Resident, … (+2)
-- `Graphic/Environment` — 6 files, 1,127 lines: Environment, EnvironmentCacheEntry, EnvironmentCacheWriter, EnvironmentManager, OwnedEnvironment, SampledCube, SkyLook, SkyLookGPU, Write
+- `Graphic/Clouds` — 13 files, 4,121 lines: Bake, BakedBytes, CloudAuthoredInstanceGpu, CloudAuthoredPackResult, CloudAuthoredPayload, CloudBakeBinding, CloudBakeLayerInputs, CloudEnvelopeKm, CloudEnvironmentBake, CloudGpuPayload, CloudMaterialValues, CloudMediumValues, … (+18)
+- `Graphic/DistanceField` — 5 files, 1,843 lines: BrickAllocator, DistanceFieldSceneData, DistanceFieldStreamingStats, FrameField, GlobalDistanceField, GlobalDistanceFieldCompositeShaderParameters, GlobalDistanceFieldObject, GlobalDistanceFieldViewShaderParameters, MeshDistanceFieldReads, MeshSDFGridPlacement, NearFieldView, PendingBrick, … (+4)
+- `Graphic/Environment` — 6 files, 1,130 lines: Environment, EnvironmentCacheEntry, EnvironmentCacheWriter, EnvironmentManager, OwnedEnvironment, SampledCube, SkyLook, SkyLookGPU, Write
 - `Graphic/Fog` — 1 files, 183 lines: FogGpuPayload, FogPush
-- `Graphic/GlobalIllumination` — 14 files, 4,200 lines: AtlasRect, Bin, CaptureTextures, Card, CardCapture, CardMip, CardPageCopy, CardPagePayload, CardPayload, Clipmap, DirectLightingInputs, FrameBuffers, … (+30)
-- `Graphic/Materials` — 17 files, 2,799 lines: ContactShadowSettings, DataDrivenMaterial, Entry, Material, MaterialBackend, MaterialExecutor, MaterialInstance, MaterialOverrides, MaterialProperty, MaterialPropertySet, MaterialSlotBinding, PushSlot, … (+3)
+- `Graphic/GlobalIllumination` — 14 files, 4,692 lines: AtlasRect, Bin, CaptureTextures, Card, CardCapture, CardMip, CardPageCopy, CardPagePayload, CardPayload, Clipmap, DirectLightingInputs, FrameBuffers, … (+30)
+- `Graphic/Materials` — 17 files, 2,915 lines: ContactShadowSettings, DataDrivenMaterial, Entry, Material, MaterialBackend, MaterialExecutor, MaterialInstance, MaterialOverrides, MaterialProperty, MaterialPropertySet, MaterialSlotBinding, PushSlot, … (+3)
 - `Graphic/Materials/Clouds` — 2 files, 39 lines: MaterialCloudComposite
-- `Graphic/Materials/Debug` — 5 files, 201 lines: CubemapSphereUB, GridUB, LineVertex, MaterialCubemapSphere, MaterialDebugLine, MaterialGrid, MaterialOverdraw, MaterialOverdrawResolve
-- `Graphic/Materials/Deferred` — 3 files, 346 lines: DeferredCascadeShadow, DeferredEnvironmentInput, DeferredGIInput, DeferredScreenShadowMask, DeferredShadowInput, Inputs, MaterialDeferredLighting, MaterialDepthExpand, MaterialSSAO, SSAOUBData
-- `Graphic/Materials/Mesh` — 8 files, 924 lines: DefaultVertexStreamsBinding, MaterialShadow, MaterialShadowInstanced, MaterialShadowSkinned, MaterialSilhouette, MaterialSilhouetteSkinned, MeshCellPipelineKey, MeshCellPipelineKeyHash
-- `Graphic/Materials/PostProcessing` — 6 files, 151 lines: MaterialFXAA, MaterialJFAFinal, MaterialTonemap, Params
-- `Graphic/Materials/Properties` — 8 files, 924 lines: FieldProperty, IProperty, IPropertyOwner, MaterialProperty, StorageBufferProperty, TProperty, Texture2DProperty, TextureCubeProperty, UniformBufferProperty
+- `Graphic/Materials/Debug` — 5 files, 220 lines: CubemapSphereUB, GridUB, LineVertex, MaterialCubemapSphere, MaterialCubemapSphereShaderParameters, MaterialDebugLine, MaterialDebugLineShaderParameters, MaterialGrid, MaterialGridShaderParameters, MaterialOverdraw, MaterialOverdrawResolve
+- `Graphic/Materials/Deferred` — 3 files, 348 lines: DeferredCascadeShadow, DeferredEnvironmentInput, DeferredGIInput, DeferredScreenShadowMask, DeferredShadowInput, Inputs, MaterialDeferredLighting, MaterialDepthExpand, MaterialSSAO, MaterialSSAOShaderParameters, SSAOUBData
+- `Graphic/Materials/Mesh` — 8 files, 933 lines: DefaultVertexStreamsBinding, MaterialShadow, MaterialShadowInstanced, MaterialShadowSkinned, MaterialSilhouette, MaterialSilhouetteSkinned, MeshCellPipelineKey, MeshCellPipelineKeyHash
+- `Graphic/Materials/PostProcessing` — 6 files, 142 lines: MaterialFXAA, MaterialJFAFinal, MaterialTonemap, Params
+- `Graphic/Materials/Properties` — 8 files, 953 lines: FieldProperty, IProperty, IPropertyOwner, MaterialProperty, StorageBufferProperty, TProperty, Texture2DProperty, TextureCubeProperty, UniformBufferProperty
 - `Graphic/Materials/Reflection` — 1 files, 48 lines: UBFieldDescriptor, UBReflectionCache
-- `Graphic/Materials/Skybox` — 3 files, 160 lines: MaterialProceduralSky, MaterialSkybox, UpdateMaterialSkyboxInfo
+- `Graphic/Materials/Skybox` — 3 files, 175 lines: MaterialProceduralSky, MaterialProceduralSkyShaderParameters, MaterialSkybox, UpdateMaterialSkyboxInfo
 - `Graphic/PostProcessing` — 3 files, 184 lines: AutoExposureWindow, SunScreen
-- `Graphic/RDG` — 16 files, 6,035 lines: AccessInfo, AccessState, AliasingPlan, Allocation, AsyncComputeFallbackLog, AttachmentDecision, AttachmentRecord, Barrier, BindingBlockBuilder, BindingBlockRef, BoundBuffer, BoundTexture, … (+57)
-- `Graphic/ReflectionCaptures` — 2 files, 1,309 lines: ReflectionCaptureEntry, ReflectionCaptureGpu, ReflectionCaptureLighting, ReflectionCaptureRenderer, SharedArray
+- `Graphic/RDG` — 17 files, 6,201 lines: AccessInfo, AccessState, AliasingPlan, Allocation, AsyncComputeFallbackLog, AttachmentDecision, AttachmentRecord, Barrier, BindingBlockBuilder, BindingBlockRef, BoundBuffer, BoundTexture, … (+60)
+- `Graphic/ReflectionCaptures` — 2 files, 1,365 lines: ReflectionCaptureEntry, ReflectionCaptureGpu, ReflectionCaptureLighting, ReflectionCaptureRenderer, SharedArray
 - `Graphic/Render` — 3 files, 190 lines: Page, RenderCommand, RenderCommandBuffer
 - `Graphic/Render/Commands` — 13 files, 603 lines: DrawGenericMeshCommand, DrawInstancedStaticMeshCommand, DrawLandscapeGrassCommand, DrawLandscapeTileCommand, DrawSkinnedMeshCommand, DrawSlotMaterialMeshCommand, DrawStaticMeshCommand, HeightFogCommand, PointLightCommand, ProceduralSkyCommand, SkyboxCommand, SpotLightCommand, … (+2)
-- `Graphic/Render2D` — 10 files, 2,507 lines: CachedExecutor, Capture, Demand, Draw, Entry, PreparedDraws, Render2D, ResolvedCommand, RetainedJob, RetainedPicture, RetainedTarget, RetiredBuild, … (+4)
-- `Graphic/ShaderProtocols` — 7 files, 270 lines: Camera, DirectionLight, DirectionLightPayload, LightsMetadata, PointLight, PointLightPayload, SkinnedUB, SpotLight, SpotLightPayload
+- `Graphic/Render2D` — 10 files, 2,550 lines: CachedExecutor, Capture, Demand, Draw, Entry, PreparedDraws, Render2D, ResolvedCommand, RetainedJob, RetainedPicture, RetainedTarget, RetiredBuild, … (+4)
+- `Graphic/ShaderProtocols` — 7 files, 295 lines: Camera, DirectionLight, DirectionLightPayload, LightsMetadata, PointLight, PointLightPayload, SkinnedUB, SpotLight, SpotLightPayload
 - `Graphic/Systems` — 1 files, 38 lines: RenderSystem
-- `Graphic/Systems/RayTracing` — 23 files, 3,779 lines: EmissiveLightsFrame, EmissiveLightsPart, EmissiveLightsRenderer, EmissiveSegmentGpu, EmissiveTriangleList, EmptyPart, Entry, Kept, Key, KeyHash, MemoryBytes, ProceduralBlasPrepared, … (+44)
+- `Graphic/Systems/RayTracing` — 23 files, 3,813 lines: EmissiveLightsBuildShaderParameters, EmissiveLightsFrame, EmissiveLightsPart, EmissiveLightsReduceShaderParameters, EmissiveLightsRenderer, EmissiveSegmentGpu, EmissiveTriangleList, EmptyPart, Entry, Kept, Key, KeyHash, … (+46)
 - `Graphic/Systems/Scene` — 1 files, 183 lines: IShadowCaster, LocalShadowCasterLight, ShadowCasterEntry, ShadowSignatureHash, VirtualShadowCasterDraw
-- `Graphic/Systems/Scene/Clouds` — 2 files, 2,958 lines: PendingUpload, VolumetricCloudRenderer
+- `Graphic/Systems/Scene/Clouds` — 2 files, 3,019 lines: PendingUpload, VolumetricCloudCompositeShaderParameters, VolumetricCloudRenderer
 - `Graphic/Systems/Scene/Debug` — 2 files, 390 lines: DebugDrawRenderer
-- `Graphic/Systems/Scene/Deferred` — 12 files, 2,533 lines: CompositeProgram, CopyRenderer, DeferredCompositeInputs, DeferredCompositeLights, DeferredLightingRenderer, DenoiserSceneTextures, DepthExpandRenderer, DiffuseIndirectDenoiserInputs, DirectSpecularDenoiserInputs, FrontLayerInputs, GraphColorResolveRenderer, HZBRenderer, … (+19)
-- `Graphic/Systems/Scene/Fog` — 2 files, 393 lines: HeightFogRenderer
-- `Graphic/Systems/Scene/Grass` — 2 files, 761 lines: Desert, FieldGpu, GrassBladeDraw, GrassFieldData, GrassFieldDraw, GrassPlacement, GrassRenderer, GrassSectionDraw, GrassVarietyDraw, VarietyGpu
-- `Graphic/Systems/Scene/Mesh` — 14 files, 8,483 lines: Block, CardCaptureSection, CardCaptureSource, CascadeCacheCopy, CascadeCacheState, CasterPipelines, Desert, GenericDraw, GenericMeshRenderData, GlassFrontLayer, GpuInstancedRenderData, Graphic, … (+26)
-- `Graphic/Systems/Scene/Particles` — 9 files, 2,019 lines: EmitterMaterial, ParticleArgsPush, ParticleChannelSpawnGpu, ParticleCompactPush, ParticleDrawLayoutGpu, ParticleDrawSlotGpu, ParticleEmitterGpu, ParticleFrameEmitter, ParticlePoolBuffers, ParticlePoolLists, ParticlePoolRange, ParticlePoolRanges, … (+15)
-- `Graphic/Systems/Scene/PathTracing` — 1 files, 507 lines: AccumulationTarget, FrameInputs, PathTracer, SceneHasher, Settings, SkyPush, SkyTargets, TracePush
-- `Graphic/Systems/Scene/PostProcessing` — 19 files, 17,568 lines: AutoExposureRenderer, BackdropBlurRenderer, BloomRenderer, DownsamplePush, FXAARenderer, GraphInputs, Inputs, JumpFloodOutlineRenderer, LensFlareRenderer, LightShaftRenderer, Params, SMAARenderer, … (+1)
-- `Graphic/Systems/Scene/Shadows` — 5 files, 1,706 lines: HistorySlot, KernelProgram, MegaLightsInputs, MegaLightsLighting, MegaLightsQuality, MegaLightsRenderer, MegaLightsViewUniforms, MegaLightsVolumeInputs, MegaLightsVolumeQuality, MegaLightsVolumeReadParams, MegaLightsVolumeRenderer, MegaLightsVolumeUniforms, … (+20)
-- `Graphic/Systems/Scene/Skybox` — 6 files, 2,568 lines: AtmosphereLutFingerprint, Program, SceneSkyLight, SkyCapture, SkyCaptureFaceSlice, SkyCaptureFrameReads, SkyCaptureSource, SkyDraw, SkyLightStamps, SkyboxRenderer
-- `Graphic/Systems/Scene/Terrain` — 7 files, 2,212 lines: BuildKey, FrameDraw, FrameGroup, LandscapeLodSettings, LandscapeRayTracing, LandscapeRayTracingFrame, LandscapeRayTracingGrid, LandscapeRayTracingMaterial, LandscapeRayTracingTile, LandscapeTileDraw, LandscapeTileLod, LandscapeWeightDraw, … (+8)
-- `Graphic/Systems/Scene/Water` — 2 files, 241 lines: FrameDraw, WaterRenderer, WaterZoneDraw
-- `Graphic/Upscalers/DLSS` — 2 files, 681 lines: DLSSUpscaler, Guides
+- `Graphic/Systems/Scene/Deferred` — 12 files, 2,792 lines: CompositeProgram, CopyBindingShaderParameters, CopyRenderer, DeferredCompositeInputs, DeferredCompositeLights, DeferredLightingCompositeShaderParameters, DeferredLightingRenderer, DeferredLightingWorldViewShaderParameters, DenoiserSceneTextures, DepthExpandBindingShaderParameters, DepthExpandRenderer, DiffuseIndirectDenoiserInputs, … (+36)
+- `Graphic/Systems/Scene/Fog` — 2 files, 419 lines: HeightFogApplyShaderParameters, HeightFogFogShaderParameters, HeightFogRenderer
+- `Graphic/Systems/Scene/Grass` — 2 files, 782 lines: Desert, FieldGpu, GrassBladeDraw, GrassFieldData, GrassFieldDraw, GrassPlacement, GrassRenderer, GrassSectionDraw, GrassVarietyDraw, VarietyGpu
+- `Graphic/Systems/Scene/Mesh` — 14 files, 8,618 lines: Block, CardCaptureSection, CardCaptureSource, CascadeCacheCopy, CascadeCacheState, CasterPipelines, Desert, GenericDraw, GenericMeshRenderData, GlassFrontLayer, GpuInstancedRenderData, Graphic, … (+26)
+- `Graphic/Systems/Scene/Particles` — 9 files, 2,750 lines: EmitterMaterial, MeshInstances, ParticleArgsPush, ParticleChannelSpawnGpu, ParticleCompactPush, ParticleDrawLayoutGpu, ParticleDrawSlotGpu, ParticleEmitterGpu, ParticleFrameEmitter, ParticleFrameRenderer, ParticlePoolBuffers, ParticlePoolLists, … (+21)
+- `Graphic/Systems/Scene/PathTracing` — 1 files, 567 lines: AccumulationTarget, FrameInputs, PathTracer, PathTracingResolveShaderParameters, PathTracingSkyPrepareShaderParameters, PathTracingSkyReduceShaderParameters, PathTracingTraceShaderParameters, SceneHasher, Settings, SkyPush, SkyTargets, TracePush
+- `Graphic/Systems/Scene/PostProcessing` — 19 files, 17,785 lines: AutoExposureAverageShaderParameters, AutoExposureClearShaderParameters, AutoExposureHistogramShaderParameters, AutoExposureRenderer, BackdropBlurDownsampleShaderParameters, BackdropBlurRenderer, BloomDownsampleShaderParameters, BloomRenderer, BloomUpsampleShaderParameters, DownsamplePush, FXAARenderer, FXAAShaderParameters, … (+19)
+- `Graphic/Systems/Scene/Shadows` — 5 files, 1,833 lines: HistorySlot, KernelProgram, MegaLightsInputs, MegaLightsLighting, MegaLightsQuality, MegaLightsRenderer, MegaLightsShaderParameters, MegaLightsViewUniforms, MegaLightsVolumeInputs, MegaLightsVolumeQuality, MegaLightsVolumeReadParams, MegaLightsVolumeRenderer, … (+23)
+- `Graphic/Systems/Scene/Skybox` — 6 files, 2,647 lines: AtmosphereLutFingerprint, Program, SceneSkyLight, SkyCapture, SkyCaptureFaceSlice, SkyCaptureFrameReads, SkyCaptureSource, SkyDraw, SkyLightStamps, SkyboxProceduralShaderParameters, SkyboxRenderer
+- `Graphic/Systems/Scene/Terrain` — 7 files, 2,268 lines: BuildKey, FrameDraw, FrameGroup, LandscapeLodSettings, LandscapeRayTracing, LandscapeRayTracingFrame, LandscapeRayTracingGrid, LandscapeRayTracingMaterial, LandscapeRayTracingTile, LandscapeTileDraw, LandscapeTileLod, LandscapeWeightDraw, … (+8)
+- `Graphic/Systems/Scene/Water` — 2 files, 251 lines: FrameDraw, WaterRenderer, WaterZoneDraw
+- `Graphic/Upscalers/DLSS` — 2 files, 700 lines: DLSSUpscaler, Guides
 - `Graphic/Upscalers/FSR` — 2 files, 482 lines: Fsr3Upscaler
-- `Graphic/View` — 24 files, 5,799 lines: DepthOfField, DepthOfFieldInputs, DepthOfFieldSettings, DofLens, DofParams, GpuObjectMotion, HistoryRefs, HistoryTextureDesc, ITemporalUpscaler, ITemporalUpscalerHistory, MotionBlur, MotionBlurInputs, … (+36)
+- `Graphic/View` — 24 files, 6,202 lines: DepthOfField, DepthOfFieldInputs, DepthOfFieldSettings, DofLens, DofParams, GpuObjectMotion, HistoryRefs, HistoryTextureDesc, ITemporalUpscaler, ITemporalUpscalerHistory, MotionBlur, MotionBlurInputs, … (+36)
 - `Hair` — 2 files, 177 lines: GroomAsset, GroomBinding, GroomStepContext, HairCurves, HairGroup, HairGuideInterpolation, HairRenderFrame, HairRenderGroup, HairRootAttachment, IGroomRenderDataSource, IGroomSimulation, IGroomSimulationFactory
 - `Input` — 8 files, 1,298 lines: ActionRuntime, ActiveContext, EnhancedInputSubsystem, InputKey, KeyState, LocalPlayerInput, MappingRuntime, RawInputFrame, TriggerEvents, TriggerRuntime, UserKeyBindings, UserKeyOverride
 - `Libraries` — 26 files, 2,557 lines: AnimatorLibrary, AudioLibrary, CharacterLibrary, DebugDrawLibrary, EntityLibrary, GameModeLibrary, GameplayDebuggerLibrary, HitResult, InputLibrary, LanguageInfo, LevelLibrary, LocalizationLibrary, … (+12)
@@ -112,28 +112,28 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Physics/Cloth` — 2 files, 261 lines: ClothCapsuleCollider, ClothConfig, ClothMeshBinding, ClothPhysicalMesh, ClothSimulationOutput, ClothSphereCollider, ClothStepContext, ClothVertexMaps, ClothingAsset, ClothingSimulationFactoryRegistry, IClothingSimulation, IClothingSimulationFactory
 - `Project` — 10 files, 1,044 lines: EngineDirLookup, EngineRootLookup, GameSettings, ProjectContext, RendererSettings
 - `Reflection` — 12 files, 2,536 lines: AssetResolver, Callable, EntityRef, EnumBits, EnumValue, EventInfo, EventMetadata, EventSignature, FieldInfo, FunctionInfo, FunctionMetadata, Map, … (+13)
-- `Runtime` — 6 files, 1,098 lines: AssetHotReload, ImageHandle, ResourceRegistry, SelectionContext
+- `Runtime` — 6 files, 1,138 lines: AssetHotReload, ImageHandle, ResourceRegistry, SelectionContext
 - `Runtime/Factory` — 2 files, 402 lines: PrefabFactory
-- `Runtime/Services` — 3 files, 543 lines: ClosureResidency
+- `Runtime/Services` — 4 files, 708 lines: ClosureResidency, OnDemandAssets
 - `Runtime/Services/AnimatedImage` — 2 files, 148 lines: Anim, AnimatedImageService
 - `Runtime/Services/CloudLayout` — 2 files, 337 lines: CloudLayoutService, Entry
 - `Runtime/Services/CloudModelling` — 2 files, 468 lines: CloudModellingAtlasBinding, CloudModellingService, Entry
 - `Runtime/Services/CloudNoise` — 2 files, 440 lines: CloudNoiseService, Entry
 - `Runtime/Services/CloudType` — 2 files, 218 lines: CloudTypeService, Entry
 - `Runtime/Services/Destruction` — 2 files, 115 lines: FractureService
-- `Runtime/Services/Foliage` — 2 files, 199 lines: FoliageTypeService
+- `Runtime/Services/Foliage` — 2 files, 155 lines: FoliageTypeService
 - `Runtime/Services/Font` — 2 files, 335 lines: Font, FontService
 - `Runtime/Services/Icon` — 2 files, 382 lines: Icon, IconService, LayerBitmap
 - `Runtime/Services/Image` — 2 files, 155 lines: ImageService
-- `Runtime/Services/Landscape` — 4 files, 328 lines: LandscapeGrassTypeService, LandscapeLayerInfoService
-- `Runtime/Services/Material` — 3 files, 1,430 lines: MaterialService, MaterialTemplate, ViewVariant
+- `Runtime/Services/Landscape` — 4 files, 199 lines: LandscapeGrassTypeService, LandscapeLayerInfoService
+- `Runtime/Services/Material` — 3 files, 1,455 lines: MaterialService, MaterialTemplate, ViewVariant
 - `Runtime/Services/Mesh` — 4 files, 708 lines: Entry, IMeshUploader, MeshService, RigAwaited
 - `Runtime/Services/Physics` — 2 files, 154 lines: PhysicsAssetService
 - `Runtime/Services/Shader` — 2 files, 555 lines: MediumEntry, ShaderService, VariantEntry
 - `Runtime/Services/Skybox` — 2 files, 161 lines: SkyboxService
 - `Runtime/Services/Texture` — 4 files, 697 lines: CookAdmission, Entry, Item, TextureCookOutcome, TextureService, TextureUploadQueue, TextureUploadSettings, TextureWaiters
 - `Runtime/Services/UITheme` — 2 files, 247 lines: Entry, UIThemeService
-- `Runtime/Services/VFX` — 2 files, 118 lines: VFXSystemService
+- `Runtime/Services/VFX` — 2 files, 167 lines: VFXSystemService
 - `Runtime/Services/Video` — 2 files, 233 lines: SoundRequest, VideoPlayback, VideoService
 - `Runtime/Services/Water` — 2 files, 122 lines: WaterWavesService
 - `Runtime/Services/Weather` — 2 files, 112 lines: WeatherPresetService
@@ -141,11 +141,11 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Scripting` — 5 files, 500 lines: DebugBreakpoint, DebugFrame, DebugScope, DebugVariable, IScriptDebugHost, IScriptDebugger, ScriptEditorFunction, ScriptEngine, ScriptProperty, ScriptPropertyDecl, ScriptSchema, ScriptValue
 - `Scripting/Luau` — 11 files, 4,440 lines: Container, FileBreakpoints, LuauBinding, LuauDebugTarget, LuauDebugger, LuauEntityRef, LuauLimits, LuauLoadedScript, LuauPropertyWorld, LuauRuntime, LuauTableEntry, ScriptEngine, … (+1)
 - `Settings` — 2 files, 276 lines: AudioVolumes, GameUserSettings, ScalabilityLevels
-- `ShaderResources` — 15 files, 1,298 lines: AccelerationStructure, BaseBuffer, DescriptorCopyRecord, FillClaim, HandOver, IBlockCopy, Image2DData, Image2DSampler, Image3DSampler, ImageCubeData, ImageCubeSampler, PushConstantRange, … (+12)
-- `ShaderResources/API/Vulkan` — 10 files, 797 lines: GraphRecord, MappedBufferCopy, ViewCopyBinding, VulkanStorageBuffer, VulkanUniformBuffer, VulkanUniformImage2D, VulkanUniformImageCube
+- `ShaderResources` — 15 files, 1,305 lines: AccelerationStructure, BaseBuffer, DescriptorCopyRecord, FillClaim, HandOver, IBlockCopy, Image2DData, Image2DSampler, Image3DSampler, ImageCubeData, ImageCubeSampler, PushConstantRange, … (+12)
+- `ShaderResources/API/Vulkan` — 10 files, 798 lines: GraphRecord, MappedBufferCopy, ViewCopyBinding, VulkanStorageBuffer, VulkanUniformBuffer, VulkanUniformImage2D, VulkanUniformImageCube
 - `Text` — 6 files, 1,820 lines: Contour, EdgeSegment, Shape, Vec2
 - `UI/Ecs` — 17 files, 1,353 lines: EcsUITree, LocalizationUITextSource, RegistryUICanvasResources, TimelineUIAnimationSource, UIFrameProbeSink, WindowClipboard
-- `VFX` — 15 files, 2,879 lines: Clock, ClockSettings, EmitterInstance, EmitterStep, SpawnAccumulator, SpawnState, SystemInstance, TickPlan, VFXAttributeLayout, VFXChannelSpawnBatch, VFXChannelSpawnModule, VFXChannelSpawnReport, … (+18)
+- `VFX` — 17 files, 3,356 lines: Clock, ClockSettings, EmitterInstance, EmitterStep, SpawnAccumulator, SpawnState, SystemInstance, TickPlan, VFXAttributeLayout, VFXChannelSpawnBatch, VFXChannelSpawnModule, VFXChannelSpawnReport, … (+21)
 - `Vector` — 4 files, 1,108 lines: BakedIcon, BakedIconLayer, Shape, Vec2, VectorImage
 - `Water` — 6 files, 901 lines: GerstnerWave, GerstnerWaveGenerator, Node, TileRange, Traversal, WaterBodyState, WaterLODParams, WaterQuadTree, WaterQuadTreeBody, WaterQuadTreeDesc, WaterQueryHit, WaterQueryResult, … (+3)
 - `World/Foliage` — 5 files, 430 lines: FoliageCellField, FoliageGathered, PrefabFoliageHost, PrefabFoliagePlan
@@ -153,7 +153,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `World/Landscape` — 23 files, 6,707 lines: FlattenValues, LandscapeBrushSettings, LandscapeBrushTile, LandscapeBrushWeights, LandscapeChangedTile, LandscapeCopyBuffer, LandscapeEditLayer, LandscapeEditLayerStack, LandscapeEditLayerTarget, LandscapeEditLayerTileData, LandscapeErosionField, LandscapeErosionSettings, … (+37)
 
 ## Common — `Desert/Common/Source/Common`
-- `Content` — 28 files, 6,232 lines: AssetEnvelope, AssetFolderMoveRecord, AssetGuid, AssetHeader, AssetHeaderReadContext, AssetMoveRecord, AssetRedirector, AssetTrashRecord, ChunkFolderRow, ChunkPlan, ChunkRule, ChunkScheme, … (+25)
+- `Content` — 28 files, 6,236 lines: AssetEnvelope, AssetFolderMoveRecord, AssetGuid, AssetHeader, AssetHeaderReadContext, AssetMoveRecord, AssetRedirector, AssetTrashRecord, ChunkFolderRow, ChunkPlan, ChunkRule, ChunkScheme, … (+25)
 - `Core` — 46 files, 6,989 lines: AssetHandle, ContentDirSpec, EngineResourcePaths, Entry, Error, FieldDescriptor, FieldMeta, FrameIdentity, GpuIdentity, GpuScopedTimer, Handle, HandlePool, … (+20)
 - `Core/Algorithms` — 1 files, 55 lines: ScopeExit, ScopeExitTag
 - `Core/Events` — 7 files, 946 lines: DispatchScope, EmplacedNode, EventHandlerTable, EventNodeId, EventNodeLink, EventReply, EventTree, EventTypeList, EventWindowClose, EventWindowFileDrop, EventWindowResize, KeyEvent, … (+10)
@@ -161,26 +161,26 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/Memory` — 3 files, 253 lines: Buffer, CommandBuffer
 - `Core/Serialization` — 2 files, 244 lines: ReflType, SerializationProvider
 - `Core/Subsystems` — 2 files, 204 lines: Entry, Holder, HolderOf, SubsystemCollection, WorldSubsystems
-- `Json` — 9 files, 3,268 lines: CarryRule, FormatInfo, HasNoRawPointerMember, Issue, Node, ObjectBuilder, Path, Segment, Template, TemplateSet, TextDocument
+- `Json` — 9 files, 3,319 lines: CarryRule, FormatInfo, HasNoRawPointerMember, Issue, Node, ObjectBuilder, Path, Segment, Template, TemplateSet, TextDocument
 - `Platform` — 1 files, 76 lines
 - `Platform/MacOS` — 1 files, 20 lines
 - `Project` — 2 files, 23 lines
-- `Settings` — 15 files, 3,724 lines: AntiAliasingPreset, ApplyReport, BenchmarkCacheKey, BenchmarkPass, BenchmarkReference, BenchmarkResult, CapabilityCatalog, DisplaySettings, Fallback, MachineSettings, ParameterOverride, ParameterSpec, … (+9)
+- `Settings` — 15 files, 3,920 lines: AntiAliasingPreset, ApplyReport, BenchmarkCacheKey, BenchmarkPass, BenchmarkReference, BenchmarkResult, CapabilityCatalog, DisplaySettings, Fallback, GroupLevels, MachineSettings, ParameterOverride, … (+10)
 - `Utilities` — 28 files, 5,633 lines: AssetRegistry, AssetRegistryEntry, CameraCapture, ContentDiff, ContentManifest, ContentManifestEntry, ContentUpdatePlan, ContentUpdateReport, ContentUpdateStep, Entry, FileSystem, PakReader, … (+10)
 
 ## Editor — `Editor/Source/Editor`
-- `Core` — 88 files, 19,013 lines: AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, ByteCommand, ClosedDocument, CommandHistory, CommandLineFlag, CommandLineOptions, CommandPalette, ControlNudgeRequests, CrashRecovery, DetailsNavigation, … (+65)
-- `Core/Commands` — 22 files, 6,699 lines: AnimGraphEditCommand, AnimGraphEditTransaction, AnimGraphOwner, AssetFolderMoveCommand, AssetMoveCommand, AssetTrashCommand, BindPoseGesture, BoneDelta, BoneGizmoGesture, CommandRegistry, ControlAutoKey, ControlEdit, … (+26)
-- `Core/Control` — 9 files, 2,734 lines: AuthoringSnapshot, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DocumentSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, FrameGate, InputChord, InputInjection, … (+14)
+- `Core` — 88 files, 19,014 lines: AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, ByteCommand, ClosedDocument, CommandHistory, CommandLineFlag, CommandLineOptions, CommandPalette, ControlNudgeRequests, CrashRecovery, DetailsNavigation, … (+65)
+- `Core/Commands` — 23 files, 6,793 lines: AnimGraphEditCommand, AnimGraphEditTransaction, AnimGraphOwner, AssetFolderMoveCommand, AssetMoveCommand, AssetTrashCommand, BindPoseGesture, BoneDelta, BoneGizmoGesture, CommandRegistry, ControlAutoKey, ControlEdit, … (+27)
+- `Core/Control` — 9 files, 2,801 lines: AuthoringSnapshot, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DocumentSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, FrameGate, InputChord, InputInjection, … (+14)
 - `Core/GraphCanvas` — 4 files, 901 lines: CanvasPlan, CanvasRect, DeferredFrameAll, ElementIdMap, ElementLedger, FindPopup, PlannedLink, PlannedNode, Resolved
 - `Core/Rigging` — 4 files, 344 lines: Bone, RigBuilder
-- `Core/Selection` — 23 files, 4,601 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BooleanToolArgs, EntityCommands, FoliagePaint, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, LandscapeToolProperty, MeshElementSelection, MeshOperationArgs, … (+11)
+- `Core/Selection` — 24 files, 4,904 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BooleanToolArgs, EntityCommands, FoliagePaint, FoliageToolRow, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, LandscapeToolProperty, MeshElementSelection, … (+12)
 - `Generated` — 1 files, 13 lines
-- `ImGuiIntegration` — 5 files, 454 lines: ImGuiLayer, VulkanImGui
-- `Import` — 47 files, 8,658 lines: AsyncMeshLoader, DdsBlockChain, DdsSourceImage, Done, IAssetImporter, ImportManager, ImportOutcome, ImportResult, ImportSettingsEdit, ImportTemplate, ImportedLight, ImportedMaterial, … (+15)
+- `ImGuiIntegration` — 5 files, 480 lines: ImGuiLayer, VulkanImGui
+- `Import` — 47 files, 8,656 lines: AsyncMeshLoader, DdsBlockChain, DdsSourceImage, Done, IAssetImporter, ImportManager, ImportOutcome, ImportResult, ImportSettingsEdit, ImportTemplate, ImportedLight, ImportedMaterial, … (+15)
 - `Import/Assimp` — 12 files, 2,213 lines: AssimpImporter, SceneVertexStreams, SourceAlpha, SourceMaterialRead, SourceTextureFile
 - `Import/Blend` — 2 files, 236 lines: BlendImporter
-- `LevelEditor` — 51 files, 13,594 lines: AssetCompiling, ControlService, DockLayout, DocumentHost, EditorImGuiHost, EditorPanelHandles, EditorStartup, LevelEditorCommands, LevelToolbar, MainMenu, MainMenuActions, Modules, … (+17)
+- `LevelEditor` — 51 files, 13,771 lines: AssetCompiling, ControlService, DockLayout, DocumentHost, EditorImGuiHost, EditorPanelHandles, EditorStartup, LevelEditorCommands, LevelToolbar, MainMenu, MainMenuActions, Modules, … (+17)
 - `Packaging` — 8 files, 2,411 lines: CookStats, PackageOptions, PackageResult, PackagedTree, TargetPlatformInfo
 - `Panels` — 4 files, 670 lines: AssetEditorToolbar, Choice, DocumentAction, Entry, IPanel, ISubjectDocument
 - `Panels/Animation` — 10 files, 4,145 lines: AnimGraphCanvas, AnimGraphPanel, ControlRigPanel, PoseFieldEdit, PoseGraphCanvas, PoseGraphTarget, PosePinRef, PoseWireRef, StatePosition, TransitionRef, WarningTarget
@@ -191,8 +191,8 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/Collections` — 5 files, 1,025 lines: CollectionFoliageTypes, CollectionItem, CollectionManifest, CollectionManifestAssetRef, CollectionManifestItem, CollectionManifestMaterial, CollectionsPanel, LoadedCollection
 - `Panels/ControlRig` — 4 files, 1,626 lines: ControlRigDocument, ControlRigDocumentModel, PinRef
 - `Panels/Debug` — 4 files, 855 lines: ShaderLibraryPanel, UIDebuggerPanel
-- `Panels/FileExplorer` — 41 files, 6,356 lines: AssetCommands, AssetContextMenu, AssetFileCensus, AssetThumbnailPool, AssetTileThumbnail, AssetViewState, ContentBrowserAssetView, ContentBrowserHistory, ContentBrowserPathView, ContentBrowserSelection, ContentBrowserToolbar, ContentDirectoryModel, … (+15)
-- `Panels/Foliage` — 5 files, 1,218 lines: FoliageFootprint, FoliageTypeCost, PalettePresetEntry
+- `Panels/FileExplorer` — 41 files, 6,366 lines: AssetCommands, AssetContextMenu, AssetFileCensus, AssetThumbnailPool, AssetTileThumbnail, AssetViewState, ContentBrowserAssetView, ContentBrowserHistory, ContentBrowserPathView, ContentBrowserSelection, ContentBrowserToolbar, ContentDirectoryModel, … (+15)
+- `Panels/Foliage` — 5 files, 1,242 lines: FoliageFootprint, FoliageTypeCost, PalettePresetEntry
 - `Panels/Fracture` — 6 files, 882 lines: FileStamp, FracturePanel, FractureTool
 - `Panels/History` — 2 files, 103 lines: HistoryPanel
 - `Panels/Input` — 2 files, 539 lines: InputActionPanel, InputMappingContextPanel
@@ -200,17 +200,17 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/Localization` — 4 files, 229 lines: LocalizationPanel
 - `Panels/Logs` — 2 files, 467 lines: LogEntry, LogsPanel
 - `Panels/LuaConsole` — 2 files, 234 lines: Line, LuaConsolePanel
-- `Panels/MaterialEditor` — 5 files, 4,316 lines: DirtyState, DropRefusal, MaterialEditorPanel, MaterialShaderRebuild, ParameterGroup, PushedIdentity
-- `Panels/Modeling` — 4 files, 2,102 lines: CollisionShapeEntry, ModelingPanel
+- `Panels/MaterialEditor` — 5 files, 4,319 lines: DirtyState, DropRefusal, MaterialEditorPanel, MaterialShaderRebuild, ParameterGroup, PushedIdentity
+- `Panels/Modeling` — 4 files, 2,782 lines: CollisionShapeEntry, ModelingPanel
 - `Panels/NodeGraph` — 8 files, 3,067 lines: NodeGraphPanel, NodeSpec, PinSpec, ShadowRayScope, VolumeParam, VolumeParamOutOfScope
 - `Panels/Photogrammetry` — 2 files, 1,264 lines: PhotogrammetryPanel
 - `Panels/PhysicsAssetEditor` — 5 files, 1,271 lines: PhysicsAssetEditCommand, PhysicsAssetEditorBase, PhysicsAssetEditorDocument, PhysicsAssetPreviewSimulation
 - `Panels/ProjectSettings` — 2 files, 284 lines: ProjectSettingsPanel
-- `Panels/PropertyEditor` — 10 files, 2,876 lines: ComponentEditContext, ComponentEditorEntry, ComponentWidgetRegistry, PropertyEditSignals, PropertyEditorBuilder, ReflectedFieldRow
+- `Panels/PropertyEditor` — 10 files, 2,893 lines: ComponentEditContext, ComponentEditorEntry, ComponentWidgetRegistry, PropertyEditSignals, PropertyEditorBuilder, ReflectedFieldRow
 - `Panels/Retarget` — 4 files, 1,183 lines: RetargetDocument, RetargetDocumentModel, Side
 - `Panels/Scalability` — 3 files, 522 lines: ScalabilityPanel
 - `Panels/SceneHierarchy` — 3 files, 1,542 lines: EntityTypeInfo, OutlinerColumnWidths, SceneHierarchyPanel
-- `Panels/SceneProperties` — 7 files, 4,527 lines: ComponentEditor, ScenePropertiesPanel
+- `Panels/SceneProperties` — 7 files, 4,617 lines: ComponentEditor, ScenePropertiesPanel
 - `Panels/SceneProperties/ComponentWidgets` — 16 files, 3,154 lines: AnimationComponentWidget, IComponentWidget, MaterialComponentWidget, MaterialHost, PrefabComponentWidget, SkinnedMeshComponentWidget, SkyboxComponentWidget, SlotRow, SlotSwatch, StaticMeshComponentWidget, TransformComponentWidget
 - `Panels/Sequencer` — 13 files, 7,310 lines: CurvePlot, CurveViewport, FittedLabel, LevelEventRef, LevelMaterialParameterChoice, LevelMaterialSlotChoice, OutlinerColumn, Schema, SectionTarget, SequencerPanel, TrackFilters, Write
 - `Panels/SkyboxViewer` — 4 files, 614 lines: Level, SkyboxViewerBase, SkyboxViewerDocument, ViewAction, ViewState
@@ -218,11 +218,12 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/TextureViewer` — 2 files, 420 lines: TextureViewerDocument
 - `Panels/UI` — 7 files, 1,171 lines: UIEditorPanel, UIElementEntry
 - `Panels/VFXDataChannel` — 2 files, 375 lines: VFXDataChannelDocument
+- `Panels/VFXEffectType` — 2 files, 517 lines: VFXEffectTypeAuthored, VFXEffectTypeDocument
 - `Panels/Validation` — 2 files, 156 lines: Issue, SceneValidationPanel
-- `Panels/ViewportPanel` — 17 files, 6,517 lines: CameraPilot, LightGizmoRenderer, PerfHudOverlay, ViewportCameraAim, ViewportCameraPresetRow, ViewportCommandKey, ViewportData, ViewportPanel
-- `Panels/ViewportPanel/Tools` — 33 files, 8,602 lines: ActiveToolLabel, CameraFrustumGizmo, CreateShapeTool, CubeGridTool, ElementSelectTool, FeatureEdge, FoliageBrushDab, FoliageBrushStats, FoliageBrushWorld, FoliageFillTriangle, FoliagePaintTool, FoliagePick, … (+23)
+- `Panels/ViewportPanel` — 17 files, 6,608 lines: CameraPilot, LightGizmoRenderer, PerfHudOverlay, ViewportCameraAim, ViewportCameraPresetRow, ViewportCommandKey, ViewportData, ViewportPanel
+- `Panels/ViewportPanel/Tools` — 42 files, 11,377 lines: ActiveToolLabel, CameraFrustumGizmo, CreateShapeTool, CubeGridTool, EditMaterialsTool, ElementSelectTool, FeatureEdge, FoliageBrushDab, FoliageBrushStats, FoliageBrushWorld, FoliageFieldPlace, FoliageFillTriangle, … (+30)
 - `Panels/WorldParameters` — 2 files, 315 lines: WorldParametersPanel
-- `Panels/WorldPartition` — 8 files, 2,270 lines: LandscapeHLODBake, LandscapeHLODBakeTile, LandscapeHLODBaked, LegendRow, RegionRequest, View, WorldPartitionPanel
+- `Panels/WorldPartition` — 8 files, 2,440 lines: LandscapeHLODBake, LandscapeHLODBakeTile, LandscapeHLODBaked, LegendRow, RegionRequest, View, WorldPartitionPanel
 - `Panels/WorldSettings` — 2 files, 113 lines: WorldSettingsPanel
 - `Platform` — 1 files, 25 lines: DesktopPlatform
 - `Platform/Windows` — 1 files, 83 lines
@@ -230,20 +231,20 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `RenderSystems/Passes` — 10 files, 1,088 lines: EditorColliderPass, EditorCubemapPreviewPass, EditorGridPass, EditorToolPreviewPass, EditorUIPass, ToolPreview, ToolPreviewMesh
 - `Splash` — 7 files, 786 lines: ButtonTracker, DesignPoint, Layout, ProgressModel, ProgressSnapshot, Rect, RevealState, SplashContent, SplashPixels, SplashScreen, Stage, StageTiming
 - `Splash/Windows` — 1 files, 551 lines
-- `Widgets` — 53 files, 10,942 lines: Acquired, AssetThumbnailRenderer, ButtonColour, Capture, CaptureBudget, Decoded, Encoded, Entry, EquirectMap, FaceTracker, Frame, FramedSubject, … (+40)
+- `Widgets` — 53 files, 10,944 lines: Acquired, AssetThumbnailRenderer, ButtonColour, Capture, CaptureBudget, Decoded, Encoded, Entry, EquirectMap, FaceTracker, Frame, FramedSubject, … (+40)
 - `Widgets/Controls` — 2 files, 241 lines: Widgets
 - `Widgets/UIHelper` — 5 files, 352 lines: Entry, ImageTextureIds, UICacheTextureImGui, UIHelper
 
 ## Runtime — `Runtime/Source`
-- `.` — 8 files, 2,745 lines: ContentMountResult, CrashTestRequest, MovieRenderRequest, RuntimeLayer, RuntimeShot
+- `.` — 8 files, 2,756 lines: ContentMountResult, CrashTestRequest, MovieRenderRequest, RuntimeLayer, RuntimeShot
 
 ## Shaders — `Editor/Resources/Shaders`
-- `Common` — 96 files, 14,115 lines
+- `Common` — 96 files, 14,148 lines
 - `Editor` — 1 files, 147 lines
 - `Generated` — 2 files, 81 lines
 - `Mesh` — 16 files, 1,538 lines
 - `Mesh/Generic` — 1 files, 19 lines
-- `Mesh/Surface` — 17 files, 2,012 lines
+- `Mesh/Surface` — 18 files, 2,143 lines
 - `Programs/AutoExposure` — 3 files, 187 lines
 - `Programs/Bloom` — 2 files, 173 lines
 - `Programs/Clouds` — 5 files, 1,945 lines
@@ -265,7 +266,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Programs/LightShafts` — 2 files, 115 lines
 - `Programs/Media` — 1 files, 75 lines
 - `Programs/MotionBlur` — 4 files, 262 lines
-- `Programs/Particles` — 6 files, 610 lines
+- `Programs/Particles` — 8 files, 943 lines
 - `Programs/PathTracing` — 3 files, 691 lines
 - `Programs/Preview` — 1 files, 150 lines
 - `Programs/ProceduralSky` — 1 files, 186 lines
@@ -303,8 +304,8 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `DShaderTool` — 1 files, 51 lines
 - `DShaderTool/Source` — 1 files, 125 lines
 - `DesertCtl` — 1 files, 63 lines
-- `DesertCtl/Source` — 1 files, 550 lines
-- `DesertCtl/mcp` — 1 files, 369 lines
+- `DesertCtl/Source` — 1 files, 596 lines
+- `DesertCtl/mcp` — 1 files, 371 lines
 - `DesertHeaderTool` — 2 files, 1,753 lines
 - `DesertHeaderTool/Source` — 8 files, 1,246 lines: ComponentBlock, Diagnostic, HeaderModel, ModuleInfo, ModulePlacement, ModuleTable, ReflectedTypeName, RoutedEventName, ScannedFile, SubsystemDeclaration
 - `DomeSheet` — 1 files, 36 lines
@@ -322,8 +323,9 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `LineJump/Source` — 1 files, 161 lines
 - `PakTool` — 1 files, 38 lines
 - `PakTool/Source` — 1 files, 297 lines
-- `SceneMigrator` — 1 files, 164 lines
-- `SceneMigrator/Source` — 24 files, 11,260 lines: AnimationAssetData, AnimationClip, AnimationCurve, AnimationNotify, BlockCanonicalisationReport, BoneTrack, ChannelData, ClipMigrationOutcome, ClipSection, CollisionProfilesReport, CurveData, DisplayTransferReport, … (+50)
+- `SceneMigrator` — 1 files, 165 lines
+- `SceneMigrator/Source` — 24 files, 11,596 lines: AnimationAssetData, AnimationClip, AnimationCurve, AnimationNotify, BlockCanonicalisationReport, BoneTrack, ChannelData, ClipMigrationOutcome, ClipSection, CollisionProfilesReport, CurveData, DisplayTransferReport, … (+51)
+- `ShaderRename` — 1 files, 299 lines
 - `Shared` — 3 files, 147 lines: OpenedToolProject
 - `TextureCook` — 1 files, 87 lines
 - `TextureCook/Source` — 1 files, 177 lines
@@ -384,6 +386,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp` — 1: SceneMigrator
 - `Desert/Desert/Source/Engine/Assets/Serialization/Retarget.cpp` — 1: SceneMigrator
 - `Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp` — 1: TextureCook
+- `Desert/Desert/Source/Engine/Assets/Serialization/VFXEffectType.cpp` — 1: SceneMigrator
 - `Desert/Desert/Source/Engine/Assets/Serialization/VFXSystem.cpp` — 1: SceneMigrator
 - `Desert/Desert/Source/Engine/Assets/SoundFormat.cpp` — 1: SceneMigrator
 - `Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp` — 2: SceneMigrator, TextureCook
@@ -422,6 +425,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `ThirdParty/desert-shared/Source/EngineRegistry.cpp` — 1: Common
 - `ThirdParty/desert-shared/Source/ProjectFormat.cpp` — 1: Common
 - `ThirdParty/desert-shared/Tests/project_format_test.cpp` — 1: Tests
+- `ThirdParty/mikktspace/mikktspace.cpp` — 1: Desert
 - `ThirdParty/miniaudio/miniaudio.cpp` — 1: Desert
 - `ThirdParty/stb/stb_image.cpp` — 3: CloudLayoutBaker, Desert, TextureCook
 - `ThirdParty/stb/stb_truetype.cpp` — 1: Desert
