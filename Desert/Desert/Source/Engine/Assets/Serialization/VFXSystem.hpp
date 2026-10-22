@@ -12,6 +12,7 @@
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Engine/ECS/VFXUserOverride.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <glm/glm.hpp>
@@ -257,6 +258,12 @@ namespace Desert::Assets::Serialization
 
         [[nodiscard]] bool operator==( const VFXUserParam& ) const = default;
     };
+
+
+    /// What User.<row.Name> is for a placement with @p overrides: its override when it has one, else the row's
+    /// Default. The one rule both the CPU spawn plan and the GPU parameter rows read.
+    [[nodiscard]] glm::vec4 UserParamValue( const VFXUserParam&                 row,
+                                            const std::vector<ECS::VFXUserOverride>& overrides );
 
     /// A module that lives inside the system (UE Scratch Pad): its DSL fragment in the Particle domain.
     struct VFXLocalModule

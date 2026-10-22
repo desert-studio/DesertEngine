@@ -1,4 +1,9 @@
-// DesertHeaderTool — a lightweight Unreal-Header-Tool-style code generator.
+// Supported element types: scalars, an asset handle, and a REFLECT( ScriptStruct ) (UE TArray<FStruct>):
+// its JSON halves go through reflect-cpp like any block, its Value through ValueTraits<ScriptStruct>.
+// vector<vec> later.
+if ( et == "AssetHandle" || et == "Bool" || et == "Int" || et == "UInt" || et == "Float" || et == "Double" ||
+     et == "String" ||
+     et == "Struct" ) // DesertHeaderTool — a lightweight Unreal-Header-Tool-style code generator.
 //
 // Scans C++ headers for REFLECT() / PROPERTY(...) annotations and emits, per engine module of
 // BuildScripts/DesertModules.lua, one translation unit with RegisterReflection_<Module>() that registers the
@@ -1078,9 +1083,11 @@ namespace
                             else if ( std::string elem = VectorElement( typeName ); !elem.empty() )
                             {
                                 std::string et = MapFieldType( elem );
-                                // Supported element types (scalars + asset handle). vector<struct/vec> later.
+                                // Supported element types: scalars, an asset handle, and a REFLECT( ScriptStruct )
+                                // (UE TArray<FStruct>): its JSON halves go through reflect-cpp like any block, its
+                                // Value through ValueTraits<ScriptStruct> (FunctionThunk.hpp). vector<vec> later.
                                 if ( et == "AssetHandle" || et == "Bool" || et == "Int" || et == "UInt" ||
-                                     et == "Float" || et == "Double" || et == "String" )
+                                     et == "Float" || et == "Double" || et == "String" || et == "Struct" )
                                 {
                                     f.isContainer   = true;
                                     f.elemFieldType = et;

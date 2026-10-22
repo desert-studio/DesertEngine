@@ -28,7 +28,8 @@ namespace Desert::VFX
              { "MaxDistance", S::VFXValueType::Float, glm::vec4( 0.0f ) } };
 
         // The scalar an EmitterUpdate input carries: its Value, or the default of the User.* row it is bound to.
-        Common::ResultStr<float> ReadScalar( const S::VFXSystemData& system, const S::VFXModuleInput& in,
+        Common::ResultStr<float> ReadScalar( const S::VFXSystemData& system, const std::vector<ECS::VFXUserOverride>& overrides,
+                                             const S::VFXModuleInput& in,
                                              const std::string& where )
         {
             switch ( in.Source )
@@ -48,7 +49,7 @@ namespace Desert::VFX
                                 if ( u.Type != in.Type )
                                     return Common::MakeFormattedError<float>( "{}: bound to {} of another type",
                                                                               where, *in.Binding );
-                                return Common::MakeSuccess( u.Default.x );
+                                return Common::MakeSuccess( S::UserParamValue( u, overrides ).x );
                             }
                         return Common::MakeFormattedError<float>( "{}: {} names no UserParams row", where,
                                                                   *in.Binding );
@@ -71,6 +72,7 @@ namespace Desert::VFX
 
         // The module's inputs, in @p declared order, each exactly once with its declared type.
         Common::ResultStr<std::vector<float>> ReadInputs( const S::VFXSystemData&      system,
+                                                          const std::vector<ECS::VFXUserOverride>& overrides,
                                                           const S::VFXModuleUse&       use,
                                                           const std::vector<VFXModuleInputDecl>& declared,
                                                           const std::string&           where )
@@ -93,7 +95,7 @@ namespace Desert::VFX
                 if ( in->Type != d.Type )
                     return Common::MakeFormattedError<Result>( "{}: the row's type disagrees with the module's",
                                                                inWhere );
-                auto value = ReadScalar( system, *in, inWhere );
+                auto value = ReadScalar( system, overrides, *in, inWhere );
                 if ( !value.IsSuccess() )
                     return Common::MakeError<Result>( value.GetError() );
                 values.push_back( value.GetValue() );
@@ -249,7 +251,8 @@ namespace Desert::VFX
         return nullptr;
     }
 
-    Common::ResultStr<VFXSpawnPlan> CompileSpawnPlan( const S::VFXSystemData& system, std::size_t emitterIndex )
+    Common::ResultStr<VFXSpawnPlan> CompileSpawnPlan( const S::VFXSystemData& system, std::size_t emitterIndex,
+                                                      const std::vector<ECS::VFXUserOverride>& overrides )
     {
         using Result = VFXSpawnPlan;
         if ( emitterIndex >= system.Emitters.size() )
@@ -274,7 +277,7 @@ namespace Desert::VFX
             if ( ( EmitterModuleUsage( use.Module ) & UsageBit( VFXStage::EmitterSpawn ) ) == 0 )
                 return Common::MakeFormattedError<Result>(
                      "{}: EmitterSpawn runs once on the CPU and knows only {}", where, kVFXSpawnBurstModule );
-            auto in = ReadInputs( system, use, kSpawnBurstInputs, where );
+            auto in = ReadInputs( system, overrides, use, kSpawnBurstInputs, where );
             if ( !in.IsSuccess() )
                 return Common::MakeError<Result>( in.GetError() );
             const float count = in.GetValue()[0];
@@ -298,7 +301,7 @@ namespace Desert::VFX
                  std::format( "emitter '{}' EmitterUpdate module {} '{}'", emitter.Name, m, use.Module );
             if ( use.Module == kVFXSpawnRateModule )
             {
-                auto in = ReadInputs( system, use, kSpawnRateInputs, where );
+                auto in = ReadInputs( system, overrides, use, kSpawnRateInputs, where );
                 if ( !in.IsSuccess() )
                     return Common::MakeError<Result>( in.GetError() );
                 if ( in.GetValue()[0] < 0.0f )
@@ -308,7 +311,7 @@ namespace Desert::VFX
             }
             else if ( use.Module == kVFXSpawnBurstModule )
             {
-                auto in = ReadInputs( system, use, kSpawnBurstInputs, where );
+                auto in = ReadInputs( system, overrides, use, kSpawnBurstInputs, where );
                 if ( !in.IsSuccess() )
                     return Common::MakeError<Result>( in.GetError() );
                 const float count = in.GetValue()[0];

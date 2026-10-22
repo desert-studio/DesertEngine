@@ -75,6 +75,9 @@ namespace Desert::VFX
         std::vector<VFXSpawnPlan>                                   Plans;
         std::vector<bool>                                           Runs; // enabled and its plan compiled
         std::vector<EmitterInstance>                                Emitters;
+        // The VFXComponent's User overrides the plans were compiled with: a change recompiles the plans and
+        // keeps every instance running (UE: a SetVariable mid-flight changes the next spawns, not the past).
+        std::vector<ECS::VFXUserOverride> Overrides;
         bool                                                        Seen = false;
     };
 

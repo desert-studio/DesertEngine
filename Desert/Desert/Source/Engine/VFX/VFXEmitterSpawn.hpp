@@ -83,7 +83,8 @@ namespace Desert::VFX
     /// group's usage does not take, a local module in the group, an input the module does not take or leaves out,
     /// a source it cannot read and a burst outside its loop are errors naming the emitter, module and input.
     Common::ResultStr<VFXSpawnPlan> CompileSpawnPlan( const Assets::Serialization::VFXSystemData& system,
-                                                      std::size_t                                 emitterIndex );
+                                                      std::size_t                                 emitterIndex,
+         const std::vector<ECS::VFXUserOverride>& overrides = {} );
 
     /// One emitter instance's spawn state: the time it has been running and the rate's carried fraction. Reset
     /// by assigning a fresh value.

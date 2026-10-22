@@ -236,6 +236,14 @@ namespace Desert::Assets::Serialization
         return 0;
     }
 
+    glm::vec4 UserParamValue( const VFXUserParam& row, const std::vector<ECS::VFXUserOverride>& overrides )
+    {
+        for ( const ECS::VFXUserOverride& o : overrides )
+            if ( o.Name == row.Name )
+                return o.Value;
+        return row.Default;
+    }
+
     Common::BoolResultStr ValidateVFXSystemData( const VFXSystemData& data )
     {
         if ( !std::isfinite( data.Duration ) || data.Duration < 0.0f )

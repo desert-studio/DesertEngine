@@ -13,7 +13,9 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace Desert::Core
@@ -128,6 +130,9 @@ namespace Desert::Graphic::System
         std::shared_ptr<ShaderResources::StorageBuffer> DrawLayout;
         ParticleDrawLayoutGpu                           DrawColumns;
         std::vector<glm::vec4>                          ParamRows;
+        // The ParamRows a User.* binding fills (row, user parameter name): the placement's overrides replace
+        // these rows, every other row is the stack's own.
+        std::vector<std::pair<uint32_t, std::string>> UserRows;
         std::vector<float>                              CurveFloats;
         uint32_t                                        Capacity     = 0;
         uint32_t                                        FloatColumns = 0;
@@ -190,6 +195,8 @@ namespace Desert::Graphic::System
     {
         std::shared_ptr<const Assets::Serialization::VFXSystemData> System;
         std::vector<ParticleEmitterGpu>                             Emitters;
+        // The VFXComponent overrides the emitters' User rows were last filled from (UE OverrideParameters).
+        std::vector<ECS::VFXUserOverride> Overrides;
     };
 
     class ParticleWorldGpu final : public VFX::WorldGpuState
@@ -226,6 +233,9 @@ namespace Desert::Graphic::System
         // Compiles emitter @p index of @p system into @p gpu (program, columns, parameters, curves).
         void BuildEmitter( ParticleEmitterGpu& gpu, const Assets::Serialization::VFXSystemData& system,
                            std::size_t index, uint32_t entityId );
+        // Fills every emitter's User rows of @p system from the placement's @p overrides (else the defaults).
+        static void ApplyUserOverrides( ParticleSystemGpu& system, const std::vector<ECS::VFXUserOverride>& overrides,
+                                        uint32_t entityId );
         // The host program for one compiled stack, by its key (null = refused, said once).
         std::shared_ptr<ComputePipeline> ProgramFor( uint64_t key, const std::string& name,
                                                      const std::string& hostSource );

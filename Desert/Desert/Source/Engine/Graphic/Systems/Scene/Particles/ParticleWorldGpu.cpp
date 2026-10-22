@@ -221,6 +221,11 @@ namespace Desert::Graphic::System
         if ( !gpu.Pipeline )
             return refuse( "its host program did not build (logged above)" );
         gpu.ParamRows    = std::move( params.GetValue() );
+        gpu.UserRows.clear();
+        for ( std::size_t s = 0; s < compiled.GetValue().Slots.size(); ++s )
+            if ( const VFX::VFXParamSlot& slot = compiled.GetValue().Slots[s];
+                 slot.SlotKind == VFX::VFXParamSlot::Kind::User )
+                gpu.UserRows.emplace_back( static_cast<uint32_t>( s ), slot.User );
         gpu.CurveFloats  = curves.GetValue().Floats;
         gpu.FloatColumns = compiled.GetValue().Layout.TotalFloatComponents;
         gpu.IntColumns   = compiled.GetValue().Layout.TotalIntComponents;
@@ -238,6 +243,31 @@ namespace Desert::Graphic::System
         gpu.DrawLayout =
              ShaderResources::StorageBuffer::Create( "ParticleDrawLayout", kParticleDrawLayoutSize, 11 );
         gpu.NeedsReset = true;
+    }
+
+    void ParticleWorldGpu::ApplyUserOverrides( ParticleSystemGpu& system,
+                                               const std::vector<ECS::VFXUserOverride>& overrides,
+                                               const uint32_t entityId )
+    {
+        // UE OverrideParameters: the placement's value replaces the row the stack's User binding reads; the
+        // rows go up with the next step (PrepareEmitter uploads ParamRows every simulated tick).
+        system.Overrides = overrides;
+        const auto& rows = system.System->UserParams;
+        for ( const ECS::VFXUserOverride& o : overrides )
+            if ( std::none_of( rows.begin(), rows.end(),
+                               [&]( const Assets::Serialization::VFXUserParam& p ) { return p.Name == o.Name; } ) )
+                LOG_ERROR( "[VFX] entity {}: the override of User.{} names no User parameter of its system - it "
+                           "plays nothing",
+                           entityId, o.Name );
+        for ( ParticleEmitterGpu& gpu : system.Emitters )
+            for ( const auto& [row, name] : gpu.UserRows )
+            {
+                const auto it = std::find_if( rows.begin(), rows.end(),
+                                              [&]( const Assets::Serialization::VFXUserParam& p )
+                                              { return p.Name == name; } );
+                if ( it != rows.end() && row < gpu.ParamRows.size() )
+                    gpu.ParamRows[row] = Assets::Serialization::UserParamValue( *it, overrides );
+            }
     }
 
     bool ParticleWorldGpu::EnsurePoolCapacity( const uint32_t particles )
@@ -288,7 +318,7 @@ namespace Desert::Graphic::System
 
         auto view = reg.view<const ECS::VFXComponent, const ECS::TransformComponent, const ECS::UUIDComponent>();
         view.each(
-             [&]( entt::entity entity, const ECS::VFXComponent&, const ECS::TransformComponent& transform,
+             [&]( entt::entity entity, const ECS::VFXComponent& vfx, const ECS::TransformComponent& transform,
                   const ECS::UUIDComponent& id )
              {
                  const VFX::SystemInstance* instances = world.FindSystem( static_cast<uint64_t>( id.UUID ) );
@@ -305,7 +335,10 @@ namespace Desert::Graphic::System
                      system.Emitters.resize( instances->System->Emitters.size() );
                      for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
                          BuildEmitter( system.Emitters[k], *instances->System, k, entityId );
+                     ApplyUserOverrides( system, vfx.Data.Overrides, entityId );
                  }
+                 else if ( system.Overrides != vfx.Data.Overrides )
+                     ApplyUserOverrides( system, vfx.Data.Overrides, entityId );
 
                  // One range of the pool per system, each emitter a slice of it in emitter order.
                  uint32_t total = 0;

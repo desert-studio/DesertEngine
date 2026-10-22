@@ -123,9 +123,10 @@ namespace Desert::VFX
                      system.Plans.assign( count, {} );
                      system.Runs.assign( count, false );
                      system.Emitters.assign( count, {} );
+                     system.Overrides = vfx.Data.Overrides;
                      for ( std::size_t k = 0; k < count; ++k )
                      {
-                         auto plan = CompileSpawnPlan( *data, k );
+                         auto plan = CompileSpawnPlan( *data, k, system.Overrides );
                          if ( !plan.IsSuccess() )
                          {
                              LOG_ERROR( "[VFX] entity {} emitter {} '{}' bears nothing: {}", uuid, k,
@@ -139,6 +140,27 @@ namespace Desert::VFX
                          system.Emitters[k].Seed =
                               MakeEmitterSeed( data->Seed, uuid, static_cast<std::uint32_t>( k ) );
                          ResetInstance( system.Emitters[k] );
+                     }
+                 }
+                 else if ( system.Overrides != vfx.Data.Overrides )
+                 {
+                     // The placement's User values moved (Details, VFX.setVariable): the plans read them again;
+                     // the instances keep their age and carried fractions.
+                     system.Overrides = vfx.Data.Overrides;
+                     for ( std::size_t k = 0; k < system.Plans.size(); ++k )
+                     {
+                         auto plan = CompileSpawnPlan( *data, k, system.Overrides );
+                         if ( !plan.IsSuccess() )
+                         {
+                             LOG_ERROR( "[VFX] entity {} emitter {} '{}' bears nothing: {}", uuid, k,
+                                        data->Emitters[k].Name, plan.GetError() );
+                             system.Runs[k] = false;
+                         }
+                         else
+                         {
+                             system.Plans[k] = plan.GetValue();
+                             system.Runs[k]  = data->Emitters[k].Enabled;
+                         }
                      }
                  }
                  system.Seen = true;
