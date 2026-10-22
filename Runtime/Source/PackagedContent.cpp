@@ -122,7 +122,7 @@ namespace Desert::Player
                  result.BasePak.parent_path() / std::string( Common::Content::CHUNK_MANIFEST_KEY );
             const auto listed = Common::Utils::VFS::ReadFile( listPath );
             const auto parsed = listed ? Common::Content::ParseChunkManifest( *listed )
-                                       : Common::MakeFormattedError<std::vector<std::string>>(
+                                       : Common::MakeFormattedError<Common::Content::ChunkManifest>(
                                               "{} is not in {}", listPath.string(), result.BasePak.string() );
             if ( !parsed )
             {
@@ -137,7 +137,7 @@ namespace Desert::Player
                       "option, then start it again." );
                 return result;
             }
-            const std::vector<std::string>& chunkNames = parsed.GetValue();
+            const std::vector<std::string>& chunkNames = parsed.GetValue().Mounted;
 
             for ( const std::string& name : chunkNames )
             {
@@ -168,6 +168,32 @@ namespace Desert::Player
                 }
                 result.Chunks.push_back( chunk );
             }
+
+            // REGION CHUNKS (WP23) are mounted when a cell of their region streams in, but they must be
+            // INSTALLED now: a region missing on disk is the same short game as a missing chunk above, and
+            // finding out mid-flight, at a region boundary, is the worst place to.
+            const std::vector<std::string>& onDemand = parsed.GetValue().OnDemand;
+            for ( const std::string& name : onDemand )
+            {
+                const fs::path chunk = Common::Content::ChunkArchivePath( result.BasePak, name );
+                std::error_code present;
+                if ( !fs::is_regular_file( chunk, present ) )
+                {
+                    Common::Utils::VFS::Unmount();
+                    result.BasePak.clear();
+                    result.Chunks.clear();
+                    result.ExitCode = kContentChunkArchiveFailed;
+                    result.Message  = RefusalMessage(
+                         fmt::format( "The game is divided into parts and the world region called '{}' is "
+                                        "not installed, so part of a world is missing.",
+                                       name ),
+                         fmt::format( "{} does not exist", chunk.string() ),
+                         "  What to do: reinstall the game, or use your store's \"verify/repair files\" "
+                          "option, then start it again." );
+                    return result;
+                }
+            }
+            Common::Content::RegisterOnDemandChunks( result.BasePak, onDemand );
         }
 
         std::vector<fs::path> patches;
@@ -180,7 +206,7 @@ namespace Desert::Player
 
         for ( const auto& patch : patches )
         {
-            if ( const auto mounted = Common::Utils::VFS::MountPak( patch ); !mounted )
+            if ( const auto mounted = Common::Utils::VFS::MountPak( patch, Common::Utils::MountTier::Patch ); !mounted )
             {
                 Common::Utils::VFS::Unmount();
                 result.BasePak.clear();

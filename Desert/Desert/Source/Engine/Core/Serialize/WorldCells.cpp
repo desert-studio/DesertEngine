@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <format>
 #include <array>
+#include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -974,6 +976,69 @@ namespace Desert::Core::WorldCells
                   ? dot
                   : scenePath.size();
         return std::string( scenePath.substr( 0, stem ) ) + ".dwworld/";
+    }
+
+    Common::ResultStr<std::optional<WorldChunkLayout>> ChunkLayoutOf( const WorldIndex& index,
+                                                                       std::string_view  worldDirectory )
+    {
+        using Result = std::optional<WorldChunkLayout>;
+        const auto& size = index.WorldPartition.ChunkRegionSize;
+        if ( !size.has_value() )
+            return Common::MakeSuccess( Result{} );
+        if ( !std::isfinite( *size ) || *size <= 0.0f )
+            return Common::MakeError<Result>( std::format(
+                 "world '{}': ChunkRegionSize {} is not a positive finite length (cm)", index.SceneName, *size ) );
+
+        // A chunk name is alphanumerics, '_' and '-' (ContentChunks IsNameableChunk): the directory's other
+        // characters become '_', and the trailing separator of `X.dwworld/` is dropped.
+        std::string stem;
+        for ( const char c : worldDirectory )
+            stem.push_back( ( std::isalnum( static_cast<unsigned char>( c ) ) || c == '_' || c == '-' ) ? c : '_' );
+        while ( !stem.empty() && stem.back() == '_' )
+            stem.pop_back();
+        const std::string prefix = "World_" + stem;
+
+        WorldChunkLayout layout;
+        layout.Shared = prefix + "_Shared";
+        std::set<std::string> regions;
+        auto place = [&]( const std::string& file, const std::string& chunk ) -> std::optional<std::string> {
+            const auto [it, inserted] = layout.FileChunk.emplace( file, chunk );
+            if ( !inserted && it->second != chunk )
+                return std::format( "world '{}': file '{}' is placed in chunk '{}' and in '{}'", index.SceneName,
+                                    file, it->second, chunk );
+            return std::nullopt;
+        };
+
+        layout.FileChunk.emplace( std::string( kIndexFileName ), layout.Shared );
+        for ( const IndexUnit& unit : index.Units )
+        {
+            std::string chunk = layout.Shared;
+            if ( !unit.Reason.has_value() )
+            {
+                if ( !unit.Square.has_value() )
+                    return Common::MakeError<Result>(
+                         std::format( "world '{}': cell unit '{}' states no square", index.SceneName, unit.Name ) );
+                const double cx = 0.5 * ( double( unit.Square->MinX ) + double( unit.Square->MaxX ) );
+                const double cz = 0.5 * ( double( unit.Square->MinZ ) + double( unit.Square->MaxZ ) );
+                const auto   rx = static_cast<std::int64_t>( std::floor( cx / double( *size ) ) );
+                const auto   rz = static_cast<std::int64_t>( std::floor( cz / double( *size ) ) );
+                chunk           = std::format( "{}_R{}_{}", prefix, rx, rz );
+                regions.insert( chunk );
+            }
+            if ( auto clash = place( unit.File, chunk ) )
+                return Common::MakeError<Result>( std::move( *clash ) );
+        }
+        for ( const IndexHLOD& hlod : index.HLODs )
+            if ( hlod.File.has_value() )
+                if ( auto clash = place( *hlod.File, layout.Shared ) )
+                    return Common::MakeError<Result>( std::move( *clash ) );
+        for ( const IndexFile& file : index.Files )
+            if ( !layout.FileChunk.contains( file.Name ) )
+                return Common::MakeError<Result>( std::format(
+                     "world '{}': the index lists file '{}', which no unit or HLOD names", index.SceneName, file.Name ) );
+
+        layout.Regions.assign( regions.begin(), regions.end() );
+        return Common::MakeSuccess( Result{ std::move( layout ) } );
     }
 
     std::vector<std::string> CanonicalRecords( const SceneSerialized& scene )

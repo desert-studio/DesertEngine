@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <memory>
+#include <mutex>
+#include <shared_mutex>
 #include <unordered_set>
 #include <vector>
 
@@ -18,11 +20,22 @@ namespace Common::Utils
         {
             std::unique_ptr<PakReader> Pak;
             std::filesystem::path      Root; // absolute, normalized
+            MountTier                  Tier = MountTier::Content;
         };
 
         // Mount STACK: later mounts override earlier ones for the same key (base.dpak first, then
         // per-type chunks, then patch paks — the patch wins). Lookups walk it newest-first.
         std::vector<Mount> s_Mounts;
+        // Archives registered to be mounted when first needed (DeferPak), canonical paths. A region chunk of a
+        // world sits here until a cell of it streams in (WP23).
+        std::vector<std::filesystem::path> s_Deferred;
+        // Readers (lookups, from JobSystem workers while a cell streams) share; mounting is exclusive.
+        std::shared_mutex s_Lock;
+        // Serialises MountDeferred and ReturnToDeferred, so two workers asking for one region mount it once.
+        std::mutex s_DeferredMount;
+        // The archives MountDeferred took off the deferred list and mounted: the only ones ReturnToDeferred may
+        // take down again (a base or patch pak mounted at start is never unmounted by a streaming world).
+        std::vector<std::filesystem::path> s_MountedOnDemand;
 
         // One absolute, symlink-resolved spelling for an incoming path. weakly_canonical, not
         // lexically_normal alone, because two spellings of ONE directory must compare equal: on macOS
@@ -65,6 +78,7 @@ namespace Common::Utils
         auto Resolve( const std::filesystem::path& path, Fn&& fn )
              -> decltype( fn( *s_Mounts.front().Pak, std::string{} ) )
         {
+            std::shared_lock lock( s_Lock );
             if ( s_Mounts.empty() ) // dev: nothing mounted, skip the canonicalization syscalls
                 return {};
             const std::filesystem::path abs = CanonicalAbs( path ); // once, not per mount
@@ -92,11 +106,19 @@ namespace Common::Utils
             for ( const auto& mount : s_Mounts )
                 if ( const auto key = KeyFor( mount, abs ); key && mount.Pak->Contains( *key ) )
                     return true;
+            for ( const auto& deferred : s_Deferred )
+            {
+                const std::filesystem::path rel = abs.lexically_relative( deferred.parent_path() );
+                if ( rel.empty() || rel.begin()->string() == ".." )
+                    continue;
+                if ( PakReader( deferred ).Contains( rel.generic_string() ) )
+                    return true;
+            }
             return false;
         }
     } // namespace
 
-    NO_DISCARD Common::BoolResultStr VFS::MountPak( const std::filesystem::path& pakFile )
+    NO_DISCARD Common::BoolResultStr VFS::MountPak( const std::filesystem::path& pakFile, MountTier tier )
     {
         auto reader = std::make_unique<PakReader>( pakFile );
         if ( !reader->IsOpen() )
@@ -113,7 +135,9 @@ namespace Common::Utils
         // mounted through a symlink (macOS /var -> /private/var) can never resolve anything.
         mount.Root = CanonicalAbs( pakFile ).parent_path();
         mount.Pak  = std::move( reader );
+        mount.Tier = tier;
 
+        std::unique_lock lock( s_Lock );
         // A DELETION THAT HAS NOTHING TO DELETE IS EVIDENCE, NOT A NO-OP. The list names keys relative
         // to this pak's own root; if the mounted stack does not ship one of them, this patch was built
         // against a base that is not the base it landed on — and the file it was published to remove is
@@ -138,18 +162,74 @@ namespace Common::Utils
 
         LOG_INFO( "[VFS] Mounted {} ({} entries, {} deletion(s), root {}, priority {})", pakFile.string(),
                   mount.Pak->EntryCount(), mount.Pak->DeletedKeys().size(), mount.Root.string(), s_Mounts.size() );
-        s_Mounts.push_back( std::move( mount ) );
+        const auto above = std::find_if( s_Mounts.begin(), s_Mounts.end(),
+                                         [tier]( const Mount& m ) { return m.Tier > tier; } );
+        s_Mounts.insert( above, std::move( mount ) );
+        return Common::MakeSuccess( true );
+    }
+
+    void VFS::DeferPak( const std::filesystem::path& pakFile )
+    {
+        std::unique_lock lock( s_Lock );
+        s_Deferred.push_back( CanonicalAbs( pakFile ) );
+    }
+
+    NO_DISCARD Common::BoolResultStr VFS::MountDeferred( const std::filesystem::path& pakFile )
+    {
+        std::lock_guard             once( s_DeferredMount );
+        const std::filesystem::path abs = CanonicalAbs( pakFile );
+        {
+            std::shared_lock lock( s_Lock );
+            if ( std::find( s_Deferred.begin(), s_Deferred.end(), abs ) == s_Deferred.end() )
+            {
+                for ( const auto& mount : s_Mounts )
+                    if ( CanonicalAbs( mount.Pak->ArchivePath() ) == abs )
+                        return Common::MakeSuccess( true );
+                return Common::MakeFormattedError( "{} is neither mounted nor an on-demand archive", abs.string() );
+            }
+        }
+        if ( auto mounted = MountPak( abs, MountTier::Content ); !mounted )
+            return mounted;
+        std::unique_lock lock( s_Lock );
+        s_Deferred.erase( std::find( s_Deferred.begin(), s_Deferred.end(), abs ) );
+        s_MountedOnDemand.push_back( abs );
+        return Common::MakeSuccess( true );
+    }
+
+    NO_DISCARD Common::BoolResultStr VFS::ReturnToDeferred( const std::filesystem::path& pakFile )
+    {
+        std::lock_guard             once( s_DeferredMount );
+        const std::filesystem::path abs = CanonicalAbs( pakFile );
+        // Exclusive: a reader inside Resolve holds the shared lock for its whole read, so the reader of this
+        // archive finishes before the archive is destroyed.
+        std::unique_lock lock( s_Lock );
+        const auto       onDemand = std::find( s_MountedOnDemand.begin(), s_MountedOnDemand.end(), abs );
+        if ( onDemand == s_MountedOnDemand.end() )
+            return Common::MakeFormattedError( "{} was not mounted on demand", abs.string() );
+        const auto mount = std::find_if( s_Mounts.begin(), s_Mounts.end(), [&abs]( const Mount& m )
+                                         { return CanonicalAbs( m.Pak->ArchivePath() ) == abs; } );
+        if ( mount == s_Mounts.end() )
+            return Common::MakeFormattedError( "{} is on demand and mounted, yet not on the mount stack",
+                                               abs.string() );
+        s_Mounts.erase( mount );
+        s_MountedOnDemand.erase( onDemand );
+        s_Deferred.push_back( abs );
+        LOG_INFO( "[VFS] Unmounted {} (on demand again)", abs.string() );
         return Common::MakeSuccess( true );
     }
 
     bool VFS::IsMounted()
     {
+        std::shared_lock lock( s_Lock );
         return !s_Mounts.empty();
     }
 
     void VFS::Unmount()
     {
+        std::unique_lock lock( s_Lock );
         s_Mounts.clear();
+        s_Deferred.clear();
+        s_MountedOnDemand.clear();
     }
 
     bool VFS::Exists( const std::filesystem::path& path )
@@ -190,6 +270,7 @@ namespace Common::Utils
         std::unordered_set<std::string>     seen;
         std::unordered_set<std::string>     masked;
 
+        std::shared_lock lock( s_Lock );
         if ( s_Mounts.empty() )
             return result;
         const std::filesystem::path abs = CanonicalAbs( directory );

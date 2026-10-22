@@ -229,6 +229,11 @@ namespace Desert::Core
         // with no layers writes no key (reflect-cpp omits a nullopt) and an empty list is not a second
         // spelling of "none".
         std::optional<std::vector<HLODLayerSerialized>> HLODLayers;
+        // Side of the square region (cm) whose cells a packaged build ships in ONE on-demand content chunk
+        // (UE: a World Partition cell's content lands in a chunk the runtime mounts as the cell streams in).
+        // ABSENT = the world ships in the base chunk, as before - no migrator, the key is simply not written.
+        // Present must be > 0 and finite (ChunkLayoutOf refuses anything else).
+        std::optional<float> ChunkRegionSize;
 
         bool operator==( const WorldPartitionSerialized& ) const = default;
     };

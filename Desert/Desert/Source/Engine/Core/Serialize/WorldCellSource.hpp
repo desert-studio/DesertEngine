@@ -34,6 +34,16 @@ namespace Desert::Core::Rules
         // CONST AND SAFE FROM ANY THREAD: the streamer calls it on JobSystem workers, several at once.
         [[nodiscard]] virtual Common::ResultStr<std::vector<Assets::EntityData>>
         UnitRecords( std::size_t unit ) const = 0;
+
+        // What a unit's reads need stays available from its load's start until the loader lets the unit go
+        // (unloaded, cancelled or failed): a cooked world in on-demand chunks holds the unit's region chunk
+        // (WP23). Main thread. Records in memory or in a loose directory need nothing held, hence no-ops here.
+        virtual void HoldUnit( std::size_t /*unit*/ ) const
+        {
+        }
+        virtual void ReleaseUnit( std::size_t /*unit*/ ) const
+        {
+        }
     };
 
     // The records are already in memory: a unit is a copy of its members. Holds a VIEW of @p records, which must

@@ -50,6 +50,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -77,6 +78,10 @@ namespace Desert::Core
         std::shared_ptr<WorldCells::WorldIndex> Index;
         WorldCells::IndexedWorld                Indexed;
         std::string                             AlwaysLoadedJson;
+        // WP23: the on-demand REGION chunk of every cell file the packager divided off the base (file -> chunk,
+        // from WorldCells::ChunkLayoutOf); empty when the world states no ChunkRegionSize. Files of the world's
+        // Shared chunk are absent: it is mounted at start.
+        std::shared_ptr<const std::map<std::string, std::string>> RegionChunkOfFile;
     };
 
     // Whether @p scenePath has a cooked world beside it (through the VFS: a pak or the disk) and, when it has,
