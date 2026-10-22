@@ -28,6 +28,7 @@
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/VFX/VFXClock.hpp>
 #include <Engine/VFX/VFXDataChannel.hpp>
+#include <Engine/VFX/VFXStackCompiler.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -41,6 +42,14 @@ namespace Desert::VFX
     inline constexpr std::string_view kVFXSpawnRateModule  = "engine:SpawnRate";
     inline constexpr std::string_view kVFXSpawnBurstModule = "engine:SpawnBurst";
     inline constexpr std::string_view kVFXSpawnFromChannelModule = "engine:SpawnFromChannel";
+
+    /// The EmitterUpdate (CPU) modules the stack editor may add (UE's Emitter Update module picker), in picker order.
+    /// SpawnFromChannel is not among them: its Channel is a DataChannel binding no default can name.
+    [[nodiscard]] std::vector<std::string_view> EmitterModules();
+
+    /// An EmitterUpdate module's inputs with their defaults - the one table ComputeSpawnPlan reads the row by and the
+    /// stack editor starts a new row from; nullptr for any other module.
+    [[nodiscard]] const std::vector<VFXModuleInputDecl>* EmitterModuleInputs( std::string_view module );
 
     /// UE FNiagaraStatelessSpawnInfo, Type Burst.
     struct VFXSpawnBurst

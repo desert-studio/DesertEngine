@@ -9,11 +9,12 @@ Shader "ShapeCone"
     Domain Particle
     Particle
     {
+        Usage ParticleSpawn
         Attribute Position vec3
-        Input Angle float
-        Input Length float
-        Input Axis vec3
-        Input Offset vec3
+        Input Angle float = 45
+        Input Length float = 100
+        Input Axis vec3 = 0 1 0
+        Input Offset vec3 = 0 0 0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

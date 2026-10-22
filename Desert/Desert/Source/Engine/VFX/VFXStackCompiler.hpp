@@ -30,7 +30,22 @@ namespace Desert::VFX
 {
     using Assets::Serialization::VFXValueType;
 
-    /// One `Attribute <Name> <type>` or `Input <Name> <type>` line of a module.
+    /// The three stack groups of an emitter, in the stack's order (UE ENiagaraScriptUsage: EmitterUpdateScript,
+    /// ParticleSpawnScript, ParticleUpdateScript). EmitterUpdate is CPU administration, the other two the GPU program.
+    enum class VFXStage : uint8_t
+    {
+        EmitterUpdate,
+        ParticleSpawn,
+        ParticleUpdate,
+    };
+
+    /// The stack keys of the stages, indexed by VFXStage ("EmitterUpdate", "ParticleSpawn", "ParticleUpdate").
+    [[nodiscard]] std::string_view StageName( VFXStage stage );
+
+    /// One stage's bit in a module's Usage mask (UE UNiagaraScript::ModuleUsageBitmask).
+    [[nodiscard]] constexpr uint8_t UsageBit( VFXStage stage ) { return static_cast<uint8_t>( 1u << static_cast<unsigned>( stage ) ); }
+
+    /// One `Attribute <Name> <type>` line of a module.
     struct VFXModuleDecl
     {
         std::string  Name;
@@ -39,19 +54,33 @@ namespace Desert::VFX
         [[nodiscard]] bool operator==( const VFXModuleDecl& ) const = default;
     };
 
+    /// One `Input <Name> <type> = <default>` line of a module: the value a newly added stack row starts from (UE: the
+    /// module script's input default), one number per component of Type (an int / bool is one number, 0 or 1 for
+    /// bool).
+    struct VFXModuleInputDecl
+    {
+        std::string  Name;
+        VFXValueType Type    = VFXValueType::Float;
+        glm::vec4    Default = glm::vec4( 0.0f );
+
+        [[nodiscard]] bool operator==( const VFXModuleInputDecl& ) const = default;
+    };
+
     /**
      * @brief One stack module, read from its `.shader` (`Domain Particle`, a `Particle { }` block).
      *
-     * The block opens with declaration lines — `Attribute <Name> <float|vec2|vec3|vec4|int|bool>` (a particle
-     * attribute the module reads or writes as `p.<Name>`) and `Input <Name> <type>` (a value the stack row
-     * supplies, read as `i.<Name>`) — and the rest is GLSL defining
+     * The block opens with declaration lines — exactly one `Usage <Stage>...` (the groups the module may sit in:
+     * ParticleSpawn and/or ParticleUpdate — UE's Module Usage), `Attribute <Name> <float|vec2|vec3|vec4|int|bool>`
+     * (a particle attribute the module reads or writes as `p.<Name>`) and `Input <Name> <type> = <default>` (a value
+     * the stack row supplies, read as `i.<Name>`) — and the rest is GLSL defining
      * `void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )`.
      */
     struct VFXParticleModule
     {
-        std::vector<VFXModuleDecl> Attributes;
-        std::vector<VFXModuleDecl> Inputs; ///< in declaration order (the slot order)
-        std::string                Body;   ///< the GLSL after the declarations
+        uint8_t                         Usage = 0; ///< UsageBit of every stage it may sit in
+        std::vector<VFXModuleDecl>      Attributes;
+        std::vector<VFXModuleInputDecl> Inputs; ///< in declaration order (the slot order)
+        std::string                     Body;   ///< the GLSL after the declarations
     };
 
     /// Parses one module's whole `.shader` text. @p where names it in every error.
@@ -139,18 +168,25 @@ namespace Desert::VFX
     /// Where the engine module library lives: ShaderDir()/VFX/Modules; `engine:<Name>` is `<Name>.shader` there.
     [[nodiscard]] std::filesystem::path EngineModuleDir();
 
-    /// Resolves one stack row's module reference (`engine:<Name>` from @p engineModuleDir, `local:<Id>` from the
-    /// system's LocalModules) and parses it - the same lookup CompileEmitterStack does, so the editor's module
-    /// picker builds a row's inputs from exactly what the compiler will read.
-    Common::ResultStr<VFXParticleModule> ResolveParticleModule( const Assets::Serialization::VFXSystemData& system,
-                                                                const std::string&                          ref,
-                                                                const std::filesystem::path& engineModuleDir );
+    /// What the stack editor needs of any module, CPU or GPU (UE: the module script's usage + input defaults).
+    struct VFXModuleDescription
+    {
+        std::string                     Ref;   ///< engine:<Name> / local:<Id>
+        uint8_t                         Usage = 0;
+        std::vector<VFXModuleInputDecl> Inputs;
+    };
 
-    /// The particle-stage module library (UE's module picker): every `engine:<Name>` whose `.shader` is in
-    /// @p engineModuleDir, sorted, then the system's `local:<Id>` rows in their order. A missing directory lists
-    /// only the local rows.
-    [[nodiscard]] std::vector<std::string> ListParticleModules( const Assets::Serialization::VFXSystemData& system,
-                                                                const std::filesystem::path& engineModuleDir );
+    /// Describes @p ref: an EmitterUpdate (CPU) module from VFXEmitterSpawn's table, else the particle module the
+    /// compiler would read. An unknown / unparsable module is an error, not an empty description.
+    Common::ResultStr<VFXModuleDescription> DescribeModule( const Assets::Serialization::VFXSystemData& system,
+                                                            const std::string&                          ref,
+                                                            const std::filesystem::path& engineModuleDir );
+
+    /// Every module of the library (UE's module picker, unfiltered): the EmitterUpdate (CPU) modules, every
+    /// `engine:<Name>` whose `.shader` is in @p engineModuleDir (sorted), then the system's `local:<Id>` rows. The
+    /// picker filters it by DescribeModule(...).Usage.
+    [[nodiscard]] std::vector<std::string> ListModules( const Assets::Serialization::VFXSystemData& system,
+                                                        const std::filesystem::path&                engineModuleDir );
 
     /**
      * @brief Compiles emitter @p emitterIndex of @p system.

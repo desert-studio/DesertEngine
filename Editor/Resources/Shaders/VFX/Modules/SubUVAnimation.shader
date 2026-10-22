@@ -14,15 +14,16 @@ Shader "SubUVAnimation"
     Domain Particle
     Particle
     {
+        Usage ParticleUpdate
         Attribute SubImageIndex float
         Attribute Age float
         Attribute Lifetime float
-        Input Mode int
-        Input NumFrames int
-        Input StartFrame int
-        Input EndFrame int
-        Input LoopsPerSecond float
-        Input RandomChangeInterval float
+        Input Mode int = 0
+        Input NumFrames int = 1
+        Input StartFrame int = 0
+        Input EndFrame int = 0
+        Input LoopsPerSecond float = 1
+        Input RandomChangeInterval float = 0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

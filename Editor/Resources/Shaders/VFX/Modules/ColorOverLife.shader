@@ -7,9 +7,10 @@ Shader "ColorOverLife"
     Domain Particle
     Particle
     {
+        Usage ParticleUpdate
         Attribute Color vec4
         Attribute InitialColor vec4
-        Input Scale vec4
+        Input Scale vec4 = 1 1 1 1
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

@@ -7,6 +7,7 @@ Shader "UpdateAge"
     Domain Particle
     Particle
     {
+        Usage ParticleUpdate
         Attribute Age float
         Attribute Lifetime float
 

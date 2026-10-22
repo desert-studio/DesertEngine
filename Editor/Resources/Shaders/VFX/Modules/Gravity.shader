@@ -7,9 +7,10 @@ Shader "Gravity"
     Domain Particle
     Particle
     {
+        Usage ParticleUpdate
         Attribute PhysicsForce vec3
         Attribute Mass float
-        Input Gravity vec3
+        Input Gravity vec3 = 0 -981 0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

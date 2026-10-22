@@ -575,22 +575,27 @@ namespace Desert::Editor
                 }
                 ImGui::PopID();
             }
-            // The stage's module picker (UE's "+" on a stack group). Particle stages only: Emitter Update rows
-            // are the CPU spawn modules, which have no library to pick from yet.
-            if ( stage != 0 )
+            // The stage's module picker (UE's "+" on a stack group), filtered by each module's Usage.
+            if ( ImGui::SmallButton( ICON_MDI_PLUS " Module" ) )
+                ImGui::OpenPopup( "##addmodule" );
+            if ( ImGui::BeginPopup( "##addmodule" ) )
             {
-                if ( ImGui::SmallButton( ICON_MDI_PLUS " Module" ) )
-                    ImGui::OpenPopup( "##addmodule" );
-                if ( ImGui::BeginPopup( "##addmodule" ) )
+                for ( const ModuleChoice& choice : ModuleLibrary( stage ) )
                 {
-                    for ( const std::string& module : ModuleLibrary() )
+                    if ( !choice.Error.empty() )
                     {
-                        if ( ImGui::Selectable( module.c_str() ) )
-                            structural = [this, emitter, stage, module]
-                            { (void)AddModule( emitter, stage, module ); };
+                        ImGui::BeginDisabled();
+                        ImGui::Selectable( choice.Ref.c_str() );
+                        ImGui::EndDisabled();
+                        if ( ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+                            ImGui::SetTooltip( "%s", choice.Error.c_str() );
+                        continue;
                     }
-                    ImGui::EndPopup();
+                    if ( ImGui::Selectable( choice.Ref.c_str() ) )
+                        structural = [this, emitter, stage, module = choice.Ref]
+                        { (void)AddModule( emitter, stage, module ); };
                 }
+                ImGui::EndPopup();
             }
             if ( structural )
                 structural();
@@ -878,32 +883,46 @@ namespace Desert::Editor
         return Commit( std::move( before ), std::format( "Set {}", name ) );
     }
 
-    std::vector<std::string> VFXSystemDocument::ModuleLibrary() const
+    std::vector<VFXSystemDocument::ModuleChoice> VFXSystemDocument::ModuleLibrary( const std::size_t stage ) const
     {
-        return VFX::ListParticleModules( m_Working, VFX::EngineModuleDir() );
+        std::vector<ModuleChoice> out;
+        const uint8_t             bit = VFX::UsageBit( static_cast<VFX::VFXStage>( stage ) );
+        for ( const std::string& ref : VFX::ListModules( m_Working, VFX::EngineModuleDir() ) )
+        {
+            const auto described = VFX::DescribeModule( m_Working, ref, VFX::EngineModuleDir() );
+            if ( !described.IsSuccess() )
+                out.push_back( { ref, described.GetError() } );
+            else if ( ( described.GetValue().Usage & bit ) != 0 )
+                out.push_back( { ref, {} } );
+        }
+        return out;
     }
 
     Common::BoolResultStr VFXSystemDocument::AddModule( const std::size_t emitter, const std::size_t stage,
                                                         const std::string& module )
     {
-        if ( emitter >= m_Working.Emitters.size() || stage == 0 || stage >= kStageKeys.size() )
-            return Common::MakeFormattedError<bool>( "'{}' can be added only to a particle stage of an emitter",
-                                                     module );
-        auto resolved = VFX::ResolveParticleModule( m_Working, module, VFX::EngineModuleDir() );
-        if ( !resolved.IsSuccess() )
+        if ( emitter >= m_Working.Emitters.size() || stage >= kStageKeys.size() )
+            return Common::MakeFormattedError<bool>( "'{}' can be added only to a stage of an emitter", module );
+        auto described = VFX::DescribeModule( m_Working, module, VFX::EngineModuleDir() );
+        if ( !described.IsSuccess() )
         {
-            m_Refusal = std::format( "Add {}: {}", module, resolved.GetError() );
+            m_Refusal = std::format( "Add {}: {}", module, described.GetError() );
+            return Common::MakeError<bool>( m_Refusal );
+        }
+        if ( ( described.GetValue().Usage & VFX::UsageBit( static_cast<VFX::VFXStage>( stage ) ) ) == 0 )
+        {
+            m_Refusal = std::format( "Add {}: its Usage does not include {}", module, kStageKeys[stage] );
             return Common::MakeError<bool>( m_Refusal );
         }
         S::VFXModuleUse use;
         use.Module = module;
-        for ( const auto& decl : resolved.GetValue().Inputs )
+        for ( const auto& decl : described.GetValue().Inputs )
         {
             S::VFXModuleInput input;
             input.Name   = decl.Name;
             input.Type   = decl.Type;
             input.Source = S::VFXInputSource::Value;
-            input.Value  = glm::vec4( 0.0f );
+            input.Value  = decl.Default; // the module's own default (UE: the module script's input default)
             use.Inputs.push_back( std::move( input ) );
         }
         auto before = m_Working;
@@ -1004,11 +1023,10 @@ namespace Desert::Editor
                                          (void)MoveModule( at->first, st, at->second, +1 );
                                  } } );
             }
-            if ( st == 0 )
-                continue;
-            for ( const std::string& module : ModuleLibrary() )
-                out.push_back( { std::format( "Add {} to {}.{}", module, name, kStageKeys[st] ),
-                                 [this, name, st, module]
+            for ( const ModuleChoice& choice : ModuleLibrary( st ) )
+                if ( choice.Error.empty() )
+                        out.push_back( { std::format( "Add {} to {}.{}", choice.Ref, name, kStageKeys[st] ),
+                                 [this, name, st, module = choice.Ref]
                                  {
                                      for ( std::size_t em = 0; em < m_Working.Emitters.size(); ++em )
                                          if ( m_Working.Emitters[em].Name == name )

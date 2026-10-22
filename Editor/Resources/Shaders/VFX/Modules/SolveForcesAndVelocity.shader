@@ -12,13 +12,14 @@ Shader "SolveForcesAndVelocity"
     Domain Particle
     Particle
     {
+        Usage ParticleUpdate
         Attribute Position vec3
         Attribute Velocity vec3
         Attribute PhysicsForce vec3
         Attribute PhysicsDrag float
         Attribute PhysicsRotationalDrag float
         Attribute Mass float
-        Input SpeedLimit float
+        Input SpeedLimit float = 0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

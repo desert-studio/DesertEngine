@@ -13,11 +13,12 @@ namespace Desert::VFX
 
     namespace
     {
-        struct CpuInput
-        {
-            const char*     Name;
-            S::VFXValueType Type;
-        };
+        // UE SpawnRate (10 / s) and SpawnBurstInstantaneous (10 at time 0) defaults.
+        const std::vector<VFXModuleInputDecl> kSpawnRateInputs  = { { "SpawnRate", S::VFXValueType::Float,
+                                                                      glm::vec4( 10.0f, 0.0f, 0.0f, 0.0f ) } };
+        const std::vector<VFXModuleInputDecl> kSpawnBurstInputs = {
+             { "SpawnCount", S::VFXValueType::Int, glm::vec4( 10.0f, 0.0f, 0.0f, 0.0f ) },
+             { "SpawnTime", S::VFXValueType::Float, glm::vec4( 0.0f ) } };
 
         // The scalar an EmitterUpdate input carries: its Value, or the default of the User.* row it is bound to.
         Common::ResultStr<float> ReadScalar( const S::VFXSystemData& system, const S::VFXModuleInput& in,
@@ -64,17 +65,17 @@ namespace Desert::VFX
         // The module's inputs, in @p declared order, each exactly once with its declared type.
         Common::ResultStr<std::vector<float>> ReadInputs( const S::VFXSystemData&      system,
                                                           const S::VFXModuleUse&       use,
-                                                          const std::vector<CpuInput>& declared,
+                                                          const std::vector<VFXModuleInputDecl>& declared,
                                                           const std::string&           where )
         {
             using Result = std::vector<float>;
             for ( const S::VFXModuleInput& in : use.Inputs )
                 if ( std::none_of( declared.begin(), declared.end(),
-                                   [&]( const CpuInput& d ) { return in.Name == d.Name; } ) )
+                                   [&]( const VFXModuleInputDecl& d ) { return in.Name == d.Name; } ) )
                     return Common::MakeFormattedError<Result>( "{} input '{}': the module declares no such input",
                                                                where, in.Name );
             Result values;
-            for ( const CpuInput& d : declared )
+            for ( const VFXModuleInputDecl& d : declared )
             {
                 const auto        in      = std::find_if( use.Inputs.begin(), use.Inputs.end(),
                                                           [&]( const S::VFXModuleInput& x ) { return x.Name == d.Name; } );
@@ -215,6 +216,20 @@ namespace Desert::VFX
         }
     } // namespace
 
+    std::vector<std::string_view> EmitterModules()
+    {
+        return { kVFXSpawnRateModule, kVFXSpawnBurstModule };
+    }
+
+    const std::vector<VFXModuleInputDecl>* EmitterModuleInputs( const std::string_view module )
+    {
+        if ( module == kVFXSpawnRateModule )
+            return &kSpawnRateInputs;
+        if ( module == kVFXSpawnBurstModule )
+            return &kSpawnBurstInputs;
+        return nullptr;
+    }
+
     Common::ResultStr<VFXSpawnPlan> CompileSpawnPlan( const S::VFXSystemData& system, std::size_t emitterIndex )
     {
         using Result = VFXSpawnPlan;
@@ -238,7 +253,7 @@ namespace Desert::VFX
                  std::format( "emitter '{}' EmitterUpdate module {} '{}'", emitter.Name, m, use.Module );
             if ( use.Module == kVFXSpawnRateModule )
             {
-                auto in = ReadInputs( system, use, { { "SpawnRate", S::VFXValueType::Float } }, where );
+                auto in = ReadInputs( system, use, kSpawnRateInputs, where );
                 if ( !in.IsSuccess() )
                     return Common::MakeError<Result>( in.GetError() );
                 if ( in.GetValue()[0] < 0.0f )
@@ -248,9 +263,7 @@ namespace Desert::VFX
             }
             else if ( use.Module == kVFXSpawnBurstModule )
             {
-                auto in = ReadInputs(
-                     system, use,
-                     { { "SpawnCount", S::VFXValueType::Int }, { "SpawnTime", S::VFXValueType::Float } }, where );
+                auto in = ReadInputs( system, use, kSpawnBurstInputs, where );
                 if ( !in.IsSuccess() )
                     return Common::MakeError<Result>( in.GetError() );
                 const float count = in.GetValue()[0];

@@ -8,9 +8,10 @@ Shader "InitializeLifetime"
     Domain Particle
     Particle
     {
+        Usage ParticleSpawn
         Attribute Age float
         Attribute Lifetime float
-        Input Lifetime float
+        Input Lifetime float = 1
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

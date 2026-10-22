@@ -137,8 +137,16 @@ namespace Desert::Editor
         Common::BoolResultStr MoveModule( std::size_t emitter, std::size_t stage, std::size_t module, int delta );
         Common::BoolResultStr SetModuleEnabled( std::size_t emitter, std::size_t stage, std::size_t module,
                                                 bool enabled );
-        // The modules a particle stage's picker offers: the engine library, then this system's LocalModules.
-        [[nodiscard]] std::vector<std::string> ModuleLibrary() const;
+        // One row of a stage's module picker: a module whose Usage includes the stage, or one that cannot be described
+        // (Error set - shown disabled with the reason, never silently left out).
+        struct ModuleChoice
+        {
+            std::string Ref;
+            std::string Error;
+        };
+        // What stage @p stage's picker offers (UE: the module picker filtered by Module Usage): the CPU emitter
+        // modules, the engine library, then this system's LocalModules.
+        [[nodiscard]] std::vector<ModuleChoice> ModuleLibrary( std::size_t stage ) const;
 
         Assets::AssetManager*             m_Assets = nullptr;
         bool                              m_Loaded = false;

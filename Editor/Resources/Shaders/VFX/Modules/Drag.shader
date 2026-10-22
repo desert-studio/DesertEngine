@@ -9,10 +9,11 @@ Shader "Drag"
     Domain Particle
     Particle
     {
+        Usage ParticleUpdate
         Attribute PhysicsDrag float
         Attribute PhysicsRotationalDrag float
-        Input Drag float
-        Input RotationalDrag float
+        Input Drag float = 1
+        Input RotationalDrag float = 0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

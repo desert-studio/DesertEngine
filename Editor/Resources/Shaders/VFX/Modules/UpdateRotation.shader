@@ -8,10 +8,11 @@ Shader "UpdateRotation"
     Domain Particle
     Particle
     {
+        Usage ParticleUpdate
         Attribute SpriteRotation float
         Attribute SpriteRotationRate float
         Attribute PhysicsRotationalDrag float
-        Input RateScale float
+        Input RateScale float = 1
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {
