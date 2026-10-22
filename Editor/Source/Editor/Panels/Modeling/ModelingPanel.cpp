@@ -14,6 +14,7 @@
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/SculptTool.hpp>
 #include <Common/Core/Units.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Common/Core/Logger.hpp>
@@ -554,17 +555,55 @@ namespace Desert::Editor
         using MS          = Core::ModelingState;
         auto&      ms     = MS::Get();
         const bool active = ms.ActiveTool == MS::Tool::Sculpt;
-        if ( active )
-            ImGui::PushStyleColor( ImGuiCol_Button, ThemeManager::GetSelectedColor() );
-        if ( ImGui::Button( ICON_MDI_BRUSH "  Sculpt", ImVec2( -1.0f, 30.0f ) ) )
+        // Sculpt (UE UMeshVertexSculptTool) and Dynamic Sculpt (UE UDynamicMeshSculptTool): one viewport tool,
+        // the second remeshing the brush's region before every stamp.
+        for ( const bool dynamic : { false, true } )
         {
-            ms.ActiveTool = MS::Tool::Sculpt;
-            Core::ViewportMode::Set( Core::EditorMode::Modeling );
+            const bool lit = active && ms.SculptDynamic == dynamic;
+            if ( lit )
+                ImGui::PushStyleColor( ImGuiCol_Button, ThemeManager::GetSelectedColor() );
+            if ( ImGui::Button( dynamic ? ICON_MDI_BRUSH "  Dynamic Sculpt" : ICON_MDI_BRUSH "  Sculpt",
+                                ImVec2( -1.0f, 30.0f ) ) )
+            {
+                ms.ActiveTool    = MS::Tool::Sculpt;
+                ms.SculptDynamic = dynamic;
+                Core::ViewportMode::Set( Core::EditorMode::Modeling );
+            }
+            if ( lit )
+                ImGui::PopStyleColor();
         }
-        if ( active )
-            ImGui::PopStyleColor();
+        // UE's Remesh tool (URemeshMeshTool): the whole selected mesh to a uniform edge length, one undo step.
+        if ( Utils::ImGuiUtilities::SectionHeader( "Remesh" ) )
+        {
+            auto& r = ms.Remesh;
+            ImGui::DragFloat( "Target Edge Length", &r.TargetEdgeLength, 0.1f, 0.01f, 1.0e4f, "%.2f cm",
+                              ImGuiSliderFlags_AlwaysClamp );
+            ImGui::SliderFloat( "Smoothing", &r.SmoothingStrength, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp );
+            ImGui::SliderInt( "Iterations", &r.Iterations, 1, 100, "%d", ImGuiSliderFlags_AlwaysClamp );
+            ImGui::Checkbox( "Flips##Remesh", &r.Flips );
+            ImGui::SameLine();
+            ImGui::Checkbox( "Splits##Remesh", &r.Splits );
+            ImGui::SameLine();
+            ImGui::Checkbox( "Collapses##Remesh", &r.Collapses );
+            if ( ImGui::Button( "Remesh", ImVec2( -1.0f, 0.0f ) ) && m_Scene )
+                if ( auto refused = Tools::RemeshSelected( *m_Scene, r ) )
+                    LOG_WARN( "[Remesh] {}", *refused );
+        }
         if ( !active )
             return;
+        if ( ms.SculptDynamic && Utils::ImGuiUtilities::SectionHeader( "Dynamic Topology" ) )
+        {
+            auto& t = ms.DynamicSculptTopology;
+            ImGui::DragFloat( "Edge Length", &t.TargetEdgeLength, 0.05f, 0.01f, 1.0e4f, "%.2f cm",
+                              ImGuiSliderFlags_AlwaysClamp );
+            ImGui::Checkbox( "Refine", &t.Splits );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Split edges under the brush longer than 4/3 of the edge length." );
+            ImGui::SameLine();
+            ImGui::Checkbox( "Collapse", &t.Collapses );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Collapse edges under the brush shorter than 2/3 of the edge length." );
+        }
         auto& s = ms.Sculpt;
         if ( Utils::ImGuiUtilities::SectionHeader( "Brush" ) )
         {

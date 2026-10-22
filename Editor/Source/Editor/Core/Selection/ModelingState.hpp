@@ -304,6 +304,13 @@ namespace Desert::Editor::Core
 
         // Sculpt tool (SculptTool, Geometry/DynamicMeshSculpt.hpp): the brush every stroke uses.
         Geometry::SculptBrushSettings Sculpt;
+        // Dynamic Sculpt (UE's UDynamicMeshSculptTool): the same tool with the brush's region remeshed toward
+        // DynamicSculptTopology.TargetEdgeLength before every stamp (Refine = splits, Collapse = collapses).
+        bool                     SculptDynamic = false;
+        Geometry::RemeshSettings DynamicSculptTopology{ .TargetEdgeLength = 2.0f };
+        // Remesh (UE's URemeshMeshTool): the whole selected mesh to a uniform Target Edge Length, one undo step;
+        // Accept writes it into the .stmesh like any edit.
+        Geometry::RemeshSettings Remesh{ .TargetEdgeLength = 5.0f };
 
         // Create tool: the shape a click places (the palette places it at the viewport centre directly,
         // ViewportPanel::PlaceShapeInActiveViewport, so its refusal reaches the command's result).

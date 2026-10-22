@@ -214,7 +214,30 @@ namespace Desert::Editor
         };
         modelingTool( "Modeling", "PolyEdit tool", MS::Tool::PolyEdit );
         // UE's Deform palette Sculpt tool: the tool, its brush (UE's brush-type picker) and Invert (UE: Ctrl).
-        modelingTool( "Sculpt", "Sculpt tool", MS::Tool::Sculpt );
+        // Sculpt (UE UMeshVertexSculptTool) and Dynamic Sculpt (UE UDynamicMeshSculptTool): one viewport tool,
+        // the second remeshing the brush's region before each stamp (Refine / Collapse, Edge Length).
+        for ( const bool dynamic : { false, true } )
+            commands.push_back( { "Sculpt", dynamic ? "Dynamic Sculpt tool" : "Sculpt tool", [dynamic]
+                                  {
+                                      MS::Get().ActiveTool    = MS::Tool::Sculpt;
+                                      MS::Get().SculptDynamic = dynamic;
+                                      Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Sculpt", "Refine", []( MS& ms, bool on ) { ms.DynamicSculptTopology.Splits = on; } );
+        modelingOnOff( "Sculpt", "Collapse", []( MS& ms, bool on ) { ms.DynamicSculptTopology.Collapses = on; } );
+        modelingOnOff( "Modeling", "Remesh: Flips", []( MS& ms, bool on ) { ms.Remesh.Flips = on; } );
+        modelingOnOff( "Modeling", "Remesh: Splits", []( MS& ms, bool on ) { ms.Remesh.Splits = on; } );
+        modelingOnOff( "Modeling", "Remesh: Collapses", []( MS& ms, bool on ) { ms.Remesh.Collapses = on; } );
+        // UE's Remesh tool on the selected mesh at the panel's Target Edge Length (one undo step; Accept saves).
+        commands.push_back( { "Modeling", "Remesh: the selected mesh at the Target Edge Length", [&scene]
+                              {
+                                  if ( !scene )
+                                      return PaletteCommandOutcome( false, "no scene is open" );
+                                  if ( auto refused = Tools::RemeshSelected( *scene, MS::Get().Remesh ) )
+                                      return PaletteCommandOutcome( false, *refused );
+                                  return PaletteCommandDone();
+                              } } );
         for ( const auto brush : { Geometry::SculptBrushType::Standard, Geometry::SculptBrushType::Smooth } )
             commands.push_back( { "Sculpt", std::string( "Brush: " ) + Geometry::ToString( brush ), [brush]
                                   {

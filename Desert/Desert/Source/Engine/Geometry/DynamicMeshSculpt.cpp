@@ -85,12 +85,17 @@ namespace Desert::Geometry
     }
 
     std::vector<int> ApplySculptStamp( DynamicMesh3& mesh, const glm::dmat4& localToWorld,
-                                       const SculptStamp& stamp, const SculptBrushSettings& settings )
+                                       const SculptStamp& stamp, const SculptBrushSettings& settings,
+                                       const RemeshSettings* topology )
     {
         std::vector<int> moved;
         const double     radius = settings.Radius;
         if ( radius <= 0.0 || settings.Strength <= 0.0f )
             return moved;
+        // Dynamic sculpt: the stamp's region gains (or sheds) resolution before it moves.
+        std::vector<int> remeshed;
+        if ( topology )
+            remeshed = RemeshRegion( mesh, localToWorld, stamp.Center, radius, *topology );
         const glm::dmat3 toLocal = glm::inverse( glm::dmat3( localToWorld ) );
 
         // The region of interest: every vertex inside the radius, with its world position and falloff.
@@ -109,7 +114,10 @@ namespace Desert::Geometry
                 roi.push_back( { v, w, f } );
         }
         if ( roi.empty() )
+        {
+            RefreshNormalsAround( mesh, remeshed );
             return moved;
+        }
 
         const double power = std::clamp( static_cast<double>( settings.Strength ), 0.0, 1.0 );
         // Positions are computed from the mesh as the stamp found it and written afterwards, so a vertex's
@@ -171,7 +179,9 @@ namespace Desert::Geometry
             mesh.SetVertex( roi[i].Vertex, next[i] );
             moved.push_back( roi[i].Vertex );
         }
-        RefreshNormalsAround( mesh, moved );
+        std::vector<int> refresh = moved;
+        refresh.insert( refresh.end(), remeshed.begin(), remeshed.end() );
+        RefreshNormalsAround( mesh, refresh );
         return moved;
     }
 

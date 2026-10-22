@@ -9,6 +9,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/Geometry/DynamicMeshRemesh.hpp>
 #include <Engine/Geometry/DynamicMeshSculpt.hpp>
 #include <Engine/Geometry/ElementSelection.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
@@ -19,6 +20,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <vector>
 
 namespace Desert::Editor::Tools
@@ -93,6 +95,26 @@ namespace Desert::Editor::Tools
             }
         }
     } // namespace
+
+    std::optional<std::string> RemeshSelected( ::Desert::Core::Scene& scene, const Geometry::RemeshSettings& settings )
+    {
+        const auto& selected = Core::SelectionManager::GetSelected();
+        if ( !selected.has_value() )
+            return std::string( "no entity is selected" );
+        const auto target = GetTarget( scene, *selected );
+        if ( !target )
+            return std::string( "the selected entity has no editable static mesh" );
+        auto next = std::make_shared<Geometry::DynamicMesh3>( *target->Target.Mesh );
+        if ( !Geometry::RemeshMesh( *next, target->World, settings ) )
+            return std::string( "the target edge length must be positive and the mesh non-empty" );
+        const int triangles = next->TriangleCount();
+        auto&     component = target->Entity.GetComponent<ECS::StaticMeshComponent>();
+        if ( auto set = ECS::SetEditableMesh( component, std::move( next ) ); !set.IsSuccess() )
+            return std::format( "the remeshed mesh could not be built: {}", set.GetError() );
+        Commands::RecordMeshChange( *selected, "Remesh", target->Target.Committed );
+        LOG_INFO( "[Remesh] {} triangles at a {:.2f} cm target edge length", triangles, settings.TargetEdgeLength );
+        return std::nullopt;
+    }
 
     void SculptTool::FinishStroke()
     {
@@ -176,11 +198,14 @@ namespace Desert::Editor::Tools
                 // The component's mesh is immutable (EditableMesh.hpp): each frame of the stroke is a new mesh,
                 // so the one the stroke started from stays intact for the undo record.
                 auto next = std::make_shared<Geometry::DynamicMesh3>( *target->Target.Mesh );
+                // Dynamic Sculpt remeshes each stamp's region first (UE UDynamicMeshSculptTool).
+                const auto&                     ms       = Core::ModelingState::Get();
+                const Geometry::RemeshSettings* topology = ms.SculptDynamic ? &ms.DynamicSculptTopology : nullptr;
                 for ( const glm::dvec3& c : centres )
                 {
                     Geometry::SculptStamp stamp = hit;
                     stamp.Center                = c;
-                    Geometry::ApplySculptStamp( *next, target->World, stamp, brush );
+                    Geometry::ApplySculptStamp( *next, target->World, stamp, brush, topology );
                 }
                 auto& component = target->Entity.GetComponent<ECS::StaticMeshComponent>();
                 if ( auto set = ECS::SetEditableMesh( component, std::move( next ) ); set.IsSuccess() )

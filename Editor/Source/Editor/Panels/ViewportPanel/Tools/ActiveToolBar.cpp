@@ -24,7 +24,8 @@ namespace Desert::Editor::Tools
                 return { ICON_MDI_VECTOR_SELECTION, "Select Elements", false };
             // Every Sculpt stroke is its own undo step (UE's sculpt tool is the same), so nothing is pending.
             case T::Sculpt:
-                return { ICON_MDI_BRUSH, "Sculpt", false };
+                return { ICON_MDI_BRUSH, Core::ModelingState::Get().SculptDynamic ? "Dynamic Sculpt" : "Sculpt",
+                         false };
             // UE's Add Primitive tools have no Cancel either: each click has already placed its shape.
             case T::CreateShape:
                 return { ICON_MDI_PLUS_BOX_OUTLINE, "Create Shape", false };

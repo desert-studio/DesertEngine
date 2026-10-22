@@ -40,7 +40,7 @@ namespace Desert::Editor::Core
     };
 
     // clang-format off
-    inline constexpr std::array<ModelingStateRow, 90> kModelingStateRows = { {
+    inline constexpr std::array<ModelingStateRow, 94> kModelingStateRows = { {
          { "CubeGrid.GridFrameOrigin",  "Grid Frame Origin",  "CubeGrid", 3, false, -1.0e6f, 1.0e6f,
            []( ModelingState& s ) { return &s.GridOrigin.x; }, nullptr },
          { "CubeGrid.GridFrameOrientation", "Grid Frame Orientation", "CubeGrid", 3, false, -180.0f, 180.0f,
@@ -224,6 +224,14 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.Sculpt.Falloff; }, nullptr },
          { "Sculpt.Spacing",            "Spacing",            "Sculpt", 1, false, 0.01f, 4.0f,
            []( ModelingState& s ) { return &s.Sculpt.Spacing; }, nullptr },
+         { "DynamicSculpt.EdgeLength",  "Edge Length",        "Sculpt", 1, false, 0.01f, 1.0e4f,
+           []( ModelingState& s ) { return &s.DynamicSculptTopology.TargetEdgeLength; }, nullptr },
+         { "Remesh.TargetEdgeLength",   "Target Edge Length", "Remesh", 1, false, 0.01f, 1.0e4f,
+           []( ModelingState& s ) { return &s.Remesh.TargetEdgeLength; }, nullptr },
+         { "Remesh.SmoothingStrength",  "Smoothing",          "Remesh", 1, false, 0.0f, 1.0f,
+           []( ModelingState& s ) { return &s.Remesh.SmoothingStrength; }, nullptr },
+         { "Remesh.Iterations",         "Iterations",         "Remesh", 1, true, 1.0f, 100.0f, nullptr,
+           []( ModelingState& s ) { return &s.Remesh.Iterations; } },
     } };
     // clang-format on
 

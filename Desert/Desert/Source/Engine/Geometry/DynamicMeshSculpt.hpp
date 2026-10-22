@@ -9,6 +9,8 @@
 // Radius and positions are WORLD centimetres: the stamp is placed through the entity's transform, so a scaled
 // object is sculpted with the brush the user sees, not one shrunk by its scale.
 
+#include "Engine/Geometry/DynamicMeshRemesh.hpp"
+
 #include <glm/glm.hpp>
 
 #include <cstdint>
@@ -52,8 +54,12 @@ namespace Desert::Geometry
 
     // Applies one stamp to `mesh` (placed by `localToWorld`). Returns the vertex ids it moved, and refreshes
     // the primary normal overlay's elements around them (seams stay seams: only element values change).
+    // With `topology` (UE's Dynamic Mesh Sculpt, UDynamicMeshSculptTool) the edges under the brush are first
+    // refined / collapsed toward topology->TargetEdgeLength (DynamicMeshRemesh RemeshRegion), so the stamp
+    // moves a surface fine enough to carry it; without it the mesh keeps its triangles (Vertex Sculpt).
     std::vector<int> ApplySculptStamp( DynamicMesh3& mesh, const glm::dmat4& localToWorld,
-                                       const SculptStamp& stamp, const SculptBrushSettings& settings );
+                                       const SculptStamp& stamp, const SculptBrushSettings& settings,
+                                       const RemeshSettings* topology = nullptr );
 
     // The nearest triangle the world ray hits on `mesh` placed by `localToWorld`: the hit point (world) and the
     // triangle's world normal. False on a miss.
