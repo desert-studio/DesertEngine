@@ -29,6 +29,15 @@ namespace Desert::Editor
         constexpr std::array<const char*, Assets::Serialization::kVFXEffectTypeLevelCount> kLevelNames = {
              "Low", "Medium", "High", "Epic", "Cinematic" };
 
+        std::string DescribeLevels( const Levels& levels )
+        {
+            std::string text;
+            for ( const auto& level : levels )
+                text += std::format( "{}{:.0f} cm x{:.2f}", text.empty() ? "" : ", ", level.MaxDistance,
+                                     level.SpawnCountScale );
+            return text;
+        }
+
         /// One undo step of a type's levels: the whole list before and after.
         class VFXEffectTypeEditCommand final : public ICommand
         {
@@ -126,6 +135,13 @@ namespace Desert::Editor
             m_Refusal = "Save: the effect type asset is no longer held by the asset manager";
             return false;
         }
+        if ( m_DiskConflict )
+        {
+            m_Refusal = "Save: the file changed on disk - choose Reload or Keep My Edits first";
+            LOG_WARN( "[VFX] '{}' was not saved: the file changed on disk under unsaved edits.",
+                      meta->Filepath.string() );
+            return false;
+        }
         if ( auto saved = Assets::VFXEffectTypeAsset::Save( meta->Filepath, m_Working ); !saved )
         {
             m_Refusal = std::format( "Save: {}", saved.GetError() );
@@ -142,6 +158,66 @@ namespace Desert::Editor
                            reloaded.GetError() );
         }
         return true;
+    }
+
+    void VFXEffectTypeDocument::SyncWithDisk()
+    {
+        const Assets::AssetHandle handle( Subject().Owner );
+        const auto                asset =
+             m_Assets != nullptr ? m_Assets->FindByHandle<Assets::VFXEffectTypeAsset>( handle ) : nullptr;
+        if ( !asset || !asset->IsReadyForUse() )
+            return;
+        const auto& disk = asset->GetData();
+        if ( disk.Levels == m_Saved.Levels )
+        {
+            m_DiskConflict = false;
+            return;
+        }
+        const std::string path = asset->GetMetadata().Filepath.generic_string();
+        // Clean, or the edits already equal the file: the file is simply the new base.
+        if ( m_Working.Levels == m_Saved.Levels || m_Working.Levels == disk.Levels )
+        {
+            m_Working      = disk;
+            m_Saved        = disk;
+            m_DiskConflict = false;
+            LOG_INFO( "[VFX] Effect type document '{}' re-read the file changed on disk - levels: {}", path,
+                      DescribeLevels( m_Saved.Levels ) );
+            return;
+        }
+        if ( !m_DiskConflict )
+            LOG_WARN(
+                 "[VFX] Effect type document '{}': the file changed on disk ({}) while the window has unsaved "
+                 "edits - Reload or Keep My Edits; Save is refused until then.",
+                 path, DescribeLevels( disk.Levels ) );
+        m_DiskConflict = true;
+    }
+
+    void VFXEffectTypeDocument::DrawDiskConflict()
+    {
+        if ( !m_DiskConflict )
+            return;
+        const auto asset =
+             m_Assets->FindByHandle<Assets::VFXEffectTypeAsset>( Assets::AssetHandle( Subject().Owner ) );
+        if ( !asset )
+            return;
+        ImGui::TextColored( ImVec4( 1.0f, 0.75f, 0.30f, 1.0f ),
+                            ICON_MDI_ALERT " The file changed on disk while this window has unsaved edits." );
+        if ( ImGui::Button( "Reload (discard my edits)" ) )
+        {
+            m_Working      = asset->GetData();
+            m_Saved        = m_Working;
+            m_DiskConflict = false;
+            m_Refusal.clear();
+            LOG_INFO( "[VFX] Effect type document reloaded from disk, unsaved edits discarded - levels: {}",
+                      DescribeLevels( m_Saved.Levels ) );
+        }
+        ImGui::SameLine();
+        if ( ImGui::Button( "Keep My Edits (Save overwrites the file)" ) )
+        {
+            m_Saved        = asset->GetData();
+            m_DiskConflict = false;
+            m_Refusal.clear();
+        }
     }
 
     void VFXEffectTypeDocument::TrackDrag( const char* label )
@@ -172,6 +248,8 @@ namespace Desert::Editor
             return;
         }
 
+        SyncWithDisk();
+        DrawDiskConflict();
         if ( ImGui::Button( ICON_MDI_CONTENT_SAVE " Save" ) )
             (void)SaveDocument();
         ImGui::SameLine();

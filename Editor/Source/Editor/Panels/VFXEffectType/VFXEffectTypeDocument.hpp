@@ -29,6 +29,12 @@ namespace Desert::Editor
      * WORKING AND SAVED: Dirty is m_Working.Levels != m_Saved.Levels (derived, never a flag); Save writes through
      * VFXEffectTypeAsset::Save and has the held asset re-read the file, so every VFXWorld culls by the new levels
      * on its next tick (the same path AssetHotReload takes for an edit made outside the editor).
+     *
+     * CHANGED ON DISK: the held asset is the file's truth (AssetHotReload re-reads it on an outside edit), so
+     * every frame its levels are compared with m_Saved. A clean window adopts them; a window with unsaved edits
+     * shows a conflict (UE's "file changed on disk") - Reload discards the edits, Keep adopts the file as the new
+     * base so the edits stay dirty - and Save is refused until one is chosen, so a Save never silently overwrites
+     * it.
      */
     class VFXEffectTypeDocument final : public ISubjectDocument
     {
@@ -63,6 +69,12 @@ namespace Desert::Editor
         // The drag in flight: the levels before it, pushed as one entry when the item deactivates.
         void TrackDrag( const char* label );
 
+        // Compares the held asset's levels (the file) with m_Saved: adopts them when clean, else raises
+        // m_DiskConflict.
+        void SyncWithDisk();
+        // The conflict banner: Reload (discard the edits) or Keep (the file becomes the base; Save overwrites it).
+        void DrawDiskConflict();
+
         Assets::AssetManager*                           m_Assets = nullptr;
         bool                                            m_Loaded = false;
         std::string                                     m_LoadError;
@@ -70,6 +82,7 @@ namespace Desert::Editor
         Assets::Serialization::VFXEffectTypeData        m_Saved;   // what the file holds
         std::vector<Assets::Serialization::VFXEffectTypeLevel> m_DragBefore;
         std::string                                     m_Refusal;
+        bool m_DiskConflict = false; // the file changed under unsaved edits
     };
 
     /// Opens (or focuses) the effect type editor for a `.dfxtype` at @p path: NotMine for any other file.
